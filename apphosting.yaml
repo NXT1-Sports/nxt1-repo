@@ -1,17 +1,10 @@
 # Firebase App Hosting Configuration - 2026 Best Practices
 # @see https://firebase.google.com/docs/app-hosting
 #
-# Firebase App Hosting provides:
-# - Automatic SSR deployment without Express server configuration
-# - Built-in CDN with global edge caching
-# - Automatic SSL certificate management
-# - Zero-config scaling and load balancing
-# - Integrated with Firebase Authentication for auth-aware SSR
-#
-# Usage:
-#   firebase init apphosting
-#   firebase apphosting:backends:create
-#   git push (auto-deploys via GitHub integration)
+# IMPORTANT: For monorepos, rootDirectory specifies where the Angular app lives
+
+# Root directory for the Angular app (relative to repo root)
+rootDirectory: apps/web
 
 # Build configuration
 runConfig:
