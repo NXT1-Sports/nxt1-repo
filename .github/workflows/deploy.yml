@@ -1,0 +1,274 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'monorepo/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      deploy_web:
+        description: 'Deploy Web App'
+        type: boolean
+        default: true
+      deploy_backend:
+        description: 'Deploy Backend'
+        type: boolean
+        default: true
+      deploy_functions:
+        description: 'Deploy Functions'
+        type: boolean
+        default: true
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '20'
+  CI: true
+
+jobs:
+  # ============================================================================
+  # DETERMINE CHANGES
+  # ============================================================================
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      backend: ${{ steps.filter.outputs.backend }}
+      functions: ${{ steps.filter.outputs.functions }}
+      core: ${{ steps.filter.outputs.core }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Filter paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'monorepo/apps/web/**'
+              - 'monorepo/packages/core/**'
+            backend:
+              - 'monorepo/backend/**'
+              - 'monorepo/packages/core/**'
+            functions:
+              - 'monorepo/apps/functions/**'
+              - 'monorepo/packages/core/**'
+            core:
+              - 'monorepo/packages/core/**'
+
+  # ============================================================================
+  # BUILD ALL PACKAGES
+  # ============================================================================
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: changes
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: monorepo/package-lock.json
+
+      - name: Install dependencies
+        working-directory: monorepo
+        run: npm ci
+
+      - name: Build all packages
+        working-directory: monorepo
+        run: npm run build
+
+      - name: Upload web artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: monorepo/apps/web/dist
+          retention-days: 1
+
+      - name: Upload backend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dist
+          path: monorepo/backend/dist
+          retention-days: 1
+
+      - name: Upload functions artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: functions-dist
+          path: monorepo/apps/functions/lib
+          retention-days: 1
+
+  # ============================================================================
+  # DEPLOY WEB (Firebase Hosting)
+  # ============================================================================
+  deploy-web:
+    name: Deploy Web
+    runs-on: ubuntu-latest
+    needs: [build, changes]
+    if: |
+      (github.event_name == 'push' && needs.changes.outputs.web == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_web)
+    environment:
+      name: ${{ github.event.inputs.environment || 'staging' }}
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download web artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: monorepo/apps/web/dist
+
+      - name: Deploy to Firebase Hosting
+        id: deploy
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: ${{ vars.FIREBASE_PROJECT_ID }}
+          channelId: ${{ github.event.inputs.environment == 'production' && 'live' || 'staging' }}
+          entryPoint: monorepo/apps/web
+
+  # ============================================================================
+  # DEPLOY BACKEND (Google Cloud Run)
+  # ============================================================================
+  deploy-backend:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    needs: [build, changes]
+    if: |
+      (github.event_name == 'push' && needs.changes.outputs.backend == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_backend)
+    environment:
+      name: ${{ github.event.inputs.environment || 'staging' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download backend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-dist
+          path: monorepo/backend/dist
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev
+
+      - name: Build and push Docker image
+        working-directory: monorepo/backend
+        run: |
+          docker build -t ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/nxt1/backend:${{ github.sha }} .
+          docker push ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/nxt1/backend:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy nxt1-backend-${{ github.event.inputs.environment || 'staging' }} \
+            --image ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/nxt1/backend:${{ github.sha }} \
+            --region ${{ vars.GCP_REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars "NODE_ENV=${{ github.event.inputs.environment || 'staging' }}" \
+            --memory 512Mi \
+            --cpu 1 \
+            --min-instances 0 \
+            --max-instances 10
+
+  # ============================================================================
+  # DEPLOY FUNCTIONS (Firebase Functions)
+  # ============================================================================
+  deploy-functions:
+    name: Deploy Functions
+    runs-on: ubuntu-latest
+    needs: [build, changes]
+    if: |
+      (github.event_name == 'push' && needs.changes.outputs.functions == 'true') ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy_functions)
+    environment:
+      name: ${{ github.event.inputs.environment || 'staging' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: monorepo/package-lock.json
+
+      - name: Download functions artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: functions-dist
+          path: monorepo/apps/functions/lib
+
+      - name: Install dependencies
+        working-directory: monorepo/apps/functions
+        run: npm ci --production
+
+      - name: Deploy to Firebase Functions
+        uses: w9jds/firebase-action@master
+        with:
+          args: deploy --only functions
+        env:
+          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          PROJECT_PATH: monorepo/apps/functions
+          PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+
+  # ============================================================================
+  # NOTIFY
+  # ============================================================================
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [deploy-web, deploy-backend, deploy-functions]
+    if: always() && (needs.deploy-web.result == 'success' || needs.deploy-backend.result == 'success' || needs.deploy-functions.result == 'success')
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          payload: |
+            {
+              "text": "Deployment completed for NXT1 (${{ github.event.inputs.environment || 'staging' }})",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*NXT1 Deployment*\n*Environment:* ${{ github.event.inputs.environment || 'staging' }}\n*Commit:* ${{ github.sha }}\n*Web:* ${{ needs.deploy-web.result }}\n*Backend:* ${{ needs.deploy-backend.result }}\n*Functions:* ${{ needs.deploy-functions.result }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

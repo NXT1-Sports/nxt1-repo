@@ -1,0 +1,369 @@
+/**
+ * @fileoverview Browser Auth Service - Full Firebase Implementation
+ * @module @nxt1/web/core/auth
+ *
+ * Production Firebase authentication service for browser environment.
+ *
+ * Features:
+ * - Full Firebase Auth integration
+ * - Google OAuth sign-in
+ * - Email/password authentication
+ * - Reactive state with signals
+ * - Backend API integration for user profiles
+ *
+ * This service is ONLY provided in the browser via app.config.ts.
+ * The server uses ServerAuthService instead.
+ */
+
+import { Injectable, inject, signal, computed } from '@angular/core';
+import { Router } from '@angular/router';
+import {
+  Auth,
+  User as FirebaseUser,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  GoogleAuthProvider,
+  signInWithPopup,
+  sendPasswordResetEmail,
+} from '@angular/fire/auth';
+
+import {
+  IAuthService,
+  AppUser,
+  FirebaseUserInfo,
+  SignInCredentials,
+  SignUpCredentials,
+} from './auth.interface';
+import { AuthApiService } from '../../features/auth/services/auth-api.service';
+import type { UserRole } from '@nxt1/core';
+
+/**
+ * Browser Authentication Service
+ *
+ * Full Firebase implementation for client-side authentication.
+ * This service is ONLY instantiated in the browser environment.
+ *
+ * NOTE: This class does NOT use `providedIn: 'root'` because we need
+ * different implementations for browser vs server. Instead, it's
+ * provided via the AUTH_SERVICE token in app.config.ts.
+ */
+@Injectable()
+export class BrowserAuthService implements IAuthService {
+  private readonly router = inject(Router);
+  private readonly firebaseAuth = inject(Auth);
+  private readonly authApi = inject(AuthApiService);
+
+  // ============================================
+  // STATE SIGNALS (Private Writable)
+  // ============================================
+  private readonly _user = signal<AppUser | null>(null);
+  private readonly _firebaseUser = signal<FirebaseUserInfo | null>(null);
+  private readonly _isLoading = signal(true);
+  private readonly _error = signal<string | null>(null);
+  private readonly _isInitialized = signal(false);
+
+  // ============================================
+  // PUBLIC COMPUTED SIGNALS (Read-only)
+  // ============================================
+  readonly user = computed(() => this._user());
+  readonly firebaseUser = computed(() => this._firebaseUser());
+  readonly isLoading = computed(() => this._isLoading());
+  readonly error = computed(() => this._error());
+  readonly isInitialized = computed(() => this._isInitialized());
+
+  readonly isAuthenticated = computed(() => this._firebaseUser() !== null);
+  readonly userRole = computed(() => this._user()?.role ?? null);
+  readonly isPremium = computed(() => this._user()?.isPremium ?? false);
+  readonly hasCompletedOnboarding = computed(
+    () => this._user()?.hasCompletedOnboarding ?? false
+  );
+
+  // ============================================
+  // INITIALIZATION
+  // ============================================
+
+  constructor() {
+    this.initAuthStateListener();
+  }
+
+  /**
+   * Initialize Firebase auth state listener
+   */
+  private initAuthStateListener(): void {
+    onAuthStateChanged(this.firebaseAuth, async (firebaseUser) => {
+      this._isLoading.set(true);
+
+      try {
+        if (firebaseUser) {
+          // Convert to our FirebaseUserInfo interface
+          this._firebaseUser.set(this.mapFirebaseUser(firebaseUser));
+          await this.syncUserProfile(firebaseUser);
+        } else {
+          this._firebaseUser.set(null);
+          this._user.set(null);
+        }
+      } catch (err) {
+        console.error('[BrowserAuthService] Auth state sync failed:', err);
+        this._error.set(
+          err instanceof Error ? err.message : 'Authentication error'
+        );
+      } finally {
+        this._isLoading.set(false);
+        this._isInitialized.set(true);
+      }
+    });
+  }
+
+  /**
+   * Map Firebase User to our interface
+   */
+  private mapFirebaseUser(user: FirebaseUser): FirebaseUserInfo {
+    return {
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+      emailVerified: user.emailVerified,
+      metadata: {
+        creationTime: user.metadata.creationTime,
+        lastSignInTime: user.metadata.lastSignInTime,
+      },
+      getIdToken: () => user.getIdToken(),
+    };
+  }
+
+  /**
+   * Sync user profile from backend
+   */
+  private async syncUserProfile(firebaseUser: FirebaseUser): Promise<void> {
+    try {
+      // TODO: Fetch full profile from backend API
+      // For now, create basic user from Firebase data
+      this._user.set({
+        uid: firebaseUser.uid,
+        email: firebaseUser.email ?? '',
+        displayName: firebaseUser.displayName ?? 'User',
+        photoURL: firebaseUser.photoURL ?? undefined,
+        role: 'athlete' as UserRole,
+        isPremium: false,
+        hasCompletedOnboarding: false,
+        createdAt:
+          firebaseUser.metadata.creationTime ?? new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (err) {
+      console.error('[BrowserAuthService] Failed to sync user profile:', err);
+    }
+  }
+
+  // ============================================
+  // SIGN IN METHODS
+  // ============================================
+
+  async signInWithEmail(credentials: SignInCredentials): Promise<boolean> {
+    this._isLoading.set(true);
+    this._error.set(null);
+
+    try {
+      await signInWithEmailAndPassword(
+        this.firebaseAuth,
+        credentials.email,
+        credentials.password
+      );
+
+      const redirectPath = this.hasCompletedOnboarding()
+        ? '/home'
+        : '/auth/onboarding';
+
+      await this.router.navigate([redirectPath]);
+      return true;
+    } catch (err) {
+      const message = this.getFirebaseErrorMessage(err);
+      this._error.set(message);
+      return false;
+    } finally {
+      this._isLoading.set(false);
+    }
+  }
+
+  async signInWithGoogle(): Promise<boolean> {
+    this._isLoading.set(true);
+    this._error.set(null);
+
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(this.firebaseAuth, provider);
+
+      // Check if this is a new user
+      // @ts-expect-error additionalUserInfo is on the result
+      const isNewUser = result._tokenResponse?.isNewUser ?? false;
+
+      if (isNewUser) {
+        await this.authApi.createUser({
+          uid: result.user.uid,
+          email: result.user.email!,
+        });
+        await this.router.navigate(['/auth/onboarding']);
+      } else {
+        const redirectPath = this.hasCompletedOnboarding()
+          ? '/home'
+          : '/auth/onboarding';
+        await this.router.navigate([redirectPath]);
+      }
+
+      return true;
+    } catch (err) {
+      const message = this.getFirebaseErrorMessage(err);
+      this._error.set(message);
+      return false;
+    } finally {
+      this._isLoading.set(false);
+    }
+  }
+
+  // ============================================
+  // SIGN UP METHODS
+  // ============================================
+
+  async signUpWithEmail(credentials: SignUpCredentials): Promise<boolean> {
+    this._isLoading.set(true);
+    this._error.set(null);
+
+    try {
+      const result = await createUserWithEmailAndPassword(
+        this.firebaseAuth,
+        credentials.email,
+        credentials.password
+      );
+
+      const createResult = await this.authApi.createUser({
+        uid: result.user.uid,
+        email: credentials.email,
+        teamCode: credentials.teamCode,
+        referralId: credentials.referralId,
+      });
+
+      if (!createResult.success) {
+        throw new Error(
+          'error' in createResult
+            ? createResult.error.message
+            : 'Failed to create user'
+        );
+      }
+
+      await this.router.navigate(['/auth/onboarding']);
+      return true;
+    } catch (err) {
+      const message = this.getFirebaseErrorMessage(err);
+      this._error.set(message);
+      return false;
+    } finally {
+      this._isLoading.set(false);
+    }
+  }
+
+  // ============================================
+  // SIGN OUT
+  // ============================================
+
+  async signOut(): Promise<void> {
+    this._isLoading.set(true);
+
+    try {
+      await signOut(this.firebaseAuth);
+      this._user.set(null);
+      this._firebaseUser.set(null);
+      await this.router.navigate(['/explore']);
+    } catch (err) {
+      console.error('[BrowserAuthService] Sign out failed:', err);
+      this._error.set('Failed to sign out');
+    } finally {
+      this._isLoading.set(false);
+    }
+  }
+
+  // ============================================
+  // PASSWORD RESET
+  // ============================================
+
+  async sendPasswordResetEmail(email: string): Promise<boolean> {
+    this._isLoading.set(true);
+    this._error.set(null);
+
+    try {
+      await sendPasswordResetEmail(this.firebaseAuth, email);
+      return true;
+    } catch (err) {
+      const message = this.getFirebaseErrorMessage(err);
+      this._error.set(message);
+      return false;
+    } finally {
+      this._isLoading.set(false);
+    }
+  }
+
+  // ============================================
+  // UTILITY
+  // ============================================
+
+  clearError(): void {
+    this._error.set(null);
+  }
+
+  async getIdToken(): Promise<string | null> {
+    const user = this._firebaseUser();
+    if (!user) return null;
+
+    try {
+      return await user.getIdToken();
+    } catch {
+      return null;
+    }
+  }
+
+  async refreshUserProfile(): Promise<void> {
+    const firebaseUser = this.firebaseAuth.currentUser;
+    if (firebaseUser) {
+      await this.syncUserProfile(firebaseUser);
+    }
+  }
+
+  /**
+   * Convert Firebase errors to user-friendly messages
+   */
+  private getFirebaseErrorMessage(err: unknown): string {
+    if (err && typeof err === 'object' && 'code' in err) {
+      const code = (err as { code: string }).code;
+      switch (code) {
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+          return 'Invalid email or password';
+        case 'auth/email-already-in-use':
+          return 'An account with this email already exists';
+        case 'auth/weak-password':
+          return 'Password should be at least 6 characters';
+        case 'auth/invalid-email':
+          return 'Please enter a valid email address';
+        case 'auth/too-many-requests':
+          return 'Too many attempts. Please try again later';
+        case 'auth/network-request-failed':
+          return 'Network error. Please check your connection';
+        case 'auth/popup-closed-by-user':
+          return 'Sign in was cancelled';
+        default:
+          // Safely extract message from Firebase errors
+          if ('message' in err && typeof err.message === 'string') {
+            return err.message;
+          }
+          return 'An unexpected error occurred';
+      }
+    }
+    // Handle standard Error objects
+    if (err instanceof Error) {
+      return err.message;
+    }
+    return 'An unexpected error occurred';
+  }
+}

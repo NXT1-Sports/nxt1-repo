@@ -1,0 +1,23 @@
+{
+  "name": "@nxt1/config",
+  "version": "1.0.0",
+  "description": "Shared configuration for NXT1 monorepo",
+  "private": true,
+  "exports": {
+    "./eslint-base": "./eslint/base.js",
+    "./eslint-angular": "./eslint/angular.js",
+    "./eslint-node": "./eslint/node.js",
+    "./typescript-base": "./typescript/base.json",
+    "./typescript-angular": "./typescript/angular.json",
+    "./typescript-node": "./typescript/node.json",
+    "./prettier": "./prettier/index.js"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.26.0",
+    "@typescript-eslint/parser": "^8.26.0",
+    "eslint": "^9.20.0",
+    "eslint-config-prettier": "^10.0.0",
+    "eslint-plugin-import": "^2.31.0",
+    "prettier": "^3.5.0"
+  }
+}

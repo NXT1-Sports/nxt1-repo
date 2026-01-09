@@ -1,0 +1,90 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "globalDependencies": [".env", ".env.local", "tsconfig.base.json"],
+  "globalEnv": [
+    "NODE_ENV",
+    "FIREBASE_CONFIG",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "PORT"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.spec.ts",
+        "!**/*.test.ts",
+        "!**/test/**",
+        "!**/tests/**"
+      ],
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "!.next/cache/**",
+        "build/**",
+        "www/**"
+      ],
+      "cache": true,
+      "persistent": false
+    },
+    "build:ssr": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.spec.ts", "!**/*.test.ts"],
+      "outputs": ["dist/**"],
+      "cache": true,
+      "env": ["NODE_ENV"]
+    },
+    "serve:ssr": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "persistent": true,
+      "env": ["PORT", "NODE_ENV"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": ["^build"]
+    },
+    "start": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$"],
+      "outputs": ["coverage/**"],
+      "cache": true
+    },
+    "lint": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.spec.ts", "!**/*.test.ts"],
+      "outputs": [],
+      "cache": true
+    },
+    "lint:fix": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "tsconfig.json"],
+      "outputs": [],
+      "cache": true
+    },
+    "clean": {
+      "cache": false
+    },
+    "deploy:staging": {
+      "dependsOn": ["build", "test", "lint"],
+      "cache": false,
+      "env": ["FIREBASE_PROJECT_STAGING"]
+    },
+    "deploy:prod": {
+      "dependsOn": ["build", "test", "lint"],
+      "cache": false,
+      "env": ["FIREBASE_PROJECT_PROD"]
+    }
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "name": "nxt1-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NXT1 Sports Recruiting Platform - Monorepo",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nxt1/nxt1-workspace.git"
+  },
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
+  "packageManager": "npm@10.8.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "backend"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "build:web": "turbo run build --filter=@nxt1/web",
+    "build:mobile": "turbo run build --filter=@nxt1/mobile",
+    "build:backend": "turbo run build --filter=@nxt1/backend",
+    "build:functions": "turbo run build --filter=@nxt1/functions",
+    "build:core": "turbo run build --filter=@nxt1/core",
+    "dev": "turbo run dev --parallel",
+    "dev:web": "turbo run dev --filter=@nxt1/web",
+    "dev:mobile": "turbo run dev --filter=@nxt1/mobile",
+    "dev:backend": "turbo run dev --filter=@nxt1/backend",
+    "dev:all": "turbo run dev --filter=@nxt1/web --filter=@nxt1/backend --parallel",
+    "test": "turbo run test",
+    "test:web": "turbo run test --filter=@nxt1/web",
+    "test:core": "turbo run test --filter=@nxt1/core",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,scss,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,scss,css}\"",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean && rm -rf node_modules .turbo",
+    "clean:cache": "turbo daemon clean",
+    "prepare": "husky",
+    "deploy:staging": "turbo run deploy:staging",
+    "deploy:prod": "turbo run deploy:prod",
+    "version:patch": "npm version patch --workspaces --include-workspace-root",
+    "version:minor": "npm version minor --workspaces --include-workspace-root",
+    "version:major": "npm version major --workspaces --include-workspace-root",
+    "graph": "turbo run build --graph",
+    "mobile:ios": "npm run -w @nxt1/mobile ios",
+    "mobile:android": "npm run -w @nxt1/mobile android",
+    "mobile:sync": "npm run -w @nxt1/mobile sync"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.0",
+    "@commitlint/config-conventional": "^19.8.0",
+    "@types/node": "^22.0.0",
+    "husky": "^9.1.0",
+    "lint-staged": "^16.1.0",
+    "prettier": "^3.5.0",
+    "turbo": "^2.5.0",
+    "typescript": "~5.9.3"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,scss,css,html}": [
+      "prettier --write"
+    ]
+  }
+}

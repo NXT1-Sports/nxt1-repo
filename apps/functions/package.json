@@ -1,0 +1,31 @@
+{
+  "name": "@nxt1/functions",
+  "version": "1.0.0",
+  "private": true,
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc -w",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "shell": "npm run build && firebase functions:shell",
+    "deploy": "firebase deploy --only functions",
+    "deploy:prod": "firebase use production && firebase deploy --only functions",
+    "logs": "firebase functions:log",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "@nxt1/core": "*",
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^6.0.1"
+  },
+  "devDependencies": {
+    "@nxt1/config": "*",
+    "@types/node": "^20.17.12",
+    "firebase-functions-test": "^3.3.0",
+    "typescript": "^5.7.3"
+  }
+}

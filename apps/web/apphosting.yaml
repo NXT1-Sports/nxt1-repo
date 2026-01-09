@@ -1,0 +1,86 @@
+# Firebase App Hosting Configuration - 2026 Best Practices
+# @see https://firebase.google.com/docs/app-hosting
+#
+# Firebase App Hosting provides:
+# - Automatic SSR deployment without Express server configuration
+# - Built-in CDN with global edge caching
+# - Automatic SSL certificate management
+# - Zero-config scaling and load balancing
+# - Integrated with Firebase Authentication for auth-aware SSR
+#
+# Usage:
+#   firebase init apphosting
+#   firebase apphosting:backends:create
+#   git push (auto-deploys via GitHub integration)
+
+# Build configuration
+runConfig:
+  # Cloud Run CPU allocation
+  cpu: 1
+
+  # Memory allocation (MiB) - increase for heavy SSR workloads
+  memoryMiB: 512
+
+  # Maximum number of concurrent requests per instance
+  concurrency: 80
+
+  # Minimum instances (0 = scale to zero when idle)
+  minInstances: 0
+
+  # Maximum instances (controls cost ceiling)
+  maxInstances: 10
+
+# Environment variables available during build and runtime
+env:
+  # Node.js version
+  - variable: NODE_VERSION
+    value: '22'
+
+  # Angular production mode
+  - variable: NODE_ENV
+    value: 'production'
+
+# Build-time environment variables (from Firebase App Hosting secrets)
+# These are injected from Cloud Secret Manager
+# Configure with: firebase apphosting:secrets:set SECRET_NAME
+#
+# Example secrets configuration:
+# - variable: FIREBASE_API_KEY
+#   secret: nxt1-firebase-api-key
+# - variable: STRIPE_SECRET_KEY
+#   secret: nxt1-stripe-secret
+
+# Custom headers for all responses
+headers:
+  # Security headers
+  - source: '**'
+    headers:
+      - header: X-Content-Type-Options
+        value: nosniff
+      - header: X-Frame-Options
+        value: SAMEORIGIN
+      - header: X-XSS-Protection
+        value: '1; mode=block'
+      - header: Referrer-Policy
+        value: strict-origin-when-cross-origin
+
+  # Cache static assets aggressively
+  - source: '**/*.{js,css,woff2,woff,ttf,png,jpg,jpeg,gif,svg,ico,webp}'
+    headers:
+      - header: Cache-Control
+        value: 'public, max-age=31536000, immutable'
+
+  # Don't cache HTML pages (SSR generates fresh content)
+  - source: '**/*.html'
+    headers:
+      - header: Cache-Control
+        value: 'no-cache, no-store, must-revalidate'
+
+# Redirects (optional - uncomment as needed)
+# redirects:
+#   - source: /old-path
+#     destination: /new-path
+#     type: 301
+
+# Rewrites for SPA fallback (handled automatically by Angular SSR)
+# rewrites: []

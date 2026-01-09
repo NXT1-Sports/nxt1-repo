@@ -1,0 +1,41 @@
+<!-- 
+  Root Application Template
+  
+  Architecture:
+  - Shows loading overlay during initialization
+  - Error boundary for critical failures
+  - Router outlet for all feature routes
+-->
+
+@if (loading()) {
+  <!-- Global Loading Overlay -->
+  <div class="app-loading-overlay">
+    <div class="loading-content">
+      <div class="logo-container">
+        <img 
+          src="assets/images/nxt1-logo.svg" 
+          alt="NXT1 Sports" 
+          class="logo"
+          width="120"
+          height="40"
+        />
+      </div>
+      <div class="spinner"></div>
+      <p class="loading-text">Loading...</p>
+    </div>
+  </div>
+} @else if (error()) {
+  <!-- Critical Error State -->
+  <div class="app-error-container">
+    <div class="error-content">
+      <h1>Something went wrong</h1>
+      <p class="error-message">{{ error() }}</p>
+      <button class="btn btn-primary" (click)="ngOnInit()">
+        Try Again
+      </button>
+    </div>
+  </div>
+} @else {
+  <!-- Main Application Content -->
+  <router-outlet />
+}

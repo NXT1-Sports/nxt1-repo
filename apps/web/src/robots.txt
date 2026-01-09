@@ -1,0 +1,11 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+
+# Sitemaps
+Sitemap: https://nxt1sports.com/sitemap.xml
+
+# Disallow private routes
+Disallow: /settings
+Disallow: /home
+Disallow: /auth/*
