@@ -1,0 +1,198 @@
+/**
+ * @fileoverview Auth Links & Footer Styles
+ * @module @nxt1/design-tokens/components/auth
+ *
+ * Styles for auth page links, footers, and navigation between auth states.
+ */
+
+// ============================================
+// AUTH LINKS
+// ============================================
+
+.nxt1-auth-link {
+  color: var(--ion-color-primary);
+  font-weight: var(--nxt1-font-weight-medium);
+  text-decoration: none;
+  transition: color var(--nxt1-transition-fast);
+
+  &:hover {
+    color: var(--ion-color-primary-shade);
+    text-decoration: underline;
+  }
+
+  &:active {
+    color: var(--ion-color-primary-tint);
+  }
+}
+
+// ============================================
+// AUTH FOOTER
+// ============================================
+
+.nxt1-auth-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--nxt1-spacing-4);
+  margin-top: var(--nxt1-spacing-6);
+  text-align: center;
+}
+
+.nxt1-auth-footer-text {
+  font-size: var(--nxt1-body-sm-size);
+  color: var(--nxt1-text-secondary);
+
+  a {
+    @extend .nxt1-auth-link;
+  }
+}
+
+.nxt1-auth-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
+  font-size: var(--nxt1-caption-size);
+  color: var(--nxt1-text-tertiary);
+
+  a {
+    color: inherit;
+    text-decoration: none;
+
+    &:hover {
+      color: var(--nxt1-text-secondary);
+      text-decoration: underline;
+    }
+  }
+
+  .separator {
+    color: var(--nxt1-border-default);
+  }
+}
+
+// ============================================
+// SWITCH AUTH MODE
+// (e.g., "Don't have an account? Sign Up")
+// ============================================
+
+.nxt1-auth-switch {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: var(--nxt1-spacing-2);
+  padding: var(--nxt1-spacing-4);
+  font-size: var(--nxt1-body-sm-size);
+  color: var(--nxt1-text-secondary);
+
+  a,
+  button {
+    color: var(--ion-color-primary);
+    font-weight: var(--nxt1-font-weight-semibold);
+    text-decoration: none;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+// ============================================
+// TERMS & PRIVACY
+// ============================================
+
+.nxt1-auth-terms {
+  font-size: var(--nxt1-caption-size);
+  color: var(--nxt1-text-tertiary);
+  text-align: center;
+  line-height: var(--nxt1-line-height-relaxed);
+
+  a {
+    color: var(--ion-color-primary);
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+// ============================================
+// BACK BUTTON
+// ============================================
+
+.nxt1-auth-back {
+  position: absolute;
+  top: var(--nxt1-spacing-4);
+  left: var(--nxt1-spacing-4);
+  z-index: 10;
+
+  ion-button {
+    --background: transparent;
+    --color: var(--nxt1-text-primary);
+    --padding-start: var(--nxt1-spacing-2);
+    --padding-end: var(--nxt1-spacing-2);
+
+    ion-icon {
+      font-size: 24px;
+    }
+  }
+}
+
+// iOS back button styling
+.ios .nxt1-auth-back ion-button {
+  --color: var(--ion-color-primary);
+}
+
+// ============================================
+// SUCCESS / ERROR MESSAGES
+// ============================================
+
+.nxt1-auth-message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--nxt1-spacing-3);
+  padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
+  border-radius: var(--nxt1-radius-md);
+  font-size: var(--nxt1-body-sm-size);
+  margin-bottom: var(--nxt1-spacing-4);
+
+  ion-icon {
+    flex-shrink: 0;
+    font-size: 20px;
+    margin-top: 2px;
+  }
+}
+
+.nxt1-auth-message--success {
+  background: rgba(76, 175, 80, 0.1);
+  color: var(--ion-color-success-shade);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+
+  ion-icon {
+    color: var(--ion-color-success);
+  }
+}
+
+.nxt1-auth-message--error {
+  background: rgba(244, 67, 54, 0.1);
+  color: var(--ion-color-danger-shade);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+
+  ion-icon {
+    color: var(--ion-color-danger);
+  }
+}
+
+.nxt1-auth-message--info {
+  background: rgba(33, 150, 243, 0.1);
+  color: var(--ion-color-tertiary-shade);
+  border: 1px solid rgba(33, 150, 243, 0.3);
+
+  ion-icon {
+    color: var(--ion-color-tertiary);
+  }
+}

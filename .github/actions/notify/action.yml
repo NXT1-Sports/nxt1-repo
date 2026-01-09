@@ -1,0 +1,155 @@
+# ==============================================================================
+# NXT1 Unified Notification Action
+# ==============================================================================
+# Single action for all CI/CD notifications - sends to n8n (primary) or Slack (fallback)
+#
+# Usage:
+#   - uses: ./.github/actions/notify
+#     with:
+#       event_type: 'ci'
+#       status: 'success'
+#       title: 'CI Passed'
+#       message: 'All checks passed'
+# ==============================================================================
+
+name: 'NXT1 Notify'
+description: 'Send unified notifications to n8n hub (primary) or Slack (fallback)'
+
+inputs:
+  event_type:
+    description: 'Event type: ci, deploy-web, deploy-mobile, ai-review, release'
+    required: true
+  status:
+    description: 'Status: success, failure, warning, info'
+    required: true
+  title:
+    description: 'Notification title'
+    required: true
+  message:
+    description: 'Notification message'
+    required: false
+    default: ''
+  environment:
+    description: 'Environment: staging, production, development'
+    required: false
+    default: 'development'
+  details:
+    description: 'JSON string with additional details'
+    required: false
+    default: '{}'
+  n8n_webhook_url:
+    description: 'n8n webhook URL'
+    required: false
+  slack_webhook_url:
+    description: 'Slack webhook URL (fallback)'
+    required: false
+  mention_on_failure:
+    description: 'Slack user/group to mention on failure (e.g., @channel)'
+    required: false
+    default: ''
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Prepare payload
+      id: payload
+      shell: bash
+      run: |
+        # Build unified event payload
+        PAYLOAD=$(cat <<EOF
+        {
+          "source": "github-actions",
+          "event_type": "${{ inputs.event_type }}",
+          "status": "${{ inputs.status }}",
+          "title": "${{ inputs.title }}",
+          "message": "${{ inputs.message }}",
+          "environment": "${{ inputs.environment }}",
+          "repository": "${{ github.repository }}",
+          "ref": "${{ github.ref_name }}",
+          "sha": "${{ github.sha }}",
+          "sha_short": "${GITHUB_SHA:0:7}",
+          "run_id": "${{ github.run_id }}",
+          "run_number": "${{ github.run_number }}",
+          "run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+          "actor": "${{ github.actor }}",
+          "event_name": "${{ github.event_name }}",
+          "pr_number": "${{ github.event.pull_request.number || '' }}",
+          "pr_title": "${{ github.event.pull_request.title || '' }}",
+          "commit_message": $(echo '${{ github.event.head_commit.message || github.event.pull_request.title || '' }}' | head -1 | jq -Rs .),
+          "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "details": ${{ inputs.details }}
+        }
+        EOF
+        )
+
+        # Save for next steps
+        echo "payload<<EOF" >> $GITHUB_OUTPUT
+        echo "$PAYLOAD" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    # PRIMARY: Send to n8n hub
+    - name: Send to n8n
+      if: inputs.n8n_webhook_url != ''
+      shell: bash
+      run: |
+        echo "📡 Sending to n8n hub..."
+
+        HTTP_CODE=$(curl -s -o /tmp/n8n_response.txt -w "%{http_code}" \
+          -X POST "${{ inputs.n8n_webhook_url }}" \
+          -H "Content-Type: application/json" \
+          -H "X-NXT1-Event: ${{ inputs.event_type }}" \
+          -d '${{ steps.payload.outputs.payload }}')
+
+        if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+          echo "✅ n8n notification sent (HTTP $HTTP_CODE)"
+        else
+          echo "⚠️ n8n notification failed (HTTP $HTTP_CODE)"
+          cat /tmp/n8n_response.txt || true
+        fi
+
+    # FALLBACK: Send to Slack directly
+    - name: Send to Slack (fallback)
+      if: inputs.slack_webhook_url != '' && inputs.n8n_webhook_url == ''
+      shell: bash
+      run: |
+        echo "📱 Sending to Slack (fallback mode)..."
+
+        # Determine color based on status
+        case "${{ inputs.status }}" in
+          success) COLOR="#36a64f" ;;
+          failure) COLOR="#dc3545" ;;
+          warning) COLOR="#ffc107" ;;
+          *) COLOR="#0066cc" ;;
+        esac
+
+        # Build Slack message
+        MENTION=""
+        if [ "${{ inputs.status }}" == "failure" ] && [ -n "${{ inputs.mention_on_failure }}" ]; then
+          MENTION="${{ inputs.mention_on_failure }} "
+        fi
+
+        SLACK_PAYLOAD=$(cat <<EOF
+        {
+          "attachments": [{
+            "color": "$COLOR",
+            "title": "${{ inputs.title }}",
+            "title_link": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "text": "${MENTION}${{ inputs.message }}",
+            "fields": [
+              {"title": "Repository", "value": "${{ github.repository }}", "short": true},
+              {"title": "Branch", "value": "${{ github.ref_name }}", "short": true},
+              {"title": "Environment", "value": "${{ inputs.environment }}", "short": true},
+              {"title": "Triggered by", "value": "${{ github.actor }}", "short": true}
+            ],
+            "footer": "NXT1 CI/CD",
+            "ts": $(date +%s)
+          }]
+        }
+        EOF
+        )
+
+        curl -s -X POST "${{ inputs.slack_webhook_url }}" \
+          -H "Content-Type: application/json" \
+          -d "$SLACK_PAYLOAD"
+
+        echo "✅ Slack notification sent"

@@ -189,7 +189,7 @@ function run(): void {
     console.log(`  __dirname: ${__dirname}`);
     console.log(`  DIST_FOLDER: ${DIST_FOLDER}`);
     console.log(`  INDEX_HTML: ${INDEX_HTML}`);
-    
+
     const server = createServer();
     const port = Number(process.env['PORT']) || 8080;
     const host = '0.0.0.0'; // Required for Cloud Run

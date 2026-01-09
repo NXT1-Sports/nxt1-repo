@@ -217,3 +217,85 @@ export {
   getErrorMap,
   combineValidations,
 } from './validation';
+
+// Auth - state management and guards (NEW)
+export {
+  // Types
+  type UserRole,
+  type AuthProvider,
+  type AuthUser,
+  type FirebaseUserInfo,
+  type SignInCredentials,
+  type SignUpCredentials,
+  type PasswordResetRequest,
+  type AuthState,
+  type AuthResult,
+  type TokenRefreshResult,
+  type StoredAuthToken,
+  type AuthEventType,
+  type AuthEvent,
+  INITIAL_AUTH_STATE,
+  isTokenExpired,
+  // State Manager
+  type AuthStateListener,
+  type AuthEventListener,
+  type AuthStateManager,
+  createAuthStateManager,
+  // Guards
+  type GuardResult,
+  type AuthGuardOptions,
+  requireAuth,
+  requireGuest,
+  requireRole,
+  requirePremium,
+  requireOnboarding,
+  hasAnyRole,
+  isFullyAuthenticated,
+  isAuthLoading,
+  // Error Handling
+  type FirebaseAuthErrorCode,
+  AUTH_ERROR_MESSAGES,
+  DEFAULT_AUTH_ERROR,
+  getAuthErrorMessage,
+  getAuthErrorCode,
+  isAuthError,
+  isUserNotFoundError,
+  isInvalidCredentialError,
+  isNetworkError,
+  requiresRecentLogin,
+} from './auth';
+
+// Storage - platform adapters (NEW)
+export {
+  type StorageAdapter,
+  STORAGE_KEYS,
+  createBrowserStorageAdapter,
+  createMemoryStorageAdapter,
+  createCapacitorStorageAdapter,
+} from './storage';
+
+// Platform - detection utilities (NEW)
+export {
+  type Platform,
+  type DeviceType,
+  type Environment,
+  type PlatformInfo,
+  isBrowser,
+  isServer,
+  isSSR,
+  isWorker,
+  isCapacitor,
+  isIOS,
+  isAndroid,
+  isMobileApp,
+  isMobileDevice,
+  isTouchDevice,
+  isTablet,
+  getPlatform,
+  getDeviceType,
+  getEnvironment,
+  getPlatformInfo,
+  runInBrowser,
+  runOnServer,
+  runInNative,
+} from './platform';

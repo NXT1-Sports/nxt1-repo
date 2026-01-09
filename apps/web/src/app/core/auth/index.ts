@@ -7,6 +7,7 @@
  * - Platform-specific implementations (Browser/Server)
  * - FirebaseServerApp utilities for authenticated SSR
  * - Auth cookie service for token persistence
+ * - Route guards using @nxt1/core guard functions
  */
 
 // Interface and injection token
@@ -36,3 +37,6 @@ export {
   type FirebaseServerConfig,
   type FirebaseServerAppResult,
 } from './firebase-server-app';
+
+// Route Guards (uses @nxt1/core guard functions)
+export { authGuard, guestGuard, premiumGuard, roleGuard } from './auth.guards';

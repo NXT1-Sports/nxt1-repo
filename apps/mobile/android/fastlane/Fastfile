@@ -1,0 +1,170 @@
+# NXT1 Android Fastlane Configuration
+# ============================================================================
+# Handles building and deployment for Android
+# ============================================================================
+
+default_platform(:android)
+
+# App configuration
+PACKAGE_NAME = "com.nxt1.sports"
+
+platform :android do
+  before_all do
+    # Ensure gradle is ready
+  end
+
+  # ============================================================================
+  # DEVELOPMENT BUILD (Debug APK)
+  # ============================================================================
+  desc "Build debug APK"
+  lane :dev do
+    gradle(
+      task: "clean assembleDebug",
+      project_dir: "./"
+    )
+    
+    # Copy APK to build directory
+    sh("mkdir -p ../build && cp ../app/build/outputs/apk/debug/*.apk ../build/NXT1-dev.apk")
+  end
+
+  # ============================================================================
+  # BETA BUILD (Release APK for testing)
+  # ============================================================================
+  desc "Build beta APK for testing"
+  lane :beta do
+    # Increment version code
+    increment_version_code(
+      gradle_file_path: "app/build.gradle",
+      version_code: ENV["GITHUB_RUN_NUMBER"]&.to_i || Time.now.strftime("%Y%m%d%H").to_i
+    )
+
+    gradle(
+      task: "clean assembleRelease",
+      project_dir: "./"
+    )
+    
+    # Copy APK to build directory  
+    sh("mkdir -p ../build && cp ../app/build/outputs/apk/release/*.apk ../build/NXT1-beta.apk")
+
+    # Upload to Firebase App Distribution
+    if ENV["FIREBASE_APP_ID_ANDROID"]
+      firebase_app_distribution(
+        app: ENV["FIREBASE_APP_ID_ANDROID"],
+        groups: "internal-testers",
+        android_artifact_type: "APK",
+        android_artifact_path: "./app/build/outputs/apk/release/app-release.apk",
+        release_notes: changelog_from_git_commits(
+          commits_count: 10,
+          pretty: "- %s"
+        )
+      )
+    end
+  end
+
+  # ============================================================================
+  # RELEASE BUILD (AAB for Play Store)
+  # ============================================================================
+  desc "Build release AAB for Play Store"
+  lane :release do
+    # Get the latest version code from Play Store and increment
+    version_codes = google_play_track_version_codes(
+      track: "internal",
+      json_key: "google-play-key.json",
+      package_name: PACKAGE_NAME
+    )
+    
+    new_version_code = (version_codes.max || 0) + 1
+
+    increment_version_code(
+      gradle_file_path: "app/build.gradle",
+      version_code: new_version_code
+    )
+
+    gradle(
+      task: "clean bundleRelease",
+      project_dir: "./"
+    )
+    
+    # Copy AAB to build directory
+    sh("mkdir -p ../build && cp ../app/build/outputs/bundle/release/*.aab ../build/NXT1-release.aab")
+  end
+
+  # ============================================================================
+  # PLAY STORE UPLOAD - INTERNAL TRACK
+  # ============================================================================
+  desc "Upload to Play Store Internal Track"
+  lane :upload_internal do
+    upload_to_play_store(
+      track: "internal",
+      aab: "./app/build/outputs/bundle/release/app-release.aab",
+      json_key: "google-play-key.json",
+      package_name: PACKAGE_NAME,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      release_status: "draft"
+    )
+  end
+
+  # ============================================================================
+  # PLAY STORE UPLOAD - PRODUCTION
+  # ============================================================================
+  desc "Upload to Play Store Production"
+  lane :upload_production do
+    upload_to_play_store(
+      track: "production",
+      aab: "./app/build/outputs/bundle/release/app-release.aab",
+      json_key: "google-play-key.json",
+      package_name: PACKAGE_NAME,
+      skip_upload_metadata: false,
+      skip_upload_images: false,
+      skip_upload_screenshots: false,
+      release_status: "completed",
+      rollout: "0.1" # 10% rollout initially
+    )
+  end
+
+  # ============================================================================
+  # PROMOTE FROM INTERNAL TO PRODUCTION
+  # ============================================================================
+  desc "Promote from internal to production"
+  lane :promote_to_production do
+    upload_to_play_store(
+      track: "internal",
+      track_promote_to: "production",
+      json_key: "google-play-key.json",
+      package_name: PACKAGE_NAME,
+      skip_upload_aab: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      rollout: "0.1"
+    )
+  end
+
+  # ============================================================================
+  # HELPERS
+  # ============================================================================
+  private_lane :increment_version_code do |options|
+    path = options[:gradle_file_path]
+    version_code = options[:version_code]
+    
+    sh("sed -i 's/versionCode [0-9]*/versionCode #{version_code}/' ../#{path}")
+  end
+
+  # ============================================================================
+  # ERROR HANDLING
+  # ============================================================================
+  error do |lane, exception|
+    if ENV["SLACK_WEBHOOK_URL"]
+      slack(
+        message: "Android build failed: #{exception.message}",
+        success: false,
+        payload: {
+          "Lane" => lane,
+          "Build Number" => ENV["GITHUB_RUN_NUMBER"]
+        }
+      )
+    end
+  end
+end

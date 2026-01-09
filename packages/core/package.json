@@ -35,6 +35,21 @@
       "types": "./dist/validation/index.d.ts",
       "import": "./dist/validation/index.mjs",
       "require": "./dist/validation/index.js"
+    },
+    "./auth": {
+      "types": "./dist/auth/index.d.ts",
+      "import": "./dist/auth/index.mjs",
+      "require": "./dist/auth/index.js"
+    },
+    "./storage": {
+      "types": "./dist/storage/index.d.ts",
+      "import": "./dist/storage/index.mjs",
+      "require": "./dist/storage/index.js"
+    },
+    "./platform": {
+      "types": "./dist/platform/index.d.ts",
+      "import": "./dist/platform/index.mjs",
+      "require": "./dist/platform/index.js"
     }
   },
   "files": [

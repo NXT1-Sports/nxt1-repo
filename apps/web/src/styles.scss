@@ -1,12 +1,24 @@
 /**
  * Global styles for NXT1 Web Application
- * 
+ *
  * Architecture:
+ * ┌──────────────────────────────────────────┐
+ * │     @nxt1/design-tokens (foundation)     │
+ * ├──────────────────────────────────────────┤
+ * │     Web Theme Variables (extensions)     │
+ * ├──────────────────────────────────────────┤
+ * │     Auth Component Styles (features)     │
+ * └──────────────────────────────────────────┘
+ *
  * - Base reset and typography
  * - Theme variables (CSS custom properties)
  * - Utility classes
  * - Third-party overrides
  */
+
+// Import design tokens foundation
+@import "../../../packages/design-tokens/tokens";
+@import "../../../packages/design-tokens/components/auth";
 
 // ============================================
 // CSS RESET & BASE STYLES

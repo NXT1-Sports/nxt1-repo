@@ -1,0 +1,127 @@
+/**
+ * @fileoverview Motion Design Tokens
+ * @module @nxt1/design-tokens
+ *
+ * Animation and transition system following platform conventions.
+ * iOS uses spring-based animations, Material uses easing curves.
+ */
+
+// ============================================
+// DURATION
+// ============================================
+
+$duration-instant: 0ms;
+$duration-fast: 100ms;
+$duration-normal: 200ms;
+$duration-slow: 300ms;
+$duration-slower: 400ms;
+$duration-slowest: 500ms;
+
+// ============================================
+// EASING CURVES
+// ============================================
+
+// Standard easings
+$ease-linear: linear;
+$ease-in: cubic-bezier(0.4, 0, 1, 1);
+$ease-out: cubic-bezier(0, 0, 0.2, 1);
+$ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+// iOS-style easings (more bouncy/spring-like feel)
+$ease-ios-in: cubic-bezier(0.32, 0, 0.67, 0);
+$ease-ios-out: cubic-bezier(0.33, 1, 0.68, 1);
+$ease-ios-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+// Material Design easings
+$ease-md-standard: cubic-bezier(0.4, 0, 0.2, 1);
+$ease-md-decelerate: cubic-bezier(0, 0, 0.2, 1);
+$ease-md-accelerate: cubic-bezier(0.4, 0, 1, 1);
+
+// ============================================
+// CSS CUSTOM PROPERTIES
+// ============================================
+
+:root {
+  // Durations
+  --nxt1-duration-instant: #{$duration-instant};
+  --nxt1-duration-fast: #{$duration-fast};
+  --nxt1-duration-normal: #{$duration-normal};
+  --nxt1-duration-slow: #{$duration-slow};
+  --nxt1-duration-slower: #{$duration-slower};
+  --nxt1-duration-slowest: #{$duration-slowest};
+
+  // Easings
+  --nxt1-ease-linear: #{$ease-linear};
+  --nxt1-ease-in: #{$ease-in};
+  --nxt1-ease-out: #{$ease-out};
+  --nxt1-ease-in-out: #{$ease-in-out};
+
+  // ============================================
+  // SEMANTIC TRANSITIONS
+  // ============================================
+
+  --nxt1-transition-fast: var(--nxt1-duration-fast) var(--nxt1-ease-out);
+  --nxt1-transition-normal: var(--nxt1-duration-normal) var(--nxt1-ease-out);
+  --nxt1-transition-slow: var(--nxt1-duration-slow) var(--nxt1-ease-in-out);
+
+  // Component-specific
+  --nxt1-transition-button: var(--nxt1-duration-fast) var(--nxt1-ease-out);
+  --nxt1-transition-input: var(--nxt1-duration-normal) var(--nxt1-ease-out);
+  --nxt1-transition-modal: var(--nxt1-duration-slow) var(--nxt1-ease-in-out);
+  --nxt1-transition-page: var(--nxt1-duration-slower) var(--nxt1-ease-in-out);
+}
+
+// ============================================
+// PLATFORM ADJUSTMENTS
+// ============================================
+
+.ios {
+  --nxt1-ease-in: #{$ease-ios-in};
+  --nxt1-ease-out: #{$ease-ios-out};
+  --nxt1-ease-in-out: #{$ease-ios-in-out};
+}
+
+.md {
+  --nxt1-ease-in: #{$ease-md-accelerate};
+  --nxt1-ease-out: #{$ease-md-decelerate};
+  --nxt1-ease-in-out: #{$ease-md-standard};
+}
+
+// ============================================
+// MOTION MIXINS
+// ============================================
+
+@mixin transition($properties...) {
+  $value: ();
+  @each $prop in $properties {
+    $value: append($value, #{$prop} var(--nxt1-transition-normal), comma);
+  }
+  transition: $value;
+}
+
+@mixin transition-fast($properties...) {
+  $value: ();
+  @each $prop in $properties {
+    $value: append($value, #{$prop} var(--nxt1-transition-fast), comma);
+  }
+  transition: $value;
+}
+
+@mixin transition-slow($properties...) {
+  $value: ();
+  @each $prop in $properties {
+    $value: append($value, #{$prop} var(--nxt1-transition-slow), comma);
+  }
+  transition: $value;
+}
+
+// Reduce motion for accessibility
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --nxt1-duration-fast: 0ms;
+    --nxt1-duration-normal: 0ms;
+    --nxt1-duration-slow: 0ms;
+    --nxt1-duration-slower: 0ms;
+    --nxt1-duration-slowest: 0ms;
+  }
+}

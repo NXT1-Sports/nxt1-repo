@@ -1,0 +1,66 @@
+/**
+ * @fileoverview Border Radius Design Tokens
+ * @module @nxt1/design-tokens
+ *
+ * Consistent border radius system with platform-adaptive values.
+ * iOS tends to use more rounded corners, Material more subtle.
+ */
+
+// ============================================
+// RADIUS SCALE
+// ============================================
+
+$radius-none: 0;
+$radius-xs: 2px;
+$radius-sm: 4px;
+$radius-md: 8px;
+$radius-lg: 12px;
+$radius-xl: 16px;
+$radius-2xl: 24px;
+$radius-full: 9999px;
+
+// ============================================
+// CSS CUSTOM PROPERTIES
+// ============================================
+
+:root {
+  --nxt1-radius-none: #{$radius-none};
+  --nxt1-radius-xs: #{$radius-xs};
+  --nxt1-radius-sm: #{$radius-sm};
+  --nxt1-radius-md: #{$radius-md};
+  --nxt1-radius-lg: #{$radius-lg};
+  --nxt1-radius-xl: #{$radius-xl};
+  --nxt1-radius-2xl: #{$radius-2xl};
+  --nxt1-radius-full: #{$radius-full};
+
+  // ============================================
+  // SEMANTIC RADIUS
+  // ============================================
+
+  --nxt1-radius-button: #{$radius-md};
+  --nxt1-radius-input: #{$radius-md};
+  --nxt1-radius-card: #{$radius-lg};
+  --nxt1-radius-modal: #{$radius-xl};
+  --nxt1-radius-chip: #{$radius-full};
+  --nxt1-radius-avatar: #{$radius-full};
+}
+
+// ============================================
+// PLATFORM ADJUSTMENTS
+// ============================================
+
+// iOS uses more rounded corners
+.ios {
+  --nxt1-radius-button: #{$radius-lg};
+  --nxt1-radius-input: #{$radius-lg};
+  --nxt1-radius-card: #{$radius-xl};
+  --nxt1-radius-modal: #{$radius-2xl};
+}
+
+// Material/Android uses slightly less rounded
+.md {
+  --nxt1-radius-button: #{$radius-sm};
+  --nxt1-radius-input: #{$radius-sm};
+  --nxt1-radius-card: #{$radius-md};
+  --nxt1-radius-modal: #{$radius-lg};
+}

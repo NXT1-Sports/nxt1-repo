@@ -1,0 +1,95 @@
+/**
+ * @fileoverview Global Styles
+ * @module @nxt1/mobile
+ *
+ * Global application styles applied across all pages.
+ * Integrates with @nxt1/design-tokens for cross-platform consistency.
+ *
+ * Architecture:
+ * ┌──────────────────────────────────────────┐
+ * │     @nxt1/design-tokens (foundation)     │
+ * ├──────────────────────────────────────────┤
+ * │     Ionic Core CSS (platform layer)      │
+ * ├──────────────────────────────────────────┤
+ * │     Auth Component Styles (features)     │
+ * └──────────────────────────────────────────┘
+ */
+
+/* NXT1 Design Token Component Styles - must come first */
+@import "../../../packages/design-tokens/components/auth";
+
+/* Ionic Core CSS */
+@import "@ionic/angular/css/core.css";
+@import "@ionic/angular/css/normalize.css";
+@import "@ionic/angular/css/structure.css";
+@import "@ionic/angular/css/typography.css";
+@import "@ionic/angular/css/display.css";
+
+/* Ionic Utility Classes */
+@import "@ionic/angular/css/padding.css";
+@import "@ionic/angular/css/float-elements.css";
+@import "@ionic/angular/css/text-alignment.css";
+@import "@ionic/angular/css/text-transformation.css";
+@import "@ionic/angular/css/flex-utils.css";
+
+/* Custom Global Styles */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(
+    --nxt1-font-family-base,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Oxygen,
+    Ubuntu,
+    Cantarell,
+    "Open Sans",
+    "Helvetica Neue",
+    sans-serif
+  );
+}
+
+/* Safe area padding for notched devices */
+ion-content {
+  --padding-top: env(safe-area-inset-top);
+  --padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Links */
+a {
+  color: var(--ion-color-primary);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+/* Custom scrollbar for desktop */
+@media (min-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--ion-color-medium);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--ion-color-medium-shade);
+  }
+}

@@ -1,0 +1,234 @@
+/**
+ * @fileoverview Auth Button Styles
+ * @module @nxt1/design-tokens/components/auth
+ *
+ * Button styles for authentication flows.
+ * Includes primary, secondary, and social login buttons.
+ */
+
+// ============================================
+// PRIMARY AUTH BUTTON
+// ============================================
+
+.nxt1-auth-button {
+  --background: var(--ion-color-primary);
+  --background-hover: var(--ion-color-primary-shade);
+  --background-activated: var(--ion-color-primary-shade);
+  --background-focused: var(--ion-color-primary-shade);
+  --color: var(--ion-color-primary-contrast);
+  --border-radius: var(--nxt1-radius-button);
+  --padding-start: var(--nxt1-button-padding-x);
+  --padding-end: var(--nxt1-button-padding-x);
+  --padding-top: var(--nxt1-button-padding-y);
+  --padding-bottom: var(--nxt1-button-padding-y);
+  --box-shadow: none;
+
+  font-size: var(--nxt1-button-size);
+  font-weight: var(--nxt1-button-weight);
+  letter-spacing: var(--nxt1-button-letter-spacing);
+  text-transform: none;
+  height: 48px;
+  min-height: 48px;
+
+  transition:
+    background-color var(--nxt1-transition-button),
+    transform var(--nxt1-transition-fast);
+
+  &:active {
+    transform: scale(0.98);
+  }
+
+  &:disabled,
+  &[disabled] {
+    --background: var(--nxt1-state-disabled);
+    --color: var(--nxt1-text-disabled);
+    opacity: 1;
+    cursor: not-allowed;
+  }
+}
+
+// Full width variant
+.nxt1-auth-button--full {
+  width: 100%;
+}
+
+// Large variant
+.nxt1-auth-button--large {
+  height: 56px;
+  min-height: 56px;
+  font-size: var(--nxt1-font-size-md);
+}
+
+// Loading state
+.nxt1-auth-button--loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+
+  &::after {
+    content: "";
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border: 2px solid var(--ion-color-primary-contrast);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: nxt1-spin 0.8s linear infinite;
+  }
+}
+
+@keyframes nxt1-spin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+// ============================================
+// SECONDARY / OUTLINE BUTTON
+// ============================================
+
+.nxt1-auth-button--secondary {
+  --background: transparent;
+  --background-hover: var(--nxt1-state-hover);
+  --background-activated: var(--nxt1-state-pressed);
+  --color: var(--ion-color-primary);
+  --border-width: 1px;
+  --border-style: solid;
+  --border-color: var(--ion-color-primary);
+}
+
+// ============================================
+// TEXT BUTTON
+// ============================================
+
+.nxt1-auth-button--text {
+  --background: transparent;
+  --background-hover: var(--nxt1-state-hover);
+  --background-activated: var(--nxt1-state-pressed);
+  --color: var(--ion-color-primary);
+  --padding-start: var(--nxt1-spacing-3);
+  --padding-end: var(--nxt1-spacing-3);
+  height: auto;
+  min-height: 40px;
+}
+
+// ============================================
+// SOCIAL LOGIN BUTTONS
+// ============================================
+
+.nxt1-social-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-4);
+  margin: var(--nxt1-spacing-6) 0;
+
+  &::before,
+  &::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--nxt1-border-light);
+  }
+
+  span {
+    font-size: var(--nxt1-caption-size);
+    color: var(--nxt1-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+}
+
+.nxt1-social-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nxt1-spacing-3);
+}
+
+.nxt1-social-button {
+  --background: var(--nxt1-background-secondary);
+  --background-hover: var(--nxt1-state-hover);
+  --color: var(--nxt1-text-primary);
+  --border-radius: var(--nxt1-radius-button);
+  --border-width: 1px;
+  --border-style: solid;
+  --border-color: var(--nxt1-border-default);
+  --box-shadow: none;
+
+  height: 48px;
+  font-weight: var(--nxt1-font-weight-medium);
+  text-transform: none;
+
+  transition:
+    background-color var(--nxt1-transition-button),
+    border-color var(--nxt1-transition-button);
+
+  ion-icon {
+    font-size: 20px;
+    margin-right: var(--nxt1-spacing-3);
+  }
+
+  img {
+    width: 20px;
+    height: 20px;
+    margin-right: var(--nxt1-spacing-3);
+  }
+}
+
+// Google button styling
+.nxt1-social-button--google {
+  --background: var(--nxt1-background-elevated);
+  --border-color: var(--nxt1-border-default);
+
+  &:hover {
+    --background: var(--nxt1-background-secondary);
+  }
+}
+
+// Apple button styling
+.nxt1-social-button--apple {
+  --background: #000000;
+  --color: #ffffff;
+  --border-color: #000000;
+
+  &:hover {
+    --background: #1a1a1a;
+  }
+
+  ion-icon {
+    color: #ffffff;
+  }
+}
+
+// Platform-specific social buttons
+.ios {
+  .nxt1-social-button {
+    --border-radius: var(--nxt1-radius-lg);
+  }
+
+  // Apple Sign In is more prominent on iOS
+  .nxt1-social-button--apple {
+    order: -1;
+  }
+}
+
+.md {
+  .nxt1-social-button {
+    --border-radius: var(--nxt1-radius-sm);
+  }
+}
+
+// ============================================
+// BUTTON GROUP (Horizontal)
+// ============================================
+
+.nxt1-button-group {
+  display: flex;
+  gap: var(--nxt1-spacing-3);
+
+  > * {
+    flex: 1;
+  }
+}

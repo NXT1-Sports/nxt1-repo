@@ -1,0 +1,22 @@
+# NXT1 iOS App Configuration
+app_identifier("com.nxt1.sports")
+apple_id(ENV["APPLE_ID"] || "developer@nxt1.app")
+team_id(ENV["APPLE_TEAM_ID"])
+
+# For App Store Connect API
+itc_team_id(ENV["ITC_TEAM_ID"])
+
+# Match configuration
+for_platform :ios do
+  for_lane :dev do
+    app_identifier("com.nxt1.sports")
+  end
+  
+  for_lane :beta do
+    app_identifier("com.nxt1.sports")
+  end
+  
+  for_lane :release do
+    app_identifier("com.nxt1.sports")
+  end
+end

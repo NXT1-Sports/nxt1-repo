@@ -1,0 +1,212 @@
+/**
+ * @fileoverview Typography Design Tokens
+ * @module @nxt1/design-tokens
+ *
+ * Typography system following iOS/Material design principles.
+ * Uses system fonts for native feel on each platform.
+ */
+
+// ============================================
+// FONT FAMILIES
+// System font stacks for native feel
+// ============================================
+
+$font-family-ios: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+$font-family-android: "Roboto", "Noto Sans", sans-serif;
+$font-family-web:
+  system-ui,
+  -apple-system,
+  BlinkMacSystemFont,
+  "Segoe UI",
+  Roboto,
+  sans-serif;
+$font-family-mono: "SF Mono", "Roboto Mono", "Menlo", monospace;
+
+// ============================================
+// FONT SIZES
+// Modular scale (1.125 ratio)
+// ============================================
+
+$font-size-2xs: 0.625rem; // 10px
+$font-size-xs: 0.75rem; // 12px
+$font-size-sm: 0.875rem; // 14px
+$font-size-base: 1rem; // 16px
+$font-size-md: 1.125rem; // 18px
+$font-size-lg: 1.25rem; // 20px
+$font-size-xl: 1.5rem; // 24px
+$font-size-2xl: 1.875rem; // 30px
+$font-size-3xl: 2.25rem; // 36px
+$font-size-4xl: 3rem; // 48px
+
+// ============================================
+// FONT WEIGHTS
+// ============================================
+
+$font-weight-light: 300;
+$font-weight-regular: 400;
+$font-weight-medium: 500;
+$font-weight-semibold: 600;
+$font-weight-bold: 700;
+
+// ============================================
+// LINE HEIGHTS
+// ============================================
+
+$line-height-none: 1;
+$line-height-tight: 1.25;
+$line-height-snug: 1.375;
+$line-height-normal: 1.5;
+$line-height-relaxed: 1.625;
+$line-height-loose: 2;
+
+// ============================================
+// LETTER SPACING
+// ============================================
+
+$letter-spacing-tighter: -0.05em;
+$letter-spacing-tight: -0.025em;
+$letter-spacing-normal: 0;
+$letter-spacing-wide: 0.025em;
+$letter-spacing-wider: 0.05em;
+$letter-spacing-widest: 0.1em;
+
+// ============================================
+// CSS CUSTOM PROPERTIES
+// ============================================
+
+:root {
+  // Font families (platform-adaptive via Ionic)
+  --nxt1-font-family-base: var(--ion-font-family, #{$font-family-web});
+  --nxt1-font-family-mono: #{$font-family-mono};
+
+  // Font sizes
+  --nxt1-font-size-2xs: #{$font-size-2xs};
+  --nxt1-font-size-xs: #{$font-size-xs};
+  --nxt1-font-size-sm: #{$font-size-sm};
+  --nxt1-font-size-base: #{$font-size-base};
+  --nxt1-font-size-md: #{$font-size-md};
+  --nxt1-font-size-lg: #{$font-size-lg};
+  --nxt1-font-size-xl: #{$font-size-xl};
+  --nxt1-font-size-2xl: #{$font-size-2xl};
+  --nxt1-font-size-3xl: #{$font-size-3xl};
+  --nxt1-font-size-4xl: #{$font-size-4xl};
+
+  // Font weights
+  --nxt1-font-weight-light: #{$font-weight-light};
+  --nxt1-font-weight-regular: #{$font-weight-regular};
+  --nxt1-font-weight-medium: #{$font-weight-medium};
+  --nxt1-font-weight-semibold: #{$font-weight-semibold};
+  --nxt1-font-weight-bold: #{$font-weight-bold};
+
+  // Line heights
+  --nxt1-line-height-tight: #{$line-height-tight};
+  --nxt1-line-height-normal: #{$line-height-normal};
+  --nxt1-line-height-relaxed: #{$line-height-relaxed};
+
+  // ============================================
+  // TYPOGRAPHY PRESETS
+  // Semantic text styles
+  // ============================================
+
+  // Headings
+  --nxt1-heading-1-size: #{$font-size-3xl};
+  --nxt1-heading-1-weight: #{$font-weight-bold};
+  --nxt1-heading-1-line-height: #{$line-height-tight};
+
+  --nxt1-heading-2-size: #{$font-size-2xl};
+  --nxt1-heading-2-weight: #{$font-weight-bold};
+  --nxt1-heading-2-line-height: #{$line-height-tight};
+
+  --nxt1-heading-3-size: #{$font-size-xl};
+  --nxt1-heading-3-weight: #{$font-weight-semibold};
+  --nxt1-heading-3-line-height: #{$line-height-snug};
+
+  --nxt1-heading-4-size: #{$font-size-lg};
+  --nxt1-heading-4-weight: #{$font-weight-semibold};
+  --nxt1-heading-4-line-height: #{$line-height-snug};
+
+  // Body text
+  --nxt1-body-size: #{$font-size-base};
+  --nxt1-body-weight: #{$font-weight-regular};
+  --nxt1-body-line-height: #{$line-height-normal};
+
+  --nxt1-body-sm-size: #{$font-size-sm};
+  --nxt1-body-sm-weight: #{$font-weight-regular};
+  --nxt1-body-sm-line-height: #{$line-height-normal};
+
+  // Labels
+  --nxt1-label-size: #{$font-size-sm};
+  --nxt1-label-weight: #{$font-weight-medium};
+  --nxt1-label-line-height: #{$line-height-tight};
+
+  // Captions
+  --nxt1-caption-size: #{$font-size-xs};
+  --nxt1-caption-weight: #{$font-weight-regular};
+  --nxt1-caption-line-height: #{$line-height-normal};
+
+  // Buttons
+  --nxt1-button-size: #{$font-size-base};
+  --nxt1-button-weight: #{$font-weight-semibold};
+  --nxt1-button-letter-spacing: #{$letter-spacing-wide};
+}
+
+// ============================================
+// TYPOGRAPHY MIXINS
+// ============================================
+
+@mixin heading-1 {
+  font-size: var(--nxt1-heading-1-size);
+  font-weight: var(--nxt1-heading-1-weight);
+  line-height: var(--nxt1-heading-1-line-height);
+  letter-spacing: $letter-spacing-tight;
+}
+
+@mixin heading-2 {
+  font-size: var(--nxt1-heading-2-size);
+  font-weight: var(--nxt1-heading-2-weight);
+  line-height: var(--nxt1-heading-2-line-height);
+  letter-spacing: $letter-spacing-tight;
+}
+
+@mixin heading-3 {
+  font-size: var(--nxt1-heading-3-size);
+  font-weight: var(--nxt1-heading-3-weight);
+  line-height: var(--nxt1-heading-3-line-height);
+}
+
+@mixin heading-4 {
+  font-size: var(--nxt1-heading-4-size);
+  font-weight: var(--nxt1-heading-4-weight);
+  line-height: var(--nxt1-heading-4-line-height);
+}
+
+@mixin body {
+  font-size: var(--nxt1-body-size);
+  font-weight: var(--nxt1-body-weight);
+  line-height: var(--nxt1-body-line-height);
+}
+
+@mixin body-sm {
+  font-size: var(--nxt1-body-sm-size);
+  font-weight: var(--nxt1-body-sm-weight);
+  line-height: var(--nxt1-body-sm-line-height);
+}
+
+@mixin label {
+  font-size: var(--nxt1-label-size);
+  font-weight: var(--nxt1-label-weight);
+  line-height: var(--nxt1-label-line-height);
+}
+
+@mixin caption {
+  font-size: var(--nxt1-caption-size);
+  font-weight: var(--nxt1-caption-weight);
+  line-height: var(--nxt1-caption-line-height);
+}
+
+@mixin button-text {
+  font-size: var(--nxt1-button-size);
+  font-weight: var(--nxt1-button-weight);
+  letter-spacing: var(--nxt1-button-letter-spacing);
+  text-transform: none;
+}

@@ -1,0 +1,116 @@
+/**
+ * @fileoverview Elevation Design Tokens
+ * @module @nxt1/design-tokens
+ *
+ * Shadow and elevation system following Material Design principles
+ * with iOS-appropriate adaptations.
+ */
+
+// ============================================
+// SHADOW DEFINITIONS
+// ============================================
+
+// iOS-style subtle shadows
+$shadow-ios-sm:
+  0 1px 2px rgba(0, 0, 0, 0.04),
+  0 1px 3px rgba(0, 0, 0, 0.08);
+$shadow-ios-md:
+  0 2px 8px rgba(0, 0, 0, 0.08),
+  0 4px 16px rgba(0, 0, 0, 0.08);
+$shadow-ios-lg:
+  0 8px 24px rgba(0, 0, 0, 0.12),
+  0 16px 48px rgba(0, 0, 0, 0.08);
+
+// Material Design shadows
+$shadow-md-1:
+  0 1px 3px rgba(0, 0, 0, 0.12),
+  0 1px 2px rgba(0, 0, 0, 0.24);
+$shadow-md-2:
+  0 3px 6px rgba(0, 0, 0, 0.15),
+  0 2px 4px rgba(0, 0, 0, 0.12);
+$shadow-md-3:
+  0 10px 20px rgba(0, 0, 0, 0.15),
+  0 3px 6px rgba(0, 0, 0, 0.1);
+$shadow-md-4:
+  0 15px 25px rgba(0, 0, 0, 0.15),
+  0 5px 10px rgba(0, 0, 0, 0.05);
+$shadow-md-5: 0 20px 40px rgba(0, 0, 0, 0.2);
+
+// ============================================
+// Z-INDEX SCALE
+// ============================================
+
+$z-index-base: 0;
+$z-index-dropdown: 1000;
+$z-index-sticky: 1020;
+$z-index-fixed: 1030;
+$z-index-modal-backdrop: 1040;
+$z-index-modal: 1050;
+$z-index-popover: 1060;
+$z-index-tooltip: 1070;
+$z-index-toast: 1080;
+$z-index-loading: 1090;
+
+// ============================================
+// CSS CUSTOM PROPERTIES
+// ============================================
+
+:root {
+  // Elevation shadows (platform-adaptive)
+  --nxt1-elevation-0: none;
+  --nxt1-elevation-1: #{$shadow-md-1};
+  --nxt1-elevation-2: #{$shadow-md-2};
+  --nxt1-elevation-3: #{$shadow-md-3};
+  --nxt1-elevation-4: #{$shadow-md-4};
+  --nxt1-elevation-5: #{$shadow-md-5};
+
+  // Semantic elevation
+  --nxt1-shadow-card: var(--nxt1-elevation-1);
+  --nxt1-shadow-dropdown: var(--nxt1-elevation-2);
+  --nxt1-shadow-modal: var(--nxt1-elevation-4);
+  --nxt1-shadow-fab: var(--nxt1-elevation-3);
+
+  // Z-index
+  --nxt1-z-base: #{$z-index-base};
+  --nxt1-z-dropdown: #{$z-index-dropdown};
+  --nxt1-z-sticky: #{$z-index-sticky};
+  --nxt1-z-fixed: #{$z-index-fixed};
+  --nxt1-z-modal-backdrop: #{$z-index-modal-backdrop};
+  --nxt1-z-modal: #{$z-index-modal};
+  --nxt1-z-popover: #{$z-index-popover};
+  --nxt1-z-tooltip: #{$z-index-tooltip};
+  --nxt1-z-toast: #{$z-index-toast};
+}
+
+// ============================================
+// PLATFORM ADJUSTMENTS
+// iOS uses subtler shadows
+// ============================================
+
+.ios {
+  --nxt1-elevation-1: #{$shadow-ios-sm};
+  --nxt1-elevation-2: #{$shadow-ios-md};
+  --nxt1-elevation-3: #{$shadow-ios-md};
+  --nxt1-elevation-4: #{$shadow-ios-lg};
+  --nxt1-elevation-5: #{$shadow-ios-lg};
+}
+
+// ============================================
+// ELEVATION MIXINS
+// ============================================
+
+@mixin elevation($level: 1) {
+  box-shadow: var(--nxt1-elevation-#{$level});
+}
+
+@mixin elevation-card {
+  box-shadow: var(--nxt1-shadow-card);
+}
+
+@mixin elevation-modal {
+  box-shadow: var(--nxt1-shadow-modal);
+}
+
+@mixin elevation-transition {
+  transition: box-shadow 0.2s ease-in-out;
+}

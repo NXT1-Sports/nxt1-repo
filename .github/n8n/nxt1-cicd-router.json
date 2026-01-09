@@ -1,0 +1,334 @@
+{
+  "name": "NXT1 CI/CD Event Router",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "nxt1-cicd",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-1",
+      "name": "GitHub Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse and enrich the incoming webhook data\nconst data = $input.first().json;\n\n// Determine routing based on event type and status\nconst routes = {\n  isFailure: data.status === 'failure',\n  isProduction: data.environment === 'production',\n  isDeploy: data.event_type.startsWith('deploy'),\n  isAI: data.event_type === 'ai-review',\n  isCI: data.event_type === 'ci'\n};\n\n// Add routing flags to the data\nreturn {\n  json: {\n    ...data,\n    routes,\n    // Pre-format some common fields\n    formatted: {\n      title: data.title,\n      message: data.message,\n      runUrl: data.run_url,\n      timestamp: new Date(data.timestamp).toLocaleString(),\n      statusEmoji: data.status === 'success' ? '✅' : data.status === 'failure' ? '❌' : '⚠️'\n    }\n  }\n};"
+      },
+      "id": "code-1",
+      "name": "Process Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "outputKey": "slack-all",
+              "conditions": {
+                "options": { "version": 2 },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "1",
+                    "leftValue": "={{ $json.event_type }}",
+                    "rightValue": "",
+                    "operator": { "type": "string", "operation": "notEmpty" }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "slack-urgent",
+              "conditions": {
+                "options": { "version": 2 },
+                "combinator": "or",
+                "conditions": [
+                  {
+                    "id": "2",
+                    "leftValue": "={{ $json.routes.isFailure && $json.routes.isProduction }}",
+                    "rightValue": true,
+                    "operator": { "type": "boolean", "operation": "equals" }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "pagerduty",
+              "conditions": {
+                "options": { "version": 2 },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "3",
+                    "leftValue": "={{ $json.status }}",
+                    "rightValue": "failure",
+                    "operator": { "type": "string", "operation": "equals" }
+                  },
+                  {
+                    "id": "4",
+                    "leftValue": "={{ $json.environment }}",
+                    "rightValue": "production",
+                    "operator": { "type": "string", "operation": "equals" }
+                  },
+                  {
+                    "id": "5",
+                    "leftValue": "={{ $json.routes.isDeploy }}",
+                    "rightValue": true,
+                    "operator": { "type": "boolean", "operation": "equals" }
+                  }
+                ]
+              }
+            },
+            {
+              "outputKey": "linear",
+              "conditions": {
+                "options": { "version": 2 },
+                "combinator": "and",
+                "conditions": [
+                  {
+                    "id": "6",
+                    "leftValue": "={{ $json.routes.isAI }}",
+                    "rightValue": true,
+                    "operator": { "type": "boolean", "operation": "equals" }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "allMatchingOutputs": true
+        }
+      },
+      "id": "switch-1",
+      "name": "Route Event",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SLACK_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": {\n        \"type\": \"plain_text\",\n        \"text\": \"{{ $json.formatted.statusEmoji }} {{ $json.formatted.title }}\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"{{ $json.formatted.message }}\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"fields\": [\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Repository:*\\n{{ $json.repository }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Branch:*\\n{{ $json.ref }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Environment:*\\n{{ $json.environment }}\"\n        },\n        {\n          \"type\": \"mrkdwn\",\n          \"text\": \"*Actor:*\\n{{ $json.actor }}\"\n        }\n      ]\n    },\n    {\n      \"type\": \"actions\",\n      \"elements\": [\n        {\n          \"type\": \"button\",\n          \"text\": {\n            \"type\": \"plain_text\",\n            \"text\": \"View Run\"\n          },\n          \"url\": \"{{ $json.run_url }}\"\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "slack-1",
+      "name": "Slack #builds",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $vars.SLACK_URGENT_WEBHOOK }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": \"<!channel> 🚨 *PRODUCTION FAILURE*\",\n  \"blocks\": [\n    {\n      \"type\": \"header\",\n      \"text\": {\n        \"type\": \"plain_text\",\n        \"text\": \"🚨 PRODUCTION FAILURE\"\n      }\n    },\n    {\n      \"type\": \"section\",\n      \"text\": {\n        \"type\": \"mrkdwn\",\n        \"text\": \"*{{ $json.formatted.title }}*\\n{{ $json.formatted.message }}\"\n      }\n    },\n    {\n      \"type\": \"actions\",\n      \"elements\": [\n        {\n          \"type\": \"button\",\n          \"text\": {\n            \"type\": \"plain_text\",\n            \"text\": \"🔥 View Run Now\"\n          },\n          \"style\": \"danger\",\n          \"url\": \"{{ $json.run_url }}\"\n        }\n      ]\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "slack-2",
+      "name": "Slack #urgent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://events.pagerduty.com/v2/enqueue",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"routing_key\": \"{{ $vars.PAGERDUTY_ROUTING_KEY }}\",\n  \"event_action\": \"trigger\",\n  \"dedup_key\": \"nxt1-{{ $json.event_type }}-{{ $json.run_id }}\",\n  \"payload\": {\n    \"summary\": \"{{ $json.formatted.title }}\",\n    \"source\": \"github-actions\",\n    \"severity\": \"critical\",\n    \"custom_details\": {\n      \"repository\": \"{{ $json.repository }}\",\n      \"branch\": \"{{ $json.ref }}\",\n      \"environment\": \"{{ $json.environment }}\",\n      \"run_url\": \"{{ $json.run_url }}\"\n    }\n  },\n  \"links\": [\n    {\n      \"href\": \"{{ $json.run_url }}\",\n      \"text\": \"View GitHub Actions Run\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "pagerduty-1",
+      "name": "PagerDuty Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 420]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linear.app/graphql",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $vars.LINEAR_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"query\": \"mutation { issueCreate(input: { teamId: \\\"{{ $vars.LINEAR_TEAM_ID }}\\\", title: \\\"[AI Review] {{ $json.formatted.title }}\\\", description: \\\"{{ $json.formatted.message }}\\\\n\\\\n[View Run]({{ $json.run_url }})\\\", priority: 1 }) { success issue { id identifier url } } }\"\n}",
+        "options": {}
+      },
+      "id": "linear-1",
+      "name": "Create Linear Issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 540]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"received\": true, \"event_type\": \"{{ $json.event_type }}\", \"processed_at\": \"{{ $now }}\" }",
+        "options": {}
+      },
+      "id": "respond-1",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1140, 300]
+    }
+  ],
+  "connections": {
+    "GitHub Webhook": {
+      "main": [
+        [
+          {
+            "node": "Process Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Event": {
+      "main": [
+        [
+          {
+            "node": "Route Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Event": {
+      "main": [
+        [
+          {
+            "node": "Slack #builds",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Slack #urgent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "PagerDuty Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Linear Issue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack #builds": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Slack #urgent": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PagerDuty Alert": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Linear Issue": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [{ "name": "CI/CD" }, { "name": "GitHub" }, { "name": "NXT1" }],
+  "pinData": {}
+}

@@ -1,0 +1,185 @@
+# NXT1 iOS Fastlane Configuration
+# ============================================================================
+# Handles code signing, building, and deployment for iOS
+# ============================================================================
+
+default_platform(:ios)
+
+# App configuration
+APP_IDENTIFIER = "com.nxt1.sports"
+APPLE_ID = ENV["APPLE_ID"] || "developer@nxt1.app"
+TEAM_ID = ENV["APPLE_TEAM_ID"]
+
+platform :ios do
+  before_all do
+    setup_ci if ENV['CI']
+  end
+
+  # ============================================================================
+  # CODE SIGNING (using match)
+  # ============================================================================
+  desc "Sync certificates and profiles"
+  lane :sync_certs do |options|
+    type = options[:type] || "development"
+    
+    match(
+      type: type,
+      app_identifier: APP_IDENTIFIER,
+      readonly: is_ci,
+      git_url: ENV["MATCH_GIT_URL"],
+      git_basic_authorization: Base64.strict_encode64(ENV["MATCH_GIT_BASIC_AUTHORIZATION"] || ""),
+    )
+  end
+
+  # ============================================================================
+  # DEVELOPMENT BUILD
+  # ============================================================================
+  desc "Build development IPA"
+  lane :dev do
+    sync_certs(type: "development")
+    
+    increment_build_number(
+      build_number: ENV["GITHUB_RUN_NUMBER"] || Time.now.strftime("%Y%m%d%H%M"),
+      xcodeproj: "App.xcodeproj"
+    )
+
+    build_app(
+      workspace: "App.xcworkspace",
+      scheme: "App",
+      configuration: "Debug",
+      export_method: "development",
+      output_directory: "./build",
+      output_name: "NXT1-dev.ipa",
+      clean: true,
+      xcargs: "-allowProvisioningUpdates"
+    )
+  end
+
+  # ============================================================================
+  # BETA BUILD (Ad-hoc for Firebase Distribution)
+  # ============================================================================
+  desc "Build beta IPA for testing"
+  lane :beta do
+    sync_certs(type: "adhoc")
+    
+    increment_build_number(
+      build_number: ENV["GITHUB_RUN_NUMBER"] || Time.now.strftime("%Y%m%d%H%M"),
+      xcodeproj: "App.xcodeproj"
+    )
+
+    build_app(
+      workspace: "App.xcworkspace",
+      scheme: "App",
+      configuration: "Release",
+      export_method: "ad-hoc",
+      output_directory: "./build",
+      output_name: "NXT1-beta.ipa",
+      clean: true
+    )
+
+    # Upload to Firebase App Distribution
+    if ENV["FIREBASE_APP_ID_IOS"]
+      firebase_app_distribution(
+        app: ENV["FIREBASE_APP_ID_IOS"],
+        groups: "internal-testers",
+        release_notes: changelog_from_git_commits(
+          commits_count: 10,
+          pretty: "- %s"
+        )
+      )
+    end
+  end
+
+  # ============================================================================
+  # RELEASE BUILD (App Store)
+  # ============================================================================
+  desc "Build release IPA for App Store"
+  lane :release do
+    sync_certs(type: "appstore")
+    
+    # Get the latest build number from App Store Connect and increment
+    app_store_build_number = latest_testflight_build_number(
+      app_identifier: APP_IDENTIFIER,
+      api_key: app_store_connect_api_key
+    )
+    
+    increment_build_number(
+      build_number: app_store_build_number + 1,
+      xcodeproj: "App.xcodeproj"
+    )
+
+    build_app(
+      workspace: "App.xcworkspace",
+      scheme: "App",
+      configuration: "Release",
+      export_method: "app-store",
+      output_directory: "./build",
+      output_name: "NXT1-release.ipa",
+      clean: true,
+      include_bitcode: false
+    )
+  end
+
+  # ============================================================================
+  # TESTFLIGHT UPLOAD
+  # ============================================================================
+  desc "Upload to TestFlight"
+  lane :upload_testflight do
+    api_key = app_store_connect_api_key
+
+    upload_to_testflight(
+      api_key: api_key,
+      skip_submission: false,
+      skip_waiting_for_build_processing: true,
+      distribute_external: false,
+      changelog: changelog_from_git_commits(
+        commits_count: 10,
+        pretty: "- %s"
+      )
+    )
+  end
+
+  # ============================================================================
+  # APP STORE SUBMISSION
+  # ============================================================================
+  desc "Submit to App Store"
+  lane :submit_app_store do
+    api_key = app_store_connect_api_key
+
+    upload_to_app_store(
+      api_key: api_key,
+      submit_for_review: true,
+      automatic_release: false,
+      force: true,
+      precheck_include_in_app_purchases: false
+    )
+  end
+
+  # ============================================================================
+  # HELPERS
+  # ============================================================================
+  private_lane :app_store_connect_api_key do
+    app_store_connect_api_key(
+      key_id: ENV["APPLE_API_KEY_ID"],
+      issuer_id: ENV["APPLE_API_ISSUER_ID"],
+      key_filepath: "~/.appstoreconnect/private_keys/AuthKey_#{ENV['APPLE_API_KEY_ID']}.p8",
+      in_house: false
+    )
+  end
+
+  # ============================================================================
+  # ERROR HANDLING
+  # ============================================================================
+  error do |lane, exception|
+    if ENV["SLACK_WEBHOOK_URL"]
+      slack(
+        message: "iOS build failed: #{exception.message}",
+        success: false,
+        payload: {
+          "Lane" => lane,
+          "Build Number" => ENV["GITHUB_RUN_NUMBER"]
+        }
+      )
+    end
+  end
+end

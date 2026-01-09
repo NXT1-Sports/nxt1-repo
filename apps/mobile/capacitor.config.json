@@ -1,7 +1,7 @@
 {
   "appId": "com.nxt1.sports",
   "appName": "NXT1 Sports",
-  "webDir": "www",
+  "webDir": "www/browser",
   "bundledWebRuntime": false,
   "server": {
     "androidScheme": "https"

@@ -1,0 +1,33 @@
+# NXT1 iOS Match Configuration
+# ============================================================================
+# Code signing management using Fastlane Match
+# Stores certificates and profiles in a private Git repository
+# ============================================================================
+
+git_url(ENV["MATCH_GIT_URL"])
+storage_mode("git")
+
+type("development") # Default type
+
+app_identifier(["com.nxt1.sports"])
+
+# For App Store Connect API authentication
+api_key_path("~/.appstoreconnect/private_keys/AuthKey_#{ENV['APPLE_API_KEY_ID']}.p8")
+
+# Optional: Generate Apple Push Notification certificates
+generate_apple_certs(true)
+
+# Clone using HTTPS with basic auth
+git_basic_authorization(Base64.strict_encode64(ENV["MATCH_GIT_BASIC_AUTHORIZATION"] || ""))
+
+# Platform
+platform("ios")
+
+# Team ID
+team_id(ENV["APPLE_TEAM_ID"])
+
+# Don't force device registration in CI
+force_for_new_devices(false)
+
+# Read-only mode in CI
+readonly(ENV["CI"] == "true")

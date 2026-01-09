@@ -1,0 +1,194 @@
+/**
+ * @fileoverview Auth Form Styles
+ * @module @nxt1/design-tokens/components/auth
+ *
+ * Form-specific authentication styles.
+ * Handles inputs, validation states, and form layout.
+ */
+
+// ============================================
+// FORM LAYOUT
+// ============================================
+
+.nxt1-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nxt1-form-gap);
+}
+
+// ============================================
+// FORM GROUP (Label + Input + Error)
+// ============================================
+
+.nxt1-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nxt1-spacing-2);
+}
+
+.nxt1-form-label {
+  font-size: var(--nxt1-label-size);
+  font-weight: var(--nxt1-label-weight);
+  color: var(--nxt1-text-primary);
+}
+
+.nxt1-form-hint {
+  font-size: var(--nxt1-caption-size);
+  color: var(--nxt1-text-tertiary);
+}
+
+.nxt1-form-error {
+  font-size: var(--nxt1-caption-size);
+  color: var(--ion-color-danger);
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-1);
+
+  ion-icon {
+    font-size: 14px;
+  }
+}
+
+// ============================================
+// INPUT STYLING
+// ============================================
+
+.nxt1-auth-input {
+  --background: var(--nxt1-background-secondary);
+  --border-radius: var(--nxt1-radius-input);
+  --padding-start: var(--nxt1-input-padding-x);
+  --padding-end: var(--nxt1-input-padding-x);
+  --padding-top: var(--nxt1-input-padding-y);
+  --padding-bottom: var(--nxt1-input-padding-y);
+  --border-width: 1px;
+  --border-color: var(--nxt1-border-default);
+  --highlight-color-focused: var(--ion-color-primary);
+  --highlight-color-valid: var(--ion-color-success);
+  --highlight-color-invalid: var(--ion-color-danger);
+
+  border-radius: var(--nxt1-radius-input);
+  transition:
+    border-color var(--nxt1-transition-fast),
+    box-shadow var(--nxt1-transition-fast);
+
+  &.ion-touched.ion-invalid {
+    --border-color: var(--ion-color-danger);
+  }
+
+  &.ion-focused {
+    --border-color: var(--ion-color-primary);
+    box-shadow: 0 0 0 3px var(--nxt1-state-focus);
+  }
+}
+
+// Native input within ion-input
+.nxt1-auth-input .native-input {
+  font-size: var(--nxt1-body-size);
+  color: var(--nxt1-text-primary);
+
+  &::placeholder {
+    color: var(--nxt1-text-tertiary);
+  }
+}
+
+// Input with icon
+.nxt1-input-with-icon {
+  position: relative;
+
+  ion-icon {
+    position: absolute;
+    left: var(--nxt1-spacing-4);
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--nxt1-text-tertiary);
+    font-size: 20px;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .nxt1-auth-input {
+    --padding-start: calc(var(--nxt1-spacing-4) + 28px);
+  }
+}
+
+// Password toggle
+.nxt1-password-toggle {
+  --padding: 0;
+  --background: transparent;
+  position: absolute;
+  right: var(--nxt1-spacing-2);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--nxt1-text-tertiary);
+
+  &:hover {
+    color: var(--nxt1-text-secondary);
+  }
+}
+
+// ============================================
+// CHECKBOX / REMEMBER ME
+// ============================================
+
+.nxt1-form-checkbox-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--nxt1-spacing-2);
+}
+
+.nxt1-auth-checkbox {
+  --size: 20px;
+  --border-radius: var(--nxt1-radius-sm);
+  --border-color: var(--nxt1-border-default);
+  --checkbox-background-checked: var(--ion-color-primary);
+  --checkmark-color: var(--ion-color-primary-contrast);
+
+  font-size: var(--nxt1-body-sm-size);
+  color: var(--nxt1-text-secondary);
+}
+
+// ============================================
+// FORM ACTIONS
+// ============================================
+
+.nxt1-form-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nxt1-spacing-3);
+  margin-top: var(--nxt1-spacing-2);
+}
+
+// Forgot password link
+.nxt1-forgot-link {
+  font-size: var(--nxt1-body-sm-size);
+  color: var(--ion-color-primary);
+  text-decoration: none;
+  transition: color var(--nxt1-transition-fast);
+
+  &:hover {
+    color: var(--ion-color-primary-shade);
+    text-decoration: underline;
+  }
+}
+
+// ============================================
+// VALIDATION STATES
+// ============================================
+
+.nxt1-input-success {
+  --border-color: var(--ion-color-success) !important;
+
+  &.ion-focused {
+    box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.2);
+  }
+}
+
+.nxt1-input-error {
+  --border-color: var(--ion-color-danger) !important;
+
+  &.ion-focused {
+    box-shadow: 0 0 0 3px rgba(244, 67, 54, 0.2);
+  }
+}

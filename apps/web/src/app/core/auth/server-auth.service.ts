@@ -70,9 +70,7 @@ export class ServerAuthService implements IAuthService {
   readonly isPremium = computed(() => this._user()?.isPremium ?? false);
   readonly hasCompletedOnboarding = computed(() => this._user()?.hasCompletedOnboarding ?? false);
 
-  constructor(
-    @Optional() @Inject('SSR_AUTH_TOKEN') private readonly authToken?: string
-  ) {
+  constructor(@Optional() @Inject('SSR_AUTH_TOKEN') private readonly authToken?: string) {
     // FirebaseServerApp initialization is deferred to avoid import issues
     // The token is available for components that need to make authenticated calls
     if (this.authToken) {

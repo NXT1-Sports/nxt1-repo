@@ -1,299 +1,199 @@
-import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import {
+  IonContent,
+  IonInput,
+  IonButton,
+  IonIcon,
+  IonSpinner,
+  IonInputPasswordToggle,
+} from '@ionic/angular/standalone';
+import { addIcons } from 'ionicons';
+import {
+  mailOutline,
+  lockClosedOutline,
+  personOutline,
+  logoGoogle,
+  logoApple,
+} from 'ionicons/icons';
 import { AuthFlowService } from '../../services';
 
 /**
  * Signup Component
  *
- * Handles new user registration.
+ * Handles new user registration with design token styling.
  */
 @Component({
   selector: 'app-signup',
   standalone: true,
-  imports: [CommonModule, RouterModule, FormsModule],
+  imports: [
+    CommonModule,
+    RouterModule,
+    FormsModule,
+    IonContent,
+    IonInput,
+    IonButton,
+    IonIcon,
+    IonSpinner,
+    IonInputPasswordToggle,
+  ],
   template: `
-    <div class="auth-container">
-      <div class="auth-card">
-        <div class="auth-header">
-          <img
-            src="assets/images/nxt1-logo.svg"
-            alt="NXT1 Sports"
-            class="logo"
-            width="120"
-            height="40"
-          />
-          <h1>Create Account</h1>
-          <p>Join the NXT1 Sports community</p>
+    <ion-content class="auth-page" [fullscreen]="true">
+      <div class="auth-page__container">
+        <!-- Logo -->
+        <div class="auth-page__logo">
+          <img src="assets/images/nxt1-logo.svg" alt="NXT1 Sports" />
         </div>
 
+        <!-- Header -->
+        <div class="auth-page__header">
+          <h1 class="auth-page__title">Create Account</h1>
+          <p class="auth-page__subtitle">Join the NXT1 Sports community</p>
+        </div>
+
+        <!-- Error Message -->
         @if (authFlow.error()) {
-          <div class="error-alert">
-            {{ authFlow.error() }}
-            <button type="button" class="close-btn" (click)="authFlow.clearError()">×</button>
+          <div class="auth-error">
+            <span>{{ authFlow.error() }}</span>
+            <button type="button" class="auth-error__close" (click)="authFlow.clearError()">
+              ×
+            </button>
           </div>
         }
 
-        <form (ngSubmit)="onSubmit()" class="auth-form">
-          <div class="form-group">
-            <label for="email">Email</label>
-            <input
-              type="email"
-              id="email"
-              name="email"
-              [(ngModel)]="email"
-              class="form-control"
-              placeholder="Enter your email"
-              required
-              autocomplete="email"
-            />
-          </div>
-
-          <div class="form-group">
-            <label for="password">Password</label>
-            <input
-              type="password"
-              id="password"
-              name="password"
-              [(ngModel)]="password"
-              class="form-control"
-              placeholder="Create a password (min 6 characters)"
-              required
-              minlength="6"
-              autocomplete="new-password"
-            />
-          </div>
-
-          <div class="form-group">
-            <label for="confirmPassword">Confirm Password</label>
-            <input
-              type="password"
-              id="confirmPassword"
-              name="confirmPassword"
-              [(ngModel)]="confirmPassword"
-              class="form-control"
-              placeholder="Confirm your password"
-              required
-              autocomplete="new-password"
-            />
-          </div>
-
-          @if (teamCodeEnabled()) {
-            <div class="form-group">
-              <label for="teamCode">Team Code (Optional)</label>
-              <input
-                type="text"
-                id="teamCode"
-                name="teamCode"
-                [(ngModel)]="teamCode"
-                class="form-control"
-                placeholder="Enter team code if you have one"
-              />
+        <!-- Signup Form -->
+        <div class="auth-card">
+          <form (ngSubmit)="onSubmit()" class="auth-form">
+            <!-- Email -->
+            <div class="auth-form__group">
+              <label class="auth-form__label">Email</label>
+              <ion-input
+                type="email"
+                [(ngModel)]="email"
+                name="email"
+                placeholder="Enter your email"
+                class="auth-input"
+                fill="outline"
+                autocomplete="email"
+              >
+                <ion-icon slot="start" name="mail-outline" aria-hidden="true"></ion-icon>
+              </ion-input>
             </div>
-          }
 
-          <button
-            type="submit"
-            class="btn btn-primary w-full"
-            [disabled]="authFlow.isLoading() || !isFormValid()"
-          >
-            @if (authFlow.isLoading()) {
-              <span class="spinner-sm"></span>
-              Creating account...
-            } @else {
-              Create Account
+            <!-- Password -->
+            <div class="auth-form__group">
+              <label class="auth-form__label">Password</label>
+              <ion-input
+                [type]="showPassword() ? 'text' : 'password'"
+                [(ngModel)]="password"
+                name="password"
+                placeholder="Create a password (min 6 characters)"
+                class="auth-input"
+                fill="outline"
+                autocomplete="new-password"
+              >
+                <ion-icon slot="start" name="lock-closed-outline" aria-hidden="true"></ion-icon>
+                <ion-input-password-toggle slot="end"></ion-input-password-toggle>
+              </ion-input>
+            </div>
+
+            <!-- Confirm Password -->
+            <div class="auth-form__group">
+              <label class="auth-form__label">Confirm Password</label>
+              <ion-input
+                [type]="showConfirmPassword() ? 'text' : 'password'"
+                [(ngModel)]="confirmPassword"
+                name="confirmPassword"
+                placeholder="Confirm your password"
+                class="auth-input"
+                fill="outline"
+                autocomplete="new-password"
+              >
+                <ion-icon slot="start" name="lock-closed-outline" aria-hidden="true"></ion-icon>
+                <ion-input-password-toggle slot="end"></ion-input-password-toggle>
+              </ion-input>
+            </div>
+
+            <!-- Team Code (Optional) -->
+            @if (teamCodeEnabled()) {
+              <div class="auth-form__group">
+                <label class="auth-form__label">Team Code (Optional)</label>
+                <ion-input
+                  type="text"
+                  [(ngModel)]="teamCode"
+                  name="teamCode"
+                  placeholder="Enter team code if you have one"
+                  class="auth-input"
+                  fill="outline"
+                >
+                  <ion-icon slot="start" name="person-outline" aria-hidden="true"></ion-icon>
+                </ion-input>
+              </div>
             }
-          </button>
-        </form>
 
-        <div class="divider">
-          <span>or continue with</span>
+            <!-- Submit Button -->
+            <ion-button
+              type="submit"
+              expand="block"
+              class="auth-button auth-button--primary"
+              [disabled]="authFlow.isLoading() || !isFormValid()"
+            >
+              @if (authFlow.isLoading()) {
+                <ion-spinner name="crescent"></ion-spinner>
+              } @else {
+                Create Account
+              }
+            </ion-button>
+          </form>
+
+          <!-- Divider -->
+          <div class="auth-divider">
+            <span class="auth-divider__text">OR</span>
+          </div>
+
+          <!-- Social Buttons -->
+          <div class="auth-social">
+            <ion-button
+              expand="block"
+              class="auth-button auth-button--google"
+              (click)="onGoogleSignUp()"
+              [disabled]="authFlow.isLoading()"
+            >
+              <ion-icon slot="start" name="logo-google"></ion-icon>
+              Continue with Google
+            </ion-button>
+
+            <ion-button
+              expand="block"
+              class="auth-button auth-button--apple"
+              (click)="onAppleSignUp()"
+              [disabled]="authFlow.isLoading()"
+            >
+              <ion-icon slot="start" name="logo-apple"></ion-icon>
+              Continue with Apple
+            </ion-button>
+          </div>
         </div>
 
-        <div class="social-buttons">
-          <button
-            type="button"
-            class="btn btn-secondary w-full"
-            (click)="onGoogleSignUp()"
-            [disabled]="authFlow.isLoading()"
-          >
-            <img src="assets/icons/google.svg" alt="" width="20" height="20" />
-            Google
-          </button>
-        </div>
-
-        <p class="terms-text">
-          By creating an account, you agree to our
-          <a href="/terms" target="_blank">Terms of Service</a>
-          and
-          <a href="/privacy" target="_blank">Privacy Policy</a>
-        </p>
-
+        <!-- Footer -->
         <div class="auth-footer">
-          <p>
+          <p class="auth-footer__text">
             Already have an account?
-            <a routerLink="/auth/login">Sign in</a>
+            <a routerLink="/auth/login" class="auth-link">Sign In</a>
+          </p>
+          <p class="auth-footer__legal">
+            By continuing, you agree to our
+            <a href="/terms" class="auth-link auth-link--subtle">Terms of Service</a>
+            and
+            <a href="/privacy" class="auth-link auth-link--subtle">Privacy Policy</a>
           </p>
         </div>
       </div>
-    </div>
+    </ion-content>
   `,
-  styles: [
-    `
-      .auth-container {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: var(--spacing-lg, 24px);
-        background-color: var(--app-bg, #121212);
-      }
-
-      .auth-card {
-        width: 100%;
-        max-width: 400px;
-        background-color: var(--card-bg, #1e1e1e);
-        border-radius: var(--radius-xl, 16px);
-        padding: var(--spacing-xl, 32px);
-      }
-
-      .auth-header {
-        text-align: center;
-        margin-bottom: var(--spacing-lg, 24px);
-
-        .logo {
-          margin-bottom: var(--spacing-md, 16px);
-        }
-
-        h1 {
-          font-size: 1.5rem;
-          margin-bottom: var(--spacing-xs, 4px);
-        }
-
-        p {
-          color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-          font-size: 0.875rem;
-        }
-      }
-
-      .error-alert {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: var(--spacing-sm, 8px) var(--spacing-md, 16px);
-        background-color: rgba(244, 67, 54, 0.1);
-        border: 1px solid var(--error, #f44336);
-        border-radius: var(--radius-md, 8px);
-        color: var(--error, #f44336);
-        margin-bottom: var(--spacing-md, 16px);
-        font-size: 0.875rem;
-
-        .close-btn {
-          background: none;
-          border: none;
-          color: inherit;
-          font-size: 1.25rem;
-          cursor: pointer;
-        }
-      }
-
-      .auth-form {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-md, 16px);
-      }
-
-      .form-group {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-xs, 4px);
-
-        label {
-          font-size: 0.875rem;
-          font-weight: 600;
-          color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-        }
-      }
-
-      .divider {
-        display: flex;
-        align-items: center;
-        gap: var(--spacing-md, 16px);
-        margin: var(--spacing-lg, 24px) 0;
-
-        &::before,
-        &::after {
-          content: '';
-          flex: 1;
-          height: 1px;
-          background-color: var(--border-color, rgba(255, 255, 255, 0.12));
-        }
-
-        span {
-          font-size: 0.75rem;
-          color: var(--text-tertiary, rgba(255, 255, 255, 0.5));
-          text-transform: uppercase;
-          letter-spacing: 1px;
-        }
-      }
-
-      .social-buttons {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-sm, 8px);
-
-        .btn {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: var(--spacing-sm, 8px);
-        }
-      }
-
-      .terms-text {
-        margin-top: var(--spacing-md, 16px);
-        font-size: 0.75rem;
-        color: var(--text-tertiary, rgba(255, 255, 255, 0.5));
-        text-align: center;
-
-        a {
-          color: var(--primary, #ccff00);
-        }
-      }
-
-      .auth-footer {
-        margin-top: var(--spacing-lg, 24px);
-        text-align: center;
-
-        p {
-          font-size: 0.875rem;
-          color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-
-          a {
-            color: var(--primary, #ccff00);
-            font-weight: 600;
-          }
-        }
-      }
-
-      .spinner-sm {
-        width: 16px;
-        height: 16px;
-        border: 2px solid rgba(0, 0, 0, 0.3);
-        border-top-color: #000;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-        margin-right: var(--spacing-xs, 4px);
-      }
-
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
-    `,
-  ],
+  styles: [``],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SignupComponent {
@@ -304,7 +204,14 @@ export class SignupComponent {
   confirmPassword = '';
   teamCode = '';
 
+  showPassword = signal(false);
+  showConfirmPassword = signal(false);
+
   teamCodeEnabled = () => true; // Could be feature flag
+
+  constructor() {
+    addIcons({ mailOutline, lockClosedOutline, personOutline, logoGoogle, logoApple });
+  }
 
   isFormValid(): boolean {
     return (
@@ -324,5 +231,10 @@ export class SignupComponent {
 
   async onGoogleSignUp(): Promise<void> {
     await this.authFlow.signInWithGoogle();
+  }
+
+  async onAppleSignUp(): Promise<void> {
+    // Apple sign in - to be implemented
+    console.log('Apple sign up clicked');
   }
 }

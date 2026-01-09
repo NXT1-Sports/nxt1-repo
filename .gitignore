@@ -6,7 +6,14 @@ node_modules/
 dist/
 lib/
 build/
+www/
 .turbo/
+
+# Angular cache
+.angular/
+
+# TypeScript build info
+*.tsbuildinfo
 
 # IDE
 .idea/

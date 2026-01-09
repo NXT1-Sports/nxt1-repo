@@ -1,0 +1,20 @@
+{
+  "name": "@nxt1/design-tokens",
+  "version": "1.0.0",
+  "description": "NXT1 Design Token System - Ionic-based design tokens for cross-platform consistency",
+  "main": "index.scss",
+  "files": [
+    "tokens",
+    "components",
+    "index.scss"
+  ],
+  "keywords": [
+    "design-tokens",
+    "ionic",
+    "scss",
+    "theme"
+  ],
+  "publishConfig": {
+    "access": "restricted"
+  }
+}

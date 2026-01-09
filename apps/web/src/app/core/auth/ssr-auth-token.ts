@@ -24,10 +24,7 @@ import { InjectionToken } from '@angular/core';
  * - string: The Firebase ID token from the cookie
  * - undefined: No auth cookie present (render as unauthenticated)
  */
-export const SSR_AUTH_TOKEN = new InjectionToken<string | undefined>(
-  'SSR_AUTH_TOKEN',
-  {
-    providedIn: 'root',
-    factory: () => undefined, // Default to undefined (no token)
-  }
-);
+export const SSR_AUTH_TOKEN = new InjectionToken<string | undefined>('SSR_AUTH_TOKEN', {
+  providedIn: 'root',
+  factory: () => undefined, // Default to undefined (no token)
+});

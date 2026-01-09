@@ -1,0 +1,110 @@
+/**
+ * @fileoverview Auth Base Styles
+ * @module @nxt1/design-tokens/components/auth
+ *
+ * Base authentication styles that use design tokens.
+ * Platform-adaptive - feels native on iOS, Android, and web.
+ * Note: Tokens are loaded by the importing stylesheet.
+ */
+
+// ============================================
+// AUTH PAGE LAYOUT
+// ============================================
+
+.nxt1-auth-page {
+  --auth-background: var(--nxt1-background-primary);
+  --auth-content-max-width: 440px;
+
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background: var(--auth-background);
+
+  ion-content {
+    --background: var(--auth-background);
+  }
+}
+
+.nxt1-auth-content {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  min-height: 100%;
+  padding: var(--nxt1-page-padding-y) var(--nxt1-page-padding-x);
+  padding-top: calc(var(--nxt1-page-padding-y) + var(--nxt1-safe-area-top));
+  padding-bottom: calc(var(--nxt1-page-padding-y) + var(--nxt1-safe-area-bottom));
+}
+
+.nxt1-auth-container {
+  width: 100%;
+  max-width: var(--auth-content-max-width);
+}
+
+// ============================================
+// AUTH HEADER / BRANDING
+// ============================================
+
+.nxt1-auth-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: var(--nxt1-spacing-8);
+  text-align: center;
+}
+
+.nxt1-auth-logo {
+  width: 80px;
+  height: 80px;
+  margin-bottom: var(--nxt1-spacing-4);
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+}
+
+.nxt1-auth-title {
+  font-size: var(--nxt1-heading-2-size);
+  font-weight: var(--nxt1-heading-2-weight);
+  line-height: var(--nxt1-heading-2-line-height);
+  color: var(--nxt1-text-primary);
+  margin: 0 0 var(--nxt1-spacing-2) 0;
+}
+
+.nxt1-auth-subtitle {
+  font-size: var(--nxt1-body-size);
+  color: var(--nxt1-text-secondary);
+  margin: 0;
+}
+
+// ============================================
+// AUTH CARD
+// ============================================
+
+.nxt1-auth-card {
+  background: var(--nxt1-background-elevated);
+  border-radius: var(--nxt1-radius-card);
+  padding: var(--nxt1-spacing-6);
+  box-shadow: var(--nxt1-shadow-card);
+
+  // On mobile, card goes edge-to-edge
+  @media (max-width: 480px) {
+    border-radius: 0;
+    box-shadow: none;
+    padding: var(--nxt1-spacing-4);
+    margin-left: calc(var(--nxt1-page-padding-x) * -1);
+    margin-right: calc(var(--nxt1-page-padding-x) * -1);
+  }
+}
+
+// Platform adjustments
+.ios .nxt1-auth-card {
+  border-radius: var(--nxt1-radius-xl);
+}
+
+.md .nxt1-auth-card {
+  border-radius: var(--nxt1-radius-lg);
+}

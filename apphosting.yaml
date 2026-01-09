@@ -40,7 +40,7 @@ headers:
       - header: Referrer-Policy
         value: strict-origin-when-cross-origin
 
-  # Cache static assets aggressively  
+  # Cache static assets aggressively
   - source: '**/*.{js,css,woff2,woff,ttf,png,jpg,jpeg,gif,svg,ico,webp}'
     headers:
       - header: Cache-Control

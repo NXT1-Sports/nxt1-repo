@@ -2,203 +2,150 @@ import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/cor
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { IonContent, IonInput, IonButton, IonIcon, IonSpinner } from '@ionic/angular/standalone';
+import { addIcons } from 'ionicons';
+import { mailOutline, arrowBackOutline, checkmarkCircleOutline } from 'ionicons/icons';
 import { AuthFlowService } from '../../services';
 
 /**
  * Forgot Password Component
+ *
+ * Handles password reset flow with design token styling.
  */
 @Component({
   selector: 'app-forgot-password',
   standalone: true,
-  imports: [CommonModule, RouterModule, FormsModule],
+  imports: [
+    CommonModule,
+    RouterModule,
+    FormsModule,
+    IonContent,
+    IonInput,
+    IonButton,
+    IonIcon,
+    IonSpinner,
+  ],
   template: `
-    <div class="auth-container">
-      <div class="auth-card">
-        <div class="auth-header">
-          <img
-            src="assets/images/nxt1-logo.svg"
-            alt="NXT1 Sports"
-            class="logo"
-            width="120"
-            height="40"
-          />
-          <h1>Reset Password</h1>
-          <p>Enter your email to receive a reset link</p>
+    <ion-content class="auth-page" [fullscreen]="true">
+      <div class="auth-page__container">
+        <!-- Logo -->
+        <div class="auth-page__logo">
+          <img src="assets/images/nxt1-logo.svg" alt="NXT1 Sports" />
         </div>
 
+        <!-- Header -->
+        <div class="auth-page__header">
+          <h1 class="auth-page__title">Reset Password</h1>
+          <p class="auth-page__subtitle">Enter your email to receive a reset link</p>
+        </div>
+
+        <!-- Error Message -->
         @if (authFlow.error()) {
-          <div class="error-alert">
-            {{ authFlow.error() }}
-            <button type="button" class="close-btn" (click)="authFlow.clearError()">×</button>
+          <div class="auth-error">
+            <span>{{ authFlow.error() }}</span>
+            <button type="button" class="auth-error__close" (click)="authFlow.clearError()">
+              ×
+            </button>
           </div>
         }
 
+        <!-- Success Message -->
         @if (emailSent()) {
-          <div class="success-alert">
-            <p>Password reset email sent!</p>
-            <p class="small">Check your inbox for instructions to reset your password.</p>
+          <div class="auth-card">
+            <div class="auth-success">
+              <ion-icon name="checkmark-circle-outline" class="auth-success__icon"></ion-icon>
+              <h2 class="auth-success__title">Email Sent!</h2>
+              <p class="auth-success__text">
+                Check your inbox for instructions to reset your password.
+              </p>
+              <ion-button
+                expand="block"
+                class="auth-button auth-button--primary"
+                routerLink="/auth/login"
+              >
+                Back to Sign In
+              </ion-button>
+            </div>
           </div>
         } @else {
-          <form (ngSubmit)="onSubmit()" class="auth-form">
-            <div class="form-group">
-              <label for="email">Email</label>
-              <input
-                type="email"
-                id="email"
-                name="email"
-                [(ngModel)]="email"
-                class="form-control"
-                placeholder="Enter your email"
-                required
-                autocomplete="email"
-              />
-            </div>
+          <!-- Reset Form -->
+          <div class="auth-card">
+            <form (ngSubmit)="onSubmit()" class="auth-form">
+              <!-- Email -->
+              <div class="auth-form__group">
+                <label class="auth-form__label">Email</label>
+                <ion-input
+                  type="email"
+                  [(ngModel)]="email"
+                  name="email"
+                  placeholder="Enter your email"
+                  class="auth-input"
+                  fill="outline"
+                  autocomplete="email"
+                >
+                  <ion-icon slot="start" name="mail-outline" aria-hidden="true"></ion-icon>
+                </ion-input>
+              </div>
 
-            <button
-              type="submit"
-              class="btn btn-primary w-full"
-              [disabled]="authFlow.isLoading() || !email"
-            >
-              @if (authFlow.isLoading()) {
-                <span class="spinner-sm"></span>
-                Sending...
-              } @else {
-                Send Reset Link
-              }
-            </button>
-          </form>
+              <!-- Submit Button -->
+              <ion-button
+                type="submit"
+                expand="block"
+                class="auth-button auth-button--primary"
+                [disabled]="authFlow.isLoading() || !email"
+              >
+                @if (authFlow.isLoading()) {
+                  <ion-spinner name="crescent"></ion-spinner>
+                } @else {
+                  Send Reset Link
+                }
+              </ion-button>
+            </form>
+          </div>
         }
 
+        <!-- Footer -->
         <div class="auth-footer">
-          <p>
-            <a routerLink="/auth/login">← Back to Sign In</a>
-          </p>
+          <a routerLink="/auth/login" class="auth-link">
+            <ion-icon name="arrow-back-outline"></ion-icon>
+            Back to Sign In
+          </a>
         </div>
       </div>
-    </div>
+    </ion-content>
   `,
   styles: [
     `
-      .auth-container {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: var(--spacing-lg, 24px);
-        background-color: var(--app-bg, #121212);
-      }
-
-      .auth-card {
-        width: 100%;
-        max-width: 400px;
-        background-color: var(--card-bg, #1e1e1e);
-        border-radius: var(--radius-xl, 16px);
-        padding: var(--spacing-xl, 32px);
-      }
-
-      .auth-header {
+      .auth-success {
         text-align: center;
-        margin-bottom: var(--spacing-lg, 24px);
+        padding: var(--spacing-lg, 24px) 0;
 
-        .logo {
+        &__icon {
+          font-size: 64px;
+          color: var(--ion-color-success, #4caf50);
           margin-bottom: var(--spacing-md, 16px);
         }
 
-        h1 {
-          font-size: 1.5rem;
-          margin-bottom: var(--spacing-xs, 4px);
+        &__title {
+          font-size: 1.25rem;
+          font-weight: 600;
+          margin-bottom: var(--spacing-sm, 8px);
         }
 
-        p {
+        &__text {
           color: var(--text-secondary, rgba(255, 255, 255, 0.7));
           font-size: 0.875rem;
+          margin-bottom: var(--spacing-lg, 24px);
         }
       }
 
-      .error-alert,
-      .success-alert {
-        padding: var(--spacing-md, 16px);
-        border-radius: var(--radius-md, 8px);
-        margin-bottom: var(--spacing-md, 16px);
-      }
-
-      .error-alert {
-        display: flex;
+      .auth-footer .auth-link {
+        display: inline-flex;
         align-items: center;
-        justify-content: space-between;
-        background-color: rgba(244, 67, 54, 0.1);
-        border: 1px solid var(--error, #f44336);
-        color: var(--error, #f44336);
-        font-size: 0.875rem;
-
-        .close-btn {
-          background: none;
-          border: none;
-          color: inherit;
-          font-size: 1.25rem;
-          cursor: pointer;
-        }
-      }
-
-      .success-alert {
-        background-color: rgba(76, 175, 80, 0.1);
-        border: 1px solid var(--success, #4caf50);
-        color: var(--success, #4caf50);
-        text-align: center;
-
-        p {
-          color: inherit;
-          margin: 0;
-        }
-
-        .small {
-          font-size: 0.875rem;
-          margin-top: var(--spacing-xs, 4px);
-          opacity: 0.8;
-        }
-      }
-
-      .auth-form {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-md, 16px);
-      }
-
-      .form-group {
-        display: flex;
-        flex-direction: column;
         gap: var(--spacing-xs, 4px);
 
-        label {
-          font-size: 0.875rem;
-          font-weight: 600;
-          color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-        }
-      }
-
-      .auth-footer {
-        margin-top: var(--spacing-lg, 24px);
-        text-align: center;
-
-        a {
-          color: var(--primary, #ccff00);
-          font-size: 0.875rem;
-        }
-      }
-
-      .spinner-sm {
-        width: 16px;
-        height: 16px;
-        border: 2px solid rgba(0, 0, 0, 0.3);
-        border-top-color: #000;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-        margin-right: var(--spacing-xs, 4px);
-      }
-
-      @keyframes spin {
-        to {
-          transform: rotate(360deg);
+        ion-icon {
+          font-size: 18px;
         }
       }
     `,
@@ -210,6 +157,10 @@ export class ForgotPasswordComponent {
 
   email = '';
   emailSent = signal(false);
+
+  constructor() {
+    addIcons({ mailOutline, arrowBackOutline, checkmarkCircleOutline });
+  }
 
   async onSubmit(): Promise<void> {
     if (!this.email) return;

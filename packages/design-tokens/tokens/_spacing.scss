@@ -1,0 +1,147 @@
+/**
+ * @fileoverview Spacing Design Tokens
+ * @module @nxt1/design-tokens
+ *
+ * Consistent spacing system using 4px base unit.
+ * Follows Ionic's safe area handling for native feel.
+ */
+
+// ============================================
+// BASE UNIT
+// ============================================
+
+$spacing-unit: 4px;
+
+// ============================================
+// SPACING SCALE
+// ============================================
+
+$spacing-0: 0;
+$spacing-1: $spacing-unit * 1; // 4px
+$spacing-2: $spacing-unit * 2; // 8px
+$spacing-3: $spacing-unit * 3; // 12px
+$spacing-4: $spacing-unit * 4; // 16px
+$spacing-5: $spacing-unit * 5; // 20px
+$spacing-6: $spacing-unit * 6; // 24px
+$spacing-8: $spacing-unit * 8; // 32px
+$spacing-10: $spacing-unit * 10; // 40px
+$spacing-12: $spacing-unit * 12; // 48px
+$spacing-16: $spacing-unit * 16; // 64px
+$spacing-20: $spacing-unit * 20; // 80px
+$spacing-24: $spacing-unit * 24; // 96px
+
+// ============================================
+// CSS CUSTOM PROPERTIES
+// ============================================
+
+:root {
+  --nxt1-spacing-0: #{$spacing-0};
+  --nxt1-spacing-1: #{$spacing-1};
+  --nxt1-spacing-2: #{$spacing-2};
+  --nxt1-spacing-3: #{$spacing-3};
+  --nxt1-spacing-4: #{$spacing-4};
+  --nxt1-spacing-5: #{$spacing-5};
+  --nxt1-spacing-6: #{$spacing-6};
+  --nxt1-spacing-8: #{$spacing-8};
+  --nxt1-spacing-10: #{$spacing-10};
+  --nxt1-spacing-12: #{$spacing-12};
+  --nxt1-spacing-16: #{$spacing-16};
+  --nxt1-spacing-20: #{$spacing-20};
+  --nxt1-spacing-24: #{$spacing-24};
+
+  // ============================================
+  // SEMANTIC SPACING
+  // ============================================
+
+  // Page/Container padding
+  --nxt1-page-padding-x: #{$spacing-4};
+  --nxt1-page-padding-y: #{$spacing-6};
+
+  // Card/Section spacing
+  --nxt1-card-padding: #{$spacing-4};
+  --nxt1-card-gap: #{$spacing-4};
+
+  // Form spacing
+  --nxt1-form-gap: #{$spacing-4};
+  --nxt1-input-padding-x: #{$spacing-4};
+  --nxt1-input-padding-y: #{$spacing-3};
+
+  // Button spacing
+  --nxt1-button-padding-x: #{$spacing-6};
+  --nxt1-button-padding-y: #{$spacing-3};
+
+  // Stack spacing (vertical rhythm)
+  --nxt1-stack-xs: #{$spacing-2};
+  --nxt1-stack-sm: #{$spacing-3};
+  --nxt1-stack-md: #{$spacing-4};
+  --nxt1-stack-lg: #{$spacing-6};
+  --nxt1-stack-xl: #{$spacing-8};
+
+  // Inline spacing (horizontal)
+  --nxt1-inline-xs: #{$spacing-2};
+  --nxt1-inline-sm: #{$spacing-3};
+  --nxt1-inline-md: #{$spacing-4};
+  --nxt1-inline-lg: #{$spacing-6};
+
+  // ============================================
+  // SAFE AREAS (Ionic handles these)
+  // ============================================
+
+  --nxt1-safe-area-top: var(--ion-safe-area-top, 0px);
+  --nxt1-safe-area-bottom: var(--ion-safe-area-bottom, 0px);
+  --nxt1-safe-area-left: var(--ion-safe-area-left, 0px);
+  --nxt1-safe-area-right: var(--ion-safe-area-right, 0px);
+}
+
+// ============================================
+// PLATFORM ADJUSTMENTS
+// ============================================
+
+// iOS tends to use slightly more padding
+.ios {
+  --nxt1-page-padding-x: #{$spacing-4};
+  --nxt1-page-padding-y: #{$spacing-5};
+  --nxt1-card-padding: #{$spacing-4};
+}
+
+// Android/Material uses standard spacing
+.md {
+  --nxt1-page-padding-x: #{$spacing-4};
+  --nxt1-page-padding-y: #{$spacing-4};
+  --nxt1-card-padding: #{$spacing-4};
+}
+
+// ============================================
+// SPACING MIXINS
+// ============================================
+
+@mixin page-padding {
+  padding-left: var(--nxt1-page-padding-x);
+  padding-right: var(--nxt1-page-padding-x);
+  padding-top: var(--nxt1-page-padding-y);
+  padding-bottom: var(--nxt1-page-padding-y);
+}
+
+@mixin page-padding-safe {
+  padding-left: calc(var(--nxt1-page-padding-x) + var(--nxt1-safe-area-left));
+  padding-right: calc(var(--nxt1-page-padding-x) + var(--nxt1-safe-area-right));
+  padding-top: calc(var(--nxt1-page-padding-y) + var(--nxt1-safe-area-top));
+  padding-bottom: calc(var(--nxt1-page-padding-y) + var(--nxt1-safe-area-bottom));
+}
+
+@mixin card-padding {
+  padding: var(--nxt1-card-padding);
+}
+
+@mixin stack($size: md) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nxt1-stack-#{$size});
+}
+
+@mixin inline($size: md) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--nxt1-inline-#{$size});
+}

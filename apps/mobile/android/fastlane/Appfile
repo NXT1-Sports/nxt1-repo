@@ -1,0 +1,3 @@
+# NXT1 Android App Configuration
+json_key_file(ENV["GOOGLE_PLAY_JSON_KEY_PATH"] || "google-play-key.json")
+package_name("com.nxt1.sports")

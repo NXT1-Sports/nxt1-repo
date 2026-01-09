@@ -1,0 +1,13 @@
+/**
+ * @fileoverview Auth Components Index
+ * @module @nxt1/design-tokens/components/auth
+ *
+ * Barrel export for all auth component styles.
+ * Import this file to get all auth-related styles.
+ */
+
+@import "auth-base";
+@import "auth-form";
+@import "auth-buttons";
+@import "auth-links";
+@import "auth-platform";
