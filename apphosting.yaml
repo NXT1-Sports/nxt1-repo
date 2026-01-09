@@ -7,9 +7,9 @@
 # Point to the Angular app directory
 rootDirectory: apps/web
 
-# Explicitly specify the server entry point
+# Explicitly specify the server entry point (path from workspace root)
 scripts:
-  runCommand: node dist/nxt1-web/server/server.mjs
+  runCommand: node apps/web/dist/nxt1-web/server/server.mjs
 
 # Runtime configuration
 runConfig:
