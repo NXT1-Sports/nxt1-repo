@@ -1,0 +1,57 @@
+# Firebase App Hosting Configuration - 2026 Best Practices
+# @see https://firebase.google.com/docs/app-hosting/build-monorepos
+#
+# For Turborepo monorepos, we bypass the automatic Angular adapter
+# which fails to parse JSON output due to Turborepo's prefixed logging
+
+# Required: Point to the Angular app within the monorepo
+rootDirectory: apps/web
+
+# Bypass automatic framework detection - use custom build/run commands
+scripts:
+  # Build command runs at monorepo root, uses Turborepo to build deps + app
+  buildCommand: npm run build --filter=@nxt1/web
+  
+  # Run command for SSR - starts the Angular server
+  runCommand: node dist/nxt1-web/server/server.mjs
+
+# Runtime configuration
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  concurrency: 80
+  minInstances: 0
+  maxInstances: 10
+
+# Environment variables
+env:
+  - variable: NODE_VERSION
+    value: '22'
+  - variable: NODE_ENV
+    value: 'production'
+
+# Custom headers for all responses
+headers:
+  # Security headers
+  - source: '**'
+    headers:
+      - header: X-Content-Type-Options
+        value: nosniff
+      - header: X-Frame-Options
+        value: SAMEORIGIN
+      - header: X-XSS-Protection
+        value: '1; mode=block'
+      - header: Referrer-Policy
+        value: strict-origin-when-cross-origin
+
+  # Cache static assets aggressively  
+  - source: '**/*.{js,css,woff2,woff,ttf,png,jpg,jpeg,gif,svg,ico,webp}'
+    headers:
+      - header: Cache-Control
+        value: 'public, max-age=31536000, immutable'
+
+  # Don't cache HTML pages (SSR generates fresh content)
+  - source: '**/*.html'
+    headers:
+      - header: Cache-Control
+        value: 'no-cache, no-store, must-revalidate'
