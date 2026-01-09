@@ -19,6 +19,7 @@
     "backend"
   ],
   "scripts": {
+    "gcp-build": "npm run build --workspace=@nxt1/web",
     "build": "turbo run build",
     "build:web": "turbo run build --filter=@nxt1/web",
     "build:mobile": "turbo run build --filter=@nxt1/mobile",

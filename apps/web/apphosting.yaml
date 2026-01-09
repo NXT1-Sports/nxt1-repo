@@ -1,15 +1,8 @@
 # Firebase App Hosting Configuration - 2026 Best Practices
 # @see https://firebase.google.com/docs/app-hosting
-
-# Root directory for the Angular app (relative to repo root)
-rootDirectory: apps/web
-
-# Custom build scripts - override default framework adapter
-scripts:
-  # Install all deps (including devDeps) and build the web app
-  build: npm install --include=dev && npm run build --workspace=@nxt1/web
-  # Run the SSR server
-  run: node dist/nxt1-web/server/server.mjs
+#
+# NOTE: This file must be in apps/web/ (the Angular app root) for monorepos
+# The gcp-build script in root package.json handles the actual build
 
 # Build configuration
 runConfig:
