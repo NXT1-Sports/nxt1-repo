@@ -135,14 +135,16 @@ export function createServer(): express.Express {
 
 /**
  * Start the Express server
- * Firebase App Hosting injects PORT environment variable
+ * Firebase App Hosting / Cloud Run inject PORT environment variable
+ * Must bind to 0.0.0.0 (all interfaces) for Cloud Run
  */
 function run(): void {
   const server = createServer();
   const port = process.env['PORT'] || 8080;
+  const host = '0.0.0.0'; // Required for Cloud Run
 
-  server.listen(port, () => {
-    console.log(`🚀 NXT1 SSR Server listening on http://localhost:${port}`);
+  server.listen(Number(port), host, () => {
+    console.log(`🚀 NXT1 SSR Server listening on http://${host}:${port}`);
     console.log(`   Environment: ${process.env['NODE_ENV'] || 'development'}`);
     console.log(`   Port: ${port}`);
   });
