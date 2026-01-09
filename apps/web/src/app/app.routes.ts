@@ -32,9 +32,7 @@ export const routes: Routes = [
   {
     path: 'explore',
     loadComponent: () =>
-      import('./features/explore/explore.component').then(
-        (m) => m.ExploreComponent
-      ),
+      import('./features/explore/explore.component').then((m) => m.ExploreComponent),
     data: { page: 'Explore' },
   },
 
@@ -42,9 +40,7 @@ export const routes: Routes = [
   {
     path: 'profile/:unicode',
     loadComponent: () =>
-      import('./features/profile/profile.component').then(
-        (m) => m.ProfileComponent
-      ),
+      import('./features/profile/profile.component').then((m) => m.ProfileComponent),
     data: { page: 'Profile' },
   },
 
@@ -53,8 +49,7 @@ export const routes: Routes = [
   // ============================================
   {
     path: 'auth',
-    loadChildren: () =>
-      import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),
+    loadChildren: () => import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),
   },
 
   // ============================================
@@ -64,8 +59,7 @@ export const routes: Routes = [
   // User Home / Dashboard
   {
     path: 'home',
-    loadComponent: () =>
-      import('./features/home/home.component').then((m) => m.HomeComponent),
+    loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
     // TODO: Add auth guard
     // canActivate: [authGuard],
     data: { page: 'Home' },
@@ -75,9 +69,7 @@ export const routes: Routes = [
   {
     path: 'settings',
     loadComponent: () =>
-      import('./features/settings/settings.component').then(
-        (m) => m.SettingsComponent
-      ),
+      import('./features/settings/settings.component').then((m) => m.SettingsComponent),
     // TODO: Add auth guard
     data: { page: 'Settings' },
   },
@@ -90,8 +82,6 @@ export const routes: Routes = [
   {
     path: '**',
     loadComponent: () =>
-      import('./features/not-found/not-found.component').then(
-        (m) => m.NotFoundComponent
-      ),
+      import('./features/not-found/not-found.component').then((m) => m.NotFoundComponent),
   },
 ];

@@ -29,12 +29,7 @@ export const APP_CONFIG = {
   MAX_VIDEO_SIZE: 500 * 1024 * 1024,
 
   /** Supported image formats */
-  SUPPORTED_IMAGE_FORMATS: [
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'image/gif',
-  ],
+  SUPPORTED_IMAGE_FORMATS: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
 
   /** Supported video formats */
   SUPPORTED_VIDEO_FORMATS: ['video/mp4', 'video/quicktime', 'video/webm'],

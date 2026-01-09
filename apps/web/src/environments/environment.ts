@@ -27,6 +27,5 @@ export const environment = {
 
   // Third-party API Keys
   removeBgKey: 'sCyRfLKyXDS5ySnuXmEiqXpK',
-  googleClientId:
-    '574223545656-od13fibpirieo8hqmlk1ajhpvqs9vp60.apps.googleusercontent.com',
+  googleClientId: '574223545656-od13fibpirieo8hqmlk1ajhpvqs9vp60.apps.googleusercontent.com',
 };

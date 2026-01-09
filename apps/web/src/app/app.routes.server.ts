@@ -102,4 +102,3 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
 ];
-

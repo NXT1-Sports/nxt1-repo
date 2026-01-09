@@ -267,8 +267,7 @@ export function createFetchAdapter(baseUrl: string = ''): HttpAdapter {
   }
 
   return {
-    get: <T>(url: string, config?: HttpRequestConfig) =>
-      request<T>('GET', url, undefined, config),
+    get: <T>(url: string, config?: HttpRequestConfig) => request<T>('GET', url, undefined, config),
     post: <T>(url: string, body: unknown, config?: HttpRequestConfig) =>
       request<T>('POST', url, body, config),
     put: <T>(url: string, body: unknown, config?: HttpRequestConfig) =>
@@ -287,10 +286,7 @@ export function createFetchAdapter(baseUrl: string = ''): HttpAdapter {
 /**
  * Build URL with query parameters
  */
-function buildUrl(
-  url: string,
-  params?: Record<string, string | number | boolean>
-): string {
+function buildUrl(url: string, params?: Record<string, string | number | boolean>): string {
   if (!params || Object.keys(params).length === 0) return url;
 
   const searchParams = new URLSearchParams();

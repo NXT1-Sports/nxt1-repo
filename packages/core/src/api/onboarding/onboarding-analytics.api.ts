@@ -117,10 +117,7 @@ export interface AnalyticsAdapter {
   /**
    * Track onboarding step (legacy method)
    */
-  trackOnboardingStep?(
-    action: 'viewed' | 'completed',
-    payload: Record<string, unknown>
-  ): void;
+  trackOnboardingStep?(action: 'viewed' | 'completed', payload: Record<string, unknown>): void;
 
   /**
    * Track onboarding complete (legacy method)
@@ -143,14 +140,7 @@ export type OnboardingUserType =
   | 'fan';
 
 /** Strongly typed user_type for analytics */
-export type AnalyticsUserType =
-  | 'athlete'
-  | 'coach'
-  | 'parent'
-  | 'fan'
-  | 'scout'
-  | 'media'
-  | string;
+export type AnalyticsUserType = 'athlete' | 'coach' | 'parent' | 'fan' | 'scout' | 'media' | string;
 
 /** Step IDs */
 export type OnboardingStepId =
@@ -241,9 +231,7 @@ export interface CompletionTrackingParams {
  * Map OnboardingUserType to AnalyticsUserType
  * ⭐ PURE FUNCTION - No dependencies
  */
-export function toAnalyticsUserType(
-  userType: OnboardingUserType
-): AnalyticsUserType {
+export function toAnalyticsUserType(userType: OnboardingUserType): AnalyticsUserType {
   const mapping: Record<OnboardingUserType, AnalyticsUserType> = {
     athlete: 'athlete',
     coach: 'coach',
@@ -260,12 +248,9 @@ export function toAnalyticsUserType(
  * Build step tracking payload
  * ⭐ PURE FUNCTION - No dependencies
  */
-export function buildStepPayload(
-  params: StepTrackingParams
-): StepTrackingPayload {
+export function buildStepPayload(params: StepTrackingParams): StepTrackingPayload {
   const analyticsUserType = toAnalyticsUserType(params.userType);
-  const stepName =
-    params.steps[params.currentIndex]?.title || params.stepId || 'Unknown';
+  const stepName = params.steps[params.currentIndex]?.title || params.stepId || 'Unknown';
 
   return {
     step_id: params.stepId || 'unknown',
@@ -496,6 +481,4 @@ export function createOnboardingAnalyticsApi(adapter: AnalyticsAdapter) {
 }
 
 // Type export for the API
-export type OnboardingAnalyticsApi = ReturnType<
-  typeof createOnboardingAnalyticsApi
->;
+export type OnboardingAnalyticsApi = ReturnType<typeof createOnboardingAnalyticsApi>;

@@ -91,9 +91,7 @@ export class AppComponent implements OnInit {
       this.loading.set(false);
     } catch (err) {
       console.error('[AppComponent] Initialization failed:', err);
-      this.error.set(
-        err instanceof Error ? err.message : 'Failed to initialize application'
-      );
+      this.error.set(err instanceof Error ? err.message : 'Failed to initialize application');
       this.loading.set(false);
     }
   }

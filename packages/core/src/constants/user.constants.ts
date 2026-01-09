@@ -32,10 +32,25 @@ export interface RoleConfig {
 }
 
 export const ROLE_CONFIGS: readonly RoleConfig[] = [
-  { id: 'athlete', label: 'Athlete', description: 'Student athlete looking to get recruited', icon: '🏃' },
+  {
+    id: 'athlete',
+    label: 'Athlete',
+    description: 'Student athlete looking to get recruited',
+    icon: '🏃',
+  },
   { id: 'coach', label: 'Coach', description: 'High school or club coach', icon: '🏆' },
-  { id: 'college-coach', label: 'College Coach', description: 'College coach recruiting athletes', icon: '🎓' },
-  { id: 'parent', label: 'Parent/Guardian', description: 'Parent managing athlete profile', icon: '👨‍👩‍👧' },
+  {
+    id: 'college-coach',
+    label: 'College Coach',
+    description: 'College coach recruiting athletes',
+    icon: '🎓',
+  },
+  {
+    id: 'parent',
+    label: 'Parent/Guardian',
+    description: 'Parent managing athlete profile',
+    icon: '👨‍👩‍👧',
+  },
   { id: 'fan', label: 'Fan', description: 'Following athletes and teams', icon: '📣' },
 ] as const;
 
@@ -106,11 +121,57 @@ export interface PlanConfig {
 }
 
 export const PLAN_CONFIGS: readonly PlanConfig[] = [
-  { id: 'free', label: 'Free', price: 0, priceUnit: 'month', features: ['Basic profile', 'Limited video uploads', 'Community access'], credits: 0 },
-  { id: 'starter', label: 'Starter', price: 9.99, priceUnit: 'month', features: ['Full profile', '5 video uploads', 'Email campaigns'], credits: 5 },
-  { id: 'pro', label: 'Pro', price: 19.99, priceUnit: 'month', features: ['Everything in Starter', 'Unlimited videos', 'AI scouting report', 'Priority support'], credits: 20, recommended: true },
-  { id: 'elite', label: 'Elite', price: 39.99, priceUnit: 'month', features: ['Everything in Pro', 'Personal branding', 'Direct coach messaging', 'Advanced analytics'], credits: 50 },
-  { id: 'team', label: 'Team', price: 199.99, priceUnit: 'month', features: ['Team management', 'Bulk athlete profiles', 'Team branding', 'Admin dashboard'], credits: 100 },
+  {
+    id: 'free',
+    label: 'Free',
+    price: 0,
+    priceUnit: 'month',
+    features: ['Basic profile', 'Limited video uploads', 'Community access'],
+    credits: 0,
+  },
+  {
+    id: 'starter',
+    label: 'Starter',
+    price: 9.99,
+    priceUnit: 'month',
+    features: ['Full profile', '5 video uploads', 'Email campaigns'],
+    credits: 5,
+  },
+  {
+    id: 'pro',
+    label: 'Pro',
+    price: 19.99,
+    priceUnit: 'month',
+    features: [
+      'Everything in Starter',
+      'Unlimited videos',
+      'AI scouting report',
+      'Priority support',
+    ],
+    credits: 20,
+    recommended: true,
+  },
+  {
+    id: 'elite',
+    label: 'Elite',
+    price: 39.99,
+    priceUnit: 'month',
+    features: [
+      'Everything in Pro',
+      'Personal branding',
+      'Direct coach messaging',
+      'Advanced analytics',
+    ],
+    credits: 50,
+  },
+  {
+    id: 'team',
+    label: 'Team',
+    price: 199.99,
+    priceUnit: 'month',
+    features: ['Team management', 'Bulk athlete profiles', 'Team branding', 'Admin dashboard'],
+    credits: 100,
+  },
 ] as const;
 
 // ============================================
@@ -290,7 +351,8 @@ export const NOTIFICATION_CHANNELS = {
   SMS: 'sms',
 } as const;
 
-export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[keyof typeof NOTIFICATION_CHANNELS];
+export type NotificationChannel =
+  (typeof NOTIFICATION_CHANNELS)[keyof typeof NOTIFICATION_CHANNELS];
 
 // ============================================
 // THEME OPTIONS
@@ -475,13 +537,55 @@ export interface SocialPlatformConfig {
 }
 
 export const SOCIAL_PLATFORM_CONFIGS: readonly SocialPlatformConfig[] = [
-  { id: 'twitter', label: 'Twitter/X', icon: '𝕏', urlPrefix: 'https://twitter.com/', placeholder: '@username' },
-  { id: 'instagram', label: 'Instagram', icon: '📸', urlPrefix: 'https://instagram.com/', placeholder: '@username' },
-  { id: 'tiktok', label: 'TikTok', icon: '🎵', urlPrefix: 'https://tiktok.com/@', placeholder: '@username' },
-  { id: 'hudl', label: 'Hudl', icon: '🎥', urlPrefix: 'https://hudl.com/', placeholder: 'Profile URL' },
-  { id: 'youtube', label: 'YouTube', icon: '▶️', urlPrefix: 'https://youtube.com/', placeholder: 'Channel URL' },
-  { id: 'maxPreps', label: 'MaxPreps', icon: '📊', urlPrefix: 'https://maxpreps.com/', placeholder: 'Profile URL' },
-  { id: 'linkedin', label: 'LinkedIn', icon: '💼', urlPrefix: 'https://linkedin.com/in/', placeholder: 'Profile URL' },
+  {
+    id: 'twitter',
+    label: 'Twitter/X',
+    icon: '𝕏',
+    urlPrefix: 'https://twitter.com/',
+    placeholder: '@username',
+  },
+  {
+    id: 'instagram',
+    label: 'Instagram',
+    icon: '📸',
+    urlPrefix: 'https://instagram.com/',
+    placeholder: '@username',
+  },
+  {
+    id: 'tiktok',
+    label: 'TikTok',
+    icon: '🎵',
+    urlPrefix: 'https://tiktok.com/@',
+    placeholder: '@username',
+  },
+  {
+    id: 'hudl',
+    label: 'Hudl',
+    icon: '🎥',
+    urlPrefix: 'https://hudl.com/',
+    placeholder: 'Profile URL',
+  },
+  {
+    id: 'youtube',
+    label: 'YouTube',
+    icon: '▶️',
+    urlPrefix: 'https://youtube.com/',
+    placeholder: 'Channel URL',
+  },
+  {
+    id: 'maxPreps',
+    label: 'MaxPreps',
+    icon: '📊',
+    urlPrefix: 'https://maxpreps.com/',
+    placeholder: 'Profile URL',
+  },
+  {
+    id: 'linkedin',
+    label: 'LinkedIn',
+    icon: '💼',
+    urlPrefix: 'https://linkedin.com/in/',
+    placeholder: 'Profile URL',
+  },
 ] as const;
 
 // ============================================
@@ -520,18 +624,58 @@ export interface ProfileSection {
 
 export const PROFILE_SECTIONS: readonly ProfileSection[] = [
   { id: 'about', title: 'About', icon: 'assets/images/profile/svg-icons/about.svg', order: 0 },
-  { id: 'contact', title: 'Contact', icon: 'assets/images/profile/svg-icons/contact.svg', order: 1 },
+  {
+    id: 'contact',
+    title: 'Contact',
+    icon: 'assets/images/profile/svg-icons/contact.svg',
+    order: 1,
+  },
   { id: 'coach', title: 'Coach', icon: 'assets/images/profile/svg-icons/coach.svg', order: 2 },
-  { id: 'academic', title: 'Academic', icon: 'assets/images/profile/svg-icons/academic.svg', order: 3 },
+  {
+    id: 'academic',
+    title: 'Academic',
+    icon: 'assets/images/profile/svg-icons/academic.svg',
+    order: 3,
+  },
   { id: 'size', title: 'Size', icon: 'assets/images/profile/svg-icons/size.svg', order: 4 },
-  { id: 'athletic', title: 'Athletic', icon: 'assets/images/profile/svg-icons/athletic.svg', order: 5 },
+  {
+    id: 'athletic',
+    title: 'Athletic',
+    icon: 'assets/images/profile/svg-icons/athletic.svg',
+    order: 5,
+  },
   { id: 'stats', title: 'Stats', icon: 'assets/images/profile/svg-icons/stats.svg', order: 6 },
   { id: 'awards', title: 'Awards', icon: 'assets/images/profile/svg-icons/awards.svg', order: 7 },
-  { id: 'college-offers', title: 'College Offers', icon: 'assets/images/profile/svg-icons/offers.svg', order: 8 },
-  { id: 'college-interests', title: 'College Interests', icon: 'assets/images/profile/svg-icons/college-interests.svg', order: 9 },
-  { id: 'college-visits', title: 'College Visits', icon: 'assets/images/profile/svg-icons/college-visits.svg', order: 10 },
-  { id: 'college-camps', title: 'College Camps', icon: 'assets/images/profile/svg-icons/college-camps.svg', order: 11 },
-  { id: 'schedule', title: 'Schedule', icon: 'assets/images/profile/svg-icons/schedule.svg', order: 12 },
+  {
+    id: 'college-offers',
+    title: 'College Offers',
+    icon: 'assets/images/profile/svg-icons/offers.svg',
+    order: 8,
+  },
+  {
+    id: 'college-interests',
+    title: 'College Interests',
+    icon: 'assets/images/profile/svg-icons/college-interests.svg',
+    order: 9,
+  },
+  {
+    id: 'college-visits',
+    title: 'College Visits',
+    icon: 'assets/images/profile/svg-icons/college-visits.svg',
+    order: 10,
+  },
+  {
+    id: 'college-camps',
+    title: 'College Camps',
+    icon: 'assets/images/profile/svg-icons/college-camps.svg',
+    order: 11,
+  },
+  {
+    id: 'schedule',
+    title: 'Schedule',
+    icon: 'assets/images/profile/svg-icons/schedule.svg',
+    order: 12,
+  },
   { id: 'events', title: 'Events', icon: 'assets/images/profile/svg-icons/events.svg', order: 13 },
 ] as const;
 
@@ -608,7 +752,9 @@ export function getPostTypeConfig(type: PostType | 'all'): PostTypeConfig | unde
   return POST_TYPE_CONFIGS.find((p) => p.id === type);
 }
 
-export function getSocialPlatformConfig(platform: SocialPlatform): SocialPlatformConfig | undefined {
+export function getSocialPlatformConfig(
+  platform: SocialPlatform
+): SocialPlatformConfig | undefined {
   return SOCIAL_PLATFORM_CONFIGS.find((p) => p.id === platform);
 }
 
@@ -616,6 +762,9 @@ export function getTeamTypeConfig(type: TeamType): TeamTypeConfig | undefined {
   return TEAM_TYPE_CONFIGS.find((t) => t.id === type);
 }
 
-export function isPromptDismissed(dismissedPrompts: string[], promptId: DismissablePrompt): boolean {
+export function isPromptDismissed(
+  dismissedPrompts: string[],
+  promptId: DismissablePrompt
+): boolean {
   return dismissedPrompts.includes(promptId);
 }

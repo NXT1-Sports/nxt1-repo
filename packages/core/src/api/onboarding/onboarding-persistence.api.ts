@@ -59,11 +59,7 @@ export interface FirestoreAdapter {
    * @param docId - Document ID
    * @param data - Data to update
    */
-  update(
-    collection: string,
-    docId: string,
-    data: Record<string, unknown>
-  ): Promise<void>;
+  update(collection: string, docId: string, data: Record<string, unknown>): Promise<void>;
 
   /**
    * Add a new document
@@ -299,12 +295,8 @@ export function categorizeError(error: Error): RetryErrorType {
  * Calculate delay with exponential backoff and jitter
  * ⭐ PURE FUNCTION - No dependencies
  */
-export function calculateBackoffDelay(
-  attempt: number,
-  config: RetryConfig
-): number {
-  const baseDelay =
-    config.initialDelayMs * Math.pow(config.backoffMultiplier, attempt);
+export function calculateBackoffDelay(attempt: number, config: RetryConfig): number {
+  const baseDelay = config.initialDelayMs * Math.pow(config.backoffMultiplier, attempt);
   const cappedDelay = Math.min(baseDelay, config.maxDelayMs);
   // Add jitter (±25%)
   const jitter = cappedDelay * 0.25 * (Math.random() * 2 - 1);
@@ -414,9 +406,7 @@ function mapUserTypeToRole(userType: OnboardingUserType): string {
  * - sports: [{ sport, positions, team, ... }]
  * - athlete: { classOf, ... } (role-specific)
  */
-export function buildUserUpdatePayload(
-  state: OnboardingPersistenceState
-): Record<string, unknown> {
+export function buildUserUpdatePayload(state: OnboardingPersistenceState): Record<string, unknown> {
   const { formData, userType, teamCodeData } = state;
   const now = new Date().toISOString();
 
@@ -503,10 +493,7 @@ export function buildUserUpdatePayload(
       seasonStats: [],
       accountType: 'athlete',
       team: {
-        name:
-          formData.school?.schoolName ||
-          formData.organization?.organizationName ||
-          '',
+        name: formData.school?.schoolName || formData.organization?.organizationName || '',
         type: formData.school?.schoolType === 'Club' ? 'club' : 'high-school',
       },
     };
@@ -517,10 +504,7 @@ export function buildUserUpdatePayload(
         name: teamCodeData.teamName || formData.school?.schoolName || '',
         type: teamCodeData.teamType || 'high-school',
         logo: teamCodeData.teamLogoImg || null,
-        colors: [
-          teamCodeData.teamColor1 || '',
-          teamCodeData.teamColor2 || '',
-        ].filter(Boolean),
+        colors: [teamCodeData.teamColor1 || '', teamCodeData.teamColor2 || ''].filter(Boolean),
       };
     }
 
@@ -641,8 +625,7 @@ export function buildReferralSourcePayload(data: {
       data.formData.organization?.organizationName ??
       null,
     teamType: data.teamCodeData?.teamType ?? null,
-    teamSport:
-      data.teamCodeData?.sport ?? data.formData.sport?.primarySport ?? null,
+    teamSport: data.teamCodeData?.sport ?? data.formData.sport?.primarySport ?? null,
   };
 
   // Add source-specific fields
@@ -650,10 +633,7 @@ export function buildReferralSourcePayload(data: {
     hearAboutData['clubName'] = data.referralSource.clubName;
   }
 
-  if (
-    data.referralSource.source === 'other' &&
-    data.referralSource.otherSpecify
-  ) {
+  if (data.referralSource.source === 'other' && data.referralSource.otherSpecify) {
     hearAboutData['otherSpecify'] = data.referralSource.otherSpecify;
   }
 
@@ -766,6 +746,4 @@ export function createOnboardingPersistenceApi(
 }
 
 // Type export for the API
-export type OnboardingPersistenceApi = ReturnType<
-  typeof createOnboardingPersistenceApi
->;
+export type OnboardingPersistenceApi = ReturnType<typeof createOnboardingPersistenceApi>;

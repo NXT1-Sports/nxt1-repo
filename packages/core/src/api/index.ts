@@ -112,5 +112,3 @@ export {
   buildInitialFormDataFromUser,
   getRedirectPath,
 } from './onboarding';
-
-

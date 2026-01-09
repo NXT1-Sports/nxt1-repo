@@ -18,11 +18,7 @@
  * @see https://firebase.google.com/docs/hosting/app-hosting
  */
 
-import {
-  ApplicationConfig,
-  provideZoneChangeDetection,
-  isDevMode,
-} from '@angular/core';
+import { ApplicationConfig, provideZoneChangeDetection, isDevMode } from '@angular/core';
 import {
   provideRouter,
   withComponentInputBinding,
@@ -32,11 +28,7 @@ import {
   PreloadAllModules,
   RouteReuseStrategy,
 } from '@angular/router';
-import {
-  provideHttpClient,
-  withFetch,
-  withInterceptors,
-} from '@angular/common/http';
+import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import {
   provideClientHydration,
   withEventReplay,
@@ -45,10 +37,7 @@ import {
 } from '@angular/platform-browser';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideServiceWorker } from '@angular/service-worker';
-import {
-  provideIonicAngular,
-  IonicRouteStrategy,
-} from '@ionic/angular/standalone';
+import { provideIonicAngular, IonicRouteStrategy } from '@ionic/angular/standalone';
 
 import { routes } from './app.routes';
 

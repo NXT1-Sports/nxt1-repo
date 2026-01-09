@@ -130,4 +130,3 @@ export {
 
 // Analytics V2 model
 export * from './analytics-v2.model';
-

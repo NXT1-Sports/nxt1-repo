@@ -99,7 +99,10 @@ export function formatSportDisplayName(sportName: string): string {
   }
 
   if (sportName.includes('_')) {
-    return sportName.split('_').map((word) => toTitleCase(word)).join(' ');
+    return sportName
+      .split('_')
+      .map((word) => toTitleCase(word))
+      .join(' ');
   }
 
   return toTitleCase(sportName);
@@ -438,64 +441,117 @@ export interface PositionGroup {
 
 export const SPORT_POSITION_GROUPS: Record<string, PositionGroup[]> = {
   football: [
-    { category: 'Offense', positions: ['quarterback', 'running back', 'wide receiver', 'tight end', 'center', 'guard', 'tackle'] },
-    { category: 'Defense', positions: ['defensive tackle', 'defensive end', 'linebacker', 'corner back', 'safety'] },
+    {
+      category: 'Offense',
+      positions: [
+        'quarterback',
+        'running back',
+        'wide receiver',
+        'tight end',
+        'center',
+        'guard',
+        'tackle',
+      ],
+    },
+    {
+      category: 'Defense',
+      positions: ['defensive tackle', 'defensive end', 'linebacker', 'corner back', 'safety'],
+    },
     { category: 'Special Teams', positions: ['kicker', 'punter', 'long snapper'] },
   ],
   basketball: [
-    { category: 'Positions', positions: ['point guard', 'shooting guard', 'small forward', 'power forward', 'center'] },
+    {
+      category: 'Positions',
+      positions: ['point guard', 'shooting guard', 'small forward', 'power forward', 'center'],
+    },
   ],
   baseball: [
-    { category: 'Positions', positions: ['pitcher', 'catcher', '1st baseman', '2nd baseman', '3rd baseman', 'shortstop', 'infielder', 'outfielder', 'designated hitter'] },
+    {
+      category: 'Positions',
+      positions: [
+        'pitcher',
+        'catcher',
+        '1st baseman',
+        '2nd baseman',
+        '3rd baseman',
+        'shortstop',
+        'infielder',
+        'outfielder',
+        'designated hitter',
+      ],
+    },
   ],
-  bowling: [
-    { category: 'Positions', positions: ['table setter', 'middle', 'setup', 'anchor'] },
-  ],
-  cross_country: [
-    { category: 'Positions', positions: ['harrier', 'runner'] },
-  ],
+  bowling: [{ category: 'Positions', positions: ['table setter', 'middle', 'setup', 'anchor'] }],
+  cross_country: [{ category: 'Positions', positions: ['harrier', 'runner'] }],
   field_hockey: [
-    { category: 'Positions', positions: ['forward/striker', 'midfielder', 'fullback/defender', 'sweeper', 'goalie'] },
+    {
+      category: 'Positions',
+      positions: ['forward/striker', 'midfielder', 'fullback/defender', 'sweeper', 'goalie'],
+    },
   ],
-  golf: [
-    { category: 'Positions', positions: ['golfer'] },
-  ],
+  golf: [{ category: 'Positions', positions: ['golfer'] }],
   gymnastics: [
-    { category: 'Positions', positions: ['acrobat', 'all arounder', 'artistic', 'power tumbling', 'rhythmic', 'trampoline'] },
+    {
+      category: 'Positions',
+      positions: [
+        'acrobat',
+        'all arounder',
+        'artistic',
+        'power tumbling',
+        'rhythmic',
+        'trampoline',
+      ],
+    },
   ],
-  ice_hockey: [
-    { category: 'Positions', positions: ['center', 'winger', 'defensemen', 'goalie'] },
-  ],
+  ice_hockey: [{ category: 'Positions', positions: ['center', 'winger', 'defensemen', 'goalie'] }],
   lacrosse: [
     { category: 'Positions', positions: ['attackman', 'midfielder', 'defender', 'goal keeper'] },
   ],
-  rowing: [
-    { category: 'Positions', positions: ['coxswain', 'rower'] },
-  ],
+  rowing: [{ category: 'Positions', positions: ['coxswain', 'rower'] }],
   soccer: [
     { category: 'Positions', positions: ['forward', 'midfielder', 'defender', 'goal keeper'] },
   ],
   softball: [
-    { category: 'Positions', positions: ['pitcher', 'catcher', '1st baseman', '2nd baseman', '3rd baseman', 'shortstop', 'outfielder', 'infielder'] },
+    {
+      category: 'Positions',
+      positions: [
+        'pitcher',
+        'catcher',
+        '1st baseman',
+        '2nd baseman',
+        '3rd baseman',
+        'shortstop',
+        'outfielder',
+        'infielder',
+      ],
+    },
   ],
-  swimming_diving: [
-    { category: 'Positions', positions: ['swimmer', 'diver'] },
-  ],
-  tennis: [
-    { category: 'Positions', positions: ['tennis player'] },
-  ],
+  swimming_diving: [{ category: 'Positions', positions: ['swimmer', 'diver'] }],
+  tennis: [{ category: 'Positions', positions: ['tennis player'] }],
   track_field: [
     { category: 'Positions', positions: ['sprinter', 'distance runner', 'hurdler', 'jumper'] },
   ],
   volleyball: [
-    { category: 'Positions', positions: ['outside hitter', 'middle blocker', 'opposite hitter', 'setter', 'libero', 'defensive specialist', 'serving specialist'] },
+    {
+      category: 'Positions',
+      positions: [
+        'outside hitter',
+        'middle blocker',
+        'opposite hitter',
+        'setter',
+        'libero',
+        'defensive specialist',
+        'serving specialist',
+      ],
+    },
   ],
   water_polo: [
-    { category: 'Positions', positions: ['goal keeper', 'wing', 'diver', 'point', 'center forward'] },
+    {
+      category: 'Positions',
+      positions: ['goal keeper', 'wing', 'diver', 'point', 'center forward'],
+    },
   ],
-  wrestling: [
-    { category: 'Positions', positions: [] },
-  ],
+  wrestling: [{ category: 'Positions', positions: [] }],
 };
 
 export const DEFAULT_POSITION_GROUPS: PositionGroup[] = [

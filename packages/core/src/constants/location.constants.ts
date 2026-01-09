@@ -229,8 +229,7 @@ export function searchStates(query: string): readonly USState[] {
   const normalized = query.toLowerCase().trim();
   return US_STATES.filter(
     (s) =>
-      s.name.toLowerCase().includes(normalized) ||
-      s.abbreviation.toLowerCase().includes(normalized)
+      s.name.toLowerCase().includes(normalized) || s.abbreviation.toLowerCase().includes(normalized)
   );
 }
 
@@ -242,8 +241,6 @@ export function searchCountries(query: string): readonly Country[] {
 
   const normalized = query.toLowerCase().trim();
   return COUNTRIES.filter(
-    (c) =>
-      c.name.toLowerCase().includes(normalized) ||
-      c.code.toLowerCase().includes(normalized)
+    (c) => c.name.toLowerCase().includes(normalized) || c.code.toLowerCase().includes(normalized)
   );
 }

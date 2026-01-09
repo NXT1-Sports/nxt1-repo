@@ -13,18 +13,9 @@
  * @module @nxt1/web/core/infrastructure
  */
 import { Injectable, inject } from '@angular/core';
-import {
-  HttpClient,
-  HttpErrorResponse,
-  HttpHeaders,
-  HttpParams,
-} from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
 import { firstValueFrom, timeout, catchError, throwError } from 'rxjs';
-import type {
-  HttpAdapter,
-  HttpRequestConfig,
-  HttpAdapterError,
-} from '@nxt1/core';
+import type { HttpAdapter, HttpRequestConfig, HttpAdapterError } from '@nxt1/core';
 
 /**
  * Default request timeout in milliseconds
@@ -54,83 +45,79 @@ export class AngularHttpAdapter implements HttpAdapter {
     const params = this.buildParams(config);
 
     return firstValueFrom(
-      this.http.get<T>(url, {
-        headers,
-        params,
-        withCredentials: config?.withCredentials,
-      }).pipe(
-        timeout(config?.timeout ?? DEFAULT_TIMEOUT),
-        catchError((error) => throwError(() => this.transformError(error)))
-      )
+      this.http
+        .get<T>(url, {
+          headers,
+          params,
+          withCredentials: config?.withCredentials,
+        })
+        .pipe(
+          timeout(config?.timeout ?? DEFAULT_TIMEOUT),
+          catchError((error) => throwError(() => this.transformError(error)))
+        )
     );
   }
 
   /**
    * Perform POST request
    */
-  async post<T>(
-    url: string,
-    body: unknown,
-    config?: HttpRequestConfig
-  ): Promise<T> {
+  async post<T>(url: string, body: unknown, config?: HttpRequestConfig): Promise<T> {
     const headers = this.buildHeaders(config);
     const params = this.buildParams(config);
 
     return firstValueFrom(
-      this.http.post<T>(url, body, {
-        headers,
-        params,
-        withCredentials: config?.withCredentials,
-      }).pipe(
-        timeout(config?.timeout ?? DEFAULT_TIMEOUT),
-        catchError((error) => throwError(() => this.transformError(error)))
-      )
+      this.http
+        .post<T>(url, body, {
+          headers,
+          params,
+          withCredentials: config?.withCredentials,
+        })
+        .pipe(
+          timeout(config?.timeout ?? DEFAULT_TIMEOUT),
+          catchError((error) => throwError(() => this.transformError(error)))
+        )
     );
   }
 
   /**
    * Perform PUT request
    */
-  async put<T>(
-    url: string,
-    body: unknown,
-    config?: HttpRequestConfig
-  ): Promise<T> {
+  async put<T>(url: string, body: unknown, config?: HttpRequestConfig): Promise<T> {
     const headers = this.buildHeaders(config);
     const params = this.buildParams(config);
 
     return firstValueFrom(
-      this.http.put<T>(url, body, {
-        headers,
-        params,
-        withCredentials: config?.withCredentials,
-      }).pipe(
-        timeout(config?.timeout ?? DEFAULT_TIMEOUT),
-        catchError((error) => throwError(() => this.transformError(error)))
-      )
+      this.http
+        .put<T>(url, body, {
+          headers,
+          params,
+          withCredentials: config?.withCredentials,
+        })
+        .pipe(
+          timeout(config?.timeout ?? DEFAULT_TIMEOUT),
+          catchError((error) => throwError(() => this.transformError(error)))
+        )
     );
   }
 
   /**
    * Perform PATCH request
    */
-  async patch<T>(
-    url: string,
-    body: unknown,
-    config?: HttpRequestConfig
-  ): Promise<T> {
+  async patch<T>(url: string, body: unknown, config?: HttpRequestConfig): Promise<T> {
     const headers = this.buildHeaders(config);
     const params = this.buildParams(config);
 
     return firstValueFrom(
-      this.http.patch<T>(url, body, {
-        headers,
-        params,
-        withCredentials: config?.withCredentials,
-      }).pipe(
-        timeout(config?.timeout ?? DEFAULT_TIMEOUT),
-        catchError((error) => throwError(() => this.transformError(error)))
-      )
+      this.http
+        .patch<T>(url, body, {
+          headers,
+          params,
+          withCredentials: config?.withCredentials,
+        })
+        .pipe(
+          timeout(config?.timeout ?? DEFAULT_TIMEOUT),
+          catchError((error) => throwError(() => this.transformError(error)))
+        )
     );
   }
 
@@ -142,14 +129,16 @@ export class AngularHttpAdapter implements HttpAdapter {
     const params = this.buildParams(config);
 
     return firstValueFrom(
-      this.http.delete<T>(url, {
-        headers,
-        params,
-        withCredentials: config?.withCredentials,
-      }).pipe(
-        timeout(config?.timeout ?? DEFAULT_TIMEOUT),
-        catchError((error) => throwError(() => this.transformError(error)))
-      )
+      this.http
+        .delete<T>(url, {
+          headers,
+          params,
+          withCredentials: config?.withCredentials,
+        })
+        .pipe(
+          timeout(config?.timeout ?? DEFAULT_TIMEOUT),
+          catchError((error) => throwError(() => this.transformError(error)))
+        )
     );
   }
 

@@ -76,9 +76,7 @@ export class BrowserAuthService implements IAuthService {
   readonly isAuthenticated = computed(() => this._firebaseUser() !== null);
   readonly userRole = computed(() => this._user()?.role ?? null);
   readonly isPremium = computed(() => this._user()?.isPremium ?? false);
-  readonly hasCompletedOnboarding = computed(
-    () => this._user()?.hasCompletedOnboarding ?? false
-  );
+  readonly hasCompletedOnboarding = computed(() => this._user()?.hasCompletedOnboarding ?? false);
 
   // ============================================
   // INITIALIZATION
@@ -106,9 +104,7 @@ export class BrowserAuthService implements IAuthService {
         }
       } catch (err) {
         console.error('[BrowserAuthService] Auth state sync failed:', err);
-        this._error.set(
-          err instanceof Error ? err.message : 'Authentication error'
-        );
+        this._error.set(err instanceof Error ? err.message : 'Authentication error');
       } finally {
         this._isLoading.set(false);
         this._isInitialized.set(true);
@@ -149,8 +145,7 @@ export class BrowserAuthService implements IAuthService {
         role: 'athlete' as UserRole,
         isPremium: false,
         hasCompletedOnboarding: false,
-        createdAt:
-          firebaseUser.metadata.creationTime ?? new Date().toISOString(),
+        createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
     } catch (err) {
@@ -167,15 +162,9 @@ export class BrowserAuthService implements IAuthService {
     this._error.set(null);
 
     try {
-      await signInWithEmailAndPassword(
-        this.firebaseAuth,
-        credentials.email,
-        credentials.password
-      );
+      await signInWithEmailAndPassword(this.firebaseAuth, credentials.email, credentials.password);
 
-      const redirectPath = this.hasCompletedOnboarding()
-        ? '/home'
-        : '/auth/onboarding';
+      const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
 
       await this.router.navigate([redirectPath]);
       return true;
@@ -207,9 +196,7 @@ export class BrowserAuthService implements IAuthService {
         });
         await this.router.navigate(['/auth/onboarding']);
       } else {
-        const redirectPath = this.hasCompletedOnboarding()
-          ? '/home'
-          : '/auth/onboarding';
+        const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
         await this.router.navigate([redirectPath]);
       }
 
@@ -247,9 +234,7 @@ export class BrowserAuthService implements IAuthService {
 
       if (!createResult.success) {
         throw new Error(
-          'error' in createResult
-            ? createResult.error.message
-            : 'Failed to create user'
+          'error' in createResult ? createResult.error.message : 'Failed to create user'
         );
       }
 

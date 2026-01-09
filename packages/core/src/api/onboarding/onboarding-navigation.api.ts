@@ -599,9 +599,7 @@ export function mapTeamCodeRole(role: string): OnboardingUserType {
  * Detect user type from team code
  * ⭐ PURE FUNCTION - No dependencies
  */
-export function detectUserTypeFromTeamCode(
-  teamCode: string
-): OnboardingUserType {
+export function detectUserTypeFromTeamCode(teamCode: string): OnboardingUserType {
   const roleCode = teamCode.slice(-2);
   if (roleCode === '01') return 'athlete';
   if (roleCode === '02') return 'coach';
@@ -628,9 +626,7 @@ export function detectUserTypeFromUserData(
  * Map team type string to school type
  * ⭐ PURE FUNCTION - No dependencies
  */
-export function mapTeamType(
-  teamType?: string
-): 'High School' | 'Middle School' | 'Club' | 'Juco' {
+export function mapTeamType(teamType?: string): 'High School' | 'Middle School' | 'Club' | 'Juco' {
   if (!teamType) return 'High School';
   const type = teamType.toLowerCase();
   if (type.includes('club')) return 'Club';
@@ -797,6 +793,4 @@ export function createOnboardingNavigationApi() {
 }
 
 // Type export for the API
-export type OnboardingNavigationApi = ReturnType<
-  typeof createOnboardingNavigationApi
->;
+export type OnboardingNavigationApi = ReturnType<typeof createOnboardingNavigationApi>;

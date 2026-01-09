@@ -88,22 +88,18 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   'auth/user-not-found': 'No account found with this email address.',
   'auth/wrong-password': 'Incorrect password. Please try again.',
   'auth/invalid-email': 'Please enter a valid email address.',
-  'auth/email-already-in-use':
-    'An account already exists with this email. Please sign in instead.',
+  'auth/email-already-in-use': 'An account already exists with this email. Please sign in instead.',
   'auth/weak-password': 'Password must be at least 6 characters.',
   'auth/too-many-requests': 'Too many attempts. Please try again later.',
   'auth/network-request-failed': 'Network error. Check your connection.',
   'auth/popup-closed-by-user': 'Sign-in was cancelled.',
   'auth/account-exists-with-different-credential':
     'An account already exists with this email using a different sign-in method.',
-  'auth/invalid-credential':
-    'Invalid email or password. Please check and try again.',
+  'auth/invalid-credential': 'Invalid email or password. Please check and try again.',
   'auth/user-disabled': 'This account has been disabled. Contact support.',
   'auth/operation-not-allowed': 'This sign-in method is not enabled.',
-  'auth/requires-recent-login':
-    'Please sign out and sign in again for security.',
-  'auth/credential-already-in-use':
-    'This credential is already associated with another account.',
+  'auth/requires-recent-login': 'Please sign out and sign in again for security.',
+  'auth/credential-already-in-use': 'This credential is already associated with another account.',
 
   // Backend error codes
   NOT_FOUND: 'Service temporarily unavailable. Please try again.',

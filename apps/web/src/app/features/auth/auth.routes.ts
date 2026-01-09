@@ -17,8 +17,7 @@ export const AUTH_ROUTES: Routes = [
   },
   {
     path: 'login',
-    loadComponent: () =>
-      import('./features/login/login.component').then((m) => m.LoginComponent),
+    loadComponent: () => import('./features/login/login.component').then((m) => m.LoginComponent),
     title: 'Sign In | NXT1 Sports',
   },
   {
@@ -38,9 +37,7 @@ export const AUTH_ROUTES: Routes = [
   {
     path: 'onboarding',
     loadComponent: () =>
-      import('./features/onboarding/onboarding.component').then(
-        (m) => m.OnboardingComponent
-      ),
+      import('./features/onboarding/onboarding.component').then((m) => m.OnboardingComponent),
     title: 'Complete Profile | NXT1 Sports',
   },
 ];

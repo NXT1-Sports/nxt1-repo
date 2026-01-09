@@ -136,13 +136,7 @@ export type PostType =
   | 'metric'
   | 'schedule';
 
-export type UserReaction =
-  | 'like'
-  | 'love'
-  | 'celebrate'
-  | 'support'
-  | 'insightful'
-  | null;
+export type UserReaction = 'like' | 'love' | 'celebrate' | 'support' | 'insightful' | null;
 
 export interface MentionData {
   id: string;

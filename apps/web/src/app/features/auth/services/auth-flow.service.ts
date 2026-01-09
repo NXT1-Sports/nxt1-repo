@@ -150,15 +150,11 @@ export class AuthFlowService {
   readonly error = computed(() => this._error());
   readonly isInitialized = computed(() => this._isInitialized());
 
-  readonly isAuthenticated = computed(
-    () => this._firebaseUser() !== null
-  );
+  readonly isAuthenticated = computed(() => this._firebaseUser() !== null);
 
   readonly userRole = computed(() => this._user()?.role ?? null);
   readonly isPremium = computed(() => this._user()?.isPremium ?? false);
-  readonly hasCompletedOnboarding = computed(
-    () => this._user()?.hasCompletedOnboarding ?? false
-  );
+  readonly hasCompletedOnboarding = computed(() => this._user()?.hasCompletedOnboarding ?? false);
 
   // ============================================
   // INITIALIZATION
@@ -223,9 +219,7 @@ export class AuthFlowService {
         }
       } catch (err) {
         console.error('[AuthFlowService] Auth state sync failed:', err);
-        this._error.set(
-          err instanceof Error ? err.message : 'Authentication error'
-        );
+        this._error.set(err instanceof Error ? err.message : 'Authentication error');
       } finally {
         this._isLoading.set(false);
         this._isInitialized.set(true);
@@ -278,16 +272,10 @@ export class AuthFlowService {
       // Dynamic import for SSR safety
       const { signInWithEmailAndPassword } = await import('firebase/auth');
 
-      await signInWithEmailAndPassword(
-        this.firebaseAuth,
-        credentials.email,
-        credentials.password
-      );
+      await signInWithEmailAndPassword(this.firebaseAuth, credentials.email, credentials.password);
 
       // Navigate to home or onboarding
-      const redirectPath = this.hasCompletedOnboarding()
-        ? '/home'
-        : '/auth/onboarding';
+      const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
 
       await this.router.navigate([redirectPath]);
       return true;
@@ -332,9 +320,7 @@ export class AuthFlowService {
 
         await this.router.navigate(['/auth/onboarding']);
       } else {
-        const redirectPath = this.hasCompletedOnboarding()
-          ? '/home'
-          : '/auth/onboarding';
+        const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
 
         await this.router.navigate([redirectPath]);
       }

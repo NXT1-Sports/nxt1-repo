@@ -27,11 +27,7 @@
  */
 
 import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
-import {
-  provideRouter,
-  withComponentInputBinding,
-  withInMemoryScrolling,
-} from '@angular/router';
+import { provideRouter, withComponentInputBinding, withInMemoryScrolling } from '@angular/router';
 import { provideHttpClient, withFetch } from '@angular/common/http';
 import { provideServerRendering } from '@angular/platform-server';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
@@ -95,5 +91,3 @@ export const config: ApplicationConfig = {
     { provide: AUTH_SERVICE, useClass: ServerAuthService },
   ],
 };
-
-

@@ -87,14 +87,7 @@ export interface OnboardingProfileData {
   lastName: string;
   profileImg?: string;
   bio?: string;
-  userType:
-    | 'athlete'
-    | 'coach'
-    | 'parent'
-    | 'scout'
-    | 'media'
-    | 'service'
-    | 'fan';
+  userType: 'athlete' | 'coach' | 'parent' | 'scout' | 'media' | 'service' | 'fan';
   sport?: string;
   secondarySport?: string;
   positions?: string[];
@@ -274,9 +267,7 @@ export type CreateUserResult = CreateUserResponse | CreateUserErrorResponse;
 /**
  * Type guard to check if response is successful
  */
-export function isCreateUserSuccess(
-  response: CreateUserResult
-): response is CreateUserResponse {
+export function isCreateUserSuccess(response: CreateUserResult): response is CreateUserResponse {
   return response.success === true;
 }
 
@@ -347,10 +338,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      */
     async createUser(data: CreateUserRequest): Promise<CreateUserResult> {
       try {
-        const response = await http.post<CreateUserResult>(
-          `${base}/auth/create-user`,
-          data
-        );
+        const response = await http.post<CreateUserResult>(`${base}/auth/create-user`, data);
         return response;
       } catch (error) {
         // Return structured error response
@@ -358,8 +346,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
           success: false,
           error: {
             code: 'NETWORK_ERROR',
-            message:
-              error instanceof Error ? error.message : 'Failed to create user',
+            message: error instanceof Error ? error.message : 'Failed to create user',
             requestId: `client_${Date.now()}`,
             timestamp: Date.now(),
           },
@@ -386,10 +373,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
       } catch (error) {
         return {
           valid: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Failed to validate team code',
+          error: error instanceof Error ? error.message : 'Failed to validate team code',
         };
       }
     },
@@ -491,14 +475,17 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
             return unwrapResponse(response);
 
           case 'organization':
-            response = await http.patch<BackendStepResponse>(`${v2Base}/auth/profile/organization`, {
-              userId,
-              organization: stepData['organization'],
-              secondOrganization: stepData['secondOrganization'],
-              coachTitle: stepData['coachTitle'],
-              state: stepData['state'],
-              city: stepData['city'],
-            });
+            response = await http.patch<BackendStepResponse>(
+              `${v2Base}/auth/profile/organization`,
+              {
+                userId,
+                organization: stepData['organization'],
+                secondOrganization: stepData['secondOrganization'],
+                coachTitle: stepData['coachTitle'],
+                state: stepData['state'],
+                city: stepData['city'],
+              }
+            );
             return unwrapResponse(response);
 
           case 'sport':
@@ -541,20 +528,20 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
 
           default:
             // Fallback to legacy endpoint for unknown steps
-            response = await http.post<BackendStepResponse>(`${base}/auth/profile/onboarding-step`, {
-              userId,
-              stepId,
-              stepData,
-            });
+            response = await http.post<BackendStepResponse>(
+              `${base}/auth/profile/onboarding-step`,
+              {
+                userId,
+                stepId,
+                stepData,
+              }
+            );
             return unwrapResponse(response);
         }
       } catch (error) {
         return {
           success: false,
-          error:
-            error instanceof Error
-              ? error.message
-              : 'Failed to save onboarding step',
+          error: error instanceof Error ? error.message : 'Failed to save onboarding step',
         };
       }
     },
@@ -570,14 +557,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      */
     async updateRole(
       userId: string,
-      userType:
-        | 'athlete'
-        | 'coach'
-        | 'parent'
-        | 'scout'
-        | 'media'
-        | 'service'
-        | 'fan'
+      userType: 'athlete' | 'coach' | 'parent' | 'scout' | 'media' | 'service' | 'fan'
     ): Promise<OnboardingStepResponse> {
       const v2Base = base.replace('/v1', '/v2');
       return http.patch(`${v2Base}/auth/profile/role`, { userId, userType });
@@ -656,10 +636,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      * Update playing positions
      * PATCH /v2/auth/profile/positions
      */
-    async updatePositions(
-      userId: string,
-      positions: string[]
-    ): Promise<OnboardingStepResponse> {
+    async updatePositions(userId: string, positions: string[]): Promise<OnboardingStepResponse> {
       const v2Base = base.replace('/v1', '/v2');
       return http.patch(`${v2Base}/auth/profile/positions`, {
         userId,
@@ -732,10 +709,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      * @param data - Referral source information
      * @returns Success status
      */
-    async saveReferralSource(
-      userId: string,
-      data: ReferralSourceData
-    ): Promise<HearAboutResponse> {
+    async saveReferralSource(userId: string, data: ReferralSourceData): Promise<HearAboutResponse> {
       return http.post(`${base}/auth/analytics/hear-about`, {
         userId,
         ...data,
@@ -749,9 +723,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      * @param userId - User's ID
      * @returns Updated user data
      */
-    async completeOnboarding(
-      userId: string
-    ): Promise<OnboardingCompleteResponse> {
+    async completeOnboarding(userId: string): Promise<OnboardingCompleteResponse> {
       return http.post(`${base}/auth/profile/complete-onboarding`, { userId });
     },
 
@@ -782,10 +754,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
       userId: string,
       data: Partial<OnboardingProfileData>
     ): Promise<UserProfileResponse> {
-      return http.patch(
-        `${base}/auth/profile/${encodeURIComponent(userId)}`,
-        data
-      );
+      return http.patch(`${base}/auth/profile/${encodeURIComponent(userId)}`, data);
     },
 
     /**
@@ -795,9 +764,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      * @returns Availability status with suggestions if taken
      */
     async checkUsername(username: string): Promise<UsernameCheckResponse> {
-      return http.get(
-        `${base}/auth/profile/check-username/${encodeURIComponent(username)}`
-      );
+      return http.get(`${base}/auth/profile/check-username/${encodeURIComponent(username)}`);
     },
 
     // ============================================
@@ -823,9 +790,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      * @param token - Verification token from email
      * @returns Verification result
      */
-    async verifyEmail(
-      token: string
-    ): Promise<{ success: boolean; message?: string }> {
+    async verifyEmail(token: string): Promise<{ success: boolean; message?: string }> {
       return http.post(`${base}/auth/verify-email`, { token });
     },
 
@@ -839,12 +804,8 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      * @param referralId - Referral ID or code
      * @returns Validation result with referrer info
      */
-    async validateReferral(
-      referralId: string
-    ): Promise<ReferralValidationResponse> {
-      return http.get(
-        `${base}/auth/referral/validate/${encodeURIComponent(referralId)}`
-      );
+    async validateReferral(referralId: string): Promise<ReferralValidationResponse> {
+      return http.get(`${base}/auth/referral/validate/${encodeURIComponent(referralId)}`);
     },
 
     /**

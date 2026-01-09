@@ -93,9 +93,7 @@ export function createServer(): express.Express {
         documentFilePath: INDEX_HTML,
         url: fullUrl,
         publicPath: DIST_FOLDER,
-        providers: [
-          { provide: APP_BASE_HREF, useValue: baseUrl || '/' },
-        ],
+        providers: [{ provide: APP_BASE_HREF, useValue: baseUrl || '/' }],
       })
       .then((html) => {
         // Add security headers
@@ -153,4 +151,3 @@ run();
 
 // Export for testing
 export { createServer as app };
-

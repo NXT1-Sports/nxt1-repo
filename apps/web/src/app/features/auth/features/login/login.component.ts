@@ -1,9 +1,4 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-  inject,
-  signal,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -70,16 +65,10 @@ import { AuthFlowService } from '../../services';
           </div>
 
           <div class="form-actions">
-            <a routerLink="/auth/forgot-password" class="forgot-link">
-              Forgot password?
-            </a>
+            <a routerLink="/auth/forgot-password" class="forgot-link"> Forgot password? </a>
           </div>
 
-          <button
-            type="submit"
-            class="btn btn-primary w-full"
-            [disabled]="authFlow.isLoading()"
-          >
+          <button type="submit" class="btn btn-primary w-full" [disabled]="authFlow.isLoading()">
             @if (authFlow.isLoading()) {
               <span class="spinner-sm"></span>
               Signing in...
@@ -114,158 +103,162 @@ import { AuthFlowService } from '../../services';
       </div>
     </div>
   `,
-  styles: [`
-    .auth-container {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: var(--spacing-lg, 24px);
-      background-color: var(--app-bg, #121212);
-    }
-
-    .auth-card {
-      width: 100%;
-      max-width: 400px;
-      background-color: var(--card-bg, #1e1e1e);
-      border-radius: var(--radius-xl, 16px);
-      padding: var(--spacing-xl, 32px);
-    }
-
-    .auth-header {
-      text-align: center;
-      margin-bottom: var(--spacing-lg, 24px);
-
-      .logo {
-        margin-bottom: var(--spacing-md, 16px);
-      }
-
-      h1 {
-        font-size: 1.5rem;
-        margin-bottom: var(--spacing-xs, 4px);
-      }
-
-      p {
-        color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-        font-size: 0.875rem;
-      }
-    }
-
-    .error-alert {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: var(--spacing-sm, 8px) var(--spacing-md, 16px);
-      background-color: rgba(244, 67, 54, 0.1);
-      border: 1px solid var(--error, #f44336);
-      border-radius: var(--radius-md, 8px);
-      color: var(--error, #f44336);
-      margin-bottom: var(--spacing-md, 16px);
-      font-size: 0.875rem;
-
-      .close-btn {
-        background: none;
-        border: none;
-        color: inherit;
-        font-size: 1.25rem;
-        cursor: pointer;
-        padding: 0;
-        margin-left: var(--spacing-sm, 8px);
-      }
-    }
-
-    .auth-form {
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-md, 16px);
-    }
-
-    .form-group {
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-xs, 4px);
-
-      label {
-        font-size: 0.875rem;
-        font-weight: 600;
-        color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-      }
-    }
-
-    .form-actions {
-      display: flex;
-      justify-content: flex-end;
-
-      .forgot-link {
-        font-size: 0.875rem;
-        color: var(--primary, #ccff00);
-      }
-    }
-
-    .divider {
-      display: flex;
-      align-items: center;
-      gap: var(--spacing-md, 16px);
-      margin: var(--spacing-lg, 24px) 0;
-
-      &::before,
-      &::after {
-        content: '';
-        flex: 1;
-        height: 1px;
-        background-color: var(--border-color, rgba(255, 255, 255, 0.12));
-      }
-
-      span {
-        font-size: 0.75rem;
-        color: var(--text-tertiary, rgba(255, 255, 255, 0.5));
-        text-transform: uppercase;
-        letter-spacing: 1px;
-      }
-    }
-
-    .social-buttons {
-      display: flex;
-      flex-direction: column;
-      gap: var(--spacing-sm, 8px);
-
-      .btn {
+  styles: [
+    `
+      .auth-container {
+        min-height: 100vh;
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: var(--spacing-sm, 8px);
+        padding: var(--spacing-lg, 24px);
+        background-color: var(--app-bg, #121212);
       }
-    }
 
-    .auth-footer {
-      margin-top: var(--spacing-lg, 24px);
-      text-align: center;
+      .auth-card {
+        width: 100%;
+        max-width: 400px;
+        background-color: var(--card-bg, #1e1e1e);
+        border-radius: var(--radius-xl, 16px);
+        padding: var(--spacing-xl, 32px);
+      }
 
-      p {
-        font-size: 0.875rem;
-        color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+      .auth-header {
+        text-align: center;
+        margin-bottom: var(--spacing-lg, 24px);
 
-        a {
-          color: var(--primary, #ccff00);
-          font-weight: 600;
+        .logo {
+          margin-bottom: var(--spacing-md, 16px);
+        }
+
+        h1 {
+          font-size: 1.5rem;
+          margin-bottom: var(--spacing-xs, 4px);
+        }
+
+        p {
+          color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+          font-size: 0.875rem;
         }
       }
-    }
 
-    .spinner-sm {
-      width: 16px;
-      height: 16px;
-      border: 2px solid rgba(0, 0, 0, 0.3);
-      border-top-color: #000;
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin-right: var(--spacing-xs, 4px);
-    }
+      .error-alert {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--spacing-sm, 8px) var(--spacing-md, 16px);
+        background-color: rgba(244, 67, 54, 0.1);
+        border: 1px solid var(--error, #f44336);
+        border-radius: var(--radius-md, 8px);
+        color: var(--error, #f44336);
+        margin-bottom: var(--spacing-md, 16px);
+        font-size: 0.875rem;
 
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-  `],
+        .close-btn {
+          background: none;
+          border: none;
+          color: inherit;
+          font-size: 1.25rem;
+          cursor: pointer;
+          padding: 0;
+          margin-left: var(--spacing-sm, 8px);
+        }
+      }
+
+      .auth-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-md, 16px);
+      }
+
+      .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-xs, 4px);
+
+        label {
+          font-size: 0.875rem;
+          font-weight: 600;
+          color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+        }
+      }
+
+      .form-actions {
+        display: flex;
+        justify-content: flex-end;
+
+        .forgot-link {
+          font-size: 0.875rem;
+          color: var(--primary, #ccff00);
+        }
+      }
+
+      .divider {
+        display: flex;
+        align-items: center;
+        gap: var(--spacing-md, 16px);
+        margin: var(--spacing-lg, 24px) 0;
+
+        &::before,
+        &::after {
+          content: '';
+          flex: 1;
+          height: 1px;
+          background-color: var(--border-color, rgba(255, 255, 255, 0.12));
+        }
+
+        span {
+          font-size: 0.75rem;
+          color: var(--text-tertiary, rgba(255, 255, 255, 0.5));
+          text-transform: uppercase;
+          letter-spacing: 1px;
+        }
+      }
+
+      .social-buttons {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-sm, 8px);
+
+        .btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: var(--spacing-sm, 8px);
+        }
+      }
+
+      .auth-footer {
+        margin-top: var(--spacing-lg, 24px);
+        text-align: center;
+
+        p {
+          font-size: 0.875rem;
+          color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+
+          a {
+            color: var(--primary, #ccff00);
+            font-weight: 600;
+          }
+        }
+      }
+
+      .spinner-sm {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(0, 0, 0, 0.3);
+        border-top-color: #000;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-right: var(--spacing-xs, 4px);
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LoginComponent {

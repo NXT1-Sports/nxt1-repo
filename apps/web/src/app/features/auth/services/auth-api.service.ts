@@ -52,9 +52,7 @@ export class AuthApiService {
   /**
    * Create a new user in the backend after Firebase Auth signup
    */
-  createUser(
-    ...args: Parameters<AuthApi['createUser']>
-  ): ReturnType<AuthApi['createUser']> {
+  createUser(...args: Parameters<AuthApi['createUser']>): ReturnType<AuthApi['createUser']> {
     return this.api.createUser(...args);
   }
 
@@ -74,9 +72,7 @@ export class AuthApiService {
   /**
    * Join a team with code
    */
-  joinTeam(
-    ...args: Parameters<AuthApi['joinTeam']>
-  ): ReturnType<AuthApi['joinTeam']> {
+  joinTeam(...args: Parameters<AuthApi['joinTeam']>): ReturnType<AuthApi['joinTeam']> {
     return this.api.joinTeam(...args);
   }
 
@@ -118,9 +114,7 @@ export class AuthApiService {
   /**
    * Update user role
    */
-  updateRole(
-    ...args: Parameters<AuthApi['updateRole']>
-  ): ReturnType<AuthApi['updateRole']> {
+  updateRole(...args: Parameters<AuthApi['updateRole']>): ReturnType<AuthApi['updateRole']> {
     return this.api.updateRole(...args);
   }
 
@@ -136,9 +130,7 @@ export class AuthApiService {
   /**
    * Update school info
    */
-  updateSchool(
-    ...args: Parameters<AuthApi['updateSchool']>
-  ): ReturnType<AuthApi['updateSchool']> {
+  updateSchool(...args: Parameters<AuthApi['updateSchool']>): ReturnType<AuthApi['updateSchool']> {
     return this.api.updateSchool(...args);
   }
 

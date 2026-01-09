@@ -1,7 +1,4 @@
-import {
-  Component,
-  ChangeDetectionStrategy,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 
@@ -27,47 +24,49 @@ import { RouterModule } from '@angular/router';
       </div>
     </div>
   `,
-  styles: [`
-    .explore-container {
-      min-height: 100vh;
-      padding: var(--spacing-lg, 24px);
-      background-color: var(--app-bg, #121212);
-    }
-
-    .explore-header {
-      text-align: center;
-      padding: var(--spacing-xl, 32px) 0;
-
-      h1 {
-        font-size: 2rem;
-        margin-bottom: var(--spacing-xs, 4px);
+  styles: [
+    `
+      .explore-container {
+        min-height: 100vh;
+        padding: var(--spacing-lg, 24px);
+        background-color: var(--app-bg, #121212);
       }
 
-      p {
-        color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-      }
-    }
+      .explore-header {
+        text-align: center;
+        padding: var(--spacing-xl, 32px) 0;
 
-    .content-placeholder {
-      max-width: 600px;
-      margin: 0 auto;
-      padding: var(--spacing-xl, 32px);
-      background-color: var(--card-bg, #1e1e1e);
-      border-radius: var(--radius-lg, 12px);
-      text-align: center;
+        h1 {
+          font-size: 2rem;
+          margin-bottom: var(--spacing-xs, 4px);
+        }
 
-      p {
-        color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-        margin: 0;
+        p {
+          color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+        }
       }
 
-      .small {
-        font-size: 0.875rem;
-        margin-top: var(--spacing-sm, 8px);
-        color: var(--text-tertiary, rgba(255, 255, 255, 0.5));
+      .content-placeholder {
+        max-width: 600px;
+        margin: 0 auto;
+        padding: var(--spacing-xl, 32px);
+        background-color: var(--card-bg, #1e1e1e);
+        border-radius: var(--radius-lg, 12px);
+        text-align: center;
+
+        p {
+          color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+          margin: 0;
+        }
+
+        .small {
+          font-size: 0.875rem;
+          margin-top: var(--spacing-sm, 8px);
+          color: var(--text-tertiary, rgba(255, 255, 255, 0.5));
+        }
       }
-    }
-  `],
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExploreComponent {}

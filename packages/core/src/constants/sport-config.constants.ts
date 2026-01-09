@@ -147,13 +147,7 @@ export const SPORT_POSITIONS: Record<string, readonly string[]> = {
     'Long Snapper',
     'Athlete',
   ],
-  basketball: [
-    'Point Guard',
-    'Shooting Guard',
-    'Small Forward',
-    'Power Forward',
-    'Center',
-  ],
+  basketball: ['Point Guard', 'Shooting Guard', 'Small Forward', 'Power Forward', 'Center'],
   baseball: [
     'Pitcher',
     'Catcher',
@@ -185,13 +179,7 @@ export const SPORT_POSITIONS: Record<string, readonly string[]> = {
     'Wing Back',
     'Striker',
   ],
-  lacrosse: [
-    'Attackman',
-    'Midfielder',
-    'Defender',
-    'Goal Keeper',
-    'Face Off Specialist',
-  ],
+  lacrosse: ['Attackman', 'Midfielder', 'Defender', 'Goal Keeper', 'Face Off Specialist'],
   volleyball: [
     'Outside Hitter',
     'Middle Blocker',
@@ -202,13 +190,7 @@ export const SPORT_POSITIONS: Record<string, readonly string[]> = {
     'Serving Specialist',
   ],
   ice_hockey: ['Center', 'Winger', 'Defensemen', 'Goalie'],
-  field_hockey: [
-    'Forward/Striker',
-    'Midfielder',
-    'Fullback/Defender',
-    'Sweeper',
-    'Goalie',
-  ],
+  field_hockey: ['Forward/Striker', 'Midfielder', 'Fullback/Defender', 'Sweeper', 'Goalie'],
   tennis: ['Singles Player', 'Doubles Player'],
   golf: ['Golfer'],
   track_field: ['Sprinter', 'Distance Runner', 'Hurdler', 'Jumper', 'Thrower'],
@@ -217,13 +199,7 @@ export const SPORT_POSITIONS: Record<string, readonly string[]> = {
   water_polo: ['Goal Keeper', 'Wing', 'Driver', 'Point', 'Center Forward'],
   wrestling: ['Wrestler'],
   rowing: ['Coxswain', 'Rower'],
-  gymnastics: [
-    'All Arounder',
-    'Vault',
-    'Uneven Bars',
-    'Balance Beam',
-    'Floor Exercise',
-  ],
+  gymnastics: ['All Arounder', 'Vault', 'Uneven Bars', 'Balance Beam', 'Floor Exercise'],
   bowling: ['Table Setter', 'Middle', 'Setup', 'Anchor'],
 } as const;
 
@@ -475,7 +451,11 @@ export const ATHLETIC_INFO_FIELDS: Record<string, readonly FieldDefinition[]> = 
     { field: 'putting_average', label: 'Putting Average', type: 'text' },
     { field: 'handicap', label: 'Handicap', type: 'text' },
     { field: 'average_drive_distance', label: 'Average Drive Distance', type: 'text', unit: 'yds' },
-    { field: 'tournament_score_differential', label: 'Tournament Score Differential', type: 'text' },
+    {
+      field: 'tournament_score_differential',
+      label: 'Tournament Score Differential',
+      type: 'text',
+    },
   ],
   track_field: [
     { field: 'height', label: 'Height', required: true },

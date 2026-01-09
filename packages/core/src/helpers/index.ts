@@ -73,4 +73,3 @@ export {
   formatTime,
   formatDistance,
 } from './formatters';
-
