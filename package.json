@@ -40,7 +40,7 @@
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean && rm -rf node_modules .turbo",
     "clean:cache": "turbo daemon clean",
-    "prepare": "husky",
+    "prepare": "node -e \"if (process.env.CI !== 'true') require('husky')()\" || true",
     "deploy:staging": "turbo run deploy:staging",
     "deploy:prod": "turbo run deploy:prod",
     "version:patch": "npm version patch --workspaces --include-workspace-root",
