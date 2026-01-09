@@ -4,16 +4,8 @@
 # For Turborepo monorepos, we bypass the automatic Angular adapter
 # which fails to parse JSON output due to Turborepo's prefixed logging
 
-# NOTE: Do NOT use rootDirectory - we run builds from monorepo root
-# The outputDirectory tells Firebase where to find the built app
-
-# Bypass automatic framework detection - use custom build/run commands
-scripts:
-  # Build command runs from monorepo root using Turborepo
-  buildCommand: turbo run build --filter=@nxt1/web
-  
-  # Run command for SSR - path relative to monorepo root
-  runCommand: node apps/web/dist/nxt1-web/server/server.mjs
+# Point to the Angular app directory
+rootDirectory: apps/web
 
 # Runtime configuration
 runConfig:
