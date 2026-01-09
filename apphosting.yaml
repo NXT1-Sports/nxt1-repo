@@ -7,6 +7,10 @@
 # Point to the Angular app directory
 rootDirectory: apps/web
 
+# Explicitly specify the server entry point
+scripts:
+  runCommand: node dist/nxt1-web/server/server.mjs
+
 # Runtime configuration
 runConfig:
   cpu: 1
