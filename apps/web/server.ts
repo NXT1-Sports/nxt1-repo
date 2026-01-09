@@ -103,7 +103,13 @@ export function createServer(): express.Express {
         res.status(200).send(html);
       })
       .catch((err) => {
-        console.error('SSR Error:', err);
+        console.error('=== SSR RENDER ERROR ===');
+        console.error('URL:', fullUrl);
+        console.error('Error Name:', err?.name);
+        console.error('Error Message:', err?.message);
+        console.error('Error Stack:', err?.stack);
+        console.error('Full Error:', JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
+        console.error('========================');
         next(err);
       });
   });
@@ -113,7 +119,11 @@ export function createServer(): express.Express {
   // ============================================
 
   server.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error('Server Error:', err);
+    console.error('=== SERVER ERROR HANDLER ===');
+    console.error('Error Name:', err?.name);
+    console.error('Error Message:', err?.message);
+    console.error('Error Stack:', err?.stack);
+    console.error('============================');
     res.status(500).send(`
       <!DOCTYPE html>
       <html>

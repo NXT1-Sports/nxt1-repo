@@ -29,13 +29,15 @@
 import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
 import { provideRouter, withComponentInputBinding, withInMemoryScrolling } from '@angular/router';
 import { provideHttpClient, withFetch } from '@angular/common/http';
-import { provideServerRendering } from '@angular/platform-server';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 
 import { routes } from './app.routes';
 
 // Auth service with injection token pattern
-import { AUTH_SERVICE, ServerAuthService } from './core/auth';
+// IMPORTANT: Import directly from files, NOT from barrel export
+// Barrel exports would pull in BrowserAuthService which imports Firebase Auth
+import { AUTH_SERVICE } from './core/auth/auth.interface';
+import { ServerAuthService } from './core/auth/server-auth.service';
 
 /**
  * Server Application Configuration
@@ -59,8 +61,8 @@ export const config: ApplicationConfig = {
     // SSR CORE PROVIDERS
     // ============================================
 
-    // Required for Angular Universal SSR
-    provideServerRendering(),
+    // NOTE: provideServerRendering() is NOT needed here because
+    // CommonEngine handles platform setup. Including it causes NG0401.
 
     // Zone.js change detection
     provideZoneChangeDetection({ eventCoalescing: true }),
