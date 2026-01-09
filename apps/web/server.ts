@@ -139,15 +139,24 @@ export function createServer(): express.Express {
  * Must bind to 0.0.0.0 (all interfaces) for Cloud Run
  */
 function run(): void {
-  const server = createServer();
-  const port = process.env['PORT'] || 8080;
-  const host = '0.0.0.0'; // Required for Cloud Run
+  try {
+    console.log('Starting NXT1 SSR Server...');
+    console.log(`  __dirname: ${__dirname}`);
+    console.log(`  DIST_FOLDER: ${DIST_FOLDER}`);
+    console.log(`  INDEX_HTML: ${INDEX_HTML}`);
+    
+    const server = createServer();
+    const port = Number(process.env['PORT']) || 8080;
+    const host = '0.0.0.0'; // Required for Cloud Run
 
-  server.listen(Number(port), host, () => {
-    console.log(`🚀 NXT1 SSR Server listening on http://${host}:${port}`);
-    console.log(`   Environment: ${process.env['NODE_ENV'] || 'development'}`);
-    console.log(`   Port: ${port}`);
-  });
+    server.listen(port, host, () => {
+      console.log(`🚀 NXT1 SSR Server listening on http://${host}:${port}`);
+      console.log(`   Environment: ${process.env['NODE_ENV'] || 'development'}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
 }
 
 // Run the server
