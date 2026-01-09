@@ -9,8 +9,8 @@ rootDirectory: apps/web
 
 # Bypass automatic framework detection - use custom build/run commands
 scripts:
-  # Build command runs at monorepo root, uses Turborepo to build deps + app
-  buildCommand: npm run build --filter=@nxt1/web
+  # Build command - directly calls turbo to build the web app and its deps
+  buildCommand: npm run apphosting:build
   
   # Run command for SSR - starts the Angular server
   runCommand: node dist/nxt1-web/server/server.mjs
