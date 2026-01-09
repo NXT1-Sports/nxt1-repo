@@ -4,6 +4,9 @@
 # NOTE: This file must be in apps/web/ (the Angular app root) for monorepos
 # The gcp-build script in root package.json handles the actual build
 
+# Monorepo configuration - tell the adapter where everything is
+outputDirectory: dist/nxt1-web
+
 # Build configuration
 runConfig:
   # Cloud Run CPU allocation
