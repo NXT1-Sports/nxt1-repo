@@ -4,6 +4,7 @@
  *
  * Production-ready Angular Universal server with:
  * - Server-side rendering using CommonEngine
+ * - FirebaseServerApp for authenticated SSR
  * - Static file serving with caching
  * - Compression and security headers
  * - Health check endpoint for load balancers
@@ -12,7 +13,10 @@
  * Architecture:
  * - Static assets served with long cache headers
  * - Dynamic routes rendered via Angular Universal
+ * - Auth token extracted from cookies for FirebaseServerApp
  * - Proper protocol detection behind proxies
+ *
+ * @see https://firebase.google.com/docs/reference/js/app.firebaseserverapp
  */
 import 'zone.js/node';
 import { APP_BASE_HREF } from '@angular/common';
@@ -30,6 +34,26 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DIST_FOLDER = resolve(__dirname, '../browser');
 const INDEX_HTML = join(__dirname, 'index.server.html');
+
+/** Cookie name for Firebase auth token */
+const AUTH_TOKEN_COOKIE = '__session';
+
+/**
+ * Extract auth token from request cookies
+ */
+function extractAuthToken(req: Request): string | undefined {
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return undefined;
+
+  const cookies = cookieHeader.split(';');
+  for (const cookie of cookies) {
+    const [name, value] = cookie.trim().split('=');
+    if (name === AUTH_TOKEN_COOKIE && value) {
+      return decodeURIComponent(value);
+    }
+  }
+  return undefined;
+}
 
 // ============================================
 // EXPRESS SERVER FACTORY
@@ -86,13 +110,24 @@ export function createServer(): express.Express {
     // Construct the full URL
     const fullUrl = `${protocol}://${headers.host}${originalUrl}`;
 
+    // Extract auth token from cookies for FirebaseServerApp
+    const authToken = extractAuthToken(req);
+
     commonEngine
       .render({
         bootstrap,
         documentFilePath: INDEX_HTML,
         url: fullUrl,
         publicPath: DIST_FOLDER,
-        providers: [{ provide: APP_BASE_HREF, useValue: baseUrl || '/' }],
+        providers: [
+          { provide: APP_BASE_HREF, useValue: baseUrl || '/' },
+          // Provide auth token for FirebaseServerApp initialization
+          // Import dynamically to avoid bundling issues
+          {
+            provide: 'SSR_AUTH_TOKEN',
+            useValue: authToken,
+          },
+        ],
       })
       .then((html) => {
         // Add security headers

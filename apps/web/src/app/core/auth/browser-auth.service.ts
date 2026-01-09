@@ -37,6 +37,7 @@ import {
   SignUpCredentials,
 } from './auth.interface';
 import { AuthApiService } from '../../features/auth/services/auth-api.service';
+import { AuthCookieService } from './auth-cookie.service';
 import type { UserRole } from '@nxt1/core';
 
 /**
@@ -54,6 +55,7 @@ export class BrowserAuthService implements IAuthService {
   private readonly router = inject(Router);
   private readonly firebaseAuth = inject(Auth);
   private readonly authApi = inject(AuthApiService);
+  private readonly authCookie = inject(AuthCookieService);
 
   // ============================================
   // STATE SIGNALS (Private Writable)
@@ -98,9 +100,15 @@ export class BrowserAuthService implements IAuthService {
           // Convert to our FirebaseUserInfo interface
           this._firebaseUser.set(this.mapFirebaseUser(firebaseUser));
           await this.syncUserProfile(firebaseUser);
+
+          // Set auth cookie for SSR (FirebaseServerApp pattern)
+          // This allows the server to authenticate the user during SSR
+          await this.updateAuthCookie(firebaseUser);
         } else {
           this._firebaseUser.set(null);
           this._user.set(null);
+          // Clear auth cookie when user signs out
+          this.authCookie.clearAuthCookie();
         }
       } catch (err) {
         console.error('[BrowserAuthService] Auth state sync failed:', err);
@@ -110,6 +118,20 @@ export class BrowserAuthService implements IAuthService {
         this._isInitialized.set(true);
       }
     });
+  }
+
+  /**
+   * Update the auth cookie with current user's ID token
+   * This enables FirebaseServerApp to authenticate during SSR
+   */
+  private async updateAuthCookie(user: FirebaseUser): Promise<void> {
+    try {
+      const idToken = await user.getIdToken();
+      // Firebase ID tokens expire in 1 hour
+      this.authCookie.setAuthCookie(idToken, 3600000);
+    } catch (err) {
+      console.warn('[BrowserAuthService] Failed to set auth cookie:', err);
+    }
   }
 
   /**
@@ -257,6 +279,10 @@ export class BrowserAuthService implements IAuthService {
     this._isLoading.set(true);
 
     try {
+      // Clear auth cookie BEFORE signing out of Firebase
+      // This ensures SSR will render unauthenticated state
+      this.authCookie.clearAuthCookie();
+
       await signOut(this.firebaseAuth);
       this._user.set(null);
       this._firebaseUser.set(null);
