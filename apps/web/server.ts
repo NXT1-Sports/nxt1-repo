@@ -26,7 +26,6 @@ import bootstrap from './src/main.server';
 // CONSTANTS
 // ============================================
 
-const PORT = process.env['PORT'] || 4000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DIST_FOLDER = resolve(__dirname, '../browser');
@@ -136,18 +135,21 @@ export function createServer(): express.Express {
 
 /**
  * Start the Express server
+ * Firebase App Hosting injects PORT environment variable
  */
 function run(): void {
   const server = createServer();
+  const port = process.env['PORT'] || 8080;
 
-  server.listen(PORT, () => {
-    console.log(`🚀 NXT1 SSR Server listening on http://localhost:${PORT}`);
+  server.listen(port, () => {
+    console.log(`🚀 NXT1 SSR Server listening on http://localhost:${port}`);
     console.log(`   Environment: ${process.env['NODE_ENV'] || 'development'}`);
+    console.log(`   Port: ${port}`);
   });
 }
 
 // Run the server
 run();
 
-// Export for testing
+// Export for testing and Firebase
 export { createServer as app };
