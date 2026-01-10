@@ -1,9 +1,24 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <title>NXT1 Sports - The Sports Content Platform | Discover, Watch & Share Athletic Content</title>
     <base href="/" />
+
+    <!-- 
+      CRITICAL: Theme initialization script
+      This MUST run before any CSS/JS to prevent flash of wrong theme.
+      Sets data-theme attribute and color-scheme before first paint.
+    -->
+    <script>
+      (function () {
+        var theme = localStorage.getItem("nxt1-theme") || "dark";
+        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.style.colorScheme = theme;
+        document.documentElement.style.backgroundColor = theme === "dark" ? "#0a0a0a" : "#ffffff";
+      })();
+    </script>
+
     <link rel="canonical" href="https://nxt1sports.com/" />
     <meta name="viewport" content="width=device-width, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta
@@ -58,7 +73,8 @@
 
     <!-- PWA Manifest -->
     <link rel="manifest" href="manifest.webmanifest" />
-    <meta name="theme-color" content="#121212" />
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="color-scheme" content="dark light" />
 
     <!-- Apple Touch Icon -->
     <link rel="apple-touch-icon" href="assets/icons/icon-192x192.png" />

@@ -28,8 +28,12 @@ export const appConfig: ApplicationConfig = {
 
     provideAnimationsAsync(),
 
-    // Ionic - keep config simple for build compatibility
-    provideIonicAngular({}),
+    // Ionic Configuration
+    // - Disable automatic dark mode (we control theming via NXT1 design tokens)
+    // - Use iOS mode for consistent cross-platform look
+    provideIonicAngular({
+      mode: 'ios',
+    }),
 
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
 

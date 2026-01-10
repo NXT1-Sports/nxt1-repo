@@ -1,12 +1,31 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <title>NXT1 Sports</title>
 
     <base href="/" />
 
-    <meta name="color-scheme" content="light dark" />
+    <!-- 
+      CRITICAL: Theme initialization script
+      This MUST run before any CSS/JS to prevent flash of wrong theme.
+      Sets data-theme attribute and color-scheme before first paint.
+    -->
+    <script>
+      (function () {
+        // Get stored preference, default to 'dark' (NXT1 brand)
+        var theme = localStorage.getItem("nxt1-theme") || "dark";
+
+        // Apply immediately to prevent flash
+        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.style.colorScheme = theme;
+
+        // Set background color inline to prevent white flash
+        document.documentElement.style.backgroundColor = theme === "dark" ? "#0a0a0a" : "#ffffff";
+      })();
+    </script>
+
+    <meta name="color-scheme" content="dark light" />
     <meta
       name="viewport"
       content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"
@@ -15,19 +34,16 @@
     <meta name="msapplication-tap-highlight" content="no" />
 
     <!-- iOS PWA settings -->
-    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="NXT1 Sports" />
 
     <!-- Android theme color -->
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#0a0a0a" />
 
     <!-- App icons -->
     <link rel="icon" type="image/png" href="assets/icon/favicon.png" />
     <link rel="apple-touch-icon" href="assets/icon/icon.png" />
-
-    <!-- Ionic CSS -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@ionic/core/css/ionic.bundle.css" />
   </head>
   <body>
     <app-root></app-root>

@@ -62,13 +62,20 @@ import { isValidEmail, validatePassword } from '@nxt1/core';
       </ion-toolbar>
     </ion-header>
 
-    <ion-content class="nxt1-auth-page">
-      <div class="nxt1-auth-content">
+    <ion-content class="nxt1-auth-page" [fullscreen]="true">
+      <div class="auth-page-wrapper">
         <div class="nxt1-auth-container">
           <!-- Header -->
           <div class="nxt1-auth-header">
             <div class="nxt1-auth-logo">
-              <img src="assets/images/nxt1-logo.svg" alt="NXT1" />
+              <picture>
+                <source srcset="assets/shared/logo/logo.avif" type="image/avif" />
+                <img
+                  src="assets/shared/logo/logo.png"
+                  alt="NXT1"
+                  class="nxt1-logo nxt1-logo--auth"
+                />
+              </picture>
             </div>
             <h1 class="nxt1-auth-title">Create Account</h1>
             <p class="nxt1-auth-subtitle">Join NXT1 to start your recruiting journey</p>
@@ -239,10 +246,44 @@ import { isValidEmail, validatePassword } from '@nxt1/core';
     </ion-content>
   `,
   styles: `
-    /* Component-specific overrides only - base styles from design tokens */
-    .nxt1-auth-logo img {
-      max-width: 100%;
-      height: auto;
+    /* Mobile-specific wrapper for proper centering */
+    .auth-page-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100%;
+      padding: var(--nxt1-spacing-4);
+      padding-top: var(--nxt1-spacing-4);
+      padding-bottom: max(var(--nxt1-spacing-6), env(safe-area-inset-bottom, 20px));
+    }
+
+    .nxt1-auth-container {
+      width: 100%;
+      max-width: 420px;
+    }
+
+    .nxt1-auth-logo svg {
+      height: 40px;
+      width: auto;
+    }
+
+    .nxt1-auth-header {
+      text-align: center;
+      margin-bottom: var(--nxt1-spacing-6);
+    }
+
+    .nxt1-auth-title {
+      font-size: var(--nxt1-font-size-2xl);
+      font-weight: var(--nxt1-font-weight-bold);
+      color: var(--nxt1-color-text-primary);
+      margin: var(--nxt1-spacing-4) 0 var(--nxt1-spacing-2);
+    }
+
+    .nxt1-auth-subtitle {
+      font-size: var(--nxt1-font-size-sm);
+      color: var(--nxt1-color-text-secondary);
+      margin: 0;
     }
 
     ion-spinner {

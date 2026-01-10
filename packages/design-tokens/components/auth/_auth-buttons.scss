@@ -1,145 +1,16 @@
 /**
- * @fileoverview Auth Button Styles
+ * @fileoverview Auth Button Styles - NXT1 V2 Design
  * @module @nxt1/design-tokens/components/auth
  *
- * Button styles for authentication flows.
- * Includes primary, secondary, and social login buttons.
+ * Social login buttons and primary action buttons.
+ * Matches the NXT1 V2 design language.
  */
 
-// ============================================
-// PRIMARY AUTH BUTTON
-// ============================================
-
-.nxt1-auth-button {
-  --background: var(--ion-color-primary);
-  --background-hover: var(--ion-color-primary-shade);
-  --background-activated: var(--ion-color-primary-shade);
-  --background-focused: var(--ion-color-primary-shade);
-  --color: var(--ion-color-primary-contrast);
-  --border-radius: var(--nxt1-radius-button);
-  --padding-start: var(--nxt1-button-padding-x);
-  --padding-end: var(--nxt1-button-padding-x);
-  --padding-top: var(--nxt1-button-padding-y);
-  --padding-bottom: var(--nxt1-button-padding-y);
-  --box-shadow: none;
-
-  font-size: var(--nxt1-button-size);
-  font-weight: var(--nxt1-button-weight);
-  letter-spacing: var(--nxt1-button-letter-spacing);
-  text-transform: none;
-  height: 48px;
-  min-height: 48px;
-
-  transition:
-    background-color var(--nxt1-transition-button),
-    transform var(--nxt1-transition-fast);
-
-  &:active {
-    transform: scale(0.98);
-  }
-
-  &:disabled,
-  &[disabled] {
-    --background: var(--nxt1-state-disabled);
-    --color: var(--nxt1-text-disabled);
-    opacity: 1;
-    cursor: not-allowed;
-  }
-}
-
-// Full width variant
-.nxt1-auth-button--full {
-  width: 100%;
-}
-
-// Large variant
-.nxt1-auth-button--large {
-  height: 56px;
-  min-height: 56px;
-  font-size: var(--nxt1-font-size-md);
-}
-
-// Loading state
-.nxt1-auth-button--loading {
-  position: relative;
-  color: transparent !important;
-  pointer-events: none;
-
-  &::after {
-    content: "";
-    position: absolute;
-    width: 20px;
-    height: 20px;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    border: 2px solid var(--ion-color-primary-contrast);
-    border-top-color: transparent;
-    border-radius: 50%;
-    animation: nxt1-spin 0.8s linear infinite;
-  }
-}
-
-@keyframes nxt1-spin {
-  to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
+@use "../../tokens" as *;
 
 // ============================================
-// SECONDARY / OUTLINE BUTTON
+// SOCIAL BUTTONS CONTAINER
 // ============================================
-
-.nxt1-auth-button--secondary {
-  --background: transparent;
-  --background-hover: var(--nxt1-state-hover);
-  --background-activated: var(--nxt1-state-pressed);
-  --color: var(--ion-color-primary);
-  --border-width: 1px;
-  --border-style: solid;
-  --border-color: var(--ion-color-primary);
-}
-
-// ============================================
-// TEXT BUTTON
-// ============================================
-
-.nxt1-auth-button--text {
-  --background: transparent;
-  --background-hover: var(--nxt1-state-hover);
-  --background-activated: var(--nxt1-state-pressed);
-  --color: var(--ion-color-primary);
-  --padding-start: var(--nxt1-spacing-3);
-  --padding-end: var(--nxt1-spacing-3);
-  height: auto;
-  min-height: 40px;
-}
-
-// ============================================
-// SOCIAL LOGIN BUTTONS
-// ============================================
-
-.nxt1-social-divider {
-  display: flex;
-  align-items: center;
-  gap: var(--nxt1-spacing-4);
-  margin: var(--nxt1-spacing-6) 0;
-
-  &::before,
-  &::after {
-    content: "";
-    flex: 1;
-    height: 1px;
-    background: var(--nxt1-border-light);
-  }
-
-  span {
-    font-size: var(--nxt1-caption-size);
-    color: var(--nxt1-text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-}
 
 .nxt1-social-buttons {
   display: flex;
@@ -147,88 +18,305 @@
   gap: var(--nxt1-spacing-3);
 }
 
-.nxt1-social-button {
-  --background: var(--nxt1-background-secondary);
-  --background-hover: var(--nxt1-state-hover);
-  --color: var(--nxt1-text-primary);
-  --border-radius: var(--nxt1-radius-button);
-  --border-width: 1px;
-  --border-style: solid;
-  --border-color: var(--nxt1-border-default);
-  --box-shadow: none;
+// ============================================
+// SOCIAL LOGIN BUTTON
+// ============================================
 
-  height: 48px;
-  font-weight: var(--nxt1-font-weight-medium);
-  text-transform: none;
+.nxt1-social-btn {
+  width: 100%;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-3);
+  background: var(--auth-bg-input);
+  border: 1px solid var(--auth-border-default);
+  border-radius: var(--auth-radius-default);
+  font-family: var(--nxt1-font-family-brand);
+  font-size: var(--nxt1-font-size-base);
+  font-weight: var(--nxt1-font-weight-semibold);
+  color: var(--auth-text-primary);
+  cursor: pointer;
+  transition: all var(--auth-transition-normal);
+  text-decoration: none;
 
-  transition:
-    background-color var(--nxt1-transition-button),
-    border-color var(--nxt1-transition-button);
+  // Prevent text selection on tap
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 
-  ion-icon {
-    font-size: 20px;
-    margin-right: var(--nxt1-spacing-3);
-  }
-
-  img {
+  .icon {
     width: 20px;
     height: 20px;
-    margin-right: var(--nxt1-spacing-3);
-  }
-}
-
-// Google button styling
-.nxt1-social-button--google {
-  --background: var(--nxt1-background-elevated);
-  --border-color: var(--nxt1-border-default);
-
-  &:hover {
-    --background: var(--nxt1-background-secondary);
-  }
-}
-
-// Apple button styling
-.nxt1-social-button--apple {
-  --background: #000000;
-  --color: #ffffff;
-  --border-color: #000000;
-
-  &:hover {
-    --background: #1a1a1a;
+    flex-shrink: 0;
   }
 
-  ion-icon {
-    color: #ffffff;
-  }
-}
-
-// Platform-specific social buttons
-.ios {
-  .nxt1-social-button {
-    --border-radius: var(--nxt1-radius-lg);
+  &:hover:not(:disabled) {
+    background: var(--auth-bg-input-hover);
+    border-color: var(--auth-border-hover);
+    transform: translateY(-1px);
   }
 
-  // Apple Sign In is more prominent on iOS
-  .nxt1-social-button--apple {
-    order: -1;
+  &:active:not(:disabled) {
+    transform: translateY(0);
   }
-}
 
-.md {
-  .nxt1-social-button {
-    --border-radius: var(--nxt1-radius-sm);
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--nxt1-color-primary);
+    outline-offset: 2px;
+  }
+
+  // Provider-specific hover effects
+  &--google:hover:not(:disabled) {
+    border-color: rgba(66, 133, 244, 0.4);
+    box-shadow: 0 0 0 1px rgba(66, 133, 244, 0.1);
+  }
+
+  &--apple:hover:not(:disabled) {
+    border-color: rgba(255, 255, 255, 0.3);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+
+  &--microsoft:hover:not(:disabled) {
+    border-color: rgba(0, 164, 239, 0.4);
+    box-shadow: 0 0 0 1px rgba(0, 164, 239, 0.1);
+  }
+
+  &--email:hover:not(:disabled) {
+    border-color: var(--auth-border-focus);
+    box-shadow: 0 0 0 1px var(--nxt1-color-primary-alpha-10);
+  }
+
+  // Team code button (dashed outline style)
+  &--team-code {
+    background: transparent;
+    border: 1px dashed var(--auth-border-hover);
+    color: var(--auth-text-secondary);
+    height: 48px;
+
+    .icon {
+      color: var(--nxt1-color-primary);
+      opacity: 0.8;
+    }
+
+    &:hover:not(:disabled) {
+      background: var(--nxt1-color-primary-alpha-5);
+      border-color: var(--nxt1-color-primary);
+      border-style: solid;
+      color: var(--nxt1-color-primary);
+
+      .icon {
+        opacity: 1;
+      }
+    }
   }
 }
 
 // ============================================
-// BUTTON GROUP (Horizontal)
+// OR DIVIDER
 // ============================================
 
-.nxt1-button-group {
+.nxt1-auth-divider {
   display: flex;
-  gap: var(--nxt1-spacing-3);
+  align-items: center;
+  margin: var(--nxt1-spacing-5) 0;
 
-  > * {
+  &::before,
+  &::after {
+    content: "";
     flex: 1;
+    height: 1px;
+    background: var(--auth-border-default);
+  }
+
+  span {
+    padding: 0 var(--nxt1-spacing-4);
+    font-family: var(--nxt1-font-family-brand);
+    font-size: var(--nxt1-font-size-xs);
+    font-weight: var(--nxt1-font-weight-semibold);
+    color: var(--auth-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+}
+
+// ============================================
+// PRIMARY SUBMIT BUTTON
+// ============================================
+
+.nxt1-submit-btn {
+  width: 100%;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-2);
+  background: var(--nxt1-color-primary);
+  border: none;
+  border-radius: var(--auth-radius-default);
+  font-family: var(--nxt1-font-family-brand);
+  font-size: var(--nxt1-font-size-base);
+  font-weight: var(--nxt1-font-weight-bold);
+  color: var(--nxt1-color-text-inverse);
+  cursor: pointer;
+  transition: all var(--auth-transition-normal);
+  margin-top: var(--nxt1-spacing-1);
+
+  user-select: none;
+  -webkit-user-select: none;
+
+  &:hover:not(:disabled) {
+    background: var(--nxt1-color-primary-dark);
+    transform: translateY(-2px);
+    box-shadow: var(--nxt1-glow-default);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--nxt1-color-primary);
+    outline-offset: 2px;
+  }
+
+  .spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(0, 0, 0, 0.2);
+    border-top-color: var(--nxt1-color-text-inverse);
+    border-radius: 50%;
+    animation: nxt1-spin 0.8s linear infinite;
+  }
+}
+
+@keyframes nxt1-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// ============================================
+// SECONDARY / OUTLINE BUTTON
+// ============================================
+
+.nxt1-secondary-btn {
+  width: 100%;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-2);
+  background: transparent;
+  border: 1px dashed var(--auth-border-hover);
+  border-radius: var(--auth-radius-default);
+  font-family: var(--nxt1-font-family-brand);
+  font-size: var(--nxt1-font-size-base);
+  font-weight: var(--nxt1-font-weight-semibold);
+  color: var(--auth-text-secondary);
+  cursor: pointer;
+  transition: all var(--auth-transition-normal);
+
+  user-select: none;
+  -webkit-user-select: none;
+
+  svg {
+    width: 18px;
+    height: 18px;
+    transition: transform var(--auth-transition-fast);
+  }
+
+  &:hover {
+    background: var(--auth-bg-input);
+    border-color: var(--auth-border-hover);
+    border-style: solid;
+    color: var(--auth-text-primary);
+
+    svg {
+      transform: translateX(4px);
+    }
+  }
+}
+
+// ============================================
+// BACK BUTTON
+// ============================================
+
+.nxt1-back-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-1);
+  background: none;
+  border: none;
+  padding: 0;
+  margin-bottom: var(--nxt1-spacing-1);
+  font-family: var(--nxt1-font-family-brand);
+  font-size: var(--nxt1-font-size-sm);
+  font-weight: var(--nxt1-font-weight-semibold);
+  color: var(--auth-text-secondary);
+  cursor: pointer;
+  transition: color var(--auth-transition-fast);
+  align-self: flex-start;
+
+  user-select: none;
+  -webkit-user-select: none;
+
+  svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  &:hover {
+    color: var(--nxt1-color-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--nxt1-color-primary);
+    outline-offset: 2px;
+  }
+}
+
+// ============================================
+// IONIC BUTTON OVERRIDES
+// ============================================
+
+ion-button.nxt1-social-btn,
+ion-button.nxt1-submit-btn {
+  --background: var(--auth-bg-input);
+  --background-hover: var(--auth-bg-input-hover);
+  --background-activated: var(--auth-bg-input-focus);
+  --border-radius: var(--auth-radius-default);
+  --box-shadow: none;
+  --color: var(--auth-text-primary);
+
+  height: 52px;
+  margin: 0;
+  font-size: var(--nxt1-font-size-base);
+  font-weight: var(--nxt1-font-weight-semibold);
+  text-transform: none;
+  letter-spacing: 0;
+
+  &::part(native) {
+    border: 1px solid var(--auth-border-default);
+  }
+}
+
+ion-button.nxt1-submit-btn {
+  --background: var(--nxt1-color-primary);
+  --background-hover: var(--nxt1-color-primary-dark);
+  --color: var(--nxt1-color-text-inverse);
+
+  &::part(native) {
+    border: none;
   }
 }

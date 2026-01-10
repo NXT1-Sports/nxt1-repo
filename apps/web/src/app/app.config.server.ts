@@ -30,8 +30,18 @@ import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
 import { provideRouter, withComponentInputBinding, withInMemoryScrolling } from '@angular/router';
 import { provideHttpClient, withFetch } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
+import {
+  provideClientHydration,
+  withEventReplay,
+  withIncrementalHydration,
+  withHttpTransferCacheOptions,
+} from '@angular/platform-browser';
+// CRITICAL: Import provideServerRendering from @angular/ssr (NOT @angular/platform-server)
+// This version supports withRoutes() for proper RenderMode handling
+import { provideServerRendering, withRoutes } from '@angular/ssr';
 
 import { routes } from './app.routes';
+import { serverRoutes } from './app.routes.server';
 
 // Auth service with injection token pattern
 // IMPORTANT: Import directly from files, NOT from barrel export
@@ -61,8 +71,9 @@ export const config: ApplicationConfig = {
     // SSR CORE PROVIDERS
     // ============================================
 
-    // NOTE: provideServerRendering() is NOT needed here because
-    // CommonEngine handles platform setup. Including it causes NG0401.
+    // CRITICAL: provideServerRendering from @angular/ssr (NOT @angular/platform-server)
+    // This integrates with RenderMode in serverRoutes for proper hydration serialization
+    provideServerRendering(withRoutes(serverRoutes)),
 
     // Zone.js change detection
     provideZoneChangeDetection({ eventCoalescing: true }),
@@ -80,6 +91,20 @@ export const config: ApplicationConfig = {
     // HTTP client for API calls during SSR
     // Data fetched here is transferred to client via HttpTransferCache
     provideHttpClient(withFetch()),
+
+    // ============================================
+    // HYDRATION - MUST MATCH CLIENT CONFIG
+    // ============================================
+    // Without this, NG0505 error occurs because client expects
+    // serialized hydration data that server didn't provide
+    provideClientHydration(
+      withEventReplay(),
+      withIncrementalHydration(),
+      withHttpTransferCacheOptions({
+        includePostRequests: false,
+        includeHeaders: ['Authorization'],
+      })
+    ),
 
     // Animations (noop on server)
     provideAnimationsAsync(),

@@ -2,7 +2,7 @@
  * @fileoverview Platform Module Barrel Export
  * @module @nxt1/core/platform
  *
- * Platform detection utilities for cross-platform code.
+ * Platform detection and theme utilities for cross-platform code.
  */
 
 export {
@@ -29,3 +29,21 @@ export {
   runOnServer,
   runInNative,
 } from './platform';
+
+// Theme utilities
+export {
+  type Theme,
+  type ThemePreference,
+  type ThemeConfig,
+  DEFAULT_THEME_CONFIG,
+  getSystemTheme,
+  getStoredTheme,
+  getEffectiveTheme,
+  storeTheme,
+  applyTheme,
+  setTheme,
+  toggleTheme,
+  initializeTheme,
+  watchSystemTheme,
+  generateThemeInitScript,
+} from './theme';

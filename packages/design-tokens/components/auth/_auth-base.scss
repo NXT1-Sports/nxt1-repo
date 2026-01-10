@@ -1,110 +1,466 @@
 /**
- * @fileoverview Auth Base Styles
+ * @fileoverview Auth Base Styles - NXT1 V2 Design
  * @module @nxt1/design-tokens/components/auth
  *
- * Base authentication styles that use design tokens.
- * Platform-adaptive - feels native on iOS, Android, and web.
- * Note: Tokens are loaded by the importing stylesheet.
+ * Professional authentication page layout matching NXT1 V2 design.
+ * Works seamlessly on both web and mobile (Ionic).
+ *
+ * Key Features:
+ * - Dark theme default with subtle gradient
+ * - Card-based layout with glass effect
+ * - Desktop: Side panel for QR codes
+ * - Mobile: App store buttons below
  */
 
+@use "../../tokens" as *;
+
 // ============================================
-// AUTH PAGE LAYOUT
+// AUTH VARIABLES
+// ============================================
+
+// Colors mapped to design tokens
+$auth-primary: var(--nxt1-color-primary);
+$auth-primary-dark: var(--nxt1-color-primary-dark);
+$auth-primary-glow: var(--nxt1-color-primary-alpha-10);
+$auth-primary-border: var(--nxt1-color-primary-alpha-30);
+
+// Backgrounds
+$auth-bg-page: var(--nxt1-color-bg-primary);
+$auth-bg-card: rgba(255, 255, 255, 0.02);
+$auth-bg-card-border: rgba(255, 255, 255, 0.08);
+$auth-bg-input: rgba(255, 255, 255, 0.04);
+$auth-bg-input-hover: rgba(255, 255, 255, 0.06);
+$auth-bg-input-focus: rgba(255, 255, 255, 0.08);
+
+// Text
+$auth-text-primary: var(--nxt1-color-text-primary);
+$auth-text-secondary: var(--nxt1-color-text-secondary);
+$auth-text-muted: var(--nxt1-color-text-tertiary);
+$auth-text-placeholder: var(--nxt1-color-text-disabled);
+
+// Borders
+$auth-border-subtle: rgba(255, 255, 255, 0.06);
+$auth-border-default: rgba(255, 255, 255, 0.1);
+$auth-border-hover: rgba(255, 255, 255, 0.15);
+$auth-border-focus: var(--nxt1-color-primary-alpha-50);
+
+// Semantic
+$auth-error: var(--nxt1-color-error);
+$auth-error-bg: rgba(239, 68, 68, 0.1);
+$auth-success: var(--nxt1-color-success);
+$auth-success-bg: rgba(34, 197, 94, 0.1);
+
+// Typography
+$auth-font: var(--nxt1-font-family-brand);
+
+// Sizing
+$auth-radius-sm: var(--nxt1-radius-sm);
+$auth-radius-default: var(--nxt1-radius-default);
+$auth-radius-lg: var(--nxt1-radius-lg);
+$auth-radius-xl: var(--nxt1-radius-xl);
+
+// Transitions
+$auth-transition-fast: 150ms ease-out;
+$auth-transition-normal: 200ms ease-out;
+
+// Layout
+$auth-content-max-width: 840px;
+$auth-card-max-width: 480px;
+$auth-mobile-breakpoint: 768px;
+
+// ============================================
+// AUTH PAGE CONTAINER
 // ============================================
 
 .nxt1-auth-page {
-  --auth-background: var(--nxt1-background-primary);
-  --auth-content-max-width: 440px;
-
   display: flex;
   flex-direction: column;
-  min-height: 100%;
-  background: var(--auth-background);
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: var(--nxt1-spacing-6);
+  background: $auth-bg-page;
 
-  ion-content {
-    --background: var(--auth-background);
+  // Subtle radial gradient for depth
+  background-image: radial-gradient(ellipse at 50% 0%, rgba(204, 255, 0, 0.03) 0%, transparent 50%);
+
+  // Safe area support
+  padding-top: max(var(--nxt1-spacing-6), env(safe-area-inset-top));
+  padding-bottom: max(var(--nxt1-spacing-6), env(safe-area-inset-bottom));
+
+  // Ionic compatibility (when used as ion-content)
+  &.ion-page {
+    --background: #{$auth-bg-page};
+    --padding-start: var(--nxt1-spacing-6);
+    --padding-end: var(--nxt1-spacing-6);
+    --padding-top: var(--nxt1-spacing-6);
+    --padding-bottom: var(--nxt1-spacing-6);
   }
 }
 
-.nxt1-auth-content {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
-  min-height: 100%;
-  padding: var(--nxt1-page-padding-y) var(--nxt1-page-padding-x);
-  padding-top: calc(var(--nxt1-page-padding-y) + var(--nxt1-safe-area-top));
-  padding-bottom: calc(var(--nxt1-page-padding-y) + var(--nxt1-safe-area-bottom));
-}
-
-.nxt1-auth-container {
-  width: 100%;
-  max-width: var(--auth-content-max-width);
+// ion-content selector for Ionic apps
+ion-content.nxt1-auth-page {
+  --background: #{$auth-bg-page};
+  --padding-start: var(--nxt1-spacing-6);
+  --padding-end: var(--nxt1-spacing-6);
+  --padding-top: var(--nxt1-spacing-6);
+  --padding-bottom: var(--nxt1-spacing-6);
 }
 
 // ============================================
-// AUTH HEADER / BRANDING
+// LOGO
 // ============================================
-
-.nxt1-auth-header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin-bottom: var(--nxt1-spacing-8);
-  text-align: center;
-}
 
 .nxt1-auth-logo {
-  width: 80px;
-  height: 80px;
-  margin-bottom: var(--nxt1-spacing-4);
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--nxt1-spacing-8);
 
-  img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
+  img,
+  svg {
+    height: 40px;
+    width: auto;
   }
 }
 
-.nxt1-auth-title {
-  font-size: var(--nxt1-heading-2-size);
-  font-weight: var(--nxt1-heading-2-weight);
-  line-height: var(--nxt1-heading-2-line-height);
-  color: var(--nxt1-text-primary);
-  margin: 0 0 var(--nxt1-spacing-2) 0;
-}
-
-.nxt1-auth-subtitle {
-  font-size: var(--nxt1-body-size);
-  color: var(--nxt1-text-secondary);
-  margin: 0;
-}
-
 // ============================================
-// AUTH CARD
+// AUTH CARD (Main Container)
 // ============================================
 
 .nxt1-auth-card {
-  background: var(--nxt1-background-elevated);
-  border-radius: var(--nxt1-radius-card);
-  padding: var(--nxt1-spacing-6);
-  box-shadow: var(--nxt1-shadow-card);
+  width: 100%;
+  max-width: $auth-content-max-width;
+  background: $auth-bg-card;
+  border: 1px solid $auth-bg-card-border;
+  border-radius: $auth-radius-xl;
+  padding: var(--nxt1-spacing-10);
 
-  // On mobile, card goes edge-to-edge
-  @media (max-width: 480px) {
-    border-radius: 0;
-    box-shadow: none;
-    padding: var(--nxt1-spacing-4);
-    margin-left: calc(var(--nxt1-page-padding-x) * -1);
-    margin-right: calc(var(--nxt1-page-padding-x) * -1);
+  // Desktop: Two-column layout
+  @media (min-width: $auth-mobile-breakpoint) {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: var(--nxt1-spacing-8);
+    align-items: stretch;
+  }
+
+  // Mobile: Single column
+  @media (max-width: calc($auth-mobile-breakpoint - 1px)) {
+    max-width: $auth-card-max-width;
+    padding: var(--nxt1-spacing-6) var(--nxt1-spacing-5);
   }
 }
 
-// Platform adjustments
-.ios .nxt1-auth-card {
-  border-radius: var(--nxt1-radius-xl);
+// ============================================
+// LEFT SECTION (Login Form)
+// ============================================
+
+.nxt1-auth-main {
+  display: flex;
+  flex-direction: column;
+
+  @media (min-width: $auth-mobile-breakpoint) {
+    padding-right: var(--nxt1-spacing-4);
+  }
 }
 
-.md .nxt1-auth-card {
-  border-radius: var(--nxt1-radius-lg);
+// ============================================
+// CENTER DIVIDER (Desktop Only)
+// ============================================
+
+.nxt1-auth-divider-vertical {
+  display: none;
+
+  @media (min-width: $auth-mobile-breakpoint) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--nxt1-spacing-3);
+
+    &::before,
+    &::after {
+      content: "";
+      width: 1px;
+      flex: 1;
+      background: $auth-border-default;
+    }
+
+    span {
+      font-family: $auth-font;
+      font-size: var(--nxt1-font-size-xs);
+      font-weight: var(--nxt1-font-weight-semibold);
+      color: $auth-text-muted;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      padding: var(--nxt1-spacing-2) 0;
+    }
+  }
+}
+
+// ============================================
+// RIGHT SECTION (App Download - Desktop)
+// ============================================
+
+.nxt1-auth-sidebar {
+  display: none;
+
+  @media (min-width: $auth-mobile-breakpoint) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-left: var(--nxt1-spacing-4);
+    text-align: center;
+  }
+}
+
+.nxt1-auth-app-promo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--nxt1-spacing-4);
+
+  .phone-icon {
+    width: 48px;
+    height: 48px;
+    color: $auth-primary;
+    stroke-width: 1.5;
+  }
+
+  h3 {
+    font-family: $auth-font;
+    font-size: var(--nxt1-font-size-lg);
+    font-weight: var(--nxt1-font-weight-bold);
+    color: $auth-text-primary;
+    margin: 0;
+  }
+
+  p {
+    font-family: $auth-font;
+    font-size: var(--nxt1-font-size-sm);
+    color: $auth-text-muted;
+    margin: 0;
+  }
+}
+
+.nxt1-auth-qr-codes {
+  display: flex;
+  gap: var(--nxt1-spacing-4);
+  margin-top: var(--nxt1-spacing-4);
+}
+
+.nxt1-auth-qr-code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--nxt1-spacing-2);
+
+  img {
+    width: 100px;
+    height: 100px;
+    border-radius: $auth-radius-default;
+    background: white;
+    padding: 4px;
+  }
+
+  span {
+    display: flex;
+    align-items: center;
+    gap: var(--nxt1-spacing-1);
+    font-family: $auth-font;
+    font-size: var(--nxt1-font-size-xs);
+    color: $auth-text-muted;
+
+    svg {
+      width: 14px;
+      height: 14px;
+    }
+  }
+}
+
+// ============================================
+// MOBILE APP BUTTONS (Mobile Only)
+// ============================================
+
+.nxt1-auth-app-buttons {
+  display: none;
+
+  @media (max-width: calc($auth-mobile-breakpoint - 1px)) {
+    display: flex;
+    flex-direction: column;
+    gap: var(--nxt1-spacing-4);
+    margin-top: var(--nxt1-spacing-6);
+    padding-top: var(--nxt1-spacing-6);
+    border-top: 1px solid $auth-border-subtle;
+  }
+
+  .app-buttons-label {
+    font-family: $auth-font;
+    font-size: var(--nxt1-font-size-xs);
+    font-weight: var(--nxt1-font-weight-semibold);
+    color: $auth-text-muted;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    text-align: center;
+  }
+
+  .app-buttons-row {
+    display: flex;
+    gap: var(--nxt1-spacing-3);
+    justify-content: center;
+  }
+}
+
+.nxt1-auth-store-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-2);
+  padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
+  background: $auth-bg-input;
+  border: 1px solid $auth-border-default;
+  border-radius: $auth-radius-default;
+  text-decoration: none;
+  transition: all $auth-transition-normal;
+
+  svg {
+    width: 24px;
+    height: 24px;
+    color: $auth-text-primary;
+  }
+
+  .store-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+
+    .store-label {
+      font-family: $auth-font;
+      font-size: 10px;
+      color: $auth-text-muted;
+      line-height: 1;
+    }
+
+    .store-name {
+      font-family: $auth-font;
+      font-size: var(--nxt1-font-size-sm);
+      font-weight: var(--nxt1-font-weight-semibold);
+      color: $auth-text-primary;
+      line-height: 1.2;
+    }
+  }
+
+  &:hover {
+    background: $auth-bg-input-hover;
+    border-color: $auth-border-hover;
+  }
+}
+
+// ============================================
+// HEADER (Title + Subtitle)
+// ============================================
+
+.nxt1-auth-header {
+  text-align: center;
+  margin-bottom: var(--nxt1-spacing-6);
+  padding-bottom: var(--nxt1-spacing-6);
+  border-bottom: 1px solid $auth-border-subtle;
+
+  h1 {
+    font-family: $auth-font;
+    font-size: var(--nxt1-font-size-2xl);
+    font-weight: var(--nxt1-font-weight-bold);
+    color: $auth-text-primary;
+    margin: 0 0 var(--nxt1-spacing-2);
+    letter-spacing: -0.02em;
+  }
+
+  p {
+    font-family: $auth-font;
+    font-size: var(--nxt1-font-size-base);
+    font-weight: var(--nxt1-font-weight-medium);
+    color: $auth-text-secondary;
+    margin: 0;
+  }
+}
+
+// ============================================
+// FOOTER (Create Account Link)
+// ============================================
+
+.nxt1-auth-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-1);
+  margin-top: var(--nxt1-spacing-6);
+  padding-top: var(--nxt1-spacing-6);
+  border-top: 1px solid $auth-border-subtle;
+
+  span {
+    font-family: $auth-font;
+    font-size: var(--nxt1-font-size-base);
+    color: $auth-text-secondary;
+  }
+
+  a {
+    font-family: $auth-font;
+    font-size: var(--nxt1-font-size-base);
+    font-weight: var(--nxt1-font-weight-bold);
+    color: $auth-primary;
+    text-decoration: none;
+    cursor: pointer;
+    transition: opacity $auth-transition-fast;
+
+    &:hover {
+      opacity: 0.8;
+    }
+  }
+}
+
+// ============================================
+// TERMS FOOTER
+// ============================================
+
+.nxt1-auth-terms {
+  text-align: center;
+  margin-top: var(--nxt1-spacing-8);
+
+  p {
+    font-family: $auth-font;
+    font-size: var(--nxt1-font-size-xs);
+    color: $auth-text-muted;
+    margin: 0;
+
+    a {
+      color: $auth-text-secondary;
+      text-decoration: underline;
+      transition: color $auth-transition-fast;
+
+      &:hover {
+        color: $auth-text-primary;
+      }
+    }
+  }
+}
+
+// ============================================
+// EXPORTS FOR COMPONENT USE
+// ============================================
+
+:root {
+  --auth-primary: #{$auth-primary};
+  --auth-bg-input: #{$auth-bg-input};
+  --auth-bg-input-hover: #{$auth-bg-input-hover};
+  --auth-bg-input-focus: #{$auth-bg-input-focus};
+  --auth-border-subtle: #{$auth-border-subtle};
+  --auth-border-default: #{$auth-border-default};
+  --auth-border-hover: #{$auth-border-hover};
+  --auth-border-focus: #{$auth-border-focus};
+  --auth-text-primary: #{$auth-text-primary};
+  --auth-text-secondary: #{$auth-text-secondary};
+  --auth-text-muted: #{$auth-text-muted};
+  --auth-text-placeholder: #{$auth-text-placeholder};
+  --auth-radius-default: #{$auth-radius-default};
+  --auth-transition-fast: #{$auth-transition-fast};
+  --auth-transition-normal: #{$auth-transition-normal};
 }

@@ -15,8 +15,6 @@ import { bootstrapApplication, BootstrapContext } from '@angular/platform-browse
 import { AppComponent } from './app/app.component';
 import { config } from './app/app.config.server';
 
-console.log('[main.server.ts] Loaded - config providers count:', config.providers.length);
-
 /**
  * Bootstrap the Angular application for SSR
  *
@@ -24,7 +22,6 @@ console.log('[main.server.ts] Loaded - config providers count:', config.provider
  * @returns Promise<ApplicationRef> - The bootstrapped application reference
  */
 const bootstrap = (context: BootstrapContext): Promise<ApplicationRef> => {
-  console.log('[main.server.ts] Bootstrap function called with context:', !!context);
   return bootstrapApplication(AppComponent, config, context);
 };
 

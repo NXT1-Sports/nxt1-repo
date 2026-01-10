@@ -274,7 +274,7 @@ export {
   createCapacitorStorageAdapter,
 } from './storage';
 
-// Platform - detection utilities (NEW)
+// Platform - detection utilities
 export {
   type Platform,
   type DeviceType,
@@ -299,3 +299,44 @@ export {
   runOnServer,
   runInNative,
 } from './platform';
+
+// Theme - cross-platform theming utilities
+export {
+  type Theme,
+  type ThemePreference,
+  type ThemeConfig,
+  DEFAULT_THEME_CONFIG,
+  getSystemTheme,
+  getStoredTheme,
+  getEffectiveTheme,
+  storeTheme,
+  applyTheme,
+  setTheme,
+  toggleTheme,
+  initializeTheme,
+  watchSystemTheme,
+  generateThemeInitScript,
+} from './platform/theme';
+
+// Components - shared Angular components
+export { NxtLogoComponent, type LogoSize, type LogoVariant } from './components';
+export { AuthShellComponent, type AuthShellVariant } from './components';
+export { AuthSocialButtonsComponent, type SocialProvidersConfig } from './components';
+export { AuthDividerComponent } from './components';
+export {
+  AuthEmailFormComponent,
+  type AuthEmailFormData,
+  type AuthEmailFormMode,
+} from './components';
+
+// Services - Angular injectable services (requires Ionic)
+export {
+  NxtPlatformService,
+  type DeviceType as PlatformDeviceType,
+  type OperatingSystem,
+  type Orientation,
+  type IonicMode,
+  type PlatformCapabilities,
+  type ViewportInfo,
+  BREAKPOINTS,
+} from './services';

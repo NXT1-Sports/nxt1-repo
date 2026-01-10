@@ -1,24 +1,27 @@
 /**
- * Global styles for NXT1 Web Application
+ * @fileoverview Global Styles - NXT1 Web Application
+ * @module @nxt1/web
  *
  * Architecture:
  * ┌──────────────────────────────────────────┐
- * │     @nxt1/design-tokens (foundation)     │
+ * │  @nxt1/design-tokens (foundation)        │
+ * │  - Colors, Typography, Spacing, etc.     │
+ * │  - Light/Dark theme support              │
  * ├──────────────────────────────────────────┤
- * │     Web Theme Variables (extensions)     │
+ * │  Auth Component Styles (shared)          │
  * ├──────────────────────────────────────────┤
- * │     Auth Component Styles (features)     │
+ * │  Web-specific overrides                  │
  * └──────────────────────────────────────────┘
  *
- * - Base reset and typography
- * - Theme variables (CSS custom properties)
- * - Utility classes
- * - Third-party overrides
+ * Theme Usage:
+ * - Dark (default): No attribute needed
+ * - Light: <html data-theme="light">
+ * - System: Automatically follows OS preference
  */
 
-// Import design tokens foundation
-@import "../../../packages/design-tokens/tokens";
-@import "../../../packages/design-tokens/components/auth";
+// Design tokens foundation (provides all CSS custom properties)
+@use "../../../packages/design-tokens/tokens" as *;
+@use "../../../packages/design-tokens/components/auth" as *;
 
 // ============================================
 // CSS RESET & BASE STYLES
@@ -49,17 +52,18 @@ select {
 
 // ============================================
 // ROOT & BODY STYLES
+// Uses design tokens for consistency with mobile
 // ============================================
 html,
 body {
   min-height: 100% !important;
   height: 100%;
   width: 100%;
-  font-family: "Rajdhani", sans-serif;
+  font-family: var(--nxt1-font-family-brand);
   overflow-x: hidden;
   overflow-y: auto;
-  background-color: var(--app-bg, #121212);
-  color: var(--text-primary, #ffffff);
+  background-color: var(--nxt1-color-bg-primary);
+  color: var(--nxt1-color-text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   font-synthesis: none;
@@ -73,68 +77,71 @@ html.cdk-global-scrollblock {
 }
 
 // ============================================
-// CSS CUSTOM PROPERTIES (THEME)
+// LEGACY CSS VARIABLES (For backwards compatibility)
+// These map to the new design token system
+// Gradually migrate to --nxt1-* variables
 // ============================================
 :root {
-  // Brand Colors
-  --primary: #ccff00;
-  --primary-dark: #a8d400;
-  --primary-rgb: 204, 255, 0;
+  // Brand Colors (mapped to tokens)
+  --primary: var(--nxt1-color-primary);
+  --primary-dark: var(--nxt1-color-primary-dark);
+  --primary-rgb: var(--nxt1-color-primary-rgb);
 
-  // Background Colors
-  --app-bg: #121212;
-  --card-bg: #1e1e1e;
-  --card-bg-elevated: #2a2a2a;
-  --surface: #1a1a1a;
+  // Background Colors (mapped to tokens)
+  --app-bg: var(--nxt1-color-bg-primary);
+  --card-bg: var(--nxt1-color-surface-200);
+  --card-bg-elevated: var(--nxt1-color-surface-400);
+  --surface: var(--nxt1-color-surface-100);
 
-  // Text Colors
-  --text-primary: #ffffff;
-  --text-secondary: rgba(255, 255, 255, 0.7);
-  --text-tertiary: rgba(255, 255, 255, 0.5);
-  --text-disabled: rgba(255, 255, 255, 0.38);
+  // Text Colors (mapped to tokens)
+  --text-primary: var(--nxt1-color-text-primary);
+  --text-secondary: var(--nxt1-color-text-secondary);
+  --text-tertiary: var(--nxt1-color-text-tertiary);
+  --text-disabled: var(--nxt1-color-text-disabled);
 
-  // Border Colors
-  --border-color: rgba(255, 255, 255, 0.12);
-  --border-color-light: rgba(255, 255, 255, 0.06);
+  // Border Colors (mapped to tokens)
+  --border-color: var(--nxt1-color-border-default);
+  --border-color-light: var(--nxt1-color-border-subtle);
 
-  // Status Colors
-  --success: #4caf50;
-  --warning: #ff9800;
-  --error: #f44336;
-  --info: #2196f3;
+  // Status Colors (mapped to tokens)
+  --success: var(--nxt1-color-success);
+  --warning: var(--nxt1-color-warning);
+  --error: var(--nxt1-color-error);
+  --info: var(--nxt1-color-info);
 
-  // Spacing
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
-  --spacing-xl: 32px;
+  // Spacing (mapped to tokens)
+  --spacing-xs: var(--nxt1-spacing-1);
+  --spacing-sm: var(--nxt1-spacing-2);
+  --spacing-md: var(--nxt1-spacing-4);
+  --spacing-lg: var(--nxt1-spacing-6);
+  --spacing-xl: var(--nxt1-spacing-8);
 
-  // Border Radius
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-full: 9999px;
+  // Border Radius (mapped to tokens)
+  --radius-sm: var(--nxt1-radius-sm);
+  --radius-md: var(--nxt1-radius-default);
+  --radius-lg: var(--nxt1-radius-md);
+  --radius-xl: var(--nxt1-radius-lg);
+  --radius-full: var(--nxt1-radius-full);
 
-  // Transitions
-  --transition-fast: 150ms ease-in-out;
-  --transition-normal: 250ms ease-in-out;
-  --transition-slow: 350ms ease-in-out;
+  // Transitions (mapped to tokens)
+  --transition-fast: var(--nxt1-duration-fast) var(--nxt1-ease-in-out);
+  --transition-normal: var(--nxt1-duration-normal) var(--nxt1-ease-in-out);
+  --transition-slow: var(--nxt1-duration-slow) var(--nxt1-ease-in-out);
 
-  // Z-Index Scale
-  --z-dropdown: 1000;
-  --z-sticky: 1020;
-  --z-fixed: 1030;
-  --z-modal-backdrop: 1040;
-  --z-modal: 1050;
-  --z-popover: 1060;
-  --z-tooltip: 1070;
-  --z-toast: 1080;
+  // Z-Index Scale (mapped to tokens)
+  --z-dropdown: var(--nxt1-z-dropdown);
+  --z-sticky: var(--nxt1-z-sticky);
+  --z-fixed: var(--nxt1-z-fixed);
+  --z-modal-backdrop: var(--nxt1-z-modal-backdrop);
+  --z-modal: var(--nxt1-z-modal);
+  --z-popover: var(--nxt1-z-popover);
+  --z-tooltip: var(--nxt1-z-tooltip);
+  --z-toast: var(--nxt1-z-toast);
 }
 
 // ============================================
 // TYPOGRAPHY
+// Uses design tokens for cross-platform consistency
 // ============================================
 h1,
 h2,
@@ -142,44 +149,44 @@ h3,
 h4,
 h5,
 h6 {
-  font-family: "Rajdhani", sans-serif;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--text-primary);
+  font-family: var(--nxt1-font-family-display);
+  font-weight: var(--nxt1-font-weight-bold);
+  line-height: var(--nxt1-line-height-tight);
+  color: var(--nxt1-color-text-primary);
 }
 
 h1 {
-  font-size: 2.5rem;
+  font-size: var(--nxt1-font-size-4xl);
 }
 h2 {
-  font-size: 2rem;
+  font-size: var(--nxt1-font-size-3xl);
 }
 h3 {
-  font-size: 1.75rem;
+  font-size: var(--nxt1-font-size-2xl);
 }
 h4 {
-  font-size: 1.5rem;
+  font-size: var(--nxt1-font-size-xl);
 }
 h5 {
-  font-size: 1.25rem;
+  font-size: var(--nxt1-font-size-lg);
 }
 h6 {
-  font-size: 1rem;
+  font-size: var(--nxt1-font-size-md);
 }
 
 p {
-  font-size: 1rem;
-  line-height: 1.6;
-  color: var(--text-secondary);
+  font-size: var(--nxt1-font-size-base);
+  line-height: var(--nxt1-line-height-relaxed);
+  color: var(--nxt1-color-text-secondary);
 }
 
 a {
-  color: var(--primary);
+  color: var(--nxt1-color-primary);
   text-decoration: none;
-  transition: color var(--transition-fast);
+  transition: var(--nxt1-transition-colors);
 
   &:hover {
-    color: var(--primary-dark);
+    color: var(--nxt1-color-primary-dark);
   }
 }
 

@@ -11,7 +11,7 @@
  * - Handles Firebase auth operations (sign in, sign up, etc.)
  */
 
-import { Injectable, inject, signal, computed, PLATFORM_ID } from '@angular/core';
+import { Injectable, inject, signal, computed, PLATFORM_ID, OnDestroy } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Router } from '@angular/router';
 import {
@@ -33,19 +33,24 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
-  onAuthStateChanged,
+  authState,
   sendPasswordResetEmail,
   updateProfile,
   type User as FirebaseUser,
 } from '@angular/fire/auth';
+import { Subscription } from 'rxjs';
 
 @Injectable({ providedIn: 'root' })
-export class MobileAuthService {
+export class MobileAuthService implements OnDestroy {
   private readonly auth = inject(Auth);
   private readonly router = inject(Router);
   private readonly platformId = inject(PLATFORM_ID);
 
   private authManager!: AuthStateManager;
+  private authStateSubscription?: Subscription;
+
+  // Store authState observable reference during injection context
+  private readonly authState$ = authState(this.auth);
 
   // Angular signals derived from auth state
   private readonly _state = signal<AuthState>(INITIAL_AUTH_STATE);
@@ -65,6 +70,10 @@ export class MobileAuthService {
 
   constructor() {
     this.initializeAuthManager();
+  }
+
+  ngOnDestroy(): void {
+    this.authStateSubscription?.unsubscribe();
   }
 
   /**
@@ -100,11 +109,13 @@ export class MobileAuthService {
 
   /**
    * Listen to Firebase auth state and sync with our state manager
+   * Uses AngularFire's authState observable which is zone-aware
    */
   private setupFirebaseAuthListener(): void {
     if (!isPlatformBrowser(this.platformId)) return;
 
-    onAuthStateChanged(this.auth, async (firebaseUser) => {
+    // Use AngularFire's authState observable (created in injection context)
+    this.authStateSubscription = this.authState$.subscribe(async (firebaseUser) => {
       if (firebaseUser) {
         // User signed in - sync with our state
         await this.syncFirebaseUser(firebaseUser);

@@ -1,27 +1,20 @@
 import { RenderMode, ServerRoute } from '@angular/ssr';
 
 /**
- * @fileoverview Server-side Routing Configuration (Simplified)
+ * @fileoverview Server-side Routing Configuration
  * @module @nxt1/web
  *
- * Minimal SSR config - Auth only for now.
+ * All routes use Server rendering for consistent hydration.
+ * Auth state is handled by:
+ * - Server: ServerAuthService (returns unauthenticated state)
+ * - Client: BrowserAuthService (initializes Firebase after hydration)
+ *
+ * This ensures provideClientHydration() always has data to hydrate.
  */
 export const serverRoutes: ServerRoute[] = [
-  // Root redirect
-  {
-    path: '',
-    renderMode: RenderMode.Client,
-  },
-
-  // Auth flows - Client only (requires browser APIs)
-  {
-    path: 'auth/**',
-    renderMode: RenderMode.Client,
-  },
-
-  // Fallback
+  // All routes server-rendered for proper hydration
   {
     path: '**',
-    renderMode: RenderMode.Client,
+    renderMode: RenderMode.Server,
   },
 ];

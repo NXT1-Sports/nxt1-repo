@@ -1,194 +1,327 @@
 /**
- * @fileoverview Auth Form Styles
+ * @fileoverview Auth Form Styles - NXT1 V2 Design
  * @module @nxt1/design-tokens/components/auth
  *
- * Form-specific authentication styles.
- * Handles inputs, validation states, and form layout.
+ * Form inputs, labels, and validation states.
  */
 
+@use "../../tokens" as *;
+
 // ============================================
-// FORM LAYOUT
+// FORM CONTAINER
 // ============================================
 
 .nxt1-auth-form {
   display: flex;
   flex-direction: column;
-  gap: var(--nxt1-form-gap);
+  gap: var(--nxt1-spacing-4);
+  width: 100%;
 }
 
 // ============================================
-// FORM GROUP (Label + Input + Error)
+// FORM FIELD
 // ============================================
 
-.nxt1-form-group {
+.nxt1-form-field {
   display: flex;
   flex-direction: column;
   gap: var(--nxt1-spacing-2);
 }
 
+// ============================================
+// LABEL
+// ============================================
+
 .nxt1-form-label {
-  font-size: var(--nxt1-label-size);
-  font-weight: var(--nxt1-label-weight);
-  color: var(--nxt1-text-primary);
-}
-
-.nxt1-form-hint {
-  font-size: var(--nxt1-caption-size);
-  color: var(--nxt1-text-tertiary);
-}
-
-.nxt1-form-error {
-  font-size: var(--nxt1-caption-size);
-  color: var(--ion-color-danger);
-  display: flex;
-  align-items: center;
-  gap: var(--nxt1-spacing-1);
-
-  ion-icon {
-    font-size: 14px;
-  }
+  font-family: var(--nxt1-font-family-brand);
+  font-size: var(--nxt1-font-size-sm);
+  font-weight: var(--nxt1-font-weight-medium);
+  color: var(--auth-text-secondary);
 }
 
 // ============================================
-// INPUT STYLING
+// INPUT WRAPPER (with icons)
+// ============================================
+
+.nxt1-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.nxt1-input-icon {
+  position: absolute;
+  left: var(--nxt1-spacing-4);
+  width: 20px;
+  height: 20px;
+  color: var(--auth-text-muted);
+  pointer-events: none;
+  transition: color var(--auth-transition-fast);
+  z-index: 1;
+}
+
+// ============================================
+// TEXT INPUT
 // ============================================
 
 .nxt1-auth-input {
-  --background: var(--nxt1-background-secondary);
-  --border-radius: var(--nxt1-radius-input);
-  --padding-start: var(--nxt1-input-padding-x);
-  --padding-end: var(--nxt1-input-padding-x);
-  --padding-top: var(--nxt1-input-padding-y);
-  --padding-bottom: var(--nxt1-input-padding-y);
-  --border-width: 1px;
-  --border-color: var(--nxt1-border-default);
-  --highlight-color-focused: var(--ion-color-primary);
-  --highlight-color-valid: var(--ion-color-success);
-  --highlight-color-invalid: var(--ion-color-danger);
+  width: 100%;
+  height: 52px;
+  padding: 0 var(--nxt1-spacing-4);
+  background: var(--auth-bg-input);
+  border: 1px solid var(--auth-border-default);
+  border-radius: var(--auth-radius-default);
+  font-family: var(--nxt1-font-family-brand);
+  font-size: var(--nxt1-font-size-base);
+  font-weight: var(--nxt1-font-weight-medium);
+  color: var(--auth-text-primary);
+  transition: all var(--auth-transition-fast);
 
-  border-radius: var(--nxt1-radius-input);
-  transition:
-    border-color var(--nxt1-transition-fast),
-    box-shadow var(--nxt1-transition-fast);
-
-  &.ion-touched.ion-invalid {
-    --border-color: var(--ion-color-danger);
+  // With left icon
+  .nxt1-input-icon ~ & {
+    padding-left: 48px;
   }
-
-  &.ion-focused {
-    --border-color: var(--ion-color-primary);
-    box-shadow: 0 0 0 3px var(--nxt1-state-focus);
-  }
-}
-
-// Native input within ion-input
-.nxt1-auth-input .native-input {
-  font-size: var(--nxt1-body-size);
-  color: var(--nxt1-text-primary);
 
   &::placeholder {
-    color: var(--nxt1-text-tertiary);
+    color: var(--auth-text-placeholder);
+    font-weight: var(--nxt1-font-weight-regular);
+  }
+
+  &:hover:not(:focus):not(:disabled) {
+    background: var(--auth-bg-input-hover);
+    border-color: var(--auth-border-hover);
+  }
+
+  &:focus {
+    background: var(--auth-bg-input-focus);
+    border-color: var(--auth-border-focus);
+    outline: none;
+
+    & ~ .nxt1-input-icon,
+    .nxt1-input-icon ~ & + .nxt1-input-icon {
+      color: var(--nxt1-color-primary);
+    }
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  // Error state
+  .nxt1-form-field--error & {
+    border-color: var(--nxt1-color-error);
+
+    &:focus {
+      border-color: var(--nxt1-color-error);
+    }
   }
 }
 
-// Input with icon
-.nxt1-input-with-icon {
-  position: relative;
-
-  ion-icon {
-    position: absolute;
-    left: var(--nxt1-spacing-4);
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--nxt1-text-tertiary);
-    font-size: 20px;
-    z-index: 1;
-    pointer-events: none;
-  }
-
-  .nxt1-auth-input {
-    --padding-start: calc(var(--nxt1-spacing-4) + 28px);
-  }
+// When icon is present, adjust input padding
+.nxt1-input-wrapper .nxt1-input-icon + .nxt1-auth-input,
+.nxt1-input-wrapper .nxt1-input-icon + ion-input {
+  padding-left: 48px;
 }
 
-// Password toggle
+// ============================================
+// PASSWORD TOGGLE
+// ============================================
+
 .nxt1-password-toggle {
-  --padding: 0;
-  --background: transparent;
   position: absolute;
   right: var(--nxt1-spacing-2);
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--nxt1-text-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: none;
+  border-radius: var(--nxt1-radius-sm);
+  color: var(--auth-text-muted);
+  cursor: pointer;
+  transition: all var(--auth-transition-fast);
+
+  svg {
+    width: 20px;
+    height: 20px;
+  }
 
   &:hover {
-    color: var(--nxt1-text-secondary);
+    color: var(--auth-text-primary);
+    background: var(--auth-bg-input-hover);
+  }
+
+  // Ionic button override
+  &.ion-button {
+    --background: transparent;
+    --background-hover: var(--auth-bg-input-hover);
+    --color: var(--auth-text-muted);
+    --padding-start: 0;
+    --padding-end: 0;
+    margin: 0;
+    width: 40px;
+    height: 40px;
+  }
+}
+
+// Ionic standalone selector for password toggle
+ion-button.nxt1-password-toggle {
+  --background: transparent;
+  --background-hover: var(--auth-bg-input-hover);
+  --color: var(--auth-text-muted);
+  --padding-start: 0;
+  --padding-end: 0;
+  margin: 0;
+  width: 40px;
+  height: 40px;
+}
+
+// ============================================
+// FIELD ERROR MESSAGE
+// ============================================
+
+.nxt1-field-error {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-1);
+  font-family: var(--nxt1-font-family-brand);
+  font-size: var(--nxt1-font-size-xs);
+  font-weight: var(--nxt1-font-weight-medium);
+  color: var(--nxt1-color-error);
+
+  svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
   }
 }
 
 // ============================================
-// CHECKBOX / REMEMBER ME
+// API ERROR MESSAGE
 // ============================================
 
-.nxt1-form-checkbox-row {
+.nxt1-api-error {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-3);
+  padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--auth-radius-default);
+  margin-bottom: var(--nxt1-spacing-4);
+
+  svg {
+    width: 20px;
+    height: 20px;
+    color: var(--nxt1-color-error);
+    flex-shrink: 0;
+  }
+
+  span {
+    font-family: var(--nxt1-font-family-brand);
+    font-size: var(--nxt1-font-size-sm);
+    font-weight: var(--nxt1-font-weight-medium);
+    color: var(--nxt1-color-error);
+    flex: 1;
+  }
+}
+
+// ============================================
+// SUCCESS MESSAGE
+// ============================================
+
+.nxt1-success-message {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-3);
+  padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: var(--auth-radius-default);
+  margin-bottom: var(--nxt1-spacing-4);
+
+  svg {
+    width: 20px;
+    height: 20px;
+    color: var(--nxt1-color-success);
+    flex-shrink: 0;
+  }
+
+  span {
+    font-family: var(--nxt1-font-family-brand);
+    font-size: var(--nxt1-font-size-sm);
+    font-weight: var(--nxt1-font-weight-medium);
+    color: var(--nxt1-color-success);
+    flex: 1;
+  }
+}
+
+// ============================================
+// CHECKBOX
+// ============================================
+
+.nxt1-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-2);
+  cursor: pointer;
+
+  user-select: none;
+  -webkit-user-select: none;
+
+  input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--nxt1-color-primary);
+    cursor: pointer;
+  }
+
+  span {
+    font-family: var(--nxt1-font-family-brand);
+    font-size: var(--nxt1-font-size-sm);
+    font-weight: var(--nxt1-font-weight-medium);
+    color: var(--auth-text-secondary);
+  }
+}
+
+// ============================================
+// FORM OPTIONS ROW
+// ============================================
+
+.nxt1-form-options {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--nxt1-spacing-2);
-}
-
-.nxt1-auth-checkbox {
-  --size: 20px;
-  --border-radius: var(--nxt1-radius-sm);
-  --border-color: var(--nxt1-border-default);
-  --checkbox-background-checked: var(--ion-color-primary);
-  --checkmark-color: var(--ion-color-primary-contrast);
-
-  font-size: var(--nxt1-body-sm-size);
-  color: var(--nxt1-text-secondary);
+  gap: var(--nxt1-spacing-4);
 }
 
 // ============================================
-// FORM ACTIONS
+// IONIC INPUT OVERRIDES
 // ============================================
 
-.nxt1-form-actions {
-  display: flex;
-  flex-direction: column;
-  gap: var(--nxt1-spacing-3);
-  margin-top: var(--nxt1-spacing-2);
-}
+ion-input.nxt1-auth-input {
+  --background: var(--auth-bg-input);
+  --border-radius: var(--auth-radius-default);
+  --color: var(--auth-text-primary);
+  --placeholder-color: var(--auth-text-placeholder);
+  --placeholder-opacity: 1;
+  --padding-start: var(--nxt1-spacing-4);
+  --padding-end: var(--nxt1-spacing-4);
+  --padding-top: 0;
+  --padding-bottom: 0;
+  --highlight-color-focused: var(--nxt1-color-primary);
 
-// Forgot password link
-.nxt1-forgot-link {
-  font-size: var(--nxt1-body-sm-size);
-  color: var(--ion-color-primary);
-  text-decoration: none;
-  transition: color var(--nxt1-transition-fast);
+  height: 52px;
+  font-family: var(--nxt1-font-family-brand);
+  font-size: var(--nxt1-font-size-base);
+  font-weight: var(--nxt1-font-weight-medium);
+  border: 1px solid var(--auth-border-default);
+  border-radius: var(--auth-radius-default);
 
-  &:hover {
-    color: var(--ion-color-primary-shade);
-    text-decoration: underline;
-  }
-}
-
-// ============================================
-// VALIDATION STATES
-// ============================================
-
-.nxt1-input-success {
-  --border-color: var(--ion-color-success) !important;
-
-  &.ion-focused {
-    box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.2);
-  }
-}
-
-.nxt1-input-error {
-  --border-color: var(--ion-color-danger) !important;
-
-  &.ion-focused {
-    box-shadow: 0 0 0 3px rgba(244, 67, 54, 0.2);
+  &.has-focus {
+    border-color: var(--auth-border-focus);
+    --background: var(--auth-bg-input-focus);
   }
 }

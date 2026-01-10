@@ -1,0 +1,12 @@
+/**
+ * @fileoverview Ionic Theme Barrel Export
+ * @module @nxt1/design-tokens/ionic
+ *
+ * NXT1 theme integration for Ionic Framework.
+ * Import this in your app's global styles to apply NXT1 branding to Ionic components.
+ *
+ * Usage:
+ * @import '@nxt1/design-tokens/ionic';
+ */
+
+@forward "ionic-theme";

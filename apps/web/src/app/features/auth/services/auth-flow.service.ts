@@ -37,9 +37,12 @@ import {
   PLATFORM_ID,
   InjectionToken,
   Injector,
+  OnDestroy,
+  runInInjectionContext,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import { isPlatformBrowser } from '@angular/common';
+import { Subscription } from 'rxjs';
 
 // Type-only imports - these don't cause runtime code to execute
 import type { Auth as FirebaseAuthType, User as FirebaseUser } from '@angular/fire/auth';
@@ -119,7 +122,7 @@ export interface SignUpCredentials {
  * ```
  */
 @Injectable({ providedIn: 'root' })
-export class AuthFlowService {
+export class AuthFlowService implements OnDestroy {
   private readonly router = inject(Router);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly injector = inject(Injector);
@@ -131,6 +134,7 @@ export class AuthFlowService {
    * initialization throws NG0401 on the server.
    */
   private firebaseAuth: Auth | null = null;
+  private authStateSubscription?: Subscription;
 
   // ============================================
   // STATE SIGNALS (Private Writable)
@@ -171,6 +175,10 @@ export class AuthFlowService {
     }
   }
 
+  ngOnDestroy(): void {
+    this.authStateSubscription?.unsubscribe();
+  }
+
   /**
    * Lazy-load Firebase Auth on browser only
    * This prevents @angular/fire module from initializing on the server
@@ -197,33 +205,40 @@ export class AuthFlowService {
   /**
    * Initialize Firebase auth state listener
    * Syncs Firebase user with backend user profile
+   *
+   * Uses AngularFire's authState observable which is zone-aware
+   * and properly handles injection context.
    */
   private async initAuthStateListener(): Promise<void> {
     if (!this.firebaseAuth) return;
 
-    // Dynamically import onAuthStateChanged
-    const { onAuthStateChanged } = await import('@angular/fire/auth');
+    // Dynamically import authState (the zone-aware observable)
+    const { authState } = await import('@angular/fire/auth');
 
-    onAuthStateChanged(this.firebaseAuth, async (firebaseUser) => {
-      this._isLoading.set(true);
+    // CRITICAL: Use runInInjectionContext to maintain Angular's injection context
+    // This prevents the "Firebase API called outside injection context" warning
+    runInInjectionContext(this.injector, () => {
+      this.authStateSubscription = authState(this.firebaseAuth!).subscribe(async (firebaseUser) => {
+        this._isLoading.set(true);
 
-      try {
-        this._firebaseUser.set(firebaseUser);
+        try {
+          this._firebaseUser.set(firebaseUser);
 
-        if (firebaseUser) {
-          // User is signed in - fetch profile from backend
-          await this.syncUserProfile(firebaseUser);
-        } else {
-          // User is signed out
-          this._user.set(null);
+          if (firebaseUser) {
+            // User is signed in - fetch profile from backend
+            await this.syncUserProfile(firebaseUser);
+          } else {
+            // User is signed out
+            this._user.set(null);
+          }
+        } catch (err) {
+          console.error('[AuthFlowService] Auth state sync failed:', err);
+          this._error.set(err instanceof Error ? err.message : 'Authentication error');
+        } finally {
+          this._isLoading.set(false);
+          this._isInitialized.set(true);
         }
-      } catch (err) {
-        console.error('[AuthFlowService] Auth state sync failed:', err);
-        this._error.set(err instanceof Error ? err.message : 'Authentication error');
-      } finally {
-        this._isLoading.set(false);
-        this._isInitialized.set(true);
-      }
+      });
     });
   }
 

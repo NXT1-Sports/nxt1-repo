@@ -2,13 +2,16 @@
   Root Application Template
   
   Architecture:
-  - Shows loading overlay during initialization
+  - Router outlet always rendered for SSR hydration compatibility
+  - Loading overlay shown as overlay (not blocking)
   - Error boundary for critical failures
-  - Router outlet for all feature routes
 -->
 
+<!-- Main Application Content - Always rendered for SSR compatibility -->
+<router-outlet />
+
+<!-- Loading Overlay (non-blocking) -->
 @if (loading()) {
-  <!-- Global Loading Overlay -->
   <div class="app-loading-overlay">
     <div class="loading-content">
       <div class="logo-container">
@@ -18,8 +21,10 @@
       <p class="loading-text">Loading...</p>
     </div>
   </div>
-} @else if (error()) {
-  <!-- Critical Error State -->
+}
+
+<!-- Critical Error State -->
+@if (error()) {
   <div class="app-error-container">
     <div class="error-content">
       <h1>Something went wrong</h1>
@@ -27,7 +32,4 @@
       <button class="btn btn-primary" (click)="ngOnInit()">Try Again</button>
     </div>
   </div>
-} @else {
-  <!-- Main Application Content -->
-  <router-outlet />
 }

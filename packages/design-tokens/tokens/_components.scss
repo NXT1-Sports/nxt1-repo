@@ -1,0 +1,103 @@
+/**
+ * @fileoverview NXT1 Component Design Tokens
+ * @module @nxt1/design-tokens
+ *
+ * Specific tokens for common UI components.
+ * Use these for consistent component sizing across platforms.
+ */
+
+@use "spacing" as *;
+@use "radius" as *;
+
+// ============================================
+// BUTTON TOKENS
+// ============================================
+
+$nxt1-button-height-xs: 28px;
+$nxt1-button-height-sm: 32px;
+$nxt1-button-height-md: 40px;
+$nxt1-button-height-lg: 48px;
+$nxt1-button-height-xl: 56px;
+
+$nxt1-button-padding-x-sm: $nxt1-spacing-3;
+$nxt1-button-padding-x-md: $nxt1-spacing-4;
+$nxt1-button-padding-x-lg: $nxt1-spacing-6;
+
+// ============================================
+// INPUT TOKENS
+// ============================================
+
+$nxt1-input-height-sm: 32px;
+$nxt1-input-height-md: 40px;
+$nxt1-input-height-lg: 48px;
+
+$nxt1-input-padding-x: $nxt1-spacing-3;
+$nxt1-input-border-width: 1px;
+
+// ============================================
+// CARD TOKENS
+// ============================================
+
+$nxt1-card-padding: $nxt1-spacing-4;
+$nxt1-card-padding-lg: $nxt1-spacing-6;
+$nxt1-card-radius: $nxt1-radius-lg;
+
+// ============================================
+// AVATAR TOKENS
+// ============================================
+
+$nxt1-avatar-size-xs: 24px;
+$nxt1-avatar-size-sm: 32px;
+$nxt1-avatar-size-md: 40px;
+$nxt1-avatar-size-lg: 56px;
+$nxt1-avatar-size-xl: 80px;
+$nxt1-avatar-size-2xl: 120px;
+
+// ============================================
+// ICON TOKENS
+// ============================================
+
+$nxt1-icon-size-xs: 12px;
+$nxt1-icon-size-sm: 16px;
+$nxt1-icon-size-md: 20px;
+$nxt1-icon-size-lg: 24px;
+$nxt1-icon-size-xl: 32px;
+
+// ============================================
+// CSS CUSTOM PROPERTIES
+// ============================================
+
+:root {
+  // Buttons
+  --nxt1-button-height-xs: #{$nxt1-button-height-xs};
+  --nxt1-button-height-sm: #{$nxt1-button-height-sm};
+  --nxt1-button-height-md: #{$nxt1-button-height-md};
+  --nxt1-button-height-lg: #{$nxt1-button-height-lg};
+  --nxt1-button-height-xl: #{$nxt1-button-height-xl};
+
+  // Inputs
+  --nxt1-input-height-sm: #{$nxt1-input-height-sm};
+  --nxt1-input-height-md: #{$nxt1-input-height-md};
+  --nxt1-input-height-lg: #{$nxt1-input-height-lg};
+  --nxt1-input-padding-x: #{$nxt1-input-padding-x};
+
+  // Cards
+  --nxt1-card-padding: #{$nxt1-card-padding};
+  --nxt1-card-padding-lg: #{$nxt1-card-padding-lg};
+  --nxt1-card-radius: #{$nxt1-card-radius};
+
+  // Avatars
+  --nxt1-avatar-size-xs: #{$nxt1-avatar-size-xs};
+  --nxt1-avatar-size-sm: #{$nxt1-avatar-size-sm};
+  --nxt1-avatar-size-md: #{$nxt1-avatar-size-md};
+  --nxt1-avatar-size-lg: #{$nxt1-avatar-size-lg};
+  --nxt1-avatar-size-xl: #{$nxt1-avatar-size-xl};
+  --nxt1-avatar-size-2xl: #{$nxt1-avatar-size-2xl};
+
+  // Icons
+  --nxt1-icon-size-xs: #{$nxt1-icon-size-xs};
+  --nxt1-icon-size-sm: #{$nxt1-icon-size-sm};
+  --nxt1-icon-size-md: #{$nxt1-icon-size-md};
+  --nxt1-icon-size-lg: #{$nxt1-icon-size-lg};
+  --nxt1-icon-size-xl: #{$nxt1-icon-size-xl};
+}

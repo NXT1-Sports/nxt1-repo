@@ -1,5 +1,5 @@
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, ChangeDetectionStrategy, inject, signal, PLATFORM_ID } from '@angular/core';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { IonContent, IonInput, IonButton, IonIcon, IonSpinner } from '@ionic/angular/standalone';
@@ -30,7 +30,14 @@ import { AuthFlowService } from '../../services';
       <div class="auth-page__container">
         <!-- Logo -->
         <div class="auth-page__logo">
-          <img src="assets/images/nxt1-logo.svg" alt="NXT1 Sports" />
+          <picture>
+            <source srcset="assets/shared/logo/logo.avif" type="image/avif" />
+            <img
+              src="assets/shared/logo/logo.png"
+              alt="NXT1 Sports"
+              class="nxt1-logo nxt1-logo--auth"
+            />
+          </picture>
         </div>
 
         <!-- Header -->
@@ -154,12 +161,16 @@ import { AuthFlowService } from '../../services';
 })
 export class ForgotPasswordComponent {
   readonly authFlow = inject(AuthFlowService);
+  private readonly platformId = inject(PLATFORM_ID);
 
   email = '';
   emailSent = signal(false);
 
   constructor() {
-    addIcons({ mailOutline, arrowBackOutline, checkmarkCircleOutline });
+    // Only register icons in browser (SSR-safe)
+    if (isPlatformBrowser(this.platformId)) {
+      addIcons({ mailOutline, arrowBackOutline, checkmarkCircleOutline });
+    }
   }
 
   async onSubmit(): Promise<void> {

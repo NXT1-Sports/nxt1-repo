@@ -1,5 +1,5 @@
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, ChangeDetectionStrategy, inject, signal, PLATFORM_ID } from '@angular/core';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import {
@@ -44,7 +44,14 @@ import { AuthFlowService } from '../../services';
       <div class="auth-page__container">
         <!-- Logo -->
         <div class="auth-page__logo">
-          <img src="assets/images/nxt1-logo.svg" alt="NXT1 Sports" />
+          <picture>
+            <source srcset="assets/shared/logo/logo.avif" type="image/avif" />
+            <img
+              src="assets/shared/logo/logo.png"
+              alt="NXT1 Sports"
+              class="nxt1-logo nxt1-logo--auth"
+            />
+          </picture>
         </div>
 
         <!-- Header -->
@@ -198,6 +205,7 @@ import { AuthFlowService } from '../../services';
 })
 export class SignupComponent {
   readonly authFlow = inject(AuthFlowService);
+  private readonly platformId = inject(PLATFORM_ID);
 
   email = '';
   password = '';
@@ -210,7 +218,10 @@ export class SignupComponent {
   teamCodeEnabled = () => true; // Could be feature flag
 
   constructor() {
-    addIcons({ mailOutline, lockClosedOutline, personOutline, logoGoogle, logoApple });
+    // Only register icons in browser (SSR-safe)
+    if (isPlatformBrowser(this.platformId)) {
+      addIcons({ mailOutline, lockClosedOutline, personOutline, logoGoogle, logoApple });
+    }
   }
 
   isFormValid(): boolean {

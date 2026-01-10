@@ -3,6 +3,8 @@
  * @module @nxt1/design-tokens/components
  *
  * Barrel export for all component styles.
+ * Uses modern @forward syntax for Dart Sass 3.0+ compatibility.
  */
 
-@import "auth";
+@forward "auth";
+@forward "logo";

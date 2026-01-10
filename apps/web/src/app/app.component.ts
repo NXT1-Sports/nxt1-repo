@@ -105,7 +105,6 @@ export class AppComponent implements OnInit {
 
     // Initialize any browser-specific features here
     // e.g., analytics, service worker registration, etc.
-    console.log('[AppComponent] Browser features initialized');
   }
 
   /**

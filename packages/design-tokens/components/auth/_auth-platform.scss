@@ -1,261 +1,195 @@
 /**
- * @fileoverview Auth Platform Adaptations
+ * @fileoverview Auth Platform Styles - NXT1 V2 Design
  * @module @nxt1/design-tokens/components/auth
  *
- * Platform-specific overrides to ensure 100% native feel
- * on iOS, Android (Material), and Web.
+ * Platform-specific overrides for iOS, Android (Material), and web.
  */
 
+@use "../../tokens" as *;
+
 // ============================================
-// iOS PLATFORM ADAPTATIONS
+// IOS PLATFORM ADJUSTMENTS
 // ============================================
 
 .ios {
-  // iOS uses larger, more rounded inputs
-  .nxt1-auth-input {
-    --border-radius: 12px;
-    --padding-top: 14px;
-    --padding-bottom: 14px;
-  }
-
-  // iOS buttons have more rounded corners
-  .nxt1-auth-button {
-    --border-radius: 12px;
-  }
-
-  // iOS cards are more rounded
   .nxt1-auth-card {
-    border-radius: 20px;
+    border-radius: var(--nxt1-radius-2xl);
   }
 
-  // iOS prefers centered, subtle headers
-  .nxt1-auth-header {
-    margin-bottom: 32px;
+  .nxt1-social-btn,
+  .nxt1-submit-btn,
+  .nxt1-auth-input {
+    border-radius: var(--nxt1-radius-lg);
   }
 
-  .nxt1-auth-title {
-    font-size: 28px;
-    font-weight: 700;
-    letter-spacing: -0.5px;
-  }
-
-  // iOS checkbox is circular
-  .nxt1-auth-checkbox {
-    --border-radius: 50%;
-  }
-
-  // Apple Sign In should be prominent
-  .nxt1-social-button--apple {
-    font-weight: 600;
-  }
-
-  // iOS uses blue tint for interactive elements
-  .nxt1-auth-link,
-  .nxt1-forgot-link {
-    color: #007aff;
+  // iOS safe area handling
+  .nxt1-auth-page {
+    padding-top: max(var(--nxt1-spacing-6), env(safe-area-inset-top));
+    padding-bottom: max(var(--nxt1-spacing-6), env(safe-area-inset-bottom));
   }
 }
 
 // ============================================
-// ANDROID (MATERIAL) PLATFORM ADAPTATIONS
+// MATERIAL DESIGN (Android) ADJUSTMENTS
 // ============================================
 
 .md {
-  // Material uses subtler, smaller radius
-  .nxt1-auth-input {
-    --border-radius: 4px;
-    --padding-top: 12px;
-    --padding-bottom: 12px;
-  }
-
-  // Material buttons follow spec
-  .nxt1-auth-button {
-    --border-radius: 4px;
-    letter-spacing: 0.5px;
-  }
-
-  // Material cards
   .nxt1-auth-card {
-    border-radius: 12px;
+    border-radius: var(--nxt1-radius-xl);
   }
 
-  // Material header alignment
-  .nxt1-auth-header {
-    margin-bottom: 24px;
+  .nxt1-social-btn,
+  .nxt1-submit-btn,
+  .nxt1-auth-input {
+    border-radius: var(--nxt1-radius-default);
   }
 
-  .nxt1-auth-title {
-    font-size: 24px;
-    font-weight: 500;
-  }
-
-  // Material checkbox
-  .nxt1-auth-checkbox {
-    --border-radius: 2px;
-  }
-
-  // Material uses ripple effects (handled by Ionic)
-  .nxt1-auth-button::part(native) {
+  // Ripple effect for buttons
+  .nxt1-social-btn,
+  .nxt1-submit-btn {
+    position: relative;
     overflow: hidden;
-  }
 
-  // Material social buttons have elevation on hover
-  .nxt1-social-button:hover {
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    &::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 10%, transparent 10.01%);
+      transform: scale(10);
+      opacity: 0;
+      transition:
+        transform 0.5s,
+        opacity 0.5s;
+    }
+
+    &:active::after {
+      transform: scale(0);
+      opacity: 0.3;
+      transition: 0s;
+    }
   }
 }
 
 // ============================================
-// WEB PLATFORM ADAPTATIONS
+// WEB-SPECIFIC ADJUSTMENTS
 // ============================================
 
-// When not iOS or Android (desktop web)
-:not(.ios):not(.md),
-.plt-desktop {
+@media (min-width: 768px) {
+  // Hover states only on devices that support hover
+  @media (hover: hover) {
+    .nxt1-social-btn:hover {
+      transform: translateY(-2px);
+    }
+
+    .nxt1-submit-btn:hover {
+      transform: translateY(-2px);
+    }
+  }
+}
+
+// ============================================
+// MOBILE-SPECIFIC ADJUSTMENTS
+// ============================================
+
+@media (max-width: 767px) {
   .nxt1-auth-page {
-    // Web can show a background pattern/image
-    background: linear-gradient(
-      135deg,
-      var(--nxt1-background-primary) 0%,
-      var(--nxt1-background-secondary) 100%
+    padding: var(--nxt1-spacing-4);
+    padding-top: max(var(--nxt1-spacing-4), env(safe-area-inset-top, 20px));
+    padding-bottom: max(var(--nxt1-spacing-4), env(safe-area-inset-bottom, 20px));
+  }
+
+  .nxt1-auth-card {
+    padding: var(--nxt1-spacing-5);
+  }
+
+  .nxt1-auth-header {
+    margin-bottom: var(--nxt1-spacing-5);
+    padding-bottom: var(--nxt1-spacing-5);
+
+    h1 {
+      font-size: var(--nxt1-font-size-xl);
+    }
+  }
+
+  .nxt1-social-btn,
+  .nxt1-submit-btn {
+    height: 48px;
+  }
+
+  .nxt1-auth-input {
+    height: 48px;
+  }
+}
+
+// ============================================
+// DARK/LIGHT THEME SUPPORT
+// ============================================
+
+[data-theme="light"],
+.light-theme {
+  .nxt1-auth-page {
+    background-image: radial-gradient(
+      ellipse at 50% 0%,
+      rgba(163, 204, 0, 0.05) 0%,
+      transparent 50%
     );
   }
 
   .nxt1-auth-card {
-    // Always show card on web
-    border-radius: 16px;
-    box-shadow: var(--nxt1-shadow-card);
-    margin: 0;
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.08);
   }
 
-  // Wider max-width on desktop
-  .nxt1-auth-container {
-    max-width: 400px;
-  }
-
-  // Hover states for desktop
-  .nxt1-auth-button:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  }
-
-  .nxt1-social-button:hover {
-    border-color: var(--nxt1-border-default);
-    background: var(--nxt1-state-hover);
-  }
-
-  // Focus visible states for accessibility
-  .nxt1-auth-input:focus-visible {
-    outline: 2px solid var(--ion-color-primary);
-    outline-offset: 2px;
-  }
-
-  .nxt1-auth-button:focus-visible {
-    outline: 2px solid var(--ion-color-primary);
-    outline-offset: 2px;
-  }
-}
-
-// ============================================
-// TABLET ADAPTATIONS
-// ============================================
-
-@media (min-width: 768px) and (max-width: 1024px) {
-  .nxt1-auth-content {
-    padding: 40px;
-  }
-
-  .nxt1-auth-container {
-    max-width: 420px;
-  }
-}
-
-// ============================================
-// LANDSCAPE MODE (MOBILE)
-// ============================================
-
-@media (max-height: 500px) and (orientation: landscape) {
-  .nxt1-auth-content {
-    justify-content: flex-start;
-    padding-top: 20px;
-  }
-
-  .nxt1-auth-header {
-    margin-bottom: 16px;
-  }
-
-  .nxt1-auth-logo {
-    width: 48px;
-    height: 48px;
-    margin-bottom: 8px;
-  }
-
-  .nxt1-auth-title {
-    font-size: 20px;
-  }
-
-  .nxt1-social-divider {
-    margin: 16px 0;
-  }
-}
-
-// ============================================
-// DARK MODE PLATFORM ADJUSTMENTS
-// ============================================
-
-@media (prefers-color-scheme: dark) {
-  .ios {
-    .nxt1-auth-card {
-      background: rgba(28, 28, 30, 0.95);
-    }
-
-    .nxt1-social-button--apple {
-      --background: #ffffff;
-      --color: #000000;
-      --border-color: #ffffff;
-    }
-  }
-
-  .md {
-    .nxt1-auth-card {
-      background: #1e1e1e;
-    }
-  }
-
-  .nxt1-social-button--google {
-    --background: var(--nxt1-background-tertiary);
-  }
-}
-
-// ============================================
-// ACCESSIBILITY
-// ============================================
-
-// High contrast mode
-@media (prefers-contrast: high) {
+  .nxt1-social-btn,
   .nxt1-auth-input {
-    --border-width: 2px;
-  }
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.1);
 
-  .nxt1-auth-button {
-    --border-width: 2px;
-    font-weight: 700;
+    &:hover {
+      background: rgba(0, 0, 0, 0.05);
+      border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    &:focus {
+      background: rgba(0, 0, 0, 0.06);
+    }
   }
 }
 
-// Reduced motion
-@media (prefers-reduced-motion: reduce) {
-  .nxt1-auth-button,
-  .nxt1-social-button {
-    transition: none;
+// ============================================
+// REDUCED MOTION SUPPORT
+// ============================================
 
-    &:active {
-      transform: none;
-    }
+@media (prefers-reduced-motion: reduce) {
+  .nxt1-social-btn,
+  .nxt1-submit-btn,
+  .nxt1-auth-input,
+  .nxt1-auth-link {
+    transition: none !important;
+    transform: none !important;
   }
 
-  .nxt1-auth-button--loading::after {
-    animation: none;
-    border: 2px solid var(--ion-color-primary-contrast);
+  .spinner {
+    animation-duration: 1.5s;
+  }
+}
+
+// ============================================
+// HIGH CONTRAST MODE
+// ============================================
+
+@media (prefers-contrast: high) {
+  .nxt1-auth-card {
+    border-width: 2px;
+  }
+
+  .nxt1-social-btn,
+  .nxt1-auth-input {
+    border-width: 2px;
+  }
+
+  .nxt1-auth-link,
+  .nxt1-auth-link--secondary {
+    text-decoration: underline;
   }
 }
