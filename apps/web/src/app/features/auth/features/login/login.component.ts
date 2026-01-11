@@ -35,7 +35,7 @@ import { AuthFlowService } from '../../services';
   ],
   template: `
     <nxt1-auth-shell
-      variant="card"
+      variant="wide"
       [showBackButton]="showEmailForm()"
       (backClick)="showEmailForm.set(false)"
     >

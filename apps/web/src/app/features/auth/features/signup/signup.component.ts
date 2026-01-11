@@ -200,7 +200,13 @@ import { AuthFlowService } from '../../services';
       </div>
     </ion-content>
   `,
-  styles: [``],
+  styles: [
+    `
+      .auth-page {
+        height: 100vh;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SignupComponent {

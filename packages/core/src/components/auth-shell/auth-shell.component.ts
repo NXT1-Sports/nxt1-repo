@@ -181,6 +181,7 @@ export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
       /* Content */
       .auth-content {
         --background: transparent;
+        height: 100vh;
 
         &::part(scroll) {
           display: flex;
