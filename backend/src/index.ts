@@ -7,13 +7,15 @@
 
 import express from 'express';
 import cors from 'cors';
-import { json, urlencoded } from 'body-parser';
+import bodyParser from 'body-parser';
 
 // Import shared types from @nxt1/core
 import type { ApiResponse } from '@nxt1/core';
 
 // Routes
 import authRoutes from './routes/auth.routes.js';
+
+const { json, urlencoded } = bodyParser;
 
 const app = express();
 const PORT = process.env['PORT'] || 3000;

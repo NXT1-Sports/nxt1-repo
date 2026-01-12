@@ -4,6 +4,9 @@
  */
 
 import admin from 'firebase-admin';
+import type { Firestore } from 'firebase-admin/firestore';
+import type { Auth } from 'firebase-admin/auth';
+import type { Storage } from 'firebase-admin/storage';
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
@@ -19,8 +22,8 @@ if (!admin.apps.length) {
   });
 }
 
-export const db = admin.firestore();
-export const auth = admin.auth();
-export const storage = admin.storage();
+export const db: Firestore = admin.firestore();
+export const auth: Auth = admin.auth();
+export const storage: Storage = admin.storage();
 
 export default admin;

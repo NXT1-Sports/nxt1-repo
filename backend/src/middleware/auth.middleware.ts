@@ -21,6 +21,7 @@ export interface AuthenticatedUser {
 
 /**
  * Extended Request type with authenticated user
+ * @deprecated Use standard Request type - user property is globally extended
  */
 export interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
@@ -30,11 +31,7 @@ export interface AuthenticatedRequest extends Request {
  * Middleware to verify Firebase ID token
  * Extracts user information from Bearer token
  */
-export async function appGuard(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
+export async function appGuard(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const authHeader = req.headers.authorization;
 
