@@ -43,9 +43,11 @@
     "@angular/ssr": "^21.0.4",
     "@ionic/angular": "^8.6.0",
     "@nxt1/core": "*",
+    "@tailwindcss/postcss": "^4.1.18",
     "firebase": "^12.7.0",
     "ionicons": "^8.0.0",
     "rxjs": "~7.8.0",
+    "tailwindcss": "^3.4.19",
     "tslib": "^2.3.0",
     "zone.js": "^0.16.0"
   },
@@ -54,12 +56,14 @@
     "@nxt1/config": "*",
     "@types/jasmine": "^5.1.13",
     "@types/node": "^22.19.5",
+    "autoprefixer": "^10.4.23",
     "jasmine-core": "^5.13.0",
     "karma": "~6.4.0",
     "karma-chrome-launcher": "^3.2.0",
     "karma-coverage": "~2.2.0",
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "^2.1.0",
+    "postcss": "^8.5.6",
     "typescript": "~5.9.3"
   }
 }

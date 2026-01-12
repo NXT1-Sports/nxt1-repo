@@ -24,7 +24,6 @@
     "module": "ES2022",
     "useDefineForClassFields": false,
     "typeRoots": ["node_modules/@types"],
-    "types": ["node"],
     "strictPropertyInitialization": false,
     "resolveJsonModule": true,
     "noImplicitThis": false,

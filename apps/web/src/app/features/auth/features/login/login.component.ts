@@ -54,7 +54,7 @@ import { AuthFlowService } from '../../services';
 
         <nxt1-auth-divider />
 
-        <div class="secondary-buttons">
+        <div class="flex flex-col gap-3 w-full">
           <button
             type="button"
             class="action-btn"
@@ -103,63 +103,6 @@ import { AuthFlowService } from '../../services';
       </p>
     </nxt1-auth-shell>
   `,
-  styles: [
-    `
-      .secondary-buttons {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        width: 100%;
-      }
-
-      .action-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 12px;
-        width: 100%;
-        height: 48px;
-        padding: 0 16px;
-        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        border-radius: 12px;
-        background: var(--nxt1-color-surface-200, #1a1a1a);
-        color: var(--nxt1-color-text-primary, #ffffff);
-        font-family: var(--nxt1-font-family-brand, system-ui);
-        font-size: 15px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s ease;
-
-        ion-icon {
-          font-size: 20px;
-          color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        }
-
-        &:hover:not(:disabled) {
-          background: var(--nxt1-color-surface-300, #222222);
-          border-color: var(--nxt1-color-border-hover, rgba(255, 255, 255, 0.2));
-        }
-
-        &:active:not(:disabled) {
-          transform: scale(0.98);
-        }
-
-        &:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-      }
-
-      .action-btn--outline {
-        background: transparent;
-        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-
-        &:hover:not(:disabled) {
-          background: rgba(255, 255, 255, 0.05);
-        }
-      }
-    `,
-  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LoginComponent {

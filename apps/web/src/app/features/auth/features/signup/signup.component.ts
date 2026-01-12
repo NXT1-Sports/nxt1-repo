@@ -40,7 +40,7 @@ import { AuthFlowService } from '../../services';
     IonInputPasswordToggle,
   ],
   template: `
-    <ion-content class="auth-page" [fullscreen]="true">
+    <ion-content class="auth-page h-screen" [fullscreen]="true">
       <div class="auth-page__container">
         <!-- Logo -->
         <div class="auth-page__logo">
@@ -200,13 +200,7 @@ import { AuthFlowService } from '../../services';
       </div>
     </ion-content>
   `,
-  styles: [
-    `
-      .auth-page {
-        height: 100vh;
-      }
-    `,
-  ],
+  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SignupComponent {

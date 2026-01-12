@@ -7,7 +7,7 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "node --require dotenv/config dist/index.js",
-    "dev": "nodemon --watch src --ext ts,js,json --exec 'npm run build && npm start'",
+    "dev": "nodemon --watch src --ext ts,js,json --exec \n\"npm run build && npm start\"",
     "build": "tsc",
     "build:watch": "tsc --watch",
     "test": "vitest run",

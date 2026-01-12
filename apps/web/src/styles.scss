@@ -1,9 +1,18 @@
+@use "../../../packages/design-tokens/components/auth" as *;
+@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;700&display=swap");
+
+.action-btn,
+.action-btn span {
+  font-family: "Rajdhani", var(--nxt1-font-family-brand), sans-serif !important;
+}
 /**
  * @fileoverview Global Styles - NXT1 Web Application
  * @module @nxt1/web
  *
  * Architecture:
  * ┌──────────────────────────────────────────┐
+ * │  Tailwind CSS (utility-first)            │
+ * ├──────────────────────────────────────────┤
  * │  @nxt1/design-tokens (foundation)        │
  * │  - Colors, Typography, Spacing, etc.     │
  * │  - Light/Dark theme support              │
@@ -19,9 +28,10 @@
  * - System: Automatically follows OS preference
  */
 
-// Design tokens foundation (provides all CSS custom properties)
-@use "../../../packages/design-tokens/tokens" as *;
-@use "../../../packages/design-tokens/components/auth" as *;
+// Tailwind CSS directives
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 // ============================================
 // CSS RESET & BASE STYLES
@@ -403,4 +413,91 @@ img.back-arrow {
   position: absolute;
   left: 14px;
   z-index: 2;
+}
+// ============================================
+// AUTH SHELL COMPONENT STYLES
+// ============================================
+// Global styles for auth shell content projection
+
+[authTitle] {
+  @apply text-text-primary font-brand text-2xl md:text-3xl font-bold leading-tight mb-2;
+}
+
+[authSubtitle] {
+  @apply text-text-secondary text-base leading-relaxed;
+}
+
+[authFooter] {
+  @apply text-text-secondary text-sm leading-relaxed;
+
+  a {
+    @apply text-primary font-medium no-underline transition-all;
+
+    &:hover {
+      @apply underline;
+    }
+  }
+}
+
+[authTerms] {
+  @apply text-text-tertiary text-xs leading-relaxed max-w-xs mx-auto;
+
+  a {
+    @apply text-text-secondary no-underline transition-all;
+
+    &:hover {
+      @apply underline;
+    }
+  }
+}
+
+// Pulse glow animation
+@keyframes pulse-glow {
+  0%,
+  100% {
+    opacity: 0.6;
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.1);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 8s ease-in-out infinite;
+}
+// ============================================
+// ACTION BUTTONS - LOGIN & AUTH COMPONENTS
+// ============================================
+
+.action-btn {
+  @apply flex items-center justify-center gap-3 w-full h-12 px-4;
+  @apply border border-border-primary rounded-xl;
+  @apply bg-surface-100 text-text-primary font-brand text-sm font-medium;
+  @apply cursor-pointer transition-all duration-200;
+
+  ion-icon {
+    @apply text-xl text-text-secondary;
+  }
+
+  &:hover:not(:disabled) {
+    @apply bg-surface-200 border-border-secondary;
+  }
+
+  &:active:not(:disabled) {
+    @apply scale-98;
+  }
+
+  &:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+}
+
+.action-btn--outline {
+  @apply bg-transparent border-border-primary;
+
+  &:hover:not(:disabled) {
+    @apply bg-white/5;
+  }
 }
