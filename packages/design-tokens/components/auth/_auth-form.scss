@@ -268,8 +268,8 @@ ion-button.nxt1-password-toggle {
   gap: var(--nxt1-spacing-2);
   cursor: pointer;
 
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
 
   input[type="checkbox"] {
     width: 18px;

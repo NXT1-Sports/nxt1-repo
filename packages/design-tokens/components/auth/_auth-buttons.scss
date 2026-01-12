@@ -41,8 +41,8 @@
   text-decoration: none;
 
   // Prevent text selection on tap
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
   -webkit-tap-highlight-color: transparent;
 
   .icon {
@@ -167,8 +167,8 @@
   transition: all var(--auth-transition-normal);
   margin-top: var(--nxt1-spacing-1);
 
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
 
   &:hover:not(:disabled) {
     background: var(--nxt1-color-primary-dark);
@@ -227,8 +227,8 @@
   cursor: pointer;
   transition: all var(--auth-transition-normal);
 
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
 
   svg {
     width: 18px;
@@ -268,8 +268,8 @@
   transition: color var(--auth-transition-fast);
   align-self: flex-start;
 
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
 
   svg {
     width: 18px;

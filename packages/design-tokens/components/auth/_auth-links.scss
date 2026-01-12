@@ -21,8 +21,8 @@
   transition: opacity var(--auth-transition-fast);
 
   // Prevent text selection on tap
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 
@@ -50,8 +50,8 @@
   cursor: pointer;
   transition: color var(--auth-transition-fast);
 
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 
@@ -81,8 +81,8 @@
   text-align: center;
   margin-top: var(--nxt1-spacing-2);
 
-  user-select: none;
   -webkit-user-select: none;
+  user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 
