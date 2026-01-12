@@ -20,6 +20,7 @@ import { filter } from 'rxjs/operators';
  * - SSR-safe with platform checks
  * - Handles global app initialization and loading states
  * - Routes delegate to feature modules via lazy loading
+ * - All styles use Tailwind CSS utilities in template
  *
  * @example
  * The component bootstraps with a loading state that resolves
@@ -31,7 +32,6 @@ import { filter } from 'rxjs/operators';
   standalone: true,
   imports: [CommonModule, RouterModule],
   templateUrl: './app.component.html',
-  styleUrl: './app.component.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AppComponent implements OnInit {

@@ -2,7 +2,7 @@
  * @fileoverview Login Page - Using Shared Auth Components
  * @module @nxt1/mobile
  *
- * Professional login page using shared auth components from @nxt1/core.
+ * Professional login page using shared auth components from @nxt1/ui.
  * Demonstrates cross-platform code sharing between web and mobile.
  */
 
@@ -54,24 +54,38 @@ import { MobileAuthService } from '../services/mobile-auth.service';
 
         <nxt1-auth-divider />
 
-        <div class="secondary-buttons">
+        <div class="flex flex-col gap-3 w-full">
           <button
             type="button"
-            class="action-btn"
+            class="flex items-center justify-center gap-3 w-full h-12 px-4
+                   border border-border rounded-xl
+                   bg-surface-200 text-text-primary
+                   text-[15px] font-medium
+                   transition-all duration-200
+                   hover:bg-surface-300 hover:border-white/20
+                   active:scale-[0.98]
+                   disabled:opacity-50 disabled:cursor-not-allowed"
             [disabled]="authService.isLoading()"
             (click)="showEmailForm.set(true)"
           >
-            <ion-icon name="mail-outline"></ion-icon>
+            <ion-icon name="mail-outline" class="text-xl text-text-secondary"></ion-icon>
             <span>Continue with Email</span>
           </button>
 
           <button
             type="button"
-            class="action-btn action-btn--outline"
+            class="flex items-center justify-center gap-3 w-full h-12 px-4
+                   border border-border rounded-xl
+                   bg-transparent text-text-primary
+                   text-[15px] font-medium
+                   transition-all duration-200
+                   hover:bg-white/5 hover:border-white/20
+                   active:scale-[0.98]
+                   disabled:opacity-50 disabled:cursor-not-allowed"
             [disabled]="authService.isLoading()"
             (click)="onTeamCode()"
           >
-            <ion-icon name="key-outline"></ion-icon>
+            <ion-icon name="key-outline" class="text-xl text-text-secondary"></ion-icon>
             <span>Have a Team Code?</span>
           </button>
         </div>
@@ -91,76 +105,21 @@ import { MobileAuthService } from '../services/mobile-auth.service';
       <!-- Footer -->
       <p authFooter>
         Don't have an account?
-        <a routerLink="/auth/register">Create account</a>
+        <a routerLink="/auth/register" class="text-primary hover:text-primary-600 transition-colors">
+          Create account
+        </a>
       </p>
 
       <!-- Terms -->
       <p authTerms>
         By continuing, you agree to NXT1's
-        <a href="/terms">Terms of Service</a>
+        <a href="/terms" class="text-primary hover:text-primary-600 transition-colors">Terms of Service</a>
         and
-        <a href="/privacy">Privacy Policy</a>
+        <a href="/privacy" class="text-primary hover:text-primary-600 transition-colors">Privacy Policy</a>
       </p>
     </nxt1-auth-shell>
   `,
-  styles: [
-    `
-      .secondary-buttons {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        width: 100%;
-      }
-
-      .action-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 12px;
-        width: 100%;
-        height: 48px;
-        padding: 0 16px;
-        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        border-radius: 12px;
-        background: var(--nxt1-color-surface-200, #1a1a1a);
-        color: var(--nxt1-color-text-primary, #ffffff);
-        font-family: var(--nxt1-font-family-brand, system-ui);
-        font-size: 15px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        -webkit-tap-highlight-color: transparent;
-
-        ion-icon {
-          font-size: 20px;
-          color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        }
-
-        &:hover:not(:disabled) {
-          background: var(--nxt1-color-surface-300, #222222);
-          border-color: var(--nxt1-color-border-hover, rgba(255, 255, 255, 0.2));
-        }
-
-        &:active:not(:disabled) {
-          transform: scale(0.98);
-        }
-
-        &:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-      }
-
-      .action-btn--outline {
-        background: transparent;
-        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-
-        &:hover:not(:disabled) {
-          background: rgba(255, 255, 255, 0.05);
-        }
-      }
-    `,
-  ],
+  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LoginPage {

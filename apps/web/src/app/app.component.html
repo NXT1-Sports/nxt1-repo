@@ -12,24 +12,29 @@
 
 <!-- Loading Overlay (non-blocking) -->
 @if (loading()) {
-  <div class="app-loading-overlay">
-    <div class="loading-content">
-      <div class="logo-container">
-        <img src="assets/images/nxt1-logo.svg" alt="NXT1 Sports" class="logo" width="120" height="40" />
+  <div class="fixed inset-0 flex items-center justify-center bg-bg-primary z-modal">
+    <div class="flex flex-col items-center gap-lg">
+      <div class="flex items-center justify-center">
+        <img src="assets/images/nxt1-logo.svg" alt="NXT1 Sports" class="w-[120px] h-auto" width="120" height="40" />
       </div>
-      <div class="spinner"></div>
-      <p class="loading-text">Loading...</p>
+      <div class="w-10 h-10 border-[3px] border-border rounded-full border-t-primary animate-spin-slow"></div>
+      <p class="text-sm text-text-secondary uppercase tracking-[2px]">Loading...</p>
     </div>
   </div>
 }
 
 <!-- Critical Error State -->
 @if (error()) {
-  <div class="app-error-container">
-    <div class="error-content">
-      <h1>Something went wrong</h1>
-      <p class="error-message">{{ error() }}</p>
-      <button class="btn btn-primary" (click)="ngOnInit()">Try Again</button>
+  <div class="fixed inset-0 flex items-center justify-center bg-bg-primary p-lg">
+    <div class="max-w-[400px] text-center">
+      <h1 class="text-2xl text-text-primary mb-md">Something went wrong</h1>
+      <p class="text-text-secondary leading-relaxed mb-lg">{{ error() }}</p>
+      <button
+        class="inline-flex items-center justify-center gap-sm px-md py-sm font-brand text-base font-semibold uppercase tracking-wide bg-primary text-black rounded-md cursor-pointer transition-colors duration-fast hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed"
+        (click)="ngOnInit()"
+      >
+        Try Again
+      </button>
     </div>
   </div>
 }

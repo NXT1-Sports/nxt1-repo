@@ -1,424 +1,253 @@
-@use "../../../packages/design-tokens/components/auth" as *;
-@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;700&display=swap");
-
-.action-btn,
-.action-btn span {
-  font-family: "Rajdhani", var(--nxt1-font-family-brand), sans-serif !important;
-}
 /**
  * @fileoverview Global Styles - NXT1 Web Application
  * @module @nxt1/web
  *
  * Architecture:
- * ┌──────────────────────────────────────────┐
- * │  Tailwind CSS (utility-first)            │
- * ├──────────────────────────────────────────┤
- * │  @nxt1/design-tokens (foundation)        │
- * │  - Colors, Typography, Spacing, etc.     │
- * │  - Light/Dark theme support              │
- * ├──────────────────────────────────────────┤
- * │  Auth Component Styles (shared)          │
- * ├──────────────────────────────────────────┤
- * │  Web-specific overrides                  │
- * └──────────────────────────────────────────┘
+ * - Tailwind CSS (utility-first)
+ * - @nxt1/design-tokens (foundation)
+ * - Auth Component Styles (shared)
+ * - Web-specific overrides
  *
  * Theme Usage:
  * - Dark (default): No attribute needed
  * - Light: <html data-theme="light">
- * - System: Automatically follows OS preference
  */
 
-// Tailwind CSS directives
+// Import design tokens (CSS custom properties)
+@use "../../../packages/design-tokens/tokens" as *;
+@use "../../../packages/design-tokens/components/auth" as *;
+
+// Google Fonts - Brand font
+@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;700&display=swap");
+
+// Tailwind directives
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 // ============================================
-// CSS RESET & BASE STYLES
+// BASE LAYER - CSS Reset & Foundation
 // ============================================
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+@layer base {
+  *,
+  *::before,
+  *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
 
-// Hide scrollbars on desktop (optional aesthetic choice)
-@media (min-width: 1280px) {
-  * {
-    &::-webkit-scrollbar {
-      display: none;
+  // Hide scrollbars on desktop
+  @media (min-width: 1280px) {
+    * {
+      &::-webkit-scrollbar {
+        display: none;
+      }
+      -ms-overflow-style: none;
+      scrollbar-width: none;
     }
-    -ms-overflow-style: none;
-    scrollbar-width: none;
   }
-}
 
-// Prevent zoom on input focus (mobile)
-input,
-textarea,
-select {
-  font-size: 16px;
-}
+  // Prevent zoom on input focus (mobile)
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
 
-// ============================================
-// ROOT & BODY STYLES
-// Uses design tokens for consistency with mobile
-// ============================================
-html,
-body {
-  min-height: 100% !important;
-  height: 100%;
-  width: 100%;
-  font-family: var(--nxt1-font-family-brand);
-  overflow-x: hidden;
-  overflow-y: auto;
-  background-color: var(--nxt1-color-bg-primary);
-  color: var(--nxt1-color-text-primary);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  font-synthesis: none;
-}
+  html,
+  body {
+    @apply min-h-full h-full w-full overflow-x-hidden overflow-y-auto;
+    @apply bg-bg-primary text-text-primary;
+    font-family: var(--nxt1-font-family-brand);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 
-// Prevent scroll lock issues with CDK overlays
-html.cdk-global-scrollblock {
-  position: static !important;
-  top: auto !important;
-  left: auto !important;
-}
+  // Prevent scroll lock issues with CDK overlays
+  html.cdk-global-scrollblock {
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
+  }
 
-// ============================================
-// LEGACY CSS VARIABLES (For backwards compatibility)
-// These map to the new design token system
-// Gradually migrate to --nxt1-* variables
-// ============================================
-:root {
-  // Brand Colors (mapped to tokens)
-  --primary: var(--nxt1-color-primary);
-  --primary-dark: var(--nxt1-color-primary-dark);
-  --primary-rgb: var(--nxt1-color-primary-rgb);
+  // Typography
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-display font-bold leading-tight text-text-primary;
+  }
 
-  // Background Colors (mapped to tokens)
-  --app-bg: var(--nxt1-color-bg-primary);
-  --card-bg: var(--nxt1-color-surface-200);
-  --card-bg-elevated: var(--nxt1-color-surface-400);
-  --surface: var(--nxt1-color-surface-100);
+  h1 {
+    @apply text-4xl;
+  }
+  h2 {
+    @apply text-3xl;
+  }
+  h3 {
+    @apply text-2xl;
+  }
+  h4 {
+    @apply text-xl;
+  }
+  h5 {
+    @apply text-lg;
+  }
+  h6 {
+    @apply text-base;
+  }
 
-  // Text Colors (mapped to tokens)
-  --text-primary: var(--nxt1-color-text-primary);
-  --text-secondary: var(--nxt1-color-text-secondary);
-  --text-tertiary: var(--nxt1-color-text-tertiary);
-  --text-disabled: var(--nxt1-color-text-disabled);
+  p {
+    @apply text-base leading-relaxed text-text-secondary;
+  }
 
-  // Border Colors (mapped to tokens)
-  --border-color: var(--nxt1-color-border-default);
-  --border-color-light: var(--nxt1-color-border-subtle);
+  a {
+    @apply text-primary no-underline transition-colors duration-fast;
 
-  // Status Colors (mapped to tokens)
-  --success: var(--nxt1-color-success);
-  --warning: var(--nxt1-color-warning);
-  --error: var(--nxt1-color-error);
-  --info: var(--nxt1-color-info);
+    &:hover {
+      @apply text-primary-600;
+    }
+  }
 
-  // Spacing (mapped to tokens)
-  --spacing-xs: var(--nxt1-spacing-1);
-  --spacing-sm: var(--nxt1-spacing-2);
-  --spacing-md: var(--nxt1-spacing-4);
-  --spacing-lg: var(--nxt1-spacing-6);
-  --spacing-xl: var(--nxt1-spacing-8);
-
-  // Border Radius (mapped to tokens)
-  --radius-sm: var(--nxt1-radius-sm);
-  --radius-md: var(--nxt1-radius-default);
-  --radius-lg: var(--nxt1-radius-md);
-  --radius-xl: var(--nxt1-radius-lg);
-  --radius-full: var(--nxt1-radius-full);
-
-  // Transitions (mapped to tokens)
-  --transition-fast: var(--nxt1-duration-fast) var(--nxt1-ease-in-out);
-  --transition-normal: var(--nxt1-duration-normal) var(--nxt1-ease-in-out);
-  --transition-slow: var(--nxt1-duration-slow) var(--nxt1-ease-in-out);
-
-  // Z-Index Scale (mapped to tokens)
-  --z-dropdown: var(--nxt1-z-dropdown);
-  --z-sticky: var(--nxt1-z-sticky);
-  --z-fixed: var(--nxt1-z-fixed);
-  --z-modal-backdrop: var(--nxt1-z-modal-backdrop);
-  --z-modal: var(--nxt1-z-modal);
-  --z-popover: var(--nxt1-z-popover);
-  --z-tooltip: var(--nxt1-z-tooltip);
-  --z-toast: var(--nxt1-z-toast);
-}
-
-// ============================================
-// TYPOGRAPHY
-// Uses design tokens for cross-platform consistency
-// ============================================
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
-  font-family: var(--nxt1-font-family-display);
-  font-weight: var(--nxt1-font-weight-bold);
-  line-height: var(--nxt1-line-height-tight);
-  color: var(--nxt1-color-text-primary);
-}
-
-h1 {
-  font-size: var(--nxt1-font-size-4xl);
-}
-h2 {
-  font-size: var(--nxt1-font-size-3xl);
-}
-h3 {
-  font-size: var(--nxt1-font-size-2xl);
-}
-h4 {
-  font-size: var(--nxt1-font-size-xl);
-}
-h5 {
-  font-size: var(--nxt1-font-size-lg);
-}
-h6 {
-  font-size: var(--nxt1-font-size-md);
-}
-
-p {
-  font-size: var(--nxt1-font-size-base);
-  line-height: var(--nxt1-line-height-relaxed);
-  color: var(--nxt1-color-text-secondary);
-}
-
-a {
-  color: var(--nxt1-color-primary);
-  text-decoration: none;
-  transition: var(--nxt1-transition-colors);
-
-  &:hover {
-    color: var(--nxt1-color-primary-dark);
+  ::selection {
+    /* Using explicit rgba for selection since CSS vars don't support Tailwind opacity modifiers */
+    background-color: rgba(204, 255, 0, 0.3);
+    @apply text-text-primary;
   }
 }
 
 // ============================================
-// UTILITY CLASSES
+// COMPONENTS LAYER - Reusable Components
 // ============================================
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
+@layer components {
+  // Button base
+  .btn {
+    @apply inline-flex items-center justify-center gap-sm px-md py-sm;
+    @apply font-brand text-base font-semibold uppercase tracking-wide;
+    @apply border-none rounded-md cursor-pointer;
+    @apply transition-all duration-fast;
 
-.text-center {
-  text-align: center;
-}
-.text-left {
-  text-align: left;
-}
-.text-right {
-  text-align: right;
-}
-
-.flex {
-  display: flex;
-}
-.flex-col {
-  flex-direction: column;
-}
-.items-center {
-  align-items: center;
-}
-.justify-center {
-  justify-content: center;
-}
-.justify-between {
-  justify-content: space-between;
-}
-.gap-1 {
-  gap: var(--spacing-xs);
-}
-.gap-2 {
-  gap: var(--spacing-sm);
-}
-.gap-3 {
-  gap: var(--spacing-md);
-}
-.gap-4 {
-  gap: var(--spacing-lg);
-}
-
-.w-full {
-  width: 100%;
-}
-.h-full {
-  height: 100%;
-}
-
-// ============================================
-// BUTTON BASE STYLES
-// ============================================
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  font-family: "Rajdhani", sans-serif;
-  font-size: 1rem;
-  font-weight: 600;
-  line-height: 1;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+    &:disabled {
+      @apply opacity-50 cursor-not-allowed;
+    }
   }
-}
 
-.btn-primary {
-  background-color: var(--primary);
-  color: #000000;
+  .btn-primary {
+    @apply bg-primary text-black;
 
-  &:hover:not(:disabled) {
-    background-color: var(--primary-dark);
+    &:hover:not(:disabled) {
+      @apply bg-primary-600;
+    }
   }
-}
 
-.btn-secondary {
-  background-color: transparent;
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
+  .btn-secondary {
+    @apply bg-transparent text-text-primary border border-border;
 
-  &:hover:not(:disabled) {
-    background-color: var(--card-bg);
+    &:hover:not(:disabled) {
+      @apply bg-surface-200;
+    }
   }
-}
 
-.btn-ghost {
-  background-color: transparent;
-  color: var(--text-secondary);
+  .btn-ghost {
+    @apply bg-transparent text-text-secondary;
 
-  &:hover:not(:disabled) {
-    background-color: rgba(255, 255, 255, 0.05);
-    color: var(--text-primary);
+    &:hover:not(:disabled) {
+      @apply bg-white/5 text-text-primary;
+    }
+  }
+
+  // Form controls
+  .form-control {
+    @apply w-full px-md py-sm;
+    @apply font-brand text-base font-medium;
+    @apply text-text-primary bg-surface-200;
+    @apply border border-border rounded-md;
+    @apply outline-none transition-colors duration-fast;
+
+    &::placeholder {
+      @apply text-text-disabled;
+    }
+
+    &:focus {
+      @apply border-primary;
+    }
+
+    &:disabled {
+      @apply opacity-50 cursor-not-allowed;
+    }
+  }
+
+  // Cards
+  .card {
+    @apply bg-surface-200 border border-border-subtle rounded-lg p-md;
+  }
+
+  .card-elevated {
+    @apply bg-surface-400 shadow-md;
+  }
+
+  // Spinner
+  .spinner {
+    @apply w-10 h-10 rounded-full;
+    @apply border-[3px] border-border border-t-primary;
+    @apply animate-spin-slow;
+  }
+
+  // Action buttons (auth, social login)
+  .action-btn {
+    @apply flex items-center justify-center gap-3 w-full h-12 px-4;
+    @apply border border-border-primary rounded-xl;
+    @apply bg-surface-100 text-text-primary font-brand text-sm font-medium;
+    @apply cursor-pointer transition-all duration-normal;
+
+    ion-icon {
+      @apply text-xl text-text-secondary;
+    }
+
+    &:hover:not(:disabled) {
+      @apply bg-surface-200 border-border-secondary;
+    }
+
+    &:active:not(:disabled) {
+      @apply scale-98;
+    }
+
+    &:disabled {
+      @apply opacity-50 cursor-not-allowed;
+    }
+  }
+
+  .action-btn--outline {
+    @apply bg-transparent border-border-primary;
+
+    &:hover:not(:disabled) {
+      @apply bg-white/5;
+    }
   }
 }
 
 // ============================================
-// FORM CONTROLS
+// UTILITIES LAYER
 // ============================================
-.form-control {
-  width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  font-family: "Rajdhani", sans-serif;
-  font-size: 1rem;
-  font-weight: 500;
-  color: var(--text-primary);
-  background-color: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  outline: none;
-  transition: border-color var(--transition-fast);
-
-  &::placeholder {
-    color: var(--text-disabled);
+@layer utilities {
+  .sr-only {
+    @apply absolute w-px h-px p-0 -m-px overflow-hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
-  &:focus {
-    border-color: var(--primary);
-  }
-
-  &:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  .bg-glow {
+    background: radial-gradient(ellipse at center, rgba(204, 255, 0, 0.15) 0%, transparent 70%);
   }
 }
 
 // ============================================
-// CARD STYLES
+// AUTH SHELL CONTENT PROJECTION STYLES
 // ============================================
-.card {
-  background-color: var(--card-bg);
-  border: 1px solid var(--border-color-light);
-  border-radius: var(--radius-lg);
-  padding: var(--spacing-md);
-}
-
-.card-elevated {
-  background-color: var(--card-bg-elevated);
-  box-shadow:
-    0 4px 6px -1px rgba(0, 0, 0, 0.3),
-    0 2px 4px -1px rgba(0, 0, 0, 0.2);
-}
-
-// ============================================
-// LOADING & SPINNER STYLES
-// ============================================
-.spinner {
-  width: 40px;
-  height: 40px;
-  border: 3px solid var(--border-color);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.loading-overlay {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background-color: var(--app-bg);
-  z-index: var(--z-modal);
-}
-
-// ============================================
-// BACK BUTTON (Legacy Support)
-// ============================================
-.back-btn {
-  cursor: pointer;
-  position: absolute;
-  z-index: 99;
-  top: 15px;
-  left: 15px;
-
-  img {
-    width: 15px;
-    height: 25px;
-  }
-}
-
-img.back-arrow {
-  cursor: pointer;
-  width: 29px;
-  height: 29px;
-  position: absolute;
-  left: 14px;
-  z-index: 2;
-}
-// ============================================
-// AUTH SHELL COMPONENT STYLES
-// ============================================
-// Global styles for auth shell content projection
-
 [authTitle] {
   @apply text-text-primary font-brand text-2xl md:text-3xl font-bold leading-tight mb-2;
 }
@@ -451,53 +280,46 @@ img.back-arrow {
   }
 }
 
-// Pulse glow animation
-@keyframes pulse-glow {
-  0%,
-  100% {
-    opacity: 0.6;
-    transform: translateX(-50%) scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: translateX(-50%) scale(1.1);
-  }
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 8s ease-in-out infinite;
-}
 // ============================================
-// ACTION BUTTONS - LOGIN & AUTH COMPONENTS
+// LEGACY CSS VARIABLES (backwards compatibility)
 // ============================================
-
-.action-btn {
-  @apply flex items-center justify-center gap-3 w-full h-12 px-4;
-  @apply border border-border-primary rounded-xl;
-  @apply bg-surface-100 text-text-primary font-brand text-sm font-medium;
-  @apply cursor-pointer transition-all duration-200;
-
-  ion-icon {
-    @apply text-xl text-text-secondary;
-  }
-
-  &:hover:not(:disabled) {
-    @apply bg-surface-200 border-border-secondary;
-  }
-
-  &:active:not(:disabled) {
-    @apply scale-98;
-  }
-
-  &:disabled {
-    @apply opacity-50 cursor-not-allowed;
-  }
-}
-
-.action-btn--outline {
-  @apply bg-transparent border-border-primary;
-
-  &:hover:not(:disabled) {
-    @apply bg-white/5;
-  }
+:root {
+  --primary: var(--nxt1-color-primary);
+  --primary-dark: var(--nxt1-color-primary-dark);
+  --primary-rgb: var(--nxt1-color-primary-rgb);
+  --app-bg: var(--nxt1-color-bg-primary);
+  --card-bg: var(--nxt1-color-surface-200);
+  --card-bg-elevated: var(--nxt1-color-surface-400);
+  --surface: var(--nxt1-color-surface-100);
+  --text-primary: var(--nxt1-color-text-primary);
+  --text-secondary: var(--nxt1-color-text-secondary);
+  --text-tertiary: var(--nxt1-color-text-tertiary);
+  --text-disabled: var(--nxt1-color-text-disabled);
+  --border-color: var(--nxt1-color-border-default);
+  --border-color-light: var(--nxt1-color-border-subtle);
+  --success: var(--nxt1-color-success);
+  --warning: var(--nxt1-color-warning);
+  --error: var(--nxt1-color-error);
+  --info: var(--nxt1-color-info);
+  --spacing-xs: var(--nxt1-spacing-1);
+  --spacing-sm: var(--nxt1-spacing-2);
+  --spacing-md: var(--nxt1-spacing-4);
+  --spacing-lg: var(--nxt1-spacing-6);
+  --spacing-xl: var(--nxt1-spacing-8);
+  --radius-sm: var(--nxt1-radius-sm);
+  --radius-md: var(--nxt1-radius-default);
+  --radius-lg: var(--nxt1-radius-md);
+  --radius-xl: var(--nxt1-radius-lg);
+  --radius-full: var(--nxt1-radius-full);
+  --transition-fast: var(--nxt1-duration-fast) var(--nxt1-ease-in-out);
+  --transition-normal: var(--nxt1-duration-normal) var(--nxt1-ease-in-out);
+  --transition-slow: var(--nxt1-duration-slow) var(--nxt1-ease-in-out);
+  --z-dropdown: var(--nxt1-z-dropdown);
+  --z-sticky: var(--nxt1-z-sticky);
+  --z-fixed: var(--nxt1-z-fixed);
+  --z-modal-backdrop: var(--nxt1-z-modal-backdrop);
+  --z-modal: var(--nxt1-z-modal);
+  --z-popover: var(--nxt1-z-popover);
+  --z-tooltip: var(--nxt1-z-tooltip);
+  --z-toast: var(--nxt1-z-toast);
 }

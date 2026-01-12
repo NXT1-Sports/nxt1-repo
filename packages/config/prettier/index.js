@@ -37,6 +37,11 @@ module.exports = {
   // Embedded language formatting
   embeddedLanguageFormatting: 'auto',
 
+  // Tailwind CSS class sorting
+  plugins: ['prettier-plugin-tailwindcss'],
+  tailwindFunctions: ['clsx', 'cn', 'cva'], // Custom class utilities if used
+  tailwindAttributes: ['class', 'className', 'ngClass'], // Angular ngClass support
+
   // Overrides for specific file types
   overrides: [
     {

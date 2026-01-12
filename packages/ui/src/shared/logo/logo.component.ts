@@ -39,7 +39,9 @@ export type LogoVariant = 'default' | 'header' | 'auth' | 'footer' | 'splash';
       <img
         [src]="pngSrc"
         [alt]="alt"
-        [class]="imageClasses"
+        class="h-auto max-w-full object-contain select-none"
+        [style.user-drag]="'none'"
+        [style.-webkit-user-drag]="'none'"
         [width]="width"
         [height]="height"
         loading="eager"
@@ -47,26 +49,11 @@ export type LogoVariant = 'default' | 'header' | 'auth' | 'footer' | 'splash';
       />
     </picture>
   `,
-  styles: [
-    `
-      :host {
-        display: inline-block;
-        line-height: 0;
-      }
-
-      :host(.nxt1-logo--block) {
-        display: block;
-      }
-
-      img {
-        max-width: 100%;
-        height: auto;
-        object-fit: contain;
-        user-select: none;
-        -webkit-user-drag: none;
-      }
-    `,
-  ],
+  host: {
+    class: 'inline-block leading-none',
+    '[class.block]': 'isBlock',
+  },
+  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtLogoComponent {
@@ -98,21 +85,6 @@ export class NxtLogoComponent {
   /** Path to PNG logo (fallback) */
   get pngSrc(): string {
     return this.shadows ? 'assets/shared/logo/logo_shadows.png' : 'assets/shared/logo/logo.png';
-  }
-
-  /** CSS classes for the image */
-  get imageClasses(): string {
-    const classes = ['nxt1-logo'];
-
-    if (this.size !== 'md') {
-      classes.push(`nxt1-logo--${this.size}`);
-    }
-
-    if (this.variant !== 'default') {
-      classes.push(`nxt1-logo--${this.variant}`);
-    }
-
-    return classes.join(' ');
   }
 
   /** Intrinsic width based on size */

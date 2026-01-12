@@ -17,76 +17,37 @@ import { AuthFlowService } from '../../services';
   standalone: true,
   imports: [CommonModule, RouterModule],
   template: `
-    <div class="onboarding-container">
-      <div class="onboarding-card">
-        <h1>Complete Your Profile</h1>
-        <p>Let's set up your NXT1 Sports profile</p>
+    <div class="min-h-screen flex items-center justify-center p-6 bg-bg-primary">
+      <div class="w-full max-w-[500px] bg-surface-100 rounded-2xl p-8 text-center">
+        <h1 class="text-3xl font-semibold mb-1 text-text-primary">Complete Your Profile</h1>
+        <p class="text-text-secondary mb-6">Let's set up your NXT1 Sports profile</p>
 
-        <div class="placeholder-content">
-          <p>Onboarding flow coming soon...</p>
-          <p class="small">For now, you can explore the app.</p>
+        <div class="py-8 bg-surface-200 rounded-xl mb-6">
+          <p class="text-text-primary m-0">Onboarding flow coming soon...</p>
+          <p class="text-text-tertiary text-sm mt-2 m-0">For now, you can explore the app.</p>
         </div>
 
-        <div class="actions">
-          <button class="btn btn-primary" routerLink="/explore">Continue to Explore</button>
-          <button class="btn btn-ghost" (click)="onSkip()">Skip for now</button>
+        <div class="flex flex-col gap-2">
+          <button
+            class="w-full py-3 px-4 bg-primary text-bg-primary font-semibold rounded-lg 
+                   transition-all duration-200 hover:bg-primary-500 active:scale-[0.98]"
+            routerLink="/explore"
+          >
+            Continue to Explore
+          </button>
+          <button
+            class="w-full py-3 px-4 bg-transparent text-text-secondary font-medium rounded-lg 
+                   border border-transparent transition-all duration-200 
+                   hover:text-text-primary hover:bg-white/5"
+            (click)="onSkip()"
+          >
+            Skip for now
+          </button>
         </div>
       </div>
     </div>
   `,
-  styles: [
-    `
-      .onboarding-container {
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: var(--spacing-lg, 24px);
-        background-color: var(--app-bg, #121212);
-      }
-
-      .onboarding-card {
-        width: 100%;
-        max-width: 500px;
-        background-color: var(--card-bg, #1e1e1e);
-        border-radius: var(--radius-xl, 16px);
-        padding: var(--spacing-xl, 32px);
-        text-align: center;
-
-        h1 {
-          font-size: 1.75rem;
-          margin-bottom: var(--spacing-xs, 4px);
-        }
-
-        p {
-          color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-          margin-bottom: var(--spacing-lg, 24px);
-        }
-      }
-
-      .placeholder-content {
-        padding: var(--spacing-xl, 32px);
-        background-color: var(--surface, #1a1a1a);
-        border-radius: var(--radius-lg, 12px);
-        margin-bottom: var(--spacing-lg, 24px);
-
-        p {
-          margin: 0;
-        }
-
-        .small {
-          font-size: 0.875rem;
-          margin-top: var(--spacing-sm, 8px);
-        }
-      }
-
-      .actions {
-        display: flex;
-        flex-direction: column;
-        gap: var(--spacing-sm, 8px);
-      }
-    `,
-  ],
+  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OnboardingComponent {

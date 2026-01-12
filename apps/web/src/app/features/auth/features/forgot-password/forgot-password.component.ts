@@ -59,10 +59,13 @@ import { AuthFlowService } from '../../services';
         <!-- Success Message -->
         @if (emailSent()) {
           <div class="auth-card">
-            <div class="auth-success">
-              <ion-icon name="checkmark-circle-outline" class="auth-success__icon"></ion-icon>
-              <h2 class="auth-success__title">Email Sent!</h2>
-              <p class="auth-success__text">
+            <div class="text-center py-6">
+              <ion-icon
+                name="checkmark-circle-outline"
+                class="text-[64px] text-success mb-4"
+              ></ion-icon>
+              <h2 class="text-xl font-semibold mb-2">Email Sent!</h2>
+              <p class="text-text-secondary text-sm mb-6">
                 Check your inbox for instructions to reset your password.
               </p>
               <ion-button
@@ -113,50 +116,15 @@ import { AuthFlowService } from '../../services';
 
         <!-- Footer -->
         <div class="auth-footer">
-          <a routerLink="/auth/login" class="auth-link">
-            <ion-icon name="arrow-back-outline"></ion-icon>
+          <a routerLink="/auth/login" class="inline-flex items-center gap-1 text-text-secondary hover:text-primary transition-colors">
+            <ion-icon name="arrow-back-outline" class="text-lg"></ion-icon>
             Back to Sign In
           </a>
         </div>
       </div>
     </ion-content>
   `,
-  styles: [
-    `
-      .auth-success {
-        text-align: center;
-        padding: var(--spacing-lg, 24px) 0;
-
-        &__icon {
-          font-size: 64px;
-          color: var(--ion-color-success, #4caf50);
-          margin-bottom: var(--spacing-md, 16px);
-        }
-
-        &__title {
-          font-size: 1.25rem;
-          font-weight: 600;
-          margin-bottom: var(--spacing-sm, 8px);
-        }
-
-        &__text {
-          color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-          font-size: 0.875rem;
-          margin-bottom: var(--spacing-lg, 24px);
-        }
-      }
-
-      .auth-footer .auth-link {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--spacing-xs, 4px);
-
-        ion-icon {
-          font-size: 18px;
-        }
-      }
-    `,
-  ],
+  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ForgotPasswordComponent {

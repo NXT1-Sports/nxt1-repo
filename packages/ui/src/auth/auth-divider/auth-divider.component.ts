@@ -11,37 +11,15 @@ import { CommonModule } from '@angular/common';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="auth-divider">
-      <span class="auth-divider__line"></span>
-      <span class="auth-divider__text">{{ text }}</span>
-      <span class="auth-divider__line"></span>
+    <div class="my-6 flex w-full items-center gap-4">
+      <span class="bg-border-subtle h-px flex-1"></span>
+      <span class="text-text-tertiary text-[13px] font-medium tracking-wide uppercase">{{
+        text
+      }}</span>
+      <span class="bg-border-subtle h-px flex-1"></span>
     </div>
   `,
-  styles: [
-    `
-      .auth-divider {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        width: 100%;
-        margin: 24px 0;
-      }
-
-      .auth-divider__line {
-        flex: 1;
-        height: 1px;
-        background: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-      }
-
-      .auth-divider__text {
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
-        font-size: 13px;
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-      }
-    `,
-  ],
+  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthDividerComponent {
