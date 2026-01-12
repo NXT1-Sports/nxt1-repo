@@ -8,7 +8,7 @@
  * @version 2.0.0
  */
 
-import type { UserRole, PlanTier, TeamType } from '../constants/user.constants';
+import type { UserRole, TeamType } from '../constants/user.constants';
 import {
   isValidEmail,
   isValidPhone,
@@ -58,7 +58,10 @@ export function createValidator<T extends object>(schema: Schema<T>): Validator<
     for (const [field, rules] of Object.entries(schema) as [keyof T, SchemaField<T[keyof T]>][]) {
       const fieldValue = value[field];
 
-      if (rules?.required && (fieldValue === undefined || fieldValue === null || fieldValue === '')) {
+      if (
+        rules?.required &&
+        (fieldValue === undefined || fieldValue === null || fieldValue === '')
+      ) {
         errors.push({
           field: field as string,
           message: rules.message || `${String(field)} is required`,

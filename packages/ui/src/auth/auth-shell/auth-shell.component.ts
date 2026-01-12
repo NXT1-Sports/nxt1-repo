@@ -1,6 +1,6 @@
 /**
  * @fileoverview AuthShellComponent - Cross-Platform Auth Layout Shell
- * @module @nxt1/core/components
+ * @module @nxt1/ui/auth
  *
  * Enterprise-grade authentication shell using Ionic Framework.
  * Provides consistent branding and layout across web, mobile, and tablet.

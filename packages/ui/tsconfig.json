@@ -1,0 +1,30 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "declaration": true,
+    "declarationMap": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "paths": {
+      "@nxt1/core": ["../core/dist"],
+      "@nxt1/core/*": ["../core/dist/*"],
+      "@nxt1/design-tokens": ["../design-tokens/src/index.ts"],
+      "@nxt1/design-tokens/*": ["../design-tokens/src/*"]
+    }
+  },
+  "angularCompilerOptions": {
+    "compilationMode": "partial",
+    "strictTemplates": true,
+    "strictInjectionParameters": true,
+    "enableI18nLegacyMessageIdFormat": false,
+    "strictInputAccessModifiers": true
+  },
+  "include": [
+    "src/**/*.ts",
+    "auth/**/*.ts",
+    "shared/**/*.ts",
+    "services/**/*.ts"
+  ],
+  "exclude": ["node_modules", "dist", "**/*.spec.ts"]
+}

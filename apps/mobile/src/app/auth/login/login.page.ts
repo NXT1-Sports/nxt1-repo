@@ -15,7 +15,7 @@ import {
   AuthDividerComponent,
   AuthEmailFormComponent,
   type AuthEmailFormData,
-} from '@nxt1/core';
+} from '@nxt1/ui/auth';
 import { IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { mailOutline, keyOutline } from 'ionicons/icons';

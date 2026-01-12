@@ -8,30 +8,30 @@
 import type { Request, Response, NextFunction } from 'express';
 import { auth } from '../utils/firebase.js';
 
-// Extend Express Request type
-declare global {
-  namespace Express {
-    interface Request {
-      user?: {
-        uid: string;
-        email: string;
-        emailVerified: boolean;
-        displayName?: string;
-        photoURL?: string;
-      };
-    }
-  }
+/**
+ * User information extracted from Firebase ID token
+ */
+export interface AuthenticatedUser {
+  uid: string;
+  email: string;
+  emailVerified: boolean;
+  displayName?: string;
+  photoURL?: string;
+}
+
+/**
+ * Extended Request type with authenticated user
+ * @deprecated Use standard Request type - user property is globally extended
+ */
+export interface AuthenticatedRequest extends Request {
+  user?: AuthenticatedUser;
 }
 
 /**
  * Middleware to verify Firebase ID token
  * Extracts user information from Bearer token
  */
-export async function appGuard(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
+export async function appGuard(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const authHeader = req.headers.authorization;
 
@@ -61,7 +61,7 @@ export async function appGuard(
       uid: decodedToken.uid,
       email: decodedToken.email || '',
       emailVerified: decodedToken.email_verified || false,
-      displayName: decodedToken.name,
+      displayName: decodedToken['name'],
       photoURL: decodedToken.picture,
     };
 
@@ -99,7 +99,7 @@ export async function appGuard(
  */
 export async function optionalAuth(
   req: Request,
-  res: Response,
+  _res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
@@ -114,7 +114,7 @@ export async function optionalAuth(
           uid: decodedToken.uid,
           email: decodedToken.email || '',
           emailVerified: decodedToken.email_verified || false,
-          displayName: decodedToken.name,
+          displayName: decodedToken['name'],
           photoURL: decodedToken.picture,
         };
       }
@@ -130,11 +130,7 @@ export async function optionalAuth(
 /**
  * Admin guard - requires user to be an admin
  */
-export async function adminGuard(
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
+export async function adminGuard(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     // First run standard auth
     await new Promise<void>((resolve, reject) => {
@@ -149,11 +145,9 @@ export async function adminGuard(
     }
 
     // Check admin claim
-    const decodedToken = await auth.verifyIdToken(
-      req.headers.authorization!.split('Bearer ')[1]
-    );
+    const decodedToken = await auth.verifyIdToken(req.headers.authorization!.split('Bearer ')[1]);
 
-    if (!decodedToken.admin) {
+    if (!decodedToken['admin']) {
       res.status(403).json({
         success: false,
         error: 'Admin access required',

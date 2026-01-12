@@ -24,12 +24,14 @@ The architecture is designed to maximize code sharing across all platforms:
 ┌─────────────────────────────────────────────────────────────┐
 │                    @nxt1/core (100%)                        │
 │   Types, Models, Validation, Helpers, API Functions         │
+│   ⚡ Pure TypeScript - No framework dependencies            │
 ├─────────────────────────────────────────────────────────────┤
-│              Shared UI Components (~80%)                     │
-│      Ionic components work on Web, iOS, and Android         │
+│                     @nxt1/ui (~90%)                         │
+│   Angular/Ionic Components - Works on Web & Mobile          │
+│   🎨 Auth Shell, Logo, Platform Service                     │
 ├────────────────────────┬────────────────────────────────────┤
 │   Platform-Specific    │    Platform-Specific               │
-│   (Web ~20%)           │    (Mobile ~20%)                   │
+│   (Web ~10%)           │    (Mobile ~10%)                   │
 └────────────────────────┴────────────────────────────────────┘
 ```
 
@@ -72,40 +74,81 @@ The architecture is designed to maximize code sharing across all platforms:
 
 ## Package Structure
 
-### @nxt1/core
+### @nxt1/core (Pure TypeScript)
 
-The shared library is organized by domain:
+The core library contains **zero platform dependencies** - pure TypeScript that
+works everywhere:
 
 ```
 packages/core/src/
 ├── index.ts              # Root barrel export
-├── constants/
-│   ├── index.ts          # Re-exports all constants
-│   ├── sports.ts         # Sport definitions
-│   ├── roles.ts          # User roles
-│   ├── notifications.ts  # Notification types
-│   └── subscriptions.ts  # Subscription tiers
-├── models/
-│   ├── index.ts          # Re-exports all types
-│   ├── user.model.ts     # User interfaces
-│   ├── profile.model.ts  # Profile interfaces
-│   ├── team.model.ts     # Team interfaces
-│   ├── video.model.ts    # Video interfaces
-│   └── api.model.ts      # API response types
-├── api/
-│   ├── index.ts          # Re-exports all API factories
-│   ├── auth.api.ts       # Auth API functions
-│   ├── profile.api.ts    # Profile API functions
-│   └── http-adapter.ts   # HTTP abstraction
-├── helpers/
-│   ├── index.ts          # Re-exports all helpers
-│   ├── string.helpers.ts # String utilities
-│   ├── date.helpers.ts   # Date utilities
-│   └── async.helpers.ts  # Async utilities
-└── validation/
-    ├── index.ts          # Re-exports all validators
-    └── user.validation.ts # User input validation
+├── constants/            # Sport definitions, roles, notification types
+├── models/               # User, Profile, Team interfaces
+├── api/                  # Pure API function factories (createAuthApi, etc.)
+├── auth/                 # Auth types, state manager, guards, error handling
+├── helpers/              # Date, string, validation utilities
+├── validation/           # Schema validation for registration, profiles
+├── platform/             # Platform detection (pure TypeScript)
+├── storage/              # Storage adapters (browser, memory, capacitor)
+└── theme/                # Theme utilities
 ```
+
+✅ **Use @nxt1/core for:**
+
+- Backend/Cloud Functions
+- Any JavaScript environment
+- Pure TypeScript logic shared everywhere
+
+❌ **NOT in @nxt1/core:**
+
+- Angular imports (`@angular/*`)
+- Ionic imports (`@ionic/*`)
+- Browser APIs (`window`, `document`)
+- Node.js APIs (`fs`, `path`)
+
+### @nxt1/ui (Angular/Ionic Components)
+
+The UI library contains **shared Angular/Ionic components** for web and mobile:
+
+```
+packages/ui/src/
+├── index.ts              # Root barrel export
+├── shared/               # General-purpose components
+│   └── logo/             # NxtLogoComponent
+├── auth/                 # Authentication UI components
+│   ├── auth-shell/       # AuthShellComponent - full-page auth layout
+│   ├── auth-social-buttons/  # Google, Apple, Microsoft buttons
+│   ├── auth-divider/     # "OR" divider
+│   └── auth-email-form/  # Email/password form with validation
+└── services/             # Angular injectable services
+    └── platform/         # NxtPlatformService - device detection, haptics
+```
+
+✅ **Use @nxt1/ui for:**
+
+- Web application (apps/web)
+- Mobile application (apps/mobile)
+- Cross-platform UI components
+
+**Import Examples:**
+
+```typescript
+// Import from main entry
+import { NxtLogoComponent, AuthShellComponent } from '@nxt1/ui';
+
+// Import from specific modules
+import { AuthEmailFormComponent } from '@nxt1/ui/auth';
+import { NxtPlatformService } from '@nxt1/ui/services';
+```
+
+### @nxt1/core API Factory Pattern
+
+│ ├── index.ts # Re-exports all helpers │ ├── string.helpers.ts # String
+utilities │ ├── date.helpers.ts # Date utilities │ └── async.helpers.ts # Async
+utilities └── validation/ ├── index.ts # Re-exports all validators └──
+user.validation.ts # User input validation
+
+````
 
 ### API Factory Pattern
 
@@ -131,7 +174,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
     },
   };
 }
-```
+````
 
 **Usage in Angular:**
 
@@ -174,7 +217,7 @@ const authApi = createAuthApi(httpAdapter, API_URL);
 
 ## Code Sharing Strategy
 
-### Level 1: 100% Shared (@nxt1/core)
+### Level 1: 100% Shared (@nxt1/core) - Pure TypeScript
 
 Everything that has **no platform dependencies**:
 
@@ -185,35 +228,43 @@ Everything that has **no platform dependencies**:
 | Validation    | `validateRegistration()`, `isValidEmail()`        |
 | Helpers       | `formatRelativeTime()`, `slugify()`, `debounce()` |
 | API Factories | `createAuthApi()`, `createProfileApi()`           |
+| Auth Logic    | `createAuthStateManager()`, `requireAuth()`       |
+| Storage       | `createBrowserStorageAdapter()`, `STORAGE_KEYS`   |
 
-### Level 2: ~80% Shared (Ionic Components)
+### Level 2: ~90% Shared (@nxt1/ui) - Angular/Ionic Components
 
-Ionic components work across platforms with minor adaptations:
+Shared UI components that work across web and mobile:
 
 ```typescript
-// Shared component works on web and mobile
+// Shared auth shell works on web and mobile
+import { AuthShellComponent, AuthEmailFormComponent } from '@nxt1/ui';
+
 @Component({
-  selector: 'app-profile-card',
+  selector: 'app-login',
+  imports: [AuthShellComponent, AuthEmailFormComponent],
   template: `
-    <ion-card>
-      <ion-card-header>
-        <ion-avatar>
-          <img [src]="user.photoURL" />
-        </ion-avatar>
-        <ion-card-title>{{ user.displayName }}</ion-card-title>
-      </ion-card-header>
-      <ion-card-content>
-        {{ user.bio }}
-      </ion-card-content>
-    </ion-card>
+    <nxt1-auth-shell variant="card" [showLogo]="true">
+      <h1 authTitle>Welcome back</h1>
+      <nxt1-auth-email-form
+        mode="login"
+        [loading]="loading()"
+        (submitForm)="onSubmit($event)"
+      />
+    </nxt1-auth-shell>
   `,
 })
-export class ProfileCardComponent {
-  @Input() user!: UserV2;
-}
+export class LoginComponent {}
 ```
 
-### Level 3: Platform-Specific (~20%)
+**@nxt1/ui includes:**
+
+- `AuthShellComponent` - Full-page auth layout with branding
+- `AuthSocialButtonsComponent` - Google, Apple, Microsoft login
+- `AuthEmailFormComponent` - Email/password form with validation
+- `NxtLogoComponent` - Logo with size/variant options
+- `NxtPlatformService` - Device detection, viewport, haptics
+
+### Level 3: Platform-Specific (~10%)
 
 Code that must be different per platform:
 
@@ -221,7 +272,7 @@ Code that must be different per platform:
 | --------------------- | ------------------------- |
 | Server-Side Rendering | Native push notifications |
 | SEO metadata          | In-app purchases          |
-| Browser storage       | Biometric auth            |
+| Browser history       | Biometric auth            |
 | Service workers       | Camera/gallery access     |
 
 ---

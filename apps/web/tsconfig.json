@@ -4,8 +4,10 @@
     "baseUrl": "./",
     "paths": {
       "@v2/*": ["src/app/v2/*"],
-      "@nxt1/core": ["../../packages/core/src/index.ts"],
-      "@nxt1/core/*": ["../../packages/core/src/*"]
+      "@nxt1/core": ["../../packages/core/dist"],
+      "@nxt1/core/*": ["../../packages/core/dist/*"],
+      "@nxt1/ui": ["../../packages/ui/dist"],
+      "@nxt1/ui/*": ["../../packages/ui/dist/*"]
     },
     "outDir": "./dist/out-tsc",
     "forceConsistentCasingInFileNames": true,
@@ -23,7 +25,8 @@
     "target": "ES2022",
     "module": "ES2022",
     "useDefineForClassFields": false,
-    "typeRoots": ["node_modules/@types"],
+    "typeRoots": ["node_modules/@types", "../../node_modules/@types"],
+    "types": ["node"],
     "strictPropertyInitialization": false,
     "resolveJsonModule": true,
     "noImplicitThis": false,

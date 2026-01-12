@@ -1,6 +1,6 @@
 /**
  * @fileoverview NXT1 Logo Component
- * @module @nxt1/core/components
+ * @module @nxt1/ui/shared/logo
  *
  * Standalone Angular component for displaying the NXT1 logo.
  * Uses the shared assets from @nxt1/design-tokens.

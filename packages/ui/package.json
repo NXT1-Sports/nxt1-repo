@@ -1,0 +1,51 @@
+{
+  "name": "@nxt1/ui",
+  "version": "1.0.0",
+  "description": "NXT1 UI - Shared Angular/Ionic components for cross-platform applications",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "ng-packagr -p ng-package.json",
+    "build:watch": "ng-packagr -p ng-package.json --watch",
+    "lint": "eslint src auth shared services --ext .ts",
+    "lint:fix": "eslint src auth shared services --ext .ts --fix",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@nxt1/core": "*",
+    "@nxt1/design-tokens": "*"
+  },
+  "peerDependencies": {
+    "@angular/common": "^19.0.0 || ^20.0.0 || ^21.0.0",
+    "@angular/core": "^19.0.0 || ^20.0.0 || ^21.0.0",
+    "@angular/forms": "^19.0.0 || ^20.0.0 || ^21.0.0",
+    "@ionic/angular": "^8.0.0",
+    "ionicons": "^7.0.0"
+  },
+  "devDependencies": {
+    "@angular/common": "^21.0.0",
+    "@angular/compiler": "^21.0.0",
+    "@angular/compiler-cli": "^21.0.0",
+    "@angular/core": "^21.0.0",
+    "@angular/forms": "^21.0.0",
+    "@ionic/angular": "^8.5.0",
+    "ionicons": "^7.4.0",
+    "ng-packagr": "^21.0.0",
+    "typescript": "~5.9.3"
+  },
+  "keywords": [
+    "angular",
+    "ionic",
+    "components",
+    "ui",
+    "cross-platform",
+    "mobile",
+    "nxt1"
+  ],
+  "publishConfig": {
+    "access": "restricted"
+  }
+}

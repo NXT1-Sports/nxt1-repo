@@ -2,7 +2,7 @@
  * @fileoverview Login Component - Using Shared Auth Components
  * @module @nxt1/web
  *
- * Professional login page using shared auth components from @nxt1/core.
+ * Professional login page using shared auth components from @nxt1/ui.
  * Demonstrates cross-platform code sharing between web and mobile.
  */
 
@@ -15,7 +15,7 @@ import {
   AuthDividerComponent,
   AuthEmailFormComponent,
   type AuthEmailFormData,
-} from '@nxt1/core';
+} from '@nxt1/ui/auth';
 import { IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { mailOutline, keyOutline } from 'ionicons/icons';

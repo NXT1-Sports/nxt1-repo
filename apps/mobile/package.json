@@ -47,6 +47,7 @@
     "@capacitor/status-bar": "^7.0.0",
     "@ionic/angular": "^8.6.0",
     "@nxt1/core": "*",
+    "@nxt1/ui": "*",
     "@tailwindcss/postcss": "^4.1.18",
     "firebase": "^12.7.0",
     "ionicons": "^8.0.0",
