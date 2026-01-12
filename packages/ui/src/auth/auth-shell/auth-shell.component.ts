@@ -94,7 +94,7 @@ export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
     }
 
     <ion-content
-      [class]="'bg-transparent min-h-screen flex flex-col ' + this.getVariantClass()"
+      [class]="'bg-transparent min-h-screen h-screen flex flex-col ' + this.getVariantClass()"
       [fullscreen]="!showBackButton"
     >
       <!-- Background Effects -->

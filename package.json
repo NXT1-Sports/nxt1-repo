@@ -72,6 +72,7 @@
     "typescript-eslint": "^8.52.0"
   },
   "dependencies": {
+    "@firebase/component": "^0.7.0",
     "turbo": "^2.5.0"
   },
   "lint-staged": {

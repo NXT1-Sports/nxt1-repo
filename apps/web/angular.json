@@ -49,6 +49,14 @@
             "scripts": [],
             "stylePreprocessorOptions": {
               "includePaths": ["src/styles", "../../packages/design-tokens"]
+            },
+            "optimization": {
+              "scripts": true,
+              "styles": true,
+              "fonts": true
+            },
+            "define": {
+              "ngDevMode": "false"
             }
           },
           "configurations": {
