@@ -4,8 +4,10 @@
     "baseUrl": "./",
     "paths": {
       "@app/*": ["src/app/*"],
-      "@nxt1/core": ["../../packages/core/src/index.ts"],
-      "@nxt1/core/*": ["../../packages/core/src/*"]
+      "@nxt1/core": ["../../packages/core/dist"],
+      "@nxt1/core/*": ["../../packages/core/dist/*"],
+      "@nxt1/ui": ["../../packages/ui/dist"],
+      "@nxt1/ui/*": ["../../packages/ui/dist/*"]
     },
     "outDir": "./dist/out-tsc",
     "forceConsistentCasingInFileNames": true,

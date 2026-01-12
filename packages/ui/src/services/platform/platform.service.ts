@@ -1,6 +1,6 @@
 /**
  * @fileoverview PlatformService - Cross-Platform Detection & Utilities
- * @module @nxt1/core/services
+ * @module @nxt1/ui/services
  *
  * Enterprise-grade platform detection service for Angular + Ionic applications.
  * Provides unified API for detecting device capabilities, platform, and viewport.
@@ -282,7 +282,7 @@ export class NxtPlatformService {
       vibration: 'vibrate' in navigator,
       pwa:
         window.matchMedia('(display-mode: standalone)').matches ||
-        (window.navigator as any).standalone === true,
+        (window.navigator as unknown as { standalone?: boolean }).standalone === true,
       touch: hasTouch,
       hover: window.matchMedia('(hover: hover)').matches,
     };
@@ -486,7 +486,7 @@ export class NxtPlatformService {
    * Check if a specific Ionic platform is active
    */
   is(platformName: string): boolean {
-    return this.ionicPlatform.is(platformName as any);
+    return this.ionicPlatform.is(platformName as Parameters<typeof this.ionicPlatform.is>[0]);
   }
 
   /**

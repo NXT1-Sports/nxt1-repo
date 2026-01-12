@@ -27,6 +27,8 @@
     "build:backend": "turbo run build --filter=@nxt1/backend",
     "build:functions": "turbo run build --filter=@nxt1/functions",
     "build:core": "turbo run build --filter=@nxt1/core",
+    "build:ui": "turbo run build --filter=@nxt1/ui",
+    "build:packages": "turbo run build --filter=@nxt1/core --filter=@nxt1/ui",
     "dev": "turbo run dev --parallel",
     "dev:web": "turbo run dev --filter=@nxt1/web",
     "dev:mobile": "turbo run dev --filter=@nxt1/mobile",

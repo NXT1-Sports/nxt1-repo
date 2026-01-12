@@ -1,6 +1,6 @@
 /**
  * @fileoverview AuthEmailFormComponent - Cross-Platform Email/Password Form
- * @module @nxt1/core/components
+ * @module @nxt1/ui/auth
  *
  * Shared email and password authentication form.
  * Uses Ionic components for consistent styling across platforms.
@@ -30,7 +30,6 @@ import {
   Output,
   EventEmitter,
   signal,
-  computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -45,7 +44,7 @@ import {
   alertCircle,
   personOutline,
 } from 'ionicons/icons';
-import { isValidEmail } from '../../helpers';
+import { isValidEmail } from '@nxt1/core/helpers';
 
 /** Form submission data */
 export interface AuthEmailFormData {
@@ -166,9 +165,9 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
       >
         @if (loading) {
           <ion-spinner name="crescent" slot="start"></ion-spinner>
-          <span>{{ loadingText }}</span>
+          <span>{{ loadingTextValue }}</span>
         } @else {
-          <span>{{ submitText }}</span>
+          <span>{{ submitTextValue }}</span>
         }
       </ion-button>
     </form>

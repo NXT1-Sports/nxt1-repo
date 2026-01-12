@@ -1,6 +1,6 @@
 /**
  * @fileoverview AuthSocialButtonsComponent - Cross-Platform Social Login Buttons
- * @module @nxt1/core/components
+ * @module @nxt1/ui/auth
  *
  * Shared social login buttons for Google, Apple, and Microsoft.
  * Uses Ionic components for consistent styling across platforms.
@@ -22,14 +22,7 @@
  * ```
  */
 
-import {
-  Component,
-  Input,
-  Output,
-  EventEmitter,
-  ChangeDetectionStrategy,
-  inject,
-} from '@angular/core';
+import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { addIcons } from 'ionicons';
 import { logoGoogle, logoApple, logoMicrosoft } from 'ionicons/icons';

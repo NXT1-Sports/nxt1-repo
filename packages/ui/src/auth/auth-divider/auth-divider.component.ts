@@ -1,6 +1,6 @@
 /**
  * @fileoverview AuthDividerComponent - "OR" divider for auth forms
- * @module @nxt1/core/components
+ * @module @nxt1/ui/auth
  */
 
 import { Component, Input, ChangeDetectionStrategy } from '@angular/core';

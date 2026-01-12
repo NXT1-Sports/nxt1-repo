@@ -9,7 +9,7 @@
  */
 
 import type { HttpAdapter } from './http-adapter';
-import type { UserV2, UserV2Update, UserV2Summary, SportProfile } from '../models/user-v2.model';
+import type { UserV2, UserV2Summary, SportProfile } from '../models/user-v2.model';
 
 // ============================================
 // COMMON API RESPONSE TYPES
