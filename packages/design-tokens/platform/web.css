@@ -1,0 +1,195 @@
+/**
+ * @fileoverview NXT1 Platform Adaptation Layer - Web
+ * @module @nxt1/design-tokens
+ *
+ * Web-specific token adjustments that layer on top of the base tokens.
+ * Includes desktop-optimized values, hover states, and browser-specific fixes.
+ *
+ * Usage:
+ *   // In apps/web/src/styles.scss
+ *   @import '@nxt1/design-tokens/css/foundation';
+ *   @import '@nxt1/design-tokens/css/platform/web';
+ *
+ * Platform differences handled:
+ * - Larger click targets on mobile vs hover states on desktop
+ * - Different scrollbar styles
+ * - Desktop-optimized typography
+ * - Hover effect availability
+ */
+
+/* ============================================
+   WEB-SPECIFIC TOKEN OVERRIDES
+   ============================================ */
+
+:root {
+  /* Input sizing - larger on web for desktop UX */
+  --nxt1-input-height: 44px;
+  --nxt1-input-height-sm: 36px;
+  --nxt1-input-height-lg: 52px;
+
+  /* Button sizing */
+  --nxt1-button-height: 44px;
+  --nxt1-button-height-sm: 36px;
+  --nxt1-button-height-lg: 52px;
+
+  /* Scrollbar visibility */
+  --nxt1-scrollbar-width: 8px;
+  --nxt1-scrollbar-visibility: visible;
+
+  /* Motion - full animations on desktop */
+  --nxt1-motion-enabled: 1;
+
+  /* Content width - larger on web */
+  --nxt1-content-max-width: 1440px;
+  --nxt1-content-padding-x: var(--nxt1-spacing-8, 32px);
+}
+
+/* ============================================
+   HOVER STATES (Desktop only)
+   ============================================ */
+
+@media (hover: hover) and (pointer: fine) {
+  /* Enable hover states only on devices that support them */
+  :root {
+    --nxt1-hover-enabled: 1;
+  }
+
+  /* Interactive element hover transitions */
+  .nxt1-interactive,
+  button,
+  a,
+  [role='button'] {
+    transition:
+      background-color var(--nxt1-motion-duration-fast, 150ms) var(--nxt1-motion-easing-standard),
+      color var(--nxt1-motion-duration-fast, 150ms) var(--nxt1-motion-easing-standard),
+      transform var(--nxt1-motion-duration-fast, 150ms) var(--nxt1-motion-easing-standard);
+  }
+
+  /* Hover lift effect */
+  .nxt1-hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--nxt1-shadow-lg);
+  }
+
+  /* Hover glow effect */
+  .nxt1-hover-glow:hover {
+    box-shadow: var(--nxt1-glow-md);
+  }
+
+  /* Hover scale effect */
+  .nxt1-hover-scale:hover {
+    transform: scale(1.02);
+  }
+}
+
+/* ============================================
+   DESKTOP BREAKPOINT OVERRIDES
+   ============================================ */
+
+/* Large screens - expanded layout */
+@media (min-width: 1024px) {
+  :root {
+    /* Typography adjustments */
+    --nxt1-font-size-base: 16px;
+    --nxt1-line-height-base: 1.6;
+
+    /* Spacing adjustments - more generous on desktop */
+    --nxt1-section-padding: var(--nxt1-spacing-16, 64px);
+    --nxt1-card-padding: var(--nxt1-spacing-6, 24px);
+
+    /* Sidebar width */
+    --nxt1-sidebar-width: 280px;
+    --nxt1-sidebar-width-collapsed: 64px;
+  }
+}
+
+/* Extra large screens */
+@media (min-width: 1536px) {
+  :root {
+    --nxt1-content-max-width: 1600px;
+  }
+}
+
+/* ============================================
+   CUSTOM SCROLLBAR (Web only)
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: var(--nxt1-scrollbar-width);
+  height: var(--nxt1-scrollbar-width);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--nxt1-color-surface-400, #2a2a2a);
+  border-radius: var(--nxt1-border-radius-full);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--nxt1-color-surface-500, #333333);
+  background-clip: content-box;
+}
+
+/* Firefox scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--nxt1-color-surface-400) transparent;
+}
+
+/* ============================================
+   FOCUS STYLES (Keyboard Navigation)
+   ============================================ */
+
+/* Focus visible ring for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--nxt1-color-primary);
+  outline-offset: 2px;
+}
+
+/* Remove focus ring for mouse users */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* High contrast focus for accessibility */
+@media (prefers-contrast: more) {
+  :focus-visible {
+    outline: 3px solid var(--nxt1-color-primary);
+    outline-offset: 3px;
+  }
+}
+
+/* ============================================
+   SELECTION HIGHLIGHT
+   ============================================ */
+
+::selection {
+  background-color: var(--nxt1-color-alpha-primary30, rgba(204, 255, 0, 0.3));
+  color: var(--nxt1-color-text-primary);
+}
+
+/* ============================================
+   PRINT ADJUSTMENTS
+   ============================================ */
+
+@media print {
+  :root {
+    /* Reset colors for print */
+    --nxt1-color-background-primary: #ffffff;
+    --nxt1-color-text-primary: #000000;
+    --nxt1-color-primary: #000000;
+  }
+
+  /* Hide non-essential elements */
+  .nxt1-no-print,
+  .nxt1-sidebar,
+  .nxt1-tab-bar,
+  .nxt1-toast {
+    display: none !important;
+  }
+}

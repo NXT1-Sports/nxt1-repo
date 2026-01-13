@@ -2,44 +2,75 @@
  * @fileoverview Global Styles - NXT1 Web Application
  * @module @nxt1/web
  *
- * Architecture:
- * - Tailwind CSS (utility-first)
- * - @nxt1/design-tokens (foundation)
- * - Auth Component Styles (shared)
- * - Web-specific overrides
+ * Architecture (Design Token System v3.0):
+ * ┌──────────────────────────────────────────┐
+ * │  Tailwind CSS (utility-first)            │
+ * ├──────────────────────────────────────────┤
+ * │  @nxt1/design-tokens v3.0 (JSON source)  │
+ * │  ├── Generated CSS tokens               │
+ * │  ├── Foundation (reset, app-shell)       │
+ * │  └── Platform/Web (hover, scrollbar)     │
+ * ├──────────────────────────────────────────┤
+ * │  Component Styles (auth, etc.)           │
+ * └──────────────────────────────────────────┘
+ *
+ * Token Flow:
+ *   tokens.json → build.mjs → dist/css, dist/scss, dist/js
  *
  * Theme Usage:
- * - Dark (default): No attribute needed
+ * - Dark (default): :root or [data-theme="dark"]
  * - Light: <html data-theme="light">
  */
 
-// Import design tokens (CSS custom properties)
-@use "../../../packages/design-tokens/tokens" as *;
-@use "../../../packages/design-tokens/components/auth" as *;
+/* ============================================
+   LAYER 0: SCSS MODULES (@use must come first)
+   Generated SCSS variables from tokens.json
+   ============================================ */
+@use "@nxt1/design-tokens/scss" as tokens;
+@use "@nxt1/design-tokens/components/auth" as *;
+@use "@nxt1/design-tokens/ionic" as *;
 
-// Google Fonts - Brand font
+/* ============================================
+   LAYER 1: DESIGN TOKENS - Generated CSS
+   All CSS custom properties from tokens.json
+   ============================================ */
+@import "@nxt1/design-tokens/css";
+
+/* ============================================
+   LAYER 2: FOUNDATION - Reset & App Shell
+   Framework-agnostic reset, structure, utilities
+   ============================================ */
+@import "@nxt1/design-tokens/foundation/reset";
+@import "@nxt1/design-tokens/foundation/app-shell";
+@import "@nxt1/design-tokens/foundation/utilities";
+
+/* ============================================
+   LAYER 3: PLATFORM ADAPTATION - Web
+   Hover states, scrollbars, desktop UX
+   ============================================ */
+@import "@nxt1/design-tokens/platform/web";
+
+/* ============================================
+   LAYER 4: EXTERNAL FONTS
+   ============================================ */
 @import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;700&display=swap");
 
-// Tailwind directives
+/* ============================================
+   LAYER 5: TAILWIND CSS
+   Utility-first CSS framework
+   ============================================ */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 // ============================================
-// BASE LAYER - CSS Reset & Foundation
+// BASE LAYER - Additional Web-Specific Overrides
+// (Most resets handled by foundation.css)
 // ============================================
 @layer base {
-  *,
-  *::before,
-  *::after {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-  }
-
-  // Hide scrollbars on desktop
+  // Hide scrollbars on large screens (optional, web.css provides custom scrollbar)
   @media (min-width: 1280px) {
-    * {
+    .hide-scrollbar {
       &::-webkit-scrollbar {
         display: none;
       }
@@ -48,20 +79,11 @@
     }
   }
 
-  // Prevent zoom on input focus (mobile)
-  input,
-  textarea,
-  select {
-    font-size: 16px;
-  }
-
   html,
   body {
     @apply min-h-full h-full w-full overflow-x-hidden overflow-y-auto;
     @apply bg-bg-primary text-text-primary;
     font-family: var(--nxt1-font-family-brand);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
   }
 
   // Prevent scroll lock issues with CDK overlays
@@ -71,7 +93,7 @@
     left: auto !important;
   }
 
-  // Typography
+  // Typography enhancements (foundation provides base resets)
   h1,
   h2,
   h3,

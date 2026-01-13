@@ -1,0 +1,493 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$description": "NXT1 Semantic Design Tokens - Theme-aware aliases that reference primitives",
+
+  "theme": {
+    "dark": {
+      "$description": "Dark theme (default) - Sports/media brand aesthetic",
+
+      "color": {
+        "primary": {
+          "$value": "{color.brand.volt.400}",
+          "$type": "color",
+          "$description": "Primary brand color"
+        },
+        "primaryLight": {
+          "$value": "{color.brand.volt.300}",
+          "$type": "color"
+        },
+        "primaryDark": {
+          "$value": "{color.brand.volt.600}",
+          "$type": "color"
+        },
+        "secondary": {
+          "$value": "{color.brand.gold.500}",
+          "$type": "color"
+        },
+        "secondaryLight": {
+          "$value": "{color.brand.gold.400}",
+          "$type": "color"
+        },
+        "secondaryDark": {
+          "$value": "{color.brand.gold.600}",
+          "$type": "color"
+        },
+        "accent": {
+          "$value": "{color.brand.lime.400}",
+          "$type": "color"
+        },
+        "accentLight": {
+          "$value": "{color.brand.lime.300}",
+          "$type": "color"
+        },
+        "accentDark": {
+          "$value": "{color.brand.lime.600}",
+          "$type": "color"
+        },
+
+        "background": {
+          "primary": {
+            "$value": "{color.neutral.dark.50}",
+            "$type": "color",
+            "$description": "Main page background"
+          },
+          "secondary": {
+            "$value": "{color.neutral.dark.100}",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "{color.neutral.dark.200}",
+            "$type": "color"
+          },
+          "elevated": {
+            "$value": "{color.neutral.dark.250}",
+            "$type": "color"
+          },
+          "overlay": {
+            "$value": "rgba(0, 0, 0, 0.8)",
+            "$type": "color"
+          }
+        },
+
+        "surface": {
+          "100": {
+            "$value": "{color.neutral.dark.150}",
+            "$type": "color"
+          },
+          "200": {
+            "$value": "{color.neutral.dark.200}",
+            "$type": "color"
+          },
+          "300": {
+            "$value": "{color.neutral.dark.300}",
+            "$type": "color"
+          },
+          "400": {
+            "$value": "{color.neutral.dark.350}",
+            "$type": "color"
+          },
+          "500": {
+            "$value": "{color.neutral.dark.400}",
+            "$type": "color"
+          }
+        },
+
+        "text": {
+          "primary": {
+            "$value": "{color.neutral.dark.1000}",
+            "$type": "color"
+          },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.7)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.5)",
+            "$type": "color"
+          },
+          "disabled": {
+            "$value": "rgba(255, 255, 255, 0.3)",
+            "$type": "color"
+          },
+          "inverse": {
+            "$value": "{color.neutral.dark.50}",
+            "$type": "color"
+          },
+          "onPrimary": {
+            "$value": "{color.neutral.dark.0}",
+            "$type": "color"
+          }
+        },
+
+        "border": {
+          "subtle": {
+            "$value": "rgba(255, 255, 255, 0.08)",
+            "$type": "color"
+          },
+          "default": {
+            "$value": "rgba(255, 255, 255, 0.12)",
+            "$type": "color"
+          },
+          "strong": {
+            "$value": "rgba(255, 255, 255, 0.2)",
+            "$type": "color"
+          },
+          "primary": {
+            "$value": "rgba(204, 255, 0, 0.3)",
+            "$type": "color"
+          }
+        },
+
+        "feedback": {
+          "success": {
+            "$value": "{color.semantic.success.500}",
+            "$type": "color"
+          },
+          "successLight": {
+            "$value": "{color.semantic.success.400}",
+            "$type": "color"
+          },
+          "successDark": {
+            "$value": "{color.semantic.success.600}",
+            "$type": "color"
+          },
+          "successBg": {
+            "$value": "rgba(34, 197, 94, 0.1)",
+            "$type": "color"
+          },
+          "warning": {
+            "$value": "{color.semantic.warning.500}",
+            "$type": "color"
+          },
+          "warningLight": {
+            "$value": "{color.semantic.warning.400}",
+            "$type": "color"
+          },
+          "warningDark": {
+            "$value": "{color.semantic.warning.600}",
+            "$type": "color"
+          },
+          "warningBg": {
+            "$value": "rgba(245, 158, 11, 0.1)",
+            "$type": "color"
+          },
+          "error": {
+            "$value": "{color.semantic.error.500}",
+            "$type": "color"
+          },
+          "errorLight": {
+            "$value": "{color.semantic.error.400}",
+            "$type": "color"
+          },
+          "errorDark": {
+            "$value": "{color.semantic.error.600}",
+            "$type": "color"
+          },
+          "errorBg": {
+            "$value": "rgba(239, 68, 68, 0.1)",
+            "$type": "color"
+          },
+          "info": {
+            "$value": "{color.semantic.info.500}",
+            "$type": "color"
+          },
+          "infoLight": {
+            "$value": "{color.semantic.info.400}",
+            "$type": "color"
+          },
+          "infoDark": {
+            "$value": "{color.semantic.info.600}",
+            "$type": "color"
+          },
+          "infoBg": {
+            "$value": "rgba(59, 130, 246, 0.1)",
+            "$type": "color"
+          }
+        },
+
+        "state": {
+          "hover": {
+            "$value": "rgba(255, 255, 255, 0.04)",
+            "$type": "color"
+          },
+          "pressed": {
+            "$value": "rgba(255, 255, 255, 0.08)",
+            "$type": "color"
+          },
+          "focus": {
+            "$value": "rgba(204, 255, 0, 0.24)",
+            "$type": "color"
+          },
+          "disabled": {
+            "$value": "rgba(255, 255, 255, 0.12)",
+            "$type": "color"
+          }
+        },
+
+        "alpha": {
+          "primary5": { "$value": "rgba(204, 255, 0, 0.05)", "$type": "color" },
+          "primary10": { "$value": "rgba(204, 255, 0, 0.1)", "$type": "color" },
+          "primary20": { "$value": "rgba(204, 255, 0, 0.2)", "$type": "color" },
+          "primary30": { "$value": "rgba(204, 255, 0, 0.3)", "$type": "color" },
+          "primary50": { "$value": "rgba(204, 255, 0, 0.5)", "$type": "color" }
+        }
+      },
+
+      "shadow": {
+        "xs": { "$value": "0 1px 2px rgba(0, 0, 0, 0.5)", "$type": "shadow" },
+        "sm": { "$value": "0 2px 4px rgba(0, 0, 0, 0.5)", "$type": "shadow" },
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.5)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.5)", "$type": "shadow" },
+        "xl": { "$value": "0 8px 16px rgba(0, 0, 0, 0.5)", "$type": "shadow" },
+        "2xl": {
+          "$value": "0 16px 32px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        },
+        "3xl": {
+          "$value": "0 24px 48px rgba(0, 0, 0, 0.6)",
+          "$type": "shadow"
+        },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        },
+        "innerLg": {
+          "$value": "inset 0 4px 8px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": { "$value": "0 0 8px rgba(204, 255, 0, 0.3)", "$type": "shadow" },
+        "md": {
+          "$value": "0 0 16px rgba(204, 255, 0, 0.4)",
+          "$type": "shadow"
+        },
+        "lg": {
+          "$value": "0 0 24px rgba(204, 255, 0, 0.5)",
+          "$type": "shadow"
+        },
+        "xl": {
+          "$value": "0 0 40px rgba(204, 255, 0, 0.6)",
+          "$type": "shadow"
+        },
+        "accent": {
+          "$value": "0 0 16px rgba(0, 212, 255, 0.4)",
+          "$type": "shadow"
+        },
+        "secondary": {
+          "$value": "0 0 16px rgba(99, 102, 241, 0.4)",
+          "$type": "shadow"
+        }
+      }
+    },
+
+    "light": {
+      "$description": "Light theme - Alternative for accessibility",
+
+      "color": {
+        "primary": {
+          "$value": "{color.brand.volt.600}",
+          "$type": "color",
+          "$description": "Darker for better contrast on light"
+        },
+        "primaryLight": {
+          "$value": "{color.brand.volt.400}",
+          "$type": "color"
+        },
+        "primaryDark": {
+          "$value": "{color.brand.volt.700}",
+          "$type": "color"
+        },
+        "secondary": {
+          "$value": "{color.brand.gold.600}",
+          "$type": "color"
+        },
+        "secondaryLight": {
+          "$value": "{color.brand.gold.500}",
+          "$type": "color"
+        },
+        "secondaryDark": {
+          "$value": "{color.brand.gold.700}",
+          "$type": "color"
+        },
+        "accent": {
+          "$value": "{color.brand.lime.600}",
+          "$type": "color"
+        },
+        "accentLight": {
+          "$value": "{color.brand.lime.400}",
+          "$type": "color"
+        },
+        "accentDark": {
+          "$value": "{color.brand.lime.700}",
+          "$type": "color"
+        },
+
+        "background": {
+          "primary": {
+            "$value": "{color.neutral.light.0}",
+            "$type": "color"
+          },
+          "secondary": {
+            "$value": "{color.neutral.light.50}",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "{color.neutral.light.100}",
+            "$type": "color"
+          },
+          "elevated": {
+            "$value": "{color.neutral.light.0}",
+            "$type": "color"
+          },
+          "overlay": {
+            "$value": "rgba(0, 0, 0, 0.5)",
+            "$type": "color"
+          }
+        },
+
+        "surface": {
+          "100": {
+            "$value": "{color.neutral.light.50}",
+            "$type": "color"
+          },
+          "200": {
+            "$value": "{color.neutral.light.100}",
+            "$type": "color"
+          },
+          "300": {
+            "$value": "{color.neutral.light.200}",
+            "$type": "color"
+          },
+          "400": {
+            "$value": "{color.neutral.light.300}",
+            "$type": "color"
+          },
+          "500": {
+            "$value": "{color.neutral.light.400}",
+            "$type": "color"
+          }
+        },
+
+        "text": {
+          "primary": {
+            "$value": "{color.neutral.light.900}",
+            "$type": "color"
+          },
+          "secondary": {
+            "$value": "rgba(0, 0, 0, 0.7)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(0, 0, 0, 0.5)",
+            "$type": "color"
+          },
+          "disabled": {
+            "$value": "rgba(0, 0, 0, 0.3)",
+            "$type": "color"
+          },
+          "inverse": {
+            "$value": "{color.neutral.light.0}",
+            "$type": "color"
+          },
+          "onPrimary": {
+            "$value": "{color.neutral.light.1000}",
+            "$type": "color"
+          }
+        },
+
+        "border": {
+          "subtle": {
+            "$value": "rgba(0, 0, 0, 0.06)",
+            "$type": "color"
+          },
+          "default": {
+            "$value": "rgba(0, 0, 0, 0.12)",
+            "$type": "color"
+          },
+          "strong": {
+            "$value": "rgba(0, 0, 0, 0.2)",
+            "$type": "color"
+          },
+          "primary": {
+            "$value": "rgba(163, 204, 0, 0.4)",
+            "$type": "color"
+          }
+        },
+
+        "feedback": {
+          "success": {
+            "$value": "{color.semantic.success.600}",
+            "$type": "color"
+          },
+          "successBg": { "$value": "rgba(34, 197, 94, 0.1)", "$type": "color" },
+          "warning": {
+            "$value": "{color.semantic.warning.600}",
+            "$type": "color"
+          },
+          "warningBg": {
+            "$value": "rgba(245, 158, 11, 0.1)",
+            "$type": "color"
+          },
+          "error": { "$value": "{color.semantic.error.600}", "$type": "color" },
+          "errorBg": { "$value": "rgba(239, 68, 68, 0.1)", "$type": "color" },
+          "info": { "$value": "{color.semantic.info.600}", "$type": "color" },
+          "infoBg": { "$value": "rgba(59, 130, 246, 0.1)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": {
+            "$value": "rgba(0, 0, 0, 0.04)",
+            "$type": "color"
+          },
+          "pressed": {
+            "$value": "rgba(0, 0, 0, 0.08)",
+            "$type": "color"
+          },
+          "focus": {
+            "$value": "rgba(163, 204, 0, 0.24)",
+            "$type": "color"
+          },
+          "disabled": {
+            "$value": "rgba(0, 0, 0, 0.12)",
+            "$type": "color"
+          }
+        },
+
+        "alpha": {
+          "primary5": { "$value": "rgba(163, 204, 0, 0.05)", "$type": "color" },
+          "primary10": { "$value": "rgba(163, 204, 0, 0.1)", "$type": "color" },
+          "primary20": { "$value": "rgba(163, 204, 0, 0.2)", "$type": "color" },
+          "primary30": { "$value": "rgba(163, 204, 0, 0.3)", "$type": "color" },
+          "primary50": { "$value": "rgba(163, 204, 0, 0.5)", "$type": "color" }
+        }
+      },
+
+      "shadow": {
+        "xs": { "$value": "0 1px 2px rgba(0, 0, 0, 0.08)", "$type": "shadow" },
+        "sm": { "$value": "0 2px 4px rgba(0, 0, 0, 0.08)", "$type": "shadow" },
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.1)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.1)", "$type": "shadow" },
+        "xl": { "$value": "0 8px 16px rgba(0, 0, 0, 0.12)", "$type": "shadow" },
+        "2xl": {
+          "$value": "0 16px 32px rgba(0, 0, 0, 0.12)",
+          "$type": "shadow"
+        },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.08)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": { "$value": "0 0 8px rgba(163, 204, 0, 0.2)", "$type": "shadow" },
+        "md": {
+          "$value": "0 0 16px rgba(163, 204, 0, 0.3)",
+          "$type": "shadow"
+        },
+        "lg": { "$value": "0 0 24px rgba(163, 204, 0, 0.4)", "$type": "shadow" }
+      }
+    }
+  }
+}

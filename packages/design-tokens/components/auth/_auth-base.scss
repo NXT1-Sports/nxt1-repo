@@ -10,9 +10,10 @@
  * - Card-based layout with glass effect
  * - Desktop: Side panel for QR codes
  * - Mobile: App store buttons below
+ *
+ * Note: This file uses CSS custom properties (--nxt1-*) defined in
+ * the generated tokens.css. No SCSS variable imports needed.
  */
-
-@use "../../tokens" as *;
 
 // ============================================
 // AUTH VARIABLES

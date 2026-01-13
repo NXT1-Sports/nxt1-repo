@@ -1,0 +1,244 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$description": "NXT1 Component Design Tokens - Specific tokens for UI components",
+
+  "component": {
+    "button": {
+      "$description": "Button component tokens",
+      "height": {
+        "xs": { "$value": "28px", "$type": "dimension" },
+        "sm": { "$value": "32px", "$type": "dimension" },
+        "md": { "$value": "40px", "$type": "dimension" },
+        "lg": { "$value": "48px", "$type": "dimension" },
+        "xl": { "$value": "56px", "$type": "dimension" }
+      },
+      "paddingX": {
+        "xs": { "$value": "{spacing.2}", "$type": "dimension" },
+        "sm": { "$value": "{spacing.3}", "$type": "dimension" },
+        "md": { "$value": "{spacing.4}", "$type": "dimension" },
+        "lg": { "$value": "{spacing.6}", "$type": "dimension" },
+        "xl": { "$value": "{spacing.8}", "$type": "dimension" }
+      },
+      "borderRadius": {
+        "default": { "$value": "{borderRadius.md}", "$type": "dimension" },
+        "rounded": { "$value": "{borderRadius.full}", "$type": "dimension" }
+      },
+      "fontSize": {
+        "xs": { "$value": "{fontSize.xs}", "$type": "dimension" },
+        "sm": { "$value": "{fontSize.sm}", "$type": "dimension" },
+        "md": { "$value": "{fontSize.base}", "$type": "dimension" },
+        "lg": { "$value": "{fontSize.lg}", "$type": "dimension" }
+      },
+      "fontWeight": {
+        "$value": "{fontWeight.semibold}",
+        "$type": "fontWeight"
+      },
+      "letterSpacing": {
+        "$value": "{letterSpacing.wide}",
+        "$type": "dimension"
+      },
+      "transition": {
+        "$value": "all {duration.normal} {easing.inOut}",
+        "$type": "transition"
+      },
+      "focusRingWidth": { "$value": "2px", "$type": "dimension" },
+      "focusRingOffset": { "$value": "2px", "$type": "dimension" }
+    },
+
+    "input": {
+      "$description": "Input/form field component tokens",
+      "height": {
+        "sm": { "$value": "32px", "$type": "dimension" },
+        "md": { "$value": "40px", "$type": "dimension" },
+        "lg": { "$value": "48px", "$type": "dimension" }
+      },
+      "paddingX": { "$value": "{spacing.3}", "$type": "dimension" },
+      "paddingY": { "$value": "{spacing.2}", "$type": "dimension" },
+      "borderRadius": { "$value": "{borderRadius.md}", "$type": "dimension" },
+      "borderWidth": { "$value": "1px", "$type": "dimension" },
+      "fontSize": { "$value": "{fontSize.base}", "$type": "dimension" },
+      "fontWeight": { "$value": "{fontWeight.medium}", "$type": "fontWeight" },
+      "lineHeight": { "$value": "{lineHeight.normal}", "$type": "number" },
+      "transition": {
+        "$value": "border-color {duration.fast} {easing.inOut}",
+        "$type": "transition"
+      },
+      "iconSize": { "$value": "20px", "$type": "dimension" },
+      "iconGap": { "$value": "{spacing.2}", "$type": "dimension" }
+    },
+
+    "card": {
+      "$description": "Card component tokens",
+      "padding": {
+        "sm": { "$value": "{spacing.3}", "$type": "dimension" },
+        "md": { "$value": "{spacing.4}", "$type": "dimension" },
+        "lg": { "$value": "{spacing.6}", "$type": "dimension" }
+      },
+      "borderRadius": { "$value": "{borderRadius.xl}", "$type": "dimension" },
+      "borderWidth": { "$value": "1px", "$type": "dimension" },
+      "gap": { "$value": "{spacing.4}", "$type": "dimension" }
+    },
+
+    "avatar": {
+      "$description": "Avatar component tokens",
+      "size": {
+        "xs": { "$value": "24px", "$type": "dimension" },
+        "sm": { "$value": "32px", "$type": "dimension" },
+        "md": { "$value": "40px", "$type": "dimension" },
+        "lg": { "$value": "56px", "$type": "dimension" },
+        "xl": { "$value": "80px", "$type": "dimension" },
+        "2xl": { "$value": "120px", "$type": "dimension" }
+      },
+      "borderRadius": { "$value": "{borderRadius.full}", "$type": "dimension" },
+      "borderWidth": { "$value": "2px", "$type": "dimension" }
+    },
+
+    "icon": {
+      "$description": "Icon size tokens",
+      "size": {
+        "xs": { "$value": "12px", "$type": "dimension" },
+        "sm": { "$value": "16px", "$type": "dimension" },
+        "md": { "$value": "20px", "$type": "dimension" },
+        "lg": { "$value": "24px", "$type": "dimension" },
+        "xl": { "$value": "32px", "$type": "dimension" },
+        "2xl": { "$value": "40px", "$type": "dimension" }
+      }
+    },
+
+    "modal": {
+      "$description": "Modal/dialog component tokens",
+      "width": {
+        "sm": { "$value": "400px", "$type": "dimension" },
+        "md": { "$value": "560px", "$type": "dimension" },
+        "lg": { "$value": "720px", "$type": "dimension" },
+        "xl": { "$value": "960px", "$type": "dimension" },
+        "full": { "$value": "100%", "$type": "dimension" }
+      },
+      "padding": { "$value": "{spacing.6}", "$type": "dimension" },
+      "borderRadius": { "$value": "{borderRadius.2xl}", "$type": "dimension" },
+      "backdropOpacity": { "$value": "0.8", "$type": "number" }
+    },
+
+    "toast": {
+      "$description": "Toast notification tokens",
+      "padding": { "$value": "{spacing.4}", "$type": "dimension" },
+      "borderRadius": { "$value": "{borderRadius.lg}", "$type": "dimension" },
+      "maxWidth": { "$value": "400px", "$type": "dimension" },
+      "iconSize": { "$value": "20px", "$type": "dimension" },
+      "gap": { "$value": "{spacing.3}", "$type": "dimension" }
+    },
+
+    "badge": {
+      "$description": "Badge component tokens",
+      "height": {
+        "sm": { "$value": "18px", "$type": "dimension" },
+        "md": { "$value": "22px", "$type": "dimension" },
+        "lg": { "$value": "26px", "$type": "dimension" }
+      },
+      "paddingX": { "$value": "{spacing.2}", "$type": "dimension" },
+      "fontSize": { "$value": "{fontSize.xs}", "$type": "dimension" },
+      "fontWeight": {
+        "$value": "{fontWeight.semibold}",
+        "$type": "fontWeight"
+      },
+      "borderRadius": { "$value": "{borderRadius.full}", "$type": "dimension" }
+    },
+
+    "tooltip": {
+      "$description": "Tooltip component tokens",
+      "padding": { "$value": "{spacing.2} {spacing.3}", "$type": "dimension" },
+      "borderRadius": { "$value": "{borderRadius.md}", "$type": "dimension" },
+      "fontSize": { "$value": "{fontSize.sm}", "$type": "dimension" },
+      "maxWidth": { "$value": "320px", "$type": "dimension" },
+      "arrowSize": { "$value": "6px", "$type": "dimension" }
+    },
+
+    "dropdown": {
+      "$description": "Dropdown/menu component tokens",
+      "padding": { "$value": "{spacing.1}", "$type": "dimension" },
+      "itemPaddingX": { "$value": "{spacing.3}", "$type": "dimension" },
+      "itemPaddingY": { "$value": "{spacing.2}", "$type": "dimension" },
+      "itemBorderRadius": {
+        "$value": "{borderRadius.md}",
+        "$type": "dimension"
+      },
+      "borderRadius": { "$value": "{borderRadius.lg}", "$type": "dimension" },
+      "minWidth": { "$value": "160px", "$type": "dimension" },
+      "maxHeight": { "$value": "320px", "$type": "dimension" },
+      "gap": {
+        "$value": "0.125rem",
+        "$type": "dimension",
+        "$description": "Equivalent to spacing.0.5"
+      }
+    },
+
+    "tabs": {
+      "$description": "Tabs component tokens",
+      "height": { "$value": "40px", "$type": "dimension" },
+      "paddingX": { "$value": "{spacing.4}", "$type": "dimension" },
+      "gap": { "$value": "{spacing.1}", "$type": "dimension" },
+      "fontSize": { "$value": "{fontSize.sm}", "$type": "dimension" },
+      "fontWeight": { "$value": "{fontWeight.medium}", "$type": "fontWeight" },
+      "indicatorHeight": { "$value": "2px", "$type": "dimension" }
+    },
+
+    "skeleton": {
+      "$description": "Skeleton loader tokens",
+      "borderRadius": { "$value": "{borderRadius.md}", "$type": "dimension" },
+      "animationDuration": { "$value": "1.5s", "$type": "duration" }
+    }
+  },
+
+  "layout": {
+    "$description": "Layout-specific tokens",
+
+    "header": {
+      "height": { "$value": "64px", "$type": "dimension" },
+      "heightMobile": { "$value": "56px", "$type": "dimension" }
+    },
+
+    "sidebar": {
+      "width": { "$value": "280px", "$type": "dimension" },
+      "widthCollapsed": { "$value": "72px", "$type": "dimension" }
+    },
+
+    "footer": {
+      "height": { "$value": "200px", "$type": "dimension" }
+    },
+
+    "tabbar": {
+      "height": { "$value": "56px", "$type": "dimension" },
+      "heightWithSafeArea": {
+        "$value": "calc(56px + env(safe-area-inset-bottom, 0px))",
+        "$type": "dimension"
+      }
+    },
+
+    "container": {
+      "sm": { "$value": "640px", "$type": "dimension" },
+      "md": { "$value": "768px", "$type": "dimension" },
+      "lg": { "$value": "1024px", "$type": "dimension" },
+      "xl": { "$value": "1280px", "$type": "dimension" },
+      "2xl": { "$value": "1536px", "$type": "dimension" }
+    },
+
+    "safeArea": {
+      "top": {
+        "$value": "env(safe-area-inset-top, 0px)",
+        "$type": "dimension"
+      },
+      "bottom": {
+        "$value": "env(safe-area-inset-bottom, 0px)",
+        "$type": "dimension"
+      },
+      "left": {
+        "$value": "env(safe-area-inset-left, 0px)",
+        "$type": "dimension"
+      },
+      "right": {
+        "$value": "env(safe-area-inset-right, 0px)",
+        "$type": "dimension"
+      }
+    }
+  }
+}

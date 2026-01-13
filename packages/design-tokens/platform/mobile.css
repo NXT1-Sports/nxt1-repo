@@ -1,0 +1,324 @@
+/**
+ * @fileoverview NXT1 Platform Adaptation Layer - Mobile (iOS/Android)
+ * @module @nxt1/design-tokens
+ *
+ * Mobile-specific token adjustments that layer on top of the base tokens.
+ * Optimized for touch interactions, native app feel, and Capacitor/Cordova.
+ *
+ * Usage:
+ *   // In apps/mobile/src/global.scss
+ *   @import '@nxt1/design-tokens/css/foundation';
+ *   @import '@nxt1/design-tokens/css/platform/mobile';
+ *
+ * Platform differences handled:
+ * - Touch-friendly tap targets (44px minimum)
+ * - Safe area insets for notched devices
+ * - Native momentum scrolling
+ * - Reduced motion for performance
+ * - System font integration
+ */
+
+/* ============================================
+   MOBILE-SPECIFIC TOKEN OVERRIDES
+   ============================================ */
+
+:root {
+  /* Touch target sizing (iOS HIG: 44pt minimum) */
+  --nxt1-touch-target-min: 44px;
+
+  /* Input sizing - touch-optimized */
+  --nxt1-input-height: 48px;
+  --nxt1-input-height-sm: 44px;
+  --nxt1-input-height-lg: 56px;
+
+  /* Button sizing - touch-optimized */
+  --nxt1-button-height: 48px;
+  --nxt1-button-height-sm: 44px;
+  --nxt1-button-height-lg: 56px;
+
+  /* Scrollbar - hidden on mobile */
+  --nxt1-scrollbar-width: 0;
+  --nxt1-scrollbar-visibility: hidden;
+
+  /* Content width - full width on mobile */
+  --nxt1-content-max-width: 100%;
+  --nxt1-content-padding-x: var(--nxt1-spacing-4, 16px);
+
+  /* Typography - slightly larger for mobile readability */
+  --nxt1-font-size-base: 16px;
+  --nxt1-line-height-base: 1.5;
+
+  /* Native font family fallbacks */
+  --nxt1-font-family-system:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* ============================================
+   SAFE AREA HANDLING
+   ============================================ */
+
+/* Safe area CSS custom properties */
+:root {
+  --nxt1-safe-area-top: env(safe-area-inset-top, 0px);
+  --nxt1-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --nxt1-safe-area-left: env(safe-area-inset-left, 0px);
+  --nxt1-safe-area-right: env(safe-area-inset-right, 0px);
+}
+
+/* Cover the entire viewport including safe areas */
+html {
+  --ion-safe-area-top: var(--nxt1-safe-area-top);
+  --ion-safe-area-bottom: var(--nxt1-safe-area-bottom);
+  --ion-safe-area-left: var(--nxt1-safe-area-left);
+  --ion-safe-area-right: var(--nxt1-safe-area-right);
+}
+
+/* ============================================
+   TOUCH OPTIMIZATION
+   ============================================ */
+
+/* Disable tap highlight */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Disable text selection on interactive elements */
+button,
+a,
+[role='button'],
+.nxt1-interactive {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Enable text selection on content */
+p,
+span,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.nxt1-selectable {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Touch manipulation for smoother scrolling */
+.nxt1-scroll,
+.nxt1-content {
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+}
+
+/* ============================================
+   NATIVE MOMENTUM SCROLLING
+   ============================================ */
+
+/* Enable native scrolling behavior */
+.nxt1-content,
+.nxt1-scroll-container,
+ion-content {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+/* Prevent rubber-band effect on body */
+body {
+  overscroll-behavior: none;
+}
+
+/* ============================================
+   HIDE SCROLLBARS
+   ============================================ */
+
+/* Webkit */
+::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Firefox only - Safari uses ::-webkit-scrollbar */
+* {
+  scrollbar-width: none;
+}
+
+/* IE/Edge */
+* {
+  -ms-overflow-style: none;
+}
+
+/* ============================================
+   TOUCH STATES
+   ============================================ */
+
+/* Active state for touch feedback */
+.nxt1-touchable:active,
+button:active,
+a:active,
+[role='button']:active {
+  opacity: 0.7;
+  transform: scale(0.98);
+}
+
+/* Pressed state styling */
+.nxt1-pressed {
+  background-color: var(--nxt1-state-pressed);
+}
+
+/* ============================================
+   IOS-SPECIFIC ADJUSTMENTS
+   ============================================ */
+
+/* Prevent zoom on input focus (must be 16px+) */
+input,
+textarea,
+select {
+  font-size: 16px;
+}
+
+/* iOS status bar handling */
+@supports (padding-top: env(safe-area-inset-top)) {
+  .nxt1-header {
+    padding-top: calc(var(--nxt1-safe-area-top) + var(--nxt1-spacing-2));
+  }
+}
+
+/* ============================================
+   ANDROID-SPECIFIC ADJUSTMENTS
+   ============================================ */
+
+/* Material ripple base (opt-in) */
+.nxt1-ripple {
+  position: relative;
+  overflow: hidden;
+}
+
+.nxt1-ripple::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, var(--nxt1-state-pressed) 10%, transparent 10.01%);
+  transform: scale(10);
+  opacity: 0;
+  transition:
+    transform 0.3s,
+    opacity 0.5s;
+}
+
+.nxt1-ripple:active::after {
+  transform: scale(0);
+  opacity: 0.3;
+  transition: 0s;
+}
+
+/* ============================================
+   REDUCED MOTION
+   ============================================ */
+
+/* Respect user's motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .nxt1-touchable:active {
+    transform: none;
+  }
+}
+
+/* ============================================
+   KEYBOARD HANDLING
+   ============================================ */
+
+/* Adjust layout when keyboard is visible */
+:root {
+  --nxt1-keyboard-height: 0px;
+}
+
+body.keyboard-open {
+  /* Reduce padding when keyboard is open */
+  --nxt1-content-padding-bottom: var(--nxt1-keyboard-height);
+}
+
+/* ============================================
+   HAPTIC FEEDBACK HINTS
+   ============================================ */
+
+/* Classes that suggest haptic feedback should be triggered */
+/* (Actual haptic implementation is in TypeScript/Native code) */
+.nxt1-haptic-light {
+  --nxt1-haptic: 'light';
+}
+
+.nxt1-haptic-medium {
+  --nxt1-haptic: 'medium';
+}
+
+.nxt1-haptic-heavy {
+  --nxt1-haptic: 'heavy';
+}
+
+.nxt1-haptic-success {
+  --nxt1-haptic: 'success';
+}
+
+.nxt1-haptic-warning {
+  --nxt1-haptic: 'warning';
+}
+
+.nxt1-haptic-error {
+  --nxt1-haptic: 'error';
+}
+
+/* ============================================
+   ORIENTATION HANDLING
+   ============================================ */
+
+/* Portrait mode adjustments */
+@media (orientation: portrait) {
+  :root {
+    --nxt1-header-height: 56px;
+  }
+}
+
+/* Landscape mode adjustments */
+@media (orientation: landscape) {
+  :root {
+    --nxt1-header-height: 48px;
+    --nxt1-tab-bar-height: 48px;
+  }
+
+  /* Adjust safe areas in landscape */
+  .nxt1-content {
+    padding-left: var(--nxt1-safe-area-left);
+    padding-right: var(--nxt1-safe-area-right);
+  }
+}
+
+/* ============================================
+   DARK MODE / APPEARANCE
+   ============================================ */
+
+/* iOS dark mode detection */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+  }
+}
+
+/* Status bar style hint */
+:root {
+  --nxt1-status-bar-style: light-content; /* light-content for dark theme */
+}
+
+[data-theme='light'] {
+  --nxt1-status-bar-style: dark-content;
+}

@@ -3,9 +3,8 @@
  * @module @nxt1/design-tokens/components/auth
  *
  * Platform-specific overrides for iOS, Android (Material), and web.
+ * Uses CSS custom properties (--nxt1-*) from generated tokens.css.
  */
-
-@use "../../tokens" as *;
 
 // ============================================
 // IOS PLATFORM ADJUSTMENTS

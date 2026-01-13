@@ -1,0 +1,26 @@
+/**
+ * @fileoverview NXT1 Combined Foundation
+ * @module @nxt1/design-tokens
+ *
+ * Single import for all foundation styles.
+ * This is the recommended entry point for apps.
+ *
+ * Includes:
+ * 1. CSS Reset/Normalize (foundation.css)
+ * 2. App Shell Structure (app-shell.css)  
+ * 3. Utility Classes (utilities.css)
+ *
+ * Usage:
+ *   @import '@nxt1/design-tokens/css/index.css';
+ *
+ * Order matters - these layers are designed to cascade properly.
+ */
+
+/* Layer 1: Reset & Normalize */
+@import './foundation.css';
+
+/* Layer 2: App Shell & Structure */
+@import './app-shell.css';
+
+/* Layer 3: Utility Classes */
+@import './utilities.css';

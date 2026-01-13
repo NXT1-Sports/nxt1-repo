@@ -1,0 +1,246 @@
+/**
+ * @fileoverview NXT1 Ionic Integration Layer
+ * @module @nxt1/design-tokens
+ *
+ * Optional layer for apps using Ionic Framework components.
+ * Maps NXT1 design tokens to Ionic CSS custom properties.
+ *
+ * IMPORTANT: This is OPTIONAL. The base token system works without Ionic.
+ * Only import this if you're using Ionic components (ion-button, ion-card, etc.)
+ *
+ * Usage:
+ *   // In apps/mobile/src/global.scss (ONLY if using Ionic)
+ *   @import '@nxt1/design-tokens/css/foundation';
+ *   @import '@nxt1/design-tokens/css/platform/mobile';
+ *   @import '@nxt1/design-tokens/css/platform/ionic-adapter';
+ *
+ * This adapter:
+ * - Maps --nxt1-* tokens to --ion-* properties
+ * - Provides Ionic theme colors
+ * - Configures Ionic component defaults
+ * - Does NOT import Ionic's core CSS (that's your app's responsibility)
+ */
+
+/* ============================================
+   IONIC COLOR SCHEME MAPPING
+   ============================================ */
+
+:root {
+  /* Color scheme hint for Ionic */
+  --ion-color-scheme: dark;
+
+  /* ========== IONIC PRIMARY ========== */
+  --ion-color-primary: var(--nxt1-color-primary, #ccff00);
+  --ion-color-primary-rgb: 204, 255, 0;
+  --ion-color-primary-contrast: var(--nxt1-color-text-on-primary, #000000);
+  --ion-color-primary-contrast-rgb: 0, 0, 0;
+  --ion-color-primary-shade: var(--nxt1-color-primary-dark, #a3cc00);
+  --ion-color-primary-tint: var(--nxt1-color-primary-light, #d4ff4d);
+
+  /* ========== IONIC SECONDARY ========== */
+  --ion-color-secondary: var(--nxt1-color-secondary, #e6d600);
+  --ion-color-secondary-rgb: 230, 214, 0;
+  --ion-color-secondary-contrast: #000000;
+  --ion-color-secondary-contrast-rgb: 0, 0, 0;
+  --ion-color-secondary-shade: var(--nxt1-color-secondary-dark, #ccbe00);
+  --ion-color-secondary-tint: var(--nxt1-color-secondary-light, #ffed00);
+
+  /* ========== IONIC TERTIARY ========== */
+  --ion-color-tertiary: var(--nxt1-color-accent, #56ff00);
+  --ion-color-tertiary-rgb: 86, 255, 0;
+  --ion-color-tertiary-contrast: #000000;
+  --ion-color-tertiary-contrast-rgb: 0, 0, 0;
+  --ion-color-tertiary-shade: #44cc00;
+  --ion-color-tertiary-tint: #7aff4d;
+
+  /* ========== IONIC SUCCESS ========== */
+  --ion-color-success: var(--nxt1-color-success, #22c55e);
+  --ion-color-success-rgb: 34, 197, 94;
+  --ion-color-success-contrast: #000000;
+  --ion-color-success-contrast-rgb: 0, 0, 0;
+  --ion-color-success-shade: #16a34a;
+  --ion-color-success-tint: #4ade80;
+
+  /* ========== IONIC WARNING ========== */
+  --ion-color-warning: var(--nxt1-color-warning, #f59e0b);
+  --ion-color-warning-rgb: 245, 158, 11;
+  --ion-color-warning-contrast: #000000;
+  --ion-color-warning-contrast-rgb: 0, 0, 0;
+  --ion-color-warning-shade: #d97706;
+  --ion-color-warning-tint: #fbbf24;
+
+  /* ========== IONIC DANGER ========== */
+  --ion-color-danger: var(--nxt1-color-error, #ef4444);
+  --ion-color-danger-rgb: 239, 68, 68;
+  --ion-color-danger-contrast: #ffffff;
+  --ion-color-danger-contrast-rgb: 255, 255, 255;
+  --ion-color-danger-shade: #dc2626;
+  --ion-color-danger-tint: #f87171;
+
+  /* ========== IONIC LIGHT ========== */
+  --ion-color-light: var(--nxt1-color-surface-300, #222222);
+  --ion-color-light-rgb: 34, 34, 34;
+  --ion-color-light-contrast: #ffffff;
+  --ion-color-light-contrast-rgb: 255, 255, 255;
+  --ion-color-light-shade: #1a1a1a;
+  --ion-color-light-tint: #2a2a2a;
+
+  /* ========== IONIC MEDIUM ========== */
+  --ion-color-medium: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+  --ion-color-medium-rgb: 128, 128, 128;
+  --ion-color-medium-contrast: #ffffff;
+  --ion-color-medium-contrast-rgb: 255, 255, 255;
+  --ion-color-medium-shade: #616161;
+  --ion-color-medium-tint: #9e9e9e;
+
+  /* ========== IONIC DARK ========== */
+  --ion-color-dark: var(--nxt1-color-text-primary, #ffffff);
+  --ion-color-dark-rgb: 255, 255, 255;
+  --ion-color-dark-contrast: #000000;
+  --ion-color-dark-contrast-rgb: 0, 0, 0;
+  --ion-color-dark-shade: #d4d4d4;
+  --ion-color-dark-tint: #ffffff;
+}
+
+/* ============================================
+   IONIC BACKGROUND & TEXT
+   ============================================ */
+
+:root {
+  /* Background colors */
+  --ion-background-color: var(--nxt1-color-background-primary, #0a0a0a);
+  --ion-background-color-rgb: 10, 10, 10;
+
+  /* Text colors */
+  --ion-text-color: var(--nxt1-color-text-primary, #ffffff);
+  --ion-text-color-rgb: 255, 255, 255;
+
+  /* Stepped background colors (Ionic's gray scale) */
+  --ion-color-step-50: var(--nxt1-color-surface-100, #161616);
+  --ion-color-step-100: var(--nxt1-color-surface-150, #1a1a1a);
+  --ion-color-step-150: var(--nxt1-color-surface-200, #1e1e1e);
+  --ion-color-step-200: var(--nxt1-color-surface-250, #222222);
+  --ion-color-step-250: var(--nxt1-color-surface-300, #2a2a2a);
+  --ion-color-step-300: var(--nxt1-color-surface-350, #333333);
+  --ion-color-step-350: #3d3d3d;
+  --ion-color-step-400: #474747;
+  --ion-color-step-450: #525252;
+  --ion-color-step-500: #5c5c5c;
+  --ion-color-step-550: #666666;
+  --ion-color-step-600: #707070;
+  --ion-color-step-650: #7a7a7a;
+  --ion-color-step-700: #858585;
+  --ion-color-step-750: #8f8f8f;
+  --ion-color-step-800: #999999;
+  --ion-color-step-850: #a3a3a3;
+  --ion-color-step-900: #adadad;
+  --ion-color-step-950: #b8b8b8;
+}
+
+/* ============================================
+   IONIC COMPONENT TOKENS
+   ============================================ */
+
+:root {
+  /* Card */
+  --ion-card-background: var(--nxt1-color-surface-200, #1a1a1a);
+
+  /* Item */
+  --ion-item-background: var(--nxt1-color-surface-100, #161616);
+  --ion-item-border-color: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+
+  /* Toolbar */
+  --ion-toolbar-background: var(--nxt1-color-background-secondary, #121212);
+  --ion-toolbar-color: var(--nxt1-color-text-primary, #ffffff);
+  --ion-toolbar-border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+
+  /* Tab bar */
+  --ion-tab-bar-background: var(--nxt1-color-background-secondary, #121212);
+  --ion-tab-bar-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+  --ion-tab-bar-color-selected: var(--nxt1-color-primary, #ccff00);
+
+  /* Segment */
+  --ion-segment-background: var(--nxt1-color-surface-200, #1a1a1a);
+
+  /* Safe areas (forward from NXT1 tokens) */
+  --ion-safe-area-top: var(--nxt1-safe-area-top, env(safe-area-inset-top, 0px));
+  --ion-safe-area-bottom: var(--nxt1-safe-area-bottom, env(safe-area-inset-bottom, 0px));
+  --ion-safe-area-left: var(--nxt1-safe-area-left, env(safe-area-inset-left, 0px));
+  --ion-safe-area-right: var(--nxt1-safe-area-right, env(safe-area-inset-right, 0px));
+
+  /* Modal */
+  --ion-backdrop-color: var(--nxt1-color-background-overlay, rgba(0, 0, 0, 0.8));
+  --ion-backdrop-opacity: 1;
+
+  /* Border radius */
+  --ion-border-radius: var(--nxt1-border-radius-md, 8px);
+}
+
+/* ============================================
+   IONIC PLATFORM OVERRIDES (iOS)
+   ============================================ */
+
+.ios {
+  --ion-default-font: var(
+    --nxt1-font-family-brand,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Helvetica Neue',
+    sans-serif
+  );
+
+  /* iOS-style headers */
+  --ion-toolbar-background: var(--nxt1-color-surface-glass, rgba(20, 20, 20, 0.8));
+
+  /* iOS modal styling */
+  --ion-modal-background: var(--nxt1-color-background-primary, #0a0a0a);
+}
+
+/* Translucent toolbar on iOS */
+.ios ion-toolbar {
+  --background: var(--nxt1-color-surface-glass, rgba(20, 20, 20, 0.8));
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+}
+
+/* ============================================
+   IONIC PLATFORM OVERRIDES (Android/Material)
+   ============================================ */
+
+.md {
+  --ion-default-font: var(--nxt1-font-family-brand, Roboto, 'Helvetica Neue', sans-serif);
+
+  /* Material-style elevation */
+  --ion-card-box-shadow: var(--nxt1-shadow-md, 0 4px 8px rgba(0, 0, 0, 0.3));
+
+  /* Ripple color */
+  --ion-ripple-color: var(--nxt1-color-primary, #ccff00);
+}
+
+/* ============================================
+   LIGHT THEME (Optional)
+   ============================================ */
+
+[data-theme='light'],
+.light-theme {
+  --ion-color-scheme: light;
+
+  /* Background */
+  --ion-background-color: var(--nxt1-color-background-primary, #ffffff);
+  --ion-background-color-rgb: 255, 255, 255;
+
+  /* Text */
+  --ion-text-color: var(--nxt1-color-text-primary, #212121);
+  --ion-text-color-rgb: 33, 33, 33;
+
+  /* Primary - adjust for light background */
+  --ion-color-primary: var(--nxt1-color-primary, #a3cc00);
+  --ion-color-primary-rgb: 163, 204, 0;
+  --ion-color-primary-contrast: #000000;
+
+  /* Components */
+  --ion-card-background: var(--nxt1-color-surface-100, #f5f5f5);
+  --ion-item-background: var(--nxt1-color-background-primary, #ffffff);
+  --ion-toolbar-background: var(--nxt1-color-background-primary, #ffffff);
+  --ion-tab-bar-background: var(--nxt1-color-background-primary, #ffffff);
+}

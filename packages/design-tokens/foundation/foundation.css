@@ -1,0 +1,555 @@
+/**
+ * @fileoverview NXT1 CSS Foundation
+ * @module @nxt1/design-tokens
+ *
+ * Enterprise-grade CSS reset and foundation layer.
+ * Framework-agnostic replacement for Ionic's normalize.css and structure.css.
+ *
+ * Based on:
+ * - modern-normalize (Nicolas Gallagher)
+ * - Tailwind Preflight
+ * - WHAT-WG HTML spec
+ *
+ * Features:
+ * - Cross-browser consistency
+ * - Mobile-first responsive design
+ * - Dark/light theme support
+ * - Safe area handling for notched devices
+ * - Smooth scrolling
+ * - Touch-optimized defaults
+ *
+ * Usage:
+ *   @import '@nxt1/design-tokens/css/foundation.css';
+ *   // OR in SCSS:
+ *   @use '@nxt1/design-tokens/scss/foundation';
+ */
+
+/* ============================================
+   1. BOX SIZING
+   ============================================ */
+
+/**
+ * Use border-box by default, globally.
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* ============================================
+   2. ROOT ELEMENT
+   ============================================ */
+
+/**
+ * 1. Prevent adjustments of font size after orientation changes in iOS.
+ * 2. Use a more readable tab size.
+ * 3. Use the user's configured `sans` font-family by default.
+ * 4. Use the user's configured `sans` font-feature-settings by default.
+ * 5. Use the user's configured `sans` font-variation-settings by default.
+ * 6. Disable tap highlights on iOS.
+ * 7. Enable smooth scrolling.
+ */
+html {
+  -webkit-text-size-adjust: 100%; /* 1 */
+  text-size-adjust: 100%; /* 1 */
+  -moz-tab-size: 4; /* 2 */
+  tab-size: 4; /* 2 */
+  font-family: var(--nxt1-font-family-brand, ui-sans-serif, system-ui, sans-serif); /* 3 */
+  font-feature-settings: normal; /* 4 */
+  font-variation-settings: normal; /* 5 */
+  -webkit-tap-highlight-color: transparent; /* 6 */
+  scroll-behavior: smooth; /* 7 */
+  line-height: 1.5;
+  height: 100%;
+}
+
+/**
+ * 1. Remove the margin in all browsers.
+ * 2. Inherit line-height from `html` so users can set them as a class directly on the `html` element.
+ * 3. Set minimum height to allow content to fill viewport.
+ */
+body {
+  margin: 0; /* 1 */
+  line-height: inherit; /* 2 */
+  min-height: 100%; /* 3 */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================
+   3. TYPOGRAPHY
+   ============================================ */
+
+/**
+ * 1. Remove the margin in all browsers.
+ * 2. Inherit font properties.
+ */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0; /* 1 */
+  font-size: inherit; /* 2 */
+  font-weight: inherit; /* 2 */
+}
+
+/**
+ * Reset default paragraph margin.
+ */
+p {
+  margin: 0;
+}
+
+/**
+ * Reset default list styles.
+ */
+ol,
+ul,
+menu {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/**
+ * Add the correct text decoration in Chrome, Edge, and Safari.
+ */
+abbr[title] {
+  text-decoration: underline dotted;
+}
+
+/**
+ * Add the correct font weight in Edge and Safari.
+ */
+b,
+strong {
+  font-weight: bolder;
+}
+
+/**
+ * 1. Use the user's configured `mono` font-family by default.
+ * 2. Use the user's configured `mono` font-feature-settings by default.
+ * 3. Use the user's configured `mono` font-variation-settings by default.
+ * 4. Correct the odd `em` font sizing in all browsers.
+ */
+code,
+kbd,
+samp,
+pre {
+  font-family: var(--nxt1-font-family-mono, ui-monospace, monospace); /* 1 */
+  font-feature-settings: normal; /* 2 */
+  font-variation-settings: normal; /* 3 */
+  font-size: 1em; /* 4 */
+}
+
+/**
+ * Add the correct font size in all browsers.
+ */
+small {
+  font-size: 80%;
+}
+
+/**
+ * Prevent `sub` and `sup` elements from affecting the line height in all browsers.
+ */
+sub,
+sup {
+  font-size: 75%;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+
+sub {
+  bottom: -0.25em;
+}
+
+sup {
+  top: -0.5em;
+}
+
+/* ============================================
+   4. LINKS
+   ============================================ */
+
+/**
+ * Reset links.
+ */
+a {
+  color: inherit;
+  text-decoration: inherit;
+}
+
+/* ============================================
+   5. IMAGES & MEDIA
+   ============================================ */
+
+/**
+ * 1. Make replaced elements `display: block` by default.
+ * 2. Add `vertical-align: middle` to align replaced elements more sensibly by default.
+ */
+img,
+svg,
+video,
+canvas,
+audio,
+iframe,
+embed,
+object {
+  display: block; /* 1 */
+}
+
+/**
+ * Constrain images and videos to the parent width and preserve their intrinsic aspect ratio.
+ */
+img,
+video {
+  max-width: 100%;
+  height: auto;
+}
+
+/* ============================================
+   6. TABLES
+   ============================================ */
+
+/**
+ * Correct table border color inheritance in all Chrome and Safari.
+ */
+table {
+  text-indent: 0;
+  border-color: inherit;
+  border-collapse: collapse;
+}
+
+/* ============================================
+   7. FORMS
+   ============================================ */
+
+/**
+ * 1. Change the font styles in all browsers.
+ * 2. Remove the margin in Firefox and Safari.
+ * 3. Remove default padding in all browsers.
+ */
+button,
+input,
+optgroup,
+select,
+textarea {
+  font-family: inherit; /* 1 */
+  font-feature-settings: inherit; /* 1 */
+  font-variation-settings: inherit; /* 1 */
+  font-size: 100%; /* 1 */
+  font-weight: inherit; /* 1 */
+  line-height: inherit; /* 1 */
+  letter-spacing: inherit; /* 1 */
+  color: inherit; /* 1 */
+  margin: 0; /* 2 */
+  padding: 0; /* 3 */
+}
+
+/**
+ * Remove the inheritance of text transform in Edge and Firefox.
+ */
+button,
+select {
+  text-transform: none;
+}
+
+/**
+ * 1. Correct the inability to style clickable types in iOS and Safari.
+ * 2. Remove default button styles.
+ */
+button,
+input[type='button'],
+input[type='reset'],
+input[type='submit'] {
+  -webkit-appearance: button; /* 1 */
+  appearance: button; /* 1 */
+  background-color: transparent; /* 2 */
+  background-image: none; /* 2 */
+}
+
+/**
+ * Use the modern Firefox focus style for all focusable elements.
+ */
+:-moz-focusring {
+  outline: auto;
+}
+
+/**
+ * Remove the additional `:invalid` styles in Firefox.
+ */
+:-moz-ui-invalid {
+  box-shadow: none;
+}
+
+/**
+ * Correct the cursor style of increment and decrement buttons in Safari.
+ */
+::-webkit-inner-spin-button,
+::-webkit-outer-spin-button {
+  height: auto;
+}
+
+/**
+ * 1. Correct the odd appearance in Chrome and Safari.
+ * 2. Correct the outline style in Safari.
+ */
+[type='search'] {
+  -webkit-appearance: textfield; /* 1 */
+  appearance: textfield; /* 1 */
+  outline-offset: -2px; /* 2 */
+}
+
+/**
+ * Remove the inner padding in Chrome and Safari on macOS.
+ */
+::-webkit-search-decoration {
+  -webkit-appearance: none;
+}
+
+/**
+ * 1. Correct the inability to style clickable types in iOS and Safari.
+ * 2. Change font properties to `inherit` in Safari.
+ */
+::-webkit-file-upload-button {
+  -webkit-appearance: button; /* 1 */
+  font: inherit; /* 2 */
+}
+
+/**
+ * Add the correct vertical alignment in Chrome and Firefox.
+ */
+progress {
+  vertical-align: baseline;
+}
+
+/**
+ * Prevent textarea from being resized horizontally by default.
+ */
+textarea {
+  resize: vertical;
+}
+
+/**
+ * Prevent zoom on input focus in iOS.
+ */
+input,
+textarea,
+select {
+  font-size: 16px;
+}
+
+/**
+ * Reset placeholder opacity.
+ */
+::placeholder {
+  opacity: 1;
+  color: var(--nxt1-color-text-tertiary, #9ca3af);
+}
+
+/**
+ * Set the default cursor for disabled buttons.
+ */
+:disabled {
+  cursor: default;
+}
+
+/* ============================================
+   8. HR
+   ============================================ */
+
+/**
+ * 1. Add the correct height in Firefox.
+ * 2. Correct the inheritance of border color in Firefox.
+ * 3. Ensure horizontal rules are visible by default.
+ */
+hr {
+  height: 0; /* 1 */
+  color: inherit; /* 2 */
+  border-top-width: 1px; /* 3 */
+}
+
+/* ============================================
+   9. DIALOG
+   ============================================ */
+
+/**
+ * Prevent `dialog` from overflowing the viewport.
+ */
+dialog {
+  padding: 0;
+}
+
+/**
+ * Remove default dialog backdrop.
+ */
+dialog::backdrop {
+  background-color: var(--nxt1-color-background-overlay, rgba(0, 0, 0, 0.8));
+}
+
+/* ============================================
+   10. HIDDEN & DISABLED
+   ============================================ */
+
+/**
+ * Ensure hidden attribute works.
+ */
+[hidden] {
+  display: none !important;
+}
+
+/* ============================================
+   11. SELECTION
+   ============================================ */
+
+/**
+ * Custom selection colors using brand primary.
+ */
+::selection {
+  background-color: var(--nxt1-color-alpha-primary30, rgba(204, 255, 0, 0.3));
+  color: var(--nxt1-color-text-primary, #ffffff);
+}
+
+/* ============================================
+   12. SCROLLBAR
+   ============================================ */
+
+/**
+ * Custom scrollbar for webkit browsers.
+ * Hidden on mobile, visible on desktop.
+ */
+@media (min-width: 768px) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--nxt1-color-surface-500, #333333);
+    border-radius: var(--nxt1-border-radius-sm, 4px);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--nxt1-color-surface-400, #2a2a2a);
+  }
+}
+
+/* Hide scrollbar on mobile */
+@media (max-width: 767px) {
+  * {
+    -ms-overflow-style: none;
+    scrollbar-width: none; /* Firefox only - progressive enhancement */
+  }
+
+  *::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ============================================
+   13. SAFE AREAS
+   ============================================ */
+
+/**
+ * CSS custom properties for safe area insets.
+ * Used by layout components for notched device support.
+ */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+}
+
+/* ============================================
+   14. REDUCED MOTION
+   ============================================ */
+
+/**
+ * Respect user's motion preferences.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================
+   15. FOCUS STYLES
+   ============================================ */
+
+/**
+ * Focus visible styles for accessibility.
+ * Uses brand primary color for focus rings.
+ */
+:focus-visible {
+  outline: 2px solid var(--nxt1-color-primary, #ccff00);
+  outline-offset: 2px;
+}
+
+/**
+ * Remove focus outline for mouse users.
+ */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ============================================
+   16. PRINT STYLES
+   ============================================ */
+
+@media print {
+  *,
+  *::before,
+  *::after {
+    background: transparent !important;
+    color: #000 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  a,
+  a:visited {
+    text-decoration: underline;
+  }
+
+  pre {
+    white-space: pre-wrap !important;
+  }
+
+  pre,
+  blockquote {
+    border: 1px solid #999;
+    page-break-inside: avoid;
+  }
+
+  img {
+    page-break-inside: avoid;
+  }
+
+  /* orphans/widows: Chromium & Safari only - graceful degradation in Firefox */
+  p,
+  h2,
+  h3 {
+    orphans: 3;
+    widows: 3;
+  }
+
+  h2,
+  h3 {
+    page-break-after: avoid;
+  }
+}

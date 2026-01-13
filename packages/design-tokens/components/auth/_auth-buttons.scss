@@ -4,9 +4,8 @@
  *
  * Social login buttons and primary action buttons.
  * Matches the NXT1 V2 design language.
+ * Uses CSS custom properties (--nxt1-*) from generated tokens.css.
  */
-
-@use "../../tokens" as *;
 
 // ============================================
 // SOCIAL BUTTONS CONTAINER

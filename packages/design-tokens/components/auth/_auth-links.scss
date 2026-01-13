@@ -3,9 +3,8 @@
  * @module @nxt1/design-tokens/components/auth
  *
  * Text links for forgot password, create account, etc.
+ * Uses CSS custom properties (--nxt1-*) from generated tokens.css.
  */
-
-@use "../../tokens" as *;
 
 // ============================================
 // PRIMARY LINK (Create Account, etc.)

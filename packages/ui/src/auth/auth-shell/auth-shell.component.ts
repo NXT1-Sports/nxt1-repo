@@ -94,35 +94,33 @@ export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
     }
 
     <ion-content
-      [class]="'bg-transparent min-h-screen h-screen flex flex-col ' + this.getVariantClass()"
+      [class]="'flex h-screen min-h-screen flex-col bg-transparent ' + this.getVariantClass()"
       [fullscreen]="!showBackButton"
     >
       <!-- Background Effects -->
-      <div class="fixed inset-0 z-0 pointer-events-none overflow-hidden" aria-hidden="true">
+      <div class="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
         <!-- Gradient Background -->
         <div
-          class="absolute inset-0 bg-gradient-to-b from-bg-primary to-black opacity-100"
+          class="from-bg-primary absolute inset-0 bg-gradient-to-b to-black opacity-100"
           [style.backgroundImage]="
             'radial-gradient(ellipse 80% 50% at 50% -20%, rgba(204, 255, 0, 0.1) 0%, transparent 50%), radial-gradient(ellipse 60% 40% at 100% 100%, rgba(204, 255, 0, 0.06) 0%, transparent 40%)'
           "
         ></div>
         <!-- Glow Effect -->
         <div
-          class="absolute top-[-200px] left-1/2 w-[600px] h-[600px] 
-          -translate-x-1/2 bg-glow blur-[60px] opacity-60 animate-pulse-glow
-          md:w-[800px] md:h-[800px] md:top-[-300px]"
+          class="bg-glow animate-pulse-glow absolute top-[-200px] left-1/2 h-[600px] w-[600px] -translate-x-1/2 opacity-60 blur-[60px] md:top-[-300px] md:h-[800px] md:w-[800px]"
         ></div>
       </div>
 
       <!-- Main Wrapper -->
       <div
-        class="relative z-10 flex-1 flex flex-col items-center justify-center w-full px-4 py-6 md:py-10"
+        class="relative z-10 flex w-full flex-1 flex-col items-center justify-center px-4 py-6 md:py-10"
         [style.maxWidth]="maxWidth"
         [ngClass]="{ 'md:px-6': true, 'mx-auto': true }"
       >
         <!-- Logo -->
         @if (showLogo) {
-          <div class="flex justify-center mb-8 md:mb-10">
+          <div class="mb-8 flex justify-center md:mb-10">
             <picture>
               <source srcset="assets/shared/logo/logo.avif" type="image/avif" />
               <img
@@ -137,24 +135,23 @@ export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
         }
 
         <!-- Title & Subtitle Slot -->
-        <div class="text-center mb-6 w-full">
+        <div class="mb-6 w-full text-center">
           <ng-content select="[authTitle]"></ng-content>
           <ng-content select="[authSubtitle]"></ng-content>
         </div>
 
-        <!-- Main Content Area (Card or Flat) -->
-        @if (variant === 'card') {
-          <div class="w-full bg-surface-100 border border-border-subtle rounded-2xl p-6 md:p-8">
-            <ng-content></ng-content>
-          </div>
-        } @else {
-          <div class="w-full">
-            <ng-content></ng-content>
-          </div>
-        }
+        <!-- Main Content Area - Single ng-content with conditional styling -->
+        <div
+          class="w-full"
+          [ngClass]="{
+            'bg-surface-100 border-border-subtle rounded-2xl border p-6 md:p-8': variant === 'card',
+          }"
+        >
+          <ng-content></ng-content>
+        </div>
 
         <!-- Footer Links -->
-        <div class="mt-6 text-center w-full">
+        <div class="mt-6 w-full text-center">
           <ng-content select="[authFooter]"></ng-content>
         </div>
       </div>

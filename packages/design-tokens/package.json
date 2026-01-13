@@ -1,29 +1,71 @@
 {
   "name": "@nxt1/design-tokens",
-  "version": "1.0.0",
-  "description": "NXT1 Design Token System - Ionic-based design tokens for cross-platform consistency",
-  "main": "index.scss",
-  "types": "assets/index.ts",
+  "version": "3.0.0",
+  "description": "NXT1 Enterprise Design Token System - JSON source of truth, generated outputs",
+  "type": "module",
+  "main": "dist/js/tokens.mjs",
+  "module": "dist/js/tokens.mjs",
+  "types": "dist/js/tokens.d.ts",
+  "style": "dist/css/tokens.css",
+  "sass": "dist/scss/_tokens.scss",
   "exports": {
-    ".": "./index.scss",
-    "./tokens": "./tokens/index.scss",
-    "./components": "./components/_index.scss",
+    ".": {
+      "import": "./dist/js/tokens.mjs",
+      "require": "./dist/js/tokens.mjs",
+      "types": "./dist/js/tokens.d.ts",
+      "style": "./dist/css/tokens.css"
+    },
+    "./css": "./dist/css/tokens.css",
+    "./css/tokens": "./dist/css/tokens.css",
+    "./css/themes/dark": "./dist/css/themes/dark.css",
+    "./css/themes/light": "./dist/css/themes/light.css",
+    "./scss": "./dist/scss/_tokens.scss",
+    "./js": {
+      "import": "./dist/js/tokens.mjs",
+      "types": "./dist/js/tokens.d.ts"
+    },
+    "./json": "./dist/json/resolved.json",
+    "./tokens.json/*": "./tokens.json/*",
+    "./foundation": "./foundation/index.css",
+    "./foundation/reset": "./foundation/foundation.css",
+    "./foundation/app-shell": "./foundation/app-shell.css",
+    "./foundation/utilities": "./foundation/utilities.css",
+    "./platform/web": "./platform/web.css",
+    "./platform/mobile": "./platform/mobile.css",
+    "./platform/ionic": "./platform/ionic-adapter.css",
+    "./components/*": "./components/*/_index.scss",
+    "./ionic": "./ionic/_index.scss",
     "./assets": "./assets/index.ts"
   },
   "files": [
-    "tokens",
+    "dist",
+    "foundation",
+    "platform",
+    "tokens.json",
     "components",
+    "ionic",
     "assets",
-    "index.scss"
+    "build.mjs"
   ],
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
+  },
   "keywords": [
     "design-tokens",
-    "ionic",
+    "dtcg",
+    "css-custom-properties",
     "scss",
     "theme",
-    "assets"
+    "cross-platform",
+    "framework-agnostic"
   ],
   "publishConfig": {
     "access": "restricted"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

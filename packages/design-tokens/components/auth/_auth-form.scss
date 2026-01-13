@@ -3,9 +3,8 @@
  * @module @nxt1/design-tokens/components/auth
  *
  * Form inputs, labels, and validation states.
+ * Uses CSS custom properties (--nxt1-*) from generated tokens.css.
  */
-
-@use "../../tokens" as *;
 
 // ============================================
 // FORM CONTAINER

@@ -15,7 +15,8 @@
 
 // Design tokens foundation (colors, typography, spacing, etc.)
 // This import brings in all --nxt1-* CSS custom properties
-@use "../../../../packages/design-tokens/tokens" as *;
+// Using @nxt1/design-tokens/scss which forwards all token partials
+@use "@nxt1/design-tokens/scss" as *;
 
 /**
  * Dark Theme (Default) - NXT1 Brand

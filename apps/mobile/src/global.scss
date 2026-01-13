@@ -2,51 +2,94 @@
  * @fileoverview Global Styles - NXT1 Mobile Application
  * @module @nxt1/mobile
  *
- * Architecture:
+ * Architecture (Design Token System v3.0):
  * ┌──────────────────────────────────────────┐
  * │  Tailwind CSS (utility-first)            │
  * ├──────────────────────────────────────────┤
- * │  @nxt1/design-tokens (foundation)        │
- * │  - Colors, Typography, Spacing, etc.     │
- * │  - Light/Dark theme support              │
+ * │  @nxt1/design-tokens v3.0 (JSON source)  │
+ * │  ├── Generated CSS tokens               │
+ * │  ├── Foundation (reset, app-shell)       │
+ * │  ├── Platform/Mobile (touch, safe-area)  │
+ * │  └── Platform/Ionic (token → Ionic vars) │
  * ├──────────────────────────────────────────┤
- * │  Ionic Core CSS (platform layer)         │
+ * │  Ionic Component CSS (visual only)       │
  * ├──────────────────────────────────────────┤
- * │  Auth Component Styles (shared)          │
+ * │  Component Styles (auth, etc.)           │
  * └──────────────────────────────────────────┘
  *
- * Theme Usage:
- * - Dark (default): Ionic's default for mobile
- * - Light: Can be toggled via [data-theme="light"]
+ * Token Flow:
+ *   tokens.json → build.mjs → dist/css, dist/scss, dist/js
  *
- * Uses modern @use syntax for Dart Sass 3.0+ compatibility.
+ * Theme Usage:
+ * - Dark (default): :root or [data-theme="dark"]
+ * - Light: [data-theme="light"]
  */
 
-/* NXT1 Design Tokens - MUST come first to set CSS custom properties */
-@use "../../../packages/design-tokens/tokens" as *;
-@use "../../../packages/design-tokens/components/auth" as *;
+/* ============================================
+   LAYER 0: SCSS MODULES (@use must come first)
+   Generated SCSS variables from tokens.json
+   ============================================ */
+@use "@nxt1/design-tokens/scss" as tokens;
+@use "@nxt1/design-tokens/components/auth" as *;
 
-/* Tailwind CSS directives */
+/* ============================================
+   LAYER 1: DESIGN TOKENS - Generated CSS
+   All CSS custom properties from tokens.json
+   ============================================ */
+@import "@nxt1/design-tokens/css";
+
+/* ============================================
+   LAYER 2: FOUNDATION - Reset & App Shell
+   Framework-agnostic reset, structure, utilities
+   ============================================ */
+@import "@nxt1/design-tokens/foundation/reset";
+@import "@nxt1/design-tokens/foundation/app-shell";
+@import "@nxt1/design-tokens/foundation/utilities";
+
+/* ============================================
+   LAYER 3: PLATFORM ADAPTATION - Mobile
+   Touch optimization, safe areas, native feel
+   ============================================ */
+@import "@nxt1/design-tokens/platform/mobile";
+
+/* ============================================
+   LAYER 4: IONIC ADAPTER
+   Maps NXT1 tokens → Ionic CSS custom properties
+   ============================================ */
+@import "@nxt1/design-tokens/platform/ionic";
+
+/* ============================================
+   LAYER 5: TAILWIND CSS
+   Utility-first CSS framework
+   ============================================ */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Ionic Core CSS */
+/* ============================================
+   LAYER 6: IONIC COMPONENT CSS
+   Only import the Ionic visual styles you need
+   (Structural CSS is now handled by foundation layer)
+   ============================================ */
+
+/* Core Ionic component styling (required for ion-* components) */
 @import "@ionic/angular/css/core.css";
-@import "@ionic/angular/css/normalize.css";
-@import "@ionic/angular/css/structure.css";
+
+/* OPTIONAL: Only import if using these specific features */
+/* @import "@ionic/angular/css/normalize.css"; -- Replaced by foundation.css */
+/* @import "@ionic/angular/css/structure.css"; -- Replaced by foundation.css */
 @import "@ionic/angular/css/typography.css";
 @import "@ionic/angular/css/display.css";
 
-/* Ionic Utility Classes */
-@import "@ionic/angular/css/padding.css";
-@import "@ionic/angular/css/float-elements.css";
-@import "@ionic/angular/css/text-alignment.css";
-@import "@ionic/angular/css/text-transformation.css";
-@import "@ionic/angular/css/flex-utils.css";
+/* Ionic Utility Classes - OPTIONAL, Tailwind provides alternatives */
+/* @import "@ionic/angular/css/padding.css"; -- Use Tailwind: p-*, px-*, py-* */
+/* @import "@ionic/angular/css/float-elements.css"; -- Use Tailwind: float-* */
+/* @import "@ionic/angular/css/text-alignment.css"; -- Use Tailwind: text-* */
+/* @import "@ionic/angular/css/text-transformation.css"; -- Use Tailwind: uppercase, lowercase */
+/* @import "@ionic/angular/css/flex-utils.css"; -- Use Tailwind: flex-*, items-*, justify-* */
 
 /* ============================================
-   GLOBAL STYLES
+   GLOBAL OVERRIDES & CUSTOMIZATIONS
    ============================================ */
 * {
   box-sizing: border-box;

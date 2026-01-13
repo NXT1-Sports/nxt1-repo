@@ -2,27 +2,51 @@
  * @fileoverview NXT1 Shared Tailwind CSS Preset
  * @module @nxt1/config/tailwind
  *
- * Enterprise-grade Tailwind preset for consistent styling across
- * web, mobile, and shared packages in the NXT1 monorepo.
+ * Enterprise-grade Tailwind preset consuming design tokens from @nxt1/design-tokens.
+ * Provides consistent styling across web, mobile, and shared packages.
  *
- * Features:
- * - Unified design tokens via CSS custom properties
- * - Fallback values for all tokens (works without design-tokens loaded)
- * - Cross-platform color system (dark-mode first)
- * - Semantic naming conventions
- * - Animation utilities
- * - Z-index layering system
+ * Architecture:
+ * - Consumes design tokens from @nxt1/design-tokens (generated from JSON source)
+ * - All values reference CSS custom properties with fallbacks
+ * - Dark-mode first (matches NXT1 brand aesthetic)
+ * - Framework-agnostic (works with Angular, React, vanilla)
+ *
+ * Token Cascade:
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │  tokens.json → build.mjs → dist/js/tokens.mjs              │
+ * │                    ↓                                        │
+ * │  Tailwind Config → References CSS vars with fallbacks      │
+ * └─────────────────────────────────────────────────────────────┘
  *
  * Usage:
  * ```js
- * // apps/web/tailwind.config.js or apps/mobile/tailwind.config.js
+ * // apps/web/tailwind.config.js
  * module.exports = {
  *   presets: [require('@nxt1/config/tailwind')],
  *   content: ['./src/** /*.{html,ts}'],
- *   // App-specific overrides...
  * }
  * ```
  */
+
+// Import design tokens (generated from tokens.json)
+let tokens;
+try {
+  // ESM dynamic import for generated tokens
+  tokens = require('@nxt1/design-tokens');
+} catch {
+  // Fallback for environments that can't resolve the package
+  tokens = {};
+}
+
+const {
+  colors = {},
+  spacing = {},
+  typography = {},
+  borderRadius = {},
+  boxShadow = {},
+  motion = {},
+  zIndex = {},
+} = tokens;
 
 /** @type {import('tailwindcss').Config} */
 module.exports = {
@@ -31,10 +55,11 @@ module.exports = {
     extend: {
       // ============================================
       // COLORS
+      // Using imported tokens with fallback structure
       // ============================================
       colors: {
         // Primary brand colors - Volt Green (#ccff00)
-        primary: {
+        primary: colors.primary || {
           50: 'var(--nxt1-color-primary-50, #f4ffe0)',
           100: 'var(--nxt1-color-primary-100, #e8ffb3)',
           200: 'var(--nxt1-color-primary-200, #dcff80)',
@@ -49,7 +74,7 @@ module.exports = {
         },
 
         // Secondary colors - Gold (#ffed00)
-        secondary: {
+        secondary: colors.secondary || {
           50: 'var(--nxt1-color-secondary-50, #fffde0)',
           100: 'var(--nxt1-color-secondary-100, #fff9b3)',
           200: 'var(--nxt1-color-secondary-200, #fff580)',

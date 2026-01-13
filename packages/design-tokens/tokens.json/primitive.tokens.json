@@ -1,0 +1,319 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$description": "NXT1 Primitive Design Tokens - Raw values, the foundation of the design system",
+
+  "color": {
+    "$description": "Primitive color palette - raw hex values",
+
+    "brand": {
+      "$description": "NXT1 Brand Colors - Neon Green primary",
+      "volt": {
+        "50": { "$value": "#f4ffe0", "$type": "color" },
+        "100": { "$value": "#e8ffb3", "$type": "color" },
+        "200": { "$value": "#dcff80", "$type": "color" },
+        "300": { "$value": "#d4ff4d", "$type": "color" },
+        "400": {
+          "$value": "#ccff00",
+          "$type": "color",
+          "$description": "Primary brand color"
+        },
+        "500": { "$value": "#b8e600", "$type": "color" },
+        "600": { "$value": "#a3cc00", "$type": "color" },
+        "700": { "$value": "#8fb300", "$type": "color" },
+        "800": { "$value": "#7a9900", "$type": "color" },
+        "900": { "$value": "#668000", "$type": "color" }
+      },
+      "gold": {
+        "50": { "$value": "#fffde0", "$type": "color" },
+        "100": { "$value": "#fff9b3", "$type": "color" },
+        "200": { "$value": "#fff580", "$type": "color" },
+        "300": { "$value": "#fff14d", "$type": "color" },
+        "400": { "$value": "#ffed00", "$type": "color" },
+        "500": { "$value": "#e6d600", "$type": "color" },
+        "600": { "$value": "#ccbe00", "$type": "color" },
+        "700": { "$value": "#b3a600", "$type": "color" },
+        "800": { "$value": "#998f00", "$type": "color" },
+        "900": { "$value": "#807700", "$type": "color" }
+      },
+      "lime": {
+        "50": { "$value": "#e6ffe0", "$type": "color" },
+        "100": { "$value": "#c2ffb3", "$type": "color" },
+        "200": { "$value": "#9eff80", "$type": "color" },
+        "300": { "$value": "#7aff4d", "$type": "color" },
+        "400": { "$value": "#56ff00", "$type": "color" },
+        "500": { "$value": "#4de600", "$type": "color" },
+        "600": { "$value": "#44cc00", "$type": "color" },
+        "700": { "$value": "#3bb300", "$type": "color" },
+        "800": { "$value": "#329900", "$type": "color" },
+        "900": { "$value": "#298000", "$type": "color" }
+      }
+    },
+
+    "neutral": {
+      "$description": "Neutral scale for backgrounds, surfaces, and text",
+      "dark": {
+        "0": { "$value": "#000000", "$type": "color" },
+        "50": { "$value": "#0a0a0a", "$type": "color" },
+        "100": { "$value": "#121212", "$type": "color" },
+        "150": { "$value": "#161616", "$type": "color" },
+        "200": { "$value": "#1a1a1a", "$type": "color" },
+        "250": { "$value": "#1e1e1e", "$type": "color" },
+        "300": { "$value": "#222222", "$type": "color" },
+        "350": { "$value": "#2a2a2a", "$type": "color" },
+        "400": { "$value": "#333333", "$type": "color" },
+        "500": { "$value": "#525252", "$type": "color" },
+        "600": { "$value": "#737373", "$type": "color" },
+        "700": { "$value": "#a3a3a3", "$type": "color" },
+        "800": { "$value": "#d4d4d4", "$type": "color" },
+        "900": { "$value": "#e5e5e5", "$type": "color" },
+        "950": { "$value": "#f5f5f5", "$type": "color" },
+        "1000": { "$value": "#ffffff", "$type": "color" }
+      },
+      "light": {
+        "0": { "$value": "#ffffff", "$type": "color" },
+        "50": { "$value": "#fafafa", "$type": "color" },
+        "100": { "$value": "#f5f5f5", "$type": "color" },
+        "150": { "$value": "#f0f0f0", "$type": "color" },
+        "200": { "$value": "#eeeeee", "$type": "color" },
+        "250": { "$value": "#e8e8e8", "$type": "color" },
+        "300": { "$value": "#e0e0e0", "$type": "color" },
+        "350": { "$value": "#d0d0d0", "$type": "color" },
+        "400": { "$value": "#bdbdbd", "$type": "color" },
+        "500": { "$value": "#9e9e9e", "$type": "color" },
+        "600": { "$value": "#757575", "$type": "color" },
+        "700": { "$value": "#616161", "$type": "color" },
+        "800": { "$value": "#424242", "$type": "color" },
+        "900": { "$value": "#212121", "$type": "color" },
+        "950": { "$value": "#121212", "$type": "color" },
+        "1000": { "$value": "#000000", "$type": "color" }
+      }
+    },
+
+    "semantic": {
+      "$description": "Semantic colors for feedback and status",
+      "success": {
+        "50": { "$value": "#f0fdf4", "$type": "color" },
+        "100": { "$value": "#dcfce7", "$type": "color" },
+        "200": { "$value": "#bbf7d0", "$type": "color" },
+        "300": { "$value": "#86efac", "$type": "color" },
+        "400": { "$value": "#4ade80", "$type": "color" },
+        "500": { "$value": "#22c55e", "$type": "color" },
+        "600": { "$value": "#16a34a", "$type": "color" },
+        "700": { "$value": "#15803d", "$type": "color" }
+      },
+      "warning": {
+        "50": { "$value": "#fffbeb", "$type": "color" },
+        "100": { "$value": "#fef3c7", "$type": "color" },
+        "200": { "$value": "#fde68a", "$type": "color" },
+        "300": { "$value": "#fcd34d", "$type": "color" },
+        "400": { "$value": "#fbbf24", "$type": "color" },
+        "500": { "$value": "#f59e0b", "$type": "color" },
+        "600": { "$value": "#d97706", "$type": "color" },
+        "700": { "$value": "#b45309", "$type": "color" }
+      },
+      "error": {
+        "50": { "$value": "#fef2f2", "$type": "color" },
+        "100": { "$value": "#fee2e2", "$type": "color" },
+        "200": { "$value": "#fecaca", "$type": "color" },
+        "300": { "$value": "#fca5a5", "$type": "color" },
+        "400": { "$value": "#f87171", "$type": "color" },
+        "500": { "$value": "#ef4444", "$type": "color" },
+        "600": { "$value": "#dc2626", "$type": "color" },
+        "700": { "$value": "#b91c1c", "$type": "color" }
+      },
+      "info": {
+        "50": { "$value": "#eff6ff", "$type": "color" },
+        "100": { "$value": "#dbeafe", "$type": "color" },
+        "200": { "$value": "#bfdbfe", "$type": "color" },
+        "300": { "$value": "#93c5fd", "$type": "color" },
+        "400": { "$value": "#60a5fa", "$type": "color" },
+        "500": { "$value": "#3b82f6", "$type": "color" },
+        "600": { "$value": "#2563eb", "$type": "color" },
+        "700": { "$value": "#1d4ed8", "$type": "color" }
+      }
+    },
+
+    "sport": {
+      "$description": "Sport-specific accent colors",
+      "football": { "$value": "#8b4513", "$type": "color" },
+      "basketball": { "$value": "#ff6b00", "$type": "color" },
+      "baseball": { "$value": "#c41e3a", "$type": "color" },
+      "soccer": { "$value": "#228b22", "$type": "color" },
+      "volleyball": { "$value": "#ffd700", "$type": "color" },
+      "lacrosse": { "$value": "#4169e1", "$type": "color" },
+      "hockey": { "$value": "#1e90ff", "$type": "color" },
+      "tennis": { "$value": "#9acd32", "$type": "color" },
+      "golf": { "$value": "#006400", "$type": "color" },
+      "swimming": { "$value": "#00ced1", "$type": "color" },
+      "track": { "$value": "#ff4500", "$type": "color" },
+      "wrestling": { "$value": "#8b0000", "$type": "color" },
+      "softball": { "$value": "#ffb347", "$type": "color" }
+    }
+  },
+
+  "spacing": {
+    "$description": "Spacing scale based on 4px unit (0.25rem)",
+    "0": { "$value": "0", "$type": "dimension" },
+    "px": { "$value": "1px", "$type": "dimension" },
+    "0.5": { "$value": "0.125rem", "$type": "dimension" },
+    "1": { "$value": "0.25rem", "$type": "dimension" },
+    "1.5": { "$value": "0.375rem", "$type": "dimension" },
+    "2": { "$value": "0.5rem", "$type": "dimension" },
+    "2.5": { "$value": "0.625rem", "$type": "dimension" },
+    "3": { "$value": "0.75rem", "$type": "dimension" },
+    "3.5": { "$value": "0.875rem", "$type": "dimension" },
+    "4": { "$value": "1rem", "$type": "dimension" },
+    "5": { "$value": "1.25rem", "$type": "dimension" },
+    "6": { "$value": "1.5rem", "$type": "dimension" },
+    "7": { "$value": "1.75rem", "$type": "dimension" },
+    "8": { "$value": "2rem", "$type": "dimension" },
+    "9": { "$value": "2.25rem", "$type": "dimension" },
+    "10": { "$value": "2.5rem", "$type": "dimension" },
+    "11": { "$value": "2.75rem", "$type": "dimension" },
+    "12": { "$value": "3rem", "$type": "dimension" },
+    "14": { "$value": "3.5rem", "$type": "dimension" },
+    "16": { "$value": "4rem", "$type": "dimension" },
+    "20": { "$value": "5rem", "$type": "dimension" },
+    "24": { "$value": "6rem", "$type": "dimension" },
+    "28": { "$value": "7rem", "$type": "dimension" },
+    "32": { "$value": "8rem", "$type": "dimension" },
+    "36": { "$value": "9rem", "$type": "dimension" },
+    "40": { "$value": "10rem", "$type": "dimension" },
+    "44": { "$value": "11rem", "$type": "dimension" },
+    "48": { "$value": "12rem", "$type": "dimension" },
+    "52": { "$value": "13rem", "$type": "dimension" },
+    "56": { "$value": "14rem", "$type": "dimension" },
+    "60": { "$value": "15rem", "$type": "dimension" },
+    "64": { "$value": "16rem", "$type": "dimension" },
+    "72": { "$value": "18rem", "$type": "dimension" },
+    "80": { "$value": "20rem", "$type": "dimension" },
+    "96": { "$value": "24rem", "$type": "dimension" }
+  },
+
+  "borderRadius": {
+    "$description": "Border radius scale",
+    "none": { "$value": "0", "$type": "dimension" },
+    "xs": { "$value": "0.125rem", "$type": "dimension" },
+    "sm": { "$value": "0.25rem", "$type": "dimension" },
+    "md": { "$value": "0.5rem", "$type": "dimension" },
+    "lg": { "$value": "0.75rem", "$type": "dimension" },
+    "xl": { "$value": "1rem", "$type": "dimension" },
+    "2xl": { "$value": "1.5rem", "$type": "dimension" },
+    "3xl": { "$value": "2rem", "$type": "dimension" },
+    "full": { "$value": "9999px", "$type": "dimension" }
+  },
+
+  "fontFamily": {
+    "$description": "Font family stacks",
+    "brand": {
+      "$value": "Rajdhani, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      "$type": "fontFamily"
+    },
+    "display": { "$value": "Rajdhani, sans-serif", "$type": "fontFamily" },
+    "system": {
+      "$value": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif",
+      "$type": "fontFamily"
+    },
+    "mono": {
+      "$value": "JetBrains Mono, Fira Code, SF Mono, Roboto Mono, Consolas, monospace",
+      "$type": "fontFamily"
+    }
+  },
+
+  "fontSize": {
+    "$description": "Font size scale (modular scale 1.125)",
+    "2xs": { "$value": "0.625rem", "$type": "dimension" },
+    "xs": { "$value": "0.75rem", "$type": "dimension" },
+    "sm": { "$value": "0.875rem", "$type": "dimension" },
+    "base": { "$value": "1rem", "$type": "dimension" },
+    "md": { "$value": "1.125rem", "$type": "dimension" },
+    "lg": { "$value": "1.25rem", "$type": "dimension" },
+    "xl": { "$value": "1.5rem", "$type": "dimension" },
+    "2xl": { "$value": "1.875rem", "$type": "dimension" },
+    "3xl": { "$value": "2.25rem", "$type": "dimension" },
+    "4xl": { "$value": "3rem", "$type": "dimension" },
+    "5xl": { "$value": "3.75rem", "$type": "dimension" },
+    "6xl": { "$value": "4.5rem", "$type": "dimension" }
+  },
+
+  "fontWeight": {
+    "$description": "Font weight scale",
+    "light": { "$value": "300", "$type": "fontWeight" },
+    "regular": { "$value": "400", "$type": "fontWeight" },
+    "medium": { "$value": "500", "$type": "fontWeight" },
+    "semibold": { "$value": "600", "$type": "fontWeight" },
+    "bold": { "$value": "700", "$type": "fontWeight" }
+  },
+
+  "lineHeight": {
+    "$description": "Line height scale",
+    "none": { "$value": "1", "$type": "number" },
+    "tight": { "$value": "1.25", "$type": "number" },
+    "snug": { "$value": "1.375", "$type": "number" },
+    "normal": { "$value": "1.5", "$type": "number" },
+    "relaxed": { "$value": "1.625", "$type": "number" },
+    "loose": { "$value": "2", "$type": "number" }
+  },
+
+  "letterSpacing": {
+    "$description": "Letter spacing scale",
+    "tighter": { "$value": "-0.05em", "$type": "dimension" },
+    "tight": { "$value": "-0.025em", "$type": "dimension" },
+    "normal": { "$value": "0", "$type": "dimension" },
+    "wide": { "$value": "0.025em", "$type": "dimension" },
+    "wider": { "$value": "0.05em", "$type": "dimension" },
+    "widest": { "$value": "0.1em", "$type": "dimension" }
+  },
+
+  "duration": {
+    "$description": "Animation duration scale",
+    "instant": { "$value": "0ms", "$type": "duration" },
+    "fast": { "$value": "100ms", "$type": "duration" },
+    "normal": { "$value": "200ms", "$type": "duration" },
+    "slow": { "$value": "300ms", "$type": "duration" },
+    "slower": { "$value": "500ms", "$type": "duration" },
+    "slowest": { "$value": "700ms", "$type": "duration" }
+  },
+
+  "easing": {
+    "$description": "Animation easing functions",
+    "linear": { "$value": "linear", "$type": "cubicBezier" },
+    "in": { "$value": "cubic-bezier(0.4, 0, 1, 1)", "$type": "cubicBezier" },
+    "out": { "$value": "cubic-bezier(0, 0, 0.2, 1)", "$type": "cubicBezier" },
+    "inOut": {
+      "$value": "cubic-bezier(0.4, 0, 0.2, 1)",
+      "$type": "cubicBezier"
+    },
+    "bounce": {
+      "$value": "cubic-bezier(0.68, -0.55, 0.265, 1.55)",
+      "$type": "cubicBezier"
+    },
+    "spring": {
+      "$value": "cubic-bezier(0.34, 1.56, 0.64, 1)",
+      "$type": "cubicBezier"
+    }
+  },
+
+  "zIndex": {
+    "$description": "Z-index layering scale",
+    "base": { "$value": "0", "$type": "number" },
+    "dropdown": { "$value": "1000", "$type": "number" },
+    "sticky": { "$value": "1020", "$type": "number" },
+    "fixed": { "$value": "1030", "$type": "number" },
+    "modalBackdrop": { "$value": "1040", "$type": "number" },
+    "modal": { "$value": "1050", "$type": "number" },
+    "popover": { "$value": "1060", "$type": "number" },
+    "tooltip": { "$value": "1070", "$type": "number" },
+    "toast": { "$value": "1080", "$type": "number" }
+  },
+
+  "breakpoint": {
+    "$description": "Responsive breakpoints (mobile-first)",
+    "xs": { "$value": "0px", "$type": "dimension" },
+    "sm": { "$value": "576px", "$type": "dimension" },
+    "md": { "$value": "768px", "$type": "dimension" },
+    "lg": { "$value": "992px", "$type": "dimension" },
+    "xl": { "$value": "1200px", "$type": "dimension" },
+    "2xl": { "$value": "1400px", "$type": "dimension" }
+  }
+}
