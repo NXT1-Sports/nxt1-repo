@@ -55,7 +55,7 @@ html {
   text-size-adjust: 100%; /* 1 */
   -moz-tab-size: 4; /* 2 */
   tab-size: 4; /* 2 */
-  font-family: var(--nxt1-font-family-brand, ui-sans-serif, system-ui, sans-serif); /* 3 */
+  font-family: var(--nxt1-fontFamily-brand, ui-sans-serif, system-ui, sans-serif); /* 3 */
   font-feature-settings: normal; /* 4 */
   font-variation-settings: normal; /* 5 */
   -webkit-tap-highlight-color: transparent; /* 6 */
@@ -139,7 +139,7 @@ code,
 kbd,
 samp,
 pre {
-  font-family: var(--nxt1-font-family-mono, ui-monospace, monospace); /* 1 */
+  font-family: var(--nxt1-fontFamily-mono, ui-monospace, monospace); /* 1 */
   font-feature-settings: normal; /* 2 */
   font-variation-settings: normal; /* 3 */
   font-size: 1em; /* 4 */

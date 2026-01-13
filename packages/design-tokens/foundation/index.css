@@ -6,6 +6,7 @@
  * This is the recommended entry point for apps.
  *
  * Includes:
+ * 0. Font Face Declarations (fonts.css)
  * 1. CSS Reset/Normalize (foundation.css)
  * 2. App Shell Structure (app-shell.css)  
  * 3. Utility Classes (utilities.css)
@@ -15,6 +16,9 @@
  *
  * Order matters - these layers are designed to cascade properly.
  */
+
+/* Layer 0: Font Face Declarations - MUST LOAD FIRST */
+@import './fonts.css';
 
 /* Layer 1: Reset & Normalize */
 @import './foundation.css';

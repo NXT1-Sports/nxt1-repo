@@ -57,13 +57,13 @@
   --auth-success-bg: rgba(34, 197, 94, 0.1);
 
   /* Typography */
-  --auth-font: var(--nxt1-font-family-brand, -apple-system, BlinkMacSystemFont, sans-serif);
+  --auth-font: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
 
   /* Sizing */
-  --auth-radius-sm: var(--nxt1-radius-sm, 4px);
-  --auth-radius-default: var(--nxt1-radius-default, 8px);
-  --auth-radius-lg: var(--nxt1-radius-lg, 12px);
-  --auth-radius-xl: var(--nxt1-radius-xl, 16px);
+  --auth-radius-sm: var(--nxt1-borderRadius-sm, 4px);
+  --auth-radius-default: var(--nxt1-borderRadius-md, 8px);
+  --auth-radius-lg: var(--nxt1-borderRadius-lg, 12px);
+  --auth-radius-xl: var(--nxt1-borderRadius-xl, 16px);
 
   /* Transitions */
   --auth-transition-fast: 150ms ease-out;
@@ -125,27 +125,15 @@ ion-content.nxt1-auth-page {
 
 .nxt1-auth-card {
   width: 100%;
-  max-width: var(--auth-content-max-width);
   background: var(--auth-bg-card);
   border: 1px solid var(--auth-bg-card-border);
   border-radius: var(--auth-radius-xl);
   padding: var(--nxt1-spacing-10, 2.5rem);
 }
 
-/* Desktop: Two-column layout */
-@media (min-width: 768px) {
-  .nxt1-auth-card {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    gap: var(--nxt1-spacing-8, 2rem);
-    align-items: stretch;
-  }
-}
-
-/* Mobile: Single column */
+/* Mobile: Reduce padding */
 @media (max-width: 767px) {
   .nxt1-auth-card {
-    max-width: var(--auth-card-max-width);
     padding: var(--nxt1-spacing-6, 1.5rem) var(--nxt1-spacing-5, 1.25rem);
   }
 }
@@ -157,12 +145,8 @@ ion-content.nxt1-auth-page {
 .nxt1-auth-main {
   display: flex;
   flex-direction: column;
-}
-
-@media (min-width: 768px) {
-  .nxt1-auth-main {
-    padding-right: var(--nxt1-spacing-4, 1rem);
-  }
+  align-items: center;
+  width: 100%;
 }
 
 /* ============================================
@@ -191,7 +175,7 @@ ion-content.nxt1-auth-page {
 
   .nxt1-auth-divider-vertical span {
     font-family: var(--auth-font);
-    font-size: var(--nxt1-font-size-xs, 0.75rem);
+    font-size: var(--nxt1-fontSize-xs, 0.75rem);
     font-weight: var(--nxt1-font-weight-semibold, 600);
     color: var(--auth-text-muted);
     text-transform: uppercase;
@@ -235,7 +219,7 @@ ion-content.nxt1-auth-page {
 
 .nxt1-auth-app-promo h3 {
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-lg, 1.25rem);
+  font-size: var(--nxt1-fontSize-lg, 1.25rem);
   font-weight: var(--nxt1-font-weight-bold, 700);
   color: var(--auth-text-primary);
   margin: 0;
@@ -243,7 +227,7 @@ ion-content.nxt1-auth-page {
 
 .nxt1-auth-app-promo p {
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-sm, 0.875rem);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
   color: var(--auth-text-muted);
   margin: 0;
 }
@@ -278,7 +262,7 @@ ion-content.nxt1-auth-page {
   align-items: center;
   gap: var(--nxt1-spacing-1, 0.25rem);
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-xs, 0.75rem);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
   color: var(--auth-text-muted);
 }
 
@@ -308,7 +292,7 @@ ion-content.nxt1-auth-page {
 
 .nxt1-auth-app-buttons .app-buttons-label {
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-xs, 0.75rem);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
   font-weight: var(--nxt1-font-weight-semibold, 600);
   color: var(--auth-text-muted);
   text-transform: uppercase;
@@ -364,7 +348,7 @@ ion-content.nxt1-auth-page {
 
 .nxt1-auth-store-btn .store-name {
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-sm, 0.875rem);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
   font-weight: var(--nxt1-font-weight-semibold, 600);
   color: var(--auth-text-primary);
   line-height: 1.2;
@@ -383,7 +367,7 @@ ion-content.nxt1-auth-page {
 
 .nxt1-auth-header h1 {
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-2xl, 1.875rem);
+  font-size: var(--nxt1-fontSize-2xl, 1.875rem);
   font-weight: var(--nxt1-font-weight-bold, 700);
   color: var(--auth-text-primary);
   margin: 0 0 var(--nxt1-spacing-2, 0.5rem);
@@ -392,7 +376,7 @@ ion-content.nxt1-auth-page {
 
 .nxt1-auth-header p {
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-base, 1rem);
+  font-size: var(--nxt1-fontSize-base, 1rem);
   font-weight: var(--nxt1-font-weight-medium, 500);
   color: var(--auth-text-secondary);
   margin: 0;
@@ -414,13 +398,13 @@ ion-content.nxt1-auth-page {
 
 .nxt1-auth-footer span {
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-base, 1rem);
+  font-size: var(--nxt1-fontSize-base, 1rem);
   color: var(--auth-text-secondary);
 }
 
 .nxt1-auth-footer a {
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-base, 1rem);
+  font-size: var(--nxt1-fontSize-base, 1rem);
   font-weight: var(--nxt1-font-weight-bold, 700);
   color: var(--auth-primary);
   text-decoration: none;
@@ -443,7 +427,7 @@ ion-content.nxt1-auth-page {
 
 .nxt1-auth-terms p {
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-xs, 0.75rem);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
   color: var(--auth-text-muted);
   margin: 0;
 }
@@ -466,6 +450,7 @@ ion-content.nxt1-auth-page {
   display: flex;
   flex-direction: column;
   gap: var(--nxt1-spacing-3, 0.75rem);
+  width: 100%;
 }
 
 /* ============================================
@@ -483,7 +468,7 @@ ion-content.nxt1-auth-page {
   border: 1px solid var(--auth-border-default);
   border-radius: var(--auth-radius-default);
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-base, 1rem);
+  font-size: var(--nxt1-fontSize-base, 1rem);
   font-weight: var(--nxt1-font-weight-semibold, 600);
   color: var(--auth-text-primary);
   cursor: pointer;
@@ -570,7 +555,7 @@ ion-content.nxt1-auth-page {
   border: none;
   border-radius: var(--auth-radius-default);
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-base, 1rem);
+  font-size: var(--nxt1-fontSize-base, 1rem);
   font-weight: var(--nxt1-font-weight-bold, 700);
   color: #0a0a0a;
   cursor: pointer;
@@ -627,7 +612,7 @@ ion-content.nxt1-auth-page {
   background: transparent;
   border: none;
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-sm, 0.875rem);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
   font-weight: var(--nxt1-font-weight-medium, 500);
   color: var(--auth-text-muted);
   cursor: pointer;
@@ -671,7 +656,7 @@ ion-content.nxt1-auth-page {
 
 .nxt1-form-label {
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-sm, 0.875rem);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
   font-weight: var(--nxt1-font-weight-medium, 500);
   color: var(--auth-text-secondary);
 }
@@ -709,7 +694,7 @@ ion-content.nxt1-auth-page {
   border: 1px solid var(--auth-border-default);
   border-radius: var(--auth-radius-default);
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-base, 1rem);
+  font-size: var(--nxt1-fontSize-base, 1rem);
   font-weight: var(--nxt1-font-weight-medium, 500);
   color: var(--auth-text-primary);
   transition: all var(--auth-transition-fast);
@@ -763,7 +748,7 @@ ion-content.nxt1-auth-page {
   align-items: center;
   gap: var(--nxt1-spacing-2, 0.5rem);
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-sm, 0.875rem);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
   color: var(--auth-error);
 }
 
@@ -779,7 +764,7 @@ ion-content.nxt1-auth-page {
 
 .nxt1-auth-link {
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-base, 1rem);
+  font-size: var(--nxt1-fontSize-base, 1rem);
   font-weight: var(--nxt1-font-weight-bold, 700);
   color: var(--auth-primary);
   text-decoration: none;
@@ -803,7 +788,7 @@ ion-content.nxt1-auth-page {
 
 /* Secondary link */
 .nxt1-auth-link--secondary {
-  font-size: var(--nxt1-font-size-sm, 0.875rem);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
   font-weight: var(--nxt1-font-weight-medium, 500);
   color: var(--auth-text-muted);
 }
@@ -818,7 +803,7 @@ ion-content.nxt1-auth-page {
 .nxt1-forgot-link {
   display: inline-block;
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-sm, 0.875rem);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
   font-weight: var(--nxt1-font-weight-medium, 500);
   color: var(--auth-text-muted);
   text-decoration: none;
@@ -845,6 +830,8 @@ ion-content.nxt1-auth-page {
   align-items: center;
   gap: var(--nxt1-spacing-4, 1rem);
   margin: var(--nxt1-spacing-4, 1rem) 0;
+  width: 100%;
+
 }
 
 .nxt1-auth-divider::before,
@@ -857,7 +844,7 @@ ion-content.nxt1-auth-page {
 
 .nxt1-auth-divider span {
   font-family: var(--auth-font);
-  font-size: var(--nxt1-font-size-xs, 0.75rem);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
   font-weight: var(--nxt1-font-weight-medium, 500);
   color: var(--auth-text-muted);
   text-transform: uppercase;

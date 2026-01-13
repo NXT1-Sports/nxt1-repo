@@ -54,11 +54,6 @@
 @import "@nxt1/ui/styles/auth";
 
 /* ============================================
-   LAYER 6: EXTERNAL FONTS
-   ============================================ */
-@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;700&display=swap");
-
-/* ============================================
    LAYER 7: TAILWIND CSS
    Utility-first CSS framework
    ============================================ */
@@ -88,7 +83,7 @@
     overflow-y: auto;
     background-color: var(--nxt1-color-bg-primary, #0a0a0a);
     color: var(--nxt1-color-text-primary, #ffffff);
-    font-family: var(--nxt1-font-family-brand);
+    font-family: var(--nxt1-fontFamily-brand);
   }
 
   /* Prevent scroll lock issues with CDK overlays */
@@ -100,22 +95,22 @@
 
   /* Typography enhancements */
   h1, h2, h3, h4, h5, h6 {
-    font-family: var(--nxt1-font-family-display, var(--nxt1-font-family-brand));
-    font-weight: var(--nxt1-font-weight-bold, 700);
-    line-height: var(--nxt1-line-height-tight, 1.25);
+    font-family: var(--nxt1-fontFamily-display, var(--nxt1-fontFamily-brand));
+    font-weight: var(--nxt1-fontWeight-bold, 700);
+    line-height: var(--nxt1-lineHeight-tight, 1.25);
     color: var(--nxt1-color-text-primary);
   }
 
-  h1 { font-size: var(--nxt1-font-size-4xl, 3rem); }
-  h2 { font-size: var(--nxt1-font-size-3xl, 2.25rem); }
-  h3 { font-size: var(--nxt1-font-size-2xl, 1.875rem); }
-  h4 { font-size: var(--nxt1-font-size-xl, 1.5rem); }
-  h5 { font-size: var(--nxt1-font-size-lg, 1.25rem); }
-  h6 { font-size: var(--nxt1-font-size-base, 1rem); }
+  h1 { font-size: var(--nxt1-fontSize-4xl, 3rem); }
+  h2 { font-size: var(--nxt1-fontSize-3xl, 2.25rem); }
+  h3 { font-size: var(--nxt1-fontSize-2xl, 1.875rem); }
+  h4 { font-size: var(--nxt1-fontSize-xl, 1.5rem); }
+  h5 { font-size: var(--nxt1-fontSize-lg, 1.25rem); }
+  h6 { font-size: var(--nxt1-fontSize-base, 1rem); }
 
   p {
-    font-size: var(--nxt1-font-size-base, 1rem);
-    line-height: var(--nxt1-line-height-relaxed, 1.625);
+    font-size: var(--nxt1-fontSize-base, 1rem);
+    line-height: var(--nxt1-lineHeight-relaxed, 1.625);
     color: var(--nxt1-color-text-secondary);
   }
 
@@ -146,9 +141,9 @@
     justify-content: center;
     gap: var(--nxt1-spacing-2, 0.5rem);
     padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-4, 1rem);
-    font-family: var(--nxt1-font-family-brand);
-    font-size: var(--nxt1-font-size-base, 1rem);
-    font-weight: var(--nxt1-font-weight-semibold, 600);
+    font-family: var(--nxt1-fontFamily-brand);
+    font-size: var(--nxt1-fontSize-base, 1rem);
+    font-weight: var(--nxt1-fontWeight-semibold, 600);
     text-transform: uppercase;
     letter-spacing: 0.025em;
     border: none;
@@ -195,9 +190,9 @@
   .form-control {
     width: 100%;
     padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-4, 1rem);
-    font-family: var(--nxt1-font-family-brand);
-    font-size: var(--nxt1-font-size-base, 1rem);
-    font-weight: var(--nxt1-font-weight-medium, 500);
+    font-family: var(--nxt1-fontFamily-brand);
+    font-size: var(--nxt1-fontSize-base, 1rem);
+    font-weight: var(--nxt1-fontWeight-medium, 500);
     color: var(--nxt1-color-text-primary);
     background-color: var(--nxt1-color-surface-200);
     border: 1px solid var(--nxt1-color-border-default);
@@ -259,9 +254,9 @@
     border-radius: var(--nxt1-radius-xl, 12px);
     background-color: var(--nxt1-color-surface-100);
     color: var(--nxt1-color-text-primary);
-    font-family: var(--nxt1-font-family-brand);
-    font-size: var(--nxt1-font-size-sm, 0.875rem);
-    font-weight: var(--nxt1-font-weight-medium, 500);
+    font-family: var(--nxt1-fontFamily-brand);
+    font-size: var(--nxt1-fontSize-sm, 0.875rem);
+    font-weight: var(--nxt1-fontWeight-medium, 500);
     cursor: pointer;
     transition: all var(--nxt1-duration-normal, 200ms) var(--nxt1-ease-in-out);
   }
@@ -321,34 +316,37 @@
    ============================================ */
 [authTitle] {
   color: var(--nxt1-color-text-primary);
-  font-family: var(--nxt1-font-family-brand);
-  font-size: var(--nxt1-font-size-2xl, 1.875rem);
-  font-weight: var(--nxt1-font-weight-bold, 700);
-  line-height: var(--nxt1-line-height-tight, 1.25);
+  font-family: var(--nxt1-fontFamily-brand);
+  font-size: var(--nxt1-fontSize-2xl, 1.875rem);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
+  line-height: var(--nxt1-lineHeight-tight, 1.25);
   margin-bottom: var(--nxt1-spacing-2, 0.5rem);
+  text-align: center;
 }
 
 @media (min-width: 768px) {
   [authTitle] {
-    font-size: var(--nxt1-font-size-3xl, 2.25rem);
+    font-size: var(--nxt1-fontSize-3xl, 2.25rem);
   }
 }
 
 [authSubtitle] {
   color: var(--nxt1-color-text-secondary);
-  font-size: var(--nxt1-font-size-base, 1rem);
-  line-height: var(--nxt1-line-height-relaxed, 1.625);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  line-height: var(--nxt1-lineHeight-relaxed, 1.625);
+  text-align: center;
 }
 
 [authFooter] {
   color: var(--nxt1-color-text-secondary);
-  font-size: var(--nxt1-font-size-sm, 0.875rem);
-  line-height: var(--nxt1-line-height-relaxed, 1.625);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  line-height: var(--nxt1-lineHeight-relaxed, 1.625);
+  text-align: center;
 }
 
 [authFooter] a {
   color: var(--nxt1-color-primary);
-  font-weight: var(--nxt1-font-weight-medium, 500);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   text-decoration: none;
   transition: all var(--nxt1-duration-fast, 150ms);
 }
@@ -359,8 +357,8 @@
 
 [authTerms] {
   color: var(--nxt1-color-text-tertiary);
-  font-size: var(--nxt1-font-size-xs, 0.75rem);
-  line-height: var(--nxt1-line-height-relaxed, 1.625);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  line-height: var(--nxt1-lineHeight-relaxed, 1.625);
   max-width: 20rem;
   margin-left: auto;
   margin-right: auto;

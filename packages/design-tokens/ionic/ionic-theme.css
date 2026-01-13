@@ -231,7 +231,7 @@
 
   /* iOS default font */
   --ion-default-font: var(
-    --nxt1-font-family-brand,
+    --nxt1-fontFamily-brand,
     -apple-system,
     BlinkMacSystemFont,
     'Helvetica Neue',
@@ -258,7 +258,7 @@
 
 .md {
   /* Material Design default font */
-  --ion-default-font: var(--nxt1-font-family-brand, Roboto, 'Helvetica Neue', sans-serif);
+  --ion-default-font: var(--nxt1-fontFamily-brand, Roboto, 'Helvetica Neue', sans-serif);
 
   /* Material Design ripple effect uses primary color */
   --ion-ripple-color: var(--nxt1-color-primary-400, #ccff00);
@@ -277,7 +277,7 @@
 :root {
   /* Font families */
   --ion-font-family: var(
-    --nxt1-font-family-brand,
+    --nxt1-fontFamily-brand,
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',
@@ -286,9 +286,9 @@
   );
 
   /* Font sizes mapped from NXT1 tokens */
-  --ion-font-size: var(--nxt1-font-size-base, 1rem);
-  --ion-font-size-sm: var(--nxt1-font-size-sm, 0.875rem);
-  --ion-font-size-lg: var(--nxt1-font-size-lg, 1.25rem);
+  --ion-font-size: var(--nxt1-fontSize-base, 1rem);
+  --ion-font-size-sm: var(--nxt1-fontSize-sm, 0.875rem);
+  --ion-font-size-lg: var(--nxt1-fontSize-lg, 1.25rem);
 }
 
 /* ============================================

@@ -1,4 +1,5 @@
 {
   "scss.lint.unknownAtRules": "ignore",
-  "css.lint.unknownAtRules": "ignore"
+  "css.lint.unknownAtRules": "ignore",
+  "java.jdt.ls.java.home": "/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home"
 }

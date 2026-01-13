@@ -115,8 +115,7 @@ export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
       <!-- Main Wrapper -->
       <div
         class="relative z-10 flex w-full flex-1 flex-col items-center justify-center px-4 py-6 md:py-10"
-        [style.maxWidth]="maxWidth"
-        [ngClass]="{ 'md:px-6': true, 'mx-auto': true }"
+        [ngClass]="getVariantClass()"
       >
         <!-- Logo -->
         @if (showLogo) {
@@ -135,14 +134,14 @@ export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
         }
 
         <!-- Title & Subtitle Slot -->
-        <div class="mb-6 w-full text-center">
+        <div class="mb-6 w-full max-w-md text-center">
           <ng-content select="[authTitle]"></ng-content>
           <ng-content select="[authSubtitle]"></ng-content>
         </div>
 
         <!-- Main Content Area - Single ng-content with conditional styling -->
         <div
-          class="w-full"
+          class="w-full max-w-md"
           [ngClass]="{
             'bg-surface-100 border-border-subtle rounded-2xl border p-6 md:p-8': variant === 'card',
           }"
@@ -151,7 +150,7 @@ export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
         </div>
 
         <!-- Footer Links -->
-        <div class="mt-6 w-full text-center">
+        <div class="mt-6 w-full max-w-md text-center">
           <ng-content select="[authFooter]"></ng-content>
         </div>
       </div>
@@ -202,14 +201,14 @@ export class AuthShellComponent {
   getVariantClass(): string {
     switch (this.variant) {
       case 'wide':
-        return 'max-w-2xl';
+        return 'max-w-2xl mx-auto md:px-6';
       case 'minimal':
-        return 'max-w-sm';
+        return 'max-w-sm mx-auto';
       case 'fullscreen':
         return 'max-w-none px-4 md:px-0';
       case 'card':
       default:
-        return 'max-w-sm';
+        return 'max-w-sm mx-auto';
     }
   }
 

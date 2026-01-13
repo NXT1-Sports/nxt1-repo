@@ -6,16 +6,18 @@
  * Provides common layout, spacing, and typography utilities
  * without requiring a full utility-first framework like Tailwind.
  *
- * These utilities complement the token system and can be used
- * in scenarios where Tailwind is not available (e.g., pure Ionic apps).
+ * NOTE: Many utilities are disabled to prevent conflicts with Tailwind CSS.
+ * Enable them only if not using Tailwind.
  *
  * Usage:
  *   @import '@nxt1/design-tokens/css/utilities.css';
  */
 
 /* ============================================
-   1. DISPLAY
+   1. DISPLAY - COMMENTED OUT (Use Tailwind instead)
    ============================================ */
+
+/* DISABLED - Use Tailwind CSS utilities instead
 
 .d-none {
   display: none;
@@ -39,11 +41,16 @@
   display: grid;
 }
 
+END DISABLED SECTION */
+
 /* ============================================
-   2. FLEXBOX
+   2. FLEXBOX - COMMENTED OUT (Use Tailwind instead)
+   These duplicate Tailwind utilities and can cause conflicts.
    ============================================ */
 
-/* Direction */
+/* DISABLED - Use Tailwind CSS utilities instead
+
+/* Direction *
 .flex-row {
   flex-direction: row;
 }
@@ -57,7 +64,7 @@
   flex-direction: column-reverse;
 }
 
-/* Wrap */
+/* Wrap *
 .flex-wrap {
   flex-wrap: wrap;
 }
@@ -65,7 +72,7 @@
   flex-wrap: nowrap;
 }
 
-/* Justify Content */
+/* Justify Content *
 .justify-start {
   justify-content: flex-start;
 }
@@ -85,7 +92,7 @@
   justify-content: space-evenly;
 }
 
-/* Align Items */
+/* Align Items *
 .items-start {
   align-items: flex-start;
 }
@@ -98,6 +105,8 @@
 .items-baseline {
   align-items: baseline;
 }
+
+END DISABLED SECTION */
 .items-stretch {
   align-items: stretch;
 }

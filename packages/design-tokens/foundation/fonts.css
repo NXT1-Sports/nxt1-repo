@@ -1,0 +1,107 @@
+/**
+ * @fileoverview NXT1 Typography - Font Face Declarations
+ * @module @nxt1/design-tokens
+ *
+ * Loads custom web fonts for the NXT1 design system.
+ * 
+ * Primary Font: Rajdhani (Google Fonts)
+ * - Modern geometric sans-serif
+ * - Excellent readability for sports/action context
+ * - Weights: 300 (Light), 400 (Regular), 500 (Medium), 600 (SemiBold), 700 (Bold)
+ *
+ * Usage:
+ *   This file is automatically imported by foundation/index.css
+ *   Fonts are available via CSS custom properties:
+ *   - var(--nxt1-fontFamily-brand) → 'Rajdhani, sans-serif'
+ *   - var(--nxt1-fontFamily-display) → 'Rajdhani, sans-serif'
+ *
+ * Font files location:
+ *   @nxt1/design-tokens/assets/fonts/Rajdhani/*.ttf
+ */
+
+/* ============================================
+   RAJDHANI - Primary Brand Font
+   ============================================ */
+
+/**
+ * Rajdhani Light (300)
+ * Used for subtle text, less emphasis
+ */
+@font-face {
+  font-family: 'Rajdhani';
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+  src:
+    local('Rajdhani Light'),
+    url('../assets/fonts/Rajdhani/Rajdhani-Light.ttf') format('truetype');
+}
+
+/**
+ * Rajdhani Regular (400)
+ * Default body text weight
+ */
+@font-face {
+  font-family: 'Rajdhani';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src:
+    local('Rajdhani Regular'),
+    url('../assets/fonts/Rajdhani/Rajdhani-Regular.ttf') format('truetype');
+}
+
+/**
+ * Rajdhani Medium (500)
+ * Subtle emphasis, navigation items
+ */
+@font-face {
+  font-family: 'Rajdhani';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src:
+    local('Rajdhani Medium'),
+    url('../assets/fonts/Rajdhani/Rajdhani-Medium.ttf') format('truetype');
+}
+
+/**
+ * Rajdhani SemiBold (600)
+ * Strong emphasis, subheadings
+ */
+@font-face {
+  font-family: 'Rajdhani';
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src:
+    local('Rajdhani SemiBold'),
+    url('../assets/fonts/Rajdhani/Rajdhani-SemiBold.ttf') format('truetype');
+}
+
+/**
+ * Rajdhani Bold (700)
+ * Headings, CTAs, strong emphasis
+ */
+@font-face {
+  font-family: 'Rajdhani';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src:
+    local('Rajdhani Bold'),
+    url('../assets/fonts/Rajdhani/Rajdhani-Bold.ttf') format('truetype');
+}
+
+/* ============================================
+   FONT LOADING OPTIMIZATION
+   ============================================ */
+
+/**
+ * Preload critical font weights for faster initial render
+ * Add these <link> tags to your HTML <head>:
+ * 
+ * <link rel="preload" href="path/to/Rajdhani-Regular.ttf" as="font" type="font/ttf" crossorigin>
+ * <link rel="preload" href="path/to/Rajdhani-SemiBold.ttf" as="font" type="font/ttf" crossorigin>
+ * <link rel="preload" href="path/to/Rajdhani-Bold.ttf" as="font" type="font/ttf" crossorigin>
+ */
