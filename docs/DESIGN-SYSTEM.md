@@ -1,21 +1,23 @@
 # NXT1 Design System
 
-> **The Complete Guide** — How design tokens, Ionic, Tailwind, and shared
-> components work together across web and mobile.
+> **The Complete Guide v5.0** — How design tokens, Ionic, Tailwind, and shared
+> components work together across web and mobile. **CSS-only architecture** for
+> 2026+ best practices.
 
 ---
 
 ## Table of Contents
 
 1. [Overview](#overview)
-2. [The Complete Architecture](#the-complete-architecture)
-3. [Design Token Flow](#design-token-flow)
-4. [Platform Styling (Ionic)](#platform-styling-ionic)
-5. [Tailwind Integration](#tailwind-integration)
-6. [Shared UI Components](#shared-ui-components)
-7. [How to Make Changes](#how-to-make-changes)
-8. [File Reference](#file-reference)
-9. [FAQ](#faq)
+2. [Styling Strategy](#styling-strategy)
+3. [The Complete Architecture](#the-complete-architecture)
+4. [Design Token Flow](#design-token-flow)
+5. [Platform Styling (Ionic)](#platform-styling-ionic)
+6. [Tailwind Integration](#tailwind-integration)
+7. [Shared UI Components](#shared-ui-components)
+8. [How to Make Changes](#how-to-make-changes)
+9. [File Reference](#file-reference)
+10. [FAQ](#faq)
 
 ---
 
@@ -29,15 +31,107 @@ while leveraging **native platform feel** through Ionic Framework.
 | Principle                  | Implementation                                        |
 | -------------------------- | ----------------------------------------------------- |
 | **Single Source of Truth** | `tokens.json/` contains all design values             |
+| **CSS-Only**               | No SCSS required - pure CSS custom properties         |
 | **Native Feel**            | Ionic components with iOS mode for premium UX         |
 | **Brand Consistency**      | Same colors, typography, spacing everywhere           |
 | **Developer Experience**   | Tailwind utilities + design tokens = fast development |
+
+### Version 5.0 - Professional CSS Architecture (2026+)
+
+- ✅ **No SCSS** - Zero SCSS files in the entire monorepo
+- ✅ **Pure CSS imports** - Simple `@import` syntax
+- ✅ **Clear separation** - Tailwind for layout, CSS variables for theming
+- ✅ **Component styles with components** - Styles live in `@nxt1/ui`
+
+---
+
+## Styling Strategy
+
+### The Official Decision Tree
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         WHEN TO USE WHAT                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  TAILWIND CLASSES                                                    │   │
+│  │  ═══════════════                                                     │   │
+│  │  Use for: Layout, spacing, flexbox, grid, responsive breakpoints     │   │
+│  │                                                                      │   │
+│  │  ✓ flex items-center justify-between                                │   │
+│  │  ✓ p-4 md:p-6 lg:p-8                                                │   │
+│  │  ✓ grid grid-cols-2 gap-4                                           │   │
+│  │  ✓ w-full max-w-md mx-auto                                          │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  CSS CUSTOM PROPERTIES (--nxt1-*)                                    │   │
+│  │  ═══════════════════════════════                                     │   │
+│  │  Use for: Colors, theming, typography, animations                    │   │
+│  │                                                                      │   │
+│  │  ✓ var(--nxt1-color-primary)                                        │   │
+│  │  ✓ var(--nxt1-font-family-brand)                                    │   │
+│  │  ✓ var(--nxt1-radius-lg)                                            │   │
+│  │  ✓ var(--nxt1-duration-fast)                                        │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  TAILWIND + TOKENS (Semantic Classes)                                │   │
+│  │  ════════════════════════════════════                                │   │
+│  │  Use for: Brand colors through Tailwind preset                       │   │
+│  │                                                                      │   │
+│  │  ✓ bg-primary text-black (maps to --nxt1-color-primary)             │   │
+│  │  ✓ bg-surface-200 border-border                                     │   │
+│  │  ✓ text-text-primary text-text-secondary                            │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  COMPONENT CSS (@nxt1/ui/styles/*)                                   │   │
+│  │  ══════════════════════════════════                                  │   │
+│  │  Use for: Complex component states, keyframe animations              │   │
+│  │                                                                      │   │
+│  │  ✓ Component has 5+ visual states                                   │   │
+│  │  ✓ Keyframe animations                                              │   │
+│  │  ✓ Overriding Ionic component internals                             │   │
+│  │  ✓ Shared styles across multiple related components                 │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  QUICK REFERENCE:                                                           │
+│                                                                             │
+│  Is it layout/spacing? ──────────────────────────> Tailwind class          │
+│  Is it a color/theme value? ─────────────────────> CSS Variable             │
+│  Is it a brand color class? ─────────────────────> Tailwind semantic        │
+│  Is it complex state/animation? ─────────────────> @nxt1/ui/styles/*        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Example: Auth Button
+
+```html
+<!-- CORRECT: Tailwind for layout, semantic classes for colors -->
+<button
+  class="border-border bg-surface-200 text-text-primary hover:bg-surface-300 flex h-12 w-full items-center justify-center gap-3 rounded-xl border px-4 transition-all"
+>
+  Sign In
+</button>
+```
+
+```css
+/* When you need more complex styling, use @nxt1/ui/styles */
+.nxt1-social-btn--google:hover {
+  background-color: rgba(66, 133, 244, 0.1);
+  border-color: rgba(66, 133, 244, 0.4);
+}
+```
 
 ---
 
 ## The Complete Architecture
 
-```
+````
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           SOURCE OF TRUTH                                    │
 │                     packages/design-tokens/tokens.json/                      │
@@ -52,40 +146,31 @@ while leveraging **native platform feel** through Ionic Framework.
                             │   build.mjs   │  ← Run: npm run build
                             └───────────────┘
                                     │
-          ┌─────────────────────────┼─────────────────────────┐
-          ▼                         ▼                         ▼
-┌──────────────────┐    ┌──────────────────┐    ┌──────────────────────────┐
-│  dist/css/       │    │  dist/js/        │    │  ionic/                  │
-│  tokens.css      │    │  tokens.mjs      │    │  _colors.scss            │
-│  themes/dark.css │    │  tokens.d.ts     │    │  _typography.scss        │
-│  themes/light.css│    │                  │    │  _ionic-theme.scss       │
-└──────────────────┘    └──────────────────┘    └──────────────────────────┘
-         │                       │                          │
-         │                       ▼                          │
-         │              ┌──────────────────┐                │
-         │              │ Tailwind Preset  │                │
-         │              │ @nxt1/config/    │                │
-         │              │ tailwind         │                │
-         │              └──────────────────┘                │
-         │                       │                          │
-         └───────────────────────┼──────────────────────────┘
-                                 │
-                                 ▼
+          ┌─────────────────────────┴─────────────────────────┐
+          ▼                                                   ▼
+┌────────────────────────┐                    ┌──────────────────────────────┐
+│  @nxt1/design-tokens   │                    │  @nxt1/ui                    │
+│  ────────────────────  │                    │  ────────────────────────    │
+│  dist/css/tokens.css   │                    │  src/auth/* (components)     │
+│  foundation/*.css      │◄───────────────────│  src/styles/auth/auth.css    │
+│  ionic/ionic-theme.css │    imports from    │  src/shared/* (components)   │
+│  platform/*.css        │                    │                              │
+└────────────────────────┘                    └──────────────────────────────┘
+          │                                                   │
+          └───────────────────────┬───────────────────────────┘
+                                  ▼
          ┌───────────────────────────────────────────────────┐
-         │               RUNTIME (Browser/App)               │
-         │                                                   │
-         │   CSS Custom Properties    Tailwind Classes       │
-         │   --nxt1-color-primary     bg-primary             │
-         │   --ion-color-primary      text-surface-200       │
-         │                                                   │
+         │                   apps/web                         │
+         │                   apps/mobile                      │
+         │  ─────────────────────────────────────────────    │
+         │  @import "@nxt1/design-tokens/css";               │
+         │  @import "@nxt1/design-tokens/foundation";        │
+         │  @import "@nxt1/design-tokens/ionic";             │
+         │  @import "@nxt1/ui/styles/auth";                  │
+         │  @tailwind base; components; utilities;           │
          └───────────────────────────────────────────────────┘
-                                 │
-          ┌──────────────────────┴──────────────────────┐
-          ▼                                              ▼
-┌──────────────────────────┐              ┌──────────────────────────┐
-│      apps/web/           │              │      apps/mobile/        │
-│   Angular + Ionic + SSR  │              │   Angular + Ionic +      │
-│   localhost:4200         │              │   Capacitor (iOS/Android)│
+```│
+│   localhost:4200         │              │   global.css             │
 │                          │              │   localhost:4300         │
 └──────────────────────────┘              └──────────────────────────┘
                     │                                │
@@ -96,7 +181,7 @@ while leveraging **native platform feel** through Ionic Framework.
                     │  Shared Components       │
                     │  AuthShell, Logo, etc.   │
                     └──────────────────────────┘
-```
+````
 
 ---
 
@@ -129,29 +214,32 @@ cd packages/design-tokens && npm run build
 
 **Outputs generated:**
 
-| Output                      | Purpose                                         |
-| --------------------------- | ----------------------------------------------- |
-| `dist/css/tokens.css`       | CSS custom properties for runtime               |
-| `dist/css/themes/dark.css`  | Dark theme variables                            |
-| `dist/css/themes/light.css` | Light theme variables                           |
-| `dist/js/tokens.mjs`        | JavaScript export for Tailwind config           |
-| `dist/js/tokens.d.ts`       | TypeScript definitions                          |
-| `ionic/_colors.scss`        | SCSS variables for Ionic theme (auto-generated) |
-| `ionic/_typography.scss`    | SCSS typography for Ionic (auto-generated)      |
+| Output                      | Purpose                               |
+| --------------------------- | ------------------------------------- |
+| `dist/css/tokens.css`       | CSS custom properties for runtime     |
+| `dist/css/themes/dark.css`  | Dark theme variables                  |
+| `dist/css/themes/light.css` | Light theme variables                 |
+| `dist/js/tokens.mjs`        | JavaScript export for Tailwind config |
+| `dist/js/tokens.d.ts`       | TypeScript definitions                |
+| `ionic/ionic-theme.css`     | CSS mapping tokens → Ionic variables  |
+| `components/auth/auth.css`  | Auth component styles (CSS-only)      |
 
-### 3. How Values Flow
+### 3. How Values Flow (CSS-Only)
 
 ```
 tokens.json                    Runtime CSS                  Usage
 ─────────────────────────────────────────────────────────────────────
-color.brand.volt.400    →    --nxt1-color-brand-volt-400    var(--nxt1-...)
+color.brand.volt.400    →    --nxt1-color-primary-400       var(--nxt1-...)
        │
        ▼
-$nxt1-primary-400       →    --ion-color-primary            Ionic components
+ionic-theme.css         →    --ion-color-primary            Ionic components
        │
        ▼
 Tailwind config         →    bg-primary, text-primary       class="bg-primary"
 ```
+
+**No SCSS compilation required!** Everything flows through CSS custom
+properties.
 
 ---
 
@@ -195,13 +283,15 @@ provideIonicAngular({
 
 ### Ionic Theme Integration
 
-Your design tokens map to Ionic's CSS variables in `ionic/_ionic-theme.scss`:
+Your design tokens map to Ionic's CSS variables in `ionic/ionic-theme.css`:
 
-```scss
-// Your token         →  Ionic variable
-$nxt1-primary-400    →  --ion-color-primary
-$nxt1-dark-100       →  --ion-background-color
-$nxt1-dark-900       →  --ion-text-color
+```css
+/* CSS Custom Properties - No SCSS required! */
+:root {
+  --ion-color-primary: var(--nxt1-color-primary);
+  --ion-background-color: var(--nxt1-color-bg-primary);
+  --ion-text-color: var(--nxt1-color-text-primary);
+}
 ```
 
 ---
@@ -387,40 +477,44 @@ Components use **Ionic for native behavior** + **Tailwind for styling**:
 
 ### Key Files
 
-| File                                             | Purpose                                   |
-| ------------------------------------------------ | ----------------------------------------- |
-| `packages/design-tokens/tokens.json/*.json`      | **Source of truth** for all design values |
-| `packages/design-tokens/build.mjs`               | Build script that generates all outputs   |
-| `packages/design-tokens/ionic/_ionic-theme.scss` | Maps tokens → Ionic variables             |
-| `packages/config/tailwind/preset.js`             | Tailwind config consuming tokens          |
-| `apps/mobile/src/app/app.config.ts`              | Ionic configuration (iOS mode)            |
-| `apps/mobile/src/global.scss`                    | Mobile app style imports                  |
-| `apps/web/src/styles.scss`                       | Web app style imports                     |
+| File                                              | Purpose                                   |
+| ------------------------------------------------- | ----------------------------------------- |
+| `packages/design-tokens/tokens.json/*.json`       | **Source of truth** for all design values |
+| `packages/design-tokens/build.mjs`                | Build script that generates all outputs   |
+| `packages/design-tokens/ionic/ionic-theme.css`    | Maps tokens → Ionic variables (CSS-only)  |
+| `packages/design-tokens/components/auth/auth.css` | Auth component styles (CSS-only)          |
+| `packages/config/tailwind/preset.js`              | Tailwind config consuming tokens          |
+| `apps/mobile/src/app/app.config.ts`               | Ionic configuration (iOS mode)            |
+| `apps/mobile/src/global.css`                      | Mobile app style imports                  |
+| `apps/web/src/styles.css`                         | Web app style imports                     |
 
-### Import Order (Apps)
+### Import Order (Apps) - CSS-Only
 
-```scss
-// 1. SCSS modules first
-@use '@nxt1/design-tokens/scss' as tokens;
-
-// 2. CSS custom properties
+```css
+/* 1. Design Tokens - CSS custom properties */
 @import '@nxt1/design-tokens/css';
 
-// 3. Foundation (reset, utilities)
+/* 2. Foundation (reset, app-shell, utilities) */
 @import '@nxt1/design-tokens/foundation/reset';
+@import '@nxt1/design-tokens/foundation/app-shell';
 @import '@nxt1/design-tokens/foundation/utilities';
 
-// 4. Platform-specific
-@import '@nxt1/design-tokens/platform/mobile'; // or /web
+/* 3. Platform-specific adaptation */
+@import '@nxt1/design-tokens/platform/mobile'; /* or /web */
 
-// 5. Ionic theme (maps tokens → Ionic vars)
-@import '@nxt1/design-tokens/platform/ionic';
+/* 4. Ionic theme (maps tokens → Ionic vars) */
+@import '@nxt1/design-tokens/ionic';
 
-// 6. Tailwind
+/* 5. Component styles */
+@import '@nxt1/design-tokens/components/auth';
+
+/* 6. Tailwind */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 ```
+
+**Note:** No `@use` SCSS imports required! Everything is pure CSS.
 
 ---
 
@@ -434,11 +528,21 @@ Components use **Ionic for native behavior** + **Tailwind for styling**:
 - Ionic = **How it behaves**
 - Tailwind = **How it looks**
 
-### Why are there SCSS files if we use CSS variables?
+### Why CSS-only instead of SCSS? (v4.0+)
 
-Ionic requires some values at **SCSS compile time** (not runtime) for internal
-calculations. The SCSS files (`ionic/_colors.scss`) provide these values, which
-are then used to set Ionic's CSS variables.
+**Performance & Simplicity.** SCSS was only needed historically for:
+
+1. Variable declarations → Now handled by CSS Custom Properties
+2. Ionic compile-time values → Now using CSS variable fallbacks
+3. Mixins/functions → Replaced by Tailwind utilities
+
+Benefits of CSS-only:
+
+- ✅ Faster builds (no SCSS compilation)
+- ✅ Smaller tooling footprint
+- ✅ Native browser dev tools support
+- ✅ Runtime theming with CSS variables
+- ✅ 2026+ industry best practice
 
 ### Why force iOS mode instead of auto-detecting?
 
@@ -459,10 +563,10 @@ Toggle by setting `data-theme` attribute on `<html>` or `<body>`.
 
 While iOS mode is forced, you can still add Android-specific overrides:
 
-```scss
-// This DOES apply even with mode: 'ios'
+```css
+/* This DOES apply even with mode: 'ios' */
 .plt-android {
-  // Android-specific overrides
+  /* Android-specific overrides */
 }
 ```
 
@@ -479,27 +583,37 @@ npm run dev:web
 npm run dev:mobile
 ```
 
+### What about legacy SCSS imports?
+
+For backwards compatibility during migration, legacy paths are available:
+
+- `@nxt1/design-tokens/scss` - Generated SCSS variables
+- `@nxt1/design-tokens/ionic-legacy` - SCSS Ionic theme
+
+These will be deprecated in a future version. Migrate to CSS imports.
+
 ---
 
 ## Summary
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  tokens.json  →  build.mjs  →  CSS + SCSS + JS outputs      │
+│  tokens.json  →  build.mjs  →  CSS + JS outputs (no SCSS!)  │
 │       │                              │                       │
 │       └──────────────────────────────┼───────────────────────┤
 │                                      ▼                       │
 │              ┌─────────────────────────────────┐            │
 │              │  Ionic (native behavior)        │            │
 │              │  + Tailwind (styling utilities) │            │
-│              │  + Your brand tokens            │            │
+│              │  + CSS Custom Properties        │            │
 │              └─────────────────────────────────┘            │
 │                              │                               │
 │              ┌───────────────┴───────────────┐              │
 │              ▼                               ▼              │
 │        apps/web                        apps/mobile          │
+│        styles.css                      global.css           │
 │        (SSR + Browser)                 (iOS + Android)      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**One source of truth. Native feel. Brand consistency. Fast development.**
+**One source of truth. Native feel. Brand consistency. CSS-only. 2026+ ready.**

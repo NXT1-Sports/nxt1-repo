@@ -1,28 +1,28 @@
 {
   "name": "@nxt1/design-tokens",
-  "version": "3.0.0",
-  "description": "NXT1 Enterprise Design Token System - JSON source of truth, generated outputs",
+  "version": "5.0.0",
+  "description": "NXT1 Enterprise Design Token System - CSS-only, JSON source of truth",
   "type": "module",
   "main": "dist/js/tokens.mjs",
   "module": "dist/js/tokens.mjs",
   "types": "dist/js/tokens.d.ts",
   "style": "dist/css/tokens.css",
-  "sass": "dist/scss/_tokens.scss",
+  "sideEffects": [
+    "*.css"
+  ],
   "exports": {
     ".": {
-      "import": "./dist/js/tokens.mjs",
-      "require": "./dist/js/tokens.mjs",
       "types": "./dist/js/tokens.d.ts",
-      "style": "./dist/css/tokens.css"
+      "import": "./dist/js/tokens.mjs",
+      "require": "./dist/js/tokens.mjs"
     },
     "./css": "./dist/css/tokens.css",
     "./css/tokens": "./dist/css/tokens.css",
     "./css/themes/dark": "./dist/css/themes/dark.css",
     "./css/themes/light": "./dist/css/themes/light.css",
-    "./scss": "./dist/scss/_tokens.scss",
     "./js": {
-      "import": "./dist/js/tokens.mjs",
-      "types": "./dist/js/tokens.d.ts"
+      "types": "./dist/js/tokens.d.ts",
+      "import": "./dist/js/tokens.mjs"
     },
     "./json": "./dist/json/resolved.json",
     "./tokens.json/*": "./tokens.json/*",
@@ -33,8 +33,8 @@
     "./platform/web": "./platform/web.css",
     "./platform/mobile": "./platform/mobile.css",
     "./platform/ionic": "./platform/ionic-adapter.css",
-    "./components/*": "./components/*/_index.scss",
-    "./ionic": "./ionic/_index.scss",
+    "./ionic": "./ionic/index.css",
+    "./ionic/theme": "./ionic/ionic-theme.css",
     "./assets": "./assets/index.ts"
   },
   "files": [
@@ -42,7 +42,6 @@
     "foundation",
     "platform",
     "tokens.json",
-    "components",
     "ionic",
     "assets",
     "build.mjs"
@@ -57,7 +56,6 @@
     "design-tokens",
     "dtcg",
     "css-custom-properties",
-    "scss",
     "theme",
     "cross-platform",
     "framework-agnostic"

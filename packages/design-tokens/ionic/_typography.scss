@@ -10,22 +10,10 @@
 // ============================================
 // FONT FAMILIES
 // ============================================
-$nxt1-font-family-brand:
-  Rajdhani,
-  -apple-system,
-  BlinkMacSystemFont,
-  "Segoe UI",
-  sans-serif;
+$nxt1-font-family-brand: Rajdhani, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 $nxt1-font-family-display: Rajdhani, sans-serif;
-$nxt1-font-family-system:
-  -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-$nxt1-font-family-mono:
-  JetBrains Mono,
-  Fira Code,
-  SF Mono,
-  Roboto Mono,
-  Consolas,
-  monospace;
+$nxt1-font-family-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+$nxt1-font-family-mono: JetBrains Mono, Fira Code, SF Mono, Roboto Mono, Consolas, monospace;
 
 // ============================================
 // FONT SIZES

@@ -26,6 +26,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import bootstrap from './src/main.server';
 
+// Import the SSR_AUTH_TOKEN injection token from the dedicated tokens file
+// IMPORTANT: Do NOT import from server-auth.service.ts as it has Firebase imports
+// that cause module resolution issues in the dev server
+import { SSR_AUTH_TOKEN } from './src/app/core/auth/ssr-tokens';
+
 // ============================================
 // CONSTANTS
 // ============================================
@@ -122,9 +127,9 @@ export function createServer(): express.Express {
         providers: [
           { provide: APP_BASE_HREF, useValue: baseUrl || '/' },
           // Provide auth token for FirebaseServerApp initialization
-          // Import dynamically to avoid bundling issues
+          // ServerAuthService uses this to initialize authenticated SSR
           {
-            provide: 'SSR_AUTH_TOKEN',
+            provide: SSR_AUTH_TOKEN,
             useValue: authToken,
           },
         ],

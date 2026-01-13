@@ -1,0 +1,68 @@
+/**
+ * @fileoverview NXT1 UI Component Styles
+ * @module @nxt1/ui/styles
+ * @version 1.1.0
+ *
+ * ╔══════════════════════════════════════════════════════════════════════════╗
+ * ║                    STYLING STRATEGY - OFFICIAL GUIDE                      ║
+ * ╠══════════════════════════════════════════════════════════════════════════╣
+ * ║                                                                          ║
+ * ║  ┌─────────────────────────────────────────────────────────────────┐    ║
+ * ║  │  TAILWIND CSS                                                    │    ║
+ * ║  │  Use for: Layout, spacing, flexbox, grid, responsive breakpoints│    ║
+ * ║  │                                                                  │    ║
+ * ║  │  Examples:                                                       │    ║
+ * ║  │  • flex items-center justify-between                            │    ║
+ * ║  │  • p-4 md:p-6 lg:p-8                                            │    ║
+ * ║  │  • grid grid-cols-2 gap-4                                       │    ║
+ * ║  │  • w-full max-w-md mx-auto                                      │    ║
+ * ║  └─────────────────────────────────────────────────────────────────┘    ║
+ * ║                                                                          ║
+ * ║  ┌─────────────────────────────────────────────────────────────────┐    ║
+ * ║  │  CSS CUSTOM PROPERTIES (--nxt1-*)                               │    ║
+ * ║  │  Use for: Colors, theming, typography, brand values             │    ║
+ * ║  │                                                                  │    ║
+ * ║  │  Examples:                                                       │    ║
+ * ║  │  • var(--nxt1-color-primary)                                    │    ║
+ * ║  │  • var(--nxt1-font-family-brand)                                │    ║
+ * ║  │  • var(--nxt1-radius-lg)                                        │    ║
+ * ║  │  • var(--nxt1-shadow-md)                                        │    ║
+ * ║  └─────────────────────────────────────────────────────────────────┘    ║
+ * ║                                                                          ║
+ * ║  ┌─────────────────────────────────────────────────────────────────┐    ║
+ * ║  │  TAILWIND + TOKENS (Semantic Classes)                           │    ║
+ * ║  │  Use for: Brand colors via Tailwind preset                      │    ║
+ * ║  │                                                                  │    ║
+ * ║  │  Examples:                                                       │    ║
+ * ║  │  • bg-primary text-black (uses --nxt1-color-primary)            │    ║
+ * ║  │  • bg-surface-200 border-border                                 │    ║
+ * ║  │  • text-text-primary text-text-secondary                        │    ║
+ * ║  └─────────────────────────────────────────────────────────────────┘    ║
+ * ║                                                                          ║
+ * ║  ┌─────────────────────────────────────────────────────────────────┐    ║
+ * ║  │  COMPONENT CSS FILES (this package)                             │    ║
+ * ║  │  Use for: Complex component states, animations, Ionic overrides │    ║
+ * ║  │                                                                  │    ║
+ * ║  │  When to create component CSS:                                  │    ║
+ * ║  │  • Component has 5+ unique visual states                        │    ║
+ * ║  │  • Need keyframe animations                                     │    ║
+ * ║  │  • Overriding Ionic component internals                         │    ║
+ * ║  │  • Styles shared across multiple components                     │    ║
+ * ║  └─────────────────────────────────────────────────────────────────┘    ║
+ * ║                                                                          ║
+ * ╠══════════════════════════════════════════════════════════════════════════╣
+ * ║  DECISION TREE:                                                          ║
+ * ║                                                                          ║
+ * ║  Is it layout/spacing? ──────────────────────────> Tailwind             ║
+ * ║  Is it a color/theme value? ─────────────────────> CSS Variable          ║
+ * ║  Is it a brand color with Tailwind? ─────────────> Tailwind semantic     ║
+ * ║  Is it complex state/animation? ─────────────────> Component CSS file    ║
+ * ║                                                                          ║
+ * ╚══════════════════════════════════════════════════════════════════════════╝
+ *
+ * Usage in apps:
+ *   @import "@nxt1/ui/styles/auth";
+ */
+
+/* Auth Component Styles */
+@import './auth/auth.css';

@@ -1,11 +1,30 @@
 {
   "name": "@nxt1/ui",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "NXT1 UI - Shared Angular/Ionic components for cross-platform applications",
-  "sideEffects": false,
-  "files": [
-    "dist"
+  "sideEffects": [
+    "*.css"
   ],
+  "files": [
+    "dist",
+    "src/styles"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/fesm2022/nxt1-ui.mjs"
+    },
+    "./auth": {
+      "types": "./dist/auth/index.d.ts",
+      "default": "./dist/fesm2022/nxt1-ui-auth.mjs"
+    },
+    "./shared": {
+      "types": "./dist/shared/index.d.ts",
+      "default": "./dist/fesm2022/nxt1-ui-shared.mjs"
+    },
+    "./styles": "./src/styles/index.css",
+    "./styles/auth": "./src/styles/auth/auth.css"
+  },
   "scripts": {
     "build": "ng-packagr -p ng-package.json",
     "build:watch": "ng-packagr -p ng-package.json --watch",

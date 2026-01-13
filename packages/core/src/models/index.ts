@@ -64,8 +64,8 @@ export {
   type OwnMixtape,
   type OwnProfile,
   // These are also in user.constants - model version preferred for model imports
-  PostType,
-  UserReaction,
+  type PostType,
+  type UserReaction,
   type MentionData,
   type AttachedProfileData,
   type VideoMetadata,

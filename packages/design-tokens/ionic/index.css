@@ -1,0 +1,12 @@
+/**
+ * @fileoverview Ionic Theme Entry Point (CSS-only)
+ * @module @nxt1/design-tokens/ionic
+ *
+ * CSS-only Ionic theme integration.
+ * Import this to apply NXT1 branding to Ionic components.
+ *
+ * Usage:
+ *   @import '@nxt1/design-tokens/ionic';
+ */
+
+@import 'ionic-theme.css';

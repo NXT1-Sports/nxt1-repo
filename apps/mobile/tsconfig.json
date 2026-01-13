@@ -4,8 +4,14 @@
     "baseUrl": "./",
     "paths": {
       "@app/*": ["src/app/*"],
-      "@nxt1/core": ["../../packages/core/dist"],
-      "@nxt1/core/*": ["../../packages/core/dist/*"],
+      "@nxt1/core": [
+        "../../packages/core/src/index.ts",
+        "../../packages/core/dist/index.d.ts"
+      ],
+      "@nxt1/core/*": [
+        "../../packages/core/src/*/index.ts",
+        "../../packages/core/dist/*/index.d.ts"
+      ],
       "@nxt1/ui": ["../../packages/ui/dist"],
       "@nxt1/ui/auth": ["../../packages/ui/dist/auth"],
       "@nxt1/ui/services": ["../../packages/ui/dist/services"],

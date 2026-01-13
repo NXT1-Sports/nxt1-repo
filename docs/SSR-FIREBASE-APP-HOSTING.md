@@ -293,40 +293,62 @@ Without it, SSR fails with `NG0401: Platform not found`.
 ### 4. `app.config.server.ts` - Server Providers
 
 ```typescript
-import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
+import {
+  ApplicationConfig,
+  provideZoneChangeDetection,
+  APP_INITIALIZER,
+} from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient, withFetch } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
+import { provideServerRendering, withRoutes } from '@angular/ssr';
 
 // IMPORTANT: Import directly, NOT from barrel export
 // Barrel exports would pull in browser-only Firebase code
 import { AUTH_SERVICE } from './core/auth/auth.interface';
-import { ServerAuthService } from './core/auth/server-auth.service';
+import {
+  ServerAuthService,
+  SSR_AUTH_TOKEN,
+  SSR_FIREBASE_CONFIG,
+  initializeServerAuth,
+} from './core/auth/server-auth.service';
+import { environment } from '../environments/environment';
 
 export const config: ApplicationConfig = {
   providers: [
+    provideServerRendering(withRoutes(serverRoutes)),
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes),
     provideHttpClient(withFetch()),
     provideAnimationsAsync(),
+    provideClientHydration(withEventReplay(), withIncrementalHydration()),
 
-    // Server auth implementation (noop, no Firebase)
+    // Firebase config for FirebaseServerApp
+    { provide: SSR_FIREBASE_CONFIG, useValue: environment.firebase },
+
+    // Auth token provided by server.ts (from __session cookie)
+    { provide: SSR_AUTH_TOKEN, useValue: undefined },
+
+    // ServerAuthService for authenticated SSR
     { provide: AUTH_SERVICE, useClass: ServerAuthService },
 
-    // NOTE: Do NOT include:
-    // - provideServerRendering() - CommonEngine handles this
-    // - Ionic providers - require DOM/window
-    // - Firebase providers - browser SDKs don't work on server
+    // Initialize auth BEFORE rendering
+    {
+      provide: APP_INITIALIZER,
+      useFactory: initializeServerAuth,
+      deps: [AUTH_SERVICE],
+      multi: true,
+    },
   ],
 };
 ```
 
 **Key Points:**
 
-- NO Ionic providers (require browser APIs)
-- NO Firebase providers (browser SDK fails on server)
-- Uses `ServerAuthService` instead of `BrowserAuthService`
-- Import auth files directly, not through barrel export
+- Uses `APP_INITIALIZER` to ensure auth is ready before rendering
+- `SSR_FIREBASE_CONFIG` provides Firebase config for FirebaseServerApp
+- `SSR_AUTH_TOKEN` is overridden by server.ts with the actual cookie value
+- ServerAuthService initializes FirebaseServerApp and fetches user profile
 
 ---
 
@@ -384,9 +406,9 @@ These don't exist on the server, causing SSR to crash.
 │    ┌─────────────────┐       │    ┌─────────────────┐           │
 │    │BrowserAuthService│      │    │ServerAuthService │           │
 │    ├─────────────────┤       │    ├─────────────────┤           │
-│    │ Firebase Auth   │       │    │ Returns null    │           │
-│    │ Real auth state │       │    │ All methods noop│           │
-│    │ Cookie sync     │       │    │ Accepts SSR token│          │
+│    │ Firebase Auth   │       │    │ FirebaseServerApp│           │
+│    │ Real auth state │       │    │ Auth from token  │           │
+│    │ Cookie sync     │       │    │ Firestore queries│           │
 │    └─────────────────┘       │    └─────────────────┘           │
 └─────────────────────────────────────────────────────────────────┘
 ```

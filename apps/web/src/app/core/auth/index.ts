@@ -2,12 +2,21 @@
  * @fileoverview Auth Module Barrel Exports
  * @module @nxt1/web/core/auth
  *
- * Exports for the authentication system including:
- * - IAuthService interface and injection token
- * - Platform-specific implementations (Browser/Server)
- * - FirebaseServerApp utilities for authenticated SSR
- * - Auth cookie service for token persistence
- * - Route guards using @nxt1/core guard functions
+ * Exports for the authentication system.
+ *
+ * IMPORTANT: This barrel is for BROWSER code only.
+ * Server-specific code (ServerAuthService) must be imported directly
+ * from './server-auth.service' to avoid bundling Firebase SDK in browser.
+ *
+ * Server imports (in app.config.server.ts):
+ * ```typescript
+ * import {
+ *   ServerAuthService,
+ *   SSR_AUTH_TOKEN,
+ *   SSR_FIREBASE_CONFIG,
+ *   initializeServerAuth,
+ * } from './core/auth/server-auth.service';
+ * ```
  */
 
 // Interface and injection token
@@ -20,23 +29,29 @@ export {
   SignUpCredentials,
 } from './auth.interface';
 
-// Platform-specific implementations
+// Browser auth implementation
 export { BrowserAuthService } from './browser-auth.service';
-export { ServerAuthService } from './server-auth.service';
-
-// SSR Auth Token (for FirebaseServerApp)
-export { SSR_AUTH_TOKEN } from './ssr-auth-token';
 
 // Auth Cookie Service (for token persistence)
 export { AuthCookieService, AUTH_TOKEN_COOKIE } from './auth-cookie.service';
 
-// FirebaseServerApp utilities (pure functions, no Angular dependencies)
-export {
-  initializeFirebaseServer,
-  extractAuthTokenFromCookies,
-  type FirebaseServerConfig,
-  type FirebaseServerAppResult,
-} from './firebase-server-app';
-
 // Route Guards (uses @nxt1/core guard functions)
 export { authGuard, guestGuard, premiumGuard, roleGuard } from './auth.guards';
+
+// ============================================
+// SERVER-ONLY EXPORTS - DO NOT USE IN BROWSER
+// ============================================
+// These are NOT exported from the barrel to prevent Firebase SDK
+// from being bundled in the browser. Import directly instead:
+//
+// import {
+//   ServerAuthService,
+//   SSR_AUTH_TOKEN,
+//   SSR_FIREBASE_CONFIG,
+//   initializeServerAuth,
+// } from './core/auth/server-auth.service';
+//
+// import {
+//   initializeFirebaseServer,
+//   extractAuthTokenFromCookies,
+// } from './core/auth/firebase-server-app';

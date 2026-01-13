@@ -56,11 +56,8 @@
               "src/robots.txt",
               "src/manifest.webmanifest"
             ],
-            "styles": ["src/styles.scss"],
+            "styles": ["src/styles.css"],
             "scripts": [],
-            "stylePreprocessorOptions": {
-              "includePaths": ["src/styles", "../../packages/design-tokens"]
-            },
             "optimization": {
               "scripts": true,
               "styles": true,

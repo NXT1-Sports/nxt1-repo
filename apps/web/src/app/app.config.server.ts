@@ -6,27 +6,23 @@
  *
  * Key Differences from Browser Config:
  * - No Ionic providers (requires browser APIs)
- * - No Firebase providers (uses FirebaseServerApp pattern)
- * - ServerAuthService instead of BrowserAuthService
+ * - Uses FirebaseServerApp for authenticated SSR
+ * - ServerAuthService with APP_INITIALIZER for auth state
  * - HTTP transfer state for seamless hydration
  *
  * FirebaseServerApp Pattern (2026):
- * For authenticated SSR, the recommended approach is:
- * 1. Client sends auth token via cookie/header
- * 2. Server initializes FirebaseServerApp with that token
- * 3. Server can make authenticated Firebase calls
- * 4. State is transferred to client via HTTP cache
- *
- * However, for initial implementation, we use a simpler approach:
- * - Server renders unauthenticated state
- * - Client hydrates and initializes Firebase Auth
- * - Protected routes use RenderMode.Client
+ * 1. Client sends auth token via __session cookie
+ * 2. server.ts extracts token and provides via SSR_AUTH_TOKEN
+ * 3. ServerAuthService initializes FirebaseServerApp with token
+ * 4. Authenticated Firestore queries run during SSR
+ * 5. User-specific content rendered on first paint
+ * 6. State transferred to client via hydration
  *
  * @see https://angular.dev/guide/ssr
  * @see https://firebase.google.com/docs/reference/js/app.firebaseserverapp
  */
 
-import { ApplicationConfig, provideZoneChangeDetection } from '@angular/core';
+import { ApplicationConfig, provideZoneChangeDetection, APP_INITIALIZER } from '@angular/core';
 import { provideRouter, withComponentInputBinding, withInMemoryScrolling } from '@angular/router';
 import { provideHttpClient, withFetch } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
@@ -47,23 +43,28 @@ import { serverRoutes } from './app.routes.server';
 // IMPORTANT: Import directly from files, NOT from barrel export
 // Barrel exports would pull in BrowserAuthService which imports Firebase Auth
 import { AUTH_SERVICE } from './core/auth/auth.interface';
-import { ServerAuthService } from './core/auth/server-auth.service';
+import { ServerAuthService, initializeServerAuth } from './core/auth/server-auth.service';
+import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './core/auth/ssr-tokens';
+
+// Environment for Firebase config
+import { environment } from '../environments/environment';
 
 /**
  * Server Application Configuration
  *
- * Minimal providers for server-side rendering.
+ * Full-featured SSR with authenticated FirebaseServerApp.
+ *
+ * Features:
+ * - FirebaseServerApp initialization with auth token
+ * - Authenticated Firestore queries during SSR
+ * - User profile fetching for personalized content
+ * - Proper cleanup after request completes
  *
  * Does NOT include:
  * - Ionic (requires DOM/window)
- * - Firebase Auth/Firestore/Storage (browser SDKs)
+ * - Firebase browser SDKs (use FirebaseServerApp instead)
  * - ServiceWorker (browser-only)
  * - RouteReuseStrategy (Ionic-specific)
- *
- * Uses ServerAuthService which:
- * - Returns unauthenticated state
- * - All methods are no-ops
- * - No Firebase imports
  */
 export const config: ApplicationConfig = {
   providers: [
@@ -110,11 +111,33 @@ export const config: ApplicationConfig = {
     provideAnimationsAsync(),
 
     // ============================================
+    // FIREBASE SERVER APP CONFIGURATION
+    // ============================================
+
+    // Provide Firebase config for ServerAuthService
+    // This is used to initialize FirebaseServerApp
+    { provide: SSR_FIREBASE_CONFIG, useValue: environment.firebase },
+
+    // SSR_AUTH_TOKEN is provided by server.ts via CommonEngine providers
+    // It contains the auth token extracted from the __session cookie
+    // Default to undefined if not provided (unauthenticated SSR)
+    { provide: SSR_AUTH_TOKEN, useValue: undefined },
+
+    // ============================================
     // AUTH SERVICE (Server Implementation)
     // ============================================
 
     // Provide ServerAuthService for AUTH_SERVICE token
-    // This is the SSR-safe noop implementation
+    // This implementation uses FirebaseServerApp for authenticated SSR
     { provide: AUTH_SERVICE, useClass: ServerAuthService },
+
+    // Initialize auth BEFORE rendering starts
+    // This ensures auth state is populated for all components
+    {
+      provide: APP_INITIALIZER,
+      useFactory: initializeServerAuth,
+      deps: [AUTH_SERVICE],
+      multi: true,
+    },
   ],
 };

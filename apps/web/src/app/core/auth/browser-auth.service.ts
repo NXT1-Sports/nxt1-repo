@@ -24,10 +24,11 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
-  GoogleAuthProvider,
   signInWithPopup,
   sendPasswordResetEmail,
 } from '@angular/fire/auth';
+// GoogleAuthProvider must be imported from firebase/auth, not @angular/fire/auth
+import { GoogleAuthProvider } from 'firebase/auth';
 
 import {
   IAuthService,
