@@ -49,7 +49,16 @@
               }
             ],
             "styles": ["src/global.css"],
-            "scripts": []
+            "scripts": [],
+            "externalDependencies": [
+              "firebase",
+              "firebase/auth",
+              "firebase/firestore",
+              "firebase/app",
+              "firebase/storage",
+              "firebase/functions",
+              "firebase/analytics"
+            ]
           },
           "configurations": {
             "production": {
