@@ -9,12 +9,8 @@ mobile, etc.).
 assets/
 ├── index.ts          # TypeScript exports for asset paths
 └── logo/             # Logo assets
-    ├── logo.png      # Main logo (PNG, ~50KB)
-    ├── logo.avif     # Main logo (AVIF, ~10KB, modern browsers)
-    ├── logo_600.avif # Smaller optimized version
-    ├── logo_shadows.png # Logo with shadow effects
-    ├── lighting_bolt_new.png # Lightning bolt icon
-    └── lighting_bolt_small.png # Small lightning bolt
+    ├── nxt1_logo.avif # Main logo (AVIF, ~10KB, modern browsers)
+    └── nxt1_icon.png  # NXT1 lightning bolt icon (PNG)
 ```
 
 ## Usage
@@ -23,13 +19,7 @@ assets/
 
 ```html
 <!-- In templates -->
-<img src="assets/shared/logo/logo.png" alt="NXT1" class="nxt1-logo" />
-
-<!-- With AVIF for modern browsers -->
-<picture>
-  <source srcset="assets/shared/logo/logo.avif" type="image/avif" />
-  <img src="assets/shared/logo/logo.png" alt="NXT1" class="nxt1-logo" />
-</picture>
+<img src="assets/shared/logo/nxt1_logo.avif" alt="NXT1" class="nxt1-logo" />
 ```
 
 ### Option 2: NxtLogoComponent (Recommended)
@@ -58,8 +48,9 @@ import { NxtLogoComponent } from '@nxt1/core';
 import { LOGO_PATHS, LOGO_DIMENSIONS } from '@nxt1/design-tokens/assets';
 
 // Use in component
-const logoSrc = LOGO_PATHS.main; // 'assets/shared/logo/logo.png'
-const { width, height } = LOGO_DIMENSIONS.main; // { width: 800, height: 240 }
+const logoSrc = LOGO_PATHS.main; // 'assets/shared/logo/nxt1_logo.avif'
+const iconSrc = LOGO_PATHS.icon; // 'assets/shared/logo/nxt1_icon.png'
+const { width, height } = LOGO_DIMENSIONS.main; // { width: 600, height: 180 }
 ```
 
 ## CSS Classes

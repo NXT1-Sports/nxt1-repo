@@ -20,11 +20,6 @@
     "enableI18nLegacyMessageIdFormat": false,
     "strictInputAccessModifiers": true
   },
-  "include": [
-    "src/**/*.ts",
-    "auth/**/*.ts",
-    "shared/**/*.ts",
-    "services/**/*.ts"
-  ],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "**/*.spec.ts"]
 }

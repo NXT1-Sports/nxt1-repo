@@ -419,7 +419,7 @@ Components use **Ionic for native behavior** + **Tailwind for styling**:
 
 3. **Verify:**
    - `dist/css/tokens.css` updated
-   - `ionic/_colors.scss` updated
+   - `ionic/ionic-theme.css` maps tokens to Ionic variables
    - All apps will use new color on next build/refresh
 
 ### Adding a New Color
@@ -585,12 +585,13 @@ npm run dev:mobile
 
 ### What about legacy SCSS imports?
 
-For backwards compatibility during migration, legacy paths are available:
+**SCSS has been fully removed from the Ionic integration.** The monorepo now
+uses pure CSS custom properties for all theming:
 
-- `@nxt1/design-tokens/scss` - Generated SCSS variables
-- `@nxt1/design-tokens/ionic-legacy` - SCSS Ionic theme
+- `@nxt1/design-tokens/ionic` - CSS-only Ionic theme (recommended)
+- `@nxt1/design-tokens/css` - Core CSS custom properties
 
-These will be deprecated in a future version. Migrate to CSS imports.
+If you have legacy code using SCSS variables, migrate to CSS imports:
 
 ---
 

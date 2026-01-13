@@ -2,13 +2,17 @@
   Root Application Template
   
   Architecture:
-  - Router outlet always rendered for SSR hydration compatibility
-  - Loading overlay shown as overlay (not blocking)
+  - Uses Ionic's router outlet for consistent navigation behavior across web/mobile
+  - ion-app provides the Ionic framework shell
+  - ion-router-outlet handles page transitions and navigation stack
+  - Loading overlay shown during initial auth resolution
   - Error boundary for critical failures
 -->
 
-<!-- Main Application Content - Always rendered for SSR compatibility -->
-<router-outlet />
+<!-- Main Application Shell -->
+<ion-app>
+  <ion-router-outlet></ion-router-outlet>
+</ion-app>
 
 <!-- Loading Overlay (non-blocking) -->
 @if (loading()) {

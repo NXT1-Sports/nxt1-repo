@@ -39,6 +39,11 @@ import { provideServerRendering, withRoutes } from '@angular/ssr';
 import { routes } from './app.routes';
 import { serverRoutes } from './app.routes.server';
 
+// Ionic SSR Support
+// In Angular 21 standalone mode, provideIonicAngular() handles both browser and server
+// @ionic/angular-server is installed for its server-safe component implementations
+import { provideIonicAngular } from '@ionic/angular/standalone';
+
 // Auth service with injection token pattern
 // IMPORTANT: Import directly from files, NOT from barrel export
 // Barrel exports would pull in BrowserAuthService which imports Firebase Auth
@@ -59,12 +64,12 @@ import { environment } from '../environments/environment';
  * - Authenticated Firestore queries during SSR
  * - User profile fetching for personalized content
  * - Proper cleanup after request completes
+ * - Ionic SSR via @ionic/angular-server
  *
- * Does NOT include:
- * - Ionic (requires DOM/window)
- * - Firebase browser SDKs (use FirebaseServerApp instead)
- * - ServiceWorker (browser-only)
- * - RouteReuseStrategy (Ionic-specific)
+ * Ionic SSR Notes:
+ * - IonicServerModule provides server-safe versions of Ionic components
+ * - provideIonicAngular() still needed for component configuration
+ * - Hydration is handled by Angular's built-in system
  */
 export const config: ApplicationConfig = {
   providers: [
@@ -92,6 +97,15 @@ export const config: ApplicationConfig = {
     // HTTP client for API calls during SSR
     // Data fetched here is transferred to client via HttpTransferCache
     provideHttpClient(withFetch()),
+
+    // ============================================
+    // IONIC SSR CONFIGURATION
+    // ============================================
+    // Ionic components are server-rendered via IonicServerModule
+    // This provides server-safe implementations of Ionic web components
+    provideIonicAngular({
+      mode: undefined, // Auto-detect platform
+    }),
 
     // ============================================
     // HYDRATION - MUST MATCH CLIENT CONFIG

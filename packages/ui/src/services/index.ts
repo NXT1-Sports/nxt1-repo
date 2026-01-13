@@ -23,3 +23,5 @@ export {
   type ToastAction,
   type ToastOptions,
 } from './toast';
+
+export { HapticsService, type HapticImpact, type HapticNotification } from './haptics';

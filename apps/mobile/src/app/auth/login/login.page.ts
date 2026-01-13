@@ -1,9 +1,9 @@
 /**
- * @fileoverview Login Page - Using Shared Auth Components
+ * @fileoverview Login Page - Platform-Adaptive with Haptic Feedback
  * @module @nxt1/mobile
  *
  * Professional login page using shared auth components from @nxt1/ui.
- * Demonstrates cross-platform code sharing between web and mobile.
+ * Features platform-adaptive Ionic buttons with native haptic feedback.
  */
 
 import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
@@ -16,10 +16,11 @@ import {
   AuthEmailFormComponent,
   type AuthEmailFormData,
 } from '@nxt1/ui/auth';
-import { IonIcon } from '@ionic/angular/standalone';
+import { IonButton, IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { mailOutline, keyOutline } from 'ionicons/icons';
 import { MobileAuthService } from '../services/mobile-auth.service';
+import { HapticsService } from '@nxt1/ui/services';
 
 @Component({
   selector: 'app-login',
@@ -31,6 +32,7 @@ import { MobileAuthService } from '../services/mobile-auth.service';
     AuthSocialButtonsComponent,
     AuthDividerComponent,
     AuthEmailFormComponent,
+    IonButton,
     IonIcon,
   ],
   template: `
@@ -55,39 +57,27 @@ import { MobileAuthService } from '../services/mobile-auth.service';
         <nxt1-auth-divider />
 
         <div class="flex flex-col gap-3 w-full">
-          <button
-            type="button"
-            class="flex items-center justify-center gap-3 w-full h-12 px-4
-                   border border-border rounded-xl
-                   bg-surface-200 text-text-primary
-                   text-[15px] font-medium
-                   transition-all duration-200
-                   hover:bg-surface-300 hover:border-white/20
-                   active:scale-[0.98]
-                   disabled:opacity-50 disabled:cursor-not-allowed"
+          <ion-button
+            expand="block"
+            fill="outline"
             [disabled]="authService.isLoading()"
-            (click)="showEmailForm.set(true)"
+            (click)="onEmailClick()"
+            class="email-button"
           >
-            <ion-icon name="mail-outline" class="text-xl text-text-secondary"></ion-icon>
+            <ion-icon slot="start" name="mail-outline"></ion-icon>
             <span>Continue with Email</span>
-          </button>
+          </ion-button>
 
-          <button
-            type="button"
-            class="flex items-center justify-center gap-3 w-full h-12 px-4
-                   border border-border rounded-xl
-                   bg-transparent text-text-primary
-                   text-[15px] font-medium
-                   transition-all duration-200
-                   hover:bg-white/5 hover:border-white/20
-                   active:scale-[0.98]
-                   disabled:opacity-50 disabled:cursor-not-allowed"
+          <ion-button
+            expand="block"
+            fill="clear"
             [disabled]="authService.isLoading()"
             (click)="onTeamCode()"
+            class="team-button"
           >
-            <ion-icon name="key-outline" class="text-xl text-text-secondary"></ion-icon>
+            <ion-icon slot="start" name="key-outline"></ion-icon>
             <span>Have a Team Code?</span>
-          </button>
+          </ion-button>
         </div>
       }
 
@@ -115,15 +105,40 @@ import { MobileAuthService } from '../services/mobile-auth.service';
         By continuing, you agree to NXT1's
         <a href="/terms" class="text-primary hover:text-primary-600 transition-colors">Terms of Service</a>
         and
-        <a href="/privacy" class="text-primary hover:text-primary-600 transition-colors">Privacy Policy</a>
+        <a href="/privacy" class="text-primary-600 transition-colors">Privacy Policy</a>
       </p>
     </nxt1-auth-shell>
   `,
-  styles: [],
+  styles: [
+    `
+      .email-button {
+        --border-color: var(--nxt1-color-border-default);
+        --background: var(--nxt1-color-surface-200);
+        --color: var(--nxt1-color-text-primary);
+        font-family: var(--nxt1-font-family-brand);
+        height: 48px;
+      }
+
+      .email-button:hover {
+        --background: var(--nxt1-color-surface-300);
+      }
+
+      .team-button {
+        --color: var(--nxt1-color-text-primary);
+        font-family: var(--nxt1-font-family-brand);
+        height: 48px;
+      }
+
+      .team-button:hover {
+        --background: rgba(255, 255, 255, 0.05);
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LoginPage {
   readonly authService = inject(MobileAuthService);
+  private readonly haptics = inject(HapticsService);
   private readonly router = inject(Router);
 
   showEmailForm = signal(false);
@@ -132,29 +147,40 @@ export class LoginPage {
     addIcons({ mailOutline, keyOutline });
   }
 
+  async onEmailClick(): Promise<void> {
+    await this.haptics.impact('light');
+    this.showEmailForm.set(true);
+  }
+
   async onEmailSubmit(data: AuthEmailFormData): Promise<void> {
     this.authService.clearError();
     try {
+      await this.haptics.impact('medium');
       await this.authService.signIn({
         email: data.email,
         password: data.password,
       });
+      await this.haptics.notification('success');
     } catch {
+      await this.haptics.notification('error');
       // Error is handled by auth service
     }
   }
 
   async googleSignIn(): Promise<void> {
+    // Haptics handled by social buttons component
     // TODO: Implement Google Sign In
     console.log('Google Sign In');
   }
 
   async appleSignIn(): Promise<void> {
+    // Haptics handled by social buttons component
     // TODO: Implement Apple Sign In
     console.log('Apple Sign In');
   }
 
   async microsoftSignIn(): Promise<void> {
+    // Haptics handled by social buttons component
     // TODO: Implement Microsoft Sign In
     console.log('Microsoft Sign In');
   }
@@ -163,7 +189,8 @@ export class LoginPage {
     this.router.navigate(['/auth/forgot-password']);
   }
 
-  onTeamCode(): void {
+  async onTeamCode(): Promise<void> {
+    await this.haptics.impact('light');
     // TODO: Implement Team Code flow
     console.log('Team Code');
   }

@@ -5,14 +5,15 @@
 
 export const environment = {
   production: true,
-  apiUrl: 'https://api.nxt1sports.com/v1',
+  appVersion: '2.0.0',
+  apiUrl: 'https://backend.nxt1sports.com/v1',
   firebase: {
-    apiKey: 'your-api-key',
-    authDomain: 'nxt-1-de054.firebaseapp.com',
+    apiKey: 'AIzaSyCFhuwGzzza5VbrXCJ_5_l8EisCkZKzoow',
+    authDomain: 'nxt1sports.com',
     projectId: 'nxt-1-de054',
     storageBucket: 'nxt-1-de054.appspot.com',
-    messagingSenderId: 'your-sender-id',
-    appId: 'your-app-id',
-    measurementId: 'your-measurement-id',
+    messagingSenderId: '574223545656',
+    appId: '1:574223545656:web:35d717a721f4b84a45bdcd',
+    measurementId: 'G-SNZ2T18P5G',
   },
 };

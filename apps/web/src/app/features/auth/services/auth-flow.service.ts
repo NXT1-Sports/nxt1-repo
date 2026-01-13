@@ -54,7 +54,6 @@ import { Subscription } from 'rxjs';
 import type { Auth as FirebaseAuthType, User as FirebaseUser } from '@angular/fire/auth';
 
 import { AuthApiService } from './auth-api.service';
-import { AnalyticsService, APP_EVENTS } from '../../../core/services';
 import {
   type UserRole,
   type AuthState as CoreAuthState,
@@ -66,6 +65,13 @@ import {
   getAuthErrorMessage,
   INITIAL_AUTH_STATE,
 } from '@nxt1/core';
+import {
+  type AnalyticsAdapter,
+  createFirebaseAnalyticsAdapterSync,
+  createMemoryAnalyticsAdapter,
+  APP_EVENTS,
+} from '@nxt1/core/analytics';
+import { environment } from '../../../../environments/environment';
 
 /**
  * SSR-Safe Firebase Auth Access
@@ -128,7 +134,9 @@ export class AuthFlowService implements OnDestroy {
   private readonly platform = inject(NxtPlatformService);
   private readonly injector = inject(Injector);
   private readonly authApi = inject(AuthApiService);
-  private readonly analytics = inject(AnalyticsService);
+
+  /** Analytics adapter - web or memory based on platform */
+  private readonly analytics: AnalyticsAdapter = this.createAnalyticsAdapter();
 
   /**
    * Firebase Auth instance - lazy loaded, null on server (SSR)
@@ -177,6 +185,22 @@ export class AuthFlowService implements OnDestroy {
 
   ngOnDestroy(): void {
     this.authStateSubscription?.unsubscribe();
+  }
+
+  /**
+   * Create appropriate analytics adapter based on platform
+   * Uses Firebase SDK on browser (same as mobile), memory adapter on server (SSR)
+   */
+  private createAnalyticsAdapter(): AnalyticsAdapter {
+    if (this.platform.isBrowser()) {
+      return createFirebaseAnalyticsAdapterSync({
+        firebaseConfig: environment.firebase,
+        debug: !environment.production,
+        platform: 'web',
+        appVersion: environment.appVersion,
+      });
+    }
+    return createMemoryAnalyticsAdapter({ enabled: false });
   }
 
   /**
@@ -331,7 +355,8 @@ export class AuthFlowService implements OnDestroy {
 
       // Set analytics user identity and properties
       // These properties persist in GA4 and allow audience segmentation
-      this.analytics.setUser(authUser.uid, {
+      this.analytics.setUserId(authUser.uid);
+      this.analytics.setUserProperties({
         user_type: authUser.role,
         is_premium: authUser.isPremium,
         auth_provider: authUser.provider,
@@ -384,10 +409,9 @@ export class AuthFlowService implements OnDestroy {
       const result = await signInWithEmailAndPassword(this.firebaseAuth, credentials.email, credentials.password);
 
       // Track successful sign in
-      this.analytics.trackAuth('signed_in', 'email');
-      this.analytics.setUser(result.user.uid, {
-        user_type: this.user()?.role,
-      });
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: 'email' });
+      this.analytics.setUserId(result.user.uid);
+      this.analytics.setUserProperties({ user_type: this.user()?.role });
 
       // Navigate to home or onboarding
       const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
@@ -427,10 +451,12 @@ export class AuthFlowService implements OnDestroy {
       const isNewUser = result._tokenResponse?.isNewUser ?? false;
 
       // Track analytics
-      this.analytics.trackAuth(isNewUser ? 'signed_up' : 'signed_in', 'google');
-      this.analytics.setUser(result.user.uid, {
-        user_type: this.user()?.role,
-      });
+      this.analytics.trackEvent(
+        isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN,
+        { method: 'google' }
+      );
+      this.analytics.setUserId(result.user.uid);
+      this.analytics.setUserProperties({ user_type: this.user()?.role });
 
       if (isNewUser) {
         // Create user in backend
@@ -498,11 +524,12 @@ export class AuthFlowService implements OnDestroy {
       }
 
       // Track successful sign up
-      this.analytics.trackAuth('signed_up', 'email', {
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_UP, {
+        method: 'email',
         team_code: credentials.teamCode,
         referral_source: credentials.referralId,
       });
-      this.analytics.setUser(result.user.uid);
+      this.analytics.setUserId(result.user.uid);
 
       // Navigate to onboarding
       await this.router.navigate(['/auth/onboarding']);
@@ -533,7 +560,7 @@ export class AuthFlowService implements OnDestroy {
       const { signOut } = await import('firebase/auth');
 
       // Track sign out before clearing user
-      this.analytics.trackAuth('signed_out');
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_OUT);
       this.analytics.clearUser();
 
       await signOut(this.firebaseAuth);

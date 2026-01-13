@@ -29,10 +29,10 @@ export const appConfig: ApplicationConfig = {
     provideAnimationsAsync(),
 
     // Ionic Configuration
-    // - Disable automatic dark mode (we control theming via NXT1 design tokens)
-    // - Use iOS mode for consistent cross-platform look
+    // - Platform-adaptive: iOS gets iOS design, Android gets Material Design
+    // - Dark mode controlled via NXT1 design tokens
     provideIonicAngular({
-      mode: 'ios',
+      // No mode specified = auto-detect platform (iOS/MD)
     }),
 
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },

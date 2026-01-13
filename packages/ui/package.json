@@ -22,6 +22,10 @@
       "types": "./dist/shared/index.d.ts",
       "default": "./dist/fesm2022/nxt1-ui-shared.mjs"
     },
+    "./services": {
+      "types": "./dist/services/index.d.ts",
+      "default": "./dist/fesm2022/nxt1-ui-services.mjs"
+    },
     "./styles": "./src/styles/index.css",
     "./styles/auth": "./src/styles/auth/auth.css"
   },

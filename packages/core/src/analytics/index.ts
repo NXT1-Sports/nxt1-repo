@@ -2,86 +2,89 @@
  * @fileoverview Analytics Module Barrel Export
  * @module @nxt1/core/analytics
  *
- * Platform-agnostic analytics abstractions for web and mobile.
- * Supports Google Analytics 4 (GA4), Firebase Analytics, and custom providers.
+ * Production-grade, platform-agnostic analytics for NXT1.
+ * Uses Firebase Analytics across all platforms for unified tracking.
  *
- * Architecture:
+ * Architecture (2026 Best Practice):
  * ```
  * ┌─────────────────────────────────────────────────────────────────┐
  * │                    Your Application                             │
- * │  import { createWebAnalyticsAdapter, APP_EVENTS }              │
- * │  const analytics = createWebAnalyticsAdapter(config);          │
+ * │  import { createAnalytics, FIREBASE_EVENTS } from '@nxt1/core/analytics'
+ * │  const analytics = await createAnalytics(config);              │
  * ├─────────────────────────────────────────────────────────────────┤
  * │                  AnalyticsAdapter Interface                     │
  * │  trackEvent() | trackPageView() | setUserId() | ...            │
  * ├───────────────┬─────────────────┬───────────────────────────────┤
- * │ Web (gtag.js) │ Capacitor (FB)  │ Memory (SSR/Test)            │
+ * │ Web (FB SDK)  │ iOS/Android (FB)│ Memory (SSR/Test)            │
+ * │ Firebase JS   │ Capacitor Plugin│ No-op for SSR                │
  * └───────────────┴─────────────────┴───────────────────────────────┘
  * ```
  *
- * @example Web Application
+ * ⭐ RECOMMENDED: Use FIREBASE_EVENTS for standard tracking ⭐
+ * ⭐ Use APP_EVENTS for NXT1-specific custom tracking ⭐
+ *
+ * @example Firebase Recommended Events (Best Practice)
  * ```typescript
  * import {
- *   createWebAnalyticsAdapter,
- *   APP_EVENTS,
- *   type AuthSignedUpEvent,
+ *   createAnalytics,
+ *   FIREBASE_EVENTS,
+ *   USER_PROPERTIES,
  * } from '@nxt1/core/analytics';
  *
- * const analytics = createWebAnalyticsAdapter({
- *   measurementId: 'G-XXXXXXXXXX',
- *   debug: true,
+ * const analytics = await createAnalytics({
+ *   firebaseConfig: environment.firebase,
+ *   debug: !environment.production,
  * });
  *
- * // Type-safe event tracking
- * analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_UP, {
- *   method: 'email',
- *   user_type: 'athlete',
- * } satisfies AuthSignedUpEvent);
- * ```
- *
- * @example Mobile Application (Capacitor)
- * ```typescript
- * import {
- *   createCapacitorAnalyticsAdapter,
- *   APP_EVENTS,
- * } from '@nxt1/core/analytics';
- *
- * const analytics = await createCapacitorAnalyticsAdapter({
- *   platform: 'ios',
- *   debug: false,
+ * // ✅ Use Firebase recommended events for pre-built GA4 reports
+ * analytics.trackEvent(FIREBASE_EVENTS.SIGN_UP, { method: 'email' });
+ * analytics.trackEvent(FIREBASE_EVENTS.LOGIN, { method: 'google' });
+ * analytics.trackEvent(FIREBASE_EVENTS.PURCHASE, {
+ *   transaction_id: 'T_12345',
+ *   value: 9.99,
+ *   currency: 'USD',
  * });
  *
- * analytics.trackEvent(APP_EVENTS.APP_OPENED, {
- *   launch_type: 'cold',
+ * // Set user properties for segmentation
+ * analytics.setUserProperties({
+ *   [USER_PROPERTIES.USER_TYPE]: 'athlete',
+ *   [USER_PROPERTIES.SPORT]: 'football',
+ *   [USER_PROPERTIES.SUBSCRIPTION_TIER]: 'pro',
  * });
  * ```
  *
- * @example Platform Detection
+ * @example Custom NXT1 Events
  * ```typescript
- * import {
- *   createWebAnalyticsAdapter,
- *   createCapacitorAnalyticsAdapter,
- *   createMemoryAnalyticsAdapter,
- *   isCapacitor,
- * } from '@nxt1/core';
+ * import { createAnalytics, APP_EVENTS } from '@nxt1/core/analytics';
  *
- * async function createAnalytics() {
- *   if (typeof window === 'undefined') {
- *     // SSR - use memory adapter
- *     return createMemoryAnalyticsAdapter();
- *   }
- *   if (isCapacitor()) {
- *     // Native mobile - use Firebase
- *     return createCapacitorAnalyticsAdapter({ platform: 'ios' });
- *   }
- *   // Web - use gtag.js
- *   return createWebAnalyticsAdapter({ measurementId: 'G-XXXXXXXXXX' });
- * }
+ * // Use custom events for NXT1-specific features
+ * analytics.trackEvent(APP_EVENTS.PROFILE_VIEWED, {
+ *   profile_id: 'abc123',
+ *   viewer_type: 'coach',
+ * });
+ *
+ * analytics.trackEvent(APP_EVENTS.VIDEO_UPLOADED, {
+ *   video_type: 'highlight',
+ *   duration_seconds: 45,
+ * });
  * ```
  *
  * @author NXT1 Engineering
- * @version 1.0.0
+ * @version 2.0.0
  */
+
+// ============================================
+// ⭐ UNIVERSAL ANALYTICS (RECOMMENDED) ⭐
+// Auto-detects platform and uses correct adapter
+// ============================================
+export {
+  createAnalytics,
+  createAnalyticsSync,
+  detectPlatform,
+  isNativeApp,
+  type Platform,
+  type UniversalAnalyticsConfig,
+} from './universal-analytics';
 
 // ============================================
 // ADAPTER INTERFACE
@@ -98,9 +101,32 @@ export {
 // EVENT CONSTANTS & TYPES
 // ============================================
 export {
-  // Event name constants
+  // ⭐ Firebase Recommended Events (use these first!)
+  FIREBASE_EVENTS,
+  type FirebaseEventName,
+
+  // Firebase Event Parameter Types
+  type SignUpEventParams,
+  type LoginEventParams,
+  type ShareEventParams,
+  type SearchEventParams,
+  type SelectContentEventParams,
+  type JoinGroupEventParams,
+  type AnalyticsItem,
+  type PurchaseEventParams,
+  type BeginCheckoutEventParams,
+  type GenerateLeadEventParams,
+  type ViewItemEventParams,
+  type ExceptionEventParams,
+
+  // Custom NXT1 Event Constants
   APP_EVENTS,
   type AppEventName,
+
+  // ⭐ User Properties (for segmentation & audiences)
+  USER_PROPERTIES,
+  type UserPropertyName,
+  type UserPropertiesMap,
 
   // Event categories
   EVENT_CATEGORIES,
@@ -108,7 +134,7 @@ export {
 
   // Common types
   type TrafficSource,
-  type ViewerType,
+  type UserRole,
   type DeviceType,
   type ContentType,
   type AuthMethod,
@@ -119,6 +145,8 @@ export {
 
   // Helper functions
   getEventCategory,
+  isFirebaseEvent,
+  getFirebaseEquivalent,
 } from './events';
 
 // ============================================
@@ -184,7 +212,22 @@ export {
 } from './event-schemas';
 
 // ============================================
-// WEB ADAPTER (gtag.js / GA4)
+// ⭐ FIREBASE ANALYTICS (RECOMMENDED) ⭐
+// Production-grade adapter using Firebase JS SDK
+// Same backend as mobile - unified analytics
+// ============================================
+export {
+  createFirebaseAnalyticsAdapter,
+  createFirebaseAnalyticsAdapterSync,
+  updateConsent,
+  type FirebaseConfig,
+  type FirebaseAnalyticsConfig,
+  type ConsentSettings,
+} from './firebase-analytics';
+
+// ============================================
+// WEB ADAPTER (gtag.js / GA4) - LEGACY
+// Consider using createFirebaseAnalyticsAdapter instead
 // ============================================
 export {
   createWebAnalyticsAdapter,

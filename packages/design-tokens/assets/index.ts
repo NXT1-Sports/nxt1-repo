@@ -27,33 +27,25 @@
  * Apps should copy design-tokens/assets/logo to assets/shared/logo/
  */
 export const LOGO_PATHS = {
-  /** Main logo (PNG) - 800x240 */
-  main: 'assets/shared/logo/logo.png',
+  /** Main logo (AVIF) - Primary brand logo */
+  main: 'assets/shared/logo/nxt1_logo.avif',
 
   /** Main logo (AVIF) - Modern format, smaller size */
-  mainAvif: 'assets/shared/logo/logo.avif',
+  mainAvif: 'assets/shared/logo/nxt1_logo.avif',
 
-  /** Logo with shadows effect */
-  shadows: 'assets/shared/logo/logo_shadows.png',
+  /** Lightning bolt icon - NXT1 brand icon */
+  icon: 'assets/shared/logo/nxt1_icon.png',
 
-  /** Smaller optimized version (600px width) */
-  small: 'assets/shared/logo/logo_600.avif',
-
-  /** Lightning bolt icon - standard */
-  bolt: 'assets/shared/logo/lighting_bolt_new.png',
-
-  /** Lightning bolt icon - small variant */
-  boltSmall: 'assets/shared/logo/lighting_bolt_small.png',
+  /** Lightning bolt icon - small variant (alias for compatibility) */
+  boltSmall: 'assets/shared/logo/nxt1_icon.png',
 } as const;
 
 /**
  * Logo dimensions for proper sizing
  */
 export const LOGO_DIMENSIONS = {
-  main: { width: 800, height: 240 },
-  small: { width: 600, height: 180 },
-  bolt: { width: 64, height: 64 },
-  boltSmall: { width: 32, height: 32 },
+  main: { width: 600, height: 180 },
+  icon: { width: 32, height: 32 },
 } as const;
 
 // ============================================

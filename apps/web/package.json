@@ -42,6 +42,7 @@
     "@angular/service-worker": "^21.0.6",
     "@angular/ssr": "^21.0.4",
     "@ionic/angular": "^8.6.0",
+    "@ionic/angular-server": "^8.7.16",
     "@nxt1/core": "*",
     "@nxt1/ui": "*",
     "firebase": "^12.7.0",
