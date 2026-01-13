@@ -10,8 +10,11 @@
  * - Node.js (Server/Testing)
  * - Any JavaScript environment
  *
+ * NOTE: For AnalyticsAdapter and platform-agnostic analytics,
+ * import from '@nxt1/core/analytics' directly.
+ *
  * @module @nxt1/core/api/onboarding
- * @version 2.0.0
+ * @version 3.0.0
  */
 
 // ============================================
@@ -54,18 +57,15 @@ export {
 } from './onboarding-persistence.api';
 
 // ============================================
-// ANALYTICS API
+// ANALYTICS API (Onboarding-specific)
+// Uses AnalyticsAdapter from @nxt1/core/analytics
 // ============================================
 export {
   // Factory
   createOnboardingAnalyticsApi,
   type OnboardingAnalyticsApi,
 
-  // Adapter interface
-  type AnalyticsAdapter,
-
   // Types
-  type AnalyticsUserType,
   type OnboardingAnalyticsEvent,
   type StepTrackingPayload,
   type CompletionTrackingPayload,

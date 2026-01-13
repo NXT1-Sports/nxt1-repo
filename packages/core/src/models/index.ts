@@ -3,44 +3,11 @@
  * @module @nxt1/core/models
  *
  * Central export point for all models.
- * NOTE: PLANS enum exists here AND in constants/user.constants
- * NOTE: PostType/UserReaction exist here AND in user.model
+ * 100% portable - no framework dependencies.
  *
  * @author NXT1 Engineering
  * @version 2.0.0
  */
-
-// Common types - export most, but be careful of PLANS duplicate
-export {
-  type FirestoreTimestamp,
-  // PLANS is also exported in user.constants - we export from here for models
-  PLANS,
-  type StatType,
-  type CompetitionLevel,
-  type PrimarySportStat,
-  type GameStat,
-  type SocialLinks,
-  type ContactInfo,
-  type TeamLinks,
-  type TeamCustomLink,
-  type RecentGame,
-  type PersonalBest,
-  type Session,
-  type Award,
-  type UserEvent,
-  type SeasonRecord,
-  type PaymentInfo,
-  type Referral,
-  type AiCopilotUsage,
-  type TeamCodeTrial,
-  type VideoParam,
-  type GameClip,
-  type GameClipsCollection,
-  // Legacy aliases
-  type primarySportStat,
-  type recentGame,
-  type personalBest,
-} from './common.types';
 
 // Team code model
 export {
@@ -54,36 +21,12 @@ export {
   type TeamCode,
 } from './team-code.model';
 
-// User model (v1 compatible) - exports PostType and UserReaction
-export {
-  type College,
-  type CollegeVisit,
-  type CollegeCamp,
-  type CollegeVisits,
-  type OwnTemplate,
-  type OwnMixtape,
-  type OwnProfile,
-  // These are also in user.constants - model version preferred for model imports
-  type PostType,
-  type UserReaction,
-  type MentionData,
-  type AttachedProfileData,
-  type VideoMetadata,
-  type UserPost,
-  type User,
-  type Social,
-  type SocialResponse,
-  type GoogleAdditionalUserInfo,
-  type GoogleProfile,
-  type AuthCredential,
-} from './user.model';
-
-// User V2 model (clean architecture)
+// User model
 export {
   USER_SCHEMA_VERSION,
   type Location,
-  type SocialLinksV2,
-  type ContactInfoV2,
+  type SocialLinks,
+  type ContactInfo,
   type ConnectedAccounts,
   type AcademicInfo,
   type TeamInfo,
@@ -91,7 +34,7 @@ export {
   type AthleticMetrics,
   type SeasonStats,
   type GameStats,
-  type SeasonRecordV2,
+  type SeasonRecord,
   type CollegeOffer,
   type CollegeInteraction,
   type Commitment,
@@ -103,30 +46,33 @@ export {
   type Subscription,
   type NotificationPreferences,
   type UserPreferences,
-  type UserCountersV2,
+  type UserCounters,
   type AthleteData,
   type CoachData,
   type CollegeCoachData,
   type FanData,
-  type UserPostV2,
-  type ReferralV2,
-  type UserV2,
+  type UserPost,
+  type Referral,
+  type User,
   isAthlete,
   isCoach,
   isCollegeCoach,
   isOnboarded,
   getPrimarySport,
   getActiveSport,
-  type UserV2Update,
-  type UserV2Create,
-  type UserV2Summary,
+  type UserUpdate,
+  type UserCreate,
+  type UserSummary,
   toUserSummary,
   createDefaultPreferences,
   createDefaultSubscription,
   createDefaultCounters,
   createDefaultMedia,
   createEmptySportProfile,
-} from './user-v2.model';
+} from './user.model';
 
-// Analytics V2 model
-export * from './analytics-v2.model';
+// User analytics model (profile views, engagement, etc.)
+export * from './user-analytics.model';
+
+// NOTE: App analytics (event tracking) moved to @nxt1/core/analytics
+// Import from: import { APP_EVENTS, ... } from '@nxt1/core/analytics'

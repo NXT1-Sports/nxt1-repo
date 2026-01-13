@@ -374,11 +374,11 @@ export async function withRetry<T>(
 }
 
 // ============================================
-// PAYLOAD BUILDERS (Pure Functions) - UserV2 Format
+// PAYLOAD BUILDERS (Pure Functions)
 // ============================================
 
 /**
- * Map onboarding user type to UserV2 role
+ * Map onboarding user type to User role
  */
 function mapUserTypeToRole(userType: OnboardingUserType): string {
   switch (userType) {
@@ -396,10 +396,10 @@ function mapUserTypeToRole(userType: OnboardingUserType): string {
 }
 
 /**
- * Build user update payload from onboarding state - UserV2 FORMAT
+ * Build user update payload from onboarding state
  * ⭐ PURE FUNCTION - No framework dependencies
  *
- * This builds the payload in UserV2 structure:
+ * This builds the payload in User model structure:
  * - location: { city, state, country }
  * - contact: { email, phone }
  * - social: { twitter, instagram, ... }

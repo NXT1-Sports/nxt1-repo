@@ -1,9 +1,14 @@
 /**
- * @fileoverview Analytics Constants
+ * @fileoverview User Analytics Constants
  * @module @nxt1/core/constants
  *
- * Constants for the analytics system including event types,
- * aggregation periods, and traffic sources.
+ * Constants for the USER ANALYTICS system - stored engagement data
+ * (profile views, video views, traffic sources, viewer breakdowns).
+ * These constants are used by user-analytics.model.ts types.
+ *
+ * For APP ANALYTICS (event tracking sent to Mixpanel/Firebase),
+ * see: models/app-analytics.model.ts
+ *
  * 100% portable - no framework dependencies.
  *
  * @author NXT1 Engineering

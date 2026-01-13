@@ -11,9 +11,9 @@
  * - Handles Firebase auth operations (sign in, sign up, etc.)
  */
 
-import { Injectable, inject, signal, computed, PLATFORM_ID, OnDestroy } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
+import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
+import { NxtPlatformService } from '@nxt1/ui/services';
 import {
   createAuthStateManager,
   createCapacitorStorageAdapter,
@@ -44,7 +44,7 @@ import { Subscription } from 'rxjs';
 export class MobileAuthService implements OnDestroy {
   private readonly auth = inject(Auth);
   private readonly router = inject(Router);
-  private readonly platformId = inject(PLATFORM_ID);
+  private readonly platform = inject(NxtPlatformService);
 
   private authManager!: AuthStateManager;
   private authStateSubscription?: Subscription;
@@ -85,7 +85,7 @@ export class MobileAuthService implements OnDestroy {
     // - Native (Capacitor): Capacitor Preferences
     // - Browser: localStorage
     let storage;
-    if (!isPlatformBrowser(this.platformId)) {
+    if (!this.platform.isBrowser()) {
       storage = createMemoryStorageAdapter();
     } else if (isCapacitor()) {
       storage = await createCapacitorStorageAdapter();
@@ -112,7 +112,7 @@ export class MobileAuthService implements OnDestroy {
    * Uses AngularFire's authState observable which is zone-aware
    */
   private setupFirebaseAuthListener(): void {
-    if (!isPlatformBrowser(this.platformId)) return;
+    if (!this.platform.isBrowser()) return;
 
     // Use AngularFire's authState observable (created in injection context)
     this.authStateSubscription = this.authState$.subscribe(async (firebaseUser) => {

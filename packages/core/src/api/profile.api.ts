@@ -9,7 +9,7 @@
  */
 
 import type { HttpAdapter } from './http-adapter';
-import type { UserV2, UserV2Summary, SportProfile } from '../models/user-v2.model';
+import type { User, UserSummary, SportProfile } from '../models/user.model';
 
 // ============================================
 // COMMON API RESPONSE TYPES
@@ -100,22 +100,22 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
     /**
      * Get user profile by ID
      */
-    async getProfile(userId: string): Promise<ApiResponse<UserV2>> {
-      return http.get<ApiResponse<UserV2>>(`${baseUrl}/profile/${userId}`);
+    async getProfile(userId: string): Promise<ApiResponse<User>> {
+      return http.get<ApiResponse<User>>(`${baseUrl}/profile/${userId}`);
     },
 
     /**
      * Get user profile by username
      */
-    async getProfileByUsername(username: string): Promise<ApiResponse<UserV2>> {
-      return http.get<ApiResponse<UserV2>>(`${baseUrl}/profile/username/${username}`);
+    async getProfileByUsername(username: string): Promise<ApiResponse<User>> {
+      return http.get<ApiResponse<User>>(`${baseUrl}/profile/username/${username}`);
     },
 
     /**
      * Update user profile
      */
-    async updateProfile(userId: string, data: UpdateProfileRequest): Promise<ApiResponse<UserV2>> {
-      return http.put<ApiResponse<UserV2>>(`${baseUrl}/profile/${userId}`, data);
+    async updateProfile(userId: string, data: UpdateProfileRequest): Promise<ApiResponse<User>> {
+      return http.put<ApiResponse<User>>(`${baseUrl}/profile/${userId}`, data);
     },
 
     /**
@@ -148,8 +148,8 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
     /**
      * Search profiles
      */
-    async searchProfiles(params: ProfileSearchParams): Promise<PaginatedResponse<UserV2Summary>> {
-      return http.get<PaginatedResponse<UserV2Summary>>(`${baseUrl}/profile/search`, {
+    async searchProfiles(params: ProfileSearchParams): Promise<PaginatedResponse<UserSummary>> {
+      return http.get<PaginatedResponse<UserSummary>>(`${baseUrl}/profile/search`, {
         params: params as Record<string, string | number | boolean>,
       });
     },
@@ -175,8 +175,8 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
       userId: string,
       page: number = 1,
       limit: number = 20
-    ): Promise<PaginatedResponse<UserV2Summary>> {
-      return http.get<PaginatedResponse<UserV2Summary>>(`${baseUrl}/follow/followers/${userId}`, {
+    ): Promise<PaginatedResponse<UserSummary>> {
+      return http.get<PaginatedResponse<UserSummary>>(`${baseUrl}/follow/followers/${userId}`, {
         params: { page, limit },
       });
     },
@@ -188,8 +188,8 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
       userId: string,
       page: number = 1,
       limit: number = 20
-    ): Promise<PaginatedResponse<UserV2Summary>> {
-      return http.get<PaginatedResponse<UserV2Summary>>(`${baseUrl}/follow/following/${userId}`, {
+    ): Promise<PaginatedResponse<UserSummary>> {
+      return http.get<PaginatedResponse<UserSummary>>(`${baseUrl}/follow/following/${userId}`, {
         params: { page, limit },
       });
     },

@@ -37,6 +37,8 @@
     "test": "turbo run test",
     "test:web": "turbo run test --filter=@nxt1/web",
     "test:core": "turbo run test --filter=@nxt1/core",
+    "test:watch": "npm run test:watch --workspace=@nxt1/core",
+    "test:coverage": "turbo run test:coverage",
     "lint": "turbo run lint",
     "lint:fix": "turbo run lint:fix",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,scss,css}\"",

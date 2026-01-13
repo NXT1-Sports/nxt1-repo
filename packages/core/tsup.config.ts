@@ -11,6 +11,7 @@ export default defineConfig({
     'src/auth/index.ts',
     'src/storage/index.ts',
     'src/platform/index.ts',
+    'src/analytics/index.ts',
   ],
   format: ['cjs', 'esm'],
   dts: {

@@ -1,9 +1,13 @@
 /**
- * @fileoverview Analytics V2 Model
+ * @fileoverview User Analytics Model
  * @module @nxt1/core/models
  *
- * Type-safe analytics data structures for the three-stage pipeline.
+ * Type-safe analytics data structures for user engagement tracking.
+ * Profile views, video views, followers, watch time, etc.
  * 100% portable - no framework dependencies.
+ *
+ * NOTE: This is different from event/funnel tracking (see api/onboarding/).
+ * This model defines data STORED about user engagement metrics.
  *
  * @author NXT1 Engineering
  * @version 2.0.0
@@ -17,7 +21,7 @@ import type {
   ViewerType,
   DeviceType,
   SyncStatus,
-} from '../constants/analytics.constants';
+} from '../constants/user-analytics.constants';
 
 // ============================================
 // STAGE 1: RAW EVENTS
@@ -315,7 +319,7 @@ export interface RealTimeAnalytics {
   viewsLast60Min: number;
 }
 
-export interface TeamAnalyticsV2 {
+export interface TeamAnalytics {
   teamCode: string;
   totalMembers: number;
   activeMembers: number;

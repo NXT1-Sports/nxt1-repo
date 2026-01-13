@@ -27,17 +27,6 @@
             "ssr": {
               "entry": "server.ts"
             },
-            "externalDependencies": [
-              "firebase/app",
-              "firebase/auth",
-              "firebase/firestore",
-              "firebase/storage",
-              "firebase/analytics",
-              "firebase/functions",
-              "@firebase/app",
-              "@firebase/auth",
-              "@firebase/firestore"
-            ],
             "polyfills": ["zone.js"],
             "tsConfig": "tsconfig.app.json",
             "inlineStyleLanguage": "css",

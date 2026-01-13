@@ -49,6 +49,26 @@ export function createMemoryStorageAdapter(): StorageAdapter {
     async keys(): Promise<string[]> {
       return Array.from(store.keys());
     },
+
+    async has(key: string): Promise<boolean> {
+      return store.has(key);
+    },
+
+    async getJSON<T>(key: string): Promise<T | null> {
+      const value = store.get(key);
+      if (value === undefined) return null;
+
+      try {
+        return JSON.parse(value) as T;
+      } catch {
+        console.warn(`[MemoryStorage] Failed to parse JSON for key: ${key}`);
+        return null;
+      }
+    },
+
+    async setJSON<T>(key: string, value: T): Promise<void> {
+      store.set(key, JSON.stringify(value));
+    },
   };
 }
 

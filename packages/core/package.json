@@ -50,6 +50,11 @@
       "types": "./dist/platform/index.d.ts",
       "import": "./dist/platform/index.mjs",
       "require": "./dist/platform/index.js"
+    },
+    "./analytics": {
+      "types": "./dist/analytics/index.d.ts",
+      "import": "./dist/analytics/index.mjs",
+      "require": "./dist/analytics/index.js"
     }
   },
   "files": [

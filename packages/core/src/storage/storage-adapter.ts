@@ -69,7 +69,28 @@ export interface StorageAdapter {
    * Get all keys in storage
    * @returns Array of keys
    */
-  keys?(): Promise<string[]>;
+  keys(): Promise<string[]>;
+
+  /**
+   * Check if a key exists in storage
+   * @param key - Storage key
+   * @returns True if key exists
+   */
+  has(key: string): Promise<boolean>;
+
+  /**
+   * Get a JSON-parsed value from storage
+   * @param key - Storage key
+   * @returns Parsed value or null if not found or invalid JSON
+   */
+  getJSON<T>(key: string): Promise<T | null>;
+
+  /**
+   * Set a JSON-stringified value in storage
+   * @param key - Storage key
+   * @param value - Value to store (will be JSON.stringify'd)
+   */
+  setJSON<T>(key: string, value: T): Promise<void>;
 }
 
 /**

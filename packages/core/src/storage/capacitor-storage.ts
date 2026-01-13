@@ -116,6 +116,44 @@ export function createCapacitorStorageAdapter(): StorageAdapter {
         return [];
       }
     },
+
+    async has(key: string): Promise<boolean> {
+      const preferences = await getPreferences();
+      if (!preferences) return false;
+
+      try {
+        const { value } = await preferences.get({ key });
+        return value !== null;
+      } catch {
+        return false;
+      }
+    },
+
+    async getJSON<T>(key: string): Promise<T | null> {
+      const preferences = await getPreferences();
+      if (!preferences) return null;
+
+      try {
+        const { value } = await preferences.get({ key });
+        if (value === null) return null;
+        return JSON.parse(value) as T;
+      } catch {
+        console.warn(`[CapacitorStorage] Failed to parse JSON for key: ${key}`);
+        return null;
+      }
+    },
+
+    async setJSON<T>(key: string, value: T): Promise<void> {
+      const preferences = await getPreferences();
+      if (!preferences) return;
+
+      try {
+        await preferences.set({ key, value: JSON.stringify(value) });
+      } catch (error) {
+        console.error(`[CapacitorStorage] Failed to set JSON for key: ${key}`, error);
+        throw error;
+      }
+    },
   };
 }
 

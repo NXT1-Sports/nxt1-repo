@@ -5,11 +5,11 @@ import {
   signal,
   computed,
   OnInit,
-  PLATFORM_ID,
   afterNextRender,
 } from '@angular/core';
-import { CommonModule, isPlatformBrowser } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { RouterModule, Router, NavigationEnd } from '@angular/router';
+import { NxtPlatformService } from '@nxt1/ui/services';
 import { filter } from 'rxjs/operators';
 
 /**
@@ -36,7 +36,7 @@ import { filter } from 'rxjs/operators';
 })
 export class AppComponent implements OnInit {
   private readonly router = inject(Router);
-  private readonly platformId = inject(PLATFORM_ID);
+  private readonly platform = inject(NxtPlatformService);
 
   // ============================================
   // STATE SIGNALS
@@ -53,14 +53,6 @@ export class AppComponent implements OnInit {
 
   /** Current year for footer copyright */
   readonly currentYear = new Date().getFullYear();
-
-  // ============================================
-  // PLATFORM HELPERS
-  // ============================================
-
-  private get isBrowser(): boolean {
-    return isPlatformBrowser(this.platformId);
-  }
 
   constructor() {
     // SSR-safe DOM initialization
@@ -101,7 +93,7 @@ export class AppComponent implements OnInit {
    * Called in afterNextRender to ensure DOM is available
    */
   private initializeBrowserFeatures(): void {
-    if (!this.isBrowser) return;
+    if (!this.platform.isBrowser()) return;
 
     // Initialize any browser-specific features here
     // e.g., analytics, service worker registration, etc.
@@ -114,7 +106,7 @@ export class AppComponent implements OnInit {
     this.router.events
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe((event) => {
-        if (this.isBrowser) {
+        if (this.platform.isBrowser()) {
           // Scroll to top on navigation
           window.scrollTo(0, 0);
 

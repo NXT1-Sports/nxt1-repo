@@ -10,7 +10,7 @@
  * @version 2.0.0
  */
 
-import { ContactInfo, SocialLinks } from './common.types';
+import { ContactInfo, SocialLinks } from './user.model';
 
 // ============================================
 // ENUMS

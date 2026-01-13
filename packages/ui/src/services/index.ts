@@ -15,3 +15,11 @@ export {
   type ViewportInfo,
   BREAKPOINTS,
 } from './platform';
+
+export {
+  NxtToastService,
+  type ToastType,
+  type ToastPosition,
+  type ToastAction,
+  type ToastOptions,
+} from './toast';

@@ -23,17 +23,27 @@ export * from './validation.constants';
 // API constants
 export * from './api.constants';
 
-// Analytics constants
-export * from './analytics.constants';
+// User analytics constants (stored engagement data - profile views, traffic sources, etc.)
+export * from './user-analytics.constants';
 
-// Sport constants (legacy) - export only unique symbols not in sport-config
+// Sport constants (single source of truth)
 export {
+  SPORT_IDS,
+  type SportId,
+  SPORTS,
+  type SportName,
+  type FieldDefinition,
+  type StatCategory,
   type SportCell,
   type Sport,
   type SportsMap,
-  formatSportDisplayName,
-  POSITION_MAPPING_BY_SPORT,
+  SPORT_POSITIONS,
   POSITION_ABBREVIATIONS,
+  POSITION_MAPPING_BY_SPORT,
+  SPORT_STATS,
+  ATHLETIC_INFO_FIELDS,
+  formatSportDisplayName,
+  normalizeSportKey,
   formatPositionDisplay,
   DEFAULT_SPORTS,
   SPORT_EMOJI_MAP,
@@ -44,21 +54,6 @@ export {
   SPORT_POSITION_GROUPS,
   DEFAULT_POSITION_GROUPS,
   getPositionGroupsForSport,
-} from './sport.constants';
-
-// Sport configuration - newer, more complete (preferred)
-// Note: normalizeSportKey and getPositionsForSport are in both files - use sport-config version
-export {
-  SPORT_IDS,
-  type SportId,
-  SPORTS,
-  type SportName,
-  type FieldDefinition,
-  type StatCategory,
-  SPORT_POSITIONS,
-  ATHLETIC_INFO_FIELDS,
-  SPORT_STATS,
-  normalizeSportKey,
   getPositionsForSport,
   getAthleticInfoForSport,
   getStatsForSport,
@@ -66,7 +61,7 @@ export {
   getRequiredAthleticInfo,
   isValidSport,
   getAllSports,
-} from './sport-config.constants';
+} from './sport.constants';
 
 // Location constants (states, countries)
 export * from './location.constants';

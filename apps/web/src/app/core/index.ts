@@ -11,3 +11,6 @@
 
 // Infrastructure
 export * from './infrastructure';
+
+// Services
+export * from './services';

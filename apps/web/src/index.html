@@ -68,6 +68,17 @@
 
     <!-- Apple Touch Icon -->
     <link rel="apple-touch-icon" href="assets/icons/icon-192x192.png" />
+
+    <!-- Google Analytics 4 / Firebase Analytics -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-13NF238EE7"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag() {
+        dataLayer.push(arguments);
+      }
+      gtag("js", new Date());
+      gtag("config", "G-13NF238EE7");
+    </script>
   </head>
   <body>
     <app-root></app-root>

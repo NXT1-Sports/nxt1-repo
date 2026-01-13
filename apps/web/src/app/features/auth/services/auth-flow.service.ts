@@ -5,7 +5,7 @@
  * - Firebase Auth (SDK operations)
  * - Auth API (Backend HTTP calls)
  * - Router (Navigation)
- * - State management
+ * - State management (via @nxt1/core AuthStateManager)
  *
  * This is the DOMAIN layer - it knows about business rules but not UI.
  * Components should use this service, not call Firebase/API directly.
@@ -18,14 +18,22 @@
  * │              ⭐ AuthFlowService (THIS FILE) ⭐              │
  * │           Orchestrates business logic & state              │
  * ├────────────────────────────────────────────────────────────┤
- * │        AuthApiService          FirebaseAuthService         │
- * │        (Backend API)           (Firebase SDK)              │
+ * │             createAuthStateManager (@nxt1/core)            │
+ * │         Pure TypeScript state - same as mobile app         │
+ * ├────────────────────────────────────────────────────────────┤
+ * │        AuthApiService          Firebase Auth (SSR-safe)    │
+ * │        (Backend API)           (Lazy-loaded on browser)    │
  * └────────────────────────────────────────────────────────────┘
  *
  * SSR Compatibility:
- * - Uses optional injection for Firebase Auth (not available on server)
- * - All Firebase operations are browser-only
+ * - Uses memory storage adapter on server (SSR)
+ * - Uses browser storage adapter on client
+ * - Lazily loads Firebase Auth only on browser
  * - Server renders with default unauthenticated state
+ *
+ * ⭐ PORTABLE STATE MANAGEMENT ⭐
+ * Uses the same createAuthStateManager from @nxt1/core as mobile,
+ * ensuring consistent auth state handling across all platforms.
  *
  * @module @nxt1/web/features/auth
  */
@@ -34,21 +42,30 @@ import {
   inject,
   signal,
   computed,
-  PLATFORM_ID,
-  InjectionToken,
   Injector,
   OnDestroy,
   runInInjectionContext,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { isPlatformBrowser } from '@angular/common';
+import { NxtPlatformService } from '@nxt1/ui/services';
 import { Subscription } from 'rxjs';
 
 // Type-only imports - these don't cause runtime code to execute
 import type { Auth as FirebaseAuthType, User as FirebaseUser } from '@angular/fire/auth';
 
 import { AuthApiService } from './auth-api.service';
-import type { UserRole } from '@nxt1/core';
+import { AnalyticsService, APP_EVENTS } from '../../../core/services';
+import {
+  type UserRole,
+  type AuthState as CoreAuthState,
+  type AuthStateManager,
+  type AuthUser,
+  createAuthStateManager,
+  createBrowserStorageAdapter,
+  createMemoryStorageAdapter,
+  getAuthErrorMessage,
+  INITIAL_AUTH_STATE,
+} from '@nxt1/core';
 
 /**
  * SSR-Safe Firebase Auth Access
@@ -67,25 +84,8 @@ type Auth = FirebaseAuthType;
 // TYPES
 // ============================================
 
-export interface AuthState {
-  user: AppUser | null;
-  firebaseUser: FirebaseUser | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  error: string | null;
-}
-
-export interface AppUser {
-  uid: string;
-  email: string;
-  displayName: string;
-  photoURL?: string;
-  role: UserRole;
-  isPremium: boolean;
-  hasCompletedOnboarding: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+// Note: We use AuthUser directly from @nxt1/core
+// hasCompletedOnboarding is already included in the core type
 
 export interface SignInCredentials {
   email: string;
@@ -105,7 +105,8 @@ export interface SignUpCredentials {
  * Auth Flow Service
  *
  * Manages all authentication flows and user state.
- * Uses signals for reactive state management.
+ * Uses createAuthStateManager from @nxt1/core for portable state management.
+ * Angular signals expose the state reactively to components.
  *
  * @example
  * ```typescript
@@ -124,9 +125,10 @@ export interface SignUpCredentials {
 @Injectable({ providedIn: 'root' })
 export class AuthFlowService implements OnDestroy {
   private readonly router = inject(Router);
-  private readonly platformId = inject(PLATFORM_ID);
+  private readonly platform = inject(NxtPlatformService);
   private readonly injector = inject(Injector);
   private readonly authApi = inject(AuthApiService);
+  private readonly analytics = inject(AnalyticsService);
 
   /**
    * Firebase Auth instance - lazy loaded, null on server (SSR)
@@ -136,47 +138,75 @@ export class AuthFlowService implements OnDestroy {
   private firebaseAuth: Auth | null = null;
   private authStateSubscription?: Subscription;
 
+  /**
+   * ⭐ Core Auth State Manager - Same pattern as mobile app ⭐
+   *
+   * Uses memory storage on server (SSR) and browser storage on client.
+   * This is the portable state management from @nxt1/core.
+   */
+  private authManager!: AuthStateManager;
+
   // ============================================
-  // STATE SIGNALS (Private Writable)
+  // STATE SIGNAL (Synced from AuthStateManager)
   // ============================================
-  private readonly _user = signal<AppUser | null>(null);
-  private readonly _firebaseUser = signal<FirebaseUser | null>(null);
-  private readonly _isLoading = signal(true);
-  private readonly _error = signal<string | null>(null);
-  private readonly _isInitialized = signal(false);
+  private readonly _state = signal<CoreAuthState>(INITIAL_AUTH_STATE);
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS (Read-only)
   // ============================================
-  readonly user = computed(() => this._user());
-  readonly firebaseUser = computed(() => this._firebaseUser());
-  readonly isLoading = computed(() => this._isLoading());
-  readonly error = computed(() => this._error());
-  readonly isInitialized = computed(() => this._isInitialized());
+  readonly user = computed(() => this._state().user);
+  readonly firebaseUser = computed(() => this._state().firebaseUser);
+  readonly isLoading = computed(() => this._state().isLoading);
+  readonly error = computed(() => this._state().error);
+  readonly isInitialized = computed(() => this._state().isInitialized);
 
-  readonly isAuthenticated = computed(() => this._firebaseUser() !== null);
+  readonly isAuthenticated = computed(() => this._state().user !== null);
 
-  readonly userRole = computed(() => this._user()?.role ?? null);
-  readonly isPremium = computed(() => this._user()?.isPremium ?? false);
-  readonly hasCompletedOnboarding = computed(() => this._user()?.hasCompletedOnboarding ?? false);
+  readonly userRole = computed(() => this._state().user?.role ?? null);
+  readonly isPremium = computed(() => this._state().user?.isPremium ?? false);
+  readonly hasCompletedOnboarding = computed(() => this._state().user?.hasCompletedOnboarding ?? false);
 
   // ============================================
   // INITIALIZATION
   // ============================================
 
   constructor() {
-    // Initialize auth state listener (browser only)
-    if (isPlatformBrowser(this.platformId)) {
-      this.initializeOnBrowser();
-    } else {
-      // On server, mark as initialized with no user
-      this._isLoading.set(false);
-      this._isInitialized.set(true);
-    }
+    // Initialize auth state manager based on platform
+    this.initializeAuthManager();
   }
 
   ngOnDestroy(): void {
     this.authStateSubscription?.unsubscribe();
+  }
+
+  /**
+   * Initialize the auth state manager with appropriate storage adapter
+   *
+   * Uses the same pattern as mobile app:
+   * - Server (SSR): memory storage
+   * - Browser: localStorage
+   */
+  private initializeAuthManager(): void {
+    // Use appropriate storage based on platform
+    const storage = this.platform.isBrowser()
+      ? createBrowserStorageAdapter()
+      : createMemoryStorageAdapter();
+
+    this.authManager = createAuthStateManager(storage);
+
+    // Subscribe to state changes from the manager
+    this.authManager.subscribe((state) => {
+      this._state.set(state);
+    });
+
+    // Initialize manager and Firebase Auth
+    if (this.platform.isBrowser()) {
+      this.initializeOnBrowser();
+    } else {
+      // On server, mark as initialized with no user
+      this.authManager.setLoading(false);
+      this.authManager.setInitialized(true);
+    }
   }
 
   /**
@@ -185,6 +215,9 @@ export class AuthFlowService implements OnDestroy {
    */
   private async initializeOnBrowser(): Promise<void> {
     try {
+      // Initialize from storage (restore persisted state)
+      await this.authManager.initialize();
+
       // Dynamically import the Auth token and inject it
       const { Auth } = await import('@angular/fire/auth');
       this.firebaseAuth = this.injector.get(Auth, null);
@@ -192,13 +225,13 @@ export class AuthFlowService implements OnDestroy {
       if (this.firebaseAuth) {
         this.initAuthStateListener();
       } else {
-        this._isLoading.set(false);
-        this._isInitialized.set(true);
+        this.authManager.setLoading(false);
+        this.authManager.setInitialized(true);
       }
     } catch (err) {
       console.error('[AuthFlowService] Failed to initialize Firebase Auth:', err);
-      this._isLoading.set(false);
-      this._isInitialized.set(true);
+      this.authManager.setLoading(false);
+      this.authManager.setInitialized(true);
     }
   }
 
@@ -219,38 +252,68 @@ export class AuthFlowService implements OnDestroy {
     // This prevents the "Firebase API called outside injection context" warning
     runInInjectionContext(this.injector, () => {
       this.authStateSubscription = authState(this.firebaseAuth!).subscribe(async (firebaseUser) => {
-        this._isLoading.set(true);
+        this.authManager.setLoading(true);
 
         try {
-          this._firebaseUser.set(firebaseUser);
-
           if (firebaseUser) {
-            // User is signed in - fetch profile from backend
+            // Set Firebase user info in manager
+            this.authManager.setFirebaseUser({
+              uid: firebaseUser.uid,
+              email: firebaseUser.email,
+              displayName: firebaseUser.displayName,
+              photoURL: firebaseUser.photoURL,
+              emailVerified: firebaseUser.emailVerified,
+              metadata: {
+                creationTime: firebaseUser.metadata?.creationTime,
+                lastSignInTime: firebaseUser.metadata?.lastSignInTime,
+              },
+            });
+
+            // Store token for API calls
+            const token = await firebaseUser.getIdToken();
+            await this.authManager.setToken({
+              token,
+              expiresAt: Date.now() + 55 * 60 * 1000, // ~55 min
+              userId: firebaseUser.uid,
+            });
+
+            // User is signed in - sync profile
             await this.syncUserProfile(firebaseUser);
           } else {
-            // User is signed out
-            this._user.set(null);
+            // User is signed out - reset state
+            await this.authManager.reset();
           }
         } catch (err) {
           console.error('[AuthFlowService] Auth state sync failed:', err);
-          this._error.set(err instanceof Error ? err.message : 'Authentication error');
+          this.authManager.setError(err instanceof Error ? err.message : 'Authentication error');
         } finally {
-          this._isLoading.set(false);
-          this._isInitialized.set(true);
+          this.authManager.setLoading(false);
+          this.authManager.setInitialized(true);
         }
       });
     });
   }
 
   /**
-   * Sync user profile from Firebase user
+   * Sync user profile from Firebase user and set analytics identity
+   *
+   * This method:
+   * 1. Fetches/creates local AuthUser state
+   * 2. Sets analytics user ID and properties for tracking
+   *
+   * Analytics user properties allow you to segment users in GA4:
+   * - user_type: 'athlete' | 'coach' | 'parent' | etc.
+   * - is_premium: boolean for subscription status
+   * - auth_provider: how they signed in
+   * These persist across sessions until explicitly changed.
+   *
    * TODO: Fetch full profile from backend API when available
    */
   private async syncUserProfile(firebaseUser: FirebaseUser): Promise<void> {
     try {
       // For now, create a basic user from Firebase data
       // TODO: Replace with backend API call when profile endpoint is ready
-      this._user.set({
+      const authUser: AuthUser = {
         uid: firebaseUser.uid,
         email: firebaseUser.email ?? '',
         displayName: firebaseUser.displayName ?? 'User',
@@ -258,12 +321,43 @@ export class AuthFlowService implements OnDestroy {
         role: 'athlete' as UserRole,
         isPremium: false,
         hasCompletedOnboarding: false, // Will be determined by backend
+        provider: this.getProviderFromFirebase(firebaseUser),
+        emailVerified: firebaseUser.emailVerified,
         createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+      };
+
+      await this.authManager.setUser(authUser);
+
+      // Set analytics user identity and properties
+      // These properties persist in GA4 and allow audience segmentation
+      this.analytics.setUser(authUser.uid, {
+        user_type: authUser.role,
+        is_premium: authUser.isPremium,
+        auth_provider: authUser.provider,
       });
     } catch (err) {
       console.error('[AuthFlowService] Failed to sync user profile:', err);
       // Don't clear user on profile fetch failure - may be temporary
+    }
+  }
+
+  /**
+   * Get auth provider from Firebase user
+   */
+  private getProviderFromFirebase(
+    user: FirebaseUser
+  ): 'email' | 'google' | 'apple' | 'anonymous' {
+    const providerId = user.providerData[0]?.providerId;
+    switch (providerId) {
+      case 'google.com':
+        return 'google';
+      case 'apple.com':
+        return 'apple';
+      case 'password':
+        return 'email';
+      default:
+        return user.isAnonymous ? 'anonymous' : 'email';
     }
   }
 
@@ -276,18 +370,24 @@ export class AuthFlowService implements OnDestroy {
    */
   async signInWithEmail(credentials: SignInCredentials): Promise<boolean> {
     if (!this.firebaseAuth) {
-      this._error.set('Authentication not available');
+      this.authManager.setError('Authentication not available');
       return false;
     }
 
-    this._isLoading.set(true);
-    this._error.set(null);
+    this.authManager.setLoading(true);
+    this.authManager.setError(null);
 
     try {
       // Dynamic import for SSR safety
       const { signInWithEmailAndPassword } = await import('firebase/auth');
 
-      await signInWithEmailAndPassword(this.firebaseAuth, credentials.email, credentials.password);
+      const result = await signInWithEmailAndPassword(this.firebaseAuth, credentials.email, credentials.password);
+
+      // Track successful sign in
+      this.analytics.trackAuth('signed_in', 'email');
+      this.analytics.setUser(result.user.uid, {
+        user_type: this.user()?.role,
+      });
 
       // Navigate to home or onboarding
       const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
@@ -295,11 +395,11 @@ export class AuthFlowService implements OnDestroy {
       await this.router.navigate([redirectPath]);
       return true;
     } catch (err) {
-      const message = this.getFirebaseErrorMessage(err);
-      this._error.set(message);
+      const message = getAuthErrorMessage(err);
+      this.authManager.setError(message);
       return false;
     } finally {
-      this._isLoading.set(false);
+      this.authManager.setLoading(false);
     }
   }
 
@@ -308,12 +408,12 @@ export class AuthFlowService implements OnDestroy {
    */
   async signInWithGoogle(): Promise<boolean> {
     if (!this.firebaseAuth) {
-      this._error.set('Authentication not available');
+      this.authManager.setError('Authentication not available');
       return false;
     }
 
-    this._isLoading.set(true);
-    this._error.set(null);
+    this.authManager.setLoading(true);
+    this.authManager.setError(null);
 
     try {
       // Dynamic imports for SSR safety
@@ -325,6 +425,12 @@ export class AuthFlowService implements OnDestroy {
       // Check if this is a new user
       // @ts-expect-error additionalUserInfo is on the result
       const isNewUser = result._tokenResponse?.isNewUser ?? false;
+
+      // Track analytics
+      this.analytics.trackAuth(isNewUser ? 'signed_up' : 'signed_in', 'google');
+      this.analytics.setUser(result.user.uid, {
+        user_type: this.user()?.role,
+      });
 
       if (isNewUser) {
         // Create user in backend
@@ -342,11 +448,11 @@ export class AuthFlowService implements OnDestroy {
 
       return true;
     } catch (err) {
-      const message = this.getFirebaseErrorMessage(err);
-      this._error.set(message);
+      const message = getAuthErrorMessage(err);
+      this.authManager.setError(message);
       return false;
     } finally {
-      this._isLoading.set(false);
+      this.authManager.setLoading(false);
     }
   }
 
@@ -359,12 +465,12 @@ export class AuthFlowService implements OnDestroy {
    */
   async signUpWithEmail(credentials: SignUpCredentials): Promise<boolean> {
     if (!this.firebaseAuth) {
-      this._error.set('Authentication not available');
+      this.authManager.setError('Authentication not available');
       return false;
     }
 
-    this._isLoading.set(true);
-    this._error.set(null);
+    this.authManager.setLoading(true);
+    this.authManager.setError(null);
 
     try {
       // Dynamic import for SSR safety
@@ -391,15 +497,22 @@ export class AuthFlowService implements OnDestroy {
         );
       }
 
+      // Track successful sign up
+      this.analytics.trackAuth('signed_up', 'email', {
+        team_code: credentials.teamCode,
+        referral_source: credentials.referralId,
+      });
+      this.analytics.setUser(result.user.uid);
+
       // Navigate to onboarding
       await this.router.navigate(['/auth/onboarding']);
       return true;
     } catch (err) {
-      const message = this.getFirebaseErrorMessage(err);
-      this._error.set(message);
+      const message = getAuthErrorMessage(err);
+      this.authManager.setError(message);
       return false;
     } finally {
-      this._isLoading.set(false);
+      this.authManager.setLoading(false);
     }
   }
 
@@ -413,21 +526,24 @@ export class AuthFlowService implements OnDestroy {
   async signOut(): Promise<void> {
     if (!this.firebaseAuth) return;
 
-    this._isLoading.set(true);
+    this.authManager.setLoading(true);
 
     try {
       // Dynamic import for SSR safety
       const { signOut } = await import('firebase/auth');
 
+      // Track sign out before clearing user
+      this.analytics.trackAuth('signed_out');
+      this.analytics.clearUser();
+
       await signOut(this.firebaseAuth);
-      this._user.set(null);
-      this._firebaseUser.set(null);
+      await this.authManager.reset();
       await this.router.navigate(['/explore']);
     } catch (err) {
       console.error('[AuthFlowService] Sign out failed:', err);
-      this._error.set('Failed to sign out');
+      this.authManager.setError('Failed to sign out');
     } finally {
-      this._isLoading.set(false);
+      this.authManager.setLoading(false);
     }
   }
 
@@ -440,12 +556,12 @@ export class AuthFlowService implements OnDestroy {
    */
   async sendPasswordResetEmail(email: string): Promise<boolean> {
     if (!this.firebaseAuth) {
-      this._error.set('Authentication not available');
+      this.authManager.setError('Authentication not available');
       return false;
     }
 
-    this._isLoading.set(true);
-    this._error.set(null);
+    this.authManager.setLoading(true);
+    this.authManager.setError(null);
 
     try {
       // Dynamic import for SSR safety
@@ -454,11 +570,11 @@ export class AuthFlowService implements OnDestroy {
       await sendPasswordResetEmail(this.firebaseAuth, email);
       return true;
     } catch (err) {
-      const message = this.getFirebaseErrorMessage(err);
-      this._error.set(message);
+      const message = getAuthErrorMessage(err);
+      this.authManager.setError(message);
       return false;
     } finally {
-      this._isLoading.set(false);
+      this.authManager.setLoading(false);
     }
   }
 
@@ -470,66 +586,48 @@ export class AuthFlowService implements OnDestroy {
    * Clear current error
    */
   clearError(): void {
-    this._error.set(null);
+    this.authManager.setError(null);
   }
 
   /**
    * Get ID token for authenticated requests
    */
   async getIdToken(): Promise<string | null> {
-    const user = this._firebaseUser();
-    if (!user) return null;
-
-    try {
-      return await user.getIdToken();
-    } catch {
-      return null;
+    // First try to get from auth manager (cached)
+    const storedToken = await this.authManager.getToken();
+    if (storedToken && await this.authManager.isTokenValid()) {
+      return storedToken.token;
     }
+
+    // If no valid cached token, get fresh from Firebase
+    const firebaseUser = this._state().firebaseUser;
+    if (!firebaseUser?.uid) return null;
+
+    // Need to get fresh token from Firebase Auth
+    if (this.firebaseAuth?.currentUser) {
+      try {
+        const freshToken = await this.firebaseAuth.currentUser.getIdToken();
+        // Update stored token
+        await this.authManager.setToken({
+          token: freshToken,
+          expiresAt: Date.now() + 55 * 60 * 1000,
+          userId: firebaseUser.uid,
+        });
+        return freshToken;
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
   }
 
   /**
    * Force refresh user profile from backend
    */
   async refreshUserProfile(): Promise<void> {
-    const firebaseUser = this._firebaseUser();
-    if (firebaseUser) {
-      await this.syncUserProfile(firebaseUser);
+    if (this.firebaseAuth?.currentUser) {
+      await this.syncUserProfile(this.firebaseAuth.currentUser);
     }
-  }
-
-  // ============================================
-  // PRIVATE HELPERS
-  // ============================================
-
-  /**
-   * Extract user-friendly error message from Firebase error
-   */
-  private getFirebaseErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-      // Firebase error codes
-      const code = (error as { code?: string }).code;
-
-      switch (code) {
-        case 'auth/user-not-found':
-        case 'auth/wrong-password':
-          return 'Invalid email or password';
-        case 'auth/email-already-in-use':
-          return 'An account with this email already exists';
-        case 'auth/weak-password':
-          return 'Password should be at least 6 characters';
-        case 'auth/invalid-email':
-          return 'Please enter a valid email address';
-        case 'auth/too-many-requests':
-          return 'Too many attempts. Please try again later';
-        case 'auth/network-request-failed':
-          return 'Network error. Please check your connection';
-        case 'auth/popup-closed-by-user':
-          return 'Sign in was cancelled';
-        default:
-          return error.message || 'An unexpected error occurred';
-      }
-    }
-
-    return 'An unexpected error occurred';
   }
 }

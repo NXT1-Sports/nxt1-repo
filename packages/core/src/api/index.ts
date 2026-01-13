@@ -49,11 +49,10 @@ export {
   withRetry,
   buildUserUpdatePayload,
   buildReferralSourcePayload,
-  // Analytics API
+  // Analytics API (onboarding-specific)
+  // NOTE: For AnalyticsAdapter, import from @nxt1/core/analytics
   createOnboardingAnalyticsApi,
   type OnboardingAnalyticsApi,
-  type AnalyticsAdapter,
-  type AnalyticsUserType,
   type OnboardingAnalyticsEvent,
   type StepTrackingPayload,
   type CompletionTrackingPayload,

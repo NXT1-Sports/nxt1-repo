@@ -10,10 +10,6 @@
  * - Node.js (Backend/Functions)
  * - Any JavaScript environment
  *
- * NOTE: Uses explicit exports to avoid duplicate symbol conflicts.
- * Some symbols (PLANS, PostType, UserReaction) exist in both models and constants.
- * We export the constants versions by default.
- *
  * @example
  * ```typescript
  * // Import everything
@@ -30,41 +26,18 @@
  * @version 2.0.0
  */
 
-// Constants - all exports (includes PLANS, PostType, UserReaction)
+// ============================================
+// CONSTANTS
+// ============================================
+
 export * from './constants';
 
-// Models - export avoiding duplicates with constants
-// PLANS is in both common.types and user.constants - use constants version
-// PostType/UserReaction in both user.model and user.constants - use constants version
+// ============================================
+// MODELS
+// ============================================
+
 export {
-  // Common types (excluding PLANS - use from constants)
-  type FirestoreTimestamp,
-  type StatType,
-  type CompetitionLevel,
-  type PrimarySportStat,
-  type GameStat,
-  type SocialLinks,
-  type ContactInfo,
-  type TeamLinks,
-  type TeamCustomLink,
-  type RecentGame,
-  type PersonalBest,
-  type Session,
-  type Award,
-  type UserEvent,
-  type SeasonRecord,
-  type PaymentInfo,
-  type Referral,
-  type AiCopilotUsage,
-  type TeamCodeTrial,
-  type VideoParam,
-  type GameClip,
-  type GameClipsCollection,
-  // Legacy aliases
-  type primarySportStat,
-  type recentGame,
-  type personalBest,
-  // Team code model
+  // Team code
   ROLE,
   TEAM_TYPE,
   type TeamTypeApi,
@@ -73,29 +46,11 @@ export {
   type Analytic,
   type Code,
   type TeamCode,
-  // User model (excluding PostType, UserReaction - use from constants)
-  type College,
-  type CollegeVisit,
-  type CollegeCamp,
-  type CollegeVisits,
-  type OwnTemplate,
-  type OwnMixtape,
-  type OwnProfile,
-  type MentionData,
-  type AttachedProfileData,
-  type VideoMetadata,
-  type UserPost,
-  type User,
-  type Social,
-  type SocialResponse,
-  type GoogleAdditionalUserInfo,
-  type GoogleProfile,
-  type AuthCredential,
-  // User V2 model
+  // User model
   USER_SCHEMA_VERSION,
   type Location,
-  type SocialLinksV2,
-  type ContactInfoV2,
+  type SocialLinks,
+  type ContactInfo,
   type ConnectedAccounts,
   type AcademicInfo,
   type TeamInfo,
@@ -103,7 +58,7 @@ export {
   type AthleticMetrics,
   type SeasonStats,
   type GameStats,
-  type SeasonRecordV2,
+  type SeasonRecord,
   type CollegeOffer,
   type CollegeInteraction,
   type Commitment,
@@ -115,23 +70,23 @@ export {
   type Subscription,
   type NotificationPreferences,
   type UserPreferences,
-  type UserCountersV2,
+  type UserCounters,
   type AthleteData,
   type CoachData,
   type CollegeCoachData,
   type FanData,
-  type UserPostV2,
-  type ReferralV2,
-  type UserV2,
+  type UserPost,
+  type Referral,
+  type User,
   isAthlete,
   isCoach,
   isCollegeCoach,
   isOnboarded,
   getPrimarySport,
   getActiveSport,
-  type UserV2Update,
-  type UserV2Create,
-  type UserV2Summary,
+  type UserUpdate,
+  type UserCreate,
+  type UserSummary,
   toUserSummary,
   createDefaultPreferences,
   createDefaultSubscription,
@@ -140,11 +95,16 @@ export {
   createEmptySportProfile,
 } from './models';
 
-// API - all unique exports
+// ============================================
+// API
+// ============================================
+
 export * from './api';
 
-// Helpers - export avoiding duplicates with validation.constants
-// isValidEmail and isValidUrl are in both - use helpers versions for this export
+// ============================================
+// HELPERS
+// ============================================
+
 export {
   // Validators
   isValidEmail,

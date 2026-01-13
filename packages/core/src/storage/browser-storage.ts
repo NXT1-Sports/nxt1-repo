@@ -91,6 +91,45 @@ export function createBrowserStorageAdapter(type: BrowserStorageType = 'local'):
         return [];
       }
     },
+
+    async has(key: string): Promise<boolean> {
+      const storage = getStorage();
+      if (!storage) return false;
+
+      try {
+        return storage.getItem(key) !== null;
+      } catch {
+        return false;
+      }
+    },
+
+    async getJSON<T>(key: string): Promise<T | null> {
+      const storage = getStorage();
+      if (!storage) return null;
+
+      try {
+        const value = storage.getItem(key);
+        if (value === null) return null;
+        return JSON.parse(value) as T;
+      } catch {
+        console.warn(`[BrowserStorage] Failed to parse JSON for key: ${key}`);
+        return null;
+      }
+    },
+
+    async setJSON<T>(key: string, value: T): Promise<void> {
+      const storage = getStorage();
+      if (!storage) return;
+
+      try {
+        storage.setItem(key, JSON.stringify(value));
+      } catch (error) {
+        if (error instanceof Error && error.name === 'QuotaExceededError') {
+          console.error('[BrowserStorage] Storage quota exceeded');
+        }
+        throw error;
+      }
+    },
   };
 }
 

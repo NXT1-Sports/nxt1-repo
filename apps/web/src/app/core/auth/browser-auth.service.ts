@@ -39,7 +39,7 @@ import {
 } from './auth.interface';
 import { AuthApiService } from '../../features/auth/services/auth-api.service';
 import { AuthCookieService } from './auth-cookie.service';
-import type { UserRole } from '@nxt1/core';
+import { type UserRole, getAuthErrorMessage } from '@nxt1/core';
 
 /**
  * Browser Authentication Service
@@ -192,7 +192,7 @@ export class BrowserAuthService implements IAuthService {
       await this.router.navigate([redirectPath]);
       return true;
     } catch (err) {
-      const message = this.getFirebaseErrorMessage(err);
+      const message = getAuthErrorMessage(err);
       this._error.set(message);
       return false;
     } finally {
@@ -225,7 +225,7 @@ export class BrowserAuthService implements IAuthService {
 
       return true;
     } catch (err) {
-      const message = this.getFirebaseErrorMessage(err);
+      const message = getAuthErrorMessage(err);
       this._error.set(message);
       return false;
     } finally {
@@ -264,7 +264,7 @@ export class BrowserAuthService implements IAuthService {
       await this.router.navigate(['/auth/onboarding']);
       return true;
     } catch (err) {
-      const message = this.getFirebaseErrorMessage(err);
+      const message = getAuthErrorMessage(err);
       this._error.set(message);
       return false;
     } finally {
@@ -308,7 +308,7 @@ export class BrowserAuthService implements IAuthService {
       await sendPasswordResetEmail(this.firebaseAuth, email);
       return true;
     } catch (err) {
-      const message = this.getFirebaseErrorMessage(err);
+      const message = getAuthErrorMessage(err);
       this._error.set(message);
       return false;
     } finally {
@@ -340,42 +340,5 @@ export class BrowserAuthService implements IAuthService {
     if (firebaseUser) {
       await this.syncUserProfile(firebaseUser);
     }
-  }
-
-  /**
-   * Convert Firebase errors to user-friendly messages
-   */
-  private getFirebaseErrorMessage(err: unknown): string {
-    if (err && typeof err === 'object' && 'code' in err) {
-      const code = (err as { code: string }).code;
-      switch (code) {
-        case 'auth/user-not-found':
-        case 'auth/wrong-password':
-          return 'Invalid email or password';
-        case 'auth/email-already-in-use':
-          return 'An account with this email already exists';
-        case 'auth/weak-password':
-          return 'Password should be at least 6 characters';
-        case 'auth/invalid-email':
-          return 'Please enter a valid email address';
-        case 'auth/too-many-requests':
-          return 'Too many attempts. Please try again later';
-        case 'auth/network-request-failed':
-          return 'Network error. Please check your connection';
-        case 'auth/popup-closed-by-user':
-          return 'Sign in was cancelled';
-        default:
-          // Safely extract message from Firebase errors
-          if ('message' in err && typeof err.message === 'string') {
-            return err.message;
-          }
-          return 'An unexpected error occurred';
-      }
-    }
-    // Handle standard Error objects
-    if (err instanceof Error) {
-      return err.message;
-    }
-    return 'An unexpected error occurred';
   }
 }

@@ -1,5 +1,5 @@
-import { Component, ChangeDetectionStrategy, inject, signal, PLATFORM_ID } from '@angular/core';
-import { CommonModule, isPlatformBrowser } from '@angular/common';
+import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import {
@@ -18,6 +18,7 @@ import {
   logoGoogle,
   logoApple,
 } from 'ionicons/icons';
+import { NxtPlatformService } from '@nxt1/ui/services';
 import { AuthFlowService } from '../../services';
 
 /**
@@ -205,7 +206,7 @@ import { AuthFlowService } from '../../services';
 })
 export class SignupComponent {
   readonly authFlow = inject(AuthFlowService);
-  private readonly platformId = inject(PLATFORM_ID);
+  private readonly platform = inject(NxtPlatformService);
 
   email = '';
   password = '';
@@ -219,7 +220,7 @@ export class SignupComponent {
 
   constructor() {
     // Only register icons in browser (SSR-safe)
-    if (isPlatformBrowser(this.platformId)) {
+    if (this.platform.isBrowser()) {
       addIcons({ mailOutline, lockClosedOutline, personOutline, logoGoogle, logoApple });
     }
   }

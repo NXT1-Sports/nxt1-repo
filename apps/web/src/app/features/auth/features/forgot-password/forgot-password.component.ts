@@ -1,10 +1,11 @@
-import { Component, ChangeDetectionStrategy, inject, signal, PLATFORM_ID } from '@angular/core';
-import { CommonModule, isPlatformBrowser } from '@angular/common';
+import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { IonContent, IonInput, IonButton, IonIcon, IonSpinner } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { mailOutline, arrowBackOutline, checkmarkCircleOutline } from 'ionicons/icons';
+import { NxtPlatformService } from '@nxt1/ui/services';
 import { AuthFlowService } from '../../services';
 
 /**
@@ -129,14 +130,14 @@ import { AuthFlowService } from '../../services';
 })
 export class ForgotPasswordComponent {
   readonly authFlow = inject(AuthFlowService);
-  private readonly platformId = inject(PLATFORM_ID);
+  private readonly platform = inject(NxtPlatformService);
 
   email = '';
   emailSent = signal(false);
 
   constructor() {
     // Only register icons in browser (SSR-safe)
-    if (isPlatformBrowser(this.platformId)) {
+    if (this.platform.isBrowser()) {
       addIcons({ mailOutline, arrowBackOutline, checkmarkCircleOutline });
     }
   }

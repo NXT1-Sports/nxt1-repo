@@ -21,8 +21,8 @@
  * @see https://firebase.google.com/docs/auth/admin/manage-cookies
  */
 
-import { Injectable, PLATFORM_ID, inject } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
+import { Injectable, inject } from '@angular/core';
+import { NxtPlatformService } from '@nxt1/ui/services';
 
 /** Cookie name for the Firebase auth token */
 export const AUTH_TOKEN_COOKIE = '__session';
@@ -35,11 +35,7 @@ export const AUTH_TOKEN_COOKIE = '__session';
  */
 @Injectable({ providedIn: 'root' })
 export class AuthCookieService {
-  private readonly platformId = inject(PLATFORM_ID);
-
-  private get isBrowser(): boolean {
-    return isPlatformBrowser(this.platformId);
-  }
+  private readonly platform = inject(NxtPlatformService);
 
   /**
    * Set the auth token cookie
@@ -49,7 +45,7 @@ export class AuthCookieService {
    * @param expiresInMs - Token expiration time in milliseconds (default 1 hour)
    */
   setAuthCookie(token: string, expiresInMs: number = 3600000): void {
-    if (!this.isBrowser) return;
+    if (!this.platform.isBrowser()) return;
 
     const expires = new Date(Date.now() + expiresInMs);
     const secure = window.location.protocol === 'https:';
@@ -74,7 +70,7 @@ export class AuthCookieService {
    * Called on sign-out to ensure SSR renders unauthenticated state
    */
   clearAuthCookie(): void {
-    if (!this.isBrowser) return;
+    if (!this.platform.isBrowser()) return;
 
     // Set cookie with past expiration to delete it
     document.cookie = `${AUTH_TOKEN_COOKIE}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; samesite=lax`;
@@ -85,7 +81,7 @@ export class AuthCookieService {
    * Primarily used for debugging; server reads cookie from request
    */
   getAuthToken(): string | null {
-    if (!this.isBrowser) return null;
+    if (!this.platform.isBrowser()) return null;
 
     const cookies = document.cookie.split(';');
     for (const cookie of cookies) {
