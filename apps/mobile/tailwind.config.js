@@ -14,8 +14,11 @@ module.exports = {
   content: [
     './src/**/*.{html,ts,scss}',
     './src/index.html',
-    // Shared packages
-    '../../packages/ui/**/*.{ts,html}',
+    // Shared packages - exclude node_modules
+    '../../packages/ui/src/**/*.{ts,html}',
+    '../../packages/ui/auth/**/*.{ts,html}',
+    '../../packages/ui/shared/**/*.{ts,html}',
+    '../../packages/ui/services/**/*.{ts,html}',
     '../../packages/core/src/**/*.{ts,html}',
   ],
 

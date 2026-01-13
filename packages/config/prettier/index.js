@@ -71,5 +71,16 @@ module.exports = {
         tabWidth: 2,
       },
     },
+    {
+      // Disable Tailwind plugin for config files to avoid theme.css lookup errors
+      files: [
+        '**/tailwind.config.{js,cjs,mjs,ts}',
+        '**/tailwind.config.*.{js,cjs,mjs,ts}',
+        '**/postcss.config.{js,cjs,mjs}',
+      ],
+      options: {
+        plugins: [],
+      },
+    },
   ],
 };
