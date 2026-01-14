@@ -146,8 +146,8 @@ async function initializeFirebase(config: FirebaseAnalyticsConfig): Promise<bool
     const firebaseAppPath = 'firebase/app';
     const firebaseAnalyticsPath = 'firebase/analytics';
 
-    const firebaseAppModule = await import(/* webpackIgnore: true */ firebaseAppPath);
-    const firebaseAnalyticsModule = await import(/* webpackIgnore: true */ firebaseAnalyticsPath);
+    const firebaseAppModule = await import(/* @vite-ignore */ firebaseAppPath);
+    const firebaseAnalyticsModule = await import(/* @vite-ignore */ firebaseAnalyticsPath);
 
     const { initializeApp, getApps, getApp } = firebaseAppModule;
     const {
