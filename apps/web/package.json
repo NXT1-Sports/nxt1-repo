@@ -22,7 +22,17 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .angular",
     "deploy:staging": "npm run build:staging && firebase deploy --only hosting -P staging",
-    "deploy:prod": "npm run build && firebase deploy --only hosting -P production"
+    "deploy:prod": "npm run build && firebase deploy --only hosting -P production",
+    "e2e": "playwright test --config=e2e/playwright.config.ts",
+    "e2e:ui": "playwright test --config=e2e/playwright.config.ts --ui",
+    "e2e:headed": "playwright test --config=e2e/playwright.config.ts --headed",
+    "e2e:debug": "playwright test --config=e2e/playwright.config.ts --debug",
+    "e2e:report": "playwright show-report e2e/playwright-report",
+    "e2e:chromium": "playwright test --config=e2e/playwright.config.ts --project=chromium",
+    "e2e:firefox": "playwright test --config=e2e/playwright.config.ts --project=firefox",
+    "e2e:webkit": "playwright test --config=e2e/playwright.config.ts --project=webkit",
+    "e2e:mobile": "playwright test --config=e2e/playwright.config.ts --project=mobile-chrome --project=mobile-safari",
+    "e2e:install": "playwright install --with-deps"
   },
   "dependencies": {
     "@angular-devkit/build-angular": "^21.0.4",
@@ -65,6 +75,7 @@
     "karma-jasmine": "~5.1.0",
     "karma-jasmine-html-reporter": "^2.1.0",
     "postcss": "^8.5.6",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "@playwright/test": "^1.49.0"
   }
 }

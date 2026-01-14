@@ -27,10 +27,10 @@ import { AuthFlowService } from '../../services';
     IonSpinner,
   ],
   template: `
-    <ion-content class="auth-page" [fullscreen]="true">
+    <ion-content class="auth-page" [fullscreen]="true" data-testid="forgot-password-page">
       <div class="auth-page__container">
         <!-- Logo -->
-        <div class="auth-page__logo">
+        <div class="auth-page__logo" data-testid="forgot-password-logo">
           <picture>
             <source srcset="assets/shared/logo/logo.avif" type="image/avif" />
             <img
@@ -43,15 +43,15 @@ import { AuthFlowService } from '../../services';
 
         <!-- Header -->
         <div class="auth-page__header">
-          <h1 class="auth-page__title">Reset Password</h1>
-          <p class="auth-page__subtitle">Enter your email to receive a reset link</p>
+          <h1 class="auth-page__title" data-testid="forgot-password-title">Reset Password</h1>
+          <p class="auth-page__subtitle" data-testid="forgot-password-subtitle">Enter your email to receive a reset link</p>
         </div>
 
         <!-- Error Message -->
         @if (authFlow.error()) {
-          <div class="auth-error">
-            <span>{{ authFlow.error() }}</span>
-            <button type="button" class="auth-error__close" (click)="authFlow.clearError()">
+          <div class="auth-error" data-testid="forgot-password-error">
+            <span data-testid="forgot-password-error-message">{{ authFlow.error() }}</span>
+            <button type="button" class="auth-error__close" (click)="authFlow.clearError()" data-testid="forgot-password-error-close">
               ×
             </button>
           </div>
@@ -59,20 +59,22 @@ import { AuthFlowService } from '../../services';
 
         <!-- Success Message -->
         @if (emailSent()) {
-          <div class="auth-card">
+          <div class="auth-card" data-testid="forgot-password-success">
             <div class="text-center py-6">
               <ion-icon
                 name="checkmark-circle-outline"
                 class="text-[64px] text-success mb-4"
+                data-testid="forgot-password-success-icon"
               ></ion-icon>
-              <h2 class="text-xl font-semibold mb-2">Email Sent!</h2>
-              <p class="text-text-secondary text-sm mb-6">
+              <h2 class="text-xl font-semibold mb-2" data-testid="forgot-password-success-title">Email Sent!</h2>
+              <p class="text-text-secondary text-sm mb-6" data-testid="forgot-password-success-message">
                 Check your inbox for instructions to reset your password.
               </p>
               <ion-button
                 expand="block"
                 class="auth-button auth-button--primary"
                 routerLink="/auth/login"
+                data-testid="forgot-password-btn-back-to-login"
               >
                 Back to Sign In
               </ion-button>
@@ -81,7 +83,7 @@ import { AuthFlowService } from '../../services';
         } @else {
           <!-- Reset Form -->
           <div class="auth-card">
-            <form (ngSubmit)="onSubmit()" class="auth-form">
+            <form (ngSubmit)="onSubmit()" class="auth-form" data-testid="forgot-password-form">
               <!-- Email -->
               <div class="auth-form__group">
                 <label class="auth-form__label">Email</label>
@@ -93,6 +95,7 @@ import { AuthFlowService } from '../../services';
                   class="auth-input"
                   fill="outline"
                   autocomplete="email"
+                  data-testid="forgot-password-input-email"
                 >
                   <ion-icon slot="start" name="mail-outline" aria-hidden="true"></ion-icon>
                 </ion-input>
@@ -104,9 +107,10 @@ import { AuthFlowService } from '../../services';
                 expand="block"
                 class="auth-button auth-button--primary"
                 [disabled]="authFlow.isLoading() || !email"
+                data-testid="forgot-password-submit-button"
               >
                 @if (authFlow.isLoading()) {
-                  <ion-spinner name="crescent"></ion-spinner>
+                  <ion-spinner name="crescent" data-testid="forgot-password-loading-spinner"></ion-spinner>
                 } @else {
                   Send Reset Link
                 }
@@ -116,8 +120,8 @@ import { AuthFlowService } from '../../services';
         }
 
         <!-- Footer -->
-        <div class="auth-footer">
-          <a routerLink="/auth/login" class="inline-flex items-center gap-1 text-text-secondary hover:text-primary transition-colors">
+        <div class="auth-footer" data-testid="forgot-password-footer">
+          <a routerLink="/auth/login" class="inline-flex items-center gap-1 text-text-secondary hover:text-primary transition-colors" data-testid="forgot-password-link-back">
             <ion-icon name="arrow-back-outline" class="text-lg"></ion-icon>
             Back to Sign In
           </a>

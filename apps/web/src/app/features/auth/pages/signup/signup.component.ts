@@ -41,10 +41,10 @@ import { AuthFlowService } from '../../services';
     IonInputPasswordToggle,
   ],
   template: `
-    <ion-content class="auth-page h-screen" [fullscreen]="true">
+    <ion-content class="auth-page h-screen" [fullscreen]="true" data-testid="signup-page">
       <div class="auth-page__container">
         <!-- Logo -->
-        <div class="auth-page__logo">
+        <div class="auth-page__logo" data-testid="signup-logo">
           <picture>
             <source srcset="assets/shared/logo/logo.avif" type="image/avif" />
             <img
@@ -57,15 +57,15 @@ import { AuthFlowService } from '../../services';
 
         <!-- Header -->
         <div class="auth-page__header">
-          <h1 class="auth-page__title">Create Account</h1>
-          <p class="auth-page__subtitle">Join the NXT1 Sports community</p>
+          <h1 class="auth-page__title" data-testid="signup-title">Create Account</h1>
+          <p class="auth-page__subtitle" data-testid="signup-subtitle">Join the NXT1 Sports community</p>
         </div>
 
         <!-- Error Message -->
         @if (authFlow.error()) {
-          <div class="auth-error">
-            <span>{{ authFlow.error() }}</span>
-            <button type="button" class="auth-error__close" (click)="authFlow.clearError()">
+          <div class="auth-error" data-testid="signup-error">
+            <span data-testid="signup-error-message">{{ authFlow.error() }}</span>
+            <button type="button" class="auth-error__close" (click)="authFlow.clearError()" data-testid="signup-error-close">
               ×
             </button>
           </div>
@@ -73,7 +73,7 @@ import { AuthFlowService } from '../../services';
 
         <!-- Signup Form -->
         <div class="auth-card">
-          <form (ngSubmit)="onSubmit()" class="auth-form">
+          <form (ngSubmit)="onSubmit()" class="auth-form" data-testid="signup-form">
             <!-- Email -->
             <div class="auth-form__group">
               <label class="auth-form__label">Email</label>
@@ -85,6 +85,7 @@ import { AuthFlowService } from '../../services';
                 class="auth-input"
                 fill="outline"
                 autocomplete="email"
+                data-testid="signup-input-email"
               >
                 <ion-icon slot="start" name="mail-outline" aria-hidden="true"></ion-icon>
               </ion-input>
@@ -101,9 +102,10 @@ import { AuthFlowService } from '../../services';
                 class="auth-input"
                 fill="outline"
                 autocomplete="new-password"
+                data-testid="signup-input-password"
               >
                 <ion-icon slot="start" name="lock-closed-outline" aria-hidden="true"></ion-icon>
-                <ion-input-password-toggle slot="end"></ion-input-password-toggle>
+                <ion-input-password-toggle slot="end" data-testid="signup-toggle-password"></ion-input-password-toggle>
               </ion-input>
             </div>
 
@@ -118,9 +120,10 @@ import { AuthFlowService } from '../../services';
                 class="auth-input"
                 fill="outline"
                 autocomplete="new-password"
+                data-testid="signup-input-confirm-password"
               >
                 <ion-icon slot="start" name="lock-closed-outline" aria-hidden="true"></ion-icon>
-                <ion-input-password-toggle slot="end"></ion-input-password-toggle>
+                <ion-input-password-toggle slot="end" data-testid="signup-toggle-confirm-password"></ion-input-password-toggle>
               </ion-input>
             </div>
 
@@ -135,6 +138,7 @@ import { AuthFlowService } from '../../services';
                   placeholder="Enter team code if you have one"
                   class="auth-input"
                   fill="outline"
+                  data-testid="signup-input-teamcode"
                 >
                   <ion-icon slot="start" name="person-outline" aria-hidden="true"></ion-icon>
                 </ion-input>
@@ -147,9 +151,10 @@ import { AuthFlowService } from '../../services';
               expand="block"
               class="auth-button auth-button--primary"
               [disabled]="authFlow.isLoading() || !isFormValid()"
+              data-testid="signup-submit-button"
             >
               @if (authFlow.isLoading()) {
-                <ion-spinner name="crescent"></ion-spinner>
+                <ion-spinner name="crescent" data-testid="signup-loading-spinner"></ion-spinner>
               } @else {
                 Create Account
               }
@@ -162,12 +167,13 @@ import { AuthFlowService } from '../../services';
           </div>
 
           <!-- Social Buttons -->
-          <div class="auth-social">
+          <div class="auth-social" data-testid="signup-social-buttons">
             <ion-button
               expand="block"
               class="auth-button auth-button--google"
               (click)="onGoogleSignUp()"
               [disabled]="authFlow.isLoading()"
+              data-testid="signup-btn-google"
             >
               <ion-icon slot="start" name="logo-google"></ion-icon>
               Continue with Google
@@ -178,6 +184,7 @@ import { AuthFlowService } from '../../services';
               class="auth-button auth-button--apple"
               (click)="onAppleSignUp()"
               [disabled]="authFlow.isLoading()"
+              data-testid="signup-btn-apple"
             >
               <ion-icon slot="start" name="logo-apple"></ion-icon>
               Continue with Apple
@@ -186,16 +193,16 @@ import { AuthFlowService } from '../../services';
         </div>
 
         <!-- Footer -->
-        <div class="auth-footer">
+        <div class="auth-footer" data-testid="signup-footer">
           <p class="auth-footer__text">
             Already have an account?
-            <a routerLink="/auth/login" class="auth-link">Sign In</a>
+            <a routerLink="/auth/login" class="auth-link" data-testid="signup-link-login">Sign In</a>
           </p>
           <p class="auth-footer__legal">
             By continuing, you agree to our
-            <a href="/terms" class="auth-link auth-link--subtle">Terms of Service</a>
+            <a href="/terms" class="auth-link auth-link--subtle" data-testid="signup-link-terms">Terms of Service</a>
             and
-            <a href="/privacy" class="auth-link auth-link--subtle">Privacy Policy</a>
+            <a href="/privacy" class="auth-link auth-link--subtle" data-testid="signup-link-privacy">Privacy Policy</a>
           </p>
         </div>
       </div>

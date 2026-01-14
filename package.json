@@ -55,7 +55,13 @@
     "graph": "turbo run build --graph",
     "mobile:ios": "npm run -w @nxt1/mobile ios",
     "mobile:android": "npm run -w @nxt1/mobile android",
-    "mobile:sync": "npm run -w @nxt1/mobile sync"
+    "mobile:sync": "npm run -w @nxt1/mobile sync",
+    "e2e": "turbo run e2e --filter=@nxt1/web",
+    "e2e:ui": "npm run e2e:ui --workspace=@nxt1/web",
+    "e2e:headed": "npm run e2e:headed --workspace=@nxt1/web",
+    "e2e:debug": "npm run e2e:debug --workspace=@nxt1/web",
+    "e2e:report": "npm run e2e:report --workspace=@nxt1/web",
+    "e2e:install": "npm run e2e:install --workspace=@nxt1/web"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.0",

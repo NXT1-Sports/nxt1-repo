@@ -1,0 +1,236 @@
+# =============================================================================
+# E2E Testing Workflow
+# =============================================================================
+# Runs Playwright E2E tests on pull requests and pushes to main/develop
+# Supports multiple browsers and generates test reports
+# =============================================================================
+
+name: E2E Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'apps/web/**'
+      - 'packages/core/**'
+      - 'packages/ui/**'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'apps/web/**'
+      - 'packages/core/**'
+      - 'packages/ui/**'
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: 'Browser to test'
+        required: false
+        default: 'chromium'
+        type: choice
+        options:
+          - chromium
+          - firefox
+          - webkit
+          - all
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  CI: true
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+
+jobs:
+  # ===========================================================================
+  # BUILD JOB - Build application before tests
+  # ===========================================================================
+  build:
+    name: Build Web App
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build packages
+        run: npm run build:packages
+
+      - name: Build web app
+        run: npm run build:web
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: apps/web/dist
+          retention-days: 1
+
+  # ===========================================================================
+  # E2E TEST JOB - Run Playwright tests
+  # ===========================================================================
+  e2e:
+    name: E2E Tests (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+        # Optionally filter by workflow dispatch input
+        exclude:
+          - browser: ${{ github.event.inputs.browser != 'all' && github.event.inputs.browser != 'firefox' && 'firefox' || 'never-exclude' }}
+          - browser: ${{ github.event.inputs.browser != 'all' && github.event.inputs.browser != 'webkit' && 'webkit' || 'never-exclude' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: web-build
+          path: apps/web/dist
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+        working-directory: apps/web
+
+      - name: Run E2E Tests
+        run: npx playwright test --project=${{ matrix.browser }}
+        working-directory: apps/web/e2e
+        env:
+          E2E_BASE_URL: http://localhost:4200
+          E2E_TEST_USER_EMAIL: ${{ secrets.E2E_TEST_USER_EMAIL }}
+          E2E_TEST_USER_PASSWORD: ${{ secrets.E2E_TEST_USER_PASSWORD }}
+
+      - name: Upload Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-${{ matrix.browser }}
+          path: |
+            apps/web/e2e/playwright-report/
+            apps/web/e2e/test-results/
+          retention-days: 7
+
+      - name: Upload Test Screenshots
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-screenshots-${{ matrix.browser }}
+          path: apps/web/e2e/test-results/**/*.png
+          retention-days: 7
+
+  # ===========================================================================
+  # REPORT JOB - Merge and publish reports
+  # ===========================================================================
+  report:
+    name: Publish Report
+    runs-on: ubuntu-latest
+    needs: e2e
+    if: always()
+    steps:
+      - name: Download all reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: playwright-report-*
+          merge-multiple: true
+          path: all-reports
+
+      - name: Merge Reports
+        run: |
+          mkdir -p merged-report
+          # Reports are already in HTML format, just combine them
+          cp -r all-reports/* merged-report/ 2>/dev/null || true
+
+      - name: Deploy Report to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: merged-report
+          destination_dir: e2e-reports/${{ github.sha }}
+
+      - name: Comment PR with Report Link
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const sha = context.payload.pull_request.head.sha.substring(0, 7);
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🎭 E2E Test Results\n\nTests completed for commit ${sha}.\n\nDownload the test report artifacts from the workflow run to view detailed results.`
+            });
+
+  # ===========================================================================
+  # MOBILE VIEWPORT TESTS
+  # ===========================================================================
+  e2e-mobile:
+    name: E2E Tests (Mobile)
+    runs-on: ubuntu-latest
+    needs: build
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: web-build
+          path: apps/web/dist
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: apps/web
+
+      - name: Run Mobile E2E Tests
+        run: npx playwright test --project=mobile-chrome --project=mobile-safari
+        working-directory: apps/web/e2e
+        env:
+          E2E_BASE_URL: http://localhost:4200
+          E2E_TEST_USER_EMAIL: ${{ secrets.E2E_TEST_USER_EMAIL }}
+          E2E_TEST_USER_PASSWORD: ${{ secrets.E2E_TEST_USER_PASSWORD }}
+
+      - name: Upload Mobile Test Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report-mobile
+          path: |
+            apps/web/e2e/playwright-report/
+            apps/web/e2e/test-results/
+          retention-days: 7

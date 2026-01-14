@@ -66,13 +66,14 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
       <div
         class="bg-error/10 border-error/30 mb-5 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm text-red-400"
         role="alert"
+        data-testid="auth-form-error"
       >
         <ion-icon name="alert-circle" class="shrink-0 text-xl" aria-hidden="true"></ion-icon>
-        <span>{{ error }}</span>
+        <span data-testid="auth-form-error-message">{{ error }}</span>
       </div>
     }
 
-    <form class="flex w-full flex-col gap-5" (ngSubmit)="onSubmit()">
+    <form class="flex w-full flex-col gap-5" (ngSubmit)="onSubmit()" data-testid="auth-email-form">
       <!-- Display Name (signup only) -->
       @if (mode === 'signup') {
         <div class="flex flex-col gap-2">
@@ -93,6 +94,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
               [disabled]="loading"
               autocomplete="name"
               autocapitalize="words"
+              data-testid="auth-input-displayname"
             ></ion-input>
           </div>
         </div>
@@ -118,10 +120,11 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
             autocomplete="email"
             inputmode="email"
             (ionBlur)="emailTouched.set(true)"
+            data-testid="auth-input-email"
           ></ion-input>
         </div>
         @if (emailTouched() && !isEmailValid()) {
-          <ion-note class="pl-0.5 text-xs text-red-400">
+          <ion-note class="pl-0.5 text-xs text-red-400" data-testid="auth-email-error">
             Please enter a valid email address
           </ion-note>
         }
@@ -148,12 +151,14 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
               name="password"
               [disabled]="loading"
               [autocomplete]="mode === 'signup' ? 'new-password' : 'current-password'"
+              data-testid="auth-input-password"
             ></ion-input>
             <button
               type="button"
               class="text-text-tertiary hover:text-text-secondary absolute right-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border-none bg-transparent transition-all duration-200 hover:bg-white/5"
               (click)="showPassword.set(!showPassword())"
               [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
+              data-testid="auth-toggle-password"
             >
               <ion-icon
                 [name]="showPassword() ? 'eye-off-outline' : 'eye-outline'"
@@ -175,6 +180,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
             (click)="forgotPasswordClick.emit()"
             tabindex="0"
             role="button"
+            data-testid="auth-link-forgot-password"
           >
             Forgot password?
           </a>
@@ -187,9 +193,14 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
         expand="block"
         class="submit-btn mt-2"
         [disabled]="loading || !isFormValid()"
+        data-testid="auth-submit-button"
       >
         @if (loading) {
-          <ion-spinner name="crescent" slot="start"></ion-spinner>
+          <ion-spinner
+            name="crescent"
+            slot="start"
+            data-testid="auth-loading-spinner"
+          ></ion-spinner>
           <span>{{ loadingTextValue }}</span>
         } @else {
           <span>{{ submitTextValue }}</span>

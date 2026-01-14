@@ -85,6 +85,23 @@
       "dependsOn": ["build", "test", "lint"],
       "cache": false,
       "env": ["FIREBASE_PROJECT_PROD"]
+    },
+    "e2e": {
+      "dependsOn": ["build"],
+      "inputs": ["$TURBO_DEFAULT$", "e2e/**"],
+      "outputs": ["e2e/playwright-report/**", "e2e/test-results/**"],
+      "cache": false,
+      "env": [
+        "E2E_BASE_URL",
+        "E2E_TEST_USER_EMAIL",
+        "E2E_TEST_USER_PASSWORD",
+        "E2E_ENV"
+      ]
+    },
+    "e2e:ui": {
+      "dependsOn": ["build"],
+      "cache": false,
+      "persistent": true
     }
   }
 }

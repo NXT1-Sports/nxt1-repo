@@ -38,10 +38,11 @@ import { AuthFlowService } from '../../services';
       variant="card"
       [showBackButton]="showEmailForm()"
       (backClick)="showEmailForm.set(false)"
+      data-testid="login-page"
     >
       <!-- Title & Subtitle -->
-      <h1 authTitle>Welcome back</h1>
-      <p authSubtitle>Sign in to continue to NXT1</p>
+      <h1 authTitle data-testid="login-title">Welcome back</h1>
+      <p authSubtitle data-testid="login-subtitle">Sign in to continue to NXT1</p>
 
       <!-- Social Buttons (default view) -->
       @if (!showEmailForm()) {
@@ -60,6 +61,7 @@ import { AuthFlowService } from '../../services';
             class="action-btn"
             [disabled]="authFlow.isLoading()"
             (click)="showEmailForm.set(true)"
+            data-testid="login-btn-email"
           >
             <ion-icon name="mail-outline"></ion-icon>
             <span>Continue with Email</span>
@@ -70,6 +72,7 @@ import { AuthFlowService } from '../../services';
             class="action-btn action-btn--outline"
             [disabled]="authFlow.isLoading()"
             (click)="onTeamCode()"
+            data-testid="login-btn-teamcode"
           >
             <ion-icon name="key-outline"></ion-icon>
             <span>Have a Team Code?</span>
@@ -89,17 +92,17 @@ import { AuthFlowService } from '../../services';
       }
 
       <!-- Footer -->
-      <p authFooter>
+      <p authFooter data-testid="login-footer">
         Don't have an account?
-        <a routerLink="/auth/signup">Create account</a>
+        <a routerLink="/auth/signup" data-testid="login-link-signup">Create account</a>
       </p>
 
       <!-- Terms -->
-      <p authTerms>
+      <p authTerms data-testid="login-terms">
         By continuing, you agree to NXT1's
-        <a href="/terms">Terms of Service</a>
+        <a href="/terms" data-testid="login-link-terms">Terms of Service</a>
         and
-        <a href="/privacy">Privacy Policy</a>
+        <a href="/privacy" data-testid="login-link-privacy">Privacy Policy</a>
       </p>
     </nxt1-auth-shell>
   `,

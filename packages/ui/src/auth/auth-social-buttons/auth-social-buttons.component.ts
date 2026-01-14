@@ -29,8 +29,6 @@ import {
   EventEmitter,
   ChangeDetectionStrategy,
   inject,
-  Optional,
-  SkipSelf,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonButton } from '@ionic/angular/standalone';
@@ -54,7 +52,7 @@ export interface SocialProvidersConfig {
   standalone: true,
   imports: [CommonModule, IonButton],
   template: `
-    <div class="flex w-full flex-col gap-3">
+    <div class="flex w-full flex-col gap-3" data-testid="auth-social-buttons">
       @if (providers.google !== false) {
         <ion-button
           expand="block"
@@ -63,6 +61,7 @@ export interface SocialProvidersConfig {
           (click)="onGoogleClick()"
           aria-label="Continue with Google"
           class="google-button"
+          data-testid="auth-btn-google"
         >
           <svg slot="start" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -95,6 +94,7 @@ export interface SocialProvidersConfig {
           (click)="onAppleClick()"
           aria-label="Continue with Apple"
           class="apple-button"
+          data-testid="auth-btn-apple"
         >
           <svg
             slot="start"
@@ -119,6 +119,7 @@ export interface SocialProvidersConfig {
           (click)="onMicrosoftClick()"
           aria-label="Continue with Microsoft"
           class="microsoft-button"
+          data-testid="auth-btn-microsoft"
         >
           <svg slot="start" class="h-5 w-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
             <path fill="#F25022" d="M1 1h10v10H1z" />
