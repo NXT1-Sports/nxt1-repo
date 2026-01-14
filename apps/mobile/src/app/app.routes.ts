@@ -1,9 +1,9 @@
 /**
- * @fileoverview Mobile App Routes (Simplified)
+ * @fileoverview Mobile App Routes
  * @module @nxt1/mobile
  *
- * Minimal routing - Auth only for now.
- * Additional features will be added as needed.
+ * Main application routes following the same structure as web app.
+ * Auth routes mirror web's AUTH_ROUTES for consistency.
  */
 
 import { Routes } from '@angular/router';
@@ -16,10 +16,16 @@ export const routes: Routes = [
     redirectTo: 'auth',
   },
 
-  // Authentication Routes
+  // Authentication Routes (matches web's AUTH_ROUTES)
   {
     path: 'auth',
-    loadChildren: () => import('./auth/auth.routes').then((m) => m.routes),
+    loadChildren: () => import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),
+  },
+
+  // Home (placeholder for main app)
+  {
+    path: 'home',
+    loadComponent: () => import('./home/home.page').then((m) => m.HomePage),
   },
 
   // Catch-all redirect to auth

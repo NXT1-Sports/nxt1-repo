@@ -1,11 +1,11 @@
 /**
- * @fileoverview Login Page - Platform-Adaptive with Haptic Feedback
+ * @fileoverview Signup Page - Platform-Adaptive with Haptic Feedback
  * @module @nxt1/mobile
  *
- * Professional login page using shared auth components from @nxt1/ui.
+ * Professional signup page using shared auth components from @nxt1/ui.
  * Features platform-adaptive Ionic buttons with native haptic feedback.
  *
- * ⭐ MATCHES WEB'S login.component.ts INTERFACE ⭐
+ * ⭐ MATCHES WEB'S signup.component.ts INTERFACE ⭐
  */
 
 import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
@@ -21,11 +21,11 @@ import {
 import { IonButton, IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { mailOutline, keyOutline } from 'ionicons/icons';
-import { AuthFlowService } from '../../features/auth/services/auth-flow.service';
+import { AuthFlowService } from '../../services';
 import { HapticsService } from '@nxt1/ui/services';
 
 @Component({
-  selector: 'app-login',
+  selector: 'app-signup',
   standalone: true,
   imports: [
     CommonModule,
@@ -41,19 +41,19 @@ import { HapticsService } from '@nxt1/ui/services';
     <nxt1-auth-shell
       variant="card"
       [showBackButton]="showEmailForm()"
-      (backClick)="showEmailForm.set(false)"
+      (backClick)="onBackClick()"
     >
       <!-- Title & Subtitle -->
-      <h1 authTitle>Welcome back</h1>
-      <p authSubtitle>Sign in to continue to NXT1</p>
+      <h1 authTitle>Create Account</h1>
+      <p authSubtitle>Join NXT1 to start your recruiting journey</p>
 
       <!-- Social Buttons (default view) -->
       @if (!showEmailForm()) {
         <nxt1-auth-social-buttons
           [loading]="authFlow.isLoading()"
-          (googleClick)="onGoogleSignIn()"
-          (appleClick)="onAppleSignIn()"
-          (microsoftClick)="onMicrosoftSignIn()"
+          (googleClick)="onGoogleSignUp()"
+          (appleClick)="onAppleSignUp()"
+          (microsoftClick)="onMicrosoftSignUp()"
         />
 
         <nxt1-auth-divider />
@@ -86,19 +86,18 @@ import { HapticsService } from '@nxt1/ui/services';
       <!-- Email Form -->
       @if (showEmailForm()) {
         <nxt1-auth-email-form
-          mode="login"
+          mode="signup"
           [loading]="authFlow.isLoading()"
           [error]="authFlow.error()"
           (submitForm)="onEmailSubmit($event)"
-          (forgotPasswordClick)="onForgotPassword()"
         />
       }
 
       <!-- Footer -->
       <p authFooter>
-        Don't have an account?
-        <a routerLink="/auth/signup" class="text-primary hover:text-primary-600 transition-colors">
-          Create account
+        Already have an account?
+        <a routerLink="/auth/login" class="text-primary hover:text-primary-600 transition-colors">
+          Sign In
         </a>
       </p>
 
@@ -138,7 +137,7 @@ import { HapticsService } from '@nxt1/ui/services';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class LoginPage {
+export class SignupPage {
   readonly authFlow = inject(AuthFlowService);
   private readonly haptics = inject(HapticsService);
   private readonly router = inject(Router);
@@ -163,9 +162,15 @@ export class LoginPage {
     this.authFlow.clearError();
     try {
       await this.haptics.impact('medium');
-      const success = await this.authFlow.signInWithEmail({
+
+      // Parse displayName into first/last name if provided
+      const [firstName = '', lastName = ''] = (data.displayName || '').trim().split(/\s+/, 2);
+
+      const success = await this.authFlow.signUpWithEmail({
         email: data.email,
         password: data.password,
+        firstName,
+        lastName,
       });
 
       if (success) {
@@ -178,7 +183,7 @@ export class LoginPage {
     }
   }
 
-  async onGoogleSignIn(): Promise<void> {
+  async onGoogleSignUp(): Promise<void> {
     try {
       await this.haptics.impact('medium');
       const success = await this.authFlow.signInWithGoogle();
@@ -192,7 +197,7 @@ export class LoginPage {
     }
   }
 
-  async onAppleSignIn(): Promise<void> {
+  async onAppleSignUp(): Promise<void> {
     try {
       await this.haptics.impact('medium');
       const success = await this.authFlow.signInWithApple();
@@ -206,7 +211,7 @@ export class LoginPage {
     }
   }
 
-  async onMicrosoftSignIn(): Promise<void> {
+  async onMicrosoftSignUp(): Promise<void> {
     try {
       await this.haptics.impact('medium');
       const success = await this.authFlow.signInWithMicrosoft();
@@ -220,13 +225,9 @@ export class LoginPage {
     }
   }
 
-  onForgotPassword(): void {
-    this.router.navigate(['/auth/forgot-password']);
-  }
-
   async onTeamCode(): Promise<void> {
     await this.haptics.impact('light');
-    // TODO: Implement Team Code flow
-    console.log('Team Code');
+    // Navigate to team code entry flow
+    await this.router.navigate(['/auth/signup'], { queryParams: { teamCode: true } });
   }
 }

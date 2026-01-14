@@ -21,7 +21,7 @@ import {
 import { IonButton, IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { mailOutline, keyOutline } from 'ionicons/icons';
-import { AuthFlowService } from '../../features/auth/services/auth-flow.service';
+import { AuthFlowService } from '../../services';
 import { HapticsService } from '@nxt1/ui/services';
 
 @Component({
@@ -226,7 +226,7 @@ export class LoginPage {
 
   async onTeamCode(): Promise<void> {
     await this.haptics.impact('light');
-    // TODO: Implement Team Code flow
-    console.log('Team Code');
+    // Navigate to signup with team code flow
+    await this.router.navigate(['/auth/signup'], { queryParams: { teamCode: true } });
   }
 }

@@ -278,6 +278,32 @@ export {
   generateThemeInitScript,
 } from './platform/theme';
 
+// ============================================
+// SEO & SOCIAL SHARING
+// ============================================
+
+export {
+  // Types
+  type OpenGraphType,
+  type TwitterCardType,
+  type PageMetadata,
+  type OpenGraphMetadata,
+  type TwitterMetadata,
+  type SeoConfig,
+  type ShareableContent,
+  type ShareableProfile,
+  type ShareableTeam,
+  type ShareableVideo,
+  type ShareablePost,
+  // Functions
+  buildShareUrl,
+  buildProfileSeoConfig,
+  buildTeamSeoConfig,
+  buildVideoSeoConfig,
+  truncateDescription,
+  sanitizeMetaText,
+} from './seo';
+
 /**
  * @deprecated UI Components and Services have moved to @nxt1/ui
  *

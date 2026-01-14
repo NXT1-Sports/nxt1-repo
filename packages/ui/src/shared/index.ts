@@ -6,3 +6,11 @@
  */
 
 export { NxtLogoComponent, type LogoSize, type LogoVariant } from './logo';
+
+export {
+  NxtImageComponent,
+  type ImageFit,
+  type ImageLoading,
+  type ImageVariant,
+  type ImageState,
+} from './image';

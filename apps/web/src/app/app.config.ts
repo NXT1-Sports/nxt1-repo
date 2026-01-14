@@ -48,7 +48,7 @@ import { provideFirestore, getFirestore } from '@angular/fire/firestore';
 import { provideStorage, getStorage } from '@angular/fire/storage';
 
 // Auth service with injection token pattern
-import { AUTH_SERVICE, BrowserAuthService } from './core/auth';
+import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
 
 import { environment } from '../environments/environment';
 

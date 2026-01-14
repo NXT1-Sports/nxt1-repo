@@ -47,9 +47,9 @@ import { provideIonicAngular } from '@ionic/angular/standalone';
 // Auth service with injection token pattern
 // IMPORTANT: Import directly from files, NOT from barrel export
 // Barrel exports would pull in BrowserAuthService which imports Firebase Auth
-import { AUTH_SERVICE } from './core/auth/auth.interface';
-import { ServerAuthService, initializeServerAuth } from './core/auth/server-auth.service';
-import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './core/auth/ssr-tokens';
+import { AUTH_SERVICE } from './features/auth/services/auth.interface';
+import { ServerAuthService, initializeServerAuth } from './features/auth/services/server-auth.service';
+import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './features/auth/services/ssr-tokens';
 
 // Environment for Firebase config
 import { environment } from '../environments/environment';

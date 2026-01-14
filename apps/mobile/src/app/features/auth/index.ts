@@ -1,6 +1,6 @@
 /**
  * @fileoverview Auth Feature Barrel Export
- * @module @nxt1/web/features/auth
+ * @module @nxt1/mobile/features/auth
  *
  * Single entry point for all auth-related exports.
  * This is the 2026 best practice: feature-first architecture
@@ -9,9 +9,9 @@
  * Structure:
  * ```
  * features/auth/
- * ├── services/      # All auth services
+ * ├── services/      # AuthFlowService, FirebaseAuth, etc.
  * ├── guards/        # Route guards
- * ├── pages/         # Page components (login, signup, etc.)
+ * ├── pages/         # Login, Signup, etc.
  * └── auth.routes.ts # Feature routes
  * ```
  */

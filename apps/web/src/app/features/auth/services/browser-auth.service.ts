@@ -37,7 +37,7 @@ import {
   SignInCredentials,
   SignUpCredentials,
 } from './auth.interface';
-import { AuthApiService } from '../../features/auth/services/auth-api.service';
+import { AuthApiService } from './auth-api.service';
 import { AuthCookieService } from './auth-cookie.service';
 import { type UserRole, getAuthErrorMessage } from '@nxt1/core';
 
@@ -158,7 +158,7 @@ export class BrowserAuthService implements IAuthService {
    */
   private async syncUserProfile(firebaseUser: FirebaseUser): Promise<void> {
     try {
-      // TODO: Fetch full profile from backend API
+      // Note: Full profile data will be fetched from backend API
       // For now, create basic user from Firebase data
       this._user.set({
         uid: firebaseUser.uid,

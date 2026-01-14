@@ -21,3 +21,6 @@
 
 // Re-export analytics constants for backward compatibility
 export { APP_EVENTS } from '@nxt1/core/analytics';
+
+// SEO Service for dynamic meta tag management
+export { SeoService } from './seo.service';

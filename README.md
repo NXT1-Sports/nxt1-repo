@@ -1,34 +1,34 @@
 # NXT1 Monorepo
 
-> 🏈 Professional sports recruiting platform with unified web, mobile, and
-> backend architecture.
+> Professional sports platform with unified web, mobile, and backend
+> architecture.
 
 [![CI](https://github.com/nxt1/nxt1-workspace/actions/workflows/ci.yml/badge.svg)](https://github.com/nxt1/nxt1-workspace/actions/workflows/ci.yml)
 [![Deploy](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy.yml/badge.svg)](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy.yml)
 
-## 📦 Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         APPLICATIONS                            │
 ├─────────────────┬─────────────────┬─────────────────────────────┤
-│   📱 Mobile     │   🌐 Web        │   ⚡ Functions              │
+│   Mobile        │   Web           │   Functions                 │
 │   (Capacitor)   │   (Angular)     │   (Firebase)                │
 │   iOS/Android   │   SSR-enabled   │   Triggers/Cron             │
 ├─────────────────┴─────────────────┴─────────────────────────────┤
 │                          BACKEND                                 │
-│                     🖥️ Express API                              │
+│                      Express API                                │
 │                   (TypeScript, Cloud Run)                        │
 ├─────────────────────────────────────────────────────────────────┤
 │                     SHARED PACKAGES                              │
 ├──────────────────────────┬──────────────────────────────────────┤
-│   📚 @nxt1/core          │   ⚙️ @nxt1/config                    │
+│   @nxt1/core             │   @nxt1/config                       │
 │   Pure TypeScript        │   ESLint, TypeScript, Prettier       │
 │   Models, API, Helpers   │   Shared configurations              │
 └──────────────────────────┴──────────────────────────────────────┘
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -81,7 +81,7 @@ npm run mobile:ios
 npm run mobile:android
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 monorepo/
@@ -132,7 +132,7 @@ monorepo/
 └── package.json              # Root workspace config
 ```
 
-## 🔧 Package Details
+## Package Details
 
 ### @nxt1/core
 
@@ -184,7 +184,7 @@ import { createAuthApi, createProfileApi } from '@nxt1/core';
 - Scheduled tasks
 - Callable functions
 
-## 🔄 Development Workflow
+## Development Workflow
 
 ### 1. Create a Feature Branch
 
@@ -250,7 +250,7 @@ Pull requests trigger:
 Merging to `main` automatically deploys to staging. Use `workflow_dispatch` for
 production deployments.
 
-## 🌐 Environment Variables
+## Environment Variables
 
 ### Backend (.env)
 
@@ -282,7 +282,7 @@ export const environment = {
 };
 ```
 
-## 📱 Mobile Setup
+## Mobile Setup
 
 ### iOS (requires macOS)
 
@@ -296,7 +296,7 @@ export const environment = {
 2. Configure Android SDK
 3. Run: `npm run mobile:android`
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Run all tests
@@ -310,7 +310,7 @@ npm run test:core
 cd apps/web && npm run test:e2e
 ```
 
-## 🚢 Deployment
+## Deployment
 
 ### Staging (Automatic)
 
@@ -336,14 +336,14 @@ cd backend && npm run deploy:prod
 cd apps/functions && npm run deploy:prod
 ```
 
-## 📚 Additional Documentation
+## Additional Documentation
 
 - [ARCHITECTURE.md](./docs/ARCHITECTURE.md) - Detailed architecture guide
 - [CONTRIBUTING.md](./docs/CONTRIBUTING.md) - Contribution guidelines
 - [API.md](./docs/API.md) - API documentation
 - [MOBILE.md](./docs/MOBILE.md) - Mobile development guide
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 ### "Cannot find module '@nxt1/core'"
 
@@ -367,10 +367,10 @@ npm install
 cd apps/mobile/ios && pod install
 ```
 
-## 📄 License
+## License
 
 Proprietary - All Rights Reserved
 
 ---
 
-Built with ❤️ by the NXT1 Team
+Built with love by the NXT1 Team

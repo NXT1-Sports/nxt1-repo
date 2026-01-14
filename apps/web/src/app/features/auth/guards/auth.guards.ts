@@ -34,7 +34,7 @@ import {
   type AuthState,
   type UserRole,
 } from '@nxt1/core';
-import { AuthFlowService } from '../../features/auth/services/auth-flow.service';
+import { AuthFlowService } from '../services/auth-flow.service';
 
 /**
  * Convert AuthFlowService state to @nxt1/core AuthState format

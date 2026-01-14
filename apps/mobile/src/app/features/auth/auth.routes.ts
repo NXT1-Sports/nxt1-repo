@@ -22,24 +22,24 @@ export const AUTH_ROUTES: Routes = [
   },
   {
     path: 'login',
-    loadComponent: () => import('./login/login.page').then((m) => m.LoginPage),
+    loadComponent: () => import('./pages/login/login.page').then((m) => m.LoginPage),
     title: 'Sign In | NXT1 Sports',
   },
   {
     path: 'signup',
-    loadComponent: () => import('./signup/signup.page').then((m) => m.SignupPage),
+    loadComponent: () => import('./pages/signup/signup.page').then((m) => m.SignupPage),
     title: 'Sign Up | NXT1 Sports',
   },
   {
     path: 'forgot-password',
     loadComponent: () =>
-      import('./forgot-password/forgot-password.page').then((m) => m.ForgotPasswordPage),
+      import('./pages/forgot-password/forgot-password.page').then((m) => m.ForgotPasswordPage),
     title: 'Reset Password | NXT1 Sports',
   },
   {
     path: 'onboarding',
     loadComponent: () =>
-      import('./onboarding/onboarding.page').then((m) => m.OnboardingPage),
+      import('./pages/onboarding/onboarding.page').then((m) => m.OnboardingPage),
     title: 'Complete Profile | NXT1 Sports',
   },
   // Legacy route redirect (register -> signup)
