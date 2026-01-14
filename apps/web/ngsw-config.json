@@ -1,0 +1,70 @@
+{
+  "$schema": "./node_modules/@angular/service-worker/config/schema.json",
+  "index": "/index.html",
+  "assetGroups": [
+    {
+      "name": "app-shell",
+      "installMode": "prefetch",
+      "updateMode": "prefetch",
+      "resources": {
+        "files": [
+          "/favicon.ico",
+          "/index.html",
+          "/manifest.webmanifest",
+          "/*.css",
+          "/main*.js",
+          "/polyfills*.js",
+          "/runtime*.js"
+        ]
+      }
+    },
+    {
+      "name": "common-chunks",
+      "installMode": "prefetch",
+      "updateMode": "lazy",
+      "resources": {
+        "files": ["/chunk-*.js", "/common*.js"]
+      }
+    },
+    {
+      "name": "fonts",
+      "installMode": "lazy",
+      "updateMode": "prefetch",
+      "resources": {
+        "files": ["/**/*.woff2", "/**/*.woff", "/**/*.ttf"],
+        "urls": [
+          "https://fonts.googleapis.com/**",
+          "https://fonts.gstatic.com/**"
+        ]
+      }
+    },
+    {
+      "name": "images",
+      "installMode": "lazy",
+      "updateMode": "prefetch",
+      "resources": {
+        "files": [
+          "/assets/**/*.png",
+          "/assets/**/*.jpg",
+          "/assets/**/*.jpeg",
+          "/assets/**/*.webp",
+          "/assets/**/*.avif",
+          "/assets/**/*.svg",
+          "/assets/**/*.gif",
+          "/assets/**/*.ico"
+        ]
+      }
+    },
+    {
+      "name": "logo-assets",
+      "installMode": "prefetch",
+      "updateMode": "prefetch",
+      "resources": {
+        "files": ["/assets/shared/logo/**"]
+      }
+    }
+  ],
+  "dataGroups": [],
+  "navigationUrls": ["/**", "!/**/*.*", "!/**/api/**"],
+  "navigationRequestStrategy": "freshness"
+}

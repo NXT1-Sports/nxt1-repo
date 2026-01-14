@@ -8,9 +8,10 @@ design decisions, and patterns.
 1. [Architecture Principles](#architecture-principles)
 2. [Package Structure](#package-structure)
 3. [Code Sharing Strategy](#code-sharing-strategy)
-4. [Type Safety](#type-safety)
-5. [Build System](#build-system)
-6. [Deployment Strategy](#deployment-strategy)
+4. [Caching Strategy](#caching-strategy)
+5. [Type Safety](#type-safety)
+6. [Build System](#build-system)
+7. [Deployment Strategy](#deployment-strategy)
 
 ---
 
@@ -86,11 +87,13 @@ packages/core/src/
 ├── models/               # User, Profile, Team interfaces
 ├── api/                  # Pure API function factories (createAuthApi, etc.)
 ├── auth/                 # Auth types, state manager, guards, error handling
+├── cache/                # Caching system (memory, LRU, persistent)
 ├── helpers/              # Date, string, validation utilities
 ├── validation/           # Schema validation for registration, profiles
 ├── platform/             # Platform detection (pure TypeScript)
 ├── storage/              # Storage adapters (browser, memory, capacitor)
-└── theme/                # Theme utilities
+├── seo/                  # SEO types and builders
+└── analytics/            # Analytics event constants
 ```
 
 ✅ **Use @nxt1/core for:**
@@ -274,6 +277,125 @@ Code that must be different per platform:
 | SEO metadata          | In-app purchases          |
 | Browser history       | Biometric auth            |
 | Service workers       | Camera/gallery access     |
+
+---
+
+## Caching Strategy
+
+NXT1 uses a comprehensive three-tier caching system for optimal performance:
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    WEB APPLICATION                           │
+├─────────────────────────────────────────────────────────────┤
+│ Service Worker (ngsw-config.json)                           │
+│ ├─ Assets (app.js, styles) - Prefetch                       │
+│ ├─ Images - Lazy load                                       │
+│ └─ API Data Groups - Freshness/Performance strategies       │
+├─────────────────────────────────────────────────────────────┤
+│ HTTP Cache Interceptor                                      │
+│ ├─ LRU Cache (100 entries)                                  │
+│ ├─ Stale-while-revalidate                                   │
+│ ├─ Request deduplication                                    │
+│ └─ URL-based TTL configuration                              │
+├─────────────────────────────────────────────────────────────┤
+│ Memory Cache (@nxt1/core)                                   │
+│ └─ Computed values, expensive operations                    │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                   MOBILE APPLICATION                         │
+├─────────────────────────────────────────────────────────────┤
+│ Two-Tier Cache (MobileCacheService)                         │
+│ ├─ Tier 1: Memory (LRU - Fast, volatile)                    │
+│ └─ Tier 2: Capacitor Preferences (Persistent)               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### @nxt1/core/cache Module
+
+Pure TypeScript caching utilities (100% portable):
+
+```typescript
+import {
+  createMemoryCache,
+  createLRUCache,
+  createPersistentCache,
+} from '@nxt1/core/cache';
+
+// Memory cache - fast, volatile
+const cache = createMemoryCache<User>({
+  ttl: 5 * 60 * 1000, // 5 minutes
+  maxSize: 100,
+});
+
+// LRU cache - bounded memory
+const lruCache = createLRUCache<ApiResponse>({
+  maxSize: 100,
+  ttl: 15 * 60 * 1000,
+});
+
+// Persistent cache - survives restart
+const persistentCache = createPersistentCache<Profile>(storageAdapter, {
+  ttl: 60 * 60 * 1000, // 1 hour
+});
+```
+
+### Cache TTL Configuration
+
+```typescript
+import { CACHE_CONFIG } from '@nxt1/core/cache';
+
+CACHE_CONFIG.SHORT_TTL; // 1 min - Frequently changing (feed)
+CACHE_CONFIG.MEDIUM_TTL; // 15 min - Semi-static (profiles, teams)
+CACHE_CONFIG.LONG_TTL; // 1 hour - Rarely changing (colleges)
+CACHE_CONFIG.EXTENDED_TTL; // 24 hours - Static (sports list)
+```
+
+### Implementation Examples
+
+**Web - Automatic HTTP Caching:**
+
+```typescript
+// apps/web/src/app/app.config.ts
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideHttpClient(
+      withInterceptors([
+        httpCacheInterceptor({
+          ttlConfig: [
+            { pattern: /\/api\/college/, ttl: CACHE_CONFIG.LONG_TTL },
+            { pattern: /\/api\/profile/, ttl: CACHE_CONFIG.MEDIUM_TTL },
+          ],
+        }),
+      ])
+    ),
+  ],
+};
+
+// Configure URL patterns based on your backend API structure
+```
+
+**Mobile - Service Usage:**
+
+```typescript
+@Component({...})
+export class ProfilePage {
+  private cache = inject(MobileCacheService);
+
+  async loadProfile(userId: string) {
+    return this.cache.getOrFetch(
+      `profile:${userId}`,
+      () => this.api.getProfile(userId),
+      CACHE_CONFIG.MEDIUM_TTL
+    );
+  }
+}
+```
+
+**See [CACHING-STRATEGY.md](./CACHING-STRATEGY.md) for complete documentation.**
 
 ---
 

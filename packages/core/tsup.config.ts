@@ -12,6 +12,7 @@ export default defineConfig({
     'src/storage/index.ts',
     'src/platform/index.ts',
     'src/analytics/index.ts',
+    'src/cache/index.ts',
   ],
   format: ['cjs', 'esm'],
   dts: {

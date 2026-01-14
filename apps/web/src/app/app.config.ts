@@ -41,6 +41,9 @@ import { provideIonicAngular, IonicRouteStrategy } from '@ionic/angular/standalo
 
 import { routes } from './app.routes';
 
+// Core infrastructure
+import { httpCacheInterceptor } from './core/infrastructure';
+
 // Firebase
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
 import { provideAuth, getAuth } from '@angular/fire/auth';
@@ -83,12 +86,15 @@ export const appConfig: ApplicationConfig = {
       withPreloading(PreloadAllModules)
     ),
 
-    // HTTP client with fetch API
+    // HTTP client with fetch API and caching
     provideHttpClient(
       withFetch(),
       withInterceptors([
-        // Auth interceptor placeholder
-        (req, next) => next(req),
+        // HTTP response caching (LRU, TTL-based)
+        httpCacheInterceptor({
+          maxSize: 100,
+          staleWhileRevalidate: true,
+        }),
       ])
     ),
 

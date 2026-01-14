@@ -279,6 +279,38 @@ export {
 } from './platform/theme';
 
 // ============================================
+// CACHE
+// ============================================
+
+export {
+  // Types
+  type CacheOptions,
+  type CacheEntry,
+  type CacheStats,
+  type Cache,
+  type CacheKeyGenerator,
+  type HttpCacheOptions,
+  type MemoryCacheOptions,
+  type MemoryCache,
+  type PersistentCacheOptions,
+  type PersistentCache,
+  type LRUCacheOptions,
+  type LRUCache,
+  // Constants
+  CACHE_CONFIG,
+  CACHE_KEYS,
+  type CacheKeyPrefix,
+  // Factories
+  createMemoryCache,
+  createPersistentCache,
+  createLRUCache,
+  // Utilities
+  generateCacheKey,
+  isExpired,
+  createCacheKeyGenerator,
+} from './cache';
+
+// ============================================
 // SEO & SOCIAL SHARING
 // ============================================
 

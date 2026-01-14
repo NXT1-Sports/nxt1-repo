@@ -5,3 +5,4 @@
  */
 
 export * from './theme.service';
+export * from './cache.service';

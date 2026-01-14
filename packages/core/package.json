@@ -55,6 +55,11 @@
       "types": "./dist/analytics/index.d.ts",
       "import": "./dist/analytics/index.mjs",
       "require": "./dist/analytics/index.js"
+    },
+    "./cache": {
+      "types": "./dist/cache/index.d.ts",
+      "import": "./dist/cache/index.mjs",
+      "require": "./dist/cache/index.js"
     }
   },
   "files": [
