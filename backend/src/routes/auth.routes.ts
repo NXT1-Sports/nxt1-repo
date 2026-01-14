@@ -11,8 +11,6 @@ import type { Request, Response } from 'express';
 import type { ValidateTeamCodeResponse, CreateUserRequest, TeamTypeApi } from '@nxt1/core';
 import { isValidEmail, isValidTeamCode } from '@nxt1/core';
 
-import { db } from '../utils/firebase.js';
-
 const router = Router();
 
 /**
@@ -21,6 +19,7 @@ const router = Router();
  */
 router.post('/validate-team-code', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { db } = req.firebase; // Destructure once
     const { code } = req.body;
 
     if (!code || !isValidTeamCode(code)) {
@@ -32,7 +31,7 @@ router.post('/validate-team-code', async (req: Request, res: Response): Promise<
       return;
     }
 
-    // Query Firestore for team code
+    // Query Firestore - automatically uses staging or prod based on route
     const snapshot = await db
       .collection('TeamCodes')
       .where('teamCode', '==', code.toUpperCase())
@@ -85,6 +84,7 @@ router.post('/validate-team-code', async (req: Request, res: Response): Promise<
  */
 router.post('/create-user', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { db } = req.firebase; // Destructure once
     const { uid, email } = req.body as CreateUserRequest;
 
     // Validation
@@ -104,8 +104,8 @@ router.post('/create-user', async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    // Check if user already exists
-    const existingUser = await db.collection('Users').doc(uid).get();
+    // Check if user already ex
+    const existingUser = await req.firebase.db.collection('Users').doc(uid).get();
     if (existingUser.exists) {
       res.status(409).json({
         success: false,
@@ -155,6 +155,7 @@ router.post('/create-user', async (req: Request, res: Response): Promise<void> =
  */
 router.get('/check-username', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { db } = req.firebase; // Destructure once
     const { username } = req.query;
 
     if (!username || typeof username !== 'string') {
