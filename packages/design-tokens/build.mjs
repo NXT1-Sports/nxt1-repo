@@ -163,11 +163,11 @@ function generateCssTokens(primitiveTokens, allTokens) {
 
 function generateThemeCss(themeTokens, themeName, allTokens) {
   const flattened = flattenTokens(themeTokens);
-  
+
   // Dynamic selector based on theme name
   let selector;
   let colorScheme;
-  
+
   if (themeName === 'dark') {
     selector = ':root,\n[data-theme="dark"],\n.dark-theme';
     colorScheme = 'dark';
@@ -185,7 +185,7 @@ function generateThemeCss(themeTokens, themeName, allTokens) {
   // Format theme name for display (e.g., "sport-football" → "Sport Football")
   const displayName = themeName
     .split('-')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 
   const lines = [
@@ -319,16 +319,17 @@ function generateCombinedCss(primitiveTokens, semanticTokens, allTokens) {
   }
 
   // Additional themes (sport themes, custom themes, etc.)
-  const additionalThemes = Object.entries(semanticTokens.theme || {})
-    .filter(([name]) => !name.startsWith('$') && name !== 'dark' && name !== 'light');
-  
+  const additionalThemes = Object.entries(semanticTokens.theme || {}).filter(
+    ([name]) => !name.startsWith('$') && name !== 'dark' && name !== 'light'
+  );
+
   for (const [themeName, themeTokens] of additionalThemes) {
     lines.push('');
     lines.push('/* ============================================');
     lines.push(`   ${themeName.toUpperCase().replace(/-/g, ' ')} THEME`);
     lines.push('   ============================================ */');
     lines.push('');
-    
+
     lines.push(`[data-theme="${themeName}"],`);
     lines.push(`.${themeName}-theme {`);
     lines.push('  color-scheme: dark;'); // Sport themes are dark-based

@@ -147,7 +147,8 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
           [style.maxWidth]="maxWidth"
           [ngClass]="{
             'bg-surface-100 border-border-subtle rounded-2xl border p-6': variant === 'card',
-            'flex flex-col gap-3 p-6 bg-white/[0.02] border border-white/[0.08] rounded-2xl': variant === 'card-glass',
+            'flex flex-col gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6':
+              variant === 'card-glass',
           }"
         >
           <ng-content></ng-content>
