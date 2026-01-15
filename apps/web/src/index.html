@@ -19,6 +19,48 @@
       })();
     </script>
 
+    <!-- 
+      CRITICAL: Pre-hydration styles for Ionic web components
+      These styles prevent layout shift (CLS) during SSR hydration.
+      They apply to Custom Elements BEFORE they are defined by Ionic.
+      Once hydrated, Ionic's internal styles take over.
+    -->
+    <style>
+      /* Pre-hydration: Give Ionic components dimensions before they're defined */
+      ion-app:not(:defined),
+      ion-content:not(:defined) {
+        display: block;
+        width: 100%;
+        min-height: 100vh;
+        background-color: #0a0a0a;
+      }
+      ion-header:not(:defined),
+      ion-toolbar:not(:defined) {
+        display: block;
+        width: 100%;
+      }
+      ion-button:not(:defined) {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+      }
+      ion-icon:not(:defined) {
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+      }
+      /* Auth wrapper - ensure centered content before hydration */
+      .nxt1-auth-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-height: 100vh;
+      }
+    </style>
+
     <link rel="canonical" href="https://nxt1sports.com/" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta

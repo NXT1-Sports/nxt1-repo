@@ -100,14 +100,6 @@ import { HapticsService } from '@nxt1/ui/services';
           Sign In
         </a>
       </p>
-
-      <!-- Terms -->
-      <p authTerms>
-        By continuing, you agree to NXT1's
-        <a href="/terms" class="text-primary hover:text-primary-600 transition-colors">Terms of Service</a>
-        and
-        <a href="/privacy" class="text-primary hover:text-primary-600 transition-colors">Privacy Policy</a>
-      </p>
     </nxt1-auth-shell>
   `,
   styles: [

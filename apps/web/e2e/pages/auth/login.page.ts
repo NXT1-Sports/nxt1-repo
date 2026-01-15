@@ -110,7 +110,7 @@ export class LoginPage extends BasePage {
 
     // Navigation
     this.signupLink = page.getByTestId('login-link-signup');
-    this.backButton = page.locator('[data-testid="back-button"], button[aria-label="Back"]');
+    this.backButton = page.getByTestId('back-button');
 
     // Error and loading (from shared @nxt1/ui component)
     this.errorMessage = page.getByTestId('auth-form-error');

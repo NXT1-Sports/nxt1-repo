@@ -45,6 +45,8 @@
     "@capacitor/share": "^7.0.0",
     "@capacitor/splash-screen": "^7.0.0",
     "@capacitor/status-bar": "^7.0.0",
+    "@capacitor-firebase/authentication": "^7.0.0",
+    "capacitor-native-biometric": "^4.2.2",
     "@ionic/angular": "^8.6.0",
     "@nxt1/core": "*",
     "@nxt1/ui": "*",

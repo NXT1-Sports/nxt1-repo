@@ -3,7 +3,6 @@
   "files": [],
   "references": [
     { "path": "packages/core" },
-    { "path": "packages/config" },
     { "path": "apps/web" },
     { "path": "apps/mobile" },
     { "path": "apps/functions" },

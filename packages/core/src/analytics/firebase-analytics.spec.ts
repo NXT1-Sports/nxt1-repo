@@ -221,7 +221,8 @@ describe('Universal Analytics Factory', () => {
       });
 
       expect(adapter).toBeDefined();
-      expect(adapter.isInitialized()).toBe(false); // Memory adapter returns false when disabled
+      // Memory adapter is always initialized (ready to use), even when tracking is disabled
+      expect(adapter.isInitialized()).toBe(true);
 
       globalThis.window = originalWindow;
     });

@@ -46,6 +46,8 @@
       "@nxt1/ui/auth": ["packages/ui/dist/auth"],
       "@nxt1/ui/services": ["packages/ui/dist/services"],
       "@nxt1/ui/shared": ["packages/ui/dist/shared"],
+      "@nxt1/ui/directives": ["packages/ui/dist/directives"],
+      "@nxt1/ui/components": ["packages/ui/dist/components"],
       "@nxt1/ui/*": ["packages/ui/dist/*"],
       "@nxt1/config/*": ["packages/config/*"]
     }

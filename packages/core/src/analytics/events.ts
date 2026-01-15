@@ -477,6 +477,8 @@ export const APP_EVENTS = {
   // ============================================
   // SUBSCRIPTION EVENTS (Extended - beyond purchase)
   // ============================================
+  /** Subscription started (initial purchase) */
+  SUBSCRIPTION_STARTED: 'subscription_started',
   /** Subscription upgraded */
   SUBSCRIPTION_UPGRADED: 'subscription_upgraded',
   /** Subscription downgraded */

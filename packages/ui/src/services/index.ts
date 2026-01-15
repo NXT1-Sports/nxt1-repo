@@ -1,8 +1,12 @@
 /**
- * @fileoverview Services Barrel Export
+ * @fileoverview UI Services Barrel Export
  * @module @nxt1/ui/services
  *
- * Angular injectable services for platform-specific functionality.
+ * Angular injectable services for UI-specific functionality.
+ *
+ * For infrastructure services (auth, network), use @nxt1/infrastructure:
+ * - BiometricService → @nxt1/infrastructure/auth
+ * - NetworkService → @nxt1/infrastructure/network
  */
 
 export {
@@ -24,4 +28,11 @@ export {
   type ToastOptions,
 } from './toast';
 
-export { HapticsService, type HapticImpact, type HapticNotification } from './haptics';
+export {
+  HapticsService,
+  type HapticImpact,
+  type HapticNotification,
+  HapticButtonDirective,
+  HapticSelectionDirective,
+  type HapticFeedbackType,
+} from './haptics';

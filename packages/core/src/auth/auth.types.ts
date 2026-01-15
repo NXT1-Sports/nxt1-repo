@@ -203,3 +203,66 @@ export interface AuthEvent {
   error?: string;
   timestamp: number;
 }
+
+// ============================================
+// NATIVE AUTH (Capacitor)
+// ============================================
+
+/**
+ * Supported native OAuth providers
+ */
+export type NativeAuthProvider = 'google' | 'apple' | 'microsoft';
+
+/**
+ * Result from native OAuth sign-in
+ * Contains tokens needed to authenticate with Firebase
+ */
+export interface NativeAuthResult {
+  /** OAuth provider used */
+  provider: NativeAuthProvider;
+  /** OAuth ID token for Firebase credential */
+  idToken: string;
+  /** OAuth access token (optional, provider-specific) */
+  accessToken?: string;
+  /** Raw nonce for Apple Sign-In (required for Firebase) */
+  rawNonce?: string;
+  /** User info from OAuth provider */
+  user: {
+    /** User ID from provider */
+    id: string;
+    /** Email address */
+    email: string | null;
+    /** Display name */
+    displayName: string | null;
+    /** Given/first name (Apple specific) */
+    givenName?: string | null;
+    /** Family/last name (Apple specific) */
+    familyName?: string | null;
+    /** Profile photo URL */
+    photoUrl?: string | null;
+  };
+}
+
+/**
+ * Native auth availability check result
+ */
+export interface NativeAuthAvailability {
+  /** Whether Google Sign-In is available */
+  google: boolean;
+  /** Whether Apple Sign-In is available (iOS 13+ only) */
+  apple: boolean;
+  /** Whether Microsoft Sign-In is available */
+  microsoft: boolean;
+}
+
+/**
+ * Configuration for native auth initialization
+ */
+export interface NativeAuthConfig {
+  /** Google OAuth client ID (web client ID from Firebase Console) */
+  googleClientId?: string;
+  /** Apple Service ID (for web fallback) */
+  appleServiceId?: string;
+  /** Microsoft client ID */
+  microsoftClientId?: string;
+}

@@ -10,12 +10,16 @@
  * @version 2.0.0
  */
 
-import { ContactInfo, SocialLinks } from './user.model';
+import type { TeamType } from '../constants/user.constants';
+import type { ContactInfo, SocialLinks } from './user.model';
 
 // ============================================
-// ENUMS
+// TEAM MEMBER ROLES
 // ============================================
 
+/**
+ * Team member roles within an organization
+ */
 export enum ROLE {
   admin = 'Administrative',
   athlete = 'Athlete',
@@ -23,13 +27,10 @@ export enum ROLE {
   media = 'Media',
 }
 
-export enum TEAM_TYPE {
-  highSchool = 'High School',
-  juco = 'JUCO',
-  middleSchool = 'Middle School',
-  club = 'Club',
-}
-
+/**
+ * API-compatible team type values
+ * Maps to TEAM_TYPES from user.constants.ts
+ */
 export type TeamTypeApi =
   | 'high-school'
   | 'club'
@@ -69,9 +70,6 @@ export interface TeamAnalytics {
   totalTeamPageTraffic: number;
 }
 
-/** @deprecated Use TeamAnalytics instead */
-export type Analytic = TeamAnalytics;
-
 // ============================================
 // TEAM CODE (Main Interface)
 // ============================================
@@ -80,7 +78,8 @@ export interface Code {
   id?: string;
   teamCode: string;
   teamName: string;
-  teamType: TEAM_TYPE;
+  /** Team type - uses TeamType from user.constants.ts */
+  teamType: TeamType | TeamTypeApi;
   sportName: string;
   state: string;
   city: string;

@@ -2,8 +2,8 @@
  * Firebase Auth Service - Low-level Firebase Operations
  *
  * Handles direct Firebase SDK operations for authentication.
- * This service is platform-specific (uses AngularFire) but provides
- * the same interface as web's browser-auth.service.ts internals.
+ * Uses native Capacitor plugins for social auth on iOS/Android,
+ * with web SDK fallback for development/PWA.
  *
  * Architecture:
  * ┌────────────────────────────────────────────────────────────┐
@@ -14,9 +14,10 @@
  * │           Orchestrates state, navigation, analytics        │
  * ├────────────────────────────────────────────────────────────┤
  * │         ⭐ FirebaseAuthService (THIS FILE) ⭐              │
- * │           Firebase SDK operations only                     │
+ * │           Firebase SDK + Native Auth integration           │
  * ├────────────────────────────────────────────────────────────┤
- * │               @angular/fire/auth (SDK)                     │
+ * │      NativeAuthService          @angular/fire/auth         │
+ * │      (Capacitor plugins)        (Web SDK fallback)         │
  * └────────────────────────────────────────────────────────────┘
  *
  * @module @nxt1/mobile/features/auth
@@ -34,22 +35,32 @@ import {
   authState,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithCredential,
   OAuthProvider,
+  OAuthCredential,
 } from '@angular/fire/auth';
+import { Capacitor } from '@capacitor/core';
 import { Subscription } from 'rxjs';
 import { NxtPlatformService } from '@nxt1/ui/services';
-import type { FirebaseUserInfo } from '@nxt1/core';
+import type { FirebaseUserInfo, NativeAuthResult } from '@nxt1/core';
+import { NativeAuthService } from './native-auth.service';
 
 /**
  * Firebase Auth Service
  *
  * Low-level service that handles all Firebase Authentication SDK operations.
  * Does NOT handle business logic, navigation, or state management.
+ *
+ * Uses native Capacitor plugins for social auth on iOS/Android for:
+ * - Native system UI (better UX)
+ * - App Store compliance (required for Apple Sign-In on iOS)
+ * - Better security (no web popup/redirect)
  */
 @Injectable({ providedIn: 'root' })
 export class FirebaseAuthService implements OnDestroy {
   private readonly auth = inject(Auth);
   private readonly platform = inject(NxtPlatformService);
+  private readonly nativeAuth = inject(NativeAuthService);
 
   private authStateSubscription?: Subscription;
 
@@ -151,13 +162,42 @@ export class FirebaseAuthService implements OnDestroy {
   }
 
   // ============================================
-  // SOCIAL AUTH
+  // SOCIAL AUTH (Native + Web Fallback)
   // ============================================
 
   /**
+   * Check if native auth is available (iOS/Android)
+   */
+  get isNativeAuthAvailable(): boolean {
+    return this.nativeAuth.isNativeAvailable;
+  }
+
+  /**
    * Sign in with Google
+   *
+   * - Native (iOS/Android): Uses Google Sign-In SDK via Capacitor
+   * - Web fallback: Uses Firebase signInWithPopup
+   *
+   * @returns UserCredential from Firebase Auth
+   * @throws Error on failure (cancellation returns null internally, but this throws)
    */
   async signInWithGoogle(): Promise<UserCredential> {
+    // Use native auth on iOS/Android
+    if (this.nativeAuth.isNativeAvailable) {
+      console.debug('[FirebaseAuthService] Using native Google Sign-In');
+      const nativeResult = await this.nativeAuth.signInWithGoogle();
+
+      // User cancelled
+      if (!nativeResult) {
+        throw new Error('Sign-in was cancelled');
+      }
+
+      // Convert native result to Firebase credential
+      return this.signInWithNativeCredential(nativeResult);
+    }
+
+    // Web fallback (development/PWA)
+    console.debug('[FirebaseAuthService] Using web Google Sign-In (fallback)');
     const provider = new GoogleAuthProvider();
     provider.addScope('profile');
     provider.addScope('email');
@@ -166,8 +206,32 @@ export class FirebaseAuthService implements OnDestroy {
 
   /**
    * Sign in with Apple
+   *
+   * - Native (iOS): Uses ASAuthorizationController via Capacitor (REQUIRED by App Store)
+   * - Web fallback: Uses Firebase signInWithPopup
+   *
+   * Note: Apple Sign-In is required on iOS if you offer any social login.
+   *
+   * @returns UserCredential from Firebase Auth
+   * @throws Error on failure
    */
   async signInWithApple(): Promise<UserCredential> {
+    // Use native auth on iOS/Android
+    if (this.nativeAuth.isNativeAvailable) {
+      console.debug('[FirebaseAuthService] Using native Apple Sign-In');
+      const nativeResult = await this.nativeAuth.signInWithApple();
+
+      // User cancelled
+      if (!nativeResult) {
+        throw new Error('Sign-in was cancelled');
+      }
+
+      // Convert native result to Firebase credential
+      return this.signInWithNativeCredential(nativeResult);
+    }
+
+    // Web fallback (development/PWA)
+    console.debug('[FirebaseAuthService] Using web Apple Sign-In (fallback)');
     const provider = new OAuthProvider('apple.com');
     provider.addScope('email');
     provider.addScope('name');
@@ -176,11 +240,80 @@ export class FirebaseAuthService implements OnDestroy {
 
   /**
    * Sign in with Microsoft
+   *
+   * - Native (iOS/Android): Uses OAuth flow via Capacitor
+   * - Web fallback: Uses Firebase signInWithPopup
+   *
+   * @returns UserCredential from Firebase Auth
+   * @throws Error on failure
    */
   async signInWithMicrosoft(): Promise<UserCredential> {
+    // Use native auth on iOS/Android
+    if (this.nativeAuth.isNativeAvailable) {
+      console.debug('[FirebaseAuthService] Using native Microsoft Sign-In');
+      const nativeResult = await this.nativeAuth.signInWithMicrosoft();
+
+      // User cancelled
+      if (!nativeResult) {
+        throw new Error('Sign-in was cancelled');
+      }
+
+      // Convert native result to Firebase credential
+      return this.signInWithNativeCredential(nativeResult);
+    }
+
+    // Web fallback (development/PWA)
+    console.debug('[FirebaseAuthService] Using web Microsoft Sign-In (fallback)');
     const provider = new OAuthProvider('microsoft.com');
     provider.addScope('user.read');
     return signInWithPopup(this.auth, provider);
+  }
+
+  /**
+   * Convert native auth result to Firebase credential and sign in
+   *
+   * This bridges the Capacitor native plugins with Firebase Auth.
+   * The native plugins return OAuth tokens, which we use to create
+   * Firebase credentials.
+   */
+  private async signInWithNativeCredential(
+    nativeResult: NativeAuthResult
+  ): Promise<UserCredential> {
+    console.debug('[FirebaseAuthService] Converting native credential to Firebase:', nativeResult.provider);
+    let credential: OAuthCredential;
+
+    switch (nativeResult.provider) {
+      case 'google':
+        credential = GoogleAuthProvider.credential(
+          nativeResult.idToken,
+          nativeResult.accessToken
+        );
+        break;
+
+      case 'apple': {
+        const appleProvider = new OAuthProvider('apple.com');
+        credential = appleProvider.credential({
+          idToken: nativeResult.idToken,
+          rawNonce: nativeResult.rawNonce,
+        });
+        break;
+      }
+
+      case 'microsoft': {
+        const msProvider = new OAuthProvider('microsoft.com');
+        credential = msProvider.credential({
+          idToken: nativeResult.idToken,
+          accessToken: nativeResult.accessToken,
+        });
+        break;
+      }
+
+      default:
+        throw new Error(`Unsupported provider: ${nativeResult.provider}`);
+    }
+
+    // Sign in to Firebase with the OAuth credential
+    return signInWithCredential(this.auth, credential);
   }
 
   // ============================================
@@ -189,8 +322,13 @@ export class FirebaseAuthService implements OnDestroy {
 
   /**
    * Sign out current user
+   * Clears both Firebase and native auth state
    */
   async signOut(): Promise<void> {
+    // Sign out from native providers (clears cached credentials)
+    await this.nativeAuth.signOut();
+
+    // Sign out from Firebase
     return firebaseSignOut(this.auth);
   }
 

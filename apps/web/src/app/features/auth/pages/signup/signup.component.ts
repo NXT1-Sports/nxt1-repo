@@ -198,12 +198,6 @@ import { AuthFlowService } from '../../services';
             Already have an account?
             <a routerLink="/auth/login" class="auth-link" data-testid="signup-link-login">Sign In</a>
           </p>
-          <p class="auth-footer__legal">
-            By continuing, you agree to our
-            <a href="/terms" class="auth-link auth-link--subtle" data-testid="signup-link-terms">Terms of Service</a>
-            and
-            <a href="/privacy" class="auth-link auth-link--subtle" data-testid="signup-link-privacy">Privacy Policy</a>
-          </p>
         </div>
       </div>
     </ion-content>

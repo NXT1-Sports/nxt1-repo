@@ -6,7 +6,7 @@
  *
  * Features:
  * - Converts RxJS Observables to Promises for core API compatibility
- * - Handles error transformation to HttpAdapterError format
+ * - Transforms errors to unified @nxt1/core error format
  * - Supports all HTTP methods with proper typing
  * - SSR-safe (HttpClient works on server via TransferState)
  *
@@ -16,6 +16,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
 import { firstValueFrom, timeout, catchError, throwError } from 'rxjs';
 import type { HttpAdapter, HttpRequestConfig, HttpAdapterError } from '@nxt1/core';
+import { parseApiError, getErrorMessage, API_ERROR_CODES } from '@nxt1/core';
 
 /**
  * Default request timeout in milliseconds
@@ -169,6 +170,7 @@ export class AngularHttpAdapter implements HttpAdapter {
 
   /**
    * Transform Angular HttpErrorResponse to HttpAdapterError
+   * Uses unified @nxt1/core error system for consistency
    */
   private transformError(error: unknown): HttpAdapterError {
     if (error instanceof HttpErrorResponse) {
@@ -177,13 +179,24 @@ export class AngularHttpAdapter implements HttpAdapter {
         // Network error
         return {
           status: 0,
-          code: 'NETWORK_ERROR',
+          code: API_ERROR_CODES.CLIENT_NETWORK_ERROR,
           message: 'Unable to connect to server. Please check your internet connection.',
           details: error,
         };
       }
 
-      // Extract error message from response
+      // Try to parse as unified API error response
+      if (error.error && typeof error.error === 'object') {
+        const parsed = parseApiError(error.error);
+        return {
+          status: error.status,
+          code: parsed.code,
+          message: parsed.message,
+          details: parsed,
+        };
+      }
+
+      // Fallback: Extract error message from response
       const message =
         error.error?.message ||
         error.error?.error ||
@@ -202,48 +215,51 @@ export class AngularHttpAdapter implements HttpAdapter {
     if (error instanceof Error && error.name === 'TimeoutError') {
       return {
         status: 0,
-        code: 'TIMEOUT',
+        code: API_ERROR_CODES.CLIENT_TIMEOUT,
         message: 'Request timed out. Please try again.',
         details: error,
       };
     }
 
-    // Unknown error
+    // Unknown error - use unified parser
+    const parsed = parseApiError(error);
     return {
       status: 0,
-      code: 'UNKNOWN_ERROR',
-      message: error instanceof Error ? error.message : 'An unexpected error occurred',
+      code: parsed.code,
+      message: getErrorMessage(error),
       details: error,
     };
   }
 
   /**
-   * Map HTTP status code to error code
+   * Map HTTP status code to unified error code
    */
   private getErrorCode(status: number): string {
     switch (status) {
       case 400:
-        return 'BAD_REQUEST';
+        return API_ERROR_CODES.VAL_INVALID_INPUT;
       case 401:
-        return 'UNAUTHORIZED';
+        return API_ERROR_CODES.AUTH_TOKEN_INVALID;
       case 403:
-        return 'FORBIDDEN';
+        return API_ERROR_CODES.AUTHZ_FORBIDDEN;
       case 404:
-        return 'NOT_FOUND';
+        return API_ERROR_CODES.RES_NOT_FOUND;
       case 409:
-        return 'CONFLICT';
+        return API_ERROR_CODES.RES_CONFLICT;
       case 422:
-        return 'VALIDATION_ERROR';
+        return API_ERROR_CODES.VAL_INVALID_INPUT;
       case 429:
-        return 'RATE_LIMITED';
+        return API_ERROR_CODES.RATE_LIMIT_EXCEEDED;
       case 500:
-        return 'SERVER_ERROR';
+        return API_ERROR_CODES.SRV_INTERNAL_ERROR;
       case 502:
-        return 'BAD_GATEWAY';
+        return API_ERROR_CODES.EXT_SERVICE_ERROR;
       case 503:
-        return 'SERVICE_UNAVAILABLE';
+        return API_ERROR_CODES.SRV_UNAVAILABLE;
+      case 504:
+        return API_ERROR_CODES.EXT_TIMEOUT;
       default:
-        return `HTTP_${status}`;
+        return API_ERROR_CODES.SRV_INTERNAL_ERROR;
     }
   }
 }

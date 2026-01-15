@@ -16,8 +16,13 @@
     "isolatedModules": false,
     "noEmit": false,
     "types": ["node"],
-    "baseUrl": "."
+    "baseUrl": ".",
+    "paths": {
+      "@nxt1/core": ["../packages/core/dist/index.d.ts"],
+      "@nxt1/core/*": ["../packages/core/dist/*/index.d.ts"]
+    }
   },
+  "references": [{ "path": "../packages/core" }],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]
 }

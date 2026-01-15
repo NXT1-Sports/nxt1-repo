@@ -128,9 +128,8 @@ export class ServerAuthService implements IAuthService, OnDestroy {
       return;
     }
 
-    // If no auth token, render as unauthenticated (valid case)
+    // If no auth token, render as unauthenticated (valid case for SSR prerendering)
     if (!this.authToken) {
-      console.log('[ServerAuthService] No auth token - rendering unauthenticated');
       this._isInitialized.set(true);
       this._isLoading.set(false);
       return;

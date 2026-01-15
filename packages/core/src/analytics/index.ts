@@ -239,13 +239,7 @@ export {
 // ============================================
 // MOBILE ADAPTER (Firebase Analytics for iOS/Android)
 // ============================================
-export {
-  createMobileAnalyticsAdapter,
-  createMobileAnalyticsAdapterSync,
-  // Deprecated aliases (use mobile* instead)
-  createCapacitorAnalyticsAdapter,
-  createCapacitorAnalyticsAdapterSync,
-} from './mobile-analytics';
+export { createMobileAnalyticsAdapter, createMobileAnalyticsAdapterSync } from './mobile-analytics';
 
 // ============================================
 // MEMORY ADAPTER (SSR / Testing)

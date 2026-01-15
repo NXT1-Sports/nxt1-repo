@@ -90,105 +90,6 @@ export const ACCOUNT_STATUSES = {
 export type AccountStatus = (typeof ACCOUNT_STATUSES)[keyof typeof ACCOUNT_STATUSES];
 
 // ============================================
-// SUBSCRIPTION PLANS
-// ============================================
-
-export const PLAN_TIERS = {
-  FREE: 'free',
-  STARTER: 'starter',
-  PRO: 'pro',
-  ELITE: 'elite',
-  TEAM: 'team',
-} as const;
-
-export type PlanTier = (typeof PLAN_TIERS)[keyof typeof PLAN_TIERS];
-
-export enum PLANS {
-  SUBSCRIPTION = 'subscription',
-  MIN = 'minimal',
-  MAX = 'maximal',
-  TRIAL = 'trial',
-}
-
-export interface PlanConfig {
-  id: PlanTier;
-  label: string;
-  price: number;
-  priceUnit: 'month' | 'year' | 'one-time';
-  features: string[];
-  credits: number;
-  recommended?: boolean;
-}
-
-export const PLAN_CONFIGS: readonly PlanConfig[] = [
-  {
-    id: 'free',
-    label: 'Free',
-    price: 0,
-    priceUnit: 'month',
-    features: ['Basic profile', 'Limited video uploads', 'Community access'],
-    credits: 0,
-  },
-  {
-    id: 'starter',
-    label: 'Starter',
-    price: 9.99,
-    priceUnit: 'month',
-    features: ['Full profile', '5 video uploads', 'Email campaigns'],
-    credits: 5,
-  },
-  {
-    id: 'pro',
-    label: 'Pro',
-    price: 19.99,
-    priceUnit: 'month',
-    features: [
-      'Everything in Starter',
-      'Unlimited videos',
-      'AI scouting report',
-      'Priority support',
-    ],
-    credits: 20,
-    recommended: true,
-  },
-  {
-    id: 'elite',
-    label: 'Elite',
-    price: 39.99,
-    priceUnit: 'month',
-    features: [
-      'Everything in Pro',
-      'Personal branding',
-      'Direct coach messaging',
-      'Advanced analytics',
-    ],
-    credits: 50,
-  },
-  {
-    id: 'team',
-    label: 'Team',
-    price: 199.99,
-    priceUnit: 'month',
-    features: ['Team management', 'Bulk athlete profiles', 'Team branding', 'Admin dashboard'],
-    credits: 100,
-  },
-] as const;
-
-// ============================================
-// SUBSCRIPTION STATUS
-// ============================================
-
-export const SUBSCRIPTION_STATUSES = {
-  ACTIVE: 'active',
-  CANCELLED: 'cancelled',
-  PAST_DUE: 'past_due',
-  TRIALING: 'trialing',
-  NONE: 'none',
-} as const;
-
-export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[keyof typeof SUBSCRIPTION_STATUSES];
-
-// ============================================
 // TEAM TYPES
 // ============================================
 
@@ -341,18 +242,8 @@ export const PARENT_RELATIONSHIPS = {
 
 export type ParentRelationship = (typeof PARENT_RELATIONSHIPS)[keyof typeof PARENT_RELATIONSHIPS];
 
-// ============================================
-// NOTIFICATION CHANNELS
-// ============================================
-
-export const NOTIFICATION_CHANNELS = {
-  PUSH: 'push',
-  EMAIL: 'email',
-  SMS: 'sms',
-} as const;
-
-export type NotificationChannel =
-  (typeof NOTIFICATION_CHANNELS)[keyof typeof NOTIFICATION_CHANNELS];
+// NOTE: NOTIFICATION_CHANNELS moved to notification.constants.ts
+// Import from: import { NOTIFICATION_CHANNELS } from '@nxt1/core/constants'
 
 // ============================================
 // THEME OPTIONS
@@ -365,19 +256,6 @@ export const THEMES = {
 } as const;
 
 export type Theme = (typeof THEMES)[keyof typeof THEMES];
-
-// ============================================
-// PAYMENT METHOD TYPES
-// ============================================
-
-export const PAYMENT_METHOD_TYPES = {
-  CARD: 'card',
-  PAYPAL: 'paypal',
-  APPLE_PAY: 'apple-pay',
-  GOOGLE_PAY: 'google-pay',
-} as const;
-
-export type PaymentMethodType = (typeof PAYMENT_METHOD_TYPES)[keyof typeof PAYMENT_METHOD_TYPES];
 
 // ============================================
 // PAYMENT FREQUENCY
@@ -742,10 +620,6 @@ export const ACCOUNT_TYPE_OPTIONS: readonly AccountTypeOption[] = [
 
 export function getRoleConfig(role: UserRole): RoleConfig | undefined {
   return ROLE_CONFIGS.find((r) => r.id === role);
-}
-
-export function getPlanConfig(plan: PlanTier): PlanConfig | undefined {
-  return PLAN_CONFIGS.find((p) => p.id === plan);
 }
 
 export function getPostTypeConfig(type: PostType | 'all'): PostTypeConfig | undefined {

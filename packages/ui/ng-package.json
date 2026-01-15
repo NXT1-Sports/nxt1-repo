@@ -4,6 +4,10 @@
   "lib": {
     "entryFile": "src/index.ts"
   },
-  "allowedNonPeerDependencies": ["@nxt1/core", "@nxt1/design-tokens"],
+  "allowedNonPeerDependencies": [
+    "@nxt1/core",
+    "@nxt1/design-tokens",
+    "capacitor-native-biometric"
+  ],
   "assets": []
 }

@@ -410,17 +410,3 @@ export function createMobileAnalyticsAdapterSync(config: AnalyticsConfig = {}): 
     },
   };
 }
-
-// ============================================
-// BACKWARD COMPATIBILITY ALIASES
-// ============================================
-
-/**
- * @deprecated Use createMobileAnalyticsAdapter instead
- */
-export const createCapacitorAnalyticsAdapter = createMobileAnalyticsAdapter;
-
-/**
- * @deprecated Use createMobileAnalyticsAdapterSync instead
- */
-export const createCapacitorAnalyticsAdapterSync = createMobileAnalyticsAdapterSync;

@@ -37,13 +37,15 @@ export * from './constants';
 // ============================================
 
 export {
+  // Network model
+  type ConnectionType,
+  type NetworkStatus,
+  type NetworkChangeEvent,
   // Team code
   ROLE,
-  TEAM_TYPE,
   type TeamTypeApi,
   type TeamMember,
   type TeamAnalytics,
-  type Analytic,
   type Code,
   type TeamCode,
   // User model
@@ -65,7 +67,7 @@ export {
   type SportProfile,
   type ProfileCard,
   type VideoMedia,
-  type UserMedia,
+  type UserMediaLibrary,
   type PaymentMethod,
   type Subscription,
   type NotificationPreferences,
@@ -75,7 +77,7 @@ export {
   type CoachData,
   type CollegeCoachData,
   type FanData,
-  type UserPost,
+  type Post,
   type Referral,
   type User,
   isAthlete,
@@ -91,8 +93,25 @@ export {
   createDefaultPreferences,
   createDefaultSubscription,
   createDefaultCounters,
-  createDefaultMedia,
+  createDefaultMediaLibrary,
   createEmptySportProfile,
+  // Notification model
+  NOTIFICATION_SCHEMA_VERSION,
+  type NotificationRecipient,
+  type NotificationPayload,
+  type Notification,
+  type NotificationQueueItem,
+  type UserNotificationSettings,
+  isNotificationRead,
+  isNotificationExpired,
+  hasActor,
+  createNotification,
+  createDefaultNotificationSettings,
+  type GetNotificationsQuery,
+  type GetNotificationsResponse,
+  type MarkNotificationsReadRequest,
+  type RegisterPushTokenRequest,
+  type UpdateNotificationSettingsRequest,
 } from './models';
 
 // ============================================
@@ -194,6 +213,11 @@ export {
   type StoredAuthToken,
   type AuthEventType,
   type AuthEvent,
+  // Native Auth Types (Capacitor)
+  type NativeAuthProvider,
+  type NativeAuthResult,
+  type NativeAuthAvailability,
+  type NativeAuthConfig,
   INITIAL_AUTH_STATE,
   isTokenExpired,
   // State Manager
@@ -336,19 +360,63 @@ export {
   sanitizeMetaText,
 } from './seo';
 
-/**
- * @deprecated UI Components and Services have moved to @nxt1/ui
- *
- * Import from @nxt1/ui instead:
- * ```typescript
- * // Components
- * import { NxtLogoComponent, AuthShellComponent } from '@nxt1/ui';
- * import { AuthEmailFormComponent, AuthSocialButtonsComponent } from '@nxt1/ui/auth';
- *
- * // Services
- * import { NxtPlatformService } from '@nxt1/ui/services';
- * ```
- *
- * This keeps @nxt1/core as pure TypeScript with no Angular/Ionic dependencies,
- * allowing it to be used in backend, functions, and any JavaScript environment.
- */
+// ============================================
+// ERRORS (Enterprise Error Handling)
+// ============================================
+
+export {
+  // Types
+  type ErrorSeverity,
+  type ErrorCategory,
+  type ErrorAction,
+  type RetryInfo,
+  type FieldError,
+  type ApiErrorDetail,
+  type ApiSuccessResponse,
+  type ApiErrorResponse,
+  type ApiResponse,
+  type ResponseMeta,
+  type ApiErrorCode,
+  type ErrorCodeConfig,
+  type CreateApiErrorOptions,
+  // Class
+  NxtApiError,
+  // Constants
+  API_ERROR_CODES,
+  ERROR_CONFIG,
+  // Type guards
+  isApiErrorResponse,
+  isApiSuccessResponse,
+  isNxtApiError,
+  hasErrorCode,
+  // Factory functions
+  createApiError,
+  validationError,
+  fieldError,
+  notFoundError,
+  conflictError,
+  unauthorizedError,
+  forbiddenError,
+  rateLimitError,
+  internalError,
+  externalServiceError,
+  successResponse,
+  errorResponse,
+  // Parsing & handling
+  parseApiError,
+  getErrorMessage,
+  getErrorCode,
+  shouldRetry,
+  getRetryDelay,
+  requiresAuth,
+  requiresUpgrade,
+  isValidationError,
+  getFieldErrors,
+  getApiFieldError,
+  // Config utilities
+  getErrorConfig,
+  getHttpStatus,
+  getDefaultMessage,
+  isRetryable,
+  generateTraceId,
+} from './errors';

@@ -54,6 +54,114 @@
 @import "@nxt1/ui/styles/auth";
 
 /* ============================================
+   LAYER 6: IONIC LAYOUT STABILITY (CLS Fix)
+   Prevents layout shift on Ionic components during SSR hydration
+   ============================================ */
+
+/**
+ * Fix for Cumulative Layout Shift (CLS) on SSR pages.
+ * 
+ * PROBLEM:
+ * Ionic web components (ion-app, ion-content, etc.) are Custom Elements.
+ * During SSR, these elements are rendered as empty tags without dimensions.
+ * When Angular hydrates and Ionic defines these components, they suddenly
+ * gain layout, causing visible layout shift.
+ * 
+ * SOLUTION:
+ * Use :not(:defined) selector to style components BEFORE they're hydrated.
+ * This gives them placeholder dimensions that match their final state.
+ * Once hydrated, the :defined state kicks in and Ionic takes over.
+ *
+ * This eliminates the "flash" when Ionic components initialize.
+ */
+
+/* ============================================
+   PRE-HYDRATION STYLES (Before Custom Elements are defined)
+   These styles apply during SSR and initial page load
+   ============================================ */
+
+/* ion-app - Full viewport container */
+ion-app:not(:defined) {
+  display: block;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: var(--nxt1-color-bg-primary, #0a0a0a);
+  contain: layout style;
+}
+
+/* ion-content - Scrollable content area */
+ion-content:not(:defined) {
+  display: block;
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: transparent;
+  contain: layout style;
+}
+
+/* ion-header - Header bar */
+ion-header:not(:defined) {
+  display: block;
+  width: 100%;
+}
+
+/* ion-toolbar - Toolbar inside header */
+ion-toolbar:not(:defined) {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 56px;
+  padding: 0 16px;
+  background-color: transparent;
+}
+
+/* ion-buttons - Button container */
+ion-buttons:not(:defined) {
+  display: flex;
+  align-items: center;
+}
+
+/* ion-button - Generic button */
+ion-button:not(:defined) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 16px;
+  font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* ion-icon - Icon placeholder */
+ion-icon:not(:defined) {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+}
+
+/* ion-title - Title in header */
+ion-title:not(:defined) {
+  display: block;
+  flex: 1;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+/* ============================================
+   POST-HYDRATION STYLES (After Custom Elements are defined)
+   ============================================ */
+
+ion-app {
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* ============================================
    LAYER 7: TAILWIND CSS
    Utility-first CSS framework
    ============================================ */
@@ -241,53 +349,7 @@
     to { transform: rotate(360deg); }
   }
 
-  /* Action buttons */
-  .action-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
-    width: 100%;
-    height: 3rem;
-    padding: 0 1rem;
-    border: 1px solid var(--nxt1-color-border-primary, var(--nxt1-color-border-default));
-    border-radius: var(--nxt1-radius-xl, 12px);
-    background-color: var(--nxt1-color-surface-100);
-    color: var(--nxt1-color-text-primary);
-    font-family: var(--nxt1-fontFamily-brand);
-    font-size: var(--nxt1-fontSize-sm, 0.875rem);
-    font-weight: var(--nxt1-fontWeight-medium, 500);
-    cursor: pointer;
-    transition: all var(--nxt1-duration-normal, 200ms) var(--nxt1-ease-in-out);
-  }
-
-  .action-btn ion-icon {
-    font-size: 1.25rem;
-    color: var(--nxt1-color-text-secondary);
-  }
-
-  .action-btn:hover:not(:disabled) {
-    background-color: var(--nxt1-color-surface-200);
-    border-color: var(--nxt1-color-border-secondary, var(--nxt1-color-border-hover));
-  }
-
-  .action-btn:active:not(:disabled) {
-    transform: scale(0.98);
-  }
-
-  .action-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .action-btn--outline {
-    background-color: transparent;
-    border-color: var(--nxt1-color-border-primary, var(--nxt1-color-border-default));
-  }
-
-  .action-btn--outline:hover:not(:disabled) {
-    background-color: rgba(255, 255, 255, 0.05);
-  }
+  /* Action buttons - now imported from @nxt1/ui/styles/auth */
 }
 
 /* ============================================
@@ -308,6 +370,22 @@
 
   .bg-glow {
     background: radial-gradient(ellipse at center, rgba(204, 255, 0, 0.15) 0%, transparent 70%);
+  }
+
+  /* Pulse glow animation for auth background */
+  @keyframes pulse-glow {
+    0%, 100% {
+      opacity: 0.6;
+      transform: translateX(-50%) scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: translateX(-50%) scale(1.1);
+    }
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 8s ease-in-out infinite;
   }
 }
 

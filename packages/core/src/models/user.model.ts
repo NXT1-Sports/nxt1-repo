@@ -16,18 +16,12 @@
  * @version 2.0.0
  */
 
-import { Code } from './team-code.model';
+import type { PlanTier } from '../constants/payment.constants';
 import type {
   UserRole,
   AccountStatus,
-  PlanTier,
-  SubscriptionStatus,
   TeamType,
-  PostType,
-  UserReaction,
-  VideoFormat,
   Theme,
-  PaymentMethodType,
   ParentRelationship,
   ScholarshipType,
   CommitmentStatus,
@@ -283,76 +277,15 @@ export interface SportProfile {
 }
 
 // ============================================
-// MEDIA TYPES
+// PLAN TIER
 // ============================================
 
-/** Media item base */
-interface MediaItemBase {
-  id: string;
-  name: string;
-  url: string;
-  thumbnailUrl?: string;
-  createdAt: Date | string;
-  updatedAt?: Date | string;
-  order?: number;
-  shareCount?: number;
-  isPinned?: boolean;
-}
-
-/** Profile card/graphic */
-export interface ProfileCard extends MediaItemBase {
-  type: 'profile-card';
-  pngUrl?: string;
-  isLive?: boolean;
-  sportIndex?: number;
-}
-
-/** Video/mixtape */
-export interface VideoMedia extends MediaItemBase {
-  type: 'mixtape' | 'highlight' | 'game-film';
-  duration?: number;
-  hlsUrl?: string;
-  format?: VideoFormat;
-  qualities?: string[];
-}
-
-/** User media library */
-export interface UserMedia {
-  profileCards: ProfileCard[];
-  videos: VideoMedia[];
-  pinnedVideoId?: string;
-}
-
-// ============================================
-// SUBSCRIPTION & BILLING
-// ============================================
-
-/** Payment method */
-export interface PaymentMethod {
-  type: PaymentMethodType;
-  last4?: string;
-  brand?: string;
-  expiryMonth?: number;
-  expiryYear?: number;
-}
-
-/** Subscription details */
-export interface Subscription {
-  plan: PlanTier;
-  status: SubscriptionStatus;
-  currentPeriodStart?: Date | string;
-  currentPeriodEnd?: Date | string;
-  cancelAtPeriodEnd?: boolean;
-  stripeCustomerId?: string;
-  stripeSubscriptionId?: string;
-  paymentMethod?: PaymentMethod;
-  credits: number;
-  teamCode?: Code;
-  teamCodeTrial?: {
-    expiresAt: Date | string;
-    features: string[];
-  };
-}
+/**
+ * User's current plan tier.
+ * Full subscription/billing details are in the Subscriptions collection.
+ * @see payment.model.ts for Subscription, Transaction, UserEntitlements
+ */
+export type { PlanTier } from '../constants/payment.constants';
 
 // ============================================
 // USER PREFERENCES
@@ -433,58 +366,6 @@ export interface FanData {
   followedTeams?: string[];
   followedAthletes?: string[];
   favoriteColleges?: string[];
-}
-
-// ============================================
-// POST TYPES
-// ============================================
-
-/** User post */
-export interface UserPost {
-  id: string;
-  userId: string;
-  type: PostType;
-  title: string;
-  description?: string;
-  mediaUrl?: string;
-  thumbnailUrl?: string;
-  hlsUrl?: string;
-  videoFormat?: VideoFormat;
-  videoDuration?: number;
-  createdAt: Date | string;
-  updatedAt?: Date | string;
-  isPublic: boolean;
-  isPinned?: boolean;
-  sportIndex?: number;
-
-  // Engagement
-  views: number;
-  shares: number;
-  reactions: number;
-  userReaction?: UserReaction;
-
-  // Repost data
-  isRepost?: boolean;
-  originalPostId?: string;
-  reposterId?: string;
-
-  // Attached data
-  attachedData?: Array<{
-    type: string;
-    label: string;
-    value?: string | number;
-  }>;
-
-  tags?: string[];
-  mentions?: Array<{
-    id: string;
-    type: 'user' | 'team' | 'college';
-    display: string;
-  }>;
-
-  // Optimistic UI flags (client-only)
-  _optimistic?: boolean;
-  _deleting?: boolean;
 }
 
 // ============================================
@@ -589,16 +470,12 @@ export interface User {
   /** Fan-specific data (only if role === 'fan') */
   fan?: FanData;
 
-  // =========== MEDIA ===========
-  /** User's media library */
-  media: UserMedia;
-
-  /** User's posts */
-  posts: UserPost[];
-
-  // =========== SUBSCRIPTION ===========
-  /** Subscription details */
-  subscription: Subscription;
+  // =========== PLAN ===========
+  /**
+   * Current plan tier (denormalized from Subscriptions collection).
+   * Full billing details: query Subscriptions/{userId}
+   */
+  planTier: PlanTier;
 
   // =========== PREFERENCES ===========
   /** User preferences */
@@ -614,19 +491,6 @@ export interface User {
   // =========== REFERRALS ===========
   /** Referral history */
   referrals: Referral[];
-
-  // =========== EMAIL CAMPAIGNS ===========
-  /** Email templates */
-  emailTemplates?: Record<string, string>;
-
-  /** Completed questionnaires */
-  completedQuestionnaires?: string[];
-
-  /** Completed camps */
-  completedCamps?: string[];
-
-  /** Campaigns sent */
-  campaignsSent?: string[];
 
   // =========== TIMESTAMPS ===========
   /** Account creation date */
@@ -740,15 +604,6 @@ export function createDefaultPreferences(): UserPreferences {
   };
 }
 
-/** Create default subscription */
-export function createDefaultSubscription(): Subscription {
-  return {
-    plan: 'free',
-    status: 'none',
-    credits: 0,
-  };
-}
-
 /** Create default counters */
 export function createDefaultCounters(): UserCounters {
   return {
@@ -758,14 +613,6 @@ export function createDefaultCounters(): UserCounters {
     followingCount: 0,
     postsCount: 0,
     sharesCount: 0,
-  };
-}
-
-/** Create default media */
-export function createDefaultMedia(): UserMedia {
-  return {
-    profileCards: [],
-    videos: [],
   };
 }
 

@@ -44,6 +44,11 @@ export {
   type StoredAuthToken,
   type AuthEventType,
   type AuthEvent,
+  // Native Auth Types (Capacitor)
+  type NativeAuthProvider,
+  type NativeAuthResult,
+  type NativeAuthAvailability,
+  type NativeAuthConfig,
   INITIAL_AUTH_STATE,
   isTokenExpired,
 } from './auth.types';

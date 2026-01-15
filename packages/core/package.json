@@ -60,6 +60,16 @@
       "types": "./dist/cache/index.d.ts",
       "import": "./dist/cache/index.mjs",
       "require": "./dist/cache/index.js"
+    },
+    "./errors": {
+      "types": "./dist/errors/index.d.ts",
+      "import": "./dist/errors/index.mjs",
+      "require": "./dist/errors/index.js"
+    },
+    "./errors/express": {
+      "types": "./dist/errors/express.middleware.d.ts",
+      "import": "./dist/errors/express.middleware.mjs",
+      "require": "./dist/errors/express.middleware.js"
     }
   },
   "files": [

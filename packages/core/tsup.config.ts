@@ -13,6 +13,8 @@ export default defineConfig({
     'src/platform/index.ts',
     'src/analytics/index.ts',
     'src/cache/index.ts',
+    'src/errors/index.ts',
+    'src/errors/express.middleware.ts',
   ],
   format: ['cjs', 'esm'],
   dts: {

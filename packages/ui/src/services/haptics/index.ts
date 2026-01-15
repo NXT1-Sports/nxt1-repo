@@ -4,3 +4,9 @@
  */
 
 export { HapticsService, type HapticImpact, type HapticNotification } from './haptics.service';
+
+export {
+  HapticButtonDirective,
+  HapticSelectionDirective,
+  type HapticFeedbackType,
+} from './haptic.directive';

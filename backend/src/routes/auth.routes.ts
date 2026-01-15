@@ -2,7 +2,7 @@
  * @fileoverview Auth Routes
  * @module @nxt1/backend
  *
- * Authentication routes using shared @nxt1/core types.
+ * Authentication routes using shared @nxt1/core types and unified error handling.
  */
 
 import { Router } from 'express';
@@ -10,6 +10,8 @@ import type { Request, Response } from 'express';
 
 import type { ValidateTeamCodeResponse, CreateUserRequest, TeamTypeApi } from '@nxt1/core';
 import { isValidEmail, isValidTeamCode } from '@nxt1/core';
+import { asyncHandler, sendError } from '@nxt1/core/errors/express';
+import { validationError, notFoundError, conflictError } from '@nxt1/core/errors';
 
 const router = Router();
 
@@ -17,17 +19,17 @@ const router = Router();
  * POST /auth/validate-team-code
  * Validate a team code for registration
  */
-router.post('/validate-team-code', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { db } = req.firebase; // Destructure once
+router.post(
+  '/validate-team-code',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase;
     const { code } = req.body;
 
     if (!code || !isValidTeamCode(code)) {
-      const response: ValidateTeamCodeResponse = {
-        valid: false,
-        error: 'Invalid team code format',
-      };
-      res.status(400).json(response);
+      const error = validationError([
+        { field: 'code', message: 'Invalid team code format', rule: 'format' },
+      ]);
+      sendError(res, error);
       return;
     }
 
@@ -40,11 +42,8 @@ router.post('/validate-team-code', async (req: Request, res: Response): Promise<
       .get();
 
     if (snapshot.empty) {
-      const response: ValidateTeamCodeResponse = {
-        valid: false,
-        error: 'Team code not found or expired',
-      };
-      res.status(404).json(response);
+      const error = notFoundError('team-code');
+      sendError(res, error);
       return;
     }
 
@@ -68,49 +67,42 @@ router.post('/validate-team-code', async (req: Request, res: Response): Promise<
     };
 
     res.json(response);
-  } catch (error) {
-    console.error('[Auth] validate-team-code error:', error);
-    const response: ValidateTeamCodeResponse = {
-      valid: false,
-      error: 'Failed to validate team code',
-    };
-    res.status(500).json(response);
-  }
-});
+  })
+);
 
 /**
  * POST /auth/create-user
  * Create a new user in Firestore
  */
-router.post('/create-user', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { db } = req.firebase; // Destructure once
+router.post(
+  '/create-user',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase;
     const { uid, email } = req.body as CreateUserRequest;
 
     // Validation
     if (!uid || !email) {
-      res.status(400).json({
-        success: false,
-        error: 'Missing required fields: uid, email',
-      });
+      const error = validationError([
+        ...(!uid ? [{ field: 'uid', message: 'User ID is required', rule: 'required' }] : []),
+        ...(!email ? [{ field: 'email', message: 'Email is required', rule: 'required' }] : []),
+      ]);
+      sendError(res, error);
       return;
     }
 
     if (!isValidEmail(email)) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid email format',
-      });
+      const error = validationError([
+        { field: 'email', message: 'Invalid email format', rule: 'email' },
+      ]);
+      sendError(res, error);
       return;
     }
 
-    // Check if user already ex
-    const existingUser = await req.firebase.db.collection('Users').doc(uid).get();
+    // Check if user already exists
+    const existingUser = await db.collection('Users').doc(uid).get();
     if (existingUser.exists) {
-      res.status(409).json({
-        success: false,
-        error: 'User already exists',
-      });
+      const error = conflictError('user');
+      sendError(res, error);
       return;
     }
 
@@ -140,29 +132,24 @@ router.post('/create-user', async (req: Request, res: Response): Promise<void> =
         },
       },
     });
-  } catch (error) {
-    console.error('[Auth] create-user error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create user',
-    });
-  }
-});
+  })
+);
 
 /**
  * GET /auth/check-username
  * Check if a username is available
  */
-router.get('/check-username', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { db } = req.firebase; // Destructure once
+router.get(
+  '/check-username',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase;
     const { username } = req.query;
 
     if (!username || typeof username !== 'string') {
-      res.status(400).json({
-        available: false,
-        error: 'Username is required',
-      });
+      const error = validationError([
+        { field: 'username', message: 'Username is required', rule: 'required' },
+      ]);
+      sendError(res, error);
       return;
     }
 
@@ -176,13 +163,7 @@ router.get('/check-username', async (req: Request, res: Response): Promise<void>
       available: snapshot.empty,
       suggestions: snapshot.empty ? [] : [`${username}1`, `${username}2`, `${username}_`],
     });
-  } catch (error) {
-    console.error('[Auth] check-username error:', error);
-    res.status(500).json({
-      available: false,
-      error: 'Failed to check username',
-    });
-  }
-});
+  })
+);
 
 export default router;

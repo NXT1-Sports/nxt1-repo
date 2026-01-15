@@ -26,6 +26,14 @@
       "types": "./dist/services/index.d.ts",
       "default": "./dist/fesm2022/nxt1-ui-services.mjs"
     },
+    "./directives": {
+      "types": "./dist/directives/index.d.ts",
+      "default": "./dist/fesm2022/nxt1-ui-directives.mjs"
+    },
+    "./components": {
+      "types": "./dist/components/index.d.ts",
+      "default": "./dist/fesm2022/nxt1-ui-components.mjs"
+    },
     "./styles": "./src/styles/index.css",
     "./styles/auth": "./src/styles/auth/auth.css"
   },
@@ -45,8 +53,17 @@
     "@angular/common": "^19.0.0 || ^20.0.0 || ^21.0.0",
     "@angular/core": "^19.0.0 || ^20.0.0 || ^21.0.0",
     "@angular/forms": "^19.0.0 || ^20.0.0 || ^21.0.0",
+    "@capacitor/core": "^6.0.0 || ^7.0.0",
     "@ionic/angular": "^8.0.0",
     "ionicons": "^7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@capacitor/core": {
+      "optional": true
+    },
+    "capacitor-native-biometric": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@angular/common": "^21.0.0",

@@ -78,7 +78,8 @@ export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
           <ion-buttons slot="start">
             <ion-button
               (click)="onBackClick()"
-              aria-label="Go back"
+              aria-label="Back"
+              data-testid="back-button"
               class="text-text-secondary hover:text-text-primary"
             >
               <ion-icon slot="icon-only" name="chevron-back"></ion-icon>
@@ -94,8 +95,10 @@ export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
     }
 
     <ion-content
-      [class]="'flex h-screen min-h-screen flex-col bg-transparent ' + this.getVariantClass()"
+      class="nxt1-auth-content"
       [fullscreen]="!showBackButton"
+      [scrollY]="false"
+      [forceOverscroll]="false"
     >
       <!-- Background Effects -->
       <div class="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
@@ -112,14 +115,13 @@ export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
         ></div>
       </div>
 
-      <!-- Main Wrapper -->
+      <!-- Main Wrapper - fills viewport height, centered content -->
       <div
-        class="relative z-10 flex w-full flex-1 flex-col items-center justify-center px-4 py-6 md:py-10"
-        [ngClass]="getVariantClass()"
+        class="nxt1-auth-wrapper relative z-10 flex h-full min-h-full w-full flex-col items-center justify-center px-4 py-6"
       >
         <!-- Logo -->
         @if (showLogo) {
-          <div class="mb-8 flex justify-center md:mb-10">
+          <div class="mb-6 flex justify-center">
             <picture>
               <source srcset="assets/shared/logo/logo.avif" type="image/avif" />
               <img
@@ -134,37 +136,51 @@ export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
         }
 
         <!-- Title & Subtitle Slot -->
-        <div class="mb-6 w-full max-w-md text-center">
+        <div class="mb-4 w-full text-center" [style.maxWidth]="maxWidth">
           <ng-content select="[authTitle]"></ng-content>
           <ng-content select="[authSubtitle]"></ng-content>
         </div>
 
         <!-- Main Content Area - Single ng-content with conditional styling -->
         <div
-          class="w-full max-w-md"
+          class="w-full"
+          [style.maxWidth]="maxWidth"
           [ngClass]="{
-            'bg-surface-100 border-border-subtle rounded-2xl border p-6 md:p-8': variant === 'card',
+            'bg-surface-100 border-border-subtle rounded-2xl border p-6': variant === 'card',
           }"
         >
           <ng-content></ng-content>
         </div>
 
         <!-- Footer Links -->
-        <div class="mt-6 w-full max-w-md text-center">
+        <div class="mt-4 w-full text-center" [style.maxWidth]="maxWidth">
           <ng-content select="[authFooter]"></ng-content>
         </div>
       </div>
-
-      <!-- Terms at Bottom -->
-      <div
-        class="relative z-10 px-4 py-4 text-center"
-        [ngClass]="{ 'pb-[calc(1rem_+_var(--ion-safe-area-bottom,0px))]': true }"
-      >
-        <ng-content select="[authTerms]"></ng-content>
-      </div>
     </ion-content>
   `,
-  styles: [],
+  styles: [
+    `
+      :host {
+        display: block;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      .nxt1-auth-content {
+        --overflow: hidden;
+        overflow: hidden;
+      }
+
+      .nxt1-auth-content::part(scroll) {
+        overflow: hidden !important;
+      }
+
+      .nxt1-auth-wrapper {
+        overflow: hidden;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthShellComponent {

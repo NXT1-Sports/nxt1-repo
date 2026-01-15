@@ -24,7 +24,7 @@
    ============================================ */
 
 :root {
-  /* Colors mapped to design tokens */
+  /* Colors mapped to design tokens (with standardized fallbacks) */
   --auth-primary: var(--nxt1-color-primary, #ccff00);
   --auth-primary-dark: var(--nxt1-color-primary-dark, #a3cc00);
   --auth-primary-glow: rgba(204, 255, 0, 0.1);
@@ -44,10 +44,10 @@
   --auth-text-muted: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
   --auth-text-placeholder: var(--nxt1-color-text-disabled, rgba(255, 255, 255, 0.3));
 
-  /* Borders */
-  --auth-border-subtle: rgba(255, 255, 255, 0.06);
-  --auth-border-default: rgba(255, 255, 255, 0.1);
-  --auth-border-hover: rgba(255, 255, 255, 0.15);
+  /* Borders (with fallbacks) */
+  --auth-border-subtle: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
+  --auth-border-default: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+  --auth-border-hover: var(--nxt1-color-border-hover, rgba(255, 255, 255, 0.15));
   --auth-border-focus: rgba(204, 255, 0, 0.5);
 
   /* Semantic */
@@ -78,6 +78,16 @@
    AUTH PAGE CONTAINER
    ============================================ */
 
+/* Disable scrolling on auth pages */
+.nxt1-auth-content {
+  --overflow: hidden;
+}
+
+.nxt1-auth-content::part(scroll) {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
 .nxt1-auth-page {
   display: flex;
   flex-direction: column;
@@ -88,6 +98,7 @@
   padding: var(--nxt1-spacing-6, 1.5rem);
   background: var(--auth-bg-page);
   background-image: radial-gradient(ellipse at 50% 0%, rgba(204, 255, 0, 0.03) 0%, transparent 50%);
+  overflow: hidden;
 
   /* Safe area support */
   padding-top: max(var(--nxt1-spacing-6, 1.5rem), env(safe-area-inset-top));
@@ -101,6 +112,60 @@ ion-content.nxt1-auth-page {
   --padding-end: var(--nxt1-spacing-6, 1.5rem);
   --padding-top: var(--nxt1-spacing-6, 1.5rem);
   --padding-bottom: var(--nxt1-spacing-6, 1.5rem);
+}
+
+/* ============================================
+   AUTH SHELL LAYOUT STABILITY (CLS Prevention)
+   
+   Critical: These styles prevent Cumulative Layout Shift (CLS) 
+   during SSR hydration. Ionic web components (ion-content, etc.)
+   are Custom Elements that aren't defined until hydration.
+   
+   SOLUTION:
+   1. Use :not(:defined) to style pre-hydration state
+   2. Give components explicit dimensions BEFORE Ionic loads
+   3. Use min-height: 100vh on wrapper for centering
+   
+   The key insight is that ion-content's scroll area is NOT a 
+   flex container, so we can't rely on flex-1 for vertical centering.
+   Instead, we use min-height with flexbox on the wrapper itself.
+   ============================================ */
+
+/* Ensure the auth shell component takes full width */
+nxt1-auth-shell {
+  display: block;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: var(--nxt1-color-bg-primary, #0a0a0a);
+}
+
+/* Pre-hydration: Give ion-content dimensions before Ionic defines it */
+nxt1-auth-shell ion-content:not(:defined) {
+  display: block;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Post-hydration: Style ion-content after Ionic defines it */
+nxt1-auth-shell ion-content,
+ion-content.nxt1-auth-content {
+  --background: transparent;
+}
+
+/* The wrapper inside ion-content handles centering
+   IMPORTANT: These styles work both pre and post hydration */
+.nxt1-auth-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  /* Prevent flash - ensure background is set */
+  background-color: transparent;
 }
 
 /* ============================================
@@ -380,6 +445,86 @@ ion-content.nxt1-auth-page {
   font-weight: var(--nxt1-font-weight-medium, 500);
   color: var(--auth-text-secondary);
   margin: 0;
+}
+
+/* ============================================
+   CONTENT PROJECTION SLOTS
+   Styling for [authTitle], [authSubtitle], [authFooter], [authTerms]
+   ============================================ */
+
+/* Title Slot - h1[authTitle] */
+[authTitle],
+h1[authTitle] {
+  font-family: var(--auth-font);
+  font-size: clamp(1.75rem, 5vw, 2.25rem);
+  font-weight: var(--nxt1-font-weight-bold, 700);
+  color: var(--auth-text-primary);
+  margin: 0;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+/* Subtitle Slot - p[authSubtitle] */
+[authSubtitle],
+p[authSubtitle] {
+  font-family: var(--auth-font);
+  font-size: clamp(0.9375rem, 2.5vw, 1rem);
+  font-weight: var(--nxt1-font-weight-medium, 500);
+  color: var(--auth-text-secondary);
+  margin: var(--nxt1-spacing-2, 0.5rem) 0 0;
+  line-height: 1.5;
+}
+
+/* Footer Slot - p[authFooter] */
+[authFooter],
+p[authFooter] {
+  font-family: var(--auth-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  color: var(--auth-text-secondary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-1, 0.25rem);
+  flex-wrap: wrap;
+}
+
+[authFooter] a,
+p[authFooter] a {
+  font-weight: var(--nxt1-font-weight-bold, 700);
+  color: var(--auth-primary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity var(--auth-transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+[authFooter] a:hover,
+p[authFooter] a:hover {
+  opacity: 0.8;
+}
+
+/* Terms Slot - p[authTerms] */
+[authTerms],
+p[authTerms] {
+  font-family: var(--auth-font);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  color: var(--auth-text-muted);
+  margin: 0;
+  line-height: 1.6;
+}
+
+[authTerms] a,
+p[authTerms] a {
+  color: var(--auth-text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color var(--auth-transition-fast);
+}
+
+[authTerms] a:hover,
+p[authTerms] a:hover {
+  color: var(--auth-text-primary);
 }
 
 /* ============================================
@@ -776,13 +921,8 @@ ion-content.nxt1-auth-page {
   touch-action: manipulation;
 }
 
-.nxt1-auth-link:hover {
-  opacity: 0.8;
-  text-decoration: underline;
-}
-
 .nxt1-auth-link:focus-visible {
-  outline: 2px solid var(--auth-primary);
+  outline: 2px solid var(--auth-primary, #ccff00);
   outline-offset: 2px;
 }
 
@@ -790,13 +930,7 @@ ion-content.nxt1-auth-page {
 .nxt1-auth-link--secondary {
   font-size: var(--nxt1-fontSize-sm, 0.875rem);
   font-weight: var(--nxt1-font-weight-medium, 500);
-  color: var(--auth-text-muted);
-}
-
-.nxt1-auth-link--secondary:hover {
-  color: var(--auth-primary);
-  opacity: 1;
-  text-decoration: none;
+  color: var(--auth-text-muted, rgba(255, 255, 255, 0.5));
 }
 
 /* Forgot password link */
@@ -805,7 +939,7 @@ ion-content.nxt1-auth-page {
   font-family: var(--auth-font);
   font-size: var(--nxt1-fontSize-sm, 0.875rem);
   font-weight: var(--nxt1-font-weight-medium, 500);
-  color: var(--auth-text-muted);
+  color: var(--auth-text-muted, rgba(255, 255, 255, 0.5));
   text-decoration: none;
   cursor: pointer;
   transition: color var(--auth-transition-fast);
@@ -815,10 +949,6 @@ ion-content.nxt1-auth-page {
   user-select: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
-}
-
-.nxt1-forgot-link:hover {
-  color: var(--auth-primary);
 }
 
 /* ============================================
@@ -831,7 +961,6 @@ ion-content.nxt1-auth-page {
   gap: var(--nxt1-spacing-4, 1rem);
   margin: var(--nxt1-spacing-4, 1rem) 0;
   width: 100%;
-
 }
 
 .nxt1-auth-divider::before,
@@ -839,16 +968,88 @@ ion-content.nxt1-auth-page {
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--auth-border-default);
+  background: var(--auth-border-default, rgba(255, 255, 255, 0.1));
 }
 
 .nxt1-auth-divider span {
   font-family: var(--auth-font);
   font-size: var(--nxt1-fontSize-xs, 0.75rem);
   font-weight: var(--nxt1-font-weight-medium, 500);
-  color: var(--auth-text-muted);
+  color: var(--auth-text-muted, rgba(255, 255, 255, 0.5));
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+/* ============================================
+   ACTION BUTTONS (Shared across Web & Mobile)
+   Email, Team Code, etc.
+   ============================================ */
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  height: 52px;
+  padding: 0 1.25rem;
+  border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+  border-radius: var(--auth-radius-lg, 12px);
+  background-color: var(--auth-bg-input, rgba(255, 255, 255, 0.04));
+  color: var(--auth-text-primary, #ffffff);
+  font-family: var(--auth-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-font-weight-semibold, 600);
+  cursor: pointer;
+  transition: all var(--auth-transition-normal);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.action-btn ion-icon {
+  font-size: 1.375rem;
+  color: var(--auth-text-secondary, rgba(255, 255, 255, 0.7));
+  flex-shrink: 0;
+}
+
+/* Active state for touch devices */
+.action-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-btn:focus-visible {
+  outline: 2px solid var(--auth-primary, #ccff00);
+  outline-offset: 2px;
+}
+
+/* Outline variant - for secondary actions like Team Code */
+.action-btn--outline {
+  background-color: transparent;
+  border: 1px dashed var(--auth-border-hover, rgba(255, 255, 255, 0.15));
+  color: var(--auth-text-secondary, rgba(255, 255, 255, 0.7));
+  height: 48px;
+}
+
+/* Hover states (desktop only - pointer devices) */
+@media (hover: hover) and (pointer: fine) {
+  .action-btn:hover:not(:disabled) {
+    background-color: var(--auth-bg-input-hover, rgba(255, 255, 255, 0.06));
+    border-color: var(--auth-border-hover, rgba(255, 255, 255, 0.15));
+    transform: translateY(-1px);
+  }
+
+  .action-btn--outline:hover:not(:disabled) {
+    background-color: var(--auth-bg-input, rgba(255, 255, 255, 0.04));
+    border-style: solid;
+    color: var(--auth-primary, #ccff00);
+  }
 }
 
 /* ============================================
@@ -913,15 +1114,75 @@ ion-content.nxt1-auth-page {
 
 /* ============================================
    RESPONSIVE: Desktop hover states
+   Only apply on devices with hover capability (not touch)
    ============================================ */
 
-@media (min-width: 768px) and (hover: hover) {
-  .nxt1-social-btn:hover {
+@media (hover: hover) and (pointer: fine) {
+  .nxt1-social-btn:hover:not(:disabled) {
     transform: translateY(-2px);
   }
 
-  .nxt1-submit-btn:hover {
+  .nxt1-submit-btn:hover:not(:disabled) {
     transform: translateY(-2px);
+  }
+
+  .nxt1-auth-link:hover {
+    opacity: 0.8;
+    text-decoration: underline;
+  }
+
+  .nxt1-auth-link--secondary:hover {
+    color: var(--auth-primary, #ccff00);
+    opacity: 1;
+    text-decoration: none;
+  }
+
+  .nxt1-forgot-link:hover {
+    color: var(--auth-primary, #ccff00);
+  }
+}
+
+/* ============================================
+   RESPONSIVE: Tablet (768px - 1023px)
+   ============================================ */
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .nxt1-auth-wrapper {
+    padding: var(--nxt1-spacing-8, 2rem);
+  }
+
+  .nxt1-auth-card {
+    padding: var(--nxt1-spacing-8, 2rem);
+  }
+
+  [authTitle],
+  h1[authTitle] {
+    font-size: 2rem;
+  }
+}
+
+/* ============================================
+   RESPONSIVE: Desktop (1024px+)
+   ============================================ */
+
+@media (min-width: 1024px) {
+  .nxt1-auth-wrapper {
+    padding: var(--nxt1-spacing-10, 2.5rem);
+  }
+
+  .nxt1-auth-card {
+    padding: var(--nxt1-spacing-10, 2.5rem);
+    max-width: 480px;
+  }
+
+  [authTitle],
+  h1[authTitle] {
+    font-size: 2.25rem;
+  }
+
+  [authSubtitle],
+  p[authSubtitle] {
+    font-size: 1.0625rem;
   }
 }
 
@@ -934,5 +1195,32 @@ ion-content.nxt1-auth-page {
     padding: var(--nxt1-spacing-4, 1rem);
     padding-top: max(var(--nxt1-spacing-4, 1rem), env(safe-area-inset-top, 20px));
     padding-bottom: max(var(--nxt1-spacing-4, 1rem), env(safe-area-inset-bottom, 20px));
+  }
+
+  .nxt1-auth-wrapper {
+    padding: var(--nxt1-spacing-4, 1rem);
+  }
+
+  .nxt1-auth-card {
+    padding: var(--nxt1-spacing-5, 1.25rem);
+  }
+
+  [authTitle],
+  h1[authTitle] {
+    font-size: 1.75rem;
+  }
+
+  [authSubtitle],
+  p[authSubtitle] {
+    font-size: 0.9375rem;
+  }
+
+  .nxt1-social-btn,
+  .nxt1-submit-btn {
+    height: 48px;
+  }
+
+  .action-btn {
+    height: 48px;
   }
 }

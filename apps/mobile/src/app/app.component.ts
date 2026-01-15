@@ -2,14 +2,16 @@
  * @fileoverview Root App Component
  * @module @nxt1/mobile
  *
- * Main application shell with Ionic setup and platform initialization.
+ * Main application shell with native platform initialization.
+ * Uses NativeAppService for all native features (StatusBar, SplashScreen, Keyboard, etc.)
  */
 
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, afterNextRender, inject } from '@angular/core';
 import { IonApp, IonRouterOutlet, Platform } from '@ionic/angular/standalone';
-import { StatusBar, Style } from '@capacitor/status-bar';
-import { SplashScreen } from '@capacitor/splash-screen';
-import { Capacitor } from '@capacitor/core';
+import { NxtPlatformService } from '@nxt1/ui/services';
+import { NativeAppService } from './core/services';
+import { BiometricService } from './features/auth/services';
+import { NetworkService } from './services/network.service';
 
 @Component({
   selector: 'app-root',
@@ -21,48 +23,60 @@ import { Capacitor } from '@capacitor/core';
     </ion-app>
   `,
 })
-export class AppComponent implements OnInit {
-  private readonly platform = inject(Platform);
+export class AppComponent {
+  private readonly ionicPlatform = inject(Platform);
+  private readonly nativeApp = inject(NativeAppService);
+  private readonly network = inject(NetworkService);
+  private readonly biometric = inject(BiometricService);
+  private readonly platform = inject(NxtPlatformService);
 
-  async ngOnInit(): Promise<void> {
-    await this.initializeApp();
+  constructor() {
+    // Use afterNextRender for proper SSR safety (though mobile doesn't have SSR, good practice)
+    afterNextRender(() => {
+      this.initializeApp();
+    });
   }
 
   /**
    * Initialize native platform features
    */
   private async initializeApp(): Promise<void> {
-    await this.platform.ready();
+    await this.ionicPlatform.ready();
 
-    if (Capacitor.isNativePlatform()) {
-      await this.configureStatusBar();
-      await this.hideSplashScreen();
-    }
-  }
+    // Initialize native app features (StatusBar, SplashScreen, Keyboard, lifecycle)
+    await this.nativeApp.initialize({
+      // Dark theme status bar
+      statusBarColor: '#0a0a0a',
+      statusBarStyle: 'light',
+      // Keyboard behavior
+      keyboardResize: 'body',
+      keyboardAccessoryBarHidden: false,
+      // Lifecycle handlers
+      onPause: () => console.debug('[App] Backgrounded'),
+      onResume: () => {
+        console.debug('[App] Resumed');
+        // Refresh network status when app resumes
+        this.network.checkStatus();
+      },
+      onBackButton: () => {
+        // Custom back button behavior if needed
+        // Return true to prevent default behavior
+        return false;
+      },
+    });
 
-  /**
-   * Configure status bar appearance
-   */
-  private async configureStatusBar(): Promise<void> {
-    try {
-      // Use dark content on light backgrounds
-      await StatusBar.setStyle({ style: Style.Dark });
+    // Services auto-initialize in their constructors
+    // Just injecting them is enough to start monitoring
 
-      // Make status bar overlay the app (iOS)
-      await StatusBar.setOverlaysWebView({ overlay: true });
-    } catch (error) {
-      console.warn('StatusBar not available:', error);
-    }
-  }
-
-  /**
-   * Hide the native splash screen
-   */
-  private async hideSplashScreen(): Promise<void> {
-    try {
-      await SplashScreen.hide();
-    } catch (error) {
-      console.warn('SplashScreen not available:', error);
-    }
+    console.debug('[App] Platform initialized', {
+      device: this.platform.deviceType(),
+      os: this.platform.os(),
+      isNative: this.platform.isNative(),
+      isOnline: this.network.isOnline(),
+      connectionType: this.network.connectionType(),
+      biometricAvailable: this.biometric.isAvailable(),
+      biometricType: this.biometric.biometryType(),
+    });
   }
 }
+

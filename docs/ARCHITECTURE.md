@@ -84,7 +84,11 @@ works everywhere:
 packages/core/src/
 ├── index.ts              # Root barrel export
 ├── constants/            # Sport definitions, roles, notification types
-├── models/               # User, Profile, Team interfaces
+├── models/               # User, Profile, Team, Network interfaces
+│   ├── user.model.ts
+│   ├── team.model.ts
+│   ├── network.model.ts  # NetworkStatus, ConnectionType (shared types)
+│   └── index.ts
 ├── api/                  # Pure API function factories (createAuthApi, etc.)
 ├── auth/                 # Auth types, state manager, guards, error handling
 ├── cache/                # Caching system (memory, LRU, persistent)
@@ -277,6 +281,72 @@ Code that must be different per platform:
 | SEO metadata          | In-app purchases          |
 | Browser history       | Biometric auth            |
 | Service workers       | Camera/gallery access     |
+
+#### Platform-Specific Services Pattern
+
+**When to duplicate vs share:**
+
+❌ **Don't create shared abstraction when:**
+
+- Implementations are fundamentally different
+- Web uses browser APIs, mobile uses Capacitor plugins
+- One platform has features the other doesn't
+
+✅ **Do create shared types in @nxt1/core:**
+
+- Interface contracts (NetworkStatus, ConnectionType)
+- Event types and enums
+- Request/response shapes
+
+**Example: NetworkService**
+
+```typescript
+// ✅ CORRECT: Shared types in @nxt1/core
+// packages/core/src/models/network.model.ts
+export type ConnectionType =
+  | 'wifi'
+  | 'cellular'
+  | 'ethernet'
+  | 'unknown'
+  | 'none';
+
+export interface NetworkStatus {
+  isConnected: boolean;
+  connectionType: ConnectionType;
+}
+
+// ✅ CORRECT: Web implementation
+// apps/web/src/app/core/services/network.service.ts
+@Injectable({ providedIn: 'root' })
+export class NetworkService {
+  constructor() {
+    // Uses window.navigator.onLine and browser events
+    window.addEventListener('online', () => this._isOnline.set(true));
+  }
+}
+
+// ✅ CORRECT: Mobile implementation
+// apps/mobile/src/app/services/network.service.ts
+@Injectable({ providedIn: 'root' })
+export class NetworkService {
+  constructor() {
+    // Uses Capacitor Network plugin with WiFi/cellular detection
+    Network.addListener('networkStatusChange', (status) => {
+      this._status.set({
+        isConnected: status.connected,
+        connectionType: status.connectionType, // 'wifi', 'cellular', etc.
+      });
+    });
+  }
+}
+```
+
+**Benefits of this pattern:**
+
+- **Locality principle**: Code lives where it's used
+- **Platform optimization**: Each implementation optimized for its platform
+- **No false abstractions**: Don't force shared code that isn't truly shared
+- **Type safety**: Shared interfaces ensure API compatibility
 
 ---
 

@@ -48,6 +48,7 @@ import { httpCacheInterceptor } from './core/infrastructure';
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
 import { provideAuth, getAuth } from '@angular/fire/auth';
 import { provideFirestore, getFirestore } from '@angular/fire/firestore';
+import { provideAnalytics, getAnalytics } from '@angular/fire/analytics';
 import { provideStorage, getStorage } from '@angular/fire/storage';
 
 // Auth service with injection token pattern
@@ -145,6 +146,7 @@ export const appConfig: ApplicationConfig = {
     provideAuth(() => getAuth()),
     provideFirestore(() => getFirestore()),
     provideStorage(() => getStorage()),
+    provideAnalytics(() => getAnalytics()), // GA4 - Auto-tracks performance & page views
 
     // ============================================
     // AUTH SERVICE (Injection Token Pattern)

@@ -13,6 +13,8 @@
  * import { AuthShellComponent, AuthEmailFormComponent } from '@nxt1/ui/auth';
  * import { NxtLogoComponent } from '@nxt1/ui/shared';
  * import { NxtPlatformService } from '@nxt1/ui/services';
+ * import { HapticButtonDirective } from '@nxt1/ui/directives';
+ * import { NxtRefreshContainerComponent } from '@nxt1/ui/components';
  * ```
  *
  * @version 1.0.0
@@ -25,3 +27,5 @@ export const NXT1_UI_VERSION = '1.0.0';
 // - '@nxt1/ui/auth' for auth components
 // - '@nxt1/ui/shared' for shared components
 // - '@nxt1/ui/services' for platform services
+// - '@nxt1/ui/directives' for haptic directives
+// - '@nxt1/ui/components' for refresh container, etc.
