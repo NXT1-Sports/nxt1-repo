@@ -38,6 +38,234 @@ import type {
 /** Current schema version for migration tracking */
 export const USER_SCHEMA_VERSION = 2;
 
+/** Video image metadata */
+export interface VideoImage {
+  url: string;
+  thumbnailUrl?: string;
+  width?: number;
+  height?: number;
+  format?: string;
+}
+
+/** Statistical data */
+export interface StatData {
+  [key: string]: string | number | boolean;
+}
+
+/** Sport information */
+export interface SportInfo {
+  [key: string]: string | number | boolean | null;
+}
+
+/** Player tag */
+export interface PlayerTag {
+  id: string;
+  name: string;
+  category?: string;
+  value?: string | number;
+}
+
+/** Campaign */
+export interface Campaign {
+  id: string;
+  name: string;
+  sentAt: Date | string;
+  status?: 'sent' | 'draft' | 'scheduled';
+  recipientCount?: number;
+}
+
+/** Video clip */
+export interface VideoClip {
+  id: string;
+  url: string;
+  thumbnailUrl?: string;
+  duration?: number;
+  startTime?: number;
+  endTime?: number;
+  tags?: string[];
+}
+
+/** Primary sport stat */
+export interface primarySportStat {
+  year?: string;
+  data: StatData;
+  title?: string | null;
+  statType?: 'High School' | 'Club' | 'Middle School';
+  competitionLevel?: 'Freshman' | 'JV' | 'Varsity';
+  isRanked?: boolean;
+}
+
+/** Game stat */
+export interface GameStat {
+  game: string;
+  data: StatData;
+  date?: string | Date;
+  year?: string;
+  statType?: 'High School' | 'Club' | 'Middle School';
+  competitionLevel?: 'Freshman' | 'JV' | 'Varsity';
+  isRanked?: boolean;
+}
+
+/** College */
+export interface College {
+  _id?: string | null;
+  'IPEDS/NCES_ID'?: string | null;
+  city?: string | null;
+  logoUrl?: string | null;
+  name?: string | null;
+  state?: string | null;
+  visitDate?: string | null;
+  sportInfo: SportInfo;
+}
+
+/** College visit */
+interface collegeVisit {
+  visitType?: string | null;
+  visitDate?: string | null;
+}
+
+/** College camp */
+interface collegeCamp {
+  visitDate?: string | null;
+}
+
+export type CollegeVisits = College & collegeVisit;
+export type CollegeCamp = College & collegeCamp;
+
+/** Recent game */
+export interface recentGame {
+  name?: string | null;
+  date?: string | null;
+  location?: string | null;
+  time?: string | null;
+  matchLocation?: string | null;
+  gameLink?: string | null;
+  matchType?: string | null;
+  score1?: number | null;
+  score2?: number | null;
+  result?: string | null;
+  opponentLogo?: string | null;
+  year?: string | null;
+}
+
+/** Event */
+export interface Event {
+  date?: string | Date;
+  eventLink?: string | null;
+  eventType?: string | null;
+  name?: string | null;
+}
+
+/** Award */
+export interface Award {
+  award: string;
+}
+
+/** Personal best */
+export interface personalBest {
+  personalBest?: string | null;
+}
+
+/** Session */
+export interface Session {
+  startTime?: Date | null;
+  endTime?: Date | null;
+}
+
+/** Team custom link */
+export interface TeamCustomLink {
+  title: string;
+  url: string;
+}
+
+/** Own template */
+export interface OwnTemplate {
+  id: string | null;
+  name: string | null;
+  url: string | null;
+  pngUrl?: string | null;
+  type?: string | null;
+  downloadURL?: string | null;
+  previewImage?: string | null;
+  order?: number | null;
+  pinnedToProfile?: boolean | null;
+  pinnedToTeamPage?: boolean | null;
+  selectionOrder?: number;
+  shareCount?: number | null;
+  createdBy?: 'user' | 'system' | null;
+  ownerName?: string | null;
+  ownerId?: string | null;
+  ownerProfileImg?: string | null;
+}
+
+/** Own mixtape */
+export interface OwnMixtape {
+  id: string | null;
+  name: string | null;
+  url?: string | null;
+  type?: string | null;
+  downloadURL?: string | null;
+  previewImage?: string | null;
+  order?: number | null;
+  pinnedToProfile?: boolean | null;
+  pinnedToTeamPage?: boolean | null;
+  selectionOrder?: number;
+  shareCount?: number | null;
+  createdBy?: 'user' | 'system' | null;
+  ownerName?: string | null;
+  ownerId?: string | null;
+  ownerProfileImg?: string | null;
+}
+
+/** Own profile */
+export interface OwnProfile {
+  id: string | null;
+  name: string | null;
+  url?: string | null;
+  profileUrl?: string | null;
+  pngUrl?: string | null;
+  thumbnailUrl?: string | null;
+  type?: string | null;
+  downloadURL?: string | null;
+  previewImage?: string | null;
+  secondarySportPreviewImage?: string | null;
+  order?: number | null;
+  isLive?: boolean;
+  shareCount?: number | null;
+}
+
+/** User post */
+export interface UserPost {
+  id: string;
+  userId?: string;
+  title: string;
+  description?: string;
+  type: string;
+  mediaUrl?: string;
+  thumbnailUrl?: string;
+  createdAt: Date | string;
+  updatedAt?: Date | string;
+  views: number;
+  videoViews?: number;
+  shares: number;
+  reposts?: number;
+  reactions?: number;
+}
+
+/** Game clips collection - reference to prospect model */
+export interface GameClipsCollection {
+  id: string;
+  [key: string]: any;
+}
+
+/** Team code - reference */
+export interface TeamCode {
+  id: string;
+  code: string;
+  teamName: string;
+  [key: string]: any;
+}
+
 // ============================================
 // LOCATION
 // ============================================
@@ -386,7 +614,7 @@ export interface Referral {
 
 /**
  * User - Main user interface for NXT1 platform
- *
+ * Combines all fields from legacy system with new architecture
  * Design principles:
  * 1. Grouped by concern (identity, profile, sports, media, subscription)
  * 2. Sports as array - no primary/secondary duplication
@@ -395,116 +623,318 @@ export interface Referral {
  * 5. Preferences replace boolean flags
  */
 export interface User {
-  // =========== IDENTITY ===========
-  /** Unique user ID (Firebase UID) */
+  // =========== CORE IDENTITY ===========
   id: string;
-
-  /** Primary email address */
   email: string;
-
-  /** Schema version for migration tracking */
-  _schemaVersion: typeof USER_SCHEMA_VERSION;
-
-  /** Account status */
-  status: AccountStatus;
-
-  /** User role */
-  role: UserRole;
-
-  // =========== PROFILE ===========
-  /** First name */
   firstName: string;
-
-  /** Last name */
   lastName: string;
-
-  /** Profile image URL */
   profileImg: string | null;
-
-  /** Short bio/about me */
-  aboutMe?: string;
-
-  /** Location */
-  location: Location;
-
-  /** QR code for profile sharing */
-  qrCode?: string;
+  aboutMe: string;
 
   // =========== ONBOARDING ===========
-  /** Onboarding completed */
-  onboardingCompleted: boolean;
+  completeSignUp: boolean;
+  completeAddSport: boolean;
+  onboardingCompleted?: boolean;
+  signupCompleted?: boolean;
 
-  /** Signup completed */
-  signupCompleted: boolean;
+  // =========== SPORTS SETUP ===========
+  appSport: 'primary' | 'secondary' | null;
+  sport: string;
+  primarySport: string;
+  primarySportPositions: string[];
+  secondarySport: string;
+  secondarySportPositions: string[];
+  position: string;
+  side?: string[];
 
-  // =========== CONTACT & SOCIAL ===========
-  /** Contact information */
-  contact: ContactInfo;
+  // =========== HIGH SCHOOL / TEAM ===========
+  highSchool: string;
+  highSchoolSuffix: 'High School' | 'Club';
+  secondaryHighSchool: string;
+  secondaryHighSchoolSuffix: 'High School' | 'Club';
+  club: string | null;
+  secondaryClub: string | null;
+  classOf: number;
 
-  /** Social media links */
-  social: SocialLinks;
+  // =========== IMAGES ===========
+  secondarySportProfileImg: string | null;
+  teamLogoImg: string | null;
+  secondarySportTeamLogoImg: string | null;
+  primaryVideoImage: VideoImage | string | null;
+  secondaryVideoImage: VideoImage | string | null;
 
-  /** Connected email accounts */
+  // =========== CONTACT INFO ===========
+  contactEmail: string;
+  phoneNumber: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: number;
+  country: string;
+  contact?: ContactInfo;
+  location?: Location;
+
+  // =========== SOCIAL LINKS ===========
+  twitter: string | null;
+  instagram: string | null;
+  tiktok: string | null;
+  hudlAccountLink: string;
+  youtubeAccountLink: string;
+  sportsAccountLink: string;
+  social?: SocialLinks;
+  socialLinks?: {
+    instagram?: string;
+    twitter?: string;
+    facebook?: string;
+    youtube?: string;
+  };
+
+  // =========== ROLE & ACCOUNT TYPE ===========
+  role?: UserRole;
+  status?: AccountStatus;
+  athleteOrParentOrCoach: string;
+  secondaryAthleteOrParentOrCoach: string;
+  isRecruit?: boolean | null;
+  isCollegeCoach?: boolean | null;
+  isFan?: boolean | null;
+
+  // =========== COACH INFO ===========
+  coachCount: number;
+  secondarySportCoachCount: number;
+  coachTitle: string | null;
+  coachFirstName: string;
+  secondarySportCoachFirstName: string;
+  coachLastName: string;
+  secondarySportCoachLastName: string;
+  coachPhoneNumber: string;
+  secondarySportCoachPhoneNumber: string;
+  coachEmail: string;
+  secondarySportCoachEmail: string;
+  canManageMultipleTeams?: boolean | null;
+
+  // =========== ORGANIZATION / COLLEGE ===========
+  organization?: string | null;
+  secondOrganization?: string | null;
+  collegeTeamName?: string | null;
+  conference?: string | null;
+  division?: string | null;
+  title: string;
+  mascot: string;
+  teamName?: string;
+
+  // =========== TEAM SETTINGS ===========
+  teamCode?: TeamCode | string | null;
+  teamCodeTrial?: {
+    id: string;
+    expireAt: Date | string;
+    isActive: boolean;
+    expiredAt?: Date | string;
+  };
+  teamColors?: string[] | null;
+  teamColor1?: string | null;
+  teamColor2?: string | null;
+  secondarySportTeamColor1?: string | null;
+  secondarySportTeamColor2?: string | null;
+
+  // =========== SCHEDULING ===========
+  schedule?: string | null;
+  upcomingPastEvent?: string | null;
+  upcomingGameLink?: string | null;
+  secondarySportSchedule?: string | null;
+  secondarySportUpcomingPastEvent?: string | null;
+  secondarySportUpcomingGameLink?: string | null;
+
+  // =========== SPORT-SPECIFIC TEXT ===========
+  unicode?: string | null;
+  secondarySportUnicode?: string | null;
+  secondarySportAboutMe?: string | null;
+
+  // =========== ACADEMIC INFO ===========
+  academicInfo: {
+    [key: string]: string | number;
+  };
+
+  // =========== ATHLETIC INFO & STATS ===========
+  primarySportAthleticInfo: {
+    [key: string]: string | number;
+  };
+  secondarySportAthleticInfo: {
+    [key: string]: string | number;
+  };
+  primarySportStats: primarySportStat[];
+  secondarySportStats: primarySportStat[];
+  primarySportGameStats?: GameStat[];
+  secondarySportGameStats?: GameStat[];
+
+  // =========== SEASON RECORD ===========
+  seasonRecord?: {
+    wins: number;
+    losses: number;
+    ties?: number;
+  };
+
+  // =========== RECRUITING ===========
+  level?: string;
+  playerRole?: string;
+  playerTags: PlayerTag[];
+  offers: string | null;
+  secondarySportOffers: string | null;
+  offerLogos?: { [collegeName: string]: string };
+  secondarySportOfferLogos?: { [collegeName: string]: string };
+  committmentStatus?: string;
+  committmentBy?: College;
+  collegeInterests?: College[] | null;
+  collegeVisits?: CollegeVisits[] | null;
+  collegeCamps?: CollegeCamp[] | null;
+  isCommitted: boolean;
+  rating?: number;
+  ratedBy?: string;
+
+  // =========== EVENTS & ACHIEVEMENTS ===========
+  recentGames?: recentGame[];
+  events?: Event[];
+  awards?: Award[];
+  personalBests?: personalBest[];
+
+  // =========== MEDIA & CONTENT ===========
+  posts: UserPost[] | null;
+  favoriteTemplate: string[] | null;
+  favoriteProfile: string[] | null;
+  availableTemplate: string[] | null;
+  availableProfiles: string[] | null;
+  availableMixtapes: string[] | null;
+  ownTemplates: OwnTemplate[] | null;
+  ownProfiles: OwnProfile[] | null;
+  ownMixtapes: OwnMixtape[] | null;
+  pinnedProfileVideo?: string | null;
+  gameClipsCollection?: GameClipsCollection | null;
+
+  // =========== EMAIL TEMPLATES ===========
+  ownEmailTemplate: {
+    [key: string]: string;
+  };
+  generalEmailTemplate: {
+    [key: string]: string;
+  };
+  personalEmailTemplate: {
+    [key: string]: string;
+  };
+  secondarySportOwnEmailTemplate: {
+    [key: string]: string;
+  };
+  secondarySportGeneralEmailTemplate: {
+    [key: string]: string;
+  };
+  secondarySportPersonalEmailTemplate: {
+    [key: string]: string;
+  };
+
+  // =========== CAMPAIGNS ===========
+  campaignsSent: Campaign[] | null;
+  completeQuestionnaires: string[] | null;
+  completeCamps: string[] | null;
+  isFirstTimeAtCampaign: boolean;
+  taggedColleges: [string | number];
+
+  // =========== CONNECTED ACCOUNTS ===========
+  connectedGmailToken?: string;
+  connectedMicrosoftToken?: string;
+  connectedEmail?: string;
   connectedAccounts?: ConnectedAccounts;
 
-  // =========== SPORTS ===========
-  /**
-   * User's sports - ordered by preference
-   * Index 0 is primary sport, supports unlimited sports
-   */
-  sports: SportProfile[];
+  // =========== SUBSCRIPTION & PAYMENT ===========
+  payment: {
+    expiresIn: any;
+    firstYearExpiresIn: any;
+  };
+  planTier?: PlanTier;
+  credits: number;
+  lastActivatedPlan: string;
+  lastActivePlan: string;
+  showedTrialMessage?: boolean;
 
-  /** Currently active sport index for app display */
-  activeSportIndex: number;
+  // =========== PREFERENCES & FLAGS ===========
+  activityTracking: boolean | null;
+  pushNotifications: boolean;
+  preferences?: UserPreferences;
+  canAddSport: boolean;
+  availableColleges: string[];
+  showedHearAbout: boolean;
 
-  // =========== ROLE-SPECIFIC DATA ===========
-  /** Athlete-specific data (only if role === 'athlete') */
-  athlete?: AthleteData;
+  // =========== UI STATE FLAGS ===========
+  isShowedHowCollegeCreditWorks: boolean | null;
+  isShowedFirstOpenCampaigns: boolean | null;
+  isShowedHowMediaCreditWorks?: boolean | null;
+  isSavingMedia: boolean | null;
+  isNeedCreateThumbnail?: boolean | null;
+  hasSeenFeedbackModal?: boolean | null;
+  feedbackModalSeenAt?: Date | string | null;
 
-  /** Coach-specific data (only if role === 'coach') */
-  coach?: CoachData;
-
-  /** College coach-specific data (only if role === 'college-coach') */
-  collegeCoach?: CollegeCoachData;
-
-  /** Fan-specific data (only if role === 'fan') */
-  fan?: FanData;
-
-  // =========== PLAN ===========
-  /**
-   * Current plan tier (denormalized from Subscriptions collection).
-   * Full billing details: query Subscriptions/{userId}
-   */
-  planTier: PlanTier;
-
-  // =========== PREFERENCES ===========
-  /** User preferences */
-  preferences: UserPreferences;
-
-  // =========== COUNTERS ===========
-  /**
-   * Denormalized counters from analytics collection
-   * For full analytics, query analytics/{userId}
-   */
-  _counters: UserCounters;
+  // =========== ANALYTICS & COUNTERS ===========
+  profileViews?: number;
+  videoViews: number;
+  followersCount?: number;
+  followingCount?: number;
+  _counters?: UserCounters;
 
   // =========== REFERRALS ===========
-  /** Referral history */
-  referrals: Referral[];
+  referrals: [{ userId: string; date: Date; status: string }];
+
+  // =========== PARENT INFO ===========
+  parentInfo: {
+    [key: string]: number;
+  };
+
+  // =========== MISC ===========
+  order?: number | string;
+  removedBgImages?: string | null;
+  qrCode?: string | null;
+
+  // =========== CONTACT INFO (structured) ===========
+  contactInfo?: {
+    phoneNumber?: string;
+    email?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string | number;
+    fieldLocation?: string;
+  };
+
+  // =========== TEAM LINKS ===========
+  teamLinks?: {
+    newsPageUrl?: string;
+    schedulePageUrl?: string;
+    registrationUrl?: string;
+    customLinks?: TeamCustomLink[];
+  };
+
+  // =========== SESSIONS & AI ===========
+  sessions?: Session[] | null;
+  aiCopilotUsage?: {
+    dailyTaskCount: number;
+    lastResetDate: string;
+    totalTasksCompleted: number;
+  };
 
   // =========== TIMESTAMPS ===========
-  /** Account creation date */
-  createdAt: Date | string;
-
-  /** Last profile update */
-  updatedAt: Date | string;
-
-  /** Last login */
+  lastLoginTime: Date | string | any | null;
+  lastUpdated?: Date | string | any | null;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
   lastLoginAt?: Date | string;
 
   // =========== FCM ===========
-  /** Firebase Cloud Messaging token */
-  fcmToken?: string | null;
+  fcmToken: string | null;
+
+  // =========== NEW ARCHITECTURE (optional for migration) ===========
+  _schemaVersion?: typeof USER_SCHEMA_VERSION;
+  sports?: SportProfile[];
+  activeSportIndex?: number;
+  athlete?: AthleteData;
+  coach?: CoachData;
+  collegeCoach?: CollegeCoachData;
+  fan?: FanData;
 }
 
 // ============================================
@@ -528,7 +958,7 @@ export function isCollegeCoach(user: User): user is User & { collegeCoach: Colle
 
 /** Check if user has completed onboarding */
 export function isOnboarded(user: User): boolean {
-  return user.onboardingCompleted && user.signupCompleted;
+  return !!(user.onboardingCompleted && user.signupCompleted);
 }
 
 // ============================================
@@ -537,11 +967,14 @@ export function isOnboarded(user: User): boolean {
 
 /** Get primary sport (first in array) */
 export function getPrimarySport(user: User): SportProfile | undefined {
-  return user.sports[0];
+  return user.sports?.[0];
 }
 
 /** Get active sport */
 export function getActiveSport(user: User): SportProfile | undefined {
+  if (!user.sports || !user.activeSportIndex) {
+    return user.sports?.[0];
+  }
   return user.sports[user.activeSportIndex] ?? user.sports[0];
 }
 
@@ -576,8 +1009,11 @@ export function toUserSummary(user: User): UserSummary {
     firstName: user.firstName,
     lastName: user.lastName,
     profileImg: user.profileImg,
-    role: user.role,
-    location: { city: user.location.city, state: user.location.state },
+    role: (user.role || 'athlete') as UserRole,
+    location: {
+      city: user.location?.city || user.city || '',
+      state: user.location?.state || user.state || '',
+    },
     primarySport: primarySport?.sport,
     primaryPosition: primarySport?.positions[0],
     classOf: user.athlete?.classOf,

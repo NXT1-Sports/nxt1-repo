@@ -166,4 +166,51 @@ router.get(
   })
 );
 
+/**
+ * GET /auth/profile/:uid
+ * Get user profile by UID
+ */
+router.get(
+  '/profile/:uid',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase;
+    const { uid } = req.params;
+
+    console.log('[Auth] GET /profile/:uid - uid:', uid);
+
+    if (!uid) {
+      console.log('[Auth] Error: uid is missing');
+      const error = validationError([
+        { field: 'uid', message: 'User ID is required', rule: 'required' },
+      ]);
+      sendError(res, error);
+      return;
+    }
+
+    // Fetch user document
+    console.log('[Auth] Fetching user from Firestore...');
+    const userDoc = await db.collection('Users').doc(uid).get();
+
+    if (!userDoc.exists) {
+      console.log('[Auth] User not found in Firestore');
+      const error = notFoundError('user', uid);
+      sendError(res, error);
+      return;
+    }
+
+    const userData = userDoc.data();
+    console.log('[Auth] User data retrieved, keys:', userData ? Object.keys(userData).length : 0);
+    const profile = {
+      id: userDoc.id,
+      ...userData,
+    };
+
+    console.log('[Auth] Sending success response');
+    res.json({
+      success: true,
+      data: profile,
+    });
+  })
+);
+
 export default router;

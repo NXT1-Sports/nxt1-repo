@@ -1,19 +1,26 @@
 import { Routes } from '@angular/router';
+import { authGuard } from './features/auth/guards/auth.guards';
 
 /**
- * @fileoverview Web App Routes (Simplified)
+ * @fileoverview Web App Routes
  * @module @nxt1/web
  *
- * Minimal routing - Auth only for now.
- * Additional features will be added as needed.
+ * Application routing with auth guards.
  */
 
 export const routes: Routes = [
-  // Redirect root to auth
+  // Redirect root to home (protected)
   {
     path: '',
     pathMatch: 'full',
-    redirectTo: 'auth',
+    redirectTo: 'home',
+  },
+
+  {
+    path: 'home',
+    loadComponent: () => import('./pages/home/home.component').then((m) => m.HomeComponent),
+    canActivate: [authGuard],
+    title: 'Home | NXT1 Sports',
   },
 
   // Authentication Routes
@@ -22,9 +29,8 @@ export const routes: Routes = [
     loadChildren: () => import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),
   },
 
-  // Catch-all redirect to auth
   {
     path: '**',
-    redirectTo: 'auth',
+    redirectTo: 'home',
   },
 ];

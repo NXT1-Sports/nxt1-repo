@@ -105,7 +105,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       <div class="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
         <!-- Gradient Background -->
         <div
-          class="from-bg-primary absolute inset-0 bg-gradient-to-b to-black opacity-100"
+          class="from-bg-primary absolute inset-0 bg-linear-to-b to-black opacity-100"
           [style.backgroundImage]="
             'radial-gradient(ellipse 80% 50% at 50% -20%, rgba(204, 255, 0, 0.1) 0%, transparent 50%), radial-gradient(ellipse 60% 40% at 100% 100%, rgba(204, 255, 0, 0.06) 0%, transparent 40%)'
           "

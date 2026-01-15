@@ -45,10 +45,9 @@ import { AuthFlowService } from '../../services';
       <h1 authTitle>Welcome back</h1>
       <p authSubtitle>Sign in to continue to NXT1</p>
 
-      <!-- Main Auth Content -->
-      <div authContent class="auth-forms">
-        <!-- Social Buttons (default view) -->
-        @if (!showEmailForm()) {
+      <!-- Social Buttons (default view) -->
+      @if (!showEmailForm()) {
+        <div authContent class="auth-forms">
           <nxt1-auth-social-buttons
             [loading]="authFlow.isLoading()"
             (googleClick)="onGoogleSignIn()"
@@ -60,13 +59,15 @@ import { AuthFlowService } from '../../services';
 
           <nxt1-auth-action-buttons
             [loading]="authFlow.isLoading()"
-            (emailClick)="showEmailForm.set(true)"
+            (emailClick)="onEmailClick()"
             (teamCodeClick)="onTeamCode()"
           />
-        }
+        </div>
+      }
 
-        <!-- Email Form -->
-        @if (showEmailForm()) {
+      <!-- Email Form -->
+      @if (showEmailForm()) {
+        <div authContent class="auth-forms">
           <nxt1-auth-email-form
             mode="login"
             [loading]="authFlow.isLoading()"
@@ -74,8 +75,8 @@ import { AuthFlowService } from '../../services';
             (submitForm)="onEmailSubmit($event)"
             (forgotPasswordClick)="onForgotPassword()"
           />
-        }
-      </div>
+        </div>
+      }
 
       <!-- Side Panel: QR Codes for Desktop -->
       <ng-container authSidePanel>
@@ -153,5 +154,9 @@ export class LoginComponent {
   onTeamCode(): void {
     // Navigate to signup with team code flow
     this.router.navigate(['/auth/signup'], { queryParams: { teamCode: true } });
+  }
+
+  onEmailClick(): void {
+    this.showEmailForm.set(true);
   }
 }

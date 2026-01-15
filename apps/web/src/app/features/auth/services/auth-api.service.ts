@@ -12,7 +12,7 @@
  * @module @nxt1/web/features/auth
  */
 import { Injectable, inject } from '@angular/core';
-import { createAuthApi, type AuthApi } from '@nxt1/core';
+import { createAuthApi, type AuthApi, type User } from '@nxt1/core';
 import { AngularHttpAdapter } from '../../../core/infrastructure';
 import { environment } from '../../../../environments/environment';
 
@@ -54,6 +54,21 @@ export class AuthApiService {
    */
   createUser(...args: Parameters<AuthApi['createUser']>): ReturnType<AuthApi['createUser']> {
     return this.api.createUser(...args);
+  }
+
+  /**
+   * Get user profile by UID
+   */
+  async getUserProfile(uid: string): Promise<User> {
+    try {
+      const response = (await this.http.get(`${environment.apiURL}/auth/profile/${uid}`)) as {
+        data: User;
+      };
+      return response.data;
+    } catch (error) {
+      console.error('[AuthApiService] Failed to fetch user profile:', error);
+      throw error;
+    }
   }
 
   // ============================================
