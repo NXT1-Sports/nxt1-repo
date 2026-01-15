@@ -36,21 +36,12 @@ export const VALID_EMAILS = [
 /**
  * Weak passwords for validation testing
  */
-export const WEAK_PASSWORDS = [
-  '',
-  '12345',
-  'password',
-  'abc',
-];
+export const WEAK_PASSWORDS = ['', '12345', 'password', 'abc'];
 
 /**
  * Strong passwords
  */
-export const STRONG_PASSWORDS = [
-  'Password123!',
-  'SecureP@ss1',
-  'MyStr0ng!Pass',
-];
+export const STRONG_PASSWORDS = ['Password123!', 'SecureP@ss1', 'MyStr0ng!Pass'];
 
 // ===========================================================================
 // AUTH ERROR MESSAGES
@@ -117,8 +108,8 @@ export const TIMEOUTS = {
 
 export const ROUTES = {
   auth: {
-    login: '/auth/login',
-    signup: '/auth/signup',
+    login: '/auth',
+    signup: '/auth?mode=signup',
     forgotPassword: '/auth/forgot-password',
     onboarding: '/auth/onboarding',
   },

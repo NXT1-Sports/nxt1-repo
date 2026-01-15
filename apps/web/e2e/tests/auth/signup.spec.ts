@@ -97,7 +97,7 @@ test.describe('Signup Page', () => {
 
           // Should either show error or stay on page
           const hasError = await signupPage.hasError();
-          const stillOnPage = signupPage.getCurrentUrl().includes('/auth/signup');
+          const stillOnPage = signupPage.getCurrentUrl().includes('/auth');
 
           expect(hasError || stillOnPage).toBe(true);
         });

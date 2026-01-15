@@ -25,7 +25,7 @@ export interface PageOptions {
  * @example
  * ```typescript
  * export class LoginPage extends BasePage {
- *   readonly url = '/auth/login';
+ *   readonly url = '/auth';
  *
  *   readonly emailInput = this.page.getByTestId('email-input');
  *   readonly passwordInput = this.page.getByTestId('password-input');
@@ -193,10 +193,7 @@ export abstract class BasePage {
    * Click element and wait for navigation
    */
   async clickAndWaitForNavigation(locator: Locator): Promise<void> {
-    await Promise.all([
-      this.page.waitForNavigation({ timeout: this.timeout }),
-      locator.click(),
-    ]);
+    await Promise.all([this.page.waitForNavigation({ timeout: this.timeout }), locator.click()]);
   }
 
   /**

@@ -536,7 +536,7 @@ export class AuthFlowService implements OnDestroy {
       await this.firebaseAuth.signOut();
       this.httpAdapter.setAuthToken(null);
       await this.authManager.reset();
-      await this.router.navigate(['/auth/login']);
+      await this.router.navigate(['/auth']);
     } catch (err) {
       const message = getAuthErrorMessage(err);
       this.authManager.setError(message);

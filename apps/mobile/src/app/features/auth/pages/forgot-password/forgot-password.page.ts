@@ -49,7 +49,7 @@ import { HapticsService } from '@nxt1/ui/services';
           <p class="text-text-secondary mb-6 text-sm">
             Check your inbox for instructions to reset your password.
           </p>
-          <ion-button expand="block" class="reset-button" routerLink="/auth/login">
+          <ion-button expand="block" class="reset-button" routerLink="/auth">
             Back to Sign In
           </ion-button>
         </div>
@@ -98,7 +98,7 @@ import { HapticsService } from '@nxt1/ui/services';
       <!-- Footer -->
       <p authFooter>
         <a
-          routerLink="/auth/login"
+          routerLink="/auth"
           class="text-text-secondary hover:text-primary inline-flex items-center gap-1 transition-colors"
         >
           <ion-icon name="arrow-back-outline" class="text-lg"></ion-icon>
@@ -145,7 +145,7 @@ export class ForgotPasswordPage {
 
   async onBackClick(): Promise<void> {
     await this.haptics.impact('light');
-    this.router.navigate(['/auth/login']);
+    this.router.navigate(['/auth']);
   }
 
   async onSubmit(): Promise<void> {

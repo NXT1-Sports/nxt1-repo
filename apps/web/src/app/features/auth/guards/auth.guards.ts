@@ -16,8 +16,8 @@
  *     canActivate: [authGuard]
  *   },
  *   {
- *     path: 'auth/login',
- *     loadComponent: () => import('./auth/login/login.component'),
+ *     path: 'auth',
+ *     loadComponent: () => import('./auth/auth.component'),
  *     canActivate: [guestGuard]
  *   }
  * ];
@@ -79,7 +79,7 @@ export const authGuard: CanActivateFn = () => {
     return true;
   }
 
-  return router.createUrlTree([result.redirectTo ?? '/auth/login']);
+  return router.createUrlTree([result.redirectTo ?? '/auth']);
 };
 
 /**
