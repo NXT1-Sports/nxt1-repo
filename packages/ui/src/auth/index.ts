@@ -8,6 +8,7 @@
 
 export { AuthShellComponent, type AuthShellVariant } from './auth-shell';
 export { AuthSocialButtonsComponent, type SocialProvidersConfig } from './auth-social-buttons';
+export { AuthActionButtonsComponent } from './auth-action-buttons';
 export { AuthDividerComponent } from './auth-divider';
 export {
   AuthEmailFormComponent,

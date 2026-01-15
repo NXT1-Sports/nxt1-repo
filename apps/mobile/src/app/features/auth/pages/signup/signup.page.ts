@@ -14,13 +14,11 @@ import { Router, RouterLink } from '@angular/router';
 import {
   AuthShellComponent,
   AuthSocialButtonsComponent,
+  AuthActionButtonsComponent,
   AuthDividerComponent,
   AuthEmailFormComponent,
   type AuthEmailFormData,
 } from '@nxt1/ui/auth';
-import { IonButton, IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { mailOutline, keyOutline } from 'ionicons/icons';
 import { AuthFlowService } from '../../services';
 import { HapticsService } from '@nxt1/ui/services';
 
@@ -32,10 +30,9 @@ import { HapticsService } from '@nxt1/ui/services';
     RouterLink,
     AuthShellComponent,
     AuthSocialButtonsComponent,
+    AuthActionButtonsComponent,
     AuthDividerComponent,
     AuthEmailFormComponent,
-    IonButton,
-    IonIcon,
   ],
   template: `
     <nxt1-auth-shell
@@ -58,29 +55,11 @@ import { HapticsService } from '@nxt1/ui/services';
 
         <nxt1-auth-divider />
 
-        <div class="flex flex-col gap-3 w-full">
-          <ion-button
-            expand="block"
-            fill="outline"
-            [disabled]="authFlow.isLoading()"
-            (click)="onEmailClick()"
-            class="email-button"
-          >
-            <ion-icon slot="start" name="mail-outline"></ion-icon>
-            <span>Continue with Email</span>
-          </ion-button>
-
-          <ion-button
-            expand="block"
-            fill="clear"
-            [disabled]="authFlow.isLoading()"
-            (click)="onTeamCode()"
-            class="team-button"
-          >
-            <ion-icon slot="start" name="key-outline"></ion-icon>
-            <span>Have a Team Code?</span>
-          </ion-button>
-        </div>
+        <nxt1-auth-action-buttons
+          [loading]="authFlow.isLoading()"
+          (emailClick)="onEmailClick()"
+          (teamCodeClick)="onTeamCode()"
+        />
       }
 
       <!-- Email Form -->
@@ -102,31 +81,6 @@ import { HapticsService } from '@nxt1/ui/services';
       </p>
     </nxt1-auth-shell>
   `,
-  styles: [
-    `
-      .email-button {
-        --border-color: var(--nxt1-color-border-default);
-        --background: var(--nxt1-color-surface-200);
-        --color: var(--nxt1-color-text-primary);
-        font-family: var(--nxt1-font-family-brand);
-        height: 48px;
-      }
-
-      .email-button:hover {
-        --background: var(--nxt1-color-surface-300);
-      }
-
-      .team-button {
-        --color: var(--nxt1-color-text-primary);
-        font-family: var(--nxt1-font-family-brand);
-        height: 48px;
-      }
-
-      .team-button:hover {
-        --background: rgba(255, 255, 255, 0.05);
-      }
-    `,
-  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SignupPage {
@@ -135,10 +89,6 @@ export class SignupPage {
   private readonly router = inject(Router);
 
   showEmailForm = signal(false);
-
-  constructor() {
-    addIcons({ mailOutline, keyOutline });
-  }
 
   async onBackClick(): Promise<void> {
     await this.haptics.impact('light');

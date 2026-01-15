@@ -1,253 +1,134 @@
+/**
+ * @fileoverview Signup Component - Using Shared Auth Components
+ * @module @nxt1/web
+ *
+ * Professional signup page using shared auth components from @nxt1/ui.
+ * Demonstrates cross-platform code sharing between web and mobile.
+ *
+ * ⭐ MATCHES MOBILE'S signup.page.ts INTERFACE ⭐
+ */
+
 import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
-import { FormsModule } from '@angular/forms';
+import { Router, RouterModule } from '@angular/router';
 import {
-  IonContent,
-  IonInput,
-  IonButton,
-  IonIcon,
-  IonSpinner,
-  IonInputPasswordToggle,
-} from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  mailOutline,
-  lockClosedOutline,
-  personOutline,
-  logoGoogle,
-  logoApple,
-} from 'ionicons/icons';
-import { NxtPlatformService } from '@nxt1/ui/services';
+  AuthShellComponent,
+  AuthSocialButtonsComponent,
+  AuthActionButtonsComponent,
+  AuthDividerComponent,
+  AuthEmailFormComponent,
+  type AuthEmailFormData,
+} from '@nxt1/ui/auth';
 import { AuthFlowService } from '../../services';
 
-/**
- * Signup Component
- *
- * Handles new user registration with design token styling.
- */
 @Component({
   selector: 'app-signup',
   standalone: true,
   imports: [
     CommonModule,
     RouterModule,
-    FormsModule,
-    IonContent,
-    IonInput,
-    IonButton,
-    IonIcon,
-    IonSpinner,
-    IonInputPasswordToggle,
+    AuthShellComponent,
+    AuthSocialButtonsComponent,
+    AuthActionButtonsComponent,
+    AuthDividerComponent,
+    AuthEmailFormComponent,
   ],
   template: `
-    <ion-content class="auth-page h-screen" [fullscreen]="true" data-testid="signup-page">
-      <div class="auth-page__container">
-        <!-- Logo -->
-        <div class="auth-page__logo" data-testid="signup-logo">
-          <picture>
-            <source srcset="assets/shared/logo/logo.avif" type="image/avif" />
-            <img
-              src="assets/shared/logo/logo.png"
-              alt="NXT1 Sports"
-              class="nxt1-logo nxt1-logo--auth"
-            />
-          </picture>
-        </div>
+    <nxt1-auth-shell
+      variant="card"
+      [showBackButton]="showEmailForm()"
+      (backClick)="showEmailForm.set(false)"
+    >
+      <!-- Title & Subtitle -->
+      <h1 authTitle>Create Account</h1>
+      <p authSubtitle>Join NXT1 to start your recruiting journey</p>
 
-        <!-- Header -->
-        <div class="auth-page__header">
-          <h1 class="auth-page__title" data-testid="signup-title">Create Account</h1>
-          <p class="auth-page__subtitle" data-testid="signup-subtitle">Join the NXT1 Sports community</p>
-        </div>
+      <!-- Social Buttons (default view) -->
+      @if (!showEmailForm()) {
+        <nxt1-auth-social-buttons
+          [loading]="authFlow.isLoading()"
+          (googleClick)="onGoogleSignUp()"
+          (appleClick)="onAppleSignUp()"
+          (microsoftClick)="onMicrosoftSignUp()"
+        />
 
-        <!-- Error Message -->
-        @if (authFlow.error()) {
-          <div class="auth-error" data-testid="signup-error">
-            <span data-testid="signup-error-message">{{ authFlow.error() }}</span>
-            <button type="button" class="auth-error__close" (click)="authFlow.clearError()" data-testid="signup-error-close">
-              ×
-            </button>
-          </div>
-        }
+        <nxt1-auth-divider />
 
-        <!-- Signup Form -->
-        <div class="auth-card">
-          <form (ngSubmit)="onSubmit()" class="auth-form" data-testid="signup-form">
-            <!-- Email -->
-            <div class="auth-form__group">
-              <label class="auth-form__label">Email</label>
-              <ion-input
-                type="email"
-                [(ngModel)]="email"
-                name="email"
-                placeholder="Enter your email"
-                class="auth-input"
-                fill="outline"
-                autocomplete="email"
-                data-testid="signup-input-email"
-              >
-                <ion-icon slot="start" name="mail-outline" aria-hidden="true"></ion-icon>
-              </ion-input>
-            </div>
+        <nxt1-auth-action-buttons
+          [loading]="authFlow.isLoading()"
+          (emailClick)="showEmailForm.set(true)"
+          (teamCodeClick)="onTeamCode()"
+        />
+      }
 
-            <!-- Password -->
-            <div class="auth-form__group">
-              <label class="auth-form__label">Password</label>
-              <ion-input
-                [type]="showPassword() ? 'text' : 'password'"
-                [(ngModel)]="password"
-                name="password"
-                placeholder="Create a password (min 6 characters)"
-                class="auth-input"
-                fill="outline"
-                autocomplete="new-password"
-                data-testid="signup-input-password"
-              >
-                <ion-icon slot="start" name="lock-closed-outline" aria-hidden="true"></ion-icon>
-                <ion-input-password-toggle slot="end" data-testid="signup-toggle-password"></ion-input-password-toggle>
-              </ion-input>
-            </div>
+      <!-- Email Form -->
+      @if (showEmailForm()) {
+        <nxt1-auth-email-form
+          mode="signup"
+          [loading]="authFlow.isLoading()"
+          [error]="authFlow.error()"
+          (submitForm)="onEmailSubmit($event)"
+        />
+      }
 
-            <!-- Confirm Password -->
-            <div class="auth-form__group">
-              <label class="auth-form__label">Confirm Password</label>
-              <ion-input
-                [type]="showConfirmPassword() ? 'text' : 'password'"
-                [(ngModel)]="confirmPassword"
-                name="confirmPassword"
-                placeholder="Confirm your password"
-                class="auth-input"
-                fill="outline"
-                autocomplete="new-password"
-                data-testid="signup-input-confirm-password"
-              >
-                <ion-icon slot="start" name="lock-closed-outline" aria-hidden="true"></ion-icon>
-                <ion-input-password-toggle slot="end" data-testid="signup-toggle-confirm-password"></ion-input-password-toggle>
-              </ion-input>
-            </div>
+      <!-- Footer -->
+      <p authFooter>
+        Already have an account?
+        <a routerLink="/auth/login">Sign In</a>
+      </p>
 
-            <!-- Team Code (Optional) -->
-            @if (teamCodeEnabled()) {
-              <div class="auth-form__group">
-                <label class="auth-form__label">Team Code (Optional)</label>
-                <ion-input
-                  type="text"
-                  [(ngModel)]="teamCode"
-                  name="teamCode"
-                  placeholder="Enter team code if you have one"
-                  class="auth-input"
-                  fill="outline"
-                  data-testid="signup-input-teamcode"
-                >
-                  <ion-icon slot="start" name="person-outline" aria-hidden="true"></ion-icon>
-                </ion-input>
-              </div>
-            }
-
-            <!-- Submit Button -->
-            <ion-button
-              type="submit"
-              expand="block"
-              class="auth-button auth-button--primary"
-              [disabled]="authFlow.isLoading() || !isFormValid()"
-              data-testid="signup-submit-button"
-            >
-              @if (authFlow.isLoading()) {
-                <ion-spinner name="crescent" data-testid="signup-loading-spinner"></ion-spinner>
-              } @else {
-                Create Account
-              }
-            </ion-button>
-          </form>
-
-          <!-- Divider -->
-          <div class="auth-divider">
-            <span class="auth-divider__text">OR</span>
-          </div>
-
-          <!-- Social Buttons -->
-          <div class="auth-social" data-testid="signup-social-buttons">
-            <ion-button
-              expand="block"
-              class="auth-button auth-button--google"
-              (click)="onGoogleSignUp()"
-              [disabled]="authFlow.isLoading()"
-              data-testid="signup-btn-google"
-            >
-              <ion-icon slot="start" name="logo-google"></ion-icon>
-              Continue with Google
-            </ion-button>
-
-            <ion-button
-              expand="block"
-              class="auth-button auth-button--apple"
-              (click)="onAppleSignUp()"
-              [disabled]="authFlow.isLoading()"
-              data-testid="signup-btn-apple"
-            >
-              <ion-icon slot="start" name="logo-apple"></ion-icon>
-              Continue with Apple
-            </ion-button>
-          </div>
-        </div>
-
-        <!-- Footer -->
-        <div class="auth-footer" data-testid="signup-footer">
-          <p class="auth-footer__text">
-            Already have an account?
-            <a routerLink="/auth/login" class="auth-link" data-testid="signup-link-login">Sign In</a>
-          </p>
-        </div>
-      </div>
-    </ion-content>
+      <!-- Terms -->
+      <p authTerms>
+        By creating an account, you agree to NXT1's
+        <a href="/terms">Terms of Service</a>
+        and
+        <a href="/privacy">Privacy Policy</a>
+      </p>
+    </nxt1-auth-shell>
   `,
-  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SignupComponent {
   readonly authFlow = inject(AuthFlowService);
-  private readonly platform = inject(NxtPlatformService);
+  private readonly router = inject(Router);
 
-  email = '';
-  password = '';
-  confirmPassword = '';
-  teamCode = '';
+  showEmailForm = signal(false);
 
-  showPassword = signal(false);
-  showConfirmPassword = signal(false);
+  async onEmailSubmit(data: AuthEmailFormData): Promise<void> {
+    this.authFlow.clearError();
+    try {
+      // Parse displayName into first/last name if provided
+      const [firstName = '', lastName = ''] = (data.displayName || '').trim().split(/\s+/, 2);
 
-  teamCodeEnabled = () => true; // Could be feature flag
-
-  constructor() {
-    // Only register icons in browser (SSR-safe)
-    if (this.platform.isBrowser()) {
-      addIcons({ mailOutline, lockClosedOutline, personOutline, logoGoogle, logoApple });
+      await this.authFlow.signUpWithEmail({
+        email: data.email,
+        password: data.password,
+        firstName,
+        lastName,
+      });
+    } catch {
+      // Error is handled by auth flow service
     }
   }
 
-  isFormValid(): boolean {
-    return (
-      this.email.length > 0 && this.password.length >= 6 && this.password === this.confirmPassword
-    );
-  }
-
-  async onSubmit(): Promise<void> {
-    if (!this.isFormValid()) return;
-
-    await this.authFlow.signUpWithEmail({
-      email: this.email,
-      password: this.password,
-      teamCode: this.teamCode || undefined,
-    });
-  }
-
   async onGoogleSignUp(): Promise<void> {
-    await this.authFlow.signInWithGoogle();
+    try {
+      await this.authFlow.signInWithGoogle();
+    } catch {
+      // Error handled by service
+    }
   }
 
   async onAppleSignUp(): Promise<void> {
-    // Apple sign in - to be implemented
-    console.log('Apple sign up clicked');
+    // Apple Sign In - placeholder for future integration
+  }
+
+  async onMicrosoftSignUp(): Promise<void> {
+    // Microsoft Sign In - placeholder for future integration
+  }
+
+  onTeamCode(): void {
+    // Navigate to signup with team code flow
+    this.router.navigate(['/auth/signup'], { queryParams: { teamCode: true } });
   }
 }

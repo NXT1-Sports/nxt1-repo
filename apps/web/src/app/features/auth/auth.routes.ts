@@ -8,6 +8,8 @@ import { Routes } from '@angular/router';
  * - Sign up
  * - Password reset
  * - Onboarding
+ *
+ * All routes load from ./pages/ folder (matches mobile structure)
  */
 export const AUTH_ROUTES: Routes = [
   {

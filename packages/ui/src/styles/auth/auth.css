@@ -26,17 +26,17 @@
 :root {
   /* Colors mapped to design tokens (with standardized fallbacks) */
   --auth-primary: var(--nxt1-color-primary, #ccff00);
-  --auth-primary-dark: var(--nxt1-color-primary-dark, #a3cc00);
-  --auth-primary-glow: rgba(204, 255, 0, 0.1);
-  --auth-primary-border: rgba(204, 255, 0, 0.3);
+  --auth-primary-dark: var(--nxt1-color-primaryDark, #a3cc00);
+  --auth-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+  --auth-primary-border: var(--nxt1-color-alpha-primary30, rgba(204, 255, 0, 0.3));
 
-  /* Backgrounds */
+  /* Backgrounds - All using design tokens for theme support */
   --auth-bg-page: var(--nxt1-color-bg-primary, #0a0a0a);
-  --auth-bg-card: rgba(255, 255, 255, 0.02);
-  --auth-bg-card-border: rgba(255, 255, 255, 0.08);
-  --auth-bg-input: rgba(255, 255, 255, 0.04);
-  --auth-bg-input-hover: rgba(255, 255, 255, 0.06);
-  --auth-bg-input-focus: rgba(255, 255, 255, 0.08);
+  --auth-bg-card: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
+  --auth-bg-card-border: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+  --auth-bg-input: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+  --auth-bg-input-hover: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
+  --auth-bg-input-focus: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
 
   /* Text */
   --auth-text-primary: var(--nxt1-color-text-primary, #ffffff);
@@ -44,11 +44,11 @@
   --auth-text-muted: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
   --auth-text-placeholder: var(--nxt1-color-text-disabled, rgba(255, 255, 255, 0.3));
 
-  /* Borders (with fallbacks) */
+  /* Borders - Using design tokens */
   --auth-border-subtle: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
-  --auth-border-default: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
-  --auth-border-hover: var(--nxt1-color-border-hover, rgba(255, 255, 255, 0.15));
-  --auth-border-focus: rgba(204, 255, 0, 0.5);
+  --auth-border-default: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+  --auth-border-hover: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+  --auth-border-focus: var(--nxt1-color-alpha-primary50, rgba(204, 255, 0, 0.5));
 
   /* Semantic */
   --auth-error: var(--nxt1-color-error, #ef4444);
@@ -650,22 +650,36 @@ p[authTerms] a:hover {
   outline-offset: 2px;
 }
 
-/* Provider-specific hover effects */
+/* ============================================
+   PROVIDER-SPECIFIC BUTTON STYLES
+   ============================================ */
+
+/* Apple button - solid black background */
+.nxt1-social-btn--apple {
+  background: #000000;
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+.nxt1-social-btn--apple:hover:not(:disabled) {
+  background: #1a1a1a;
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+/* Google button hover effect */
 .nxt1-social-btn--google:hover:not(:disabled) {
   border-color: rgba(66, 133, 244, 0.4);
   box-shadow: 0 0 0 1px rgba(66, 133, 244, 0.1);
 }
 
-.nxt1-social-btn--apple:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.3);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
-}
-
+/* Microsoft button hover effect */
 .nxt1-social-btn--microsoft:hover:not(:disabled) {
   border-color: rgba(0, 164, 239, 0.4);
   box-shadow: 0 0 0 1px rgba(0, 164, 239, 0.1);
 }
 
+/* Email button hover effect */
 .nxt1-social-btn--email:hover:not(:disabled) {
   border-color: var(--auth-border-focus);
   box-shadow: 0 0 0 1px rgba(204, 255, 0, 0.1);

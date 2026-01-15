@@ -55,7 +55,7 @@ import { addIcons } from 'ionicons';
 import { arrowBack, chevronBack } from 'ionicons/icons';
 
 /** Shell layout variants */
-export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
+export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'fullscreen';
 
 @Component({
   selector: 'nxt1-auth-shell',
@@ -147,6 +147,7 @@ export type AuthShellVariant = 'card' | 'wide' | 'minimal' | 'fullscreen';
           [style.maxWidth]="maxWidth"
           [ngClass]="{
             'bg-surface-100 border-border-subtle rounded-2xl border p-6': variant === 'card',
+            'flex flex-col gap-3 p-6 bg-white/[0.02] border border-white/[0.08] rounded-2xl': variant === 'card-glass',
           }"
         >
           <ng-content></ng-content>
@@ -222,6 +223,8 @@ export class AuthShellComponent {
         return 'max-w-sm mx-auto';
       case 'fullscreen':
         return 'max-w-none px-4 md:px-0';
+      case 'card-glass':
+        return 'max-w-md mx-auto';
       case 'card':
       default:
         return 'max-w-sm mx-auto';
