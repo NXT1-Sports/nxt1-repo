@@ -27,11 +27,12 @@
 import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonButton } from '@ionic/angular/standalone';
+import { NxtIconComponent } from '../../shared/icon';
 
 @Component({
   selector: 'nxt1-auth-action-buttons',
   standalone: true,
-  imports: [CommonModule, IonButton],
+  imports: [CommonModule, IonButton, NxtIconComponent],
   template: `
     <div class="nxt1-social-buttons" data-testid="auth-action-buttons">
       <!-- Continue with Email -->
@@ -44,19 +45,7 @@ import { IonButton } from '@ionic/angular/standalone';
         data-testid="auth-btn-email"
       >
         <div class="btn-content">
-          <svg
-            class="btn-icon"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <rect x="2" y="4" width="20" height="16" rx="2" />
-            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-          </svg>
+          <nxt1-icon name="mail" size="20" class="btn-icon" aria-hidden="true" />
           <span class="btn-text">Continue with Email</span>
         </div>
       </ion-button>
@@ -72,19 +61,7 @@ import { IonButton } from '@ionic/angular/standalone';
           data-testid="auth-btn-team-code"
         >
           <div class="btn-content">
-            <svg
-              class="btn-icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
+            <nxt1-icon name="lock" size="20" class="btn-icon" aria-hidden="true" />
             <span class="btn-text">Have a Team Code?</span>
           </div>
         </ion-button>
@@ -107,14 +84,14 @@ import { IonButton } from '@ionic/angular/standalone';
 
       /* Base auth button - uses design system tokens */
       .nxt1-auth-btn {
-        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
-        --background-hover: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
-        --background-activated: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
-        --background-focused: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
-        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        --border-radius: var(--nxt1-radius-default, 8px);
+        --background: var(--nxt1-color-state-hover);
+        --background-hover: var(--nxt1-color-state-pressed);
+        --background-activated: var(--nxt1-color-state-pressed);
+        --background-focused: var(--nxt1-color-state-pressed);
+        --border-color: var(--nxt1-color-border-default);
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
-        --color: var(--nxt1-color-text-primary, #ffffff);
+        --color: var(--nxt1-color-text-primary);
         --padding-start: 1rem;
         --padding-end: 1rem;
         --box-shadow: none;
@@ -158,16 +135,16 @@ import { IonButton } from '@ionic/angular/standalone';
 
       /* Email button hover */
       .nxt1-auth-btn--email:hover {
-        --border-color: var(--auth-border-focus, rgba(204, 255, 0, 0.5));
+        --border-color: var(--nxt1-color-border-primary);
       }
 
       /* Team code button - dashed outline style */
       .nxt1-auth-btn--team-code {
         --background: transparent;
-        --background-hover: var(--auth-bg-input, rgba(255, 255, 255, 0.04));
+        --background-hover: var(--nxt1-color-state-hover);
         --border-style: dashed;
-        --border-color: var(--auth-border-hover, rgba(255, 255, 255, 0.15));
-        --color: var(--auth-text-secondary, rgba(255, 255, 255, 0.7));
+        --border-color: var(--nxt1-color-border-default);
+        --color: var(--nxt1-color-text-secondary);
         height: 48px;
       }
 

@@ -34,17 +34,9 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { IonInput, IonButton, IonSpinner, IonIcon, IonNote } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  mailOutline,
-  lockClosedOutline,
-  eyeOutline,
-  eyeOffOutline,
-  alertCircle,
-  personOutline,
-} from 'ionicons/icons';
+import { IonInput, IonButton, IonSpinner, IonNote } from '@ionic/angular/standalone';
 import { isValidEmail } from '@nxt1/core/helpers';
+import { NxtIconComponent } from '../../shared/icon';
 
 /** Form submission data */
 export interface AuthEmailFormData {
@@ -59,7 +51,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
 @Component({
   selector: 'nxt1-auth-email-form',
   standalone: true,
-  imports: [CommonModule, FormsModule, IonInput, IonButton, IonSpinner, IonIcon, IonNote],
+  imports: [CommonModule, FormsModule, IonInput, IonButton, IonSpinner, IonNote, NxtIconComponent],
   template: `
     <!-- Error Display -->
     @if (error) {
@@ -68,33 +60,11 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
         role="alert"
         data-testid="auth-form-error"
       >
-        <ion-icon name="alert-circle" class="shrink-0 text-xl" aria-hidden="true"></ion-icon>
+        <nxt1-icon name="alertCircle" size="20" class="shrink-0" aria-hidden="true" />
         <span data-testid="auth-form-error-message">{{ error }}</span>
       </div>
     }
     <form class="flex w-full flex-col gap-5" (ngSubmit)="onSubmit()" data-testid="auth-email-form">
-      <!-- Display Name (signup only) -->
-      @if (mode === 'signup') {
-        <div class="flex flex-col gap-2">
-          <label class="text-text-secondary text-sm font-medium" for="displayName">Full Name</label>
-          <ion-input
-            id="displayName"
-            type="text"
-            class="auth-input"
-            fill="outline"
-            placeholder="Enter your name"
-            [(ngModel)]="displayName"
-            name="displayName"
-            [disabled]="loading"
-            autocomplete="name"
-            autocapitalize="words"
-            data-testid="auth-input-displayname"
-          >
-            <ion-icon slot="start" name="person-outline" aria-hidden="true"></ion-icon>
-          </ion-input>
-        </div>
-      }
-
       <!-- Email Field -->
       <div class="flex flex-col gap-2">
         <label class="text-text-secondary text-sm font-medium" for="email">Email Address</label>
@@ -113,7 +83,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
           (ionBlur)="emailTouched.set(true)"
           data-testid="auth-input-email"
         >
-          <ion-icon slot="start" name="mail-outline" aria-hidden="true"></ion-icon>
+          <nxt1-icon slot="start" name="mail" size="20" class="input-icon" aria-hidden="true" />
         </ion-input>
         @if (emailTouched() && !isEmailValid()) {
           <ion-note class="pl-0.5 text-xs text-red-400" data-testid="auth-email-error">
@@ -140,7 +110,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
             [autocomplete]="mode === 'signup' ? 'new-password' : 'current-password'"
             data-testid="auth-input-password"
           >
-            <ion-icon slot="start" name="lock-closed-outline" aria-hidden="true"></ion-icon>
+            <nxt1-icon slot="start" name="lock" size="20" class="input-icon" aria-hidden="true" />
             <button
               type="button"
               slot="end"
@@ -149,7 +119,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
               [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
               data-testid="auth-toggle-password"
             >
-              <ion-icon [name]="showPassword() ? 'eye-off-outline' : 'eye-outline'"></ion-icon>
+              <nxt1-icon [name]="showPassword() ? 'eyeOff' : 'eye'" size="20" />
             </button>
           </ion-input>
           @if (mode === 'signup') {
@@ -160,7 +130,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
 
       <!-- Forgot Password Link (login only) -->
       @if (mode === 'login' && showForgotPassword) {
-        <div class="-mt-2 text-right">
+        <div class="mt-3 text-center">
           <a
             class="text-text-secondary hover:text-primary cursor-pointer text-sm no-underline"
             (click)="forgotPasswordClick.emit()"
@@ -177,7 +147,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
       <ion-button
         type="submit"
         expand="block"
-        class="submit-btn mt-2"
+        class="submit-btn mt-4"
         [disabled]="loading || !isFormValid()"
         data-testid="auth-submit-button"
       >
@@ -198,40 +168,49 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
     `
       /* Auth Input - Glassmorphic styling matching social buttons */
       .auth-input {
-        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
-        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        --border-radius: 12px;
+        --background: var(--nxt1-color-state-hover);
+        --border-color: var(--nxt1-color-border-default);
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
         --padding-start: 16px;
         --padding-end: 16px;
         --padding-top: 0;
         --padding-bottom: 0;
-        --color: var(--nxt1-color-text-primary, #ffffff);
-        --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
-        --highlight-color-focused: var(--nxt1-color-primary, #ccff00);
-        --highlight-color-valid: var(--nxt1-color-primary, #ccff00);
-        --highlight-color-invalid: var(--nxt1-color-error, #ef4444);
+        --color: var(--nxt1-color-text-primary);
+        --placeholder-color: var(--nxt1-color-text-tertiary);
+        /* Subtle highlight - not bright primary color */
+        --highlight-color-focused: var(--nxt1-color-border-strong);
+        --highlight-color-valid: var(--nxt1-color-border-strong);
+        --highlight-color-invalid: var(--nxt1-color-error);
+        --highlight-height: 1px;
         font-size: 1rem;
         min-height: 52px;
+        transition:
+          border-color 200ms ease-out,
+          background 200ms ease-out;
       }
 
       .auth-input::part(native) {
         transition: all 200ms ease-out;
       }
 
+      /* Subtle hover - just a slight border brighten like social buttons */
       .auth-input:hover {
-        --background: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
+        --border-color: var(--nxt1-color-border-strong);
       }
 
-      .auth-input ion-icon[slot='start'] {
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
-        font-size: 1.25rem;
+      /* Input icon styling - matching button icons */
+      .auth-input .input-icon,
+      .auth-input nxt1-icon[slot='start'],
+      .auth-input ::ng-deep nxt1-icon[slot='start'] {
+        color: var(--nxt1-color-text-primary);
+        flex-shrink: 0;
         margin-inline-end: 8px;
       }
 
       .auth-input-error {
-        --border-color: var(--nxt1-color-error, #ef4444);
-        --highlight-color-focused: var(--nxt1-color-error, #ef4444);
+        --border-color: var(--nxt1-color-error);
+        --highlight-color-focused: var(--nxt1-color-error);
       }
 
       /* Password toggle button */
@@ -244,30 +223,26 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
         padding: 0;
         margin: 0;
         border: none;
-        border-radius: 8px;
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
         background: transparent;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-primary);
         cursor: pointer;
         transition: all 0.2s ease;
       }
 
       .password-toggle:hover {
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
-      }
-
-      .password-toggle ion-icon {
-        font-size: 1.25rem;
+        color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-state-hover);
       }
 
       /* Submit Button - professional styling */
       .submit-btn {
-        --background: var(--nxt1-color-primary, #ccff00);
-        --background-hover: var(--nxt1-color-primaryDark, #a3cc00);
-        --background-activated: var(--nxt1-color-primaryDark, #a3cc00);
-        --background-focused: var(--nxt1-color-primary, #ccff00);
-        --color: var(--nxt1-color-bg-primary, #0a0a0a);
-        --border-radius: 12px;
+        --background: var(--nxt1-color-primary);
+        --background-hover: var(--nxt1-color-primaryDark);
+        --background-activated: var(--nxt1-color-primaryDark);
+        --background-focused: var(--nxt1-color-primary);
+        --color: var(--nxt1-color-text-on-Primary);
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --padding-top: 14px;
         --padding-bottom: 14px;
         --box-shadow: none;
@@ -280,11 +255,11 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
 
       .submit-btn::part(native) {
         min-height: 52px;
-        border-radius: 12px;
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
       }
 
       .submit-btn ion-spinner {
-        --color: var(--nxt1-color-bg-primary, #0a0a0a);
+        --color: var(--nxt1-color-text-on-Primary);
         width: 1.25rem;
         height: 1.25rem;
         margin-right: 0.5rem;
@@ -321,22 +296,10 @@ export class AuthEmailFormComponent {
   // Form state
   email = '';
   password = '';
-  displayName = '';
 
   // UI state
   showPassword = signal(false);
   emailTouched = signal(false);
-
-  constructor() {
-    addIcons({
-      mailOutline,
-      lockClosedOutline,
-      eyeOutline,
-      eyeOffOutline,
-      alertCircle,
-      personOutline,
-    });
-  }
 
   /** Default submit text based on mode */
   get submitTextValue(): string {
@@ -377,10 +340,6 @@ export class AuthEmailFormComponent {
 
     if (this.password.length < 6) return false;
 
-    if (this.mode === 'signup' && !this.displayName.trim()) {
-      return false;
-    }
-
     return true;
   }
 
@@ -390,7 +349,7 @@ export class AuthEmailFormComponent {
     this.submitForm.emit({
       email: this.email.trim(),
       password: this.password,
-      displayName: this.mode === 'signup' ? this.displayName.trim() : undefined,
+      displayName: undefined,
     });
   }
 }

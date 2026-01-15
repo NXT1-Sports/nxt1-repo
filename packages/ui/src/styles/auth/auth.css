@@ -880,11 +880,31 @@ nxt1-auth-email-form ion-input[fill='outline'],
   --padding-end: 16px;
   --color: var(--nxt1-color-text-primary, #ffffff);
   --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
-  --highlight-color-focused: var(--nxt1-color-primary, #ccff00);
-  --highlight-color-valid: var(--nxt1-color-primary, #ccff00);
+  /* Subtle highlight - reduced from bright primary color */
+  --highlight-color-focused: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+  --highlight-color-valid: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
   --highlight-color-invalid: var(--nxt1-color-error, #ef4444);
+  /* Reduce highlight thickness for subtlety */
+  --highlight-height: 1px;
   font-size: 1rem;
   min-height: 52px;
+  transition:
+    border-color 200ms ease-out,
+    background 200ms ease-out;
+}
+
+/* Subtle hover state - matches social button style */
+.auth-input:hover,
+nxt1-auth-email-form ion-input[fill='outline']:hover,
+.nxt1-auth-form ion-input[fill='outline']:hover {
+  --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+}
+
+/* Focus state - slightly more visible but still subtle */
+.auth-input:focus-within,
+nxt1-auth-email-form ion-input[fill='outline'].has-focus,
+.nxt1-auth-form ion-input[fill='outline'].has-focus {
+  --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.25));
 }
 
 /* Input icons */

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="sport-baseball">
   <head>
     <meta charset="utf-8" />
     <title>NXT1 Sports - The Sports Content Platform | Discover, Watch & Share Athletic Content</title>
@@ -12,7 +12,7 @@
     -->
     <script>
       (function () {
-        var theme = localStorage.getItem("nxt1-theme") || "dark";
+        var theme = localStorage.getItem("nxt1-theme") || "sport-baseball";
         document.documentElement.setAttribute("data-theme", theme);
         document.documentElement.style.colorScheme = theme;
         document.documentElement.style.backgroundColor = theme === "dark" ? "#0a0a0a" : "#ffffff";
@@ -32,7 +32,7 @@
         display: block;
         width: 100%;
         min-height: 100vh;
-        background-color: #0d1a0f;
+        background-color: #ffffff;
       }
       ion-header:not(:defined),
       ion-toolbar:not(:defined) {
@@ -105,8 +105,8 @@
 
     <!-- PWA Manifest -->
     <link rel="manifest" href="manifest.webmanifest" />
-    <meta name="theme-color" content="#0a0a0a" />
-    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="color-scheme" content="light dark" />
 
     <!-- Apple Touch Icon -->
     <link rel="apple-touch-icon" href="assets/icons/icon-192x192.png" />

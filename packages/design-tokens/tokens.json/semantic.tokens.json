@@ -682,19 +682,19 @@
         },
 
         "background": {
-          "primary": { "$value": "#1a120b", "$type": "color" },
-          "secondary": { "$value": "#231810", "$type": "color" },
-          "tertiary": { "$value": "#2c1e15", "$type": "color" },
-          "elevated": { "$value": "#35251a", "$type": "color" },
+          "primary": { "$value": "#3d2000", "$type": "color" },
+          "secondary": { "$value": "#4a2600", "$type": "color" },
+          "tertiary": { "$value": "#583000", "$type": "color" },
+          "elevated": { "$value": "#663a00", "$type": "color" },
           "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
         },
 
         "surface": {
-          "100": { "$value": "#201510", "$type": "color" },
-          "200": { "$value": "#2c1e15", "$type": "color" },
-          "300": { "$value": "#38271a", "$type": "color" },
-          "400": { "$value": "#443020", "$type": "color" },
-          "500": { "$value": "#503a26", "$type": "color" }
+          "100": { "$value": "#1a1410", "$type": "color" },
+          "200": { "$value": "#241a12", "$type": "color" },
+          "300": { "$value": "#2e2015", "$type": "color" },
+          "400": { "$value": "#382618", "$type": "color" },
+          "500": { "$value": "#422c1b", "$type": "color" }
         },
 
         "text": {
@@ -798,16 +798,16 @@
 
       "color": {
         "primary": {
-          "$value": "#1e5bc6",
+          "$value": "#2575ff",
           "$type": "color",
           "$description": "Classic baseball blue"
         },
         "primaryLight": {
-          "$value": "#5a8ae0",
+          "$value": "#5f9cff",
           "$type": "color"
         },
         "primaryDark": {
-          "$value": "#0d3a8c",
+          "$value": "#0052d4",
           "$type": "color"
         },
         "secondary": {
@@ -838,10 +838,10 @@
         },
 
         "background": {
-          "primary": { "$value": "#0a1220", "$type": "color" },
-          "secondary": { "$value": "#101a2c", "$type": "color" },
-          "tertiary": { "$value": "#162238", "$type": "color" },
-          "elevated": { "$value": "#1c2a44", "$type": "color" },
+          "primary": { "$value": "#1a2c42", "$type": "color" },
+          "secondary": { "$value": "#223852", "$type": "color" },
+          "tertiary": { "$value": "#2a4462", "$type": "color" },
+          "elevated": { "$value": "#325072", "$type": "color" },
           "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
         },
 
@@ -954,16 +954,16 @@
 
       "color": {
         "primary": {
-          "$value": "#ffc107",
+          "$value": "#ffed4e",
           "$type": "color",
           "$description": "Softball yellow - optic yellow ball"
         },
         "primaryLight": {
-          "$value": "#ffde59",
+          "$value": "#ffff80",
           "$type": "color"
         },
         "primaryDark": {
-          "$value": "#c79100",
+          "$value": "#ffc400",
           "$type": "color"
         },
         "secondary": {
@@ -994,10 +994,10 @@
         },
 
         "background": {
-          "primary": { "$value": "#1a1408", "$type": "color" },
-          "secondary": { "$value": "#241c0e", "$type": "color" },
-          "tertiary": { "$value": "#2e2414", "$type": "color" },
-          "elevated": { "$value": "#382c1a", "$type": "color" },
+          "primary": { "$value": "#5d4800", "$type": "color" },
+          "secondary": { "$value": "#6a5200", "$type": "color" },
+          "tertiary": { "$value": "#785c00", "$type": "color" },
+          "elevated": { "$value": "#866600", "$type": "color" },
           "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
         },
 

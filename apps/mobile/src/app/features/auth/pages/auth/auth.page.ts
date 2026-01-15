@@ -105,16 +105,16 @@ type AuthMode = 'login' | 'signup';
           (submitForm)="onEmailSubmit($event)"
           (forgotPasswordClick)="onForgotPassword()"
         />
-      }
 
-      <!-- Terms (only show for signup) -->
-      @if (mode() === 'signup') {
-        <p authTerms>
-          By creating an account, you agree to NXT1's
-          <a href="/terms">Terms of Service</a>
-          and
-          <a href="/privacy">Privacy Policy</a>
-        </p>
+        <!-- Terms (only show for signup) -->
+        @if (mode() === 'signup') {
+          <p class="text-text-tertiary mt-4 text-center text-xs">
+            By creating an account, you agree to NXT1's
+            <a href="/terms" class="text-primary hover:underline">Terms of Service</a>
+            and
+            <a href="/privacy" class="text-primary hover:underline">Privacy Policy</a>
+          </p>
+        }
       }
     </nxt1-auth-shell>
   `,

@@ -14,3 +14,5 @@ export {
   type ImageVariant,
   type ImageState,
 } from './image';
+
+export { NxtIconComponent, type IconName, type UIIconName, type BrandIconName } from './icon';

@@ -576,7 +576,7 @@ ion-app {
   }
 
   ::selection {
-    background-color: rgba(204, 255, 0, 0.3);
+    background-color: var(--nxt1-color-alpha-primary30, rgba(204, 255, 0, 0.3));
     color: var(--nxt1-color-text-primary);
   }
 }

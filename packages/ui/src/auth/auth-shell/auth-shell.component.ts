@@ -51,7 +51,6 @@ import {
   IonButtons,
   IonButton,
   IonIcon,
-  IonTitle,
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { arrowBack, chevronBack } from 'ionicons/icons';
@@ -62,36 +61,22 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
 @Component({
   selector: 'nxt1-auth-shell',
   standalone: true,
-  imports: [
-    CommonModule,
-    IonContent,
-    IonHeader,
-    IonToolbar,
-    IonButtons,
-    IonButton,
-    IonIcon,
-    IonTitle,
-  ],
+  imports: [CommonModule, IonContent, IonHeader, IonToolbar, IonButtons, IonButton, IonIcon],
   template: `
-    <!-- Optional Header with Back Button -->
+    <!-- Professional Floating Back Button -->
     @if (showBackButton) {
-      <ion-header class="ion-no-border bg-transparent">
-        <ion-toolbar class="bg-transparent [--border-width:0]">
-          <ion-buttons slot="start">
+      <ion-header class="ion-no-border nxt1-floating-header">
+        <ion-toolbar class="nxt1-floating-toolbar">
+          <ion-buttons slot="start" class="nxt1-floating-buttons">
             <ion-button
               (click)="onBackClick()"
               aria-label="Back"
               data-testid="back-button"
-              class="text-text-secondary hover:text-text-primary"
+              class="nxt1-back-button"
             >
               <ion-icon slot="icon-only" name="chevron-back"></ion-icon>
             </ion-button>
           </ion-buttons>
-          @if (headerTitle) {
-            <ion-title class="text-text-primary font-brand font-semibold">
-              {{ headerTitle }}
-            </ion-title>
-          }
         </ion-toolbar>
       </ion-header>
     }
@@ -196,6 +181,78 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         overflow: hidden;
       }
 
+      /* ============================================ */
+      /* PROFESSIONAL FLOATING HEADER                */
+      /* No background bar, just clean button        */
+      /* ============================================ */
+      ion-header.nxt1-floating-header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+        --background: transparent;
+        background: transparent;
+      }
+
+      ion-header.nxt1-floating-header::part(native) {
+        background: transparent !important;
+      }
+
+      .nxt1-floating-toolbar {
+        --background: transparent;
+        --border-width: 0;
+        --padding-start: 12px;
+        --padding-end: 12px;
+        --padding-top: 12px;
+        --padding-bottom: 12px;
+        --min-height: 64px;
+      }
+
+      .nxt1-floating-toolbar::part(native) {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+      }
+
+      .nxt1-floating-buttons {
+        display: flex;
+        align-items: center;
+      }
+
+      /* Professional floating back button - Theme-aware */
+      .nxt1-back-button {
+        --background: transparent;
+        --background-hover: transparent;
+        --background-activated: transparent;
+        --border-radius: 50%;
+        --padding-start: 0;
+        --padding-end: 0;
+        width: 40px;
+        height: 40px;
+        margin: 0;
+      }
+
+      .nxt1-back-button::part(native) {
+        border-radius: 50%;
+        background: var(--nxt1-color-surface-200);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        box-shadow: 0 2px 8px var(--nxt1-color-shadow);
+        transition: all 0.2s ease;
+      }
+
+      .nxt1-back-button:hover::part(native) {
+        background: var(--nxt1-color-surface-300);
+        border-color: var(--nxt1-color-border-default);
+      }
+
+      .nxt1-back-button ion-icon {
+        font-size: 22px;
+        color: var(--nxt1-color-text-primary);
+      }
+
       .nxt1-auth-content {
         --overflow: auto;
         overflow: auto;
@@ -236,8 +293,8 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         flex-direction: column;
         gap: 12px;
         border-radius: var(--nxt1-radius-xl, 16px);
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-state-hover);
         padding: 24px;
       }
 
@@ -249,8 +306,8 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         flex-direction: column;
         gap: 12px;
         border-radius: var(--nxt1-radius-xl, 16px);
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-state-hover);
         padding: 24px;
       }
 
@@ -269,7 +326,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       }
 
       .auth-column {
-        flex: 0 1 auto;
+        flex: 1 1 0;
         min-width: 0;
       }
 
@@ -278,13 +335,15 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         flex-direction: column;
         gap: 12px;
         justify-content: center;
-        min-width: 320px;
+        flex: 1 1 0;
+        width: 100%;
       }
 
       .auth-column--secondary {
         display: flex;
         align-items: center;
         justify-content: center;
+        flex: 1 1 0;
       }
 
       /* ============================================ */
@@ -301,7 +360,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       .auth-divider-vertical .divider-line {
         width: 1px;
         flex: 1;
-        background: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-border-default);
         min-height: 40px;
       }
 
@@ -309,7 +368,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
         font-size: 11px;
         font-weight: 600;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
         text-transform: uppercase;
         letter-spacing: 1px;
         padding: 8px 0;

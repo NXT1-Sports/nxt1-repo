@@ -49,6 +49,16 @@ export const LOGO_DIMENSIONS = {
 } as const;
 
 // ============================================
+// ICON REGISTRY
+// ============================================
+
+/**
+ * Inline SVG icon definitions.
+ * Import from @nxt1/design-tokens/assets/icons for full type definitions.
+ */
+export * from './icons';
+
+// ============================================
 // TYPE EXPORTS
 // ============================================
 
