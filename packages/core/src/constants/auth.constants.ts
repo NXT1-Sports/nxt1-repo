@@ -53,28 +53,51 @@ export const AUTH_SESSION_KEYS = {
 
 /**
  * Auth module route paths
+ * Note: /sign-in and /sign-up are combined into /auth with ?mode=signup query param
  */
 export const AUTH_ROUTES = {
+  /** Main auth page (login/signup combined) */
   ROOT: '/auth',
-  SIGN_IN: '/auth/sign-in',
-  SIGN_UP: '/auth/sign-up',
+  /** Forgot password flow */
   FORGOT_PASSWORD: '/auth/forgot-password',
-  RESET_PASSWORD: '/auth/reset-password',
+  /** Email verification */
   VERIFY_EMAIL: '/auth/verify-email',
+  /** Onboarding flow */
   ONBOARDING: '/auth/onboarding',
+  /** Explore page (public landing) */
+  EXPLORE: '/explore',
 } as const;
 
 /**
- * Post-auth redirect paths by user type
+ * Post-auth redirect paths
  */
 export const AUTH_REDIRECTS = {
+  /** Default redirect after auth (existing users) */
   DEFAULT: '/home',
-  ATHLETE: '/home',
-  COACH: '/teams',
-  PARENT: '/home',
-  ADMIN: '/admin',
+  /** Onboarding flow (new users) */
   ONBOARDING: '/auth/onboarding',
 } as const;
+
+// ============================================
+// AUTH METHODS (for analytics tracking)
+// ============================================
+
+/**
+ * Authentication methods for analytics tracking
+ */
+export const AUTH_METHODS = {
+  EMAIL: 'email',
+  GOOGLE: 'google',
+  APPLE: 'apple',
+  MICROSOFT: 'microsoft',
+  FACEBOOK: 'facebook',
+  TWITTER: 'twitter',
+  PHONE: 'phone',
+  TEAM_CODE: 'team_code',
+  ANONYMOUS: 'anonymous',
+} as const;
+
+export type AuthMethod = (typeof AUTH_METHODS)[keyof typeof AUTH_METHODS];
 
 // ============================================
 // ERROR MESSAGES
@@ -168,13 +191,26 @@ export const AUTH_SUCCESS_MESSAGES = {
 
 /**
  * Auth form validation rules
+ * Aligned with PASSWORD_RULES in validation.constants.ts
  */
 export const AUTH_VALIDATION = {
-  /** Minimum password length */
-  PASSWORD_MIN_LENGTH: 6,
+  /** Minimum password length (matches PASSWORD_RULES.MIN_LENGTH) */
+  PASSWORD_MIN_LENGTH: 8,
 
   /** Maximum password length */
   PASSWORD_MAX_LENGTH: 128,
+
+  /** Require uppercase letter */
+  PASSWORD_REQUIRE_UPPERCASE: true,
+
+  /** Require lowercase letter */
+  PASSWORD_REQUIRE_LOWERCASE: true,
+
+  /** Require number */
+  PASSWORD_REQUIRE_NUMBER: true,
+
+  /** Require special character */
+  PASSWORD_REQUIRE_SPECIAL: false,
 
   /** Email regex pattern */
   EMAIL_PATTERN: /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/,
@@ -187,6 +223,15 @@ export const AUTH_VALIDATION = {
 
   /** Username max length */
   USERNAME_MAX_LENGTH: 20,
+
+  /** Name min length */
+  NAME_MIN_LENGTH: 2,
+
+  /** Name max length */
+  NAME_MAX_LENGTH: 50,
+
+  /** Team code pattern (4-10 alphanumeric) */
+  TEAM_CODE_PATTERN: /^[A-Z0-9]{4,10}$/i,
 } as const;
 
 /**
@@ -197,13 +242,22 @@ export function isValidAuthEmail(email: string): boolean {
 }
 
 /**
- * Validate password requirements
+ * Validate password requirements (basic check)
+ * For detailed password strength, use validatePassword from @nxt1/core/helpers
  */
 export function isValidAuthPassword(password: string): boolean {
-  return (
-    password.length >= AUTH_VALIDATION.PASSWORD_MIN_LENGTH &&
-    password.length <= AUTH_VALIDATION.PASSWORD_MAX_LENGTH
-  );
+  if (!password || typeof password !== 'string') return false;
+  if (password.length < AUTH_VALIDATION.PASSWORD_MIN_LENGTH) return false;
+  if (password.length > AUTH_VALIDATION.PASSWORD_MAX_LENGTH) return false;
+
+  // Check required character classes
+  if (AUTH_VALIDATION.PASSWORD_REQUIRE_LOWERCASE && !/[a-z]/.test(password)) return false;
+  if (AUTH_VALIDATION.PASSWORD_REQUIRE_UPPERCASE && !/[A-Z]/.test(password)) return false;
+  if (AUTH_VALIDATION.PASSWORD_REQUIRE_NUMBER && !/\d/.test(password)) return false;
+  if (AUTH_VALIDATION.PASSWORD_REQUIRE_SPECIAL && !/[!@#$%^&*(),.?":{}|<>]/.test(password))
+    return false;
+
+  return true;
 }
 
 /**

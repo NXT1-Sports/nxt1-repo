@@ -28,11 +28,13 @@ import {
   AuthDividerComponent,
   AuthEmailFormComponent,
   AuthAppDownloadComponent,
+  AuthModeSwitcherComponent,
+  AuthTermsDisclaimerComponent,
   type AuthEmailFormData,
+  type AuthMode,
 } from '@nxt1/ui/auth';
 import { AuthFlowService } from '../../services';
-
-type AuthMode = 'login' | 'signup';
+import { SeoService } from '../../../../core/services';
 
 @Component({
   selector: 'app-auth',
@@ -46,6 +48,8 @@ type AuthMode = 'login' | 'signup';
     AuthDividerComponent,
     AuthEmailFormComponent,
     AuthAppDownloadComponent,
+    AuthModeSwitcherComponent,
+    AuthTermsDisclaimerComponent,
   ],
   template: `
     <nxt1-auth-shell
@@ -73,29 +77,12 @@ type AuthMode = 'login' | 'signup';
 
           <nxt1-auth-action-buttons
             [loading]="authFlow.isLoading()"
-            (emailClick)="onEmailClick()"
+            (emailClick)="onShowEmailForm()"
             (teamCodeClick)="onTeamCode()"
           />
         } @else {
           <!-- Email Form with Mode Toggle -->
-          <div class="mode-toggle">
-            <button
-              type="button"
-              class="mode-tab"
-              [class.active]="mode() === 'login'"
-              (click)="setMode('login')"
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              class="mode-tab"
-              [class.active]="mode() === 'signup'"
-              (click)="setMode('signup')"
-            >
-              Sign Up
-            </button>
-          </div>
+          <nxt1-auth-mode-switcher [mode]="mode()" (modeChange)="setMode($event)" />
 
           <nxt1-auth-email-form
             [mode]="mode()"
@@ -107,12 +94,7 @@ type AuthMode = 'login' | 'signup';
 
           <!-- Terms (signup mode only) -->
           @if (mode() === 'signup') {
-            <p class="text-text-tertiary mt-4 text-center text-xs">
-              By creating an account, you agree to NXT1's
-              <a href="/terms" class="text-primary hover:underline">Terms of Service</a>
-              and
-              <a href="/privacy" class="text-primary hover:underline">Privacy Policy</a>
-            </p>
+            <nxt1-auth-terms-disclaimer />
           }
         }
       </div>
@@ -134,47 +116,15 @@ type AuthMode = 'login' | 'signup';
         display: block;
         height: 100%;
       }
-
-      .mode-toggle {
-        display: flex;
-        background: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.05));
-        border-radius: 12px;
-        padding: 4px;
-        gap: 4px;
-        margin-bottom: 16px;
-      }
-
-      .mode-tab {
-        flex: 1;
-        padding: 10px 16px;
-        border: none;
-        background: transparent;
-        border-radius: 8px;
-        font-family: var(--nxt1-fontFamily-brand, inherit);
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-secondary, #666);
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-
-      .mode-tab:hover:not(.active) {
-        color: var(--nxt1-color-text-primary, #333);
-      }
-
-      .mode-tab.active {
-        background: var(--nxt1-color-bg-primary, #fff);
-        color: var(--nxt1-color-text-primary, #000);
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthComponent implements OnInit {
-  readonly authFlow = inject(AuthFlowService);
+  protected readonly authFlow = inject(AuthFlowService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly seo = inject(SeoService);
 
   /** Current auth mode: login or signup */
   readonly mode = signal<AuthMode>('login');
@@ -193,6 +143,22 @@ export class AuthComponent implements OnInit {
   );
 
   ngOnInit(): void {
+    // Set SEO metadata for auth page
+    this.seo.updatePage({
+      title: 'Sign In or Sign Up',
+      description:
+        'Join NXT1 Sports - The ultimate platform for athletes, coaches, and sports fans. Sign in to your account or create a new one to get started.',
+      keywords: [
+        'sign in',
+        'sign up',
+        'login',
+        'register',
+        'create account',
+        'sports recruiting',
+        'athlete profile',
+      ],
+    });
+
     // Check for mode query param (e.g., ?mode=signup)
     const queryMode = this.route.snapshot.queryParamMap.get('mode');
     if (queryMode === 'signup') {
@@ -250,14 +216,9 @@ export class AuthComponent implements OnInit {
           password: data.password,
         });
       } else {
-        // Parse displayName into first/last name if provided
-        const [firstName = '', lastName = ''] = (data.displayName || '').trim().split(/\s+/, 2);
-
         await this.authFlow.signUpWithEmail({
           email: data.email,
           password: data.password,
-          firstName,
-          lastName,
         });
       }
     } catch {
@@ -314,7 +275,7 @@ export class AuthComponent implements OnInit {
   /**
    * Show email form (defaults to current mode)
    */
-  onEmailClick(): void {
+  onShowEmailForm(): void {
     this.showEmailForm.set(true);
   }
 }

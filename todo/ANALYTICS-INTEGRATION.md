@@ -48,7 +48,7 @@
 
 | Service           | Analytics         | Status                                      |
 | ----------------- | ----------------- | ------------------------------------------- |
-| `AuthFlowService` | ❌ Not integrated | Missing analytics adapter                   |
+| `AuthFlowService` | ✅ Integrated     | Uses `createMobileAnalyticsAdapterSync`     |
 | `ShareService`    | ⚠️ Partial        | Has analytics comment but no implementation |
 | Other services    | ❌ Not integrated | Need to add tracking                        |
 
@@ -56,7 +56,16 @@
 
 ## Integration Tasks
 
-### 1. Create Analytics Service Wrapper
+### 1. Mobile Auth Analytics ✅ COMPLETE
+
+- [x] Added `createMobileAnalyticsAdapterSync` to mobile's `AuthFlowService`
+- [x] Track auth events (sign_in, sign_up, sign_out) with `AUTH_METHODS`
+      constants
+- [x] Error tracking with `getAuthErrorCode()`
+- [x] Matches web's tracking implementation
+- [x] Uses proper platform detection (`isIOS()`, `isAndroid()`)
+
+### 2. Create Analytics Service Wrapper
 
 - [ ] Create `apps/web/src/app/core/services/analytics.service.ts`
 - [ ] Create `apps/mobile/src/app/core/services/analytics.service.ts`
@@ -78,12 +87,6 @@ export class AnalyticsService {
 }
 ```
 
-### 2. Mobile: Add Analytics to Auth Flow
-
-- [ ] Add `createMobileAnalyticsAdapter` to mobile's `AuthFlowService`
-- [ ] Track auth events (sign_in, sign_up, sign_out)
-- [ ] Match web's tracking implementation
-
 ### 3. Add Page View Tracking
 
 - [ ] Web: Add to router events subscription
@@ -100,21 +103,15 @@ this.router.events
 
 ### 4. Track Key User Actions
 
-| Feature      | Events to Track                                                           |
-| ------------ | ------------------------------------------------------------------------- |
-| Auth         | `auth_signed_up`, `auth_signed_in`, `auth_signed_out`                     |
-| Onboarding   | `onboarding_started`, `onboarding_step_completed`, `onboarding_completed` |
-| Profile      | `profile_viewed`, `profile_edited`, `profile_shared`                      |
-| Video        | `video_viewed`, `video_played`, `video_completed`, `video_uploaded`       |
-| Subscription | `subscription_started`, `credits_purchased`                               |
-| Search       | `search_performed`, `search_result_clicked`                               |
-| Social       | `user_followed`, `comment_added`, `reaction_added`                        |
-
-### 5. GDPR/Consent Setup
-
-- [ ] Add consent banner UI
-- [ ] Wire to `updateConsent()` function
-- [ ] Persist consent preferences
+| Feature      | Events to Track                                                           | Status         |
+| ------------ | ------------------------------------------------------------------------- | -------------- |
+| Auth         | `auth_signed_up`, `auth_signed_in`, `auth_signed_out`                     | ✅ Complete    |
+| Onboarding   | `onboarding_started`, `onboarding_step_completed`, `onboarding_completed` | ❌ Not started |
+| Profile      | `profile_viewed`, `profile_edited`, `profile_shared`                      | ❌ Not started |
+| Video        | `video_viewed`, `video_played`, `video_completed`, `video_uploaded`       | ❌ Not started |
+| Subscription | `subscription_started`, `credits_purchased`                               | ❌ Not started |
+| Search       | `search_performed`, `search_result_clicked`                               | ❌ Not started |
+| Social       | `user_followed`, `comment_added`, `reaction_added`                        | ❌ Not started |
 
 ---
 
@@ -134,7 +131,6 @@ this.router.events
 - [ ] User properties set correctly
 - [ ] Page views tracking
 - [ ] No PII in event parameters
-- [ ] Consent mode working
 - [ ] SSR doesn't throw errors
 
 ---
@@ -158,9 +154,8 @@ this.router.events
 
 ## Priority
 
-| Task                  | Priority  | Blocking              |
-| --------------------- | --------- | --------------------- |
-| Mobile auth analytics | 🔴 High   | Yes - parity with web |
-| Page view tracking    | 🟡 Medium | No                    |
-| GDPR consent UI       | 🟡 Medium | Yes - EU compliance   |
-| Full event coverage   | 🟢 Low    | No                    |
+| Task                  | Priority    | Status                 |
+| --------------------- | ----------- | ---------------------- |
+| Mobile auth analytics | ✅ Complete | Done - parity with web |
+| Page view tracking    | 🟡 Medium   | Not started            |
+| Full event coverage   | 🟢 Low      | Partial - Auth done    |

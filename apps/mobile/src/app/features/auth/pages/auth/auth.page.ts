@@ -30,12 +30,13 @@ import {
   AuthActionButtonsComponent,
   AuthDividerComponent,
   AuthEmailFormComponent,
+  AuthModeSwitcherComponent,
+  AuthTermsDisclaimerComponent,
   type AuthEmailFormData,
+  type AuthMode,
 } from '@nxt1/ui/auth';
 import { AuthFlowService } from '../../services';
 import { HapticsService } from '@nxt1/ui/services';
-
-type AuthMode = 'login' | 'signup';
 
 @Component({
   selector: 'app-auth',
@@ -47,6 +48,8 @@ type AuthMode = 'login' | 'signup';
     AuthActionButtonsComponent,
     AuthDividerComponent,
     AuthEmailFormComponent,
+    AuthModeSwitcherComponent,
+    AuthTermsDisclaimerComponent,
   ],
   template: `
     <nxt1-auth-shell
@@ -79,24 +82,7 @@ type AuthMode = 'login' | 'signup';
       <!-- Email Form with Mode Toggle -->
       @if (showEmailForm()) {
         <!-- Mode Toggle Tabs -->
-        <div class="mode-toggle">
-          <button
-            type="button"
-            class="mode-tab"
-            [class.active]="mode() === 'login'"
-            (click)="setMode('login')"
-          >
-            Sign In
-          </button>
-          <button
-            type="button"
-            class="mode-tab"
-            [class.active]="mode() === 'signup'"
-            (click)="setMode('signup')"
-          >
-            Sign Up
-          </button>
-        </div>
+        <nxt1-auth-mode-switcher [mode]="mode()" (modeChange)="setMode($event)" />
 
         <nxt1-auth-email-form
           [mode]="mode()"
@@ -108,52 +94,12 @@ type AuthMode = 'login' | 'signup';
 
         <!-- Terms (only show for signup) -->
         @if (mode() === 'signup') {
-          <p class="text-text-tertiary mt-4 text-center text-xs">
-            By creating an account, you agree to NXT1's
-            <a href="/terms" class="text-primary hover:underline">Terms of Service</a>
-            and
-            <a href="/privacy" class="text-primary hover:underline">Privacy Policy</a>
-          </p>
+          <nxt1-auth-terms-disclaimer />
         }
       }
     </nxt1-auth-shell>
   `,
-  styles: [
-    `
-      .mode-toggle {
-        display: flex;
-        background: var(--nxt1-color-surface-200, #f5f5f5);
-        border-radius: 12px;
-        padding: 4px;
-        gap: 4px;
-        margin-bottom: 12px;
-      }
-
-      .mode-tab {
-        flex: 1;
-        padding: 10px 16px;
-        border: none;
-        background: transparent;
-        border-radius: 8px;
-        font-family: var(--nxt1-fontFamily-brand, inherit);
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-secondary, #666);
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-
-      .mode-tab:hover:not(.active) {
-        color: var(--nxt1-color-text-primary, #333);
-      }
-
-      .mode-tab.active {
-        background: var(--nxt1-color-bg-primary, #fff);
-        color: var(--nxt1-color-text-primary, #000);
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-      }
-    `,
-  ],
+  styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthPage implements OnInit {
@@ -230,16 +176,6 @@ export class AuthPage implements OnInit {
     });
   }
 
-  /**
-   * Toggle between login and signup modes (legacy - keeping for compatibility)
-   */
-  async toggleMode(): Promise<void> {
-    await this.haptics.impact('light');
-    this.authFlow.clearError();
-    this.mode.update((current) => (current === 'login' ? 'signup' : 'login'));
-    this.updateUrl();
-  }
-
   /** Show the email/password form */
   async onShowEmailForm(): Promise<void> {
     await this.haptics.impact('light');
@@ -280,14 +216,9 @@ export class AuthPage implements OnInit {
           await this.haptics.notification('error');
         }
       } else {
-        // Parse displayName into first/last name if provided
-        const [firstName = '', lastName = ''] = (data.displayName || '').trim().split(/\s+/, 2);
-
         const success = await this.authFlow.signUpWithEmail({
           email: data.email,
           password: data.password,
-          firstName,
-          lastName,
         });
 
         if (success) {

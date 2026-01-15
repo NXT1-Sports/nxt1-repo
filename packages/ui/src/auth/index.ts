@@ -11,6 +11,8 @@ export { AuthSocialButtonsComponent, type SocialProvidersConfig } from './auth-s
 export { AuthActionButtonsComponent } from './auth-action-buttons';
 export { AuthDividerComponent } from './auth-divider';
 export { AuthAppDownloadComponent } from './auth-app-download';
+export { AuthModeSwitcherComponent, type AuthMode } from './auth-mode-switcher';
+export { AuthTermsDisclaimerComponent } from './auth-terms-disclaimer';
 export {
   AuthEmailFormComponent,
   type AuthEmailFormData,

@@ -30,12 +30,19 @@ import {
   Output,
   EventEmitter,
   signal,
+  computed,
   ChangeDetectionStrategy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonInput, IonButton, IonSpinner, IonNote } from '@ionic/angular/standalone';
-import { isValidEmail } from '@nxt1/core/helpers';
+import {
+  isValidEmail,
+  isValidName,
+  validatePassword,
+  type PasswordValidationResult,
+} from '@nxt1/core/helpers';
+import { AUTH_VALIDATION } from '@nxt1/core/constants';
 import { NxtIconComponent } from '../../shared/icon';
 
 /** Form submission data */
@@ -43,10 +50,15 @@ export interface AuthEmailFormData {
   email: string;
   password: string;
   displayName?: string;
+  firstName?: string;
+  lastName?: string;
 }
 
 /** Form mode */
 export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
+
+/** Password strength level */
+export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
 
 @Component({
   selector: 'nxt1-auth-email-form',
@@ -65,6 +77,60 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
       </div>
     }
     <form class="flex w-full flex-col gap-5" (ngSubmit)="onSubmit()" data-testid="auth-email-form">
+      <!-- Name Fields (signup only) -->
+      @if (mode === 'signup' && showNameFields) {
+        <div class="grid grid-cols-2 gap-3">
+          <div class="flex flex-col gap-2">
+            <label class="text-text-secondary text-sm font-medium" for="firstName"
+              >First Name</label
+            >
+            <ion-input
+              id="firstName"
+              type="text"
+              class="auth-input"
+              [class.auth-input-error]="firstNameTouched() && firstName && !isFirstNameValid()"
+              fill="outline"
+              placeholder="First name"
+              [(ngModel)]="firstName"
+              name="firstName"
+              [disabled]="loading"
+              autocomplete="given-name"
+              (ionBlur)="firstNameTouched.set(true)"
+              data-testid="auth-input-first-name"
+            >
+            </ion-input>
+            @if (firstNameTouched() && firstName && !isFirstNameValid()) {
+              <ion-note class="pl-0.5 text-xs text-red-400" data-testid="auth-firstname-error">
+                2-50 letters only
+              </ion-note>
+            }
+          </div>
+          <div class="flex flex-col gap-2">
+            <label class="text-text-secondary text-sm font-medium" for="lastName">Last Name</label>
+            <ion-input
+              id="lastName"
+              type="text"
+              class="auth-input"
+              [class.auth-input-error]="lastNameTouched() && lastName && !isLastNameValid()"
+              fill="outline"
+              placeholder="Last name"
+              [(ngModel)]="lastName"
+              name="lastName"
+              [disabled]="loading"
+              autocomplete="family-name"
+              (ionBlur)="lastNameTouched.set(true)"
+              data-testid="auth-input-last-name"
+            >
+            </ion-input>
+            @if (lastNameTouched() && lastName && !isLastNameValid()) {
+              <ion-note class="pl-0.5 text-xs text-red-400" data-testid="auth-lastname-error">
+                2-50 letters only
+              </ion-note>
+            }
+          </div>
+        </div>
+      }
+
       <!-- Email Field -->
       <div class="flex flex-col gap-2">
         <label class="text-text-secondary text-sm font-medium" for="email">Email Address</label>
@@ -102,12 +168,17 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
             id="password"
             [type]="showPassword() ? 'text' : 'password'"
             class="auth-input"
+            [class.auth-input-error]="
+              passwordTouched() && mode === 'signup' && !isPasswordStrongEnough()
+            "
             fill="outline"
-            [placeholder]="mode === 'signup' ? 'Create a password' : 'Enter your password'"
+            [placeholder]="mode === 'signup' ? 'Create a strong password' : 'Enter your password'"
             [(ngModel)]="password"
             name="password"
             [disabled]="loading"
             [autocomplete]="mode === 'signup' ? 'new-password' : 'current-password'"
+            (ionInput)="onPasswordInput()"
+            (ionBlur)="passwordTouched.set(true)"
             data-testid="auth-input-password"
           >
             <nxt1-icon slot="start" name="lock" size="20" class="input-icon" aria-hidden="true" />
@@ -122,8 +193,51 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
               <nxt1-icon [name]="showPassword() ? 'eyeOff' : 'eye'" size="20" />
             </button>
           </ion-input>
-          @if (mode === 'signup') {
-            <ion-note class="text-text-tertiary pl-0.5 text-xs">At least 6 characters</ion-note>
+
+          <!-- Password Strength Indicator (signup only) -->
+          @if (mode === 'signup' && password.length > 0) {
+            <div class="password-strength">
+              <div class="strength-bars">
+                <div
+                  class="strength-bar"
+                  [class.active]="passwordStrengthLevel() >= 1"
+                  [class]="'strength-' + passwordStrength()"
+                ></div>
+                <div
+                  class="strength-bar"
+                  [class.active]="passwordStrengthLevel() >= 2"
+                  [class]="'strength-' + passwordStrength()"
+                ></div>
+                <div
+                  class="strength-bar"
+                  [class.active]="passwordStrengthLevel() >= 3"
+                  [class]="'strength-' + passwordStrength()"
+                ></div>
+                <div
+                  class="strength-bar"
+                  [class.active]="passwordStrengthLevel() >= 4"
+                  [class]="'strength-' + passwordStrength()"
+                ></div>
+              </div>
+              <span class="strength-text" [class]="'text-' + passwordStrength()">
+                {{ passwordStrengthText() }}
+              </span>
+            </div>
+
+            <!-- Password Requirements -->
+            @if (passwordValidation() && !passwordValidation()!.isValid) {
+              <div class="password-requirements">
+                @for (error of passwordValidation()!.errors; track error) {
+                  <ion-note class="requirement-text">• {{ error }}</ion-note>
+                }
+              </div>
+            }
+          }
+
+          @if (mode === 'signup' && password.length === 0) {
+            <ion-note class="text-text-tertiary pl-0.5 text-xs">
+              At least {{ minPasswordLength }} characters with uppercase, lowercase & number
+            </ion-note>
           }
         </div>
       }
@@ -248,7 +362,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
         --box-shadow: none;
         font-size: 1rem;
         font-weight: 600;
-        text-transform: uppercase;
+        text-transform: none;
         letter-spacing: 0.025em;
         margin-top: 0.5rem;
       }
@@ -263,6 +377,78 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
         width: 1.25rem;
         height: 1.25rem;
         margin-right: 0.5rem;
+      }
+
+      /* Password Strength Indicator */
+      .password-strength {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 4px;
+      }
+
+      .strength-bars {
+        display: flex;
+        gap: 4px;
+        flex: 1;
+      }
+
+      .strength-bar {
+        height: 4px;
+        flex: 1;
+        border-radius: 2px;
+        background: var(--nxt1-color-surface-300, #333);
+        transition: background 200ms ease;
+      }
+
+      .strength-bar.active.strength-weak {
+        background: #ef4444;
+      }
+
+      .strength-bar.active.strength-fair {
+        background: #f59e0b;
+      }
+
+      .strength-bar.active.strength-good {
+        background: #22c55e;
+      }
+
+      .strength-bar.active.strength-strong {
+        background: #10b981;
+      }
+
+      .strength-text {
+        font-size: 12px;
+        font-weight: 500;
+        min-width: 50px;
+        text-align: right;
+      }
+
+      .text-weak {
+        color: #ef4444;
+      }
+      .text-fair {
+        color: #f59e0b;
+      }
+      .text-good {
+        color: #22c55e;
+      }
+      .text-strong {
+        color: #10b981;
+      }
+
+      .password-requirements {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-top: 4px;
+      }
+
+      .requirement-text {
+        padding-left: 0.125rem;
+        font-size: 0.75rem;
+        line-height: 1rem;
+        color: var(--nxt1-color-warning, #f59e0b);
       }
     `,
   ],
@@ -281,6 +467,9 @@ export class AuthEmailFormComponent {
   /** Whether to show forgot password link */
   @Input() showForgotPassword = true;
 
+  /** Whether to show name fields in signup mode (collected during onboarding instead) */
+  @Input() showNameFields = false;
+
   /** Custom submit button text */
   @Input() submitText?: string;
 
@@ -296,10 +485,22 @@ export class AuthEmailFormComponent {
   // Form state
   email = '';
   password = '';
+  firstName = '';
+  lastName = '';
 
   // UI state
   showPassword = signal(false);
   emailTouched = signal(false);
+  passwordTouched = signal(false);
+  firstNameTouched = signal(false);
+  lastNameTouched = signal(false);
+
+  // Password validation result (computed from password)
+  private _passwordValidation = signal<PasswordValidationResult | null>(null);
+  readonly passwordValidation = computed(() => this._passwordValidation());
+
+  /** Minimum password length from auth validation constants */
+  readonly minPasswordLength = AUTH_VALIDATION.PASSWORD_MIN_LENGTH;
 
   /** Default submit text based on mode */
   get submitTextValue(): string {
@@ -327,8 +528,72 @@ export class AuthEmailFormComponent {
     }
   }
 
+  /** Update password validation on input */
+  onPasswordInput(): void {
+    if (this.password.length > 0) {
+      this._passwordValidation.set(validatePassword(this.password));
+    } else {
+      this._passwordValidation.set(null);
+    }
+  }
+
+  /** Get password strength level (1-4) */
+  passwordStrengthLevel(): number {
+    const strength = this._passwordValidation()?.strength;
+    switch (strength) {
+      case 'weak':
+        return 1;
+      case 'fair':
+        return 2;
+      case 'good':
+        return 3;
+      case 'strong':
+        return 4;
+      default:
+        return 0;
+    }
+  }
+
+  /** Get password strength text */
+  passwordStrengthText(): string {
+    const strength = this._passwordValidation()?.strength;
+    switch (strength) {
+      case 'weak':
+        return 'Weak';
+      case 'fair':
+        return 'Fair';
+      case 'good':
+        return 'Good';
+      case 'strong':
+        return 'Strong';
+      default:
+        return '';
+    }
+  }
+
+  /** Get password strength class */
+  passwordStrength(): PasswordStrength {
+    return this._passwordValidation()?.strength ?? 'weak';
+  }
+
   isEmailValid(): boolean {
     return isValidEmail(this.email);
+  }
+
+  isFirstNameValid(): boolean {
+    return !this.firstName || isValidName(this.firstName);
+  }
+
+  isLastNameValid(): boolean {
+    return !this.lastName || isValidName(this.lastName);
+  }
+
+  /** Check if password meets minimum requirements for signup */
+  isPasswordStrongEnough(): boolean {
+    const validation = this._passwordValidation();
+    if (!validation) return false;
+    // Accept fair or better for signup (not just weak)
+    return validation.strength !== 'weak' || validation.isValid;
   }
 
   isFormValid(): boolean {
@@ -338,7 +603,25 @@ export class AuthEmailFormComponent {
       return true; // Only email needed for reset
     }
 
-    if (this.password.length < 6) return false;
+    // For login, just check password exists
+    if (this.mode === 'login') {
+      return this.password.length >= 1;
+    }
+
+    // For signup, validate password strength
+    if (this.mode === 'signup') {
+      // Password must be at least "fair" strength or pass all validation
+      const validation = this._passwordValidation();
+      if (!validation || (validation.strength === 'weak' && !validation.isValid)) {
+        return false;
+      }
+
+      // Validate name fields if shown and filled
+      if (this.showNameFields) {
+        if (this.firstName && !isValidName(this.firstName)) return false;
+        if (this.lastName && !isValidName(this.lastName)) return false;
+      }
+    }
 
     return true;
   }
@@ -346,10 +629,16 @@ export class AuthEmailFormComponent {
   onSubmit(): void {
     if (!this.isFormValid() || this.loading) return;
 
+    // Build display name from first/last if available
+    const displayName =
+      [this.firstName, this.lastName].filter(Boolean).join(' ').trim() || undefined;
+
     this.submitForm.emit({
       email: this.email.trim(),
       password: this.password,
-      displayName: undefined,
+      displayName,
+      firstName: this.firstName.trim() || undefined,
+      lastName: this.lastName.trim() || undefined,
     });
   }
 }

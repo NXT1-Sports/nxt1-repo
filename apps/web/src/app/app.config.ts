@@ -127,9 +127,9 @@ export const appConfig: ApplicationConfig = {
     // ============================================
 
     provideIonicAngular({
-      mode: undefined, // Auto-detect platform (ios/md)
+      mode: 'ios', // Force iOS mode for consistent slide transitions
       animated: true,
-      rippleEffect: true,
+      rippleEffect: false, // iOS doesn't use ripple
       hardwareBackButton: true,
       statusTap: true,
       swipeBackEnabled: true,

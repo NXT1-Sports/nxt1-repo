@@ -8,89 +8,89 @@
  * ⭐ MATCHES MOBILE'S forgot-password.page.ts INTERFACE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
-import { AuthShellComponent } from '@nxt1/ui/auth';
-import { IonButton, IonIcon, IonInput, IonSpinner } from '@ionic/angular/standalone';
+import { AuthShellComponent, AuthEmailFormComponent, type AuthEmailFormData } from '@nxt1/ui/auth';
+import { IonButton, IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { mailOutline, arrowBackOutline, checkmarkCircleOutline } from 'ionicons/icons';
+import { arrowBackOutline, checkmarkCircleOutline } from 'ionicons/icons';
 import { AuthFlowService } from '../../services';
+import { SeoService } from '../../../../core/services';
 
 @Component({
   selector: 'app-forgot-password',
   standalone: true,
   imports: [
     CommonModule,
-    FormsModule,
     RouterModule,
     AuthShellComponent,
+    AuthEmailFormComponent,
     IonButton,
     IonIcon,
-    IonInput,
-    IonSpinner,
   ],
   template: `
-    <nxt1-auth-shell variant="card" [showBackButton]="true" (backClick)="onBackClick()">
-      <!-- Title & Subtitle -->
-      <h1 authTitle>Reset Password</h1>
-      <p authSubtitle>Enter your email to receive a reset link</p>
+    <nxt1-auth-shell variant="card-glass" [showBackButton]="true" (backClick)="onBackClick()">
+      <!-- Title - Conditionally rendered -->
+      <ng-container authTitle>
+        @if (emailSent()) {
+          <h1 class="text-text-primary text-2xl font-bold">Check Your Email</h1>
+        } @else {
+          <h1 class="text-text-primary text-2xl font-bold">Reset Password</h1>
+        }
+      </ng-container>
 
-      <!-- Success State -->
-      @if (emailSent()) {
-        <div class="w-full py-6 text-center">
-          <ion-icon
-            name="checkmark-circle-outline"
-            class="text-success mb-4 text-[64px]"
-          ></ion-icon>
-          <h2 class="text-text-primary mb-2 text-xl font-semibold">Email Sent!</h2>
-          <p class="text-text-secondary mb-6 text-sm">
-            Check your inbox for instructions to reset your password.
+      <!-- Subtitle - Conditionally rendered -->
+      <ng-container authSubtitle>
+        @if (emailSent()) {
+          <p class="text-text-secondary mb-2 text-sm">
+            We've sent reset instructions to {{ sentEmail() }}
           </p>
-          <ion-button expand="block" routerLink="/auth"> Back to Sign In </ion-button>
-        </div>
-      } @else {
-        <!-- Reset Form -->
-        <form (ngSubmit)="onSubmit()" class="flex w-full flex-col gap-4">
-          <!-- Email Input -->
-          <div class="flex flex-col gap-2">
-            <label class="text-text-secondary text-sm font-medium">Email</label>
-            <ion-input
-              type="email"
-              [(ngModel)]="email"
-              name="email"
-              placeholder="Enter your email"
-              fill="outline"
-              autocomplete="email"
+        } @else {
+          <p class="text-text-secondary mb-2 text-sm">Enter your email to receive a reset link</p>
+        }
+      </ng-container>
+
+      <!-- Content - Conditionally rendered -->
+      <ng-container authContent>
+        @if (emailSent()) {
+          <div class="flex flex-col items-center gap-6 py-4">
+            <div
+              class="bg-feedback-success/10 flex h-20 w-20 items-center justify-center rounded-full"
             >
-              <ion-icon slot="start" name="mail-outline" aria-hidden="true"></ion-icon>
-            </ion-input>
-          </div>
-
-          <!-- Error Message -->
-          @if (authFlow.error()) {
-            <div class="bg-error/10 text-error rounded-lg p-3 text-sm">
-              {{ authFlow.error() }}
+              <ion-icon
+                name="checkmark-circle-outline"
+                class="text-feedback-success text-5xl"
+              ></ion-icon>
             </div>
-          }
 
-          <!-- Submit Button -->
-          <ion-button type="submit" expand="block" [disabled]="authFlow.isLoading() || !email">
-            @if (authFlow.isLoading()) {
-              <ion-spinner name="crescent"></ion-spinner>
-            } @else {
-              Send Reset Link
-            }
-          </ion-button>
-        </form>
-      }
+            <p class="text-text-tertiary text-center text-sm">
+              Didn't receive the email? Check your spam folder or
+              <button type="button" class="text-primary hover:underline" (click)="resetForm()">
+                try again
+              </button>
+            </p>
+
+            <ion-button expand="block" class="w-full" routerLink="/auth">
+              Back to Sign In
+            </ion-button>
+          </div>
+        } @else {
+          <nxt1-auth-email-form
+            mode="reset"
+            [loading]="authFlow.isLoading()"
+            [error]="authFlow.error()"
+            [showForgotPassword]="false"
+            (submitForm)="onSubmit($event)"
+          />
+        }
+      </ng-container>
 
       <!-- Footer -->
       <p authFooter>
         <a
           routerLink="/auth"
-          class="text-text-secondary hover:text-primary inline-flex items-center gap-1 transition-colors"
+          class="text-primary hover:text-primaryLight inline-flex items-center gap-2 text-sm transition-colors"
         >
           <ion-icon name="arrow-back-outline" class="text-lg"></ion-icon>
           Back to Sign In
@@ -100,29 +100,47 @@ import { AuthFlowService } from '../../services';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ForgotPasswordComponent {
-  readonly authFlow = inject(AuthFlowService);
+export class ForgotPasswordComponent implements OnInit {
+  protected readonly authFlow = inject(AuthFlowService);
   private readonly router = inject(Router);
+  private readonly seo = inject(SeoService);
 
-  email = '';
-  emailSent = signal(false);
+  readonly emailSent = signal(false);
+  readonly sentEmail = signal('');
 
   constructor() {
-    addIcons({ mailOutline, arrowBackOutline, checkmarkCircleOutline });
+    addIcons({ arrowBackOutline, checkmarkCircleOutline });
+  }
+
+  ngOnInit(): void {
+    // Set SEO metadata for password reset page
+    this.seo.updatePage({
+      title: 'Reset Password',
+      description:
+        "Forgot your password? Enter your email address and we'll send you instructions to reset your NXT1 Sports account password.",
+      keywords: ['reset password', 'forgot password', 'password recovery', 'account recovery'],
+    });
   }
 
   onBackClick(): void {
     this.router.navigate(['/auth']);
   }
 
-  async onSubmit(): Promise<void> {
-    if (!this.email) return;
+  resetForm(): void {
+    this.emailSent.set(false);
+    this.sentEmail.set('');
+    this.authFlow.clearError();
+  }
+
+  async onSubmit(data: AuthEmailFormData): Promise<void> {
+    if (!data.email) return;
 
     try {
-      await this.authFlow.sendPasswordResetEmail(this.email);
+      await this.authFlow.sendPasswordResetEmail(data.email);
+      this.sentEmail.set(data.email);
       this.emailSent.set(true);
     } catch {
-      // Error is handled by auth flow service
+      // Error is handled by AuthFlowService
     }
   }
 }

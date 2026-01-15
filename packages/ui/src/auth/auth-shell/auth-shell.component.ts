@@ -83,7 +83,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
 
     <ion-content
       class="nxt1-auth-content"
-      [fullscreen]="!showBackButton"
+      [fullscreen]="true"
       [scrollY]="true"
       [forceOverscroll]="false"
     >
@@ -99,7 +99,10 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
 
       <!-- Main Wrapper - fills viewport height, centered content -->
       <div
-        class="nxt1-auth-wrapper relative z-10 flex h-full min-h-full w-full flex-col items-center justify-center px-4 py-6"
+        class="nxt1-auth-wrapper relative z-10 flex h-full min-h-full w-full flex-col items-center justify-center px-4"
+        [class.with-header]="showBackButton"
+        [style.padding-top.px]="showBackButton ? 96 : 24"
+        [style.padding-bottom.px]="24"
       >
         <!-- Logo -->
         @if (showLogo) {
@@ -235,22 +238,22 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
 
       .nxt1-back-button::part(native) {
         border-radius: 50%;
-        background: var(--nxt1-color-surface-200);
-        border: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-surface-200, #1a1a1a);
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
         backdrop-filter: blur(12px);
         -webkit-backdrop-filter: blur(12px);
-        box-shadow: 0 2px 8px var(--nxt1-color-shadow);
+        box-shadow: 0 2px 8px var(--nxt1-color-shadow, rgba(0, 0, 0, 0.15));
         transition: all 0.2s ease;
       }
 
       .nxt1-back-button:hover::part(native) {
-        background: var(--nxt1-color-surface-300);
-        border-color: var(--nxt1-color-border-default);
+        background: var(--nxt1-color-surface-300, #242424);
+        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
       }
 
       .nxt1-back-button ion-icon {
         font-size: 22px;
-        color: var(--nxt1-color-text-primary);
+        color: var(--nxt1-color-text-primary, #ffffff);
       }
 
       .nxt1-auth-content {
@@ -293,8 +296,8 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         flex-direction: column;
         gap: 12px;
         border-radius: var(--nxt1-radius-xl, 16px);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
         padding: 24px;
       }
 
@@ -306,8 +309,8 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         flex-direction: column;
         gap: 12px;
         border-radius: var(--nxt1-radius-xl, 16px);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
         padding: 24px;
       }
 
@@ -360,7 +363,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       .auth-divider-vertical .divider-line {
         width: 1px;
         flex: 1;
-        background: var(--nxt1-color-border-default);
+        background: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
         min-height: 40px;
       }
 
@@ -368,7 +371,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
         font-size: 11px;
         font-weight: 600;
-        color: var(--nxt1-color-text-tertiary);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         text-transform: uppercase;
         letter-spacing: 1px;
         padding: 8px 0;

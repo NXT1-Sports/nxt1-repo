@@ -6,6 +6,7 @@
  * - AuthApiService (Backend HTTP calls)
  * - Router (Navigation)
  * - State management (via @nxt1/core AuthStateManager)
+ * - Analytics (via @nxt1/core/analytics)
  *
  * This is the DOMAIN layer - it knows about business rules but not UI.
  * Components should use this service, not call Firebase/API directly.
@@ -42,12 +43,23 @@ import {
   createBrowserStorageAdapter,
   createMemoryStorageAdapter,
   getAuthErrorMessage,
+  getAuthErrorCode,
   isCapacitor,
+  isIOS,
+  isAndroid,
   INITIAL_AUTH_STATE,
 } from '@nxt1/core';
+import { AUTH_ROUTES, AUTH_REDIRECTS, AUTH_METHODS } from '@nxt1/core/constants';
+import {
+  type AnalyticsAdapter,
+  createMobileAnalyticsAdapterSync,
+  createMemoryAnalyticsAdapter,
+  APP_EVENTS,
+} from '@nxt1/core/analytics';
 import { CapacitorHttpAdapter } from '../../../core/infrastructure';
 import { AuthApiService } from './auth-api.service';
 import { FirebaseAuthService } from './firebase-auth.service';
+import { environment } from '../../../../environments/environment';
 
 // ============================================
 // TYPES (Matching web's auth-flow.service.ts)
@@ -99,6 +111,9 @@ export class AuthFlowService implements OnDestroy {
   private readonly authApi = inject(AuthApiService);
   private readonly firebaseAuth = inject(FirebaseAuthService);
 
+  /** Analytics adapter - mobile or memory based on platform */
+  private readonly analytics: AnalyticsAdapter = this.createAnalyticsAdapter();
+
   /**
    * Core Auth State Manager - Same pattern as web app
    * Uses Capacitor storage on native, browser storage on web
@@ -137,6 +152,28 @@ export class AuthFlowService implements OnDestroy {
 
   ngOnDestroy(): void {
     // Cleanup handled by auth manager
+  }
+
+  // ============================================
+  // ANALYTICS
+  // ============================================
+
+  /**
+   * Create appropriate analytics adapter based on platform
+   * Uses Firebase Analytics on native (same as web), memory adapter otherwise
+   */
+  private createAnalyticsAdapter(): AnalyticsAdapter {
+    if (this.platform.isBrowser() || isCapacitor()) {
+      // Determine the correct platform type for analytics
+      const platform = isIOS() ? 'ios' : isAndroid() ? 'android' : 'web';
+
+      return createMobileAnalyticsAdapterSync({
+        debug: !environment.production,
+        platform,
+        appVersion: environment.appVersion,
+      });
+    }
+    return createMemoryAnalyticsAdapter({ enabled: false });
   }
 
   // ============================================
@@ -282,6 +319,10 @@ export class AuthFlowService implements OnDestroy {
         credentials.password
       );
 
+      // Track successful sign in
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: AUTH_METHODS.EMAIL });
+      this.analytics.setUserId(result.user.uid);
+
       // Get token and update HTTP adapter
       const token = await result.user.getIdToken();
       this.httpAdapter.setAuthToken(token);
@@ -294,12 +335,30 @@ export class AuthFlowService implements OnDestroy {
       // Sync profile
       await this.syncUserProfile(result.user.uid);
 
-      // Navigate to appropriate screen
-      const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
+      // Set analytics user properties after sync
+      const user = this.user();
+      if (user) {
+        this.analytics.setUserProperties({
+          user_type: user.role,
+          is_premium: user.isPremium,
+          auth_provider: AUTH_METHODS.EMAIL,
+        });
+      }
+
+      // Navigate to appropriate screen using constants
+      const redirectPath = this.hasCompletedOnboarding()
+        ? AUTH_REDIRECTS.DEFAULT
+        : AUTH_REDIRECTS.ONBOARDING;
       await this.router.navigate([redirectPath]);
 
       return true;
     } catch (err) {
+      // Track sign-in error
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
+        method: AUTH_METHODS.EMAIL,
+        error_code: getAuthErrorCode(err) ?? 'unknown',
+      });
+
       const message = getAuthErrorMessage(err);
       this.authManager.setError(message);
       return false;
@@ -322,6 +381,12 @@ export class AuthFlowService implements OnDestroy {
       // @ts-expect-error additionalUserInfo is on the result
       const isNewUser = result._tokenResponse?.isNewUser ?? false;
 
+      // Track analytics
+      this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
+        method: AUTH_METHODS.GOOGLE,
+      });
+      this.analytics.setUserId(result.user.uid);
+
       // Get token
       const token = await result.user.getIdToken();
       this.httpAdapter.setAuthToken(token);
@@ -337,15 +402,30 @@ export class AuthFlowService implements OnDestroy {
           uid: result.user.uid,
           email: result.user.email!,
         });
-        await this.router.navigate(['/auth/onboarding']);
+        await this.router.navigate([AUTH_REDIRECTS.ONBOARDING]);
       } else {
         await this.syncUserProfile(result.user.uid);
-        const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
+        // Set user properties after sync
+        const user = this.user();
+        if (user) {
+          this.analytics.setUserProperties({
+            user_type: user.role,
+            is_premium: user.isPremium,
+            auth_provider: AUTH_METHODS.GOOGLE,
+          });
+        }
+        const redirectPath = this.hasCompletedOnboarding()
+          ? AUTH_REDIRECTS.DEFAULT
+          : AUTH_REDIRECTS.ONBOARDING;
         await this.router.navigate([redirectPath]);
       }
 
       return true;
     } catch (err) {
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
+        method: AUTH_METHODS.GOOGLE,
+        error_code: getAuthErrorCode(err) ?? 'unknown',
+      });
       const message = getAuthErrorMessage(err);
       this.authManager.setError(message);
       return false;
@@ -367,6 +447,12 @@ export class AuthFlowService implements OnDestroy {
       // @ts-expect-error additionalUserInfo is on the result
       const isNewUser = result._tokenResponse?.isNewUser ?? false;
 
+      // Track analytics
+      this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
+        method: AUTH_METHODS.APPLE,
+      });
+      this.analytics.setUserId(result.user.uid);
+
       const token = await result.user.getIdToken();
       this.httpAdapter.setAuthToken(token);
       await this.authManager.setToken({
@@ -380,15 +466,29 @@ export class AuthFlowService implements OnDestroy {
           uid: result.user.uid,
           email: result.user.email!,
         });
-        await this.router.navigate(['/auth/onboarding']);
+        await this.router.navigate([AUTH_REDIRECTS.ONBOARDING]);
       } else {
         await this.syncUserProfile(result.user.uid);
-        const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
+        const user = this.user();
+        if (user) {
+          this.analytics.setUserProperties({
+            user_type: user.role,
+            is_premium: user.isPremium,
+            auth_provider: AUTH_METHODS.APPLE,
+          });
+        }
+        const redirectPath = this.hasCompletedOnboarding()
+          ? AUTH_REDIRECTS.DEFAULT
+          : AUTH_REDIRECTS.ONBOARDING;
         await this.router.navigate([redirectPath]);
       }
 
       return true;
     } catch (err) {
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
+        method: AUTH_METHODS.APPLE,
+        error_code: getAuthErrorCode(err) ?? 'unknown',
+      });
       const message = getAuthErrorMessage(err);
       this.authManager.setError(message);
       return false;
@@ -410,6 +510,12 @@ export class AuthFlowService implements OnDestroy {
       // @ts-expect-error additionalUserInfo is on the result
       const isNewUser = result._tokenResponse?.isNewUser ?? false;
 
+      // Track analytics
+      this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
+        method: AUTH_METHODS.MICROSOFT,
+      });
+      this.analytics.setUserId(result.user.uid);
+
       const token = await result.user.getIdToken();
       this.httpAdapter.setAuthToken(token);
       await this.authManager.setToken({
@@ -423,15 +529,29 @@ export class AuthFlowService implements OnDestroy {
           uid: result.user.uid,
           email: result.user.email!,
         });
-        await this.router.navigate(['/auth/onboarding']);
+        await this.router.navigate([AUTH_REDIRECTS.ONBOARDING]);
       } else {
         await this.syncUserProfile(result.user.uid);
-        const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
+        const user = this.user();
+        if (user) {
+          this.analytics.setUserProperties({
+            user_type: user.role,
+            is_premium: user.isPremium,
+            auth_provider: AUTH_METHODS.MICROSOFT,
+          });
+        }
+        const redirectPath = this.hasCompletedOnboarding()
+          ? AUTH_REDIRECTS.DEFAULT
+          : AUTH_REDIRECTS.ONBOARDING;
         await this.router.navigate([redirectPath]);
       }
 
       return true;
     } catch (err) {
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
+        method: AUTH_METHODS.MICROSOFT,
+        error_code: getAuthErrorCode(err) ?? 'unknown',
+      });
       const message = getAuthErrorMessage(err);
       this.authManager.setError(message);
       return false;
@@ -457,6 +577,14 @@ export class AuthFlowService implements OnDestroy {
         credentials.email,
         credentials.password
       );
+
+      // Track signup analytics
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_UP, {
+        method: AUTH_METHODS.EMAIL,
+        team_code: credentials.teamCode,
+        referral_source: credentials.referralId,
+      });
+      this.analytics.setUserId(result.user.uid);
 
       // Update profile with display name
       if (credentials.firstName || credentials.lastName) {
@@ -488,9 +616,14 @@ export class AuthFlowService implements OnDestroy {
       }
 
       // Navigate to onboarding
-      await this.router.navigate(['/auth/onboarding']);
+      await this.router.navigate([AUTH_REDIRECTS.ONBOARDING]);
       return true;
     } catch (err) {
+      // Track signup error
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNUP_ERROR, {
+        method: AUTH_METHODS.EMAIL,
+        error_code: getAuthErrorCode(err) ?? 'unknown',
+      });
       const message = getAuthErrorMessage(err);
       this.authManager.setError(message);
       return false;
@@ -512,9 +645,20 @@ export class AuthFlowService implements OnDestroy {
 
     try {
       await this.firebaseAuth.sendPasswordReset(email);
+
+      // Track password reset request
+      this.analytics.trackEvent(APP_EVENTS.AUTH_PASSWORD_RESET, {
+        success: true,
+      });
+
       return true;
     } catch (err) {
+      const errorCode = getAuthErrorCode(err);
       const message = getAuthErrorMessage(err);
+      this.analytics.trackEvent(APP_EVENTS.AUTH_PASSWORD_RESET, {
+        success: false,
+        error_code: errorCode ?? 'unknown',
+      });
       this.authManager.setError(message);
       return false;
     } finally {
@@ -533,10 +677,14 @@ export class AuthFlowService implements OnDestroy {
     this.authManager.setLoading(true);
 
     try {
+      // Track sign out before clearing user
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_OUT);
+      this.analytics.clearUser();
+
       await this.firebaseAuth.signOut();
       this.httpAdapter.setAuthToken(null);
       await this.authManager.reset();
-      await this.router.navigate(['/auth']);
+      await this.router.navigate([AUTH_ROUTES.ROOT]);
     } catch (err) {
       const message = getAuthErrorMessage(err);
       this.authManager.setError(message);

@@ -63,8 +63,10 @@ import {
   createBrowserStorageAdapter,
   createMemoryStorageAdapter,
   getAuthErrorMessage,
+  getAuthErrorCode,
   INITIAL_AUTH_STATE,
 } from '@nxt1/core';
+import { AUTH_ROUTES, AUTH_REDIRECTS, AUTH_METHODS } from '@nxt1/core/constants';
 import {
   type AnalyticsAdapter,
   createFirebaseAnalyticsAdapterSync,
@@ -308,8 +310,8 @@ export class AuthFlowService implements OnDestroy {
             this.authManager.setLoading(false);
             this.authManager.setInitialized(true);
             const currentUrl = this.router.url;
-            if (currentUrl.includes('/auth')) {
-              await this.router.navigate(['/home']);
+            if (currentUrl.includes(AUTH_ROUTES.ROOT)) {
+              await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
             }
           } else {
             // User is signed out - reset state
@@ -446,14 +448,19 @@ export class AuthFlowService implements OnDestroy {
         credentials.password
       );
       // Track successful sign in
-      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: 'email' });
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: AUTH_METHODS.EMAIL });
       this.analytics.setUserId(result.user.uid);
 
-      // Auth state listener sẽ xử lý sync profile và navigation
+      // Auth state listener handles profile sync and navigation
       return true;
     } catch (err) {
       console.error('[AuthFlowService] Sign in failed:', err);
+      const errorCode = getAuthErrorCode(err);
       const message = getAuthErrorMessage(err);
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
+        method: AUTH_METHODS.EMAIL,
+        error_code: errorCode,
+      });
       this.authManager.setError(message);
       return false;
     }
@@ -484,7 +491,7 @@ export class AuthFlowService implements OnDestroy {
 
       // Track analytics
       this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
-        method: 'google',
+        method: AUTH_METHODS.GOOGLE,
       });
       this.analytics.setUserId(result.user.uid);
       this.analytics.setUserProperties({ user_type: this.user()?.role });
@@ -496,15 +503,20 @@ export class AuthFlowService implements OnDestroy {
           email: result.user.email!,
         });
 
-        await this.router.navigate(['/auth/onboarding']);
+        await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
       } else {
-        // const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
+        // const redirectPath = this.hasCompletedOnboarding() ? AUTH_REDIRECTS.DEFAULT : AUTH_ROUTES.ONBOARDING;
         // await this.router.navigate([redirectPath]);
       }
 
       return true;
     } catch (err) {
+      const errorCode = getAuthErrorCode(err);
       const message = getAuthErrorMessage(err);
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
+        method: AUTH_METHODS.GOOGLE,
+        error_code: errorCode,
+      });
       this.authManager.setError(message);
       return false;
     } finally {
@@ -555,17 +567,22 @@ export class AuthFlowService implements OnDestroy {
 
       // Track successful sign up
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_UP, {
-        method: 'email',
+        method: AUTH_METHODS.EMAIL,
         team_code: credentials.teamCode,
         referral_source: credentials.referralId,
       });
       this.analytics.setUserId(result.user.uid);
 
       // Navigate to onboarding
-      await this.router.navigate(['/auth/onboarding']);
+      await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
       return true;
     } catch (err) {
+      const errorCode = getAuthErrorCode(err);
       const message = getAuthErrorMessage(err);
+      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNUP_ERROR, {
+        method: AUTH_METHODS.EMAIL,
+        error_code: errorCode,
+      });
       this.authManager.setError(message);
       return false;
     } finally {
@@ -595,7 +612,7 @@ export class AuthFlowService implements OnDestroy {
 
       await signOut(this.firebaseAuth);
       await this.authManager.reset();
-      await this.router.navigate(['/explore']);
+      await this.router.navigate([AUTH_ROUTES.ROOT]);
     } catch (err) {
       console.error('[AuthFlowService] Sign out failed:', err);
       this.authManager.setError('Failed to sign out');
@@ -625,9 +642,20 @@ export class AuthFlowService implements OnDestroy {
       const { sendPasswordResetEmail } = await import('firebase/auth');
 
       await sendPasswordResetEmail(this.firebaseAuth, email);
+
+      // Track password reset request
+      this.analytics.trackEvent(APP_EVENTS.AUTH_PASSWORD_RESET, {
+        success: true,
+      });
+
       return true;
     } catch (err) {
+      const errorCode = getAuthErrorCode(err);
       const message = getAuthErrorMessage(err);
+      this.analytics.trackEvent(APP_EVENTS.AUTH_PASSWORD_RESET, {
+        success: false,
+        error_code: errorCode,
+      });
       this.authManager.setError(message);
       return false;
     } finally {

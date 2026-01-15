@@ -2,19 +2,33 @@
 
 ## Status: In Progress
 
-### Tasks
+### Completed Tasks ✅
 
-- [ ] **Complete Login page** (email + Google OAuth)
-  - Wire up email/password form submission
-  - Implement Google OAuth flow (web popup + native)
-  - Handle loading states and errors
-  - Add "Remember me" functionality
-  - Redirect to onboarding or home based on user state
+- [x] **Email/Password Authentication**
+  - ✅ Wire up email/password form submission (web & mobile)
+  - ✅ Implement password strength indicator (8 char min, uppercase, lowercase,
+    number)
+  - ✅ Handle loading states and errors with proper error codes
+  - ✅ Added analytics tracking for all auth events (sign in, sign up, sign out,
+    errors)
+  - ✅ Uses shared `AUTH_ROUTES`, `AUTH_REDIRECTS`, `AUTH_METHODS` constants
+  - ✅ Remove name fields from signup (collected during onboarding)
+
+- [x] **Analytics Integration**
+  - ✅ Mobile auth analytics (was completely missing)
+  - ✅ Error tracking with `getAuthErrorCode()`
+  - ✅ Success/failure tracking for password reset
+  - ✅ Consistent tracking between web & mobile
+
+- [x] **Route Constants**
+  - ✅ Centralized route paths in `@nxt1/core/constants`
+  - ✅ No hardcoded routes in auth services
+  - ✅ Simplified redirects to `/home` or `/auth/onboarding`
+
+### Remaining Tasks
 
 - [ ] **Complete Signup page**
-  - Wire up email/password registration
   - Add Google/Apple OAuth signup options
-  - Validate password strength
   - Handle team code pre-fill from URL params
   - Create user in backend after Firebase signup
 
@@ -38,6 +52,14 @@
   - `onboardingGuard` - require completed onboarding
   - `roleGuard` - restrict by user role
   - SSR-safe guard implementations
+
+- [ ] **Integrate Biometric Authentication (Mobile)**
+  - Add Face ID / Touch ID support for mobile apps
+  - Use `@capacitor/biometric-auth` plugin
+  - Store biometric preference in secure storage
+  - Fallback to password if biometric fails
+  - Enable biometric unlock after initial login
+  - Add settings toggle to enable/disable biometric login
 
 ---
 
