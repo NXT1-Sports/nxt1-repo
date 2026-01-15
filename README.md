@@ -57,16 +57,16 @@ npm run dev:all
 
 ### Development Commands
 
-| Command               | Description                     |
-| --------------------- | ------------------------------- |
-| `npm run dev`         | Start all development servers   |
-| `npm run dev:web`     | Start web app only              |
-| `npm run dev:backend` | Start backend only              |
-| `npm run dev:all`     | Start web + backend in parallel |
-| `npm run build`       | Build all packages              |
-| `npm run test`        | Run all tests                   |
-| `npm run lint`        | Lint all packages               |
-| `npm run format`      | Format all files with Prettier  |
+| Command               | Description                                   |
+| --------------------- | --------------------------------------------- |
+| `npm run dev`         | Start all development servers with build dist |
+| `npm run dev:web`     | Start web app only                            |
+| `npm run dev:backend` | Start backend only                            |
+| `npm run dev:all`     | Start web + backend + mobile in parallel      |
+| `npm run build`       | Build all packages                            |
+| `npm run test`        | Run all tests                                 |
+| `npm run lint`        | Lint all packages                             |
+| `npm run format`      | Format all files with Prettier                |
 
 ### Mobile Development
 
