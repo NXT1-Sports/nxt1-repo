@@ -2,6 +2,19 @@
  * Shared Prettier configuration
  * @type {import('prettier').Config}
  */
+const path = require('path');
+
+// Find the root node_modules by looking for tailwindcss from this package
+// This resolves to the hoisted location in the monorepo
+let tailwindStylesheet;
+try {
+  const tailwindPath = require.resolve('tailwindcss/theme.css');
+  tailwindStylesheet = tailwindPath;
+} catch {
+  // Fallback - tailwindcss not installed
+  tailwindStylesheet = undefined;
+}
+
 module.exports = {
   // Print width
   printWidth: 100,
@@ -41,6 +54,8 @@ module.exports = {
   plugins: ['prettier-plugin-tailwindcss'],
   tailwindFunctions: ['clsx', 'cn', 'cva'], // Custom class utilities if used
   tailwindAttributes: ['class', 'className', 'ngClass'], // Angular ngClass support
+  // Point to the resolved theme.css to avoid ENOENT errors in monorepo
+  ...(tailwindStylesheet && { tailwindStylesheet }),
 
   // Overrides for specific file types
   overrides: [
