@@ -8,10 +8,10 @@ export const environment = {
   appVersion: '2.0.0-staging',
 
   // Backend API URLs (Staging)
-  apiURL: 'https://staging-backend.nxt1sports.com/v1',
-  apiPaymentURL: 'https://staging-backend.nxt1sports.com/v1',
-  profileSsrUrl: 'https://staging-profile.nxt1sports.com/v1/ssr',
-  userPostSsrUrl: 'https://staging-post.nxt1sports.com/v1/ssr',
+  apiURL: 'https://backend.nxt1sports.com/api/v1/staging',
+  apiPaymentURL: 'https://backend.nxt1sports.com/api/v1/staging',
+  profileSsrUrl: 'https://backend.nxt1sports.com/api/v1/staging/ssr',
+  userPostSsrUrl: 'https://backend.nxt1sports.com/api/v1/staging/ssr',
 
   // Firebase Configuration (Staging)
   firebase: {

@@ -8,10 +8,10 @@ export const environment = {
   appVersion: '2.0.0',
 
   // Backend API URLs (Production)
-  apiURL: 'https://backend.nxt1sports.com/v1',
-  apiPaymentURL: 'https://backend.nxt1sports.com/v1',
-  profileSsrUrl: 'https://profile.nxt1sports.com/v1/ssr',
-  userPostSsrUrl: 'https://post.nxt1sports.com/v1/ssr',
+  apiURL: 'https://backend.nxt1sports.com/api/v1',
+  apiPaymentURL: 'https://backend.nxt1sports.com/api/v1',
+  profileSsrUrl: 'https://backend.nxt1sports.com/api/v1/ssr',
+  userPostSsrUrl: 'https://backend.nxt1sports.com/api/v1/ssr',
 
   // Firebase Configuration (Production)
   firebase: {

@@ -8,11 +8,11 @@ export const environment = {
   production: false,
   appVersion: '2.0.0-dev',
 
-  // Backend API URLs
-  apiURL: 'http://localhost:80/v1',
-  apiPaymentURL: 'http://localhost:80/v1',
-  profileSsrUrl: 'http://localhost:80/v1/ssr',
-  userPostSsrUrl: 'http://localhost:80/v1/ssr',
+  // Backend API URLs (Local Development)
+  apiURL: 'http://localhost:3000/api/v1',
+  apiPaymentURL: 'http://localhost:3000/api/v1',
+  profileSsrUrl: 'http://localhost:3000/api/v1/ssr',
+  userPostSsrUrl: 'http://localhost:3000/api/v1/ssr',
 
   // Firebase Configuration (Staging)
   firebase: {
