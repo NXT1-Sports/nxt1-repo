@@ -74,7 +74,7 @@ export interface AuthGuardOptions {
 }
 
 const DEFAULT_OPTIONS: AuthGuardOptions = {
-  loginPath: '/auth/login',
+  loginPath: '/auth',
   homePath: '/home',
   requiredRoles: undefined,
   requireOnboarding: false,

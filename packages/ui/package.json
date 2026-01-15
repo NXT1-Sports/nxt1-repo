@@ -10,30 +10,6 @@
     "src/styles"
   ],
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/fesm2022/nxt1-ui.mjs"
-    },
-    "./auth": {
-      "types": "./dist/auth/index.d.ts",
-      "default": "./dist/fesm2022/nxt1-ui-auth.mjs"
-    },
-    "./shared": {
-      "types": "./dist/shared/index.d.ts",
-      "default": "./dist/fesm2022/nxt1-ui-shared.mjs"
-    },
-    "./services": {
-      "types": "./dist/services/index.d.ts",
-      "default": "./dist/fesm2022/nxt1-ui-services.mjs"
-    },
-    "./directives": {
-      "types": "./dist/directives/index.d.ts",
-      "default": "./dist/fesm2022/nxt1-ui-directives.mjs"
-    },
-    "./components": {
-      "types": "./dist/components/index.d.ts",
-      "default": "./dist/fesm2022/nxt1-ui-components.mjs"
-    },
     "./styles": "./src/styles/index.css",
     "./styles/auth": "./src/styles/auth/auth.css"
   },

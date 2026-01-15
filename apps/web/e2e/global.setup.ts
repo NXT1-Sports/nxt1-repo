@@ -55,7 +55,7 @@ async function globalSetup(config: FullConfig): Promise<void> {
 
   try {
     // Navigate to login page
-    await page.goto(`${baseURL}/auth/login`, { timeout: 60_000 });
+    await page.goto(`${baseURL}/auth`, { timeout: 60_000 });
 
     // Wait for page to load
     await page.waitForLoadState('networkidle');
@@ -70,7 +70,9 @@ async function globalSetup(config: FullConfig): Promise<void> {
 
     // Fill login form
     const emailInput = page.locator('ion-input[type="email"] input, input[type="email"]').first();
-    const passwordInput = page.locator('ion-input[type="password"] input, input[type="password"]').first();
+    const passwordInput = page
+      .locator('ion-input[type="password"] input, input[type="password"]')
+      .first();
 
     await emailInput.waitFor({ state: 'visible', timeout: 10_000 });
     await emailInput.fill(email);
@@ -81,10 +83,7 @@ async function globalSetup(config: FullConfig): Promise<void> {
     await submitButton.click();
 
     // Wait for successful login (redirect away from auth pages)
-    await page.waitForURL(
-      (url) => !url.pathname.includes('/auth/'),
-      { timeout: 30_000 }
-    );
+    await page.waitForURL((url) => !url.pathname.includes('/auth/'), { timeout: 30_000 });
 
     console.log('✅ Authentication successful');
     console.log(`   Redirected to: ${page.url()}`);

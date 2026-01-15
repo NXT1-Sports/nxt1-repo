@@ -39,28 +39,23 @@ import { AuthFlowService } from '../../services';
 
       <!-- Success State -->
       @if (emailSent()) {
-        <div class="text-center py-6 w-full">
+        <div class="w-full py-6 text-center">
           <ion-icon
             name="checkmark-circle-outline"
-            class="text-[64px] text-success mb-4"
+            class="text-success mb-4 text-[64px]"
           ></ion-icon>
-          <h2 class="text-xl font-semibold mb-2 text-text-primary">Email Sent!</h2>
-          <p class="text-text-secondary text-sm mb-6">
+          <h2 class="text-text-primary mb-2 text-xl font-semibold">Email Sent!</h2>
+          <p class="text-text-secondary mb-6 text-sm">
             Check your inbox for instructions to reset your password.
           </p>
-          <ion-button
-            expand="block"
-            routerLink="/auth/login"
-          >
-            Back to Sign In
-          </ion-button>
+          <ion-button expand="block" routerLink="/auth"> Back to Sign In </ion-button>
         </div>
       } @else {
         <!-- Reset Form -->
-        <form (ngSubmit)="onSubmit()" class="w-full flex flex-col gap-4">
+        <form (ngSubmit)="onSubmit()" class="flex w-full flex-col gap-4">
           <!-- Email Input -->
           <div class="flex flex-col gap-2">
-            <label class="text-sm font-medium text-text-secondary">Email</label>
+            <label class="text-text-secondary text-sm font-medium">Email</label>
             <ion-input
               type="email"
               [(ngModel)]="email"
@@ -75,17 +70,13 @@ import { AuthFlowService } from '../../services';
 
           <!-- Error Message -->
           @if (authFlow.error()) {
-            <div class="bg-error/10 text-error text-sm p-3 rounded-lg">
+            <div class="bg-error/10 text-error rounded-lg p-3 text-sm">
               {{ authFlow.error() }}
             </div>
           }
 
           <!-- Submit Button -->
-          <ion-button
-            type="submit"
-            expand="block"
-            [disabled]="authFlow.isLoading() || !email"
-          >
+          <ion-button type="submit" expand="block" [disabled]="authFlow.isLoading() || !email">
             @if (authFlow.isLoading()) {
               <ion-spinner name="crescent"></ion-spinner>
             } @else {
@@ -98,8 +89,8 @@ import { AuthFlowService } from '../../services';
       <!-- Footer -->
       <p authFooter>
         <a
-          routerLink="/auth/login"
-          class="inline-flex items-center gap-1 text-text-secondary hover:text-primary transition-colors"
+          routerLink="/auth"
+          class="text-text-secondary hover:text-primary inline-flex items-center gap-1 transition-colors"
         >
           <ion-icon name="arrow-back-outline" class="text-lg"></ion-icon>
           Back to Sign In
@@ -121,7 +112,7 @@ export class ForgotPasswordComponent {
   }
 
   onBackClick(): void {
-    this.router.navigate(['/auth/login']);
+    this.router.navigate(['/auth']);
   }
 
   async onSubmit(): Promise<void> {

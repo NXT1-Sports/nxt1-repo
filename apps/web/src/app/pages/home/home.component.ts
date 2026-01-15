@@ -95,7 +95,7 @@ export class HomeComponent {
   async onLogout(): Promise<void> {
     try {
       await this.authFlow.signOut();
-      await this.router.navigate(['/auth/login']);
+      await this.router.navigate(['/auth']);
     } catch (error) {
       console.error('Logout failed:', error);
     }

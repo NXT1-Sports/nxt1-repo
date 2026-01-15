@@ -250,7 +250,7 @@ export class MobileAuthService implements OnDestroy {
     try {
       await firebaseSignOut(this.auth);
       await this.authManager.reset();
-      await this.router.navigate(['/auth/login']);
+      await this.router.navigate(['/auth']);
     } catch (error) {
       const message = getAuthErrorMessage(error);
       this.authManager.setError(message);

@@ -33,7 +33,7 @@ export interface SignupData {
  * All selectors use data-testid for maximum stability.
  */
 export class SignupPage extends BasePage {
-  readonly url = '/auth/signup';
+  readonly url = '/auth?mode=signup';
 
   // ===========================================================================
   // SELECTORS - Using data-testid for stability

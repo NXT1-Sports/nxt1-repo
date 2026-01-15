@@ -28,7 +28,7 @@ export interface LoginCredentials {
  * All selectors use data-testid for maximum stability.
  */
 export class LoginPage extends BasePage {
-  readonly url = '/auth/login';
+  readonly url = '/auth';
 
   // ===========================================================================
   // SELECTORS - Using data-testid for stability
@@ -252,7 +252,9 @@ export class LoginPage extends BasePage {
   /**
    * Assert login was successful by checking redirect
    */
-  async assertLoginSuccess(expectedUrl: string | RegExp = /\/(home|dashboard|onboarding)/): Promise<void> {
+  async assertLoginSuccess(
+    expectedUrl: string | RegExp = /\/(home|dashboard|onboarding)/
+  ): Promise<void> {
     await this.page.waitForURL(expectedUrl, { timeout: this.timeout });
   }
 
