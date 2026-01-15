@@ -290,8 +290,8 @@ export function createAuthStateManager(storage: StorageAdapter): AuthStateManage
       await storage.remove(STORAGE_KEYS.USER_ID);
       await storage.remove(STORAGE_KEYS.SESSION_ID);
 
-      // Reset state
-      state = { ...INITIAL_AUTH_STATE, isInitialized: true };
+      // Reset state - isLoading should be false after reset
+      state = { ...INITIAL_AUTH_STATE, isLoading: false, isInitialized: true };
       notifyStateListeners();
       emitEvent('SIGN_OUT');
     },

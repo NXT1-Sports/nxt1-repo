@@ -172,7 +172,9 @@ export class AuthFlowService implements OnDestroy {
 
   readonly userRole = computed(() => this._state().user?.role ?? null);
   readonly isPremium = computed(() => this._state().user?.isPremium ?? false);
-  readonly hasCompletedOnboarding = computed(() => this._state().user?.hasCompletedOnboarding ?? false);
+  readonly hasCompletedOnboarding = computed(
+    () => this._state().user?.hasCompletedOnboarding ?? false
+  );
 
   // ============================================
   // INITIALIZATION
@@ -247,7 +249,7 @@ export class AuthFlowService implements OnDestroy {
       this.firebaseAuth = this.injector.get(Auth, null);
 
       if (this.firebaseAuth) {
-        this.initAuthStateListener();
+        await this.initAuthStateListener();
       } else {
         this.authManager.setLoading(false);
         this.authManager.setInitialized(true);
@@ -303,6 +305,12 @@ export class AuthFlowService implements OnDestroy {
 
             // User is signed in - sync profile
             await this.syncUserProfile(firebaseUser);
+            this.authManager.setLoading(false);
+            this.authManager.setInitialized(true);
+            const currentUrl = this.router.url;
+            if (currentUrl.includes('/auth')) {
+              await this.router.navigate(['/home']);
+            }
           } else {
             // User is signed out - reset state
             await this.authManager.reset();
@@ -310,7 +318,6 @@ export class AuthFlowService implements OnDestroy {
         } catch (err) {
           console.error('[AuthFlowService] Auth state sync failed:', err);
           this.authManager.setError(err instanceof Error ? err.message : 'Authentication error');
-        } finally {
           this.authManager.setLoading(false);
           this.authManager.setInitialized(true);
         }
@@ -322,7 +329,7 @@ export class AuthFlowService implements OnDestroy {
    * Sync user profile from Firebase user and set analytics identity
    *
    * This method:
-   * 1. Fetches/creates local AuthUser state
+   * 1. Fetches user profile from backend API
    * 2. Sets analytics user ID and properties for tracking
    *
    * Analytics user properties allow you to segment users in GA4:
@@ -330,26 +337,30 @@ export class AuthFlowService implements OnDestroy {
    * - is_premium: boolean for subscription status
    * - auth_provider: how they signed in
    * These persist across sessions until explicitly changed.
-   *
-   * TODO: Fetch full profile from backend API when available
    */
   private async syncUserProfile(firebaseUser: FirebaseUser): Promise<void> {
     try {
-      // For now, create a basic user from Firebase data
-      // TODO: Replace with backend API call when profile endpoint is ready
+      const backendProfile = await this.authApi.getUserProfile(firebaseUser.uid);
       const authUser: AuthUser = {
+        ...backendProfile,
         uid: firebaseUser.uid,
         email: firebaseUser.email ?? '',
-        displayName: firebaseUser.displayName ?? 'User',
-        photoURL: firebaseUser.photoURL ?? undefined,
-        role: 'athlete' as UserRole,
-        isPremium: false,
-        hasCompletedOnboarding: false, // Will be determined by backend
+        displayName:
+          firebaseUser.displayName ??
+          (backendProfile?.firstName && backendProfile?.lastName
+            ? `${backendProfile.firstName} ${backendProfile.lastName}`
+            : 'User'),
+        photoURL: firebaseUser.photoURL ?? backendProfile?.profileImg ?? undefined,
+        role: this.getUserRole(backendProfile),
+        isPremium: backendProfile?.lastActivatedPlan !== 'free',
+        hasCompletedOnboarding: true,
         provider: this.getProviderFromFirebase(firebaseUser),
         emailVerified: firebaseUser.emailVerified,
         createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+
+      console.log(authUser);
 
       await this.authManager.setUser(authUser);
 
@@ -363,16 +374,28 @@ export class AuthFlowService implements OnDestroy {
       });
     } catch (err) {
       console.error('[AuthFlowService] Failed to sync user profile:', err);
-      // Don't clear user on profile fetch failure - may be temporary
+      // Fallback to basic Firebase data
+      const authUser: AuthUser = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email ?? '',
+        displayName: firebaseUser.displayName ?? 'User',
+        photoURL: firebaseUser.photoURL ?? undefined,
+        role: 'athlete' as UserRole,
+        isPremium: false,
+        hasCompletedOnboarding: false,
+        provider: this.getProviderFromFirebase(firebaseUser),
+        emailVerified: firebaseUser.emailVerified,
+        createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await this.authManager.setUser(authUser);
     }
   }
 
   /**
    * Get auth provider from Firebase user
    */
-  private getProviderFromFirebase(
-    user: FirebaseUser
-  ): 'email' | 'google' | 'apple' | 'anonymous' {
+  private getProviderFromFirebase(user: FirebaseUser): 'email' | 'google' | 'apple' | 'anonymous' {
     const providerId = user.providerData[0]?.providerId;
     switch (providerId) {
       case 'google.com':
@@ -384,6 +407,17 @@ export class AuthFlowService implements OnDestroy {
       default:
         return user.isAnonymous ? 'anonymous' : 'email';
     }
+  }
+
+  /**
+   * Get user role from legacy User model
+   */
+  private getUserRole(user: any): UserRole {
+    if (user?.isCollegeCoach) return 'coach' as UserRole; // Map college-coach to coach
+    if (user?.isRecruit) return 'athlete' as UserRole;
+    if (user?.isFan) return 'fan' as UserRole;
+    if (user?.athleteOrParentOrCoach === 'Coach') return 'coach' as UserRole;
+    return 'athlete' as UserRole; // default
   }
 
   // ============================================
@@ -399,31 +433,29 @@ export class AuthFlowService implements OnDestroy {
       return false;
     }
 
-    this.authManager.setLoading(true);
+    // this.authManager.setLoading(true);
     this.authManager.setError(null);
 
     try {
       // Dynamic import for SSR safety
       const { signInWithEmailAndPassword } = await import('firebase/auth');
 
-      const result = await signInWithEmailAndPassword(this.firebaseAuth, credentials.email, credentials.password);
-
+      const result = await signInWithEmailAndPassword(
+        this.firebaseAuth,
+        credentials.email,
+        credentials.password
+      );
       // Track successful sign in
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: 'email' });
       this.analytics.setUserId(result.user.uid);
-      this.analytics.setUserProperties({ user_type: this.user()?.role });
 
-      // Navigate to home or onboarding
-      const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
-
-      await this.router.navigate([redirectPath]);
+      // Auth state listener sẽ xử lý sync profile và navigation
       return true;
     } catch (err) {
+      console.error('[AuthFlowService] Sign in failed:', err);
       const message = getAuthErrorMessage(err);
       this.authManager.setError(message);
       return false;
-    } finally {
-      this.authManager.setLoading(false);
     }
   }
 
@@ -451,10 +483,9 @@ export class AuthFlowService implements OnDestroy {
       const isNewUser = result._tokenResponse?.isNewUser ?? false;
 
       // Track analytics
-      this.analytics.trackEvent(
-        isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN,
-        { method: 'google' }
-      );
+      this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
+        method: 'google',
+      });
       this.analytics.setUserId(result.user.uid);
       this.analytics.setUserProperties({ user_type: this.user()?.role });
 
@@ -467,9 +498,8 @@ export class AuthFlowService implements OnDestroy {
 
         await this.router.navigate(['/auth/onboarding']);
       } else {
-        const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
-
-        await this.router.navigate([redirectPath]);
+        // const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
+        // await this.router.navigate([redirectPath]);
       }
 
       return true;
@@ -622,7 +652,7 @@ export class AuthFlowService implements OnDestroy {
   async getIdToken(): Promise<string | null> {
     // First try to get from auth manager (cached)
     const storedToken = await this.authManager.getToken();
-    if (storedToken && await this.authManager.isTokenValid()) {
+    if (storedToken && (await this.authManager.isTokenValid())) {
       return storedToken.token;
     }
 

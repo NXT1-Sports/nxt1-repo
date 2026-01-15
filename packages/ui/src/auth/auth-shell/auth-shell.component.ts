@@ -99,7 +99,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
     <ion-content
       class="nxt1-auth-content"
       [fullscreen]="!showBackButton"
-      [scrollY]="false"
+      [scrollY]="true"
       [forceOverscroll]="false"
     >
       <!-- Background Effects -->
@@ -201,16 +201,16 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       }
 
       .nxt1-auth-content {
-        --overflow: hidden;
-        overflow: hidden;
+        --overflow: auto;
+        overflow: auto;
       }
 
       .nxt1-auth-content::part(scroll) {
-        overflow: hidden !important;
+        overflow: auto !important;
       }
 
       .nxt1-auth-wrapper {
-        overflow: hidden;
+        overflow: visible;
       }
 
       /* ============================================ */

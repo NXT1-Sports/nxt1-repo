@@ -11,7 +11,6 @@
     "build": "ng build --configuration production",
     "build:dev": "ng build --configuration development",
     "build:staging": "ng build --configuration staging",
-    "prebuild": "cd ../.. && npm run build --workspace=@nxt1/core",
     "serve:ssr": "node dist/nxt1-web/server/server.mjs",
     "serve:ssr:dev": "NODE_ENV=development node dist/nxt1-web/server/server.mjs",
     "build:serve": "npm run build && npm run serve:ssr",

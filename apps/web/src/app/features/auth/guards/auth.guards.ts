@@ -118,6 +118,22 @@ export const premiumGuard: CanActivateFn = () => {
 };
 
 /**
+ * Guard that requires user to complete onboarding
+ * Redirects to /auth/onboarding if not completed
+ */
+export const onboardingGuard: CanActivateFn = () => {
+  const authService = inject(AuthFlowService);
+  const router = inject(Router);
+
+  if (authService.hasCompletedOnboarding()) {
+    return true;
+  }
+
+  // Redirect to onboarding
+  return router.createUrlTree(['/auth/onboarding']);
+};
+
+/**
  * Guard factory for role-based access
  *
  * @example

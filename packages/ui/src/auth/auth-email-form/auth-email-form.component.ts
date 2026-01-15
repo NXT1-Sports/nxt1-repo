@@ -72,7 +72,6 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
         <span data-testid="auth-form-error-message">{{ error }}</span>
       </div>
     }
-
     <form class="flex w-full flex-col gap-5" (ngSubmit)="onSubmit()" data-testid="auth-email-form">
       <!-- Display Name (signup only) -->
       @if (mode === 'signup') {
@@ -81,7 +80,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
           <div class="input-wrapper">
             <ion-icon
               name="person-outline"
-              class="text-text-tertiary pointer-events-none absolute left-3.5 z-[1] text-xl"
+              class="text-text-tertiary pointer-events-none absolute left-3.5 z-1 text-xl"
               aria-hidden="true"
             ></ion-icon>
             <ion-input
@@ -106,7 +105,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
         <div class="input-wrapper" [class.input-wrapper-error]="emailTouched() && !isEmailValid()">
           <ion-icon
             name="mail-outline"
-            class="text-text-tertiary pointer-events-none absolute left-3.5 z-[1] text-xl"
+            class="text-text-tertiary pointer-events-none absolute left-3.5 z-1 text-xl"
             aria-hidden="true"
           ></ion-icon>
           <ion-input
@@ -139,7 +138,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
           <div class="input-wrapper">
             <ion-icon
               name="lock-closed-outline"
-              class="text-text-tertiary pointer-events-none absolute left-3.5 z-[1] text-xl"
+              class="text-text-tertiary pointer-events-none absolute left-3.5 z-1 text-xl"
               aria-hidden="true"
             ></ion-icon>
             <ion-input

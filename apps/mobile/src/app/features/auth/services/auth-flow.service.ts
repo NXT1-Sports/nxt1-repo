@@ -123,7 +123,9 @@ export class AuthFlowService implements OnDestroy {
   readonly isAuthenticated = computed(() => this._state().user !== null);
   readonly userRole = computed(() => this._state().user?.role ?? null);
   readonly isPremium = computed(() => this._state().user?.isPremium ?? false);
-  readonly hasCompletedOnboarding = computed(() => this._state().user?.hasCompletedOnboarding ?? false);
+  readonly hasCompletedOnboarding = computed(
+    () => this._state().user?.hasCompletedOnboarding ?? false
+  );
 
   // Additional mobile-specific computed
   readonly displayName = computed(() => this.user()?.displayName ?? 'User');
@@ -458,9 +460,7 @@ export class AuthFlowService implements OnDestroy {
 
       // Update profile with display name
       if (credentials.firstName || credentials.lastName) {
-        const displayName = [credentials.firstName, credentials.lastName]
-          .filter(Boolean)
-          .join(' ');
+        const displayName = [credentials.firstName, credentials.lastName].filter(Boolean).join(' ');
         await this.firebaseAuth.updateUserProfile(displayName);
       }
 
