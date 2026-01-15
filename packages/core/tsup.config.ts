@@ -26,7 +26,7 @@ export default defineConfig({
   },
   splitting: false,
   sourcemap: true,
-  clean: true,
+  clean: !process.argv.includes('--watch'),
   outDir: 'dist',
   // Exclude Angular/Ionic dependent files - these have moved to @nxt1/ui
   external: ['@angular/*', '@ionic/*', 'ionicons'],
