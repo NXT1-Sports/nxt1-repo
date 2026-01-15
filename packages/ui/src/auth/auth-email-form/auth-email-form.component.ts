@@ -72,7 +72,6 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
         <span data-testid="auth-form-error-message">{{ error }}</span>
       </div>
     }
-
     <form class="flex w-full flex-col gap-5" (ngSubmit)="onSubmit()" data-testid="auth-email-form">
       <!-- Display Name (signup only) -->
       @if (mode === 'signup') {
