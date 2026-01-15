@@ -36,24 +36,24 @@
    ============================================ */
 
 /* Design Tokens - Generated CSS */
-@import "@nxt1/design-tokens/css";
+@import '@nxt1/design-tokens/css';
 
 /* Foundation - Reset & App Shell */
-@import "@nxt1/design-tokens/foundation";
+@import '@nxt1/design-tokens/foundation';
 
 /* Platform Adaptation - Mobile */
-@import "@nxt1/design-tokens/platform/mobile";
+@import '@nxt1/design-tokens/platform/mobile';
 
 /* Ionic Theme (CSS-only) - Maps NXT1 tokens to Ionic vars */
-@import "@nxt1/design-tokens/ionic";
+@import '@nxt1/design-tokens/ionic';
 
 /* UI Component Styles - Styles for @nxt1/ui components */
-@import "@nxt1/ui/styles/auth";
+@import '@nxt1/ui/styles/auth';
 
 /* Ionic Component CSS - Visual styles for ion-* components */
-@import "@ionic/angular/css/core.css";
-@import "@ionic/angular/css/typography.css";
-@import "@ionic/angular/css/display.css";
+@import '@ionic/angular/css/core.css';
+@import '@ionic/angular/css/typography.css';
+@import '@ionic/angular/css/display.css';
 /* Commented out - replaced by foundation.css:
    @import "@ionic/angular/css/normalize.css";
    @import "@ionic/angular/css/structure.css";
@@ -90,7 +90,7 @@
   }
 
   body {
-    font-family: var(--nxt1-font-family-brand);
+    font-family: var(--nxt1-fontFamily-brand);
     background-color: var(--nxt1-color-bg-primary);
     color: var(--nxt1-color-text-primary);
     -webkit-font-smoothing: antialiased;
@@ -98,9 +98,14 @@
   }
 
   /* Typography */
-  h1, h2, h3, h4, h5, h6 {
-    font-family: var(--nxt1-font-family-display);
-    font-weight: var(--nxt1-font-weight-bold);
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--nxt1-fontFamily-display);
+    font-weight: var(--nxt1-fontWeight-bold);
     color: var(--nxt1-color-text-primary);
   }
 
@@ -138,12 +143,12 @@
    ============================================ */
 
 /* Dark theme (default) - styles already in :root via design tokens */
-html[data-theme="dark"] {
+html[data-theme='dark'] {
   color-scheme: dark;
 }
 
 /* Light theme - override token values */
-html[data-theme="light"] {
+html[data-theme='light'] {
   color-scheme: light;
 }
 
@@ -152,34 +157,34 @@ html[data-theme="light"] {
    ============================================ */
 [authTitle] {
   color: var(--nxt1-color-text-primary);
-  font-family: var(--nxt1-font-family-brand);
-  font-size: var(--nxt1-font-size-2xl, 1.875rem);
-  font-weight: var(--nxt1-font-weight-bold, 700);
-  line-height: var(--nxt1-line-height-tight, 1.25);
+  font-family: var(--nxt1-fontFamily-brand);
+  font-size: var(--nxt1-fontSize-2xl, 1.875rem);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
+  line-height: var(--nxt1-lineHeight-tight, 1.25);
   margin-bottom: var(--nxt1-spacing-2, 0.5rem);
 }
 
 @media (min-width: 768px) {
   [authTitle] {
-    font-size: var(--nxt1-font-size-3xl, 2.25rem);
+    font-size: var(--nxt1-fontSize-3xl, 2.25rem);
   }
 }
 
 [authSubtitle] {
   color: var(--nxt1-color-text-secondary);
-  font-size: var(--nxt1-font-size-base, 1rem);
-  line-height: var(--nxt1-line-height-relaxed, 1.625);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  line-height: var(--nxt1-lineHeight-relaxed, 1.625);
 }
 
 [authFooter] {
   color: var(--nxt1-color-text-secondary);
-  font-size: var(--nxt1-font-size-sm, 0.875rem);
-  line-height: var(--nxt1-line-height-relaxed, 1.625);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  line-height: var(--nxt1-lineHeight-relaxed, 1.625);
 }
 
 [authFooter] a {
   color: var(--nxt1-color-primary);
-  font-weight: var(--nxt1-font-weight-medium, 500);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   text-decoration: none;
   transition: all var(--nxt1-duration-fast, 150ms);
 }
@@ -190,8 +195,8 @@ html[data-theme="light"] {
 
 [authTerms] {
   color: var(--nxt1-color-text-tertiary);
-  font-size: var(--nxt1-font-size-xs, 0.75rem);
-  line-height: var(--nxt1-line-height-relaxed, 1.625);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  line-height: var(--nxt1-lineHeight-relaxed, 1.625);
   max-width: 20rem;
   margin-left: auto;
   margin-right: auto;
@@ -211,7 +216,8 @@ html[data-theme="light"] {
    ANIMATIONS
    ============================================ */
 @keyframes pulse-glow {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 0.6;
     transform: translateX(-50%) scale(1);
   }

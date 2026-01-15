@@ -105,27 +105,27 @@ import { IonButton } from '@ionic/angular/standalone';
         width: 100%;
       }
 
-      /* Base auth button - matches design system */
+      /* Base auth button - uses design system tokens */
       .nxt1-auth-btn {
-        --background: var(--auth-bg-input, rgba(255, 255, 255, 0.04));
-        --background-hover: var(--auth-bg-input-hover, rgba(255, 255, 255, 0.06));
-        --background-activated: var(--auth-bg-input-hover, rgba(255, 255, 255, 0.06));
-        --background-focused: var(--auth-bg-input-hover, rgba(255, 255, 255, 0.06));
-        --border-color: var(--auth-border-default, rgba(255, 255, 255, 0.1));
-        --border-radius: var(--auth-radius-default, 8px);
+        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --background-hover: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
+        --background-activated: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
+        --background-focused: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
+        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        --border-radius: var(--nxt1-radius-default, 8px);
         --border-width: 1px;
-        --color: var(--auth-text-primary, #ffffff);
+        --color: var(--nxt1-color-text-primary, #ffffff);
         --padding-start: 1rem;
         --padding-end: 1rem;
         --box-shadow: none;
         height: 52px;
-        font-family: var(--auth-font, -apple-system, BlinkMacSystemFont, sans-serif);
+        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
         font-size: 1rem;
         font-weight: 600;
         text-transform: none;
         letter-spacing: normal;
         margin: 0;
-        --transition: all 200ms ease-out;
+        --transition: all var(--nxt1-duration-normal, 200ms) ease-out;
       }
 
       .nxt1-auth-btn::part(native) {

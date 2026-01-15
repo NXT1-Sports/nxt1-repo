@@ -217,7 +217,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
 
       .input-wrapper:focus-within {
         @apply border-primary;
-        box-shadow: 0 0 0 3px rgba(204, 255, 0, 0.1);
+        box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
       }
 
       .input-wrapper-error {
@@ -225,7 +225,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
       }
 
       .input-wrapper-error:focus-within {
-        box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+        box-shadow: 0 0 0 3px var(--nxt1-color-errorBg, rgba(239, 68, 68, 0.1));
       }
 
       /* Ionic Input custom properties */

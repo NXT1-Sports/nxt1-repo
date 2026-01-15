@@ -586,51 +586,51 @@ END DISABLED SECTION */
 
 /* Font Size */
 .text-xs {
-  font-size: var(--nxt1-font-size-xs, 10px);
+  font-size: var(--nxt1-fontSize-xs, 10px);
 }
 .text-sm {
-  font-size: var(--nxt1-font-size-sm, 12px);
+  font-size: var(--nxt1-fontSize-sm, 12px);
 }
 .text-base {
-  font-size: var(--nxt1-font-size-base, 14px);
+  font-size: var(--nxt1-fontSize-base, 14px);
 }
 .text-md {
-  font-size: var(--nxt1-font-size-md, 16px);
+  font-size: var(--nxt1-fontSize-md, 16px);
 }
 .text-lg {
-  font-size: var(--nxt1-font-size-lg, 18px);
+  font-size: var(--nxt1-fontSize-lg, 18px);
 }
 .text-xl {
-  font-size: var(--nxt1-font-size-xl, 20px);
+  font-size: var(--nxt1-fontSize-xl, 20px);
 }
 .text-2xl {
-  font-size: var(--nxt1-font-size-2xl, 24px);
+  font-size: var(--nxt1-fontSize-2xl, 24px);
 }
 .text-3xl {
-  font-size: var(--nxt1-font-size-3xl, 30px);
+  font-size: var(--nxt1-fontSize-3xl, 30px);
 }
 .text-4xl {
-  font-size: var(--nxt1-font-size-4xl, 36px);
+  font-size: var(--nxt1-fontSize-4xl, 36px);
 }
 .text-5xl {
-  font-size: var(--nxt1-font-size-5xl, 48px);
+  font-size: var(--nxt1-fontSize-5xl, 48px);
 }
 
 /* Font Weight */
 .font-normal {
-  font-weight: var(--nxt1-font-weight-normal, 400);
+  font-weight: var(--nxt1-fontWeight-regular, 400);
 }
 .font-medium {
-  font-weight: var(--nxt1-font-weight-medium, 500);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
 }
 .font-semibold {
-  font-weight: var(--nxt1-font-weight-semibold, 600);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
 }
 .font-bold {
-  font-weight: var(--nxt1-font-weight-bold, 700);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
 }
 .font-extrabold {
-  font-weight: var(--nxt1-font-weight-extrabold, 800);
+  font-weight: var(--nxt1-fontWeight-bold, 800);
 }
 
 /* Text Align */

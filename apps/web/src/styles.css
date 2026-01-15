@@ -27,39 +27,39 @@
    LAYER 1: DESIGN TOKENS - Generated CSS
    All CSS custom properties from tokens.json
    ============================================ */
-@import "@nxt1/design-tokens/css";
+@import '@nxt1/design-tokens/css';
 
 /* ============================================
    LAYER 2: FOUNDATION - Reset & App Shell
    Framework-agnostic reset, structure, utilities
    ============================================ */
-@import "@nxt1/design-tokens/foundation";
+@import '@nxt1/design-tokens/foundation';
 
 /* ============================================
    LAYER 3: PLATFORM ADAPTATION - Web
    Hover states, scrollbars, desktop UX
    ============================================ */
-@import "@nxt1/design-tokens/platform/web";
+@import '@nxt1/design-tokens/platform/web';
 
 /* ============================================
    LAYER 4: IONIC THEME (CSS-only)
    Maps NXT1 tokens to Ionic variables
    ============================================ */
-@import "@nxt1/design-tokens/ionic";
+@import '@nxt1/design-tokens/ionic';
 
 /* ============================================
    LAYER 5: IONIC COMPONENT CSS
    Core visual styles for Ionic web components
    ============================================ */
-@import "@ionic/angular/css/core.css";
-@import "@ionic/angular/css/typography.css";
-@import "@ionic/angular/css/display.css";
+@import '@ionic/angular/css/core.css';
+@import '@ionic/angular/css/typography.css';
+@import '@ionic/angular/css/display.css';
 
 /* ============================================
    LAYER 6: UI COMPONENT STYLES
    Styles for @nxt1/ui components
    ============================================ */
-@import "@nxt1/ui/styles/auth";
+@import '@nxt1/ui/styles/auth';
 
 /* ============================================
    LAYER 7: IONIC LAYOUT STABILITY (CLS Fix)
@@ -159,21 +159,21 @@ ion-button::part(native) {
    Uses: --nxt1-color-primary, --nxt1-color-text-onPrimary
    ---------------------------------------- */
 ion-button:not([fill])::part(native),
-ion-button[fill="default"]::part(native),
-ion-button[fill="solid"]::part(native) {
+ion-button[fill='default']::part(native),
+ion-button[fill='solid']::part(native) {
   background: var(--nxt1-color-primary);
   color: var(--nxt1-color-text-onPrimary);
 }
 
 ion-button:not([fill])::part(native):hover,
-ion-button[fill="default"]::part(native):hover,
-ion-button[fill="solid"]::part(native):hover {
+ion-button[fill='default']::part(native):hover,
+ion-button[fill='solid']::part(native):hover {
   background: var(--nxt1-color-primaryDark);
 }
 
 ion-button:not([fill])::part(native):active,
-ion-button[fill="default"]::part(native):active,
-ion-button[fill="solid"]::part(native):active {
+ion-button[fill='default']::part(native):active,
+ion-button[fill='solid']::part(native):active {
   background: var(--nxt1-color-primaryDark);
 }
 
@@ -181,18 +181,18 @@ ion-button[fill="solid"]::part(native):active {
    OUTLINE BUTTON - Secondary action
    Uses: --nxt1-color-border-default, --nxt1-color-text-primary
    ---------------------------------------- */
-ion-button[fill="outline"]::part(native) {
+ion-button[fill='outline']::part(native) {
   background: transparent;
   border: 1px solid var(--nxt1-color-border-default);
   color: var(--nxt1-color-text-primary);
 }
 
-ion-button[fill="outline"]::part(native):hover {
+ion-button[fill='outline']::part(native):hover {
   background: var(--nxt1-color-state-hover);
   border-color: var(--nxt1-color-border-strong);
 }
 
-ion-button[fill="outline"]::part(native):active {
+ion-button[fill='outline']::part(native):active {
   background: var(--nxt1-color-state-pressed);
 }
 
@@ -200,16 +200,16 @@ ion-button[fill="outline"]::part(native):active {
    CLEAR BUTTON - Tertiary/text action
    Uses: --nxt1-color-text-primary, --nxt1-color-state-hover
    ---------------------------------------- */
-ion-button[fill="clear"]::part(native) {
+ion-button[fill='clear']::part(native) {
   background: transparent;
   color: var(--nxt1-color-text-primary);
 }
 
-ion-button[fill="clear"]::part(native):hover {
+ion-button[fill='clear']::part(native):hover {
   background: var(--nxt1-color-state-hover);
 }
 
-ion-button[fill="clear"]::part(native):active {
+ion-button[fill='clear']::part(native):active {
   background: var(--nxt1-color-state-pressed);
 }
 
@@ -218,62 +218,62 @@ ion-button[fill="clear"]::part(native):active {
    ---------------------------------------- */
 
 /* Secondary - Surface color button */
-ion-button[color="secondary"]::part(native) {
+ion-button[color='secondary']::part(native) {
   background: var(--nxt1-color-surface-200);
   color: var(--nxt1-color-text-primary);
 }
 
-ion-button[color="secondary"]::part(native):hover {
+ion-button[color='secondary']::part(native):hover {
   background: var(--nxt1-color-surface-300);
 }
 
 /* Danger - Error/destructive actions */
-ion-button[color="danger"]::part(native) {
+ion-button[color='danger']::part(native) {
   background: var(--nxt1-color-error);
   color: var(--nxt1-color-neutral-dark-1000);
 }
 
-ion-button[color="danger"]::part(native):hover {
+ion-button[color='danger']::part(native):hover {
   background: var(--nxt1-color-errorDark);
 }
 
 /* Success - Positive actions */
-ion-button[color="success"]::part(native) {
+ion-button[color='success']::part(native) {
   background: var(--nxt1-color-success);
   color: var(--nxt1-color-neutral-dark-1000);
 }
 
-ion-button[color="success"]::part(native):hover {
+ion-button[color='success']::part(native):hover {
   background: var(--nxt1-color-successDark);
 }
 
 /* Warning - Caution actions */
-ion-button[color="warning"]::part(native) {
+ion-button[color='warning']::part(native) {
   background: var(--nxt1-color-warning);
   color: var(--nxt1-color-neutral-dark-0);
 }
 
-ion-button[color="warning"]::part(native):hover {
+ion-button[color='warning']::part(native):hover {
   background: var(--nxt1-color-warningDark);
 }
 
 /* Light - White/light background */
-ion-button[color="light"]::part(native) {
+ion-button[color='light']::part(native) {
   background: var(--nxt1-color-neutral-dark-1000);
   color: var(--nxt1-color-neutral-dark-0);
 }
 
-ion-button[color="light"]::part(native):hover {
+ion-button[color='light']::part(native):hover {
   background: var(--nxt1-color-neutral-dark-950);
 }
 
 /* Dark - Black/dark background */
-ion-button[color="dark"]::part(native) {
+ion-button[color='dark']::part(native) {
   background: var(--nxt1-color-neutral-dark-100);
   color: var(--nxt1-color-neutral-dark-1000);
 }
 
-ion-button[color="dark"]::part(native):hover {
+ion-button[color='dark']::part(native):hover {
   background: var(--nxt1-color-neutral-dark-200);
 }
 
@@ -445,7 +445,7 @@ ion-button:not(:defined) {
 }
 
 /* ion-button with expand="block" should be full width */
-ion-button[expand="block"]:not(:defined) {
+ion-button[expand='block']:not(:defined) {
   display: flex;
   width: 100%;
 }
@@ -528,19 +528,36 @@ ion-app {
   }
 
   /* Typography enhancements */
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     font-family: var(--nxt1-fontFamily-display, var(--nxt1-fontFamily-brand));
     font-weight: var(--nxt1-fontWeight-bold, 700);
     line-height: var(--nxt1-lineHeight-tight, 1.25);
     color: var(--nxt1-color-text-primary);
   }
 
-  h1 { font-size: var(--nxt1-fontSize-4xl, 3rem); }
-  h2 { font-size: var(--nxt1-fontSize-3xl, 2.25rem); }
-  h3 { font-size: var(--nxt1-fontSize-2xl, 1.875rem); }
-  h4 { font-size: var(--nxt1-fontSize-xl, 1.5rem); }
-  h5 { font-size: var(--nxt1-fontSize-lg, 1.25rem); }
-  h6 { font-size: var(--nxt1-fontSize-base, 1rem); }
+  h1 {
+    font-size: var(--nxt1-fontSize-4xl, 3rem);
+  }
+  h2 {
+    font-size: var(--nxt1-fontSize-3xl, 2.25rem);
+  }
+  h3 {
+    font-size: var(--nxt1-fontSize-2xl, 1.875rem);
+  }
+  h4 {
+    font-size: var(--nxt1-fontSize-xl, 1.5rem);
+  }
+  h5 {
+    font-size: var(--nxt1-fontSize-lg, 1.25rem);
+  }
+  h6 {
+    font-size: var(--nxt1-fontSize-base, 1rem);
+  }
 
   p {
     font-size: var(--nxt1-fontSize-base, 1rem);
@@ -672,7 +689,9 @@ ion-app {
   }
 
   @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   /* Action buttons - now imported from @nxt1/ui/styles/auth */
@@ -695,12 +714,17 @@ ion-app {
   }
 
   .bg-glow {
-    background: radial-gradient(ellipse at center, rgba(204, 255, 0, 0.15) 0%, transparent 70%);
+    background: radial-gradient(
+      ellipse at center,
+      var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.15)) 0%,
+      transparent 70%
+    );
   }
 
   /* Pulse glow animation for auth background */
   @keyframes pulse-glow {
-    0%, 100% {
+    0%,
+    100% {
       opacity: 0.6;
       transform: translateX(-50%) scale(1);
     }

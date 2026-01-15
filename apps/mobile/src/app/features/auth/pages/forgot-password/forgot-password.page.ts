@@ -13,12 +13,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthShellComponent } from '@nxt1/ui/auth';
-import {
-  IonButton,
-  IonIcon,
-  IonInput,
-  IonSpinner,
-} from '@ionic/angular/standalone';
+import { IonButton, IonIcon, IonInput, IonSpinner } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { mailOutline, arrowBackOutline, checkmarkCircleOutline } from 'ionicons/icons';
 import { AuthFlowService } from '../../services';
@@ -45,29 +40,25 @@ import { HapticsService } from '@nxt1/ui/services';
 
       <!-- Success State -->
       @if (emailSent()) {
-        <div class="text-center py-6 w-full">
+        <div class="w-full py-6 text-center">
           <ion-icon
             name="checkmark-circle-outline"
-            class="text-[64px] text-success mb-4"
+            class="text-success mb-4 text-[64px]"
           ></ion-icon>
-          <h2 class="text-xl font-semibold mb-2 text-text-primary">Email Sent!</h2>
-          <p class="text-text-secondary text-sm mb-6">
+          <h2 class="text-text-primary mb-2 text-xl font-semibold">Email Sent!</h2>
+          <p class="text-text-secondary mb-6 text-sm">
             Check your inbox for instructions to reset your password.
           </p>
-          <ion-button
-            expand="block"
-            class="reset-button"
-            routerLink="/auth/login"
-          >
+          <ion-button expand="block" class="reset-button" routerLink="/auth/login">
             Back to Sign In
           </ion-button>
         </div>
       } @else {
         <!-- Reset Form -->
-        <form (ngSubmit)="onSubmit()" class="w-full flex flex-col gap-4">
+        <form (ngSubmit)="onSubmit()" class="flex w-full flex-col gap-4">
           <!-- Email Input -->
           <div class="flex flex-col gap-2">
-            <label class="text-sm font-medium text-text-secondary">Email</label>
+            <label class="text-text-secondary text-sm font-medium">Email</label>
             <ion-input
               type="email"
               [(ngModel)]="email"
@@ -83,7 +74,7 @@ import { HapticsService } from '@nxt1/ui/services';
 
           <!-- Error Message -->
           @if (authFlow.error()) {
-            <div class="bg-error/10 text-error text-sm p-3 rounded-lg">
+            <div class="bg-error/10 text-error rounded-lg p-3 text-sm">
               {{ authFlow.error() }}
             </div>
           }
@@ -108,7 +99,7 @@ import { HapticsService } from '@nxt1/ui/services';
       <p authFooter>
         <a
           routerLink="/auth/login"
-          class="inline-flex items-center gap-1 text-text-secondary hover:text-primary transition-colors"
+          class="text-text-secondary hover:text-primary inline-flex items-center gap-1 transition-colors"
         >
           <ion-icon name="arrow-back-outline" class="text-lg"></ion-icon>
           Back to Sign In
@@ -131,7 +122,7 @@ import { HapticsService } from '@nxt1/ui/services';
         --background: var(--nxt1-color-primary);
         --background-hover: var(--nxt1-color-primary-500);
         --color: var(--nxt1-color-bg-primary);
-        font-family: var(--nxt1-font-family-brand);
+        font-family: var(--nxt1-fontFamily-brand);
         font-weight: 600;
         height: 48px;
         margin-top: 8px;

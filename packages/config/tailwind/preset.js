@@ -132,8 +132,17 @@ module.exports = {
           secondary: 'var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2))',
         },
 
-        // Glow effect color (for backgrounds)
-        glow: 'var(--nxt1-color-glow, rgba(204, 255, 0, 0.15))',
+        // Glow effect color (for backgrounds) - uses theme-aware alpha primary
+        glow: 'var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.15))',
+
+        // Alpha transparency colors (theme-aware)
+        alpha: {
+          primary5: 'var(--nxt1-color-alpha-primary5, rgba(204, 255, 0, 0.05))',
+          primary10: 'var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1))',
+          primary20: 'var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.2))',
+          primary30: 'var(--nxt1-color-alpha-primary30, rgba(204, 255, 0, 0.3))',
+          primary50: 'var(--nxt1-color-alpha-primary50, rgba(204, 255, 0, 0.5))',
+        },
       },
 
       // ============================================
@@ -166,22 +175,22 @@ module.exports = {
       // TYPOGRAPHY
       // ============================================
       fontFamily: {
-        sans: ['var(--nxt1-font-family-body, system-ui)', 'system-ui', 'sans-serif'],
-        brand: ['var(--nxt1-font-family-brand, system-ui)', 'system-ui', 'sans-serif'],
-        display: ['var(--nxt1-font-family-display, system-ui)', 'system-ui', 'sans-serif'],
-        mono: ['var(--nxt1-font-family-mono, ui-monospace)', 'monospace'],
+        sans: ['var(--nxt1-fontFamily-system, system-ui)', 'system-ui', 'sans-serif'],
+        brand: ['var(--nxt1-fontFamily-brand, system-ui)', 'system-ui', 'sans-serif'],
+        display: ['var(--nxt1-fontFamily-display, system-ui)', 'system-ui', 'sans-serif'],
+        mono: ['var(--nxt1-fontFamily-mono, ui-monospace)', 'monospace'],
       },
       fontSize: {
-        '2xs': ['var(--nxt1-font-size-2xs, 0.625rem)', { lineHeight: '1.25' }],
-        xs: ['var(--nxt1-font-size-xs, 0.75rem)', { lineHeight: '1.25' }],
-        sm: ['var(--nxt1-font-size-sm, 0.875rem)', { lineHeight: '1.25' }],
-        base: ['var(--nxt1-font-size-base, 1rem)', { lineHeight: '1.5' }],
-        lg: ['var(--nxt1-font-size-lg, 1.25rem)', { lineHeight: '1.5' }],
-        xl: ['var(--nxt1-font-size-xl, 1.5rem)', { lineHeight: '1.5' }],
-        '2xl': ['var(--nxt1-font-size-2xl, 1.875rem)', { lineHeight: '1.375' }],
-        '3xl': ['var(--nxt1-font-size-3xl, 2.25rem)', { lineHeight: '1.375' }],
-        '4xl': ['var(--nxt1-font-size-4xl, 3rem)', { lineHeight: '1.25' }],
-        '5xl': ['var(--nxt1-font-size-5xl, 3.75rem)', { lineHeight: '1' }],
+        '2xs': ['var(--nxt1-fontSize-2xs, 0.625rem)', { lineHeight: '1.25' }],
+        xs: ['var(--nxt1-fontSize-xs, 0.75rem)', { lineHeight: '1.25' }],
+        sm: ['var(--nxt1-fontSize-sm, 0.875rem)', { lineHeight: '1.25' }],
+        base: ['var(--nxt1-fontSize-base, 1rem)', { lineHeight: '1.5' }],
+        lg: ['var(--nxt1-fontSize-lg, 1.25rem)', { lineHeight: '1.5' }],
+        xl: ['var(--nxt1-fontSize-xl, 1.5rem)', { lineHeight: '1.5' }],
+        '2xl': ['var(--nxt1-fontSize-2xl, 1.875rem)', { lineHeight: '1.375' }],
+        '3xl': ['var(--nxt1-fontSize-3xl, 2.25rem)', { lineHeight: '1.375' }],
+        '4xl': ['var(--nxt1-fontSize-4xl, 3rem)', { lineHeight: '1.25' }],
+        '5xl': ['var(--nxt1-fontSize-5xl, 3.75rem)', { lineHeight: '1' }],
       },
 
       // ============================================
@@ -193,8 +202,9 @@ module.exports = {
         md: 'var(--nxt1-shadow-md, 0 6px 12px rgba(0, 0, 0, 0.5))',
         lg: 'var(--nxt1-shadow-lg, 0 8px 16px rgba(0, 0, 0, 0.5))',
         xl: 'var(--nxt1-shadow-xl, 0 16px 32px rgba(0, 0, 0, 0.5))',
-        glow: 'var(--nxt1-glow-default, 0 0 16px rgba(204, 255, 0, 0.4))',
-        'glow-lg': 'var(--nxt1-glow-lg, 0 0 24px rgba(204, 255, 0, 0.5))',
+        glow: 'var(--nxt1-glow-md, 0 0 16px var(--nxt1-color-alpha-primary50, rgba(204, 255, 0, 0.4)))',
+        'glow-lg':
+          'var(--nxt1-glow-lg, 0 0 24px var(--nxt1-color-alpha-primary50, rgba(204, 255, 0, 0.5)))',
         none: 'none',
       },
 

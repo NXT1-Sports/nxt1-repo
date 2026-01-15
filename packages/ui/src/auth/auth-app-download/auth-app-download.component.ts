@@ -165,9 +165,9 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
         flex-direction: column;
         align-items: center;
         padding: 24px;
-        background: rgba(255, 255, 255, 0.02);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 16px;
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        border-radius: var(--nxt1-radius-xl, 16px);
         text-align: center;
         width: 100%;
         max-width: 280px;
@@ -183,23 +183,23 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
       .app-promo-header .app-icon {
         width: 40px;
         height: 40px;
-        color: var(--auth-primary, #ccff00);
+        color: var(--nxt1-color-primary, #ccff00);
         margin-bottom: 12px;
       }
 
       .app-promo-header h3 {
-        font-family: var(--auth-font, -apple-system, BlinkMacSystemFont, sans-serif);
+        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
         font-size: 18px;
         font-weight: 700;
-        color: var(--auth-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary, #ffffff);
         margin: 0 0 6px;
       }
 
       .app-promo-header p {
-        font-family: var(--auth-font, -apple-system, BlinkMacSystemFont, sans-serif);
+        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
         font-size: 13px;
         font-weight: 500;
-        color: var(--auth-text-muted, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         margin: 0;
       }
 
@@ -223,10 +223,10 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
         width: 100px;
         height: 100px;
         padding: 8px;
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 8px;
-        transition: all 200ms ease-out;
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        border-radius: var(--nxt1-radius-default, 8px);
+        transition: all var(--nxt1-duration-normal, 200ms) ease-out;
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -235,9 +235,9 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
       }
 
       .qr-code-wrapper:hover {
-        border-color: var(--auth-primary, #ccff00);
-        background: rgba(255, 255, 255, 0.06);
-        box-shadow: 0 0 0 3px rgba(204, 255, 0, 0.15);
+        border-color: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
+        box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
         transform: translateY(-2px);
       }
 
@@ -251,16 +251,16 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
         display: flex;
         align-items: center;
         gap: 6px;
-        font-family: var(--auth-font, -apple-system, BlinkMacSystemFont, sans-serif);
+        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
         font-size: 12px;
         font-weight: 600;
-        color: var(--auth-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
       }
 
       .store-label svg {
         width: 14px;
         height: 14px;
-        color: var(--auth-text-muted, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 
       /* ============================================ */
@@ -282,14 +282,14 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
         content: '';
         flex: 1;
         height: 1px;
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
       }
 
       .download-divider span {
-        font-family: var(--auth-font, -apple-system, BlinkMacSystemFont, sans-serif);
+        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
         font-size: 11px;
         font-weight: 600;
-        color: var(--auth-text-muted, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         text-transform: uppercase;
         letter-spacing: 1px;
         white-space: nowrap;
@@ -308,17 +308,17 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
         justify-content: center;
         gap: 10px;
         padding: 14px 12px;
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 8px;
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        border-radius: var(--nxt1-radius-default, 8px);
         text-decoration: none;
-        transition: all 200ms ease-out;
+        transition: all var(--nxt1-duration-normal, 200ms) ease-out;
         -webkit-tap-highlight-color: transparent;
       }
 
       .app-store-btn:hover {
-        border-color: rgba(255, 255, 255, 0.2);
-        background: rgba(255, 255, 255, 0.06);
+        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        background: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
         transform: translateY(-1px);
       }
 
@@ -329,7 +329,7 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
       .app-store-btn svg {
         width: 28px;
         height: 28px;
-        color: var(--auth-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary, #ffffff);
         flex-shrink: 0;
       }
 
@@ -341,19 +341,19 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
       }
 
       .app-store-btn .btn-label {
-        font-family: var(--auth-font, -apple-system, BlinkMacSystemFont, sans-serif);
+        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
         font-size: 9px;
         font-weight: 500;
-        color: var(--auth-text-muted, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         line-height: 1.3;
         white-space: nowrap;
       }
 
       .app-store-btn .btn-store {
-        font-family: var(--auth-font, -apple-system, BlinkMacSystemFont, sans-serif);
+        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
         font-size: 14px;
         font-weight: 700;
-        color: var(--auth-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary, #ffffff);
         line-height: 1.2;
         white-space: nowrap;
       }

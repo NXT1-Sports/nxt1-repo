@@ -97,7 +97,11 @@
   min-height: 100dvh;
   padding: var(--nxt1-spacing-6, 1.5rem);
   background: var(--auth-bg-page);
-  background-image: radial-gradient(ellipse at 50% 0%, rgba(204, 255, 0, 0.03) 0%, transparent 50%);
+  background-image: radial-gradient(
+    ellipse at 50% 0%,
+    var(--nxt1-color-alpha-primary5, rgba(204, 255, 0, 0.03)) 0%,
+    transparent 50%
+  );
   overflow: hidden;
 
   /* Safe area support */
@@ -682,7 +686,7 @@ p[authTerms] a:hover {
 /* Email button hover effect */
 .nxt1-social-btn--email:hover:not(:disabled) {
   border-color: var(--auth-border-focus);
-  box-shadow: 0 0 0 1px rgba(204, 255, 0, 0.1);
+  box-shadow: 0 0 0 1px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
 }
 
 /* Team code button (dashed outline style) */
@@ -727,12 +731,12 @@ p[authTerms] a:hover {
 .nxt1-submit-btn:hover:not(:disabled) {
   background: var(--auth-primary-dark);
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(204, 255, 0, 0.3);
+  box-shadow: 0 4px 16px var(--nxt1-color-alpha-primary30, rgba(204, 255, 0, 0.3));
 }
 
 .nxt1-submit-btn:active:not(:disabled) {
   transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(204, 255, 0, 0.2);
+  box-shadow: 0 2px 8px var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.2));
 }
 
 .nxt1-submit-btn:disabled {

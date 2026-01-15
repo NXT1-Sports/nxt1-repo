@@ -8,11 +8,12 @@
  * Features:
  * - Platform-adaptive layout (iOS/Android/Web)
  * - Shared logo and branding
- * - Animated background effects
+ * - Animated background effects (theme-aware)
  * - Safe area handling for notched devices
  * - Content projection for flexible form layouts
  * - Responsive design from mobile to desktop
  * - Two-column layout support with [authSidePanel] slot
+ * - Automatic theme adaptation (dark/light/sport themes)
  *
  * Usage:
  * ```html
@@ -103,14 +104,9 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
     >
       <!-- Background Effects -->
       <div class="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
-        <!-- Gradient Background -->
-        <div
-          class="from-bg-primary absolute inset-0 bg-gradient-to-b to-black opacity-100"
-          [style.backgroundImage]="
-            'radial-gradient(ellipse 80% 50% at 50% -20%, rgba(204, 255, 0, 0.1) 0%, transparent 50%), radial-gradient(ellipse 60% 40% at 100% 100%, rgba(204, 255, 0, 0.06) 0%, transparent 40%)'
-          "
-        ></div>
-        <!-- Glow Effect -->
+        <!-- Gradient Background (Theme-aware CSS custom properties) -->
+        <div class="auth-bg-gradient absolute inset-0"></div>
+        <!-- Glow Effect (Theme-aware Tailwind) -->
         <div
           class="bg-glow animate-pulse-glow absolute top-[-200px] left-1/2 h-[600px] w-[600px] -translate-x-1/2 opacity-60 blur-[60px] md:top-[-300px] md:h-[800px] md:w-[800px]"
         ></div>
@@ -149,8 +145,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
           [ngClass]="{
             'bg-surface-100 border-border-subtle rounded-2xl border p-6':
               variant === 'card' && !showSidePanel,
-            'flex flex-col gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6':
-              variant === 'card-glass' && !showSidePanel,
+            'auth-card-glass': variant === 'card-glass' && !showSidePanel,
             'auth-two-column-card':
               showSidePanel && (variant === 'card' || variant === 'card-glass'),
           }"
@@ -183,7 +178,10 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
             </div>
           } @else {
             <!-- Single Column Layout -->
-            <ng-content></ng-content>
+            <div class="flex flex-col gap-3">
+              <ng-content select="[authContent]"></ng-content>
+              <ng-content></ng-content>
+            </div>
           }
         </div>
 
@@ -216,15 +214,47 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       }
 
       /* ============================================ */
+      /* THEME-AWARE BACKGROUND GRADIENT             */
+      /* Complex radial gradients using CSS vars     */
+      /* ============================================ */
+      .auth-bg-gradient {
+        background-image:
+          radial-gradient(
+            ellipse 80% 50% at 50% -20%,
+            var(--nxt1-color-alpha-primary10) 0%,
+            transparent 50%
+          ),
+          radial-gradient(
+            ellipse 60% 40% at 100% 100%,
+            var(--nxt1-color-alpha-primary5) 0%,
+            transparent 40%
+          ),
+          linear-gradient(to bottom, var(--nxt1-color-bg-primary), var(--nxt1-color-bg-primary));
+      }
+
+      /* ============================================ */
+      /* CARD GLASS VARIANT (Theme-aware)            */
+      /* ============================================ */
+      .auth-card-glass {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        border-radius: var(--nxt1-radius-xl, 16px);
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        padding: 24px;
+      }
+
+      /* ============================================ */
       /* TWO-COLUMN LAYOUT (Desktop)                 */
       /* ============================================ */
       .auth-two-column-card {
         display: flex;
         flex-direction: column;
         gap: 12px;
-        border-radius: 16px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.02);
+        border-radius: var(--nxt1-radius-xl, 16px);
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
         padding: 24px;
       }
 
@@ -275,15 +305,15 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       .auth-divider-vertical .divider-line {
         width: 1px;
         flex: 1;
-        background: rgba(255, 255, 255, 0.1);
+        background: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
         min-height: 40px;
       }
 
       .auth-divider-vertical .divider-text {
-        font-family: var(--auth-font, -apple-system, BlinkMacSystemFont, sans-serif);
+        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
         font-size: 11px;
         font-weight: 600;
-        color: rgba(255, 255, 255, 0.5);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         text-transform: uppercase;
         letter-spacing: 1px;
         padding: 8px 0;
