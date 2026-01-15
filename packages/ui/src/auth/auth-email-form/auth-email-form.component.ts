@@ -64,7 +64,7 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
     <!-- Error Display -->
     @if (error) {
       <div
-        class="bg-error/10 border-error/30 mb-5 flex items-center gap-2 rounded-lg border px-4 py-3 text-sm text-red-400"
+        class="bg-error/10 border-error/30 mb-5 flex items-center gap-2 rounded-xl border px-4 py-3 text-sm text-red-400"
         role="alert"
         data-testid="auth-form-error"
       >
@@ -77,51 +77,44 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
       @if (mode === 'signup') {
         <div class="flex flex-col gap-2">
           <label class="text-text-secondary text-sm font-medium" for="displayName">Full Name</label>
-          <div class="input-wrapper">
-            <ion-icon
-              name="person-outline"
-              class="text-text-tertiary pointer-events-none absolute left-3.5 z-1 text-xl"
-              aria-hidden="true"
-            ></ion-icon>
-            <ion-input
-              id="displayName"
-              type="text"
-              class="form-input"
-              placeholder="Enter your name"
-              [(ngModel)]="displayName"
-              name="displayName"
-              [disabled]="loading"
-              autocomplete="name"
-              autocapitalize="words"
-              data-testid="auth-input-displayname"
-            ></ion-input>
-          </div>
+          <ion-input
+            id="displayName"
+            type="text"
+            class="auth-input"
+            fill="outline"
+            placeholder="Enter your name"
+            [(ngModel)]="displayName"
+            name="displayName"
+            [disabled]="loading"
+            autocomplete="name"
+            autocapitalize="words"
+            data-testid="auth-input-displayname"
+          >
+            <ion-icon slot="start" name="person-outline" aria-hidden="true"></ion-icon>
+          </ion-input>
         </div>
       }
 
       <!-- Email Field -->
       <div class="flex flex-col gap-2">
         <label class="text-text-secondary text-sm font-medium" for="email">Email Address</label>
-        <div class="input-wrapper" [class.input-wrapper-error]="emailTouched() && !isEmailValid()">
-          <ion-icon
-            name="mail-outline"
-            class="text-text-tertiary pointer-events-none absolute left-3.5 z-1 text-xl"
-            aria-hidden="true"
-          ></ion-icon>
-          <ion-input
-            id="email"
-            type="email"
-            class="form-input"
-            placeholder="Enter your email"
-            [(ngModel)]="email"
-            name="email"
-            [disabled]="loading"
-            autocomplete="email"
-            inputmode="email"
-            (ionBlur)="emailTouched.set(true)"
-            data-testid="auth-input-email"
-          ></ion-input>
-        </div>
+        <ion-input
+          id="email"
+          type="email"
+          class="auth-input"
+          [class.auth-input-error]="emailTouched() && !isEmailValid()"
+          fill="outline"
+          placeholder="Enter your email"
+          [(ngModel)]="email"
+          name="email"
+          [disabled]="loading"
+          autocomplete="email"
+          inputmode="email"
+          (ionBlur)="emailTouched.set(true)"
+          data-testid="auth-input-email"
+        >
+          <ion-icon slot="start" name="mail-outline" aria-hidden="true"></ion-icon>
+        </ion-input>
         @if (emailTouched() && !isEmailValid()) {
           <ion-note class="pl-0.5 text-xs text-red-400" data-testid="auth-email-error">
             Please enter a valid email address
@@ -135,36 +128,30 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
           <label class="text-text-secondary text-sm font-medium" for="password">
             {{ mode === 'signup' ? 'Create Password' : 'Password' }}
           </label>
-          <div class="input-wrapper">
-            <ion-icon
-              name="lock-closed-outline"
-              class="text-text-tertiary pointer-events-none absolute left-3.5 z-1 text-xl"
-              aria-hidden="true"
-            ></ion-icon>
-            <ion-input
-              id="password"
-              [type]="showPassword() ? 'text' : 'password'"
-              class="form-input"
-              [placeholder]="mode === 'signup' ? 'Create a password' : 'Enter your password'"
-              [(ngModel)]="password"
-              name="password"
-              [disabled]="loading"
-              [autocomplete]="mode === 'signup' ? 'new-password' : 'current-password'"
-              data-testid="auth-input-password"
-            ></ion-input>
+          <ion-input
+            id="password"
+            [type]="showPassword() ? 'text' : 'password'"
+            class="auth-input"
+            fill="outline"
+            [placeholder]="mode === 'signup' ? 'Create a password' : 'Enter your password'"
+            [(ngModel)]="password"
+            name="password"
+            [disabled]="loading"
+            [autocomplete]="mode === 'signup' ? 'new-password' : 'current-password'"
+            data-testid="auth-input-password"
+          >
+            <ion-icon slot="start" name="lock-closed-outline" aria-hidden="true"></ion-icon>
             <button
               type="button"
-              class="text-text-tertiary hover:text-text-secondary absolute right-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border-none bg-transparent transition-all duration-200 hover:bg-white/5"
+              slot="end"
+              class="password-toggle"
               (click)="showPassword.set(!showPassword())"
               [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
               data-testid="auth-toggle-password"
             >
-              <ion-icon
-                [name]="showPassword() ? 'eye-off-outline' : 'eye-outline'"
-                class="text-xl"
-              ></ion-icon>
+              <ion-icon [name]="showPassword() ? 'eye-off-outline' : 'eye-outline'"></ion-icon>
             </button>
-          </div>
+          </ion-input>
           @if (mode === 'signup') {
             <ion-note class="text-text-tertiary pl-0.5 text-xs">At least 6 characters</ion-note>
           }
@@ -209,55 +196,98 @@ export type AuthEmailFormMode = 'login' | 'signup' | 'reset';
   `,
   styles: [
     `
-      /* Input wrapper - needs special handling for focus-within and Ionic integration */
-      .input-wrapper {
-        @apply bg-surface-200 border-border relative flex items-center rounded-lg border transition-all duration-200;
-      }
-
-      .input-wrapper:focus-within {
-        @apply border-primary;
-        box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
-      }
-
-      .input-wrapper-error {
-        @apply border-error;
-      }
-
-      .input-wrapper-error:focus-within {
-        box-shadow: 0 0 0 3px var(--nxt1-color-errorBg, rgba(239, 68, 68, 0.1));
-      }
-
-      /* Ionic Input custom properties */
-      .form-input {
-        --background: transparent;
-        --padding-start: 44px;
-        --padding-end: 14px;
-        --padding-top: 14px;
-        --padding-bottom: 14px;
+      /* Auth Input - Glassmorphic styling matching social buttons */
+      .auth-input {
+        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        --border-radius: 12px;
+        --border-width: 1px;
+        --padding-start: 16px;
+        --padding-end: 16px;
+        --padding-top: 0;
+        --padding-bottom: 0;
         --color: var(--nxt1-color-text-primary, #ffffff);
         --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
-        @apply w-full text-base;
+        --highlight-color-focused: var(--nxt1-color-primary, #ccff00);
+        --highlight-color-valid: var(--nxt1-color-primary, #ccff00);
+        --highlight-color-invalid: var(--nxt1-color-error, #ef4444);
+        font-size: 1rem;
+        min-height: 52px;
       }
 
-      /* Ionic Button custom properties */
+      .auth-input::part(native) {
+        transition: all 200ms ease-out;
+      }
+
+      .auth-input:hover {
+        --background: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
+      }
+
+      .auth-input ion-icon[slot='start'] {
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        font-size: 1.25rem;
+        margin-inline-end: 8px;
+      }
+
+      .auth-input-error {
+        --border-color: var(--nxt1-color-error, #ef4444);
+        --highlight-color-focused: var(--nxt1-color-error, #ef4444);
+      }
+
+      /* Password toggle button */
+      .password-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        margin: 0;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .password-toggle:hover {
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+      }
+
+      .password-toggle ion-icon {
+        font-size: 1.25rem;
+      }
+
+      /* Submit Button - professional styling */
       .submit-btn {
         --background: var(--nxt1-color-primary, #ccff00);
-        --background-hover: var(--nxt1-color-primary-500, #b8e600);
-        --background-activated: var(--nxt1-color-primary-600, #a3cc00);
+        --background-hover: var(--nxt1-color-primaryDark, #a3cc00);
+        --background-activated: var(--nxt1-color-primaryDark, #a3cc00);
+        --background-focused: var(--nxt1-color-primary, #ccff00);
         --color: var(--nxt1-color-bg-primary, #0a0a0a);
         --border-radius: 12px;
         --padding-top: 14px;
         --padding-bottom: 14px;
-        @apply text-base font-semibold;
+        --box-shadow: none;
+        font-size: 1rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.025em;
+        margin-top: 0.5rem;
       }
 
       .submit-btn::part(native) {
         min-height: 52px;
+        border-radius: 12px;
       }
 
       .submit-btn ion-spinner {
         --color: var(--nxt1-color-bg-primary, #0a0a0a);
-        @apply mr-2 h-5 w-5;
+        width: 1.25rem;
+        height: 1.25rem;
+        margin-right: 0.5rem;
       }
     `,
   ],

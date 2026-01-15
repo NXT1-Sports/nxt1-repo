@@ -148,7 +148,7 @@ export interface SocialProvidersConfig {
         --background-activated: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
         --background-focused: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
         --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        --border-radius: var(--nxt1-radius-default, 8px);
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
         --color: var(--nxt1-color-text-primary, #ffffff);
         --padding-start: 1rem;
@@ -165,6 +165,7 @@ export interface SocialProvidersConfig {
       }
 
       .nxt1-auth-btn::part(native) {
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
         transition: all 200ms ease-out;
       }
 

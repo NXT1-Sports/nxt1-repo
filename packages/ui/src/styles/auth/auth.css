@@ -855,12 +855,66 @@ p[authTerms] a:hover {
   padding: 0 var(--nxt1-spacing-4, 1rem);
   background: var(--auth-bg-input);
   border: 1px solid var(--auth-border-default);
-  border-radius: var(--auth-radius-default);
+  border-radius: 12px;
   font-family: var(--auth-font);
   font-size: var(--nxt1-fontSize-base, 1rem);
   font-weight: var(--nxt1-font-weight-medium, 500);
   color: var(--auth-text-primary);
   transition: all var(--auth-transition-fast);
+}
+
+/* ============================================
+   IONIC INPUT STYLING (Auth Forms)
+   Professional rounded inputs using fill="outline"
+   ============================================ */
+
+/* Base auth input styling - works across all platforms */
+.auth-input,
+nxt1-auth-email-form ion-input[fill='outline'],
+.nxt1-auth-form ion-input[fill='outline'] {
+  --background: var(--nxt1-color-surface-200, #1a1a1a);
+  --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+  --border-radius: var(--nxt1-borderRadius-lg, 12px);
+  --border-width: 1px;
+  --padding-start: 16px;
+  --padding-end: 16px;
+  --color: var(--nxt1-color-text-primary, #ffffff);
+  --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+  --highlight-color-focused: var(--nxt1-color-primary, #ccff00);
+  --highlight-color-valid: var(--nxt1-color-primary, #ccff00);
+  --highlight-color-invalid: var(--nxt1-color-error, #ef4444);
+  font-size: 1rem;
+  min-height: 52px;
+}
+
+/* Input icons */
+.auth-input ion-icon[slot='start'],
+nxt1-auth-email-form ion-input ion-icon[slot='start'],
+.nxt1-auth-form ion-input ion-icon[slot='start'] {
+  color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+  font-size: 1.25rem;
+}
+
+/* Error state */
+.auth-input-error,
+nxt1-auth-email-form ion-input.auth-input-error,
+.nxt1-auth-form ion-input.auth-input-error {
+  --border-color: var(--nxt1-color-error, #ef4444);
+  --highlight-color-focused: var(--nxt1-color-error, #ef4444);
+}
+
+/* iOS specific - ensure consistent appearance */
+.ios .auth-input,
+.ios nxt1-auth-email-form ion-input[fill='outline'],
+.ios .nxt1-auth-form ion-input[fill='outline'] {
+  --border-radius: var(--nxt1-borderRadius-lg, 12px);
+}
+
+/* Android (MD) specific - ensure consistent appearance */
+.md .auth-input,
+.md nxt1-auth-email-form ion-input[fill='outline'],
+.md .nxt1-auth-form ion-input[fill='outline'] {
+  --border-radius: var(--nxt1-borderRadius-lg, 12px);
 }
 
 /* With left icon */
