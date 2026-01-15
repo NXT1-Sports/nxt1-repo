@@ -150,16 +150,16 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
               showSidePanel && (variant === 'card' || variant === 'card-glass'),
           }"
         >
-          @if (showSidePanel) {
-            <!-- Two-Column Layout -->
-            <div class="auth-two-column">
-              <!-- Primary Column: Auth Forms -->
-              <div class="auth-column auth-column--primary">
-                <ng-content select="[authContent]"></ng-content>
-                <ng-content></ng-content>
-              </div>
+          <!-- Two-Column Layout -->
+          <div class="auth-two-column">
+            <!-- Primary Column: Auth Forms -->
+            <div class="auth-column auth-column--primary">
+              <ng-content select="[authContent]"></ng-content>
+              <ng-content></ng-content>
+            </div>
 
-              <!-- Vertical Divider (Desktop Only) -->
+            <!-- Vertical Divider (Desktop Only) -->
+            @if (showSidePanel) {
               <div class="auth-divider-vertical desktop-only">
                 <div class="divider-line"></div>
                 <span class="divider-text">or</span>
@@ -170,17 +170,13 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
               <div class="auth-column auth-column--secondary desktop-only">
                 <ng-content select="[authSidePanel]"></ng-content>
               </div>
-            </div>
+            }
+          </div>
 
-            <!-- Mobile Side Panel Content -->
+          <!-- Mobile Side Panel Content -->
+          @if (showSidePanel) {
             <div class="mobile-only">
               <ng-content select="[authSidePanelMobile]"></ng-content>
-            </div>
-          } @else {
-            <!-- Single Column Layout -->
-            <div class="flex flex-col gap-3">
-              <ng-content select="[authContent]"></ng-content>
-              <ng-content></ng-content>
             </div>
           }
         </div>
