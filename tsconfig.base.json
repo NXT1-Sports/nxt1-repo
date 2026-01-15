@@ -42,13 +42,28 @@
         "packages/core/src/*/index.ts",
         "packages/core/dist/*/index.d.ts"
       ],
-      "@nxt1/ui": ["packages/ui/dist"],
-      "@nxt1/ui/auth": ["packages/ui/dist/auth"],
-      "@nxt1/ui/services": ["packages/ui/dist/services"],
-      "@nxt1/ui/shared": ["packages/ui/dist/shared"],
-      "@nxt1/ui/directives": ["packages/ui/dist/directives"],
-      "@nxt1/ui/components": ["packages/ui/dist/components"],
-      "@nxt1/ui/*": ["packages/ui/dist/*"],
+      "@nxt1/ui": ["packages/ui/src/index.ts", "packages/ui/dist"],
+      "@nxt1/ui/auth": [
+        "packages/ui/src/auth/index.ts",
+        "packages/ui/dist/auth"
+      ],
+      "@nxt1/ui/services": [
+        "packages/ui/src/services/index.ts",
+        "packages/ui/dist/services"
+      ],
+      "@nxt1/ui/shared": [
+        "packages/ui/src/shared/index.ts",
+        "packages/ui/dist/shared"
+      ],
+      "@nxt1/ui/directives": [
+        "packages/ui/src/directives/index.ts",
+        "packages/ui/dist/directives"
+      ],
+      "@nxt1/ui/components": [
+        "packages/ui/src/components/index.ts",
+        "packages/ui/dist/components"
+      ],
+      "@nxt1/ui/*": ["packages/ui/src/*/index.ts", "packages/ui/dist/*"],
       "@nxt1/config/*": ["packages/config/*"]
     }
   },

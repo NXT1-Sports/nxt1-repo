@@ -12,10 +12,11 @@
  * - Safe area handling for notched devices
  * - Content projection for flexible form layouts
  * - Responsive design from mobile to desktop
+ * - Two-column layout support with [authSidePanel] slot
  *
  * Usage:
  * ```html
- * <nxt1-auth-shell variant="card" [showLogo]="true">
+ * <nxt1-auth-shell variant="card" [showLogo]="true" [showSidePanel]="true">
  *   <h1 authTitle>Welcome back</h1>
  *   <p authSubtitle>Sign in to continue</p>
  *
@@ -25,9 +26,9 @@
  *     Don't have an account? <a routerLink="/signup">Sign up</a>
  *   </p>
  *
- *   <p authTerms>
- *     By continuing, you agree to our Terms and Privacy Policy
- *   </p>
+ *   <ng-container authSidePanel>
+ *     <nxt1-auth-app-download />
+ *   </ng-container>
  * </nxt1-auth-shell>
  * ```
  */
@@ -136,26 +137,58 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         }
 
         <!-- Title & Subtitle Slot -->
-        <div class="mb-4 w-full text-center" [style.maxWidth]="maxWidth">
+        <div class="mb-4 w-full text-center" [style.maxWidth]="showSidePanel ? '840px' : maxWidth">
           <ng-content select="[authTitle]"></ng-content>
           <ng-content select="[authSubtitle]"></ng-content>
         </div>
 
-        <!-- Main Content Area - Single ng-content with conditional styling -->
+        <!-- Main Content Area with Optional Side Panel -->
         <div
           class="w-full"
-          [style.maxWidth]="maxWidth"
+          [style.maxWidth]="showSidePanel ? '840px' : maxWidth"
           [ngClass]="{
-            'bg-surface-100 border-border-subtle rounded-2xl border p-6': variant === 'card',
+            'bg-surface-100 border-border-subtle rounded-2xl border p-6':
+              variant === 'card' && !showSidePanel,
             'flex flex-col gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-6':
-              variant === 'card-glass',
+              variant === 'card-glass' && !showSidePanel,
+            'auth-two-column-card':
+              showSidePanel && (variant === 'card' || variant === 'card-glass'),
           }"
         >
-          <ng-content></ng-content>
+          @if (showSidePanel) {
+            <!-- Two-Column Layout -->
+            <div class="auth-two-column">
+              <!-- Primary Column: Auth Forms -->
+              <div class="auth-column auth-column--primary">
+                <ng-content select="[authContent]"></ng-content>
+                <ng-content></ng-content>
+              </div>
+
+              <!-- Vertical Divider (Desktop Only) -->
+              <div class="auth-divider-vertical desktop-only">
+                <div class="divider-line"></div>
+                <span class="divider-text">or</span>
+                <div class="divider-line"></div>
+              </div>
+
+              <!-- Secondary Column: Side Panel (Desktop Only) -->
+              <div class="auth-column auth-column--secondary desktop-only">
+                <ng-content select="[authSidePanel]"></ng-content>
+              </div>
+            </div>
+
+            <!-- Mobile Side Panel Content -->
+            <div class="mobile-only">
+              <ng-content select="[authSidePanelMobile]"></ng-content>
+            </div>
+          } @else {
+            <!-- Single Column Layout -->
+            <ng-content></ng-content>
+          }
         </div>
 
         <!-- Footer Links -->
-        <div class="mt-4 w-full text-center" [style.maxWidth]="maxWidth">
+        <div class="mt-4 w-full text-center" [style.maxWidth]="showSidePanel ? '840px' : maxWidth">
           <ng-content select="[authFooter]"></ng-content>
         </div>
       </div>
@@ -181,6 +214,101 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       .nxt1-auth-wrapper {
         overflow: hidden;
       }
+
+      /* ============================================ */
+      /* TWO-COLUMN LAYOUT (Desktop)                 */
+      /* ============================================ */
+      .auth-two-column-card {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.02);
+        padding: 24px;
+      }
+
+      .auth-two-column {
+        display: flex;
+        gap: 32px;
+        align-items: stretch;
+        justify-content: space-evenly;
+      }
+
+      @media (max-width: 768px) {
+        .auth-two-column {
+          flex-direction: column;
+          gap: 0;
+        }
+      }
+
+      .auth-column {
+        flex: 0 1 auto;
+        min-width: 0;
+      }
+
+      .auth-column--primary {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        justify-content: center;
+        min-width: 320px;
+      }
+
+      .auth-column--secondary {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* ============================================ */
+      /* VERTICAL DIVIDER (Desktop Only)             */
+      /* ============================================ */
+      .auth-divider-vertical {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+        padding: 20px 0;
+      }
+
+      .auth-divider-vertical .divider-line {
+        width: 1px;
+        flex: 1;
+        background: rgba(255, 255, 255, 0.1);
+        min-height: 40px;
+      }
+
+      .auth-divider-vertical .divider-text {
+        font-family: var(--auth-font, -apple-system, BlinkMacSystemFont, sans-serif);
+        font-size: 11px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.5);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        padding: 8px 0;
+      }
+
+      /* ============================================ */
+      /* RESPONSIVE UTILITIES                        */
+      /* ============================================ */
+      .desktop-only {
+        display: flex;
+      }
+
+      .mobile-only {
+        display: none;
+      }
+
+      @media (max-width: 768px) {
+        .desktop-only {
+          display: none !important;
+        }
+
+        .mobile-only {
+          display: block;
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -197,6 +325,9 @@ export class AuthShellComponent {
 
   /** Whether to show back navigation in header */
   @Input() showBackButton = false;
+
+  /** Whether to show the side panel (two-column layout) */
+  @Input() showSidePanel = false;
 
   /** Optional title in header (when showBackButton is true) */
   @Input() headerTitle = '';

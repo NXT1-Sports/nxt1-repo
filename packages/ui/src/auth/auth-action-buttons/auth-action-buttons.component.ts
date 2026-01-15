@@ -82,14 +82,8 @@ import { IonButton } from '@ionic/angular/standalone';
               stroke-linejoin="round"
               aria-hidden="true"
             >
-              <path
-                d="m15.5 7.5 2.3 2.3a1 1 0 0 1 0 1.4l-7.5 7.5a1 1 0 0 1-.4.2l-4 1a1 1 0 0 1-1.2-1.2l1-4a1 1 0 0 1 .2-.4l7.5-7.5a1 1 0 0 1 1.4 0z"
-              />
-              <path d="m21 2-1 1" />
-              <path d="m15 8-1 1" />
-              <circle cx="19" cy="5" r="1" />
-              <path d="M10 2v4" />
-              <path d="M2 10h4" />
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
             </svg>
             <span class="btn-text">Have a Team Code?</span>
           </div>

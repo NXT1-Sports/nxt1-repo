@@ -4,6 +4,7 @@
  *
  * Professional login page using shared auth components from @nxt1/ui.
  * Demonstrates cross-platform code sharing between web and mobile.
+ * Features two-column layout with QR codes for app download on desktop.
  */
 
 import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
@@ -15,6 +16,7 @@ import {
   AuthActionButtonsComponent,
   AuthDividerComponent,
   AuthEmailFormComponent,
+  AuthAppDownloadComponent,
   type AuthEmailFormData,
 } from '@nxt1/ui/auth';
 import { AuthFlowService } from '../../services';
@@ -30,45 +32,60 @@ import { AuthFlowService } from '../../services';
     AuthActionButtonsComponent,
     AuthDividerComponent,
     AuthEmailFormComponent,
+    AuthAppDownloadComponent,
   ],
   template: `
     <nxt1-auth-shell
       variant="card-glass"
       [showBackButton]="showEmailForm()"
+      [showSidePanel]="!showEmailForm()"
       (backClick)="showEmailForm.set(false)"
     >
       <!-- Title & Subtitle -->
       <h1 authTitle>Welcome back</h1>
       <p authSubtitle>Sign in to continue to NXT1</p>
 
-      <!-- Social Buttons (default view) -->
-      @if (!showEmailForm()) {
-        <nxt1-auth-social-buttons
-          [loading]="authFlow.isLoading()"
-          (googleClick)="onGoogleSignIn()"
-          (appleClick)="onAppleSignIn()"
-          (microsoftClick)="onMicrosoftSignIn()"
-        />
+      <!-- Main Auth Content -->
+      <div authContent class="auth-forms">
+        <!-- Social Buttons (default view) -->
+        @if (!showEmailForm()) {
+          <nxt1-auth-social-buttons
+            [loading]="authFlow.isLoading()"
+            (googleClick)="onGoogleSignIn()"
+            (appleClick)="onAppleSignIn()"
+            (microsoftClick)="onMicrosoftSignIn()"
+          />
 
-        <nxt1-auth-divider />
+          <nxt1-auth-divider />
 
-        <nxt1-auth-action-buttons
-          [loading]="authFlow.isLoading()"
-          (emailClick)="showEmailForm.set(true)"
-          (teamCodeClick)="onTeamCode()"
-        />
-      }
+          <nxt1-auth-action-buttons
+            [loading]="authFlow.isLoading()"
+            (emailClick)="showEmailForm.set(true)"
+            (teamCodeClick)="onTeamCode()"
+          />
+        }
 
-      <!-- Email Form -->
-      @if (showEmailForm()) {
-        <nxt1-auth-email-form
-          mode="login"
-          [loading]="authFlow.isLoading()"
-          [error]="authFlow.error()"
-          (submitForm)="onEmailSubmit($event)"
-          (forgotPasswordClick)="onForgotPassword()"
-        />
-      }
+        <!-- Email Form -->
+        @if (showEmailForm()) {
+          <nxt1-auth-email-form
+            mode="login"
+            [loading]="authFlow.isLoading()"
+            [error]="authFlow.error()"
+            (submitForm)="onEmailSubmit($event)"
+            (forgotPasswordClick)="onForgotPassword()"
+          />
+        }
+      </div>
+
+      <!-- Side Panel: QR Codes for Desktop -->
+      <ng-container authSidePanel>
+        <nxt1-auth-app-download [showMobileButtons]="false" />
+      </ng-container>
+
+      <!-- Side Panel: Mobile Download Buttons -->
+      <ng-container authSidePanelMobile>
+        <nxt1-auth-app-download [showMobileButtons]="true" />
+      </ng-container>
 
       <!-- Footer -->
       <p authFooter>
@@ -77,6 +94,21 @@ import { AuthFlowService } from '../../services';
       </p>
     </nxt1-auth-shell>
   `,
+  styles: [
+    `
+      :host {
+        display: block;
+        height: 100%;
+      }
+
+      .auth-forms {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        width: 100%;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class LoginComponent {

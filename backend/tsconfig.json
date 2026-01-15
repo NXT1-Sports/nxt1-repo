@@ -19,7 +19,13 @@
     "baseUrl": ".",
     "paths": {
       "@nxt1/core": ["../packages/core/dist/index.d.ts"],
-      "@nxt1/core/*": ["../packages/core/dist/*/index.d.ts"]
+      "@nxt1/core/errors/express": [
+        "../packages/core/dist/errors/express.middleware.d.ts"
+      ],
+      "@nxt1/core/*": [
+        "../packages/core/dist/*/index.d.ts",
+        "../packages/core/dist/*.d.ts"
+      ]
     }
   },
   "references": [{ "path": "../packages/core" }],
