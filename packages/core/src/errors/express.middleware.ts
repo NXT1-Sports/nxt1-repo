@@ -187,7 +187,7 @@ export function createErrorHandler(
   return (err: unknown, req: TracedRequest, res: Response, _next: NextFunction): void => {
     // Parse error into standard format
     let errorDetail: ApiErrorDetail;
-    let originalError: unknown = err;
+    const originalError: unknown = err;
 
     if (err instanceof NxtApiError) {
       errorDetail = err.toJSON();

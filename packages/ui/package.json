@@ -40,8 +40,8 @@
   "scripts": {
     "build": "ng-packagr -p ng-package.json",
     "build:watch": "ng-packagr -p ng-package.json --watch",
-    "lint": "eslint src auth shared services --ext .ts",
-    "lint:fix": "eslint src auth shared services --ext .ts --fix",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .turbo"
   },

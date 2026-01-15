@@ -258,6 +258,7 @@ export class NxtApiError extends Error {
 
     // Maintains proper stack trace for where error was thrown (V8 engines only)
     const ErrorCtor = Error as {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
       captureStackTrace?: (error: Error, constructor: Function) => void;
     };
     if (typeof ErrorCtor.captureStackTrace === 'function') {
