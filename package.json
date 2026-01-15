@@ -34,6 +34,7 @@
     "dev:mobile": "turbo run dev --filter=@nxt1/mobile",
     "dev:backend": "turbo run dev --filter=@nxt1/backend",
     "dev:all": "turbo run dev --filter=@nxt1/web --filter=@nxt1/backend --parallel",
+    "dev:all:watch": "npm run build && turbo run dev --filter=@nxt1/web --filter=@nxt1/backend --filter=@nxt1/ui --filter=@nxt1/core --parallel",
     "test": "turbo run test",
     "test:web": "turbo run test --filter=@nxt1/web",
     "test:core": "turbo run test --filter=@nxt1/core",

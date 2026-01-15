@@ -98,7 +98,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
     <ion-content
       class="nxt1-auth-content"
       [fullscreen]="!showBackButton"
-      [scrollY]="false"
+      [scrollY]="true"
       [forceOverscroll]="false"
     >
       <!-- Background Effects -->
@@ -155,36 +155,31 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
               showSidePanel && (variant === 'card' || variant === 'card-glass'),
           }"
         >
-          @if (showSidePanel) {
-            <!-- Two-Column Layout -->
-            <div class="auth-two-column">
-              <!-- Primary Column: Auth Forms -->
-              <div class="auth-column auth-column--primary">
-                <ng-content select="[authContent]"></ng-content>
-                <ng-content></ng-content>
-              </div>
-
-              <!-- Vertical Divider (Desktop Only) -->
-              <div class="auth-divider-vertical desktop-only">
-                <div class="divider-line"></div>
-                <span class="divider-text">or</span>
-                <div class="divider-line"></div>
-              </div>
-
-              <!-- Secondary Column: Side Panel (Desktop Only) -->
-              <div class="auth-column auth-column--secondary desktop-only">
-                <ng-content select="[authSidePanel]"></ng-content>
-              </div>
+          <!-- Two-Column Layout -->
+          <div class="auth-two-column">
+            <!-- Primary Column: Auth Forms -->
+            <div class="auth-column auth-column--primary">
+              <ng-content select="[authContent]"></ng-content>
+              <ng-content></ng-content>
             </div>
 
-            <!-- Mobile Side Panel Content -->
-            <div class="mobile-only">
-              <ng-content select="[authSidePanelMobile]"></ng-content>
+            <!-- Vertical Divider (Desktop Only) -->
+            <div class="auth-divider-vertical desktop-only">
+              <div class="divider-line"></div>
+              <span class="divider-text">or</span>
+              <div class="divider-line"></div>
             </div>
-          } @else {
-            <!-- Single Column Layout -->
-            <ng-content></ng-content>
-          }
+
+            <!-- Secondary Column: Side Panel (Desktop Only) -->
+            <div class="auth-column auth-column--secondary desktop-only">
+              <ng-content select="[authSidePanel]"></ng-content>
+            </div>
+          </div>
+
+          <!-- Mobile Side Panel Content -->
+          <div class="mobile-only">
+            <ng-content select="[authSidePanelMobile]"></ng-content>
+          </div>
         </div>
 
         <!-- Footer Links -->
@@ -203,16 +198,16 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       }
 
       .nxt1-auth-content {
-        --overflow: hidden;
-        overflow: hidden;
+        --overflow: auto;
+        overflow: auto;
       }
 
       .nxt1-auth-content::part(scroll) {
-        overflow: hidden !important;
+        overflow: auto !important;
       }
 
       .nxt1-auth-wrapper {
-        overflow: hidden;
+        overflow: visible;
       }
 
       /* ============================================ */

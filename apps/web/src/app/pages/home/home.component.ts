@@ -69,16 +69,6 @@ import { AuthFlowService } from '../../features/auth/services';
               Sign Out
             </ion-button>
           </div>
-
-          <!-- Debug Info (Dev Only) -->
-          @if (!isProduction) {
-            <details class="mt-6">
-              <summary class="text-text-tertiary cursor-pointer text-xs">Debug Info</summary>
-              <pre class="text-text-tertiary mt-2 overflow-auto text-xs">{{
-                authFlow.user() | json
-              }}</pre>
-            </details>
-          }
         </ion-card-content>
       </ion-card>
     </div>
