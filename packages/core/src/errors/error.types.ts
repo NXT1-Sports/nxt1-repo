@@ -324,9 +324,18 @@ export function isApiSuccessResponse<T>(value: unknown): value is ApiSuccessResp
 
 /**
  * Check if an error is an NxtApiError instance
+ * Uses duck typing to handle cross-package/bundling scenarios where
+ * instanceof may fail due to duplicate class definitions.
  */
 export function isNxtApiError(error: unknown): error is NxtApiError {
-  return error instanceof NxtApiError;
+  if (!error || typeof error !== 'object') return false;
+  const obj = error as Record<string, unknown>;
+  return (
+    obj['name'] === 'NxtApiError' &&
+    typeof obj['code'] === 'string' &&
+    typeof obj['statusCode'] === 'number' &&
+    typeof obj['toResponse'] === 'function'
+  );
 }
 
 /**

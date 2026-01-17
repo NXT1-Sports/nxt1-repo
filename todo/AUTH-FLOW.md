@@ -29,8 +29,8 @@
 
 - [ ] **Complete Signup page**
   - Add Google/Apple OAuth signup options
-  - Handle team code pre-fill from URL params
-  - Create user in backend after Firebase signup
+  - ✅ Handle team code pre-fill from URL params
+  - ✅ Create user in backend after Firebase signup
 
 - [ ] **Implement Forgot Password**
   - Build password reset request form

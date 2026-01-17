@@ -189,8 +189,14 @@ export function createErrorHandler(
     let errorDetail: ApiErrorDetail;
     const originalError: unknown = err;
 
-    if (err instanceof NxtApiError) {
-      errorDetail = err.toJSON();
+    // Duck type check for NxtApiError (handles cross-package bundling issues)
+    const nxtError = err as NxtApiError;
+    if (
+      nxtError?.name === 'NxtApiError' &&
+      typeof nxtError.statusCode === 'number' &&
+      typeof nxtError.toJSON === 'function'
+    ) {
+      errorDetail = nxtError.toJSON();
       // Add trace ID from request if not set
       if (!errorDetail.traceId && req.traceId) {
         errorDetail.traceId = req.traceId;
@@ -351,6 +357,9 @@ export function sendPaginated<T>(
 /**
  * Send an error response (for manual error handling)
  *
+ * Uses duck typing to detect NxtApiError to handle cross-package bundling
+ * scenarios where instanceof may fail due to duplicate class definitions.
+ *
  * @example
  * ```typescript
  * if (!user) {
@@ -359,9 +368,17 @@ export function sendPaginated<T>(
  * ```
  */
 export function sendError(res: Response, error: NxtApiError | ApiErrorResponse): void {
-  if (error instanceof NxtApiError) {
-    res.status(error.statusCode).json(error.toResponse());
+  // Duck type check for NxtApiError (handles cross-package bundling issues)
+  const nxtError = error as NxtApiError;
+  if (
+    nxtError.name === 'NxtApiError' &&
+    typeof nxtError.statusCode === 'number' &&
+    typeof nxtError.toResponse === 'function'
+  ) {
+    res.status(nxtError.statusCode).json(nxtError.toResponse());
   } else {
-    res.status(error.error.statusCode).json(error);
+    // ApiErrorResponse
+    const errorResponse = error as ApiErrorResponse;
+    res.status(errorResponse.error.statusCode).json(errorResponse);
   }
 }

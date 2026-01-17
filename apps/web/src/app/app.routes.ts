@@ -6,21 +6,15 @@ import { authGuard } from './features/auth/guards/auth.guards';
  * @module @nxt1/web
  *
  * Application routing with auth guards.
+ * Home page pending - redirects to auth for now.
  */
 
 export const routes: Routes = [
-  // Redirect root to home (protected)
+  // Redirect root to auth (home pending)
   {
     path: '',
     pathMatch: 'full',
-    redirectTo: 'home',
-  },
-
-  {
-    path: 'home',
-    loadComponent: () => import('./pages/home/home.component').then((m) => m.HomeComponent),
-    canActivate: [authGuard],
-    title: 'Home | NXT1 Sports',
+    redirectTo: 'auth',
   },
 
   // Authentication Routes
@@ -31,6 +25,6 @@ export const routes: Routes = [
 
   {
     path: '**',
-    redirectTo: 'home',
+    redirectTo: 'auth',
   },
 ];

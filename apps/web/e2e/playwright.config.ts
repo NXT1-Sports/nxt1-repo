@@ -16,7 +16,7 @@ import path from 'path';
  * Environment configuration
  * Override with environment variables for different deployment targets
  */
-const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:4200';
+const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:4500';
 const CI = !!process.env.CI;
 
 /**
@@ -64,10 +64,7 @@ export default defineConfig({
         ['html', { outputFolder: 'playwright-report', open: 'never' }],
         ['junit', { outputFile: 'test-results/junit.xml' }],
       ]
-    : [
-        ['list'],
-        ['html', { outputFolder: 'playwright-report', open: 'on-failure' }],
-      ],
+    : [['list'], ['html', { outputFolder: 'playwright-report', open: 'on-failure' }]],
 
   /**
    * Output directory for test artifacts
@@ -271,13 +268,14 @@ export default defineConfig({
   webServer: {
     /**
      * Start the Angular dev server before tests
-     * Reuse existing server if already running
+     * Reuse existing server if already running (don't kill it)
      */
-    command: 'npm run dev',
+    command: 'npm run dev -- --port 4500',
     url: BASE_URL,
-    reuseExistingServer: !CI,
+    reuseExistingServer: true,
     timeout: 120_000,
-    stdout: 'pipe',
-    stderr: 'pipe',
+    // Don't pipe output when reusing server to avoid conflicts
+    stdout: 'ignore',
+    stderr: 'ignore',
   },
 });

@@ -63,6 +63,18 @@
         "packages/ui/src/components/index.ts",
         "packages/ui/dist/components"
       ],
+      "@nxt1/ui/infrastructure": [
+        "packages/ui/src/infrastructure/index.ts",
+        "packages/ui/dist/infrastructure"
+      ],
+      "@nxt1/ui/auth-services": [
+        "packages/ui/src/auth-services/index.ts",
+        "packages/ui/dist/auth-services"
+      ],
+      "@nxt1/ui/onboarding": [
+        "packages/ui/src/onboarding/index.ts",
+        "packages/ui/dist/onboarding"
+      ],
       "@nxt1/ui/*": ["packages/ui/src/*/index.ts", "packages/ui/dist/*"],
       "@nxt1/config/*": ["packages/config/*"]
     }

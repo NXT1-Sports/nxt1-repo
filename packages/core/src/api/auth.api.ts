@@ -80,6 +80,18 @@ export interface ValidateTeamCodeResponse {
 }
 
 /**
+ * Validated team info extracted from ValidateTeamCodeResponse
+ * Use this type for UI components displaying team information
+ */
+export type ValidatedTeamInfo = NonNullable<ValidateTeamCodeResponse['teamCode']>;
+
+/**
+ * Team code validation UI state
+ * Use in components to track validation progress
+ */
+export type TeamCodeValidationState = 'idle' | 'validating' | 'success' | 'error';
+
+/**
  * Onboarding profile data to save
  */
 export interface OnboardingProfileData {

@@ -1,6 +1,7 @@
 # @nxt1/ui
 
-Shared Angular/Ionic UI components and services for NXT1 platform.  
+Shared Angular/Ionic UI components, services, and infrastructure for NXT1
+platform.  
 **~90% code sharing** between web and mobile applications.
 
 ## 📦 What's Inside
@@ -17,6 +18,32 @@ import {
 ```
 
 Complete authentication UI ready to use in any Angular/Ionic app.
+
+### Infrastructure (Error Handling & Interceptors)
+
+```typescript
+import {
+  GlobalErrorHandler,
+  httpErrorInterceptor,
+  type HttpErrorInterceptorOptions,
+  type ErrorSeverity,
+  ERROR_MESSAGES,
+} from '@nxt1/ui/infrastructure';
+```
+
+Enterprise-grade error handling and HTTP interceptors.
+
+### Auth Services (Firebase Error Handling)
+
+```typescript
+import {
+  AuthErrorHandler,
+  type AuthError,
+  type AuthRecoveryAction,
+} from '@nxt1/ui/auth-services';
+```
+
+Firebase auth error transformation with user-friendly messages.
 
 ### Shared Components
 
@@ -235,6 +262,60 @@ import { NxtLogoComponent } from '@nxt1/ui/shared';
     <nxt1-logo variant="monochrome" />
   `
 })
+```
+
+### 7. Infrastructure (Error Handling)
+
+```typescript
+import { ApplicationConfig, ErrorHandler } from '@angular/core';
+import { provideHttpClient, withInterceptors } from '@angular/common/http';
+import {
+  GlobalErrorHandler,
+  httpErrorInterceptor,
+} from '@nxt1/ui/infrastructure';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    // HTTP client with error handling
+    provideHttpClient(
+      withInterceptors([
+        httpErrorInterceptor({
+          redirectOnUnauthorized: true,
+          unauthorizedRedirectPath: '/auth',
+        }),
+      ])
+    ),
+    // Global error handler
+    { provide: ErrorHandler, useClass: GlobalErrorHandler },
+  ],
+};
+```
+
+### 8. Auth Error Handler (Firebase)
+
+```typescript
+import { Injectable, inject } from '@angular/core';
+import { AuthErrorHandler } from '@nxt1/ui/auth-services';
+
+@Injectable()
+export class AuthFlowService {
+  private readonly errorHandler = inject(AuthErrorHandler);
+
+  async signIn(email: string, password: string) {
+    try {
+      await this.firebaseAuth.signInWithEmailAndPassword(email, password);
+    } catch (err) {
+      // Transforms Firebase errors to user-friendly messages
+      const error = this.errorHandler.handle(err);
+      this.errorMessage.set(error.message);
+
+      // Check recovery action
+      if (error.recovery?.type === 'reset_password') {
+        this.showResetPasswordLink.set(true);
+      }
+    }
+  }
+}
 ```
 
 ---

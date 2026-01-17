@@ -4,10 +4,12 @@
  *
  * Page Object for the signup/registration page.
  * Uses data-testid selectors for stable, maintenance-free tests.
+ * Test IDs are imported from @nxt1/core/testing for cross-platform consistency.
  */
 
 import { Page, Locator } from '@playwright/test';
 import { BasePage } from '../base.page';
+import { AUTH_TEST_IDS, AUTH_PAGE_TEST_IDS } from '@nxt1/core/testing';
 
 /**
  * Signup form data
@@ -37,6 +39,7 @@ export class SignupPage extends BasePage {
 
   // ===========================================================================
   // SELECTORS - Using data-testid for stability
+  // Unified auth page in signup mode - shares components with login
   // ===========================================================================
 
   /**
@@ -52,14 +55,14 @@ export class SignupPage extends BasePage {
   readonly pageSubtitle: Locator;
 
   /**
-   * Social signup buttons
+   * Social signup buttons (from shared @nxt1/ui component)
    */
   readonly socialButtonsContainer: Locator;
   readonly googleButton: Locator;
   readonly appleButton: Locator;
 
   /**
-   * Form elements
+   * Form elements (from shared @nxt1/ui component)
    */
   readonly form: Locator;
   readonly emailInput: Locator;
@@ -79,54 +82,60 @@ export class SignupPage extends BasePage {
   readonly footer: Locator;
 
   /**
-   * Error and validation messages
+   * Error and validation messages (from shared @nxt1/ui component)
    */
   readonly errorContainer: Locator;
   readonly errorMessage: Locator;
   readonly errorCloseButton: Locator;
 
   /**
-   * Loading state
+   * Loading state (from shared @nxt1/ui component)
    */
   readonly loadingSpinner: Locator;
 
   constructor(page: Page) {
     super(page);
 
-    // Page container and header
-    this.page_container = page.getByTestId('signup-page');
-    this.pageTitle = page.getByTestId('signup-title');
-    this.pageLogo = page.getByTestId('signup-logo');
-    this.pageSubtitle = page.getByTestId('signup-subtitle');
+    // Page container and header (signup mode) - from @nxt1/core/testing
+    this.page_container = page.getByTestId(AUTH_PAGE_TEST_IDS.SIGNUP_PAGE);
+    this.pageTitle = page.getByTestId(AUTH_PAGE_TEST_IDS.SIGNUP_TITLE);
+    this.pageLogo = page.locator(`[data-testid="${AUTH_PAGE_TEST_IDS.SIGNUP_LOGO}"], nxt1-logo`);
+    this.pageSubtitle = page.getByTestId(AUTH_PAGE_TEST_IDS.SIGNUP_SUBTITLE);
 
-    // Social buttons
-    this.socialButtonsContainer = page.getByTestId('signup-social-buttons');
-    this.googleButton = page.getByTestId('signup-btn-google');
-    this.appleButton = page.getByTestId('signup-btn-apple');
+    // Social buttons (from shared @nxt1/ui component)
+    this.socialButtonsContainer = page.getByTestId(AUTH_TEST_IDS.SOCIAL_BUTTONS_CONTAINER);
+    this.googleButton = page.getByTestId(AUTH_TEST_IDS.BTN_GOOGLE);
+    this.appleButton = page.getByTestId(AUTH_TEST_IDS.BTN_APPLE);
 
-    // Form inputs
-    this.form = page.getByTestId('signup-form');
-    this.emailInput = page.getByTestId('signup-input-email').locator('input');
-    this.passwordInput = page.getByTestId('signup-input-password').locator('input');
-    this.confirmPasswordInput = page.getByTestId('signup-input-confirm-password').locator('input');
-    this.teamCodeInput = page.getByTestId('signup-input-teamcode').locator('input');
-    this.passwordToggle = page.getByTestId('signup-toggle-password');
-    this.confirmPasswordToggle = page.getByTestId('signup-toggle-confirm-password');
-    this.submitButton = page.getByTestId('signup-submit-button');
+    // Form inputs (from shared @nxt1/ui component)
+    this.form = page.getByTestId(AUTH_TEST_IDS.EMAIL_FORM);
+    this.emailInput = page.getByTestId(AUTH_TEST_IDS.INPUT_EMAIL).locator('input');
+    this.passwordInput = page.getByTestId(AUTH_TEST_IDS.INPUT_PASSWORD).locator('input');
+    this.confirmPasswordInput = page.locator(
+      `[data-testid="${AUTH_TEST_IDS.INPUT_CONFIRM_PASSWORD}"] input`
+    );
+    this.teamCodeInput = page.locator(
+      `[data-testid="${AUTH_PAGE_TEST_IDS.SIGNUP_INPUT_TEAMCODE}"] input, [data-testid="${AUTH_TEST_IDS.INPUT_TEAM_CODE}"] input`
+    );
+    this.passwordToggle = page.getByTestId(AUTH_TEST_IDS.TOGGLE_PASSWORD);
+    this.confirmPasswordToggle = page.locator(
+      `[data-testid="${AUTH_TEST_IDS.TOGGLE_CONFIRM_PASSWORD}"]`
+    );
+    this.submitButton = page.getByTestId(AUTH_TEST_IDS.SUBMIT_BUTTON);
 
     // Navigation links
-    this.footer = page.getByTestId('signup-footer');
-    this.loginLink = page.getByTestId('signup-link-login');
-    this.termsLink = page.getByTestId('signup-link-terms');
-    this.privacyLink = page.getByTestId('signup-link-privacy');
+    this.footer = page.getByTestId(AUTH_TEST_IDS.TERMS_DISCLAIMER);
+    this.loginLink = page.getByTestId(AUTH_PAGE_TEST_IDS.SIGNUP_LINK_LOGIN);
+    this.termsLink = page.getByTestId(AUTH_TEST_IDS.TERMS_LINK);
+    this.privacyLink = page.getByTestId(AUTH_TEST_IDS.PRIVACY_LINK);
 
-    // Error messages
-    this.errorContainer = page.getByTestId('signup-error');
-    this.errorMessage = page.getByTestId('signup-error-message');
-    this.errorCloseButton = page.getByTestId('signup-error-close');
+    // Error messages (from shared @nxt1/ui component)
+    this.errorContainer = page.getByTestId(AUTH_TEST_IDS.FORM_ERROR);
+    this.errorMessage = page.getByTestId(AUTH_TEST_IDS.FORM_ERROR_MESSAGE);
+    this.errorCloseButton = page.locator(`[data-testid="${AUTH_TEST_IDS.FORM_ERROR_CLOSE}"]`);
 
-    // Loading
-    this.loadingSpinner = page.getByTestId('signup-loading-spinner');
+    // Loading (from shared @nxt1/ui component)
+    this.loadingSpinner = page.getByTestId(AUTH_TEST_IDS.LOADING_SPINNER);
   }
 
   // ===========================================================================

@@ -1,7 +1,7 @@
 {
   "name": "@nxt1/ui",
-  "version": "1.1.0",
-  "description": "NXT1 UI - Shared Angular/Ionic components for cross-platform applications",
+  "version": "2.0.0",
+  "description": "NXT1 UI - Shared Angular/Ionic components, services, and infrastructure for cross-platform applications",
   "sideEffects": [
     "*.css"
   ],
@@ -27,12 +27,14 @@
     "@nxt1/design-tokens": "*"
   },
   "peerDependencies": {
-    "@angular/common": "^19.0.0 || ^20.0.0 || ^21.0.0",
-    "@angular/core": "^19.0.0 || ^20.0.0 || ^21.0.0",
-    "@angular/forms": "^19.0.0 || ^20.0.0 || ^21.0.0",
+    "@angular/common": "^21.0.0",
+    "@angular/core": "^21.0.0",
+    "@angular/forms": "^21.0.0",
+    "@angular/router": "^21.0.0",
     "@capacitor/core": "^6.0.0 || ^7.0.0",
     "@ionic/angular": "^8.0.0",
-    "ionicons": "^7.0.0"
+    "ionicons": "^7.0.0",
+    "rxjs": "^7.0.0"
   },
   "peerDependenciesMeta": {
     "@capacitor/core": {
@@ -48,15 +50,19 @@
     "@angular/compiler-cli": "^21.0.0",
     "@angular/core": "^21.0.0",
     "@angular/forms": "^21.0.0",
+    "@angular/router": "^21.0.0",
     "@ionic/angular": "^8.5.0",
     "ionicons": "^7.4.0",
     "ng-packagr": "^21.0.0",
+    "rxjs": "^7.8.1",
     "typescript": "~5.9.3"
   },
   "keywords": [
     "angular",
     "ionic",
     "components",
+    "services",
+    "infrastructure",
     "ui",
     "cross-platform",
     "mobile",

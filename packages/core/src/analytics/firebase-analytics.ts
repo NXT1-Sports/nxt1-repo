@@ -89,15 +89,64 @@ export interface ConsentSettings {
 }
 
 /**
+ * Pre-loaded Firebase SDK functions
+ * Pass these to avoid dynamic import issues with bundlers
+ *
+ * Uses `any` types for maximum compatibility with different Firebase versions
+ */
+export interface FirebaseSdkFunctions {
+  // App functions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  initializeApp: (config: any, name?: string) => any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getApps: () => any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getApp: (name?: string) => any;
+  // Analytics functions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getAnalytics: (app?: any) => any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  logEvent: (analytics: any, eventName: string, eventParams?: any, options?: any) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  setUserId: (analytics: any, id: string | null, options?: any) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  setUserProperties: (analytics: any, properties: any, options?: any) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  setAnalyticsCollectionEnabled: (analytics: any, enabled: boolean) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  setConsent?: (consentSettings: any) => void;
+  isSupported?: () => Promise<boolean>;
+}
+
+/**
  * Extended configuration for Firebase Analytics
  */
 export interface FirebaseAnalyticsConfig extends AnalyticsConfig {
   /** Firebase project configuration */
-  firebaseConfig: FirebaseConfig;
+  firebaseConfig?: FirebaseConfig;
   /** Google Consent Mode settings */
   consentMode?: ConsentSettings;
   /** Custom Firebase app name (for multiple Firebase apps) */
   appName?: string;
+  /**
+   * Pre-loaded Firebase SDK functions
+   * Pass this to avoid dynamic import issues with bundlers like Vite
+   *
+   * @example
+   * ```typescript
+   * import { initializeApp, getApps, getApp } from 'firebase/app';
+   * import { getAnalytics, logEvent, setUserId, setUserProperties, setAnalyticsCollectionEnabled, isSupported } from 'firebase/analytics';
+   *
+   * const analytics = await createFirebaseAnalyticsAdapter({
+   *   firebaseConfig: environment.firebase,
+   *   firebaseSdk: {
+   *     initializeApp, getApps, getApp,
+   *     getAnalytics, logEvent, setUserId, setUserProperties, setAnalyticsCollectionEnabled, isSupported,
+   *   },
+   * });
+   * ```
+   */
+  firebaseSdk?: FirebaseSdkFunctions;
 }
 
 // ============================================
@@ -127,6 +176,10 @@ let setConsentFn: ((consentSettings: Record<string, string>) => void) | null = n
 /**
  * Initialize Firebase and Analytics SDK
  * Lazy loads the Firebase modules to support tree-shaking
+ *
+ * Note: Dynamic imports of 'firebase/app' won't work at runtime in browsers
+ * because Vite/bundlers can't resolve bare module specifiers dynamically.
+ * Use the `firebaseSdk` config option to pass pre-imported Firebase modules.
  */
 async function initializeFirebase(config: FirebaseAnalyticsConfig): Promise<boolean> {
   // Skip on server (SSR)
@@ -140,6 +193,64 @@ async function initializeFirebase(config: FirebaseAnalyticsConfig): Promise<bool
   }
 
   try {
+    // Prefer pre-provided Firebase SDK (recommended approach)
+    if (config.firebaseSdk) {
+      const {
+        initializeApp,
+        getApps,
+        getApp,
+        getAnalytics,
+        logEvent,
+        setUserId,
+        setUserProperties,
+        setAnalyticsCollectionEnabled,
+        setConsent,
+        isSupported,
+      } = config.firebaseSdk;
+
+      // Check if analytics is supported in this environment
+      if (isSupported) {
+        const supported = await isSupported();
+        if (!supported) {
+          console.warn('[FirebaseAnalytics] Analytics not supported in this environment');
+          return false;
+        }
+      }
+
+      // Store function references
+      logEventFn = logEvent as typeof logEventFn;
+      setUserIdFn = setUserId as typeof setUserIdFn;
+      setUserPropertiesFn = setUserProperties as typeof setUserPropertiesFn;
+      setAnalyticsCollectionEnabledFn =
+        setAnalyticsCollectionEnabled as typeof setAnalyticsCollectionEnabledFn;
+      setConsentFn = setConsent as typeof setConsentFn;
+
+      // Initialize or get existing Firebase app
+      const appName = config.appName || '[DEFAULT]';
+      const existingApps = getApps();
+
+      if (existingApps.length > 0) {
+        firebaseApp = getApp(appName);
+      } else if (config.firebaseConfig) {
+        firebaseApp = initializeApp(config.firebaseConfig, appName);
+      } else {
+        console.warn('[FirebaseAnalytics] No Firebase config provided');
+        return false;
+      }
+
+      // Set consent before initializing analytics (GDPR compliance)
+      if (config.consentMode && setConsentFn) {
+        setConsentFn(config.consentMode as Record<string, string>);
+      }
+
+      // Initialize Analytics
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      analyticsInstance = getAnalytics(firebaseApp as any);
+
+      return true;
+    }
+
+    // Fallback: Try dynamic imports (may fail in some bundler configs)
     // Dynamic imports for tree-shaking
     // These modules are loaded at runtime from the host app's node_modules
     // Using string variables to bypass TypeScript module resolution

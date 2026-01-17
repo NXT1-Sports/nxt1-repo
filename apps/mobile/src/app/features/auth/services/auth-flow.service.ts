@@ -402,6 +402,8 @@ export class AuthFlowService implements OnDestroy {
           uid: result.user.uid,
           email: result.user.email!,
         });
+        // Set user state BEFORE navigating (required for onboarding page)
+        await this.syncUserProfile(result.user.uid);
         await this.router.navigate([AUTH_REDIRECTS.ONBOARDING]);
       } else {
         await this.syncUserProfile(result.user.uid);
@@ -466,6 +468,8 @@ export class AuthFlowService implements OnDestroy {
           uid: result.user.uid,
           email: result.user.email!,
         });
+        // Set user state BEFORE navigating (required for onboarding page)
+        await this.syncUserProfile(result.user.uid);
         await this.router.navigate([AUTH_REDIRECTS.ONBOARDING]);
       } else {
         await this.syncUserProfile(result.user.uid);
@@ -529,6 +533,8 @@ export class AuthFlowService implements OnDestroy {
           uid: result.user.uid,
           email: result.user.email!,
         });
+        // Set user state BEFORE navigating (required for onboarding page)
+        await this.syncUserProfile(result.user.uid);
         await this.router.navigate([AUTH_REDIRECTS.ONBOARDING]);
       } else {
         await this.syncUserProfile(result.user.uid);
@@ -614,6 +620,9 @@ export class AuthFlowService implements OnDestroy {
           'error' in createResult ? createResult.error.message : 'Failed to create user'
         );
       }
+
+      // Set user state BEFORE navigating (required for onboarding page)
+      await this.syncUserProfile(result.user.uid);
 
       // Navigate to onboarding
       await this.router.navigate([AUTH_REDIRECTS.ONBOARDING]);

@@ -15,6 +15,8 @@ export default defineConfig({
     'src/cache/index.ts',
     'src/errors/index.ts',
     'src/errors/express.middleware.ts',
+    'src/logging/index.ts',
+    'src/testing/index.ts', // Shared testing infrastructure
   ],
   format: ['cjs', 'esm'],
   dts: {
@@ -24,7 +26,10 @@ export default defineConfig({
       isolatedModules: false,
     },
   },
-  splitting: false,
+  // Enable splitting to deduplicate shared code across entry points
+  // This prevents dual-package issues where classes like NxtApiError
+  // get bundled multiple times causing instanceof checks to fail
+  splitting: true,
   sourcemap: true,
   clean: !process.argv.includes('--watch'),
   outDir: 'dist',

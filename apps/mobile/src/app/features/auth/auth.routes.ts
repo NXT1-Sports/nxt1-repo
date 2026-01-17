@@ -6,14 +6,9 @@
  * ⭐ MATCHES WEB'S AUTH_ROUTES STRUCTURE ⭐
  *
  * Route structure:
- * - /auth - Main unified auth page (login/signup)
+ * - /auth - Main unified auth page (login/signup via ?mode= param)
  * - /auth/forgot-password - Password reset flow
  * - /auth/onboarding - Profile setup flow
- *
- * Legacy redirects maintain backward compatibility:
- * - /auth/login → /auth
- * - /auth/signup → /auth?mode=signup
- * - /auth/register → /auth?mode=signup
  */
 
 import { Routes } from '@angular/router';
@@ -39,30 +34,5 @@ export const AUTH_ROUTES: Routes = [
     path: 'onboarding',
     loadComponent: () => import('./pages/onboarding/onboarding.page').then((m) => m.OnboardingPage),
     title: 'Complete Profile | NXT1 Sports',
-  },
-
-  // ============================================
-  // LEGACY REDIRECTS - Maintain backward compatibility
-  // ============================================
-
-  // Legacy login route → unified auth
-  {
-    path: 'login',
-    redirectTo: '',
-    pathMatch: 'full',
-  },
-
-  // Legacy signup route → unified auth with signup mode
-  {
-    path: 'signup',
-    redirectTo: '?mode=signup',
-    pathMatch: 'full',
-  },
-
-  // Legacy register route → unified auth with signup mode
-  {
-    path: 'register',
-    redirectTo: '?mode=signup',
-    pathMatch: 'full',
   },
 ];

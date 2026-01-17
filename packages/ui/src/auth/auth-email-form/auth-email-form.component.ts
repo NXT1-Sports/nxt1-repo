@@ -355,7 +355,7 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
         --background-hover: var(--nxt1-color-primaryDark);
         --background-activated: var(--nxt1-color-primaryDark);
         --background-focused: var(--nxt1-color-primary);
-        --color: var(--nxt1-color-text-on-Primary);
+        --color: var(--nxt1-color-text-onPrimary);
         --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --padding-top: 14px;
         --padding-bottom: 14px;
@@ -373,7 +373,7 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
       }
 
       .submit-btn ion-spinner {
-        --color: var(--nxt1-color-text-on-Primary);
+        --color: var(--nxt1-color-text-onPrimary);
         width: 1.25rem;
         height: 1.25rem;
         margin-right: 0.5rem;

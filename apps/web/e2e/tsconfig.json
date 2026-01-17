@@ -16,7 +16,8 @@
       "@e2e/*": ["./*"],
       "@pages/*": ["./pages/*"],
       "@fixtures/*": ["./fixtures/*"],
-      "@utils/*": ["./utils/*"]
+      "@utils/*": ["./utils/*"],
+      "@nxt1/core/testing": ["../../../packages/core/src/testing/index.ts"]
     },
     "types": ["node"]
   },

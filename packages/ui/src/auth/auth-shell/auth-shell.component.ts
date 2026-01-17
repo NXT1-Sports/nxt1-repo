@@ -54,6 +54,7 @@ import {
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { arrowBack, chevronBack } from 'ionicons/icons';
+import { NxtLogoComponent } from '../../shared/logo';
 
 /** Shell layout variants */
 export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'fullscreen';
@@ -61,7 +62,16 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
 @Component({
   selector: 'nxt1-auth-shell',
   standalone: true,
-  imports: [CommonModule, IonContent, IonHeader, IonToolbar, IonButtons, IonButton, IonIcon],
+  imports: [
+    CommonModule,
+    IonContent,
+    IonHeader,
+    IonToolbar,
+    IonButtons,
+    IonButton,
+    IonIcon,
+    NxtLogoComponent,
+  ],
   template: `
     <!-- Professional Floating Back Button -->
     @if (showBackButton) {
@@ -99,24 +109,12 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
 
       <!-- Main Wrapper - fills viewport height, centered content -->
       <div
-        class="nxt1-auth-wrapper relative z-10 flex h-full min-h-full w-full flex-col items-center justify-center px-4"
-        [class.with-header]="showBackButton"
-        [style.padding-top.px]="showBackButton ? 96 : 24"
-        [style.padding-bottom.px]="24"
+        class="nxt1-auth-wrapper relative z-10 flex min-h-full w-full flex-col items-center justify-center px-4 py-6"
       >
         <!-- Logo -->
         @if (showLogo) {
           <div class="mb-6 flex justify-center">
-            <picture>
-              <source srcset="assets/shared/logo/logo.avif" type="image/avif" />
-              <img
-                src="assets/shared/logo/logo.png"
-                alt="NXT1"
-                class="h-auto object-contain"
-                [style.width.px]="logoWidth"
-                loading="eager"
-              />
-            </picture>
+            <nxt1-logo [size]="logoSize" variant="auth" />
           </div>
         }
 
@@ -181,21 +179,59 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       :host {
         display: block;
         height: 100%;
-        overflow: hidden;
+        min-height: 100vh;
+        min-height: 100dvh;
+        position: relative;
+      }
+
+      /* ============================================ */
+      /* ION-CONTENT FIX FOR WEB SSR                 */
+      /* Ensures content is visible on all platforms */
+      /* ============================================ */
+      ion-content.nxt1-auth-content {
+        --background: transparent;
+        display: block !important;
+        position: relative !important;
+        height: 100% !important;
+        min-height: 100vh !important;
+        min-height: 100dvh !important;
+        --overflow: auto;
+        overflow: auto;
+      }
+
+      ion-content.nxt1-auth-content::part(background) {
+        background: transparent !important;
+      }
+
+      ion-content.nxt1-auth-content::part(scroll) {
+        display: block !important;
+        position: relative !important;
+        min-height: 100vh !important;
+        min-height: 100dvh !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
       }
 
       /* ============================================ */
       /* PROFESSIONAL FLOATING HEADER                */
       /* No background bar, just clean button        */
+      /* Fixed position to not affect content flow   */
       /* ============================================ */
       ion-header.nxt1-floating-header {
-        position: absolute;
+        position: fixed;
         top: 0;
         left: 0;
         right: 0;
         z-index: 1000;
         --background: transparent;
         background: transparent;
+        pointer-events: none;
+      }
+
+      ion-header.nxt1-floating-header ion-toolbar,
+      ion-header.nxt1-floating-header ion-buttons,
+      ion-header.nxt1-floating-header ion-button {
+        pointer-events: auto;
       }
 
       ion-header.nxt1-floating-header::part(native) {
@@ -262,11 +298,13 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       }
 
       .nxt1-auth-content::part(scroll) {
-        overflow: auto !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch;
       }
 
       .nxt1-auth-wrapper {
         overflow: visible;
+        box-sizing: border-box;
       }
 
       /* ============================================ */
@@ -423,8 +461,19 @@ export class AuthShellComponent {
   /** Max width of the content container */
   @Input() maxWidth = '420px';
 
-  /** Logo width in pixels */
-  @Input() logoWidth = 160;
+  /** Logo size variant (maps to NxtLogoComponent sizes) */
+  @Input() logoSize: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' = 'md';
+
+  /** @deprecated Use logoSize instead */
+  @Input() set logoWidth(value: number) {
+    // Map pixel values to size variants for backwards compatibility
+    if (value <= 80) this.logoSize = 'xs';
+    else if (value <= 120) this.logoSize = 'sm';
+    else if (value <= 160) this.logoSize = 'md';
+    else if (value <= 200) this.logoSize = 'lg';
+    else if (value <= 280) this.logoSize = 'xl';
+    else this.logoSize = 'xxl';
+  }
 
   /** Emitted when back button is clicked */
   @Output() backClick = new EventEmitter<void>();

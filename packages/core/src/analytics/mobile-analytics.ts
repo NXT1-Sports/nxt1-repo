@@ -55,20 +55,28 @@ let firebaseAnalyticsPlugin: FirebaseAnalyticsPlugin | null = null;
 /**
  * Get the Firebase Analytics plugin (lazy loaded)
  * Uses dynamic import to avoid compile-time dependency
+ *
+ * @param debug - When true, logs warning if plugin unavailable (dev only)
  */
-async function getFirebaseAnalytics(): Promise<FirebaseAnalyticsPlugin | null> {
+async function getFirebaseAnalytics(debug = false): Promise<FirebaseAnalyticsPlugin | null> {
   if (firebaseAnalyticsPlugin) return firebaseAnalyticsPlugin;
 
   try {
-    // Dynamic import with string to avoid TypeScript DTS trying to resolve the module
+    // Dynamic import - intentionally uses variable to avoid bundler resolution
+    // @vite-ignore and webpackIgnore prevent bundlers from analyzing this import
     const moduleName = '@capacitor-firebase/analytics';
-    const module = (await import(/* webpackIgnore: true */ moduleName)) as {
+    const module = (await import(/* @vite-ignore */ /* webpackIgnore: true */ moduleName)) as {
       FirebaseAnalytics: FirebaseAnalyticsPlugin;
     };
     firebaseAnalyticsPlugin = module.FirebaseAnalytics;
     return firebaseAnalyticsPlugin;
   } catch {
-    console.warn('[CapacitorAnalytics] @capacitor-firebase/analytics not available');
+    // Only log in debug mode (development) - expected to fail in browser
+    if (debug) {
+      console.debug(
+        '[MobileAnalytics] Capacitor plugin unavailable - analytics disabled in browser'
+      );
+    }
     return null;
   }
 }
@@ -88,8 +96,8 @@ export async function createMobileAnalyticsAdapter(
   let enabled = mergedConfig.enabled ?? true;
   let initialized = false;
 
-  // Try to load the plugin
-  const plugin = await getFirebaseAnalytics();
+  // Try to load the plugin (pass debug flag for dev logging)
+  const plugin = await getFirebaseAnalytics(mergedConfig.debug);
   initialized = plugin !== null;
 
   /**
@@ -322,11 +330,11 @@ export function createMobileAnalyticsAdapterSync(config: AnalyticsConfig = {}): 
   let pluginPromise: Promise<FirebaseAnalyticsPlugin | null> | null = null;
 
   /**
-   * Get plugin (lazy load)
+   * Get plugin (lazy load with debug flag)
    */
   async function getPlugin(): Promise<FirebaseAnalyticsPlugin | null> {
     if (!pluginPromise) {
-      pluginPromise = getFirebaseAnalytics();
+      pluginPromise = getFirebaseAnalytics(mergedConfig.debug);
     }
     return pluginPromise;
   }

@@ -11,7 +11,7 @@ import { CommonModule } from '@angular/common';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="my-6 flex w-full items-center gap-4">
+    <div class="my-6 flex w-full items-center gap-4" data-testid="auth-divider">
       <span class="bg-border-subtle h-px flex-1"></span>
       <span class="text-text-tertiary text-[13px] font-medium tracking-wide uppercase">{{
         text

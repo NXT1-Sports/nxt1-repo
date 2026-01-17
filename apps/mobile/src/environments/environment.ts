@@ -6,7 +6,8 @@
 export const environment = {
   production: false,
   appVersion: '2.0.0-dev',
-  apiUrl: 'http://localhost:3000/api/v1',
+  // Use staging API path to match staging Firebase project
+  apiUrl: 'http://localhost:3000/api/v1/staging',
   firebase: {
     apiKey: 'AIzaSyDSwJsZTCXeUQ2qPPqrGHQjMwxksQ-fkvE',
     authDomain: 'nxt-1-staging.firebaseapp.com',

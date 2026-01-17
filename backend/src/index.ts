@@ -20,7 +20,7 @@ import authRoutes from './routes/auth.routes.js';
 
 const { json, urlencoded } = bodyParser;
 
-const app = express();
+const app: ReturnType<typeof express> = express();
 const PORT = process.env['PORT'] || 3000;
 
 // ============================================================================

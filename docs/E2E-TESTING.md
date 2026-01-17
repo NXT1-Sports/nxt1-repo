@@ -361,6 +361,72 @@ page.locator('.btn-primary');
 <ion-input data-testid="email-input" type="email" [(ngModel)]="email" />
 ```
 
+### NXT1 Auth data-testid Conventions
+
+Auth pages use a layered approach with shared `@nxt1/ui` components:
+
+#### Page-Level Selectors (Specific to Each Page)
+
+```typescript
+// Login Page (unified auth in login mode)
+'login-page'; // Page wrapper
+'login-title'; // Page title
+'login-subtitle'; // Page subtitle
+'login-link-signup'; // "Don't have an account? Sign up" link
+
+// Signup Page (unified auth in signup mode)
+'signup-page'; // Page wrapper
+'signup-title'; // Page title
+'signup-subtitle'; // Page subtitle
+'signup-link-login'; // "Already have an account? Sign in" link
+
+// Forgot Password Page
+'forgot-password-page'; // Page wrapper
+'forgot-password-title'; // Page title
+'forgot-password-subtitle'; // Page subtitle
+'forgot-password-form'; // Form wrapper
+'forgot-password-footer'; // Footer section
+'forgot-password-link-back'; // Back to login link
+'forgot-password-success'; // Success state container
+'forgot-password-success-icon'; // Success icon
+'forgot-password-success-title'; // Success title
+'forgot-password-success-message'; // Success message
+'forgot-password-btn-back-to-login'; // Back to login button (success state)
+```
+
+#### Shared Component Selectors (from @nxt1/ui)
+
+```typescript
+// Social Buttons (AuthSocialButtonsComponent)
+'auth-social-buttons'; // Social buttons container
+'auth-btn-google'; // Google sign-in button
+'auth-btn-apple'; // Apple sign-in button
+'auth-btn-microsoft'; // Microsoft sign-in button
+
+// Action Buttons (AuthActionButtonsComponent)
+'auth-action-buttons'; // Action buttons container
+'auth-btn-email'; // Continue with Email button
+'auth-btn-team-code'; // Have a Team Code button
+
+// Email Form (AuthEmailFormComponent)
+'auth-email-form'; // Form element
+'auth-input-email'; // Email input wrapper
+'auth-input-password'; // Password input wrapper
+'auth-input-first-name'; // First name input (signup with names)
+'auth-input-last-name'; // Last name input (signup with names)
+'auth-toggle-password'; // Password visibility toggle
+'auth-submit-button'; // Form submit button
+'auth-link-forgot-password'; // Forgot password link
+'auth-form-error'; // Error message container
+'auth-form-error-message'; // Error message text
+'auth-loading-spinner'; // Loading indicator
+
+// Terms Disclaimer (AuthTermsDisclaimerComponent)
+'auth-terms-disclaimer'; // Terms container
+'terms-link'; // Terms of Service link
+'privacy-link'; // Privacy Policy link
+```
+
 ---
 
 ## Test Fixtures

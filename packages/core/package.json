@@ -70,6 +70,16 @@
       "types": "./dist/errors/express.middleware.d.ts",
       "import": "./dist/errors/express.middleware.mjs",
       "require": "./dist/errors/express.middleware.js"
+    },
+    "./logging": {
+      "types": "./dist/logging/index.d.ts",
+      "import": "./dist/logging/index.mjs",
+      "require": "./dist/logging/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.mjs",
+      "require": "./dist/testing/index.js"
     }
   },
   "files": [

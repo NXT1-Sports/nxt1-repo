@@ -4,21 +4,12 @@ import { Routes } from '@angular/router';
  * Auth Feature Routes
  *
  * Handles all authentication flows:
- * - Unified auth page (login + signup combined)
- * - Password reset
- * - Onboarding
- *
- * Route structure:
  * - /auth - Main unified auth page (login/signup)
  * - /auth/forgot-password - Password reset flow
- * - /auth/onboarding - Profile setup flow
+ * - /auth/onboarding - Profile setup flow (NEW STATE MACHINE)
  *
- * Legacy redirects maintain backward compatibility:
- * - /auth/login → /auth
- * - /auth/signup → /auth?mode=signup
- * - /auth/register → /auth?mode=signup
- *
- * All routes load from ./pages/ folder (matches mobile structure)
+ * ⭐ MATCHES MOBILE'S AUTH_ROUTES STRUCTURE ⭐
+ * ⭐ USES AUTH_ROUTES CONSTANTS FROM @nxt1/core ⭐
  */
 export const AUTH_ROUTES: Routes = [
   // Main unified auth page
@@ -38,36 +29,11 @@ export const AUTH_ROUTES: Routes = [
     title: 'Reset Password | NXT1 Sports',
   },
 
-  // Onboarding flow
+  // Onboarding flow - State machine-based profile setup
   {
     path: 'onboarding',
     loadComponent: () =>
       import('./pages/onboarding/onboarding.component').then((m) => m.OnboardingComponent),
-    title: 'Complete Profile | NXT1 Sports',
-  },
-
-  // ============================================
-  // LEGACY REDIRECTS - Maintain backward compatibility
-  // ============================================
-
-  // Legacy login route → unified auth
-  {
-    path: 'login',
-    redirectTo: '',
-    pathMatch: 'full',
-  },
-
-  // Legacy signup route → unified auth with signup mode
-  {
-    path: 'signup',
-    redirectTo: '?mode=signup',
-    pathMatch: 'full',
-  },
-
-  // Legacy register route → unified auth with signup mode
-  {
-    path: 'register',
-    redirectTo: '?mode=signup',
-    pathMatch: 'full',
+    title: 'Complete Your Profile | NXT1 Sports',
   },
 ];

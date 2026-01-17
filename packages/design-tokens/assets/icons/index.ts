@@ -107,6 +107,115 @@ export const UI_ICONS = {
       { d: 'M12 16h.01' },
     ],
   },
+
+  /** Checkmark icon */
+  checkmark: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [{ d: 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z' }],
+  },
+
+  /** Arrow right icon */
+  arrowRight: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [{ d: 'M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8-8-8z' }],
+  },
+} as const;
+
+// ============================================
+// ROLE ICONS (Onboarding User Type Selection)
+// ============================================
+
+/**
+ * Role icons for onboarding user type selection.
+ * Match the role types from @nxt1/core/api/onboarding.
+ */
+export const ROLE_ICONS = {
+  /** Athlete - Running person icon */
+  athlete: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M13.49 5.48c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-3.6 13.9l1-4.4 2.1 2v6h2v-7.5l-2.1-2 .6-3c1.3 1.5 3.3 2.5 5.5 2.5v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1l-5.2 2.2v4.7h2v-3.4l1.8-.7-1.6 8.1-4.9-1-.4 2 7 1.4z',
+      },
+    ],
+  },
+
+  /** Coach - Clipboard/strategy icon */
+  coach: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M20 6h-4V4c0-1.1-.9-2-2-2h-4c-1.1 0-2 .9-2 2v2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zM10 4h4v2h-4V4zm10 16H4V8h16v12z',
+      },
+      { d: 'M13 10h-2v3H8v2h3v3h2v-3h3v-2h-3v-3z' },
+    ],
+  },
+
+  /** Parent - Family icon */
+  parent: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M16 4c0-1.11.89-2 2-2s2 .89 2 2-.89 2-2 2-2-.89-2-2zm4 18v-6h2.5l-2.54-7.63A2.01 2.01 0 0 0 18.06 7h-.12a2 2 0 0 0-1.9 1.37l-.86 2.58c1.08.6 1.82 1.73 1.82 3.05v8h3zm-7.5-10.5c.83 0 1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5S11 9.17 11 10s.67 1.5 1.5 1.5zM5.5 6c1.11 0 2-.89 2-2s-.89-2-2-2-2 .89-2 2 .89 2 2 2zm2 16v-7H9V9c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v6h1.5v7h4zm6.5 0v-4h1v-4c0-.82-.68-1.5-1.5-1.5h-2c-.82 0-1.5.68-1.5 1.5v4h1v4h3z',
+      },
+    ],
+  },
+
+  /** Scout - Search/magnifying glass icon */
+  scout: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
+      },
+    ],
+  },
+
+  /** Media - Camera/video icon */
+  media: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z',
+      },
+    ],
+  },
+
+  /** Fan - Megaphone/cheering icon */
+  fan: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
+      },
+      {
+        d: 'M18 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
+      },
+      {
+        d: 'M6 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
+      },
+    ],
+  },
+
+  /** Service - Handshake/business icon */
+  service: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M12.22 19.85c-.18.18-.5.21-.71 0L3 11.41V8.59l1.77 1.77 3.54-3.54-2.83-2.83L3 6.47v-.88C3 4.71 3.71 4 4.59 4h4.23c.53 0 1.04.21 1.41.59l1.06 1.06-4.95 4.95 6.24 6.24c.97-.97 2.54-.97 3.54 0l.53-.53L21 20.59v.88c0 .88-.71 1.59-1.59 1.59h-4.23c-.53 0-1.04-.21-1.41-.59l-1.55-1.62z',
+      },
+      { d: 'M21 6.47l-2.48-2.48-3.54 3.54 2.83 2.83L21 7.12V6.47z' },
+    ],
+  },
 } as const;
 
 // ============================================
@@ -172,12 +281,13 @@ export const BRAND_ICONS = {
 // ============================================
 
 /**
- * Complete icon registry combining UI and brand icons.
+ * Complete icon registry combining UI, brand, and role icons.
  * Use this for type-safe icon name references.
  */
 export const ICONS = {
   ...UI_ICONS,
   ...BRAND_ICONS,
+  ...ROLE_ICONS,
 } as const;
 
 // ============================================
@@ -192,6 +302,9 @@ export type UIIconName = keyof typeof UI_ICONS;
 
 /** Brand icon names only */
 export type BrandIconName = keyof typeof BRAND_ICONS;
+
+/** Role icon names only (onboarding) */
+export type RoleIconName = keyof typeof ROLE_ICONS;
 
 // ============================================
 // HELPER FUNCTIONS

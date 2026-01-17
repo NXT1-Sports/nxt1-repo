@@ -17,6 +17,7 @@ import { test, expect } from '@playwright/test';
 import { LoginPage } from '../../pages/auth/login.page';
 import { SignupPage } from '../../pages/auth/signup.page';
 import { ForgotPasswordPage } from '../../pages/auth/forgot-password.page';
+import { AUTH_TEST_IDS, COMMON_TEST_IDS } from '@nxt1/core/testing';
 
 test.describe('Auth Pages Visual Regression', () => {
   test.describe.configure({ mode: 'parallel' });
@@ -43,7 +44,7 @@ test.describe('Auth Pages Visual Regression', () => {
         fullPage: true,
         mask: [
           // Mask any dynamic content like timestamps
-          page.locator('[data-testid="timestamp"]'),
+          page.locator(`[data-testid="${COMMON_TEST_IDS.TIMESTAMP}"]`),
         ],
       });
     });
@@ -200,9 +201,7 @@ test.describe('Auth Pages Visual Regression', () => {
       await page.waitForTimeout(300);
 
       // Screenshot just the form
-      await expect(forgotPasswordPage.form).toHaveScreenshot(
-        'forgot-password-form.png'
-      );
+      await expect(forgotPasswordPage.form).toHaveScreenshot('forgot-password-form.png');
     });
   });
 
@@ -295,7 +294,7 @@ test.describe('Component Screenshots', () => {
     await loginPage.waitForElement(loginPage.googleButton);
 
     // Screenshot just the social buttons
-    const socialButtons = page.getByTestId('auth-social-buttons');
+    const socialButtons = page.getByTestId(AUTH_TEST_IDS.SOCIAL_BUTTONS_CONTAINER);
     await expect(socialButtons).toHaveScreenshot('social-buttons.png');
   });
 

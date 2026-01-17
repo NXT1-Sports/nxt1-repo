@@ -3,22 +3,20 @@
  * @module @nxt1/web/e2e/utils
  *
  * Common utility functions for E2E tests.
+ *
+ * Note: Basic test data (emails, passwords, routes, etc.) are now
+ * centralized in @nxt1/core/testing and re-exported from ./test-data.ts
  */
 
 import { Page, expect } from '@playwright/test';
 
-// ===========================================================================
-// DATA GENERATION
-// ===========================================================================
+// Re-export generateTestEmail from shared test data for backwards compatibility
+// New code should import directly from './test-data' or '@nxt1/core/testing'
+export { generateTestEmail, generateTestCredentials } from './test-data';
 
-/**
- * Generate a unique email address for test isolation
- */
-export function generateTestEmail(prefix = 'e2e'): string {
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 8);
-  return `${prefix}-${timestamp}-${random}@test.nxt1.com`;
-}
+// ===========================================================================
+// DATA GENERATION (E2E-specific helpers)
+// ===========================================================================
 
 /**
  * Generate a secure password meeting requirements
@@ -77,10 +75,13 @@ export async function waitForImages(page: Page): Promise<void> {
     return Promise.all(
       Array.from(document.images)
         .filter((img) => !img.complete)
-        .map((img) => new Promise((resolve) => {
-          img.onload = resolve;
-          img.onerror = resolve;
-        }))
+        .map(
+          (img) =>
+            new Promise((resolve) => {
+              img.onload = resolve;
+              img.onerror = resolve;
+            })
+        )
     );
   });
 }
@@ -123,8 +124,8 @@ export function setupConsoleErrorCapture(page: Page): string[] {
  * Assert no JavaScript errors in console
  */
 export function assertNoConsoleErrors(errors: string[], ignorePatterns: RegExp[] = []): void {
-  const filteredErrors = errors.filter((error) =>
-    !ignorePatterns.some((pattern) => pattern.test(error))
+  const filteredErrors = errors.filter(
+    (error) => !ignorePatterns.some((pattern) => pattern.test(error))
   );
 
   expect(filteredErrors).toHaveLength(0);
@@ -179,10 +180,7 @@ export async function mockApiResponse(
 /**
  * Block specific requests (e.g., analytics, ads)
  */
-export async function blockRequests(
-  page: Page,
-  patterns: (string | RegExp)[]
-): Promise<void> {
+export async function blockRequests(page: Page, patterns: (string | RegExp)[]): Promise<void> {
   for (const pattern of patterns) {
     await page.route(pattern, (route) => route.abort());
   }

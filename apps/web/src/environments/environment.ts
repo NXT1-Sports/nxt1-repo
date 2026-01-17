@@ -7,12 +7,17 @@
 export const environment = {
   production: false,
   appVersion: '2.0.0-dev',
+  version: '2.0.0-dev',
 
   // Backend API URLs (Local Development)
   apiURL: 'http://localhost:3000/api/v1/staging',
   apiPaymentURL: 'http://localhost:3000/api/v1/staging',
   profileSsrUrl: 'http://localhost:3000/api/v1/staging/ssr',
   userPostSsrUrl: 'http://localhost:3000/api/v1/staging/ssr',
+
+  // Logging Configuration
+  loggingEndpoint: '', // Empty in dev - logs only go to console
+  sentryDsn: '', // Empty in dev - no Sentry
 
   // Firebase Configuration (Staging)
   firebase: {

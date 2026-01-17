@@ -124,6 +124,18 @@ export const AUTH_ERROR_MESSAGES: Record<string, string> = {
   'auth/requires-recent-login': 'Please sign out and sign in again for security.',
   'auth/credential-already-in-use': 'This credential is already associated with another account.',
 
+  // Token/session errors
+  'auth/expired-action-code': 'This link has expired. Please request a new one.',
+  'auth/invalid-action-code': 'This link is invalid or has already been used.',
+
+  // Popup/redirect errors
+  'auth/popup-blocked': 'Sign-in popup was blocked. Please allow popups for this site.',
+  'auth/cancelled-popup-request': 'Sign-in was cancelled.',
+
+  // MFA errors
+  'auth/multi-factor-auth-required':
+    'Additional verification required. Please complete 2-factor authentication.',
+
   // Backend error codes
   NOT_FOUND: 'Service temporarily unavailable. Please try again.',
   NETWORK_ERROR: 'Network error. Please check your connection.',

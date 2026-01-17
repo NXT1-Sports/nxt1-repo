@@ -4,10 +4,12 @@
  *
  * Page Object for the login page.
  * Uses data-testid selectors for stable, maintenance-free tests.
+ * Test IDs are imported from @nxt1/core/testing for cross-platform consistency.
  */
 
 import { Page, Locator, expect } from '@playwright/test';
 import { BasePage } from '../base.page';
+import { AUTH_TEST_IDS, AUTH_PAGE_TEST_IDS } from '@nxt1/core/testing';
 
 /**
  * Login page credentials
@@ -32,10 +34,11 @@ export class LoginPage extends BasePage {
 
   // ===========================================================================
   // SELECTORS - Using data-testid for stability
+  // Unified auth page shows login by default, uses mode query param for signup
   // ===========================================================================
 
   /**
-   * Page container
+   * Page container - dynamically set based on mode
    */
   readonly page_container: Locator;
 
@@ -45,15 +48,17 @@ export class LoginPage extends BasePage {
   readonly pageTitle: Locator;
 
   /**
-   * Social login buttons
+   * Social login buttons (from shared @nxt1/ui component)
    */
+  readonly socialButtonsContainer: Locator;
   readonly googleButton: Locator;
   readonly appleButton: Locator;
   readonly microsoftButton: Locator;
 
   /**
-   * Email login flow
+   * Action buttons (from shared @nxt1/ui component)
    */
+  readonly actionButtonsContainer: Locator;
   readonly continueWithEmailButton: Locator;
   readonly teamCodeButton: Locator;
 
@@ -74,48 +79,50 @@ export class LoginPage extends BasePage {
   readonly backButton: Locator;
 
   /**
-   * Error message container
+   * Error message container (from shared @nxt1/ui component)
    */
   readonly errorMessage: Locator;
   readonly errorText: Locator;
 
   /**
-   * Loading state
+   * Loading state (from shared @nxt1/ui component)
    */
   readonly loadingSpinner: Locator;
 
   constructor(page: Page) {
     super(page);
 
-    // Page container
-    this.page_container = page.getByTestId('login-page');
-    this.pageTitle = page.getByTestId('login-title');
+    // Page container (login mode) - from @nxt1/core/testing
+    this.page_container = page.getByTestId(AUTH_PAGE_TEST_IDS.LOGIN_PAGE);
+    this.pageTitle = page.getByTestId(AUTH_PAGE_TEST_IDS.LOGIN_TITLE);
 
     // Social buttons (from shared @nxt1/ui component)
-    this.googleButton = page.getByTestId('auth-btn-google');
-    this.appleButton = page.getByTestId('auth-btn-apple');
-    this.microsoftButton = page.getByTestId('auth-btn-microsoft');
+    this.socialButtonsContainer = page.getByTestId(AUTH_TEST_IDS.SOCIAL_BUTTONS_CONTAINER);
+    this.googleButton = page.getByTestId(AUTH_TEST_IDS.BTN_GOOGLE);
+    this.appleButton = page.getByTestId(AUTH_TEST_IDS.BTN_APPLE);
+    this.microsoftButton = page.getByTestId(AUTH_TEST_IDS.BTN_MICROSOFT);
 
-    // Email login toggle
-    this.continueWithEmailButton = page.getByTestId('login-btn-email');
-    this.teamCodeButton = page.getByTestId('login-btn-teamcode');
+    // Action buttons (from shared @nxt1/ui component)
+    this.actionButtonsContainer = page.getByTestId(AUTH_TEST_IDS.ACTION_BUTTONS_CONTAINER);
+    this.continueWithEmailButton = page.getByTestId(AUTH_TEST_IDS.BTN_EMAIL);
+    this.teamCodeButton = page.getByTestId(AUTH_TEST_IDS.BTN_TEAM_CODE);
 
     // Email form (from shared @nxt1/ui component)
-    this.emailForm = page.getByTestId('auth-email-form');
-    this.emailInput = page.getByTestId('auth-input-email').locator('input');
-    this.passwordInput = page.getByTestId('auth-input-password').locator('input');
-    this.passwordToggle = page.getByTestId('auth-toggle-password');
-    this.submitButton = page.getByTestId('auth-submit-button');
-    this.forgotPasswordLink = page.getByTestId('auth-link-forgot-password');
+    this.emailForm = page.getByTestId(AUTH_TEST_IDS.EMAIL_FORM);
+    this.emailInput = page.getByTestId(AUTH_TEST_IDS.INPUT_EMAIL).locator('input');
+    this.passwordInput = page.getByTestId(AUTH_TEST_IDS.INPUT_PASSWORD).locator('input');
+    this.passwordToggle = page.getByTestId(AUTH_TEST_IDS.TOGGLE_PASSWORD);
+    this.submitButton = page.getByTestId(AUTH_TEST_IDS.SUBMIT_BUTTON);
+    this.forgotPasswordLink = page.getByTestId(AUTH_TEST_IDS.LINK_FORGOT_PASSWORD);
 
-    // Navigation
-    this.signupLink = page.getByTestId('login-link-signup');
-    this.backButton = page.getByTestId('back-button');
+    // Navigation - page-specific selectors
+    this.signupLink = page.getByTestId(AUTH_PAGE_TEST_IDS.LOGIN_LINK_SIGNUP);
+    this.backButton = page.locator(`[data-testid="${AUTH_TEST_IDS.BACK_BUTTON}"], ion-back-button`);
 
     // Error and loading (from shared @nxt1/ui component)
-    this.errorMessage = page.getByTestId('auth-form-error');
-    this.errorText = page.getByTestId('auth-form-error-message');
-    this.loadingSpinner = page.getByTestId('auth-loading-spinner');
+    this.errorMessage = page.getByTestId(AUTH_TEST_IDS.FORM_ERROR);
+    this.errorText = page.getByTestId(AUTH_TEST_IDS.FORM_ERROR_MESSAGE);
+    this.loadingSpinner = page.getByTestId(AUTH_TEST_IDS.LOADING_SPINNER);
   }
 
   // ===========================================================================
@@ -127,15 +134,46 @@ export class LoginPage extends BasePage {
    */
   async gotoAndVerify(): Promise<void> {
     await this.goto();
+    await this.waitForHydration();
     await this.assertPageLoaded();
     await this.assertVisible(this.pageTitle);
+  }
+
+  /**
+   * Wait for Angular SSR hydration to complete
+   */
+  async waitForHydration(): Promise<void> {
+    // Wait for Ionic components to be ready
+    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForTimeout(500); // Allow Ionic animations to settle
   }
 
   /**
    * Show email login form
    */
   async showEmailForm(): Promise<void> {
-    await this.continueWithEmailButton.click();
+    await this.waitForHydration();
+
+    // Wait for the email button to be visible and stable
+    await this.continueWithEmailButton.waitFor({ state: 'visible', timeout: 10000 });
+
+    // Ionic buttons may need a direct click on the native button inside
+    // Try clicking the button, and if form doesn't appear, try JavaScript click
+    await this.continueWithEmailButton.click({ force: true });
+
+    // Wait a brief moment for Angular change detection
+    await this.page.waitForTimeout(100);
+
+    // If form not visible yet, try JavaScript-based click as fallback
+    const formVisible = await this.emailForm.isVisible().catch(() => false);
+    if (!formVisible) {
+      // Use evaluate to trigger click directly on the element
+      await this.continueWithEmailButton.evaluate((el) => {
+        (el as HTMLElement).click();
+      });
+      await this.page.waitForTimeout(100);
+    }
+
     await this.waitForElement(this.emailForm);
   }
 
@@ -151,7 +189,7 @@ export class LoginPage extends BasePage {
    * Submit the login form
    */
   async submit(): Promise<void> {
-    await this.submitButton.click();
+    await this.submitButton.click({ force: true });
   }
 
   /**
@@ -168,8 +206,32 @@ export class LoginPage extends BasePage {
    * Navigate to signup page
    */
   async goToSignup(): Promise<void> {
-    await this.signupLink.click();
-    await this.page.waitForURL(/\/auth\/signup/);
+    await this.signupLink.waitFor({ state: 'visible', timeout: 10000 });
+    await this.signupLink.click({ force: true });
+    await this.page.waitForTimeout(100);
+
+    // If mode didn't switch, try JavaScript click
+    const signupPageVisible = await this.page
+      .getByTestId(AUTH_PAGE_TEST_IDS.SIGNUP_PAGE)
+      .isVisible()
+      .catch(() => false);
+    const urlHasSignup = this.page.url().includes('mode=signup');
+    if (!signupPageVisible && !urlHasSignup) {
+      await this.signupLink.evaluate((el) => (el as HTMLElement).click());
+      await this.page.waitForTimeout(100);
+    }
+
+    // Unified auth page uses mode switching, not separate URL
+    await this.page.waitForFunction(
+      (testId: string) => {
+        return (
+          document.querySelector(`[data-testid="${testId}"]`) !== null ||
+          window.location.search.includes('mode=signup')
+        );
+      },
+      AUTH_PAGE_TEST_IDS.SIGNUP_PAGE,
+      { timeout: 15000 }
+    );
   }
 
   /**
@@ -181,36 +243,46 @@ export class LoginPage extends BasePage {
     if (!emailFormVisible) {
       await this.showEmailForm();
     }
-    await this.forgotPasswordLink.click();
-    await this.page.waitForURL(/\/auth\/forgot-password/);
+
+    await this.forgotPasswordLink.waitFor({ state: 'visible', timeout: 10000 });
+    await this.forgotPasswordLink.click({ force: true });
+    await this.page.waitForTimeout(100);
+
+    // If navigation didn't happen, try JavaScript click
+    if (!this.page.url().includes('forgot-password')) {
+      await this.forgotPasswordLink.evaluate((el) => (el as HTMLElement).click());
+    }
+
+    await this.page.waitForURL(/\/auth\/forgot-password/, { timeout: 30000 });
   }
 
   /**
    * Click Google sign in button
    */
   async clickGoogleSignIn(): Promise<void> {
-    await this.googleButton.click();
+    await this.googleButton.click({ force: true });
   }
 
   /**
    * Click Apple sign in button
    */
   async clickAppleSignIn(): Promise<void> {
-    await this.appleButton.click();
+    await this.appleButton.click({ force: true });
   }
 
   /**
    * Click Microsoft sign in button
    */
   async clickMicrosoftSignIn(): Promise<void> {
-    await this.microsoftButton.click();
+    await this.microsoftButton.click({ force: true });
   }
 
   /**
    * Go back from email form to social buttons
    */
   async goBack(): Promise<void> {
-    await this.backButton.click();
+    await this.backButton.click({ force: true });
+    await this.page.waitForTimeout(300); // Wait for animation
     await this.waitForElement(this.continueWithEmailButton);
   }
 

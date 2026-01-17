@@ -9,6 +9,7 @@
  * - HTTP Transfer Cache: Server-fetched data transferred to client
  * - Event Replay: User interactions during hydration are replayed
  * - Platform-specific Auth: Uses injection token pattern for SSR safety
+ * - Global Error Handling: Enterprise-grade error recovery and tracking
  *
  * Architecture:
  * - app.config.ts: Browser providers (Ionic, Firebase, full functionality)
@@ -18,7 +19,12 @@
  * @see https://firebase.google.com/docs/hosting/app-hosting
  */
 
-import { ApplicationConfig, provideZoneChangeDetection, isDevMode } from '@angular/core';
+import {
+  ApplicationConfig,
+  provideZoneChangeDetection,
+  isDevMode,
+  ErrorHandler,
+} from '@angular/core';
 import {
   provideRouter,
   withComponentInputBinding,
@@ -41,7 +47,10 @@ import { provideIonicAngular, IonicRouteStrategy } from '@ionic/angular/standalo
 
 import { routes } from './app.routes';
 
-// Core infrastructure
+// Shared Angular infrastructure from @nxt1/ui
+import { GlobalErrorHandler, httpErrorInterceptor } from '@nxt1/ui/infrastructure';
+
+// Core infrastructure (app-specific)
 import { httpCacheInterceptor } from './core/infrastructure';
 
 // Firebase
@@ -87,10 +96,16 @@ export const appConfig: ApplicationConfig = {
       withPreloading(PreloadAllModules)
     ),
 
-    // HTTP client with fetch API and caching
+    // HTTP client with fetch API, error handling, and caching
     provideHttpClient(
       withFetch(),
       withInterceptors([
+        // Global HTTP error handling (401 redirect, rate limiting, network errors)
+        // Order matters: error interceptor runs first to catch all errors
+        httpErrorInterceptor({
+          redirectOnUnauthorized: true,
+          unauthorizedRedirectPath: '/auth',
+        }),
         // HTTP response caching (LRU, TTL-based)
         httpCacheInterceptor({
           maxSize: 100,
@@ -155,6 +170,14 @@ export const appConfig: ApplicationConfig = {
     // Provide BrowserAuthService for AUTH_SERVICE token
     // Server uses ServerAuthService instead (see app.config.server.ts)
     { provide: AUTH_SERVICE, useClass: BrowserAuthService },
+
+    // ============================================
+    // ERROR HANDLING
+    // ============================================
+
+    // Global error handler - catches all unhandled errors
+    // Handles chunk loading failures, tracks errors, provides recovery
+    { provide: ErrorHandler, useClass: GlobalErrorHandler },
 
     // ============================================
     // PWA SERVICE WORKER

@@ -222,6 +222,7 @@ export {
   updateConsent,
   type FirebaseConfig,
   type FirebaseAnalyticsConfig,
+  type FirebaseSdkFunctions,
   type ConsentSettings,
 } from './firebase-analytics';
 

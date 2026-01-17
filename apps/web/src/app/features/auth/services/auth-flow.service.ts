@@ -54,6 +54,7 @@ import { Subscription } from 'rxjs';
 import type { Auth as FirebaseAuthType, User as FirebaseUser } from '@angular/fire/auth';
 
 import { AuthApiService } from './auth-api.service';
+import { AuthErrorHandler } from '@nxt1/ui/auth-services';
 import {
   type UserRole,
   type AuthState as CoreAuthState,
@@ -62,8 +63,6 @@ import {
   createAuthStateManager,
   createBrowserStorageAdapter,
   createMemoryStorageAdapter,
-  getAuthErrorMessage,
-  getAuthErrorCode,
   INITIAL_AUTH_STATE,
 } from '@nxt1/core';
 import { AUTH_ROUTES, AUTH_REDIRECTS, AUTH_METHODS } from '@nxt1/core/constants';
@@ -136,6 +135,7 @@ export class AuthFlowService implements OnDestroy {
   private readonly platform = inject(NxtPlatformService);
   private readonly injector = inject(Injector);
   private readonly authApi = inject(AuthApiService);
+  private readonly authErrorHandler = inject(AuthErrorHandler);
 
   /** Analytics adapter - web or memory based on platform */
   private readonly analytics: AnalyticsAdapter = this.createAnalyticsAdapter();
@@ -147,6 +147,13 @@ export class AuthFlowService implements OnDestroy {
    */
   private firebaseAuth: Auth | null = null;
   private authStateSubscription?: Subscription;
+
+  /**
+   * Flag to prevent auth state listener from calling syncUserProfile
+   * during signup flow. The signup methods handle this manually after
+   * creating the backend user to avoid race conditions.
+   */
+  private signupInProgress = false;
 
   /**
    * ⭐ Core Auth State Manager - Same pattern as mobile app ⭐
@@ -193,18 +200,22 @@ export class AuthFlowService implements OnDestroy {
 
   /**
    * Create appropriate analytics adapter based on platform
-   * Uses Firebase SDK on browser (same as mobile), memory adapter on server (SSR)
+   *
+   * Note: Firebase Analytics via dynamic import has issues with Vite bundler.
+   * For now, use memory adapter which logs events in debug mode.
+   * The main Firebase Analytics is handled by @angular/fire/analytics
+   * which is properly configured in app.config.ts.
+   *
+   * This adapter is primarily for auth-specific tracking that supplements
+   * the global analytics.
    */
   private createAnalyticsAdapter(): AnalyticsAdapter {
-    if (this.platform.isBrowser()) {
-      return createFirebaseAnalyticsAdapterSync({
-        firebaseConfig: environment.firebase,
-        debug: !environment.production,
-        platform: 'web',
-        appVersion: environment.appVersion,
-      });
-    }
-    return createMemoryAnalyticsAdapter({ enabled: false });
+    // Use memory adapter that logs in debug mode
+    // Main analytics is handled by @angular/fire/analytics globally
+    return createMemoryAnalyticsAdapter({
+      enabled: this.platform.isBrowser(),
+      debug: !environment.production,
+    });
   }
 
   /**
@@ -305,6 +316,13 @@ export class AuthFlowService implements OnDestroy {
               userId: firebaseUser.uid,
             });
 
+            // Skip sync if signup is in progress - the signup method will handle it
+            // after creating the backend user to avoid race conditions
+            if (this.signupInProgress) {
+              console.log('[AuthFlowService] Signup in progress, skipping auth state sync');
+              return;
+            }
+
             // User is signed in - sync profile
             await this.syncUserProfile(firebaseUser);
             this.authManager.setLoading(false);
@@ -343,6 +361,11 @@ export class AuthFlowService implements OnDestroy {
   private async syncUserProfile(firebaseUser: FirebaseUser): Promise<void> {
     try {
       const backendProfile = await this.authApi.getUserProfile(firebaseUser.uid);
+
+      // Determine hasCompletedOnboarding from backend profile
+      // Backend uses 'completeSignUp' field to track onboarding completion
+      const hasCompletedOnboarding = Boolean(backendProfile?.completeSignUp);
+
       const authUser: AuthUser = {
         ...backendProfile,
         uid: firebaseUser.uid,
@@ -355,14 +378,12 @@ export class AuthFlowService implements OnDestroy {
         photoURL: firebaseUser.photoURL ?? backendProfile?.profileImg ?? undefined,
         role: this.getUserRole(backendProfile),
         isPremium: backendProfile?.lastActivatedPlan !== 'free',
-        hasCompletedOnboarding: true,
+        hasCompletedOnboarding,
         provider: this.getProviderFromFirebase(firebaseUser),
         emailVerified: firebaseUser.emailVerified,
         createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-
-      console.log(authUser);
 
       await this.authManager.setUser(authUser);
 
@@ -376,7 +397,7 @@ export class AuthFlowService implements OnDestroy {
       });
     } catch (err) {
       console.error('[AuthFlowService] Failed to sync user profile:', err);
-      // Fallback to basic Firebase data
+      // Fallback to basic Firebase data - new user hasn't completed onboarding
       const authUser: AuthUser = {
         uid: firebaseUser.uid,
         email: firebaseUser.email ?? '',
@@ -428,14 +449,22 @@ export class AuthFlowService implements OnDestroy {
 
   /**
    * Sign in with email and password
+   *
+   * Enterprise-grade authentication flow:
+   * 1. Validates Firebase is available
+   * 2. Sets loading state for UI feedback
+   * 3. Attempts Firebase authentication
+   * 4. Tracks success/failure analytics
+   * 5. Properly handles and displays errors
    */
   async signInWithEmail(credentials: SignInCredentials): Promise<boolean> {
     if (!this.firebaseAuth) {
-      this.authManager.setError('Authentication not available');
+      this.authManager.setError('Authentication not available. Please refresh and try again.');
       return false;
     }
 
-    // this.authManager.setLoading(true);
+    // Set loading state and clear previous errors
+    this.authManager.setLoading(true);
     this.authManager.setError(null);
 
     try {
@@ -447,6 +476,7 @@ export class AuthFlowService implements OnDestroy {
         credentials.email,
         credentials.password
       );
+
       // Track successful sign in
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: AUTH_METHODS.EMAIL });
       this.analytics.setUserId(result.user.uid);
@@ -455,14 +485,23 @@ export class AuthFlowService implements OnDestroy {
       return true;
     } catch (err) {
       console.error('[AuthFlowService] Sign in failed:', err);
-      const errorCode = getAuthErrorCode(err);
-      const message = getAuthErrorMessage(err);
+
+      // Use centralized auth error handler
+      const handledError = this.authErrorHandler.handle(err);
+
+      // Track error for analytics
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
         method: AUTH_METHODS.EMAIL,
-        error_code: errorCode,
+        error_code: handledError.code,
+        recovery_action: handledError.recovery?.type,
       });
-      this.authManager.setError(message);
+
+      // Set user-friendly error message
+      this.authManager.setError(handledError.message);
       return false;
+    } finally {
+      // Always clear loading state
+      this.authManager.setLoading(false);
     }
   }
 
@@ -497,11 +536,20 @@ export class AuthFlowService implements OnDestroy {
       this.analytics.setUserProperties({ user_type: this.user()?.role });
 
       if (isNewUser) {
+        // Set flag to prevent auth state listener from racing with user creation
+        this.signupInProgress = true;
+
         // Create user in backend
         await this.authApi.createUser({
           uid: result.user.uid,
           email: result.user.email!,
         });
+
+        // Clear flag before syncing
+        this.signupInProgress = false;
+
+        // Set user state BEFORE navigating (required for onboarding page)
+        await this.syncUserProfile(result.user);
 
         await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
       } else {
@@ -511,15 +559,20 @@ export class AuthFlowService implements OnDestroy {
 
       return true;
     } catch (err) {
-      const errorCode = getAuthErrorCode(err);
-      const message = getAuthErrorMessage(err);
+      console.error('[AuthFlowService] Google sign in failed:', err);
+
+      // Use centralized auth error handler
+      const handledError = this.authErrorHandler.handle(err);
+
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
         method: AUTH_METHODS.GOOGLE,
-        error_code: errorCode,
+        error_code: handledError.code,
+        recovery_action: handledError.recovery?.type,
       });
-      this.authManager.setError(message);
+      this.authManager.setError(handledError.message);
       return false;
     } finally {
+      this.signupInProgress = false;
       this.authManager.setLoading(false);
     }
   }
@@ -537,6 +590,9 @@ export class AuthFlowService implements OnDestroy {
       return false;
     }
 
+    // Set flag to prevent auth state listener from calling syncUserProfile
+    // before we create the backend user
+    this.signupInProgress = true;
     this.authManager.setLoading(true);
     this.authManager.setError(null);
 
@@ -573,17 +629,25 @@ export class AuthFlowService implements OnDestroy {
       });
       this.analytics.setUserId(result.user.uid);
 
+      // Set user state BEFORE navigating (required for onboarding page)
+      // This creates a basic user object from Firebase data
+      await this.syncUserProfile(result.user);
+
       // Navigate to onboarding
       await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
       return true;
     } catch (err) {
-      const errorCode = getAuthErrorCode(err);
-      const message = getAuthErrorMessage(err);
+      console.error('[AuthFlowService] Sign up failed:', err);
+
+      // Use centralized auth error handler
+      const handledError = this.authErrorHandler.handle(err);
+
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNUP_ERROR, {
         method: AUTH_METHODS.EMAIL,
-        error_code: errorCode,
+        error_code: handledError.code,
+        recovery_action: handledError.recovery?.type,
       });
-      this.authManager.setError(message);
+      this.authManager.setError(handledError.message);
       return false;
     } finally {
       this.authManager.setLoading(false);
@@ -650,13 +714,16 @@ export class AuthFlowService implements OnDestroy {
 
       return true;
     } catch (err) {
-      const errorCode = getAuthErrorCode(err);
-      const message = getAuthErrorMessage(err);
+      console.error('[AuthFlowService] Password reset failed:', err);
+
+      // Use centralized auth error handler
+      const handledError = this.authErrorHandler.handle(err);
+
       this.analytics.trackEvent(APP_EVENTS.AUTH_PASSWORD_RESET, {
         success: false,
-        error_code: errorCode,
+        error_code: handledError.code,
       });
-      this.authManager.setError(message);
+      this.authManager.setError(handledError.message);
       return false;
     } finally {
       this.authManager.setLoading(false);

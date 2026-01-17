@@ -136,8 +136,6 @@ export class ServerAuthService implements IAuthService, OnDestroy {
     }
 
     try {
-      console.log('[ServerAuthService] Initializing FirebaseServerApp with auth token...');
-
       // Initialize FirebaseServerApp with auth token
       // This creates a Firebase instance with the user's context
       this.firebaseApp = initializeServerApp(this.firebaseConfig, {
@@ -155,8 +153,6 @@ export class ServerAuthService implements IAuthService, OnDestroy {
       const currentUser = this.firebaseAuth.currentUser;
 
       if (currentUser) {
-        console.log(`[ServerAuthService] Authenticated as: ${currentUser.uid}`);
-
         // Map Firebase user to our interface
         const firebaseUserInfo = this.mapFirebaseUser(currentUser);
         this._firebaseUser.set(firebaseUserInfo);
@@ -165,16 +161,19 @@ export class ServerAuthService implements IAuthService, OnDestroy {
         const appUser = await this.fetchUserProfile(currentUser.uid);
         if (appUser) {
           this._user.set(appUser);
-          console.log(`[ServerAuthService] User profile loaded: ${appUser.displayName}`);
         } else {
           // User exists in Firebase Auth but not in Firestore
           // Create minimal user from Firebase data
           this._user.set(this.createMinimalUser(currentUser));
-          console.warn('[ServerAuthService] User profile not found in Firestore - using minimal data');
+          console.warn(
+            '[ServerAuthService] User profile not found in Firestore - using minimal data'
+          );
         }
       } else {
         // Token was invalid or expired
-        console.warn('[ServerAuthService] Auth token invalid or expired - rendering unauthenticated');
+        console.warn(
+          '[ServerAuthService] Auth token invalid or expired - rendering unauthenticated'
+        );
       }
     } catch (err) {
       // Log error but don't fail SSR - render as unauthenticated
@@ -268,7 +267,8 @@ export class ServerAuthService implements IAuthService, OnDestroy {
         photoURL: data['photoURL'] ?? data['profilePhoto'] ?? undefined,
         role: (data['role'] as UserRole) ?? 'athlete',
         isPremium: data['isPremium'] ?? data['premium'] ?? false,
-        hasCompletedOnboarding: data['hasCompletedOnboarding'] ?? data['onboardingComplete'] ?? false,
+        hasCompletedOnboarding:
+          data['hasCompletedOnboarding'] ?? data['onboardingComplete'] ?? false,
         createdAt: data['createdAt']?.toDate?.()?.toISOString() ?? new Date().toISOString(),
         updatedAt: data['updatedAt']?.toDate?.()?.toISOString() ?? new Date().toISOString(),
       };

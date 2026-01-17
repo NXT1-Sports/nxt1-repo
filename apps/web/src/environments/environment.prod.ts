@@ -6,12 +6,17 @@
 export const environment = {
   production: true,
   appVersion: '2.0.0',
+  version: '2.0.0',
 
   // Backend API URLs (Production)
   apiURL: 'https://backend.nxt1sports.com/api/v1',
   apiPaymentURL: 'https://backend.nxt1sports.com/api/v1',
   profileSsrUrl: 'https://backend.nxt1sports.com/api/v1/ssr',
   userPostSsrUrl: 'https://backend.nxt1sports.com/api/v1/ssr',
+
+  // Logging Configuration
+  loggingEndpoint: 'https://backend.nxt1sports.com/api/v1/logs', // Remote logging endpoint
+  sentryDsn: '', // Add Sentry DSN when configured: 'https://xxx@sentry.io/xxx'
 
   // Firebase Configuration (Production)
   firebase: {

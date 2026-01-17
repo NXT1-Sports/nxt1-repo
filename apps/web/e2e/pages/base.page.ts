@@ -7,6 +7,7 @@
  */
 
 import { Page, Locator, expect } from '@playwright/test';
+import { COMMON_TEST_IDS } from '@nxt1/core/testing';
 
 /**
  * Configuration options for page objects
@@ -67,6 +68,7 @@ export abstract class BasePage {
    */
   async goto(): Promise<void> {
     await this.page.goto(this.url, { timeout: this.timeout });
+    await this.waitForHydration();
   }
 
   /**
@@ -77,6 +79,17 @@ export abstract class BasePage {
       timeout: this.timeout,
       waitUntil: 'networkidle',
     });
+    await this.waitForHydration();
+  }
+
+  /**
+   * Wait for Angular SSR hydration and Ionic components to be ready
+   * Override in subclasses for custom hydration logic
+   */
+  async waitForHydration(): Promise<void> {
+    await this.page.waitForLoadState('domcontentloaded');
+    // Wait for Ionic components to hydrate
+    await this.page.waitForTimeout(300);
   }
 
   /**
@@ -92,6 +105,7 @@ export abstract class BasePage {
    */
   async reload(): Promise<void> {
     await this.page.reload({ timeout: this.timeout });
+    await this.waitForHydration();
   }
 
   // ===========================================================================
@@ -125,8 +139,8 @@ export abstract class BasePage {
   async waitForLoadingComplete(): Promise<void> {
     // Wait for common loading indicators to disappear
     const loadingIndicators = [
-      this.page.locator('[data-testid="loading"]'),
-      this.page.locator('[data-testid="spinner"]'),
+      this.page.locator(`[data-testid="${COMMON_TEST_IDS.LOADING}"]`),
+      this.page.locator(`[data-testid="${COMMON_TEST_IDS.SPINNER}"]`),
       this.page.locator('ion-spinner'),
       this.page.locator('.loading'),
     ];

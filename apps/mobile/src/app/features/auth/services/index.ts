@@ -6,7 +6,7 @@
  *
  * Usage:
  * ```typescript
- * import { AuthFlowService, AuthApiService } from '../services';
+ * import { AuthFlowService, AuthApiService, AuthErrorHandler } from '../services';
  * ```
  */
 
@@ -15,6 +15,10 @@ export { AuthApiService } from './auth-api.service';
 export { FirebaseAuthService } from './firebase-auth.service';
 export { MobileAuthService } from './mobile-auth.service';
 export { NativeAuthService } from './native-auth.service';
+
+// Auth Error Handler (shared with web via re-export)
+export { AuthErrorHandler, type AuthError, type AuthRecoveryAction } from './auth-error.handler';
+
 export {
   BiometricService,
   type BiometricType,

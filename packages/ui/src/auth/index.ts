@@ -7,6 +7,8 @@
  */
 
 export { AuthShellComponent, type AuthShellVariant } from './auth-shell';
+export { AuthTitleComponent, type AuthTitleSize } from './auth-title';
+export { AuthSubtitleComponent, type AuthSubtitleSize } from './auth-subtitle';
 export { AuthSocialButtonsComponent, type SocialProvidersConfig } from './auth-social-buttons';
 export { AuthActionButtonsComponent } from './auth-action-buttons';
 export { AuthDividerComponent } from './auth-divider';
@@ -18,3 +20,9 @@ export {
   type AuthEmailFormData,
   type AuthEmailFormMode,
 } from './auth-email-form';
+export {
+  AuthTeamCodeComponent,
+  AuthTeamCodeBannerComponent,
+  type TeamCodeValidationState,
+  type ValidatedTeamInfo,
+} from './auth-team-code';

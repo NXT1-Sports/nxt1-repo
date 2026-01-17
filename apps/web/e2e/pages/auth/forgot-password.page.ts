@@ -4,10 +4,12 @@
  *
  * Page Object for the password reset flow.
  * Uses data-testid selectors for stable, maintenance-free tests.
+ * Test IDs are imported from @nxt1/core/testing for cross-platform consistency.
  */
 
 import { Page, Locator } from '@playwright/test';
 import { BasePage } from '../base.page';
+import { AUTH_TEST_IDS, AUTH_PAGE_TEST_IDS } from '@nxt1/core/testing';
 
 /**
  * Forgot Password Page Object
@@ -71,35 +73,37 @@ export class ForgotPasswordPage extends BasePage {
   constructor(page: Page) {
     super(page);
 
-    // Page container and header
-    this.page_container = page.getByTestId('forgot-password-page');
-    this.pageTitle = page.getByTestId('forgot-password-title');
-    this.pageLogo = page.getByTestId('forgot-password-logo');
-    this.pageSubtitle = page.getByTestId('forgot-password-subtitle');
+    // Page container and header - from @nxt1/core/testing
+    this.page_container = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_PAGE);
+    this.pageTitle = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_TITLE);
+    this.pageLogo = page.locator(
+      `[data-testid="${AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_LOGO}"], nxt1-logo`
+    );
+    this.pageSubtitle = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_SUBTITLE);
 
-    // Form elements
-    this.form = page.getByTestId('forgot-password-form');
-    this.emailInput = page.getByTestId('forgot-password-input-email').locator('input');
-    this.submitButton = page.getByTestId('forgot-password-submit-button');
+    // Form elements - uses shared @nxt1/ui auth-email-form component with mode="reset"
+    this.form = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_FORM);
+    this.emailInput = page.getByTestId(AUTH_TEST_IDS.INPUT_EMAIL).locator('input');
+    this.submitButton = page.getByTestId(AUTH_TEST_IDS.SUBMIT_BUTTON);
 
     // Navigation
-    this.footer = page.getByTestId('forgot-password-footer');
-    this.backToLoginLink = page.getByTestId('forgot-password-link-back');
+    this.footer = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_FOOTER);
+    this.backToLoginLink = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_LINK_BACK);
 
     // Success state
-    this.successContainer = page.getByTestId('forgot-password-success');
-    this.successIcon = page.getByTestId('forgot-password-success-icon');
-    this.successTitle = page.getByTestId('forgot-password-success-title');
-    this.successMessage = page.getByTestId('forgot-password-success-message');
-    this.backToLoginButton = page.getByTestId('forgot-password-btn-back-to-login');
+    this.successContainer = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_SUCCESS);
+    this.successIcon = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_SUCCESS_ICON);
+    this.successTitle = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_SUCCESS_TITLE);
+    this.successMessage = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_SUCCESS_MESSAGE);
+    this.backToLoginButton = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_BTN_BACK);
 
-    // Error state
-    this.errorContainer = page.getByTestId('forgot-password-error');
-    this.errorMessage = page.getByTestId('forgot-password-error-message');
-    this.errorCloseButton = page.getByTestId('forgot-password-error-close');
+    // Error state - uses shared @nxt1/ui component error display
+    this.errorContainer = page.getByTestId(AUTH_TEST_IDS.FORM_ERROR);
+    this.errorMessage = page.getByTestId(AUTH_TEST_IDS.FORM_ERROR_MESSAGE);
+    this.errorCloseButton = page.locator(`[data-testid="${AUTH_TEST_IDS.FORM_ERROR_CLOSE}"]`);
 
-    // Loading
-    this.loadingSpinner = page.getByTestId('forgot-password-loading-spinner');
+    // Loading - uses shared @nxt1/ui component spinner
+    this.loadingSpinner = page.getByTestId(AUTH_TEST_IDS.LOADING_SPINNER);
   }
 
   // ===========================================================================

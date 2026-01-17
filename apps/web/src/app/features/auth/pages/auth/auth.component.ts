@@ -6,6 +6,11 @@
  * Combines login and signup functionality into a single seamless experience.
  * Features two-column layout with QR codes for app download on desktop.
  *
+ * Team Code Flow:
+ * - /auth?code=ABC123 - Pre-validates team code and shows team info
+ * - "Have a team code?" button - Opens team code input
+ * - Validated team info persists through signup
+ *
  * Route: /auth
  *
  * ⭐ MATCHES MOBILE'S auth.page.ts INTERFACE ⭐
@@ -18,9 +23,11 @@ import {
   signal,
   computed,
   OnInit,
+  effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule, ActivatedRoute } from '@angular/router';
+import { FormsModule } from '@angular/forms';
 import {
   AuthShellComponent,
   AuthSocialButtonsComponent,
@@ -30,11 +37,16 @@ import {
   AuthAppDownloadComponent,
   AuthModeSwitcherComponent,
   AuthTermsDisclaimerComponent,
+  AuthTeamCodeComponent,
+  AuthTeamCodeBannerComponent,
   type AuthEmailFormData,
   type AuthMode,
+  type TeamCodeValidationState,
 } from '@nxt1/ui/auth';
-import { AuthFlowService } from '../../services';
+import { AuthFlowService, AuthApiService } from '../../services';
 import { SeoService } from '../../../../core/services';
+import { isValidTeamCode } from '@nxt1/core';
+import type { ValidatedTeamInfo } from '@nxt1/core';
 
 @Component({
   selector: 'app-auth',
@@ -42,6 +54,7 @@ import { SeoService } from '../../../../core/services';
   imports: [
     CommonModule,
     RouterModule,
+    FormsModule,
     AuthShellComponent,
     AuthSocialButtonsComponent,
     AuthActionButtonsComponent,
@@ -50,65 +63,113 @@ import { SeoService } from '../../../../core/services';
     AuthAppDownloadComponent,
     AuthModeSwitcherComponent,
     AuthTermsDisclaimerComponent,
+    AuthTeamCodeComponent,
+    AuthTeamCodeBannerComponent,
   ],
   template: `
-    <nxt1-auth-shell
-      variant="card-glass"
-      [showBackButton]="showEmailForm()"
-      [showSidePanel]="!showEmailForm()"
-      (backClick)="onBackClick()"
-    >
-      <!-- Title & Subtitle -->
-      <h1 authTitle class="text-text-primary text-2xl font-bold">{{ title() }}</h1>
-      <p authSubtitle class="text-text-secondary mb-2 text-sm">{{ subtitle() }}</p>
+    <div [attr.data-testid]="mode() === 'login' ? 'login-page' : 'signup-page'">
+      <nxt1-auth-shell
+        variant="card-glass"
+        [showBackButton]="showEmailForm() || showTeamCodeInput()"
+        [showSidePanel]="!showEmailForm() && !showTeamCodeInput()"
+        (backClick)="onBackClick()"
+      >
+        <!-- Title & Subtitle -->
+        <h1
+          authTitle
+          class="text-text-primary text-2xl font-bold"
+          [attr.data-testid]="mode() === 'login' ? 'login-title' : 'signup-title'"
+        >
+          {{ title() }}
+        </h1>
+        <p
+          authSubtitle
+          class="text-text-secondary mb-2 text-sm"
+          [attr.data-testid]="mode() === 'login' ? 'login-subtitle' : 'signup-subtitle'"
+        >
+          {{ subtitle() }}
+        </p>
 
-      <!-- Main Content: Social Buttons OR Email Form -->
-      <div authContent>
-        @if (!showEmailForm()) {
-          <!-- Social Login Options -->
-          <nxt1-auth-social-buttons
-            [loading]="authFlow.isLoading()"
-            (googleClick)="onGoogleAuth()"
-            (appleClick)="onAppleAuth()"
-            (microsoftClick)="onMicrosoftAuth()"
-          />
-
-          <nxt1-auth-divider />
-
-          <nxt1-auth-action-buttons
-            [loading]="authFlow.isLoading()"
-            (emailClick)="onShowEmailForm()"
-            (teamCodeClick)="onTeamCode()"
-          />
-        } @else {
-          <!-- Email Form with Mode Toggle -->
-          <nxt1-auth-mode-switcher [mode]="mode()" (modeChange)="setMode($event)" />
-
-          <nxt1-auth-email-form
-            [mode]="mode()"
-            [loading]="authFlow.isLoading()"
-            [error]="authFlow.error()"
-            (submitForm)="onEmailSubmit($event)"
-            (forgotPasswordClick)="onForgotPassword()"
-          />
-
-          <!-- Terms (signup mode only) -->
-          @if (mode() === 'signup') {
-            <nxt1-auth-terms-disclaimer />
+        <!-- Main Content -->
+        <div authContent>
+          <!-- Team Code Input View -->
+          @if (showTeamCodeInput() && !showEmailForm()) {
+            <nxt1-auth-team-code
+              [state]="teamCodeState()"
+              [teamCode]="teamCodeInput"
+              [validatedTeam]="validatedTeam()"
+              (teamCodeChange)="onTeamCodeInputChange($event)"
+              (validate)="onValidateTeamCode()"
+              (continue)="onContinueWithTeam()"
+            />
           }
-        }
-      </div>
 
-      <!-- Side Panel: QR Codes (Desktop) -->
-      <ng-container authSidePanel>
-        <nxt1-auth-app-download [showMobileButtons]="false" />
-      </ng-container>
+          <!-- Social Buttons View (default) -->
+          @else if (!showEmailForm()) {
+            <!-- Validated Team Banner (if coming from team code) -->
+            @if (validatedTeam(); as team) {
+              <nxt1-auth-team-code-banner
+                [team]="team"
+                variant="full"
+                (clear)="onClearTeamCode()"
+              />
+            }
 
-      <!-- Side Panel: App Buttons (Mobile) -->
-      <ng-container authSidePanelMobile>
-        <nxt1-auth-app-download [showMobileButtons]="true" />
-      </ng-container>
-    </nxt1-auth-shell>
+            <!-- Social Login Options -->
+            <nxt1-auth-social-buttons
+              [loading]="authFlow.isLoading()"
+              (googleClick)="onGoogleAuth()"
+              (appleClick)="onAppleAuth()"
+              (microsoftClick)="onMicrosoftAuth()"
+            />
+
+            <nxt1-auth-divider />
+
+            <nxt1-auth-action-buttons
+              [loading]="authFlow.isLoading()"
+              (emailClick)="onShowEmailForm()"
+              (teamCodeClick)="onTeamCode()"
+              [showTeamCode]="!validatedTeam()"
+              data-testid="auth-action-buttons-container"
+            />
+          }
+
+          <!-- Email Form View -->
+          @else {
+            <!-- Validated Team Banner (compact) -->
+            @if (validatedTeam(); as team) {
+              <nxt1-auth-team-code-banner [team]="team" variant="compact" />
+            }
+
+            <!-- Email Form with Mode Toggle -->
+            <nxt1-auth-mode-switcher [mode]="mode()" (modeChange)="setMode($event)" />
+
+            <nxt1-auth-email-form
+              [mode]="mode()"
+              [loading]="authFlow.isLoading()"
+              [error]="authFlow.error()"
+              (submitForm)="onEmailSubmit($event)"
+              (forgotPasswordClick)="onForgotPassword()"
+            />
+
+            <!-- Terms (signup mode only) -->
+            @if (mode() === 'signup') {
+              <nxt1-auth-terms-disclaimer />
+            }
+          }
+        </div>
+
+        <!-- Side Panel: QR Codes (Desktop) -->
+        <ng-container authSidePanel>
+          <nxt1-auth-app-download [showMobileButtons]="false" />
+        </ng-container>
+
+        <!-- Side Panel: App Buttons (Mobile) -->
+        <ng-container authSidePanelMobile>
+          <nxt1-auth-app-download [showMobileButtons]="true" />
+        </ng-container>
+      </nxt1-auth-shell>
+    </div>
   `,
   styles: [
     `
@@ -122,9 +183,14 @@ import { SeoService } from '../../../../core/services';
 })
 export class AuthComponent implements OnInit {
   protected readonly authFlow = inject(AuthFlowService);
+  private readonly authApi = inject(AuthApiService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly seo = inject(SeoService);
+
+  // ============================================
+  // AUTH STATE
+  // ============================================
 
   /** Current auth mode: login or signup */
   readonly mode = signal<AuthMode>('login');
@@ -132,15 +198,61 @@ export class AuthComponent implements OnInit {
   /** Whether to show email form vs social buttons */
   readonly showEmailForm = signal(false);
 
-  /** Dynamic title based on mode */
-  readonly title = computed(() => (this.mode() === 'login' ? 'Welcome back' : 'Create Account'));
+  // ============================================
+  // TEAM CODE STATE
+  // ============================================
 
-  /** Dynamic subtitle based on mode */
-  readonly subtitle = computed(() =>
-    this.mode() === 'login'
+  /** Whether to show team code input view */
+  readonly showTeamCodeInput = signal(false);
+
+  /** Team code input value */
+  teamCodeInput = '';
+
+  /** Validated team info (null if not validated) */
+  readonly validatedTeam = signal<ValidatedTeamInfo | null>(null);
+
+  /** Team code validation in progress */
+  readonly teamCodeValidating = signal(false);
+
+  /** Team code error message */
+  readonly teamCodeError = signal<string | null>(null);
+
+  // ============================================
+  // COMPUTED SIGNALS
+  // ============================================
+
+  /** Team code validation state for shared component */
+  readonly teamCodeState = computed<TeamCodeValidationState>(() => {
+    if (this.teamCodeValidating()) return 'validating';
+    if (this.teamCodeError()) return 'error';
+    if (this.validatedTeam()) return 'success';
+    return 'idle';
+  });
+
+  /** Dynamic title based on mode and team code state */
+  readonly title = computed(() => {
+    if (this.showTeamCodeInput() && !this.showEmailForm()) {
+      return 'Join Your Team';
+    }
+    return this.mode() === 'login' ? 'Welcome back' : 'Create Account';
+  });
+
+  /** Dynamic subtitle based on mode and team code state */
+  readonly subtitle = computed(() => {
+    if (this.showTeamCodeInput() && !this.showEmailForm()) {
+      return 'Enter your team code to get started';
+    }
+    if (this.validatedTeam()) {
+      return `Sign up to join ${this.validatedTeam()!.teamName}`;
+    }
+    return this.mode() === 'login'
       ? 'Sign in to continue to NXT1'
-      : 'Join NXT1 to start your recruiting journey'
-  );
+      : 'Join NXT1 to start your recruiting journey';
+  });
+
+  // ============================================
+  // LIFECYCLE
+  // ============================================
 
   ngOnInit(): void {
     // Set SEO metadata for auth page
@@ -165,12 +277,19 @@ export class AuthComponent implements OnInit {
       this.mode.set('signup');
     }
 
-    // Check for team code query param - auto-show email form in signup mode
-    if (this.route.snapshot.queryParamMap.get('teamCode')) {
+    // Check for team code in URL params (e.g., ?code=ABC123)
+    const codeParam = this.route.snapshot.queryParamMap.get('code');
+    if (codeParam && isValidTeamCode(codeParam)) {
       this.mode.set('signup');
-      this.showEmailForm.set(true);
+      this.teamCodeInput = codeParam.toUpperCase();
+      // Auto-validate the team code from URL
+      this.onValidateTeamCode();
     }
   }
+
+  // ============================================
+  // MODE & NAVIGATION
+  // ============================================
 
   /**
    * Set auth mode and update URL
@@ -178,14 +297,29 @@ export class AuthComponent implements OnInit {
   setMode(newMode: AuthMode): void {
     this.authFlow.clearError();
     this.mode.set(newMode);
+
+    // Clear team code when switching to login
+    if (newMode === 'login') {
+      this.onClearTeamCode();
+    }
+
     this.updateUrl();
   }
 
   /**
-   * Update URL query params based on current mode
+   * Update URL query params based on current state
    */
   private updateUrl(): void {
-    const queryParams = this.mode() === 'signup' ? { mode: 'signup' } : {};
+    const queryParams: Record<string, string | null> = {};
+
+    if (this.mode() === 'signup') {
+      queryParams['mode'] = 'signup';
+    }
+
+    if (this.validatedTeam()) {
+      queryParams['code'] = this.validatedTeam()!.code;
+    }
+
     this.router.navigate([], {
       relativeTo: this.route,
       queryParams,
@@ -195,34 +329,140 @@ export class AuthComponent implements OnInit {
   }
 
   /**
-   * Handle back button click - reset to social view and clear mode
+   * Handle back button click
    */
   onBackClick(): void {
     this.authFlow.clearError();
-    this.showEmailForm.set(false);
-    this.mode.set('login');
+
+    if (this.showEmailForm()) {
+      // Go back to social buttons view (keep team code if validated)
+      this.showEmailForm.set(false);
+    } else if (this.showTeamCodeInput()) {
+      // Go back from team code input to social view
+      this.showTeamCodeInput.set(false);
+      this.teamCodeInput = '';
+      this.teamCodeError.set(null);
+      this.validatedTeam.set(null);
+      this.mode.set('login');
+    } else {
+      this.mode.set('login');
+    }
+
     this.updateUrl();
+  }
+
+  // ============================================
+  // TEAM CODE METHODS
+  // ============================================
+
+  /**
+   * Show team code input screen
+   */
+  onTeamCode(): void {
+    this.mode.set('signup');
+    this.showTeamCodeInput.set(true);
+    this.showEmailForm.set(false);
+  }
+
+  /**
+   * Handle team code input changes - clear errors on typing
+   */
+  onTeamCodeInputChange(code: string): void {
+    this.teamCodeInput = code.toUpperCase();
+    if (this.teamCodeError()) {
+      this.teamCodeError.set(null);
+    }
+  }
+
+  /**
+   * Validate the entered team code via API
+   */
+  async onValidateTeamCode(): Promise<void> {
+    const code = this.teamCodeInput.trim();
+
+    if (!code || !isValidTeamCode(code)) {
+      this.teamCodeError.set('Please enter a valid team code (4-10 characters)');
+      return;
+    }
+
+    this.teamCodeValidating.set(true);
+    this.teamCodeError.set(null);
+
+    try {
+      const result = await this.authApi.validateTeamCode(code);
+
+      if (result.valid && result.teamCode) {
+        this.validatedTeam.set(result.teamCode);
+        this.teamCodeError.set(null);
+        this.updateUrl();
+      } else {
+        this.validatedTeam.set(null);
+        this.teamCodeError.set(result.error || 'Invalid team code. Please check and try again.');
+      }
+    } catch {
+      this.validatedTeam.set(null);
+      this.teamCodeError.set('Unable to validate team code. Please try again.');
+    } finally {
+      this.teamCodeValidating.set(false);
+    }
+  }
+
+  /**
+   * Continue to signup after team code validation
+   */
+  onContinueWithTeam(): void {
+    this.showTeamCodeInput.set(false);
+    // Don't show email form yet - show social buttons with team banner
+  }
+
+  /**
+   * Clear validated team code
+   */
+  onClearTeamCode(): void {
+    this.teamCodeInput = '';
+    this.validatedTeam.set(null);
+    this.teamCodeError.set(null);
+    this.showTeamCodeInput.set(false);
+    this.updateUrl();
+  }
+
+  // ============================================
+  // AUTH METHODS
+  // ============================================
+
+  /**
+   * Show email form (defaults to current mode)
+   */
+  onShowEmailForm(): void {
+    this.showEmailForm.set(true);
   }
 
   /**
    * Submit email/password credentials
+   *
+   * The AuthFlowService handles:
+   * - Loading state management
+   * - Error state management
+   * - Firebase authentication
+   * - Analytics tracking
+   *
+   * This component just calls the service - no try/catch needed
+   * as errors are handled and displayed via authFlow.error() signal
    */
   async onEmailSubmit(data: AuthEmailFormData): Promise<void> {
-    this.authFlow.clearError();
-    try {
-      if (this.mode() === 'login') {
-        await this.authFlow.signInWithEmail({
-          email: data.email,
-          password: data.password,
-        });
-      } else {
-        await this.authFlow.signUpWithEmail({
-          email: data.email,
-          password: data.password,
-        });
-      }
-    } catch {
-      // Error is handled by auth flow service
+    // Note: Don't call clearError() here - the service clears it at the start of auth
+    if (this.mode() === 'login') {
+      await this.authFlow.signInWithEmail({
+        email: data.email,
+        password: data.password,
+      });
+    } else {
+      // Pass team code if validated
+      await this.authFlow.signUpWithEmail({
+        email: data.email,
+        password: data.password,
+        teamCode: this.validatedTeam()?.code,
+      });
     }
   }
 
@@ -231,6 +471,7 @@ export class AuthComponent implements OnInit {
    */
   async onGoogleAuth(): Promise<void> {
     try {
+      // TODO: Pass team code to Google sign-in flow
       await this.authFlow.signInWithGoogle();
     } catch {
       // Error handled by service
@@ -256,26 +497,5 @@ export class AuthComponent implements OnInit {
    */
   onForgotPassword(): void {
     this.router.navigate(['/auth/forgot-password']);
-  }
-
-  /**
-   * Handle team code flow - show email form in signup mode
-   */
-  onTeamCode(): void {
-    this.mode.set('signup');
-    this.showEmailForm.set(true);
-    this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { mode: 'signup', teamCode: true },
-      queryParamsHandling: '',
-      replaceUrl: true,
-    });
-  }
-
-  /**
-   * Show email form (defaults to current mode)
-   */
-  onShowEmailForm(): void {
-    this.showEmailForm.set(true);
   }
 }
