@@ -4,18 +4,48 @@
  *
  * Enterprise-grade global error handler for Angular applications.
  * Catches all unhandled errors and provides:
- * - Centralized error logging
- * - User-friendly notifications
+ * - Centralized error logging (via optional ILogger injection)
+ * - User-friendly toast notifications
  * - Error tracking/analytics integration
  * - Chunk load error recovery (lazy loading failures)
  *
  * @author NXT1 Engineering
- * @version 1.0.0
+ * @version 2.0.0
  */
 
-import { ErrorHandler, Injectable, inject, NgZone, PLATFORM_ID } from '@angular/core';
+import {
+  ErrorHandler,
+  Injectable,
+  inject,
+  NgZone,
+  PLATFORM_ID,
+  InjectionToken,
+  Optional,
+} from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { parseApiError, isNxtApiError, API_ERROR_CODES } from '@nxt1/core/errors';
+import type { ILogger } from '@nxt1/core/logging';
+import { NxtToastService } from '../../services/toast';
+
+// ============================================
+// LOGGER INJECTION TOKEN
+// ============================================
+
+/**
+ * Injection token for providing a structured logger to GlobalErrorHandler.
+ *
+ * Apps can provide their own ILogger implementation:
+ * ```typescript
+ * // In app.config.ts
+ * providers: [
+ *   { provide: GLOBAL_ERROR_LOGGER, useExisting: LoggingService },
+ *   { provide: ErrorHandler, useClass: GlobalErrorHandler },
+ * ]
+ * ```
+ *
+ * If not provided, falls back to console logging.
+ */
+export const GLOBAL_ERROR_LOGGER = new InjectionToken<ILogger>('GLOBAL_ERROR_LOGGER');
 
 // ============================================
 // EXPORTED TYPES & CONSTANTS
@@ -86,6 +116,10 @@ interface ErrorDetails {
 export class GlobalErrorHandler implements ErrorHandler {
   private readonly zone = inject(NgZone);
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly toast = inject(NxtToastService);
+
+  /** Optional structured logger - falls back to console if not provided */
+  private readonly injectedLogger = inject(GLOBAL_ERROR_LOGGER, { optional: true });
 
   /** Track chunk errors to prevent infinite reload loops */
   private chunkErrorCount = 0;
@@ -94,6 +128,33 @@ export class GlobalErrorHandler implements ErrorHandler {
   /** Rate limit error notifications */
   private lastNotificationTime = 0;
   private readonly NOTIFICATION_COOLDOWN = 5000; // 5 seconds
+
+  /**
+   * Get logger instance - uses injected logger or falls back to console
+   */
+  private get logger(): ILogger {
+    if (this.injectedLogger) {
+      return this.injectedLogger;
+    }
+
+    // Fallback to console-based logger
+    return {
+      debug: (msg: string, data?: Record<string, unknown>) =>
+        console.debug('[GlobalErrorHandler]', msg, data),
+      info: (msg: string, data?: Record<string, unknown>) =>
+        console.info('[GlobalErrorHandler]', msg, data),
+      warn: (msg: string, data?: Record<string, unknown>) =>
+        console.warn('[GlobalErrorHandler]', msg, data),
+      error: (msg: string, err?: unknown, data?: Record<string, unknown>) =>
+        console.error('[GlobalErrorHandler]', msg, err, data),
+      fatal: (msg: string, err?: unknown, data?: Record<string, unknown>) =>
+        console.error('[GlobalErrorHandler][FATAL]', msg, err, data),
+      child: () => this.logger,
+      setContext: () => {},
+      clearContext: () => {},
+      flush: async () => {},
+    };
+  }
 
   /**
    * Handle all unhandled errors in the application
@@ -248,8 +309,8 @@ export class GlobalErrorHandler implements ErrorHandler {
     this.chunkErrorCount++;
 
     if (this.chunkErrorCount <= this.MAX_CHUNK_RETRIES) {
-      console.warn(
-        `[GlobalErrorHandler] Chunk load error detected. Reloading page (attempt ${this.chunkErrorCount}/${this.MAX_CHUNK_RETRIES})...`
+      this.logger.warn(
+        `Chunk load error detected. Reloading page (attempt ${this.chunkErrorCount}/${this.MAX_CHUNK_RETRIES})...`
       );
 
       // Store retry count in session storage to track across reloads
@@ -258,7 +319,7 @@ export class GlobalErrorHandler implements ErrorHandler {
       // Reload the page to get fresh chunks
       window.location.reload();
     } else {
-      console.error('[GlobalErrorHandler] Max chunk reload attempts reached. Showing error.');
+      this.logger.error('Max chunk reload attempts reached. Showing error to user.');
       this.zone.run(() => {
         this.showErrorNotification(
           {
@@ -287,26 +348,30 @@ export class GlobalErrorHandler implements ErrorHandler {
   }
 
   /**
-   * Log error to console with structured format
+   * Log error using structured logger (or console fallback)
    */
   private logError(details: ErrorDetails, severity: ErrorSeverity): void {
-    const logPrefix = `[GlobalErrorHandler][${severity.toUpperCase()}]`;
+    const logData = {
+      code: details.code,
+      name: details.name,
+      timestamp: details.timestamp,
+      url: details.url,
+      stack: details.stack,
+    };
 
-    if (severity === 'fatal' || severity === 'error') {
-      console.error(logPrefix, {
-        message: details.message,
-        code: details.code,
-        name: details.name,
-        timestamp: details.timestamp,
-        url: details.url,
-        stack: details.stack,
-      });
-    } else {
-      console.warn(logPrefix, {
-        message: details.message,
-        code: details.code,
-        timestamp: details.timestamp,
-      });
+    switch (severity) {
+      case 'fatal':
+        this.logger.fatal(details.message, details.raw, logData);
+        break;
+      case 'error':
+        this.logger.error(details.message, details.raw, logData);
+        break;
+      case 'warning':
+        this.logger.warn(details.message, logData);
+        break;
+      case 'info':
+        this.logger.info(details.message, logData);
+        break;
     }
   }
 
@@ -336,7 +401,7 @@ export class GlobalErrorHandler implements ErrorHandler {
   }
 
   /**
-   * Show user-friendly error notification (rate-limited)
+   * Show user-friendly error notification via NxtToastService (rate-limited)
    */
   private showErrorNotification(details: ErrorDetails, severity: ErrorSeverity): void {
     if (!isPlatformBrowser(this.platformId)) return;
@@ -354,12 +419,8 @@ export class GlobalErrorHandler implements ErrorHandler {
     // Get user-friendly message
     const userMessage = this.getUserFriendlyMessage(details);
 
-    // TODO: Use toast service when available
-    // For now, we just log that we would show a notification
-    console.info('[GlobalErrorHandler] Would show notification:', userMessage);
-
-    // Example with toast service:
-    // this.toastService.error(userMessage, 'Error');
+    // Show toast notification
+    this.toast.error(userMessage);
   }
 
   /**

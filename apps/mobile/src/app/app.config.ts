@@ -3,7 +3,7 @@
  * @module @nxt1/mobile
  *
  * Main application configuration for mobile app.
- * Uses shared error handling infrastructure from @nxt1/ui.
+ * Uses shared infrastructure from @nxt1/ui for consistency with web.
  */
 
 import { ApplicationConfig, provideZoneChangeDetection, ErrorHandler } from '@angular/core';
@@ -17,7 +17,12 @@ import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
 import { provideAuth, getAuth } from '@angular/fire/auth';
 
 // Shared Angular infrastructure from @nxt1/ui
-import { GlobalErrorHandler, httpErrorInterceptor } from '@nxt1/ui/infrastructure';
+import {
+  GlobalErrorHandler,
+  GLOBAL_ERROR_LOGGER,
+  httpErrorInterceptor,
+} from '@nxt1/ui/infrastructure';
+import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui/services';
 
 import { routes } from './app.routes';
 import { environment } from '../environments/environment';
@@ -54,6 +59,22 @@ export const appConfig: ApplicationConfig = {
     // Firebase
     provideFirebaseApp(() => initializeApp(environment.firebase)),
     provideAuth(() => getAuth()),
+
+    // ============================================
+    // LOGGING & ERROR HANDLING (same as web)
+    // ============================================
+
+    // Logging configuration
+    {
+      provide: LOGGING_CONFIG,
+      useValue: {
+        appVersion: environment.appVersion || '1.0.0',
+        // remoteEndpoint: environment.loggingEndpoint, // Enable when ready
+      },
+    },
+
+    // Provide shared logging service to GlobalErrorHandler
+    { provide: GLOBAL_ERROR_LOGGER, useExisting: NxtLoggingService },
 
     // Global error handler (shared with web)
     { provide: ErrorHandler, useClass: GlobalErrorHandler },

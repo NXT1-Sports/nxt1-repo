@@ -144,3 +144,27 @@ export {
   buildInitialFormDataFromUser,
   getRedirectPath,
 } from './onboarding-navigation.api';
+
+// ============================================
+// SESSION API (localStorage/sessionStorage)
+// ============================================
+export {
+  // Factory
+  createOnboardingSessionApi,
+  type OnboardingSessionApi,
+
+  // Types
+  type OnboardingSession,
+  type SessionOptions,
+
+  // Pure functions
+  createSession,
+  updateSession,
+  isSessionValid,
+  isSessionExpired,
+  saveSession,
+  loadSession,
+  deleteSession,
+  loadValidSession,
+  saveOrCreateSession,
+} from './onboarding-session.api';

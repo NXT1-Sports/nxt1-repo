@@ -119,6 +119,9 @@ export const STORAGE_KEYS = {
   // Onboarding
   ONBOARDING_COMPLETED: 'nxt1_onboarding_completed',
   ONBOARDING_STEP: 'nxt1_onboarding_step',
+  ONBOARDING_SESSION: 'nxt1_onboarding_session',
+  ONBOARDING_FORM_DATA: 'nxt1_onboarding_form_data',
+  ONBOARDING_SELECTED_ROLE: 'nxt1_onboarding_selected_role',
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];

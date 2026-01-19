@@ -485,6 +485,68 @@ ion-app {
   width: 100%;
   min-height: 100vh;
   min-height: 100dvh;
+  overflow: visible;
+}
+
+/* ============================================
+   AUTH SHELL SCROLL FIX
+   
+   NUCLEAR OPTION: Completely disable Ionic's internal
+   scroll mechanism for auth pages and use native 
+   document scrolling instead.
+   ============================================ */
+
+/* When auth shell is present, make ion-app flow naturally */
+ion-app:has(nxt1-auth-shell) {
+  position: static !important;
+  height: auto !important;
+  min-height: auto !important;
+  overflow: visible !important;
+  contain: none !important;
+}
+
+/* Make router outlet also flow naturally */
+ion-app:has(nxt1-auth-shell) ion-router-outlet {
+  position: static !important;
+  height: auto !important;
+  overflow: visible !important;
+  contain: none !important;
+}
+
+/* The page inside router outlet */
+ion-app:has(nxt1-auth-shell) ion-router-outlet > .ion-page {
+  position: static !important;
+  height: auto !important;
+  min-height: auto !important;
+  overflow: visible !important;
+  contain: none !important;
+}
+
+/* Auth shell itself */
+ion-app:has(nxt1-auth-shell) nxt1-auth-shell {
+  position: static !important;
+  height: auto !important;
+  min-height: auto !important;
+  overflow: visible !important;
+}
+
+/* CRITICAL: Disable ion-content's internal scrolling completely */
+ion-app:has(nxt1-auth-shell) ion-content.nxt1-auth-content {
+  position: static !important;
+  height: auto !important;
+  min-height: auto !important;
+  overflow: visible !important;
+  contain: none !important;
+  --offset-top: 0 !important;
+  --offset-bottom: 0 !important;
+}
+
+/* Override Ionic's internal shadow parts */
+ion-app:has(nxt1-auth-shell) ion-content.nxt1-auth-content::part(background),
+ion-app:has(nxt1-auth-shell) ion-content.nxt1-auth-content::part(scroll) {
+  position: static !important;
+  height: auto !important;
+  overflow: visible !important;
 }
 
 /* ============================================

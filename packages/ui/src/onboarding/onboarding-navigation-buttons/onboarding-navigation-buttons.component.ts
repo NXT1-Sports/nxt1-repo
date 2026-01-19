@@ -91,8 +91,8 @@ import { NxtPlatformService } from '../../services/platform';
         display: flex;
         align-items: center;
         justify-content: flex-end;
-        gap: 12px;
-        margin-top: 24px;
+        gap: var(--nxt1-spacing-3);
+        margin-top: var(--nxt1-spacing-6);
         width: 100%;
       }
 
@@ -126,9 +126,9 @@ import { NxtPlatformService } from '../../services/platform';
       }
 
       .nxt1-skip-btn:hover:not(:disabled) {
-        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.15));
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.05));
-        color: var(--nxt1-color-text-primary, #ffffff);
+        border-color: var(--nxt1-color-border-strong);
+        background: var(--nxt1-color-state-hover);
+        color: var(--nxt1-color-text-primary);
       }
 
       .nxt1-skip-btn:disabled {
@@ -137,28 +137,29 @@ import { NxtPlatformService } from '../../services/platform';
       }
 
       /* ============================================
-       CONTINUE BUTTON - DESKTOP
+       CONTINUE BUTTON - DESKTOP (Always full width primary style)
        ============================================ */
       .nxt1-continue-btn {
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 8px;
-        padding: 12px 28px;
-        background: var(--nxt1-color-primary, #ccff00);
+        gap: var(--nxt1-spacing-2);
+        width: 100%;
+        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-7);
+        background: var(--nxt1-color-primary);
         border: none;
-        border-radius: 10px;
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 15px;
+        border-radius: var(--nxt1-borderRadius-lg);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         font-weight: 700;
-        color: var(--nxt1-color-text-onPrimary, #000000);
+        color: var(--nxt1-color-text-onPrimary);
         cursor: pointer;
         transition: all 0.2s ease;
         white-space: nowrap;
       }
 
       .nxt1-continue-btn:hover:not(:disabled) {
-        background: var(--nxt1-color-primaryDark, #b8e600);
+        background: var(--nxt1-color-primaryDark);
         transform: translateY(-1px);
       }
 
@@ -173,17 +174,14 @@ import { NxtPlatformService } from '../../services/platform';
       }
 
       /* ============================================
-       COMPLETE BUTTON - DESKTOP: FULL WIDTH
+       COMPLETE BUTTON - Same style, no arrow icon
        ============================================ */
       .nxt1-continue-btn.completing {
-        background: var(--nxt1-color-primary, #ccff00);
-        color: var(--nxt1-color-text-onPrimary, #000000);
-        width: 100%;
-        padding: 16px 28px;
+        /* Same styling as continue - button text changes to "Complete" */
       }
 
       .nxt1-continue-btn.completing:hover:not(:disabled) {
-        background: var(--nxt1-color-primaryDark, #b8e600);
+        background: var(--nxt1-color-primaryDark);
         transform: translateY(-2px);
       }
 

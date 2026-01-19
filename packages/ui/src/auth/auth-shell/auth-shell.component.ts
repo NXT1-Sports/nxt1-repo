@@ -96,6 +96,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       [fullscreen]="true"
       [scrollY]="true"
       [forceOverscroll]="false"
+      scrollEvents="true"
     >
       <!-- Background Effects -->
       <div class="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
@@ -107,9 +108,9 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         ></div>
       </div>
 
-      <!-- Main Wrapper - fills viewport height, centered content -->
+      <!-- Main Wrapper - scrollable content area -->
       <div
-        class="nxt1-auth-wrapper relative z-10 flex min-h-full w-full flex-col items-center justify-center px-4 py-6"
+        class="nxt1-auth-wrapper relative z-10 flex w-full flex-col items-center px-4 py-6 md:py-10"
       >
         <!-- Logo -->
         @if (showLogo) {
@@ -178,38 +179,39 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
     `
       :host {
         display: block;
-        height: 100%;
+        width: 100%;
         min-height: 100vh;
         min-height: 100dvh;
-        position: relative;
+        position: static;
+        overflow: visible;
       }
 
       /* ============================================ */
       /* ION-CONTENT FIX FOR WEB SSR                 */
-      /* Ensures content is visible on all platforms */
+      /* Use static positioning to bypass Ionic's    */
+      /* internal scroll mechanism entirely          */
       /* ============================================ */
       ion-content.nxt1-auth-content {
         --background: transparent;
         display: block !important;
-        position: relative !important;
-        height: 100% !important;
-        min-height: 100vh !important;
-        min-height: 100dvh !important;
-        --overflow: auto;
-        overflow: auto;
+        position: static !important;
+        height: auto !important;
+        min-height: auto !important;
+        overflow: visible !important;
+        contain: none !important;
       }
 
       ion-content.nxt1-auth-content::part(background) {
+        position: static !important;
         background: transparent !important;
       }
 
       ion-content.nxt1-auth-content::part(scroll) {
         display: block !important;
-        position: relative !important;
-        min-height: 100vh !important;
-        min-height: 100dvh !important;
-        overflow-y: auto !important;
-        -webkit-overflow-scrolling: touch;
+        position: static !important;
+        height: auto !important;
+        min-height: auto !important;
+        overflow: visible !important;
       }
 
       /* ============================================ */

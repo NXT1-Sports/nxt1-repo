@@ -150,8 +150,6 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
       .nxt1-step-indicator.completed:not(.active) .nxt1-step-number {
         color: var(--nxt1-color-success, #22c55e);
       }
-        color: var(--nxt1-color-feedback-success, #22c55e);
-      }
 
       /* ============================================
        STEP CONNECTOR (Line between circles)

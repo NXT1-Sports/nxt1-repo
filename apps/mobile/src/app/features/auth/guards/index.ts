@@ -3,4 +3,11 @@
  * @module @nxt1/mobile/features/auth/guards
  */
 
-export { authGuard, guestGuard, premiumGuard, roleGuard } from './auth.guards';
+export {
+  authGuard,
+  guestGuard,
+  premiumGuard,
+  onboardingCompleteGuard,
+  onboardingInProgressGuard,
+  roleGuard,
+} from './auth.guards';

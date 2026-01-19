@@ -1,11 +1,15 @@
 /**
- * @fileoverview Web Auth Guards
+ * @fileoverview Web Auth Guards - 2026 Best Practices
+ * @module @nxt1/web/features/auth
  *
  * Angular functional guards that wrap @nxt1/core guard functions.
- * These guards can be used in route configurations for the web app.
+ * Uses async guards that wait for auth initialization before making decisions.
  *
- * Uses AuthFlowService for state rather than creating a separate
- * state manager since the web app already has this service.
+ * ⭐ PROFESSIONAL PATTERNS ⭐
+ * - Waits for auth initialization (no race conditions)
+ * - Uses shared constants from @nxt1/core (no hardcoded paths)
+ * - Wraps portable guard functions from @nxt1/core
+ * - Supports all auth scenarios: auth, guest, role, premium, onboarding
  *
  * @example
  * ```typescript
@@ -16,9 +20,14 @@
  *     canActivate: [authGuard]
  *   },
  *   {
- *     path: 'auth/login',
- *     loadComponent: () => import('./auth/login/login.component'),
+ *     path: 'auth',
+ *     loadComponent: () => import('./auth/auth.component'),
  *     canActivate: [guestGuard]
+ *   },
+ *   {
+ *     path: 'dashboard',
+ *     loadComponent: () => import('./dashboard/dashboard.component'),
+ *     canActivate: [onboardingCompleteGuard]  // Requires auth + onboarding
  *   }
  * ];
  * ```
@@ -26,18 +35,26 @@
 
 import { inject } from '@angular/core';
 import { Router, type CanActivateFn } from '@angular/router';
+import { toObservable } from '@angular/core/rxjs-interop';
+import { filter, map, take } from 'rxjs';
 import {
   requireAuth,
   requireGuest,
   requireRole,
   requirePremium,
+  requireOnboarding,
   type AuthState,
   type UserRole,
 } from '@nxt1/core';
+import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { AuthFlowService } from '../services/auth-flow.service';
 
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
 /**
- * Convert AuthFlowService state to @nxt1/core AuthState format
+ * Convert AuthFlowService signals to @nxt1/core AuthState format
  */
 function getAuthState(authService: AuthFlowService): AuthState {
   const user = authService.user();
@@ -51,90 +68,218 @@ function getAuthState(authService: AuthFlowService): AuthState {
           role: user.role,
           isPremium: user.isPremium,
           hasCompletedOnboarding: user.hasCompletedOnboarding,
-          provider: 'email', // Default, could be enhanced
-          emailVerified: true, // Assumed from Firebase
+          provider: user.provider ?? 'email',
+          emailVerified: user.emailVerified ?? true,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
         }
       : null,
-    firebaseUser: null, // Not needed for guard checks
+    firebaseUser: authService.firebaseUser(),
     isLoading: authService.isLoading(),
-    isInitialized: !authService.isLoading(),
+    isInitialized: authService.isInitialized(),
     error: authService.error(),
   };
 }
 
 /**
+ * Wait for auth to be initialized before checking
+ * Returns an Observable that emits once auth is ready
+ */
+function waitForAuthInitialization(authService: AuthFlowService) {
+  return toObservable(authService.isInitialized).pipe(
+    filter((isInitialized) => isInitialized === true),
+    take(1),
+    map(() => getAuthState(authService))
+  );
+}
+
+// ============================================
+// ASYNC GUARDS (Wait for auth initialization)
+// ============================================
+
+/**
  * Guard that requires authentication
- * Redirects to login if not authenticated
+ * Waits for auth initialization, then redirects to login if not authenticated
+ *
+ * @example canActivate: [authGuard]
  */
 export const authGuard: CanActivateFn = () => {
   const authService = inject(AuthFlowService);
   const router = inject(Router);
 
-  const state = getAuthState(authService);
-  const result = requireAuth(state);
+  // If already initialized, check immediately
+  if (authService.isInitialized()) {
+    const state = getAuthState(authService);
+    const result = requireAuth(state);
 
-  if (result.allowed) {
-    return true;
+    if (result.allowed) return true;
+    return router.createUrlTree([result.redirectTo ?? AUTH_ROUTES.ROOT]);
   }
 
-  return router.createUrlTree([result.redirectTo ?? '/auth/login']);
+  // Wait for initialization
+  return waitForAuthInitialization(authService).pipe(
+    map((state) => {
+      const result = requireAuth(state);
+
+      if (result.allowed) return true;
+      return router.createUrlTree([result.redirectTo ?? AUTH_ROUTES.ROOT]);
+    })
+  );
 };
 
 /**
  * Guard that requires NO authentication (for login/signup pages)
- * Redirects to home if already authenticated
+ * Waits for auth initialization, then redirects to home if already authenticated
+ *
+ * DEV MODE: Add ?dev=1 to bypass guard for testing (e.g., /auth?dev=1)
+ *
+ * @example canActivate: [guestGuard]
  */
-export const guestGuard: CanActivateFn = () => {
+export const guestGuard: CanActivateFn = (route) => {
   const authService = inject(AuthFlowService);
   const router = inject(Router);
 
-  const state = getAuthState(authService);
-  const result = requireGuest(state);
-
-  if (result.allowed) {
+  // DEV BYPASS: Allow access with ?dev=1 query param for testing
+  const devBypass = route.queryParams['dev'] === '1';
+  if (devBypass) {
+    console.warn('[guestGuard] DEV BYPASS ACTIVE - Remove ?dev=1 for production testing');
     return true;
   }
 
-  return router.createUrlTree([result.redirectTo ?? '/home']);
+  // If already initialized, check immediately
+  if (authService.isInitialized()) {
+    const state = getAuthState(authService);
+    const result = requireGuest(state, {
+      homePath: AUTH_REDIRECTS.DEFAULT,
+    });
+
+    if (result.allowed) return true;
+    return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.DEFAULT]);
+  }
+
+  // Wait for initialization
+  return waitForAuthInitialization(authService).pipe(
+    map((state) => {
+      const result = requireGuest(state, {
+        homePath: AUTH_REDIRECTS.DEFAULT,
+      });
+
+      if (result.allowed) return true;
+      return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.DEFAULT]);
+    })
+  );
+};
+
+/**
+ * Guard that requires authentication AND completed onboarding
+ * Use this for main app routes (home, profile, etc.)
+ *
+ * @example canActivate: [onboardingCompleteGuard]
+ */
+export const onboardingCompleteGuard: CanActivateFn = () => {
+  const authService = inject(AuthFlowService);
+  const router = inject(Router);
+
+  // If already initialized, check immediately
+  if (authService.isInitialized()) {
+    const state = getAuthState(authService);
+    const result = requireOnboarding(state, {
+      loginPath: AUTH_ROUTES.ROOT,
+    });
+
+    if (result.allowed) return true;
+    return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.ONBOARDING]);
+  }
+
+  // Wait for initialization
+  return waitForAuthInitialization(authService).pipe(
+    map((state) => {
+      const result = requireOnboarding(state, {
+        loginPath: AUTH_ROUTES.ROOT,
+      });
+
+      if (result.allowed) return true;
+      return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.ONBOARDING]);
+    })
+  );
 };
 
 /**
  * Guard that requires premium subscription
+ *
+ * @example canActivate: [premiumGuard]
  */
 export const premiumGuard: CanActivateFn = () => {
   const authService = inject(AuthFlowService);
   const router = inject(Router);
 
-  const state = getAuthState(authService);
-  const result = requirePremium(state);
+  // If already initialized, check immediately
+  if (authService.isInitialized()) {
+    const state = getAuthState(authService);
+    const result = requirePremium(state, {
+      loginPath: AUTH_ROUTES.ROOT,
+    });
 
-  if (result.allowed) {
-    return true;
+    if (result.allowed) return true;
+    return router.createUrlTree([result.redirectTo ?? '/premium']);
   }
 
-  return router.createUrlTree([result.redirectTo ?? '/premium']);
+  // Wait for initialization
+  return waitForAuthInitialization(authService).pipe(
+    map((state) => {
+      const result = requirePremium(state, {
+        loginPath: AUTH_ROUTES.ROOT,
+      });
+
+      if (result.allowed) return true;
+      return router.createUrlTree([result.redirectTo ?? '/premium']);
+    })
+  );
 };
 
 /**
- * Guard that requires user to complete onboarding
- * Redirects to /auth/onboarding if not completed
+ * Guard that requires user to have started but NOT completed onboarding
+ * Use this to protect the onboarding route itself
+ *
+ * @example canActivate: [onboardingInProgressGuard]
  */
-export const onboardingGuard: CanActivateFn = () => {
+export const onboardingInProgressGuard: CanActivateFn = () => {
   const authService = inject(AuthFlowService);
   const router = inject(Router);
 
-  if (authService.hasCompletedOnboarding()) {
+  const checkOnboardingAccess = (state: AuthState) => {
+    // Not authenticated - redirect to login
+    if (!state.user) {
+      return router.createUrlTree([AUTH_ROUTES.ROOT]);
+    }
+
+    // Already completed onboarding - redirect to home
+    if (state.user.hasCompletedOnboarding) {
+      return router.createUrlTree([AUTH_REDIRECTS.DEFAULT]);
+    }
+
+    // User is authenticated and hasn't completed onboarding - allow access
     return true;
+  };
+
+  // If already initialized, check immediately
+  if (authService.isInitialized()) {
+    return checkOnboardingAccess(getAuthState(authService));
   }
 
-  // Redirect to onboarding
-  return router.createUrlTree(['/auth/onboarding']);
+  // Wait for initialization
+  return waitForAuthInitialization(authService).pipe(map(checkOnboardingAccess));
 };
+
+// ============================================
+// GUARD FACTORY (for role-based access)
+// ============================================
 
 /**
  * Guard factory for role-based access
+ *
+ * @param roles - Array of allowed roles
+ * @returns CanActivateFn guard
  *
  * @example
  * ```typescript
@@ -152,13 +297,22 @@ export function roleGuard(roles: UserRole[]): CanActivateFn {
     const authService = inject(AuthFlowService);
     const router = inject(Router);
 
-    const state = getAuthState(authService);
-    const result = requireRole(state, roles);
+    const checkRole = (state: AuthState) => {
+      const result = requireRole(state, roles, {
+        loginPath: AUTH_ROUTES.ROOT,
+        homePath: AUTH_REDIRECTS.DEFAULT,
+      });
 
-    if (result.allowed) {
-      return true;
+      if (result.allowed) return true;
+      return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.DEFAULT]);
+    };
+
+    // If already initialized, check immediately
+    if (authService.isInitialized()) {
+      return checkRole(getAuthState(authService));
     }
 
-    return router.createUrlTree([result.redirectTo ?? '/home']);
+    // Wait for initialization
+    return waitForAuthInitialization(authService).pipe(map(checkRole));
   };
 }

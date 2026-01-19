@@ -9,6 +9,7 @@
  *
  * Components:
  * - OnboardingRoleSelectionComponent - Step 1: Role selection
+ * - OnboardingProfileStepComponent - Step 2: Profile (name, photo)
  * - OnboardingProgressBarComponent - Step indicators with navigation
  * - OnboardingNavigationButtonsComponent - Skip/Continue buttons
  * - OnboardingStepCardComponent - Container for step content
@@ -33,6 +34,15 @@
  *           [selectedRole]="selectedRole()"
  *           [disabled]="isLoading()"
  *           (roleSelected)="onRoleSelect($event)"
+ *         />
+ *       }
+ *       @case ('profile') {
+ *         <nxt1-onboarding-profile-step
+ *           [profileData]="profileFormData()"
+ *           [disabled]="isLoading()"
+ *           (profileChange)="onProfileChange($event)"
+ *           (photoSelect)="onPhotoSelect()"
+ *           (fileSelected)="onFileSelected($event)"
  *         />
  *       }
  *     }
@@ -60,6 +70,11 @@ export {
 } from './onboarding-role-selection';
 
 // ============================================
+// PROFILE STEP (Step 2)
+// ============================================
+export { OnboardingProfileStepComponent } from './onboarding-profile-step';
+
+// ============================================
 // PROGRESS BAR
 // ============================================
 export { OnboardingProgressBarComponent } from './onboarding-progress-bar';
@@ -72,4 +87,8 @@ export { OnboardingNavigationButtonsComponent } from './onboarding-navigation-bu
 // ============================================
 // STEP CARD
 // ============================================
-export { OnboardingStepCardComponent } from './onboarding-step-card';
+export {
+  OnboardingStepCardComponent,
+  type StepCardVariant,
+  type AnimationDirection,
+} from './onboarding-step-card';

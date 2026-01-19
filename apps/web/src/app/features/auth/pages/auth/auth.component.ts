@@ -98,6 +98,7 @@ import type { ValidatedTeamInfo } from '@nxt1/core';
               [state]="teamCodeState()"
               [teamCode]="teamCodeInput"
               [validatedTeam]="validatedTeam()"
+              [errorMessage]="teamCodeError()"
               (teamCodeChange)="onTeamCodeInputChange($event)"
               (validate)="onValidateTeamCode()"
               (continue)="onContinueWithTeam()"

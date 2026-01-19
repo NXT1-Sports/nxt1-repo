@@ -48,7 +48,12 @@ import { provideIonicAngular, IonicRouteStrategy } from '@ionic/angular/standalo
 import { routes } from './app.routes';
 
 // Shared Angular infrastructure from @nxt1/ui
-import { GlobalErrorHandler, httpErrorInterceptor } from '@nxt1/ui/infrastructure';
+import {
+  GlobalErrorHandler,
+  GLOBAL_ERROR_LOGGER,
+  httpErrorInterceptor,
+} from '@nxt1/ui/infrastructure';
+import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui/services';
 
 // Core infrastructure (app-specific)
 import { httpCacheInterceptor } from './core/infrastructure';
@@ -172,8 +177,20 @@ export const appConfig: ApplicationConfig = {
     { provide: AUTH_SERVICE, useClass: BrowserAuthService },
 
     // ============================================
-    // ERROR HANDLING
+    // LOGGING & ERROR HANDLING
     // ============================================
+
+    // Logging configuration (optional - defaults are sensible)
+    {
+      provide: LOGGING_CONFIG,
+      useValue: {
+        appVersion: environment.version || '1.0.0',
+        remoteEndpoint: environment.loggingEndpoint,
+      },
+    },
+
+    // Provide shared logging service to GlobalErrorHandler
+    { provide: GLOBAL_ERROR_LOGGER, useExisting: NxtLoggingService },
 
     // Global error handler - catches all unhandled errors
     // Handles chunk loading failures, tracks errors, provides recovery

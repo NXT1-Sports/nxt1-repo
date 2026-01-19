@@ -78,14 +78,15 @@
    AUTH PAGE CONTAINER
    ============================================ */
 
-/* Disable scrolling on auth pages */
+/* Enable scrolling on auth pages for content overflow */
 .nxt1-auth-content {
-  --overflow: hidden;
+  --overflow: auto;
 }
 
 .nxt1-auth-content::part(scroll) {
-  overflow: hidden !important;
-  overscroll-behavior: none;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
 }
 
 .nxt1-auth-page {
@@ -135,13 +136,15 @@ ion-content.nxt1-auth-page {
    Instead, we use min-height with flexbox on the wrapper itself.
    ============================================ */
 
-/* Ensure the auth shell component takes full width */
+/* Ensure the auth shell component takes full width and allows scroll */
 nxt1-auth-shell {
   display: block;
   width: 100%;
   min-height: 100vh;
   min-height: 100dvh;
   background-color: var(--nxt1-color-bg-primary, #0a0a0a);
+  position: static;
+  overflow: visible;
 }
 
 /* Pre-hydration: Give ion-content dimensions before Ionic defines it */
@@ -159,15 +162,18 @@ ion-content.nxt1-auth-content {
 }
 
 /* The wrapper inside ion-content handles centering
-   IMPORTANT: These styles work both pre and post hydration */
+   IMPORTANT: These styles work both pre and post hydration
+   NOTE: Use justify-start (not center) to allow scrolling when content overflows */
 .nxt1-auth-wrapper {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   width: 100%;
   min-height: 100vh;
   min-height: 100dvh;
+  padding-top: 60px;
+  padding-bottom: 40px;
   /* Prevent flash - ensure background is set */
   background-color: transparent;
 }

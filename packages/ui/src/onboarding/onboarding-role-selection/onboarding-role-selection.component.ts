@@ -136,30 +136,30 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
       .nxt1-role-options {
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: var(--nxt1-spacing-3);
         width: 100%;
       }
 
       /* ============================================
-       ROLE CARD
+       ROLE CARD - Matches auth page glassmorphic style
        ============================================ */
       .nxt1-role-card {
         display: flex;
         align-items: center;
-        gap: 16px;
+        gap: var(--nxt1-spacing-4);
         width: 100%;
-        padding: 16px 20px;
-        background: var(--nxt1-color-surface-100, #1a1a1a);
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        border-radius: 12px;
+        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-5);
+        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
         cursor: pointer;
         transition: all 0.2s ease;
         text-align: left;
       }
 
       .nxt1-role-card:hover:not(.selected):not(:disabled) {
-        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        background: var(--nxt1-color-surface-200, #1f1f1f);
+        border-color: var(--nxt1-color-border-strong);
+        background: var(--nxt1-color-state-hover);
         transform: translateY(-1px);
       }
 
@@ -187,17 +187,17 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
        ROLE ICON
        ============================================ */
       .nxt1-role-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 12px;
-        background: var(--nxt1-color-surface-200, #1f1f1f);
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        width: var(--nxt1-spacing-12);
+        height: var(--nxt1-spacing-12);
+        border-radius: var(--nxt1-borderRadius-lg);
+        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-default);
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
         transition: all 0.2s ease;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
       }
 
       /* ============================================
@@ -206,22 +206,22 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
       .nxt1-role-content {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: var(--nxt1-spacing-1);
         flex: 1;
         min-width: 0;
       }
 
       .nxt1-role-label {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 16px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         font-weight: 600;
         color: var(--nxt1-color-text-primary, #ffffff);
         transition: color 0.2s ease;
       }
 
       .nxt1-role-description {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 13px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         line-height: 1.4;
       }
@@ -230,8 +230,8 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
        CHECK INDICATOR
        ============================================ */
       .nxt1-role-check {
-        width: 24px;
-        height: 24px;
+        width: var(--nxt1-spacing-6);
+        height: var(--nxt1-spacing-6);
         border-radius: 50%;
         background: var(--nxt1-color-primary, #ccff00);
         display: flex;

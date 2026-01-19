@@ -10,10 +10,10 @@
  * - Rate limit detection with retry-after support
  * - Network error detection
  * - Error transformation to NxtApiError
- * - Optional toast notifications
+ * - Toast notifications via NxtToastService
  *
  * @author NXT1 Engineering
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 import { inject, PLATFORM_ID } from '@angular/core';
@@ -33,6 +33,7 @@ import {
   getRetryDelay,
   type ApiErrorDetail,
 } from '@nxt1/core/errors';
+import { NxtToastService } from '../../services/toast';
 
 /**
  * HTTP Error Interceptor Configuration
@@ -80,6 +81,7 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
   return (req: HttpRequest<unknown>, next: HttpHandlerFn) => {
     const router = inject(Router);
     const platformId = inject(PLATFORM_ID);
+    const toast = inject(NxtToastService);
 
     // Check if request should be skipped
     const shouldSkip = config.skipPatterns.some((pattern) => pattern.test(req.url));
@@ -112,7 +114,7 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
 
         // Show notification if enabled
         if (config.showNotifications && isPlatformBrowser(platformId)) {
-          showErrorNotification(apiError, error.status);
+          showErrorNotification(toast, apiError, error.status);
         }
 
         // Re-throw as parsed error for consumers
@@ -188,11 +190,14 @@ function handleNetworkError(platformId: object): void {
 }
 
 /**
- * Show error notification to user
- * TODO: Integrate with toast service
+ * Show error notification to user via NxtToastService
  */
-function showErrorNotification(apiError: ApiErrorDetail, status: number): void {
-  // Skip showing notifications for expected auth errors
+function showErrorNotification(
+  toast: NxtToastService,
+  apiError: ApiErrorDetail,
+  status: number
+): void {
+  // Skip showing notifications for expected auth errors (handled by auth flow)
   if (
     apiError.code === API_ERROR_CODES.AUTH_INVALID_CREDENTIALS ||
     apiError.code === API_ERROR_CODES.AUTH_TOKEN_EXPIRED
@@ -200,17 +205,34 @@ function showErrorNotification(apiError: ApiErrorDetail, status: number): void {
     return;
   }
 
-  // Skip validation errors (handled by form)
+  // Skip validation errors (handled by form validation UI)
   if (apiError.code === API_ERROR_CODES.VAL_INVALID_INPUT) {
+    return;
+  }
+
+  // Skip 404 errors for API calls that handle their own errors
+  // (e.g., team code validation returns valid: false instead of throwing)
+  if (status === 404) {
     return;
   }
 
   // Get user-friendly message
   const message = getUserFriendlyMessage(apiError, status);
 
-  // TODO: Use toast service
-  // toastService.error(message);
-  console.info('[HTTP Error] Would show notification:', message);
+  // Show toast notification
+  if (status === 0) {
+    // Network error - warning (might be temporary)
+    toast.warning(message);
+  } else if (status >= 500) {
+    // Server error
+    toast.error(message);
+  } else if (status === 429) {
+    // Rate limited - warning
+    toast.warning(message);
+  } else {
+    // Other client errors
+    toast.error(message);
+  }
 }
 
 /**

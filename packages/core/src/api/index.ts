@@ -110,4 +110,18 @@ export {
   buildInitialFormDataFromTeamCode,
   buildInitialFormDataFromUser,
   getRedirectPath,
+  // Session API (localStorage/sessionStorage persistence)
+  createOnboardingSessionApi,
+  type OnboardingSessionApi,
+  type OnboardingSession,
+  type SessionOptions,
+  createSession,
+  updateSession,
+  isSessionValid,
+  isSessionExpired,
+  saveSession,
+  loadSession,
+  deleteSession,
+  loadValidSession,
+  saveOrCreateSession,
 } from './onboarding';

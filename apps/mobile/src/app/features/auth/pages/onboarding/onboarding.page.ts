@@ -17,9 +17,11 @@
  * │         Pure functions, types, step configurations         │
  * └────────────────────────────────────────────────────────────┘
  *
- * State Machine Steps:
- * 1. Role Selection (Who are you?)
- * 2+ Dynamic steps based on selected role
+ * Features:
+ * - Session persistence (Capacitor Preferences) for resume capability
+ * - Step transition animations (fade + slide)
+ * - Native haptic feedback
+ * - Unified step counting (role = step 1)
  *
  * Route: /auth/onboarding
  *
@@ -34,6 +36,7 @@ import {
   computed,
   OnInit,
   OnDestroy,
+  effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
@@ -43,9 +46,11 @@ import { IonContent, IonFooter } from '@ionic/angular/standalone';
 import { AuthShellComponent, AuthTitleComponent, AuthSubtitleComponent } from '@nxt1/ui/auth';
 import {
   OnboardingRoleSelectionComponent,
+  OnboardingProfileStepComponent,
   OnboardingProgressBarComponent,
   OnboardingNavigationButtonsComponent,
   OnboardingStepCardComponent,
+  type AnimationDirection,
 } from '@nxt1/ui/onboarding';
 
 // Core API - Types & Constants
@@ -54,11 +59,16 @@ import {
   type OnboardingStepId,
   type OnboardingStep,
   type OnboardingFormData,
+  type ProfileFormData,
   ONBOARDING_STEPS,
   ROLE_SELECTION_STEP,
   validateStep,
+  // Session persistence
+  createOnboardingSessionApi,
+  type OnboardingSession,
 } from '@nxt1/core/api';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
+import { createCapacitorStorageAdapter, STORAGE_KEYS } from '@nxt1/core/storage';
 
 // App Services
 import { AuthFlowService, AuthErrorHandler } from '../../services';
@@ -94,6 +104,9 @@ interface PartialOnboardingFormData extends Omit<Partial<OnboardingFormData>, 'u
 /** Default steps before role selection */
 const DEFAULT_STEPS: OnboardingStep[] = [ROLE_SELECTION_STEP];
 
+/** Session expiry time (24 hours in milliseconds) */
+const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
+
 // ============================================
 // COMPONENT
 // ============================================
@@ -110,6 +123,7 @@ const DEFAULT_STEPS: OnboardingStep[] = [ROLE_SELECTION_STEP];
     AuthTitleComponent,
     AuthSubtitleComponent,
     OnboardingRoleSelectionComponent,
+    OnboardingProfileStepComponent,
     OnboardingProgressBarComponent,
     OnboardingNavigationButtonsComponent,
     OnboardingStepCardComponent,
@@ -133,16 +147,22 @@ const DEFAULT_STEPS: OnboardingStep[] = [ROLE_SELECTION_STEP];
 
         <!-- Main Content -->
         <div authContent>
-          <!-- Progress Indicator -->
-          <nxt1-onboarding-progress-bar
-            [steps]="steps()"
-            [currentStepIndex]="currentStepIndex()"
-            [completedStepIds]="completedStepIds()"
-            (stepClick)="goToStep($event)"
-          />
+          <!-- Progress Indicator (hidden on role selection step) -->
+          @if (currentStep().id !== 'role') {
+            <nxt1-onboarding-progress-bar
+              [steps]="steps()"
+              [currentStepIndex]="currentStepIndex()"
+              [completedStepIds]="completedStepIds()"
+              (stepClick)="goToStep($event)"
+            />
+          }
 
-          <!-- Step Card Container -->
-          <nxt1-onboarding-step-card [error]="error()">
+          <!-- Step Card Container with Animations -->
+          <nxt1-onboarding-step-card
+            [error]="error()"
+            [animationDirection]="animationDirection()"
+            [animationKey]="currentStep().id"
+          >
             <!-- Step 1: Role Selection -->
             @if (currentStep().id === 'role') {
               <nxt1-onboarding-role-selection
@@ -152,8 +172,19 @@ const DEFAULT_STEPS: OnboardingStep[] = [ROLE_SELECTION_STEP];
               />
             }
 
-            <!-- Future Steps: Profile, School, etc. (placeholder for now) -->
-            @if (currentStep().id !== 'role') {
+            <!-- Step 2: Profile -->
+            @if (currentStep().id === 'profile') {
+              <nxt1-onboarding-profile-step
+                [profileData]="profileFormData()"
+                [disabled]="isLoading()"
+                (profileChange)="onProfileChange($event)"
+                (photoSelect)="onPhotoSelect()"
+                (fileSelected)="onFileSelected($event)"
+              />
+            }
+
+            <!-- Future Steps: School, Organization, Sport, etc. -->
+            @if (currentStep().id !== 'role' && currentStep().id !== 'profile') {
               <div class="py-12 text-center">
                 <div
                   class="bg-surface-200 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
@@ -221,6 +252,54 @@ export class OnboardingPage implements OnInit, OnDestroy {
   private readonly toast = inject(NxtToastService);
 
   // ============================================
+  // SESSION PERSISTENCE
+  // ============================================
+
+  /** Capacitor storage adapter for session persistence */
+  private readonly storage = createCapacitorStorageAdapter();
+
+  /** Session API for save/load operations */
+  private readonly sessionApi = createOnboardingSessionApi(this.storage);
+
+  /** Track if we've already initialized the onboarding flow */
+  private hasInitialized = false;
+
+  constructor() {
+    // Use effect to initialize the onboarding flow once auth is ready
+    // Note: Route guard (onboardingInProgressGuard) handles auth checks and redirects
+    // This effect just initializes the state machine when user data is available
+    effect(() => {
+      const isInitialized = this.authFlow.isInitialized();
+      const user = this.authFlow.user();
+
+      // Skip if already initialized
+      if (this.hasInitialized) {
+        return;
+      }
+
+      // Wait for auth to be initialized and user to be available
+      // Guard ensures we only get here with valid auth state
+      if (!isInitialized || !user) {
+        return;
+      }
+
+      // Mark as initialized to prevent re-running
+      this.hasInitialized = true;
+
+      // Try to restore session from Capacitor storage
+      this.restoreSession(user.uid).then((restored) => {
+        if (!restored) {
+          // No valid session - start fresh
+          this._state.set('role_selection');
+          this._currentStepIndex.set(0);
+          // Track onboarding started event
+          this.trackStarted();
+        }
+      });
+    });
+  }
+
+  // ============================================
   // STATE SIGNALS
   // ============================================
 
@@ -248,9 +327,15 @@ export class OnboardingPage implements OnInit, OnDestroy {
   /** Form data - uses shared types from @nxt1/core */
   private readonly _formData = signal<PartialOnboardingFormData>({ userType: null });
 
+  /** Animation direction for step transitions */
+  readonly animationDirection = signal<AnimationDirection>('none');
+
   // ============================================
   // COMPUTED SIGNALS
   // ============================================
+
+  /** Profile form data computed from _formData */
+  readonly profileFormData = computed(() => this._formData().profile ?? null);
 
   /** Current steps array */
   readonly steps = computed(() => this._steps());
@@ -275,7 +360,12 @@ export class OnboardingPage implements OnInit, OnDestroy {
   readonly canGoBack = computed(() => this._currentStepIndex() > 0);
 
   /** Whether current step is the last step */
-  readonly isLastStep = computed(() => this._currentStepIndex() === this._steps().length - 1);
+  readonly isLastStep = computed(() => {
+    // Role selection is never the last step (even if it's the only step in the array initially)
+    const currentStep = this.currentStep();
+    if (currentStep.id === 'role') return false;
+    return this._currentStepIndex() === this._steps().length - 1;
+  });
 
   /** Whether current step is optional */
   readonly isCurrentStepOptional = computed(() => !this.currentStep().required);
@@ -303,27 +393,8 @@ export class OnboardingPage implements OnInit, OnDestroy {
   // ============================================
 
   ngOnInit(): void {
-    // Check if user is authenticated
-    const user = this.authFlow.user();
-    if (!user) {
-      console.warn('[Onboarding] No authenticated user, redirecting to auth');
-      void this.router.navigate([AUTH_ROUTES.ROOT]);
-      return;
-    }
-
-    // Check if user already completed onboarding
-    if (user.hasCompletedOnboarding) {
-      console.info('[Onboarding] User already completed onboarding, redirecting to home');
-      void this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
-      return;
-    }
-
-    // Initialize state machine to role selection
-    this._state.set('role_selection');
-    this._currentStepIndex.set(0);
-
-    // Track onboarding started event
-    this.trackStarted();
+    // Auth checking is handled in constructor effect
+    // to wait for auth initialization
   }
 
   ngOnDestroy(): void {
@@ -371,8 +442,13 @@ export class OnboardingPage implements OnInit, OnDestroy {
    */
   async goToStep(index: number): Promise<void> {
     if (this.canNavigateToStep(index)) {
+      const currentIndex = this._currentStepIndex();
       await this.haptics.impact('light');
+      // Set animation direction based on navigation direction
+      this.animationDirection.set(index > currentIndex ? 'forward' : 'backward');
       this._currentStepIndex.set(index);
+      // Save session after navigation
+      void this.saveSession();
     }
   }
 
@@ -387,6 +463,37 @@ export class OnboardingPage implements OnInit, OnDestroy {
     await this.haptics.selection();
     this.selectedRole.set(type);
     this._formData.update((data) => ({ ...data, userType: type }));
+  }
+
+  /**
+   * Handle profile data change (Step 2)
+   */
+  onProfileChange(profileData: ProfileFormData): void {
+    this._formData.update((data) => ({
+      ...data,
+      profile: profileData,
+    }));
+  }
+
+  /**
+   * Handle photo select button click (for native photo picker)
+   * On mobile, this can trigger the Capacitor Camera plugin
+   */
+  async onPhotoSelect(): Promise<void> {
+    await this.haptics.selection();
+    // Note: Native photo picker integration handled by Capacitor Camera plugin
+    // The file input fallback in the component handles web file selection
+    console.debug('[Onboarding] Photo select triggered - using file input fallback');
+  }
+
+  /**
+   * Handle file selected from web file picker
+   * The component already creates a preview, this is for upload handling
+   */
+  async onFileSelected(file: File): Promise<void> {
+    console.debug('[Onboarding] File selected:', file.name, file.size);
+    // TODO: Upload to Firebase Storage when backend integration is ready
+    // For now, the component handles preview locally via DataURL
   }
 
   /**
@@ -407,16 +514,23 @@ export class OnboardingPage implements OnInit, OnDestroy {
       return newSet;
     });
 
-    // Handle role step specially - reconfigure steps based on selection
+    // Handle role step specially - reconfigure steps and navigate
+    // configureStepsForRole() handles the navigation internally
     if (step.id === 'role') {
       this.configureStepsForRole();
+      return; // Already navigated to step 2 in configureStepsForRole
     }
+
+    // Set animation direction for forward navigation
+    this.animationDirection.set('forward');
 
     // Navigate to next step or complete
     if (this.isLastStep()) {
       await this.completeOnboarding();
     } else {
       this._currentStepIndex.update((i) => i + 1);
+      // Save session after step completion
+      void this.saveSession();
     }
   }
 
@@ -436,11 +550,16 @@ export class OnboardingPage implements OnInit, OnDestroy {
       return newSet;
     });
 
+    // Set animation direction for forward navigation
+    this.animationDirection.set('forward');
+
     // Navigate to next step or complete
     if (this.isLastStep()) {
       await this.completeOnboarding();
     } else {
       this._currentStepIndex.update((i) => i + 1);
+      // Save session after step skip
+      void this.saveSession();
     }
   }
 
@@ -450,7 +569,11 @@ export class OnboardingPage implements OnInit, OnDestroy {
   async onBack(): Promise<void> {
     if (this._currentStepIndex() > 0) {
       await this.haptics.impact('light');
+      // Set animation direction for backward navigation
+      this.animationDirection.set('backward');
       this._currentStepIndex.update((i) => i - 1);
+      // Save session after back navigation
+      void this.saveSession();
     }
   }
 
@@ -460,6 +583,9 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
   /**
    * Configure steps based on selected role
+   *
+   * IMPORTANT: Role selection step (step 1) is always included in the total count.
+   * This ensures a unified wizard experience: Step 1 (role) → Step 2 (profile) → etc.
    */
   private configureStepsForRole(): void {
     const role = this.selectedRole();
@@ -468,14 +594,29 @@ export class OnboardingPage implements OnInit, OnDestroy {
       return;
     }
 
-    // Use shared step configuration from @nxt1/core
-    const steps = ONBOARDING_STEPS[role] ?? ONBOARDING_STEPS.athlete;
-    this._steps.set(steps);
+    // Get role-specific steps from @nxt1/core
+    const roleSteps = ONBOARDING_STEPS[role] ?? ONBOARDING_STEPS.athlete;
+
+    // Always include role selection as step 1 for unified step counting
+    // This matches 2026 best practice: single-page wizard with consistent progress
+    const allSteps = [ROLE_SELECTION_STEP, ...roleSteps];
+    this._steps.set(allSteps);
+
+    // Set animation direction for forward navigation
+    this.animationDirection.set('forward');
+
+    // Move to step 2 (profile) - role was step 1
+    this._currentStepIndex.set(1);
 
     // Track role selection
     this.trackRoleSelected(role);
 
-    console.info(`[Onboarding] Configured ${steps.length} steps for role: ${role}`);
+    // Save session after role configuration
+    void this.saveSession();
+
+    console.info(
+      `[Onboarding] Configured ${allSteps.length} total steps (including role) for: ${role}`
+    );
   }
 
   /**
@@ -502,6 +643,9 @@ export class OnboardingPage implements OnInit, OnDestroy {
       // Note: Backend integration pending - tracking completion only
       console.info('[Onboarding] Completing onboarding for user:', user.uid);
       console.debug('[Onboarding] Form data:', this._formData());
+
+      // Clear session from storage - onboarding complete!
+      await this.clearSession();
 
       // Mark state as complete
       this._state.set('complete');
@@ -594,5 +738,124 @@ export class OnboardingPage implements OnInit, OnDestroy {
       error: errorMessage,
       step: this.currentStep()?.id,
     });
+  }
+
+  // ============================================
+  // SESSION PERSISTENCE
+  // ============================================
+
+  /**
+   * Save current session state to Capacitor Preferences.
+   * Called after each step navigation/completion.
+   */
+  private async saveSession(): Promise<void> {
+    const user = this.authFlow.user();
+    if (!user) return;
+
+    try {
+      const session: OnboardingSession = this.sessionApi.updateSession(
+        this.sessionApi.createSession(user.uid),
+        {
+          stepIndex: this._currentStepIndex(),
+          selectedRole: this.selectedRole(),
+          completedSteps: Array.from(this._completedSteps()) as OnboardingStepId[],
+          formData: this._formData() as OnboardingFormData,
+        }
+      );
+
+      await this.sessionApi.saveSession(session);
+      console.debug('[Onboarding] Session saved:', {
+        step: this.currentStep()?.id,
+        index: session.stepIndex,
+      });
+    } catch (err) {
+      // Non-critical - log but don't interrupt flow
+      console.warn('[Onboarding] Failed to save session:', err);
+    }
+  }
+
+  /**
+   * Restore session from Capacitor Preferences.
+   * Called during initialization to resume previous progress.
+   *
+   * @param userId - Current user's ID to verify session belongs to them
+   * @returns True if session was restored, false if starting fresh
+   */
+  private async restoreSession(userId: string): Promise<boolean> {
+    try {
+      const session = await this.sessionApi.loadValidSession(userId, {
+        expiryMs: SESSION_EXPIRY_MS,
+      });
+
+      // No valid session found
+      if (!session) {
+        console.debug('[Onboarding] No valid session found, starting fresh');
+        return false;
+      }
+
+      // Restore state from session
+      console.info('[Onboarding] Restoring session:', {
+        index: session.stepIndex,
+        role: session.selectedRole,
+        completedSteps: session.completedSteps,
+      });
+
+      // Restore role if previously selected
+      if (session.selectedRole) {
+        this.selectedRole.set(session.selectedRole);
+
+        // Reconfigure steps for the role
+        const roleSteps = ONBOARDING_STEPS[session.selectedRole] ?? ONBOARDING_STEPS.athlete;
+        const allSteps = [ROLE_SELECTION_STEP, ...roleSteps];
+        this._steps.set(allSteps);
+      }
+
+      // Restore completed steps
+      if (session.completedSteps?.length) {
+        this._completedSteps.set(new Set(session.completedSteps));
+      }
+
+      // Restore form data
+      if (session.formData) {
+        this._formData.set(session.formData as PartialOnboardingFormData);
+      }
+
+      // Restore step index (with validation)
+      const maxIndex = this._steps().length - 1;
+      const restoredIndex = Math.min(session.stepIndex, maxIndex);
+      this._currentStepIndex.set(restoredIndex);
+
+      // Set initial state based on restored step
+      const restoredStep = this._steps()[restoredIndex];
+      this._state.set((restoredStep?.id ?? 'role') as OnboardingState);
+
+      // No animation on restore
+      this.animationDirection.set('none');
+
+      // Light haptic to indicate restored session
+      await this.haptics.impact('light');
+
+      // Show toast notifying user of resumed session
+      this.toast.info('Welcome back! Resuming where you left off.');
+
+      return true;
+    } catch (err) {
+      console.warn('[Onboarding] Failed to restore session:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Clear session from Capacitor Preferences.
+   * Called on successful completion or explicit reset.
+   */
+  private async clearSession(): Promise<void> {
+    try {
+      await this.sessionApi.deleteSession(STORAGE_KEYS.ONBOARDING_SESSION);
+      console.debug('[Onboarding] Session cleared');
+    } catch (err) {
+      // Non-critical - log but don't interrupt flow
+      console.warn('[Onboarding] Failed to clear session:', err);
+    }
   }
 }

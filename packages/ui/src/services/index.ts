@@ -36,3 +36,5 @@ export {
   HapticSelectionDirective,
   type HapticFeedbackType,
 } from './haptics';
+
+export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './logging';

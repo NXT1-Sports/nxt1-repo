@@ -327,9 +327,14 @@ export class AuthFlowService implements OnDestroy {
             await this.syncUserProfile(firebaseUser);
             this.authManager.setLoading(false);
             this.authManager.setInitialized(true);
+
+            // Navigate based on onboarding status (same logic as mobile app)
             const currentUrl = this.router.url;
             if (currentUrl.includes(AUTH_ROUTES.ROOT)) {
-              await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
+              const redirectPath = this.hasCompletedOnboarding()
+                ? AUTH_REDIRECTS.DEFAULT
+                : AUTH_REDIRECTS.ONBOARDING;
+              await this.router.navigate([redirectPath]);
             }
           } else {
             // User is signed out - reset state
