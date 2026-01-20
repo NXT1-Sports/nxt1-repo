@@ -10,7 +10,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { Router, NavigationEnd } from '@angular/router';
 import { IonApp, IonRouterOutlet } from '@ionic/angular/standalone';
-import { NxtPlatformService } from '@nxt1/ui/services';
+import { NxtPlatformService } from '@nxt1/ui';
 import { filter } from 'rxjs/operators';
 
 /**

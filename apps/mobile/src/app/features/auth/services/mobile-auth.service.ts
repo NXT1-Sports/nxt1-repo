@@ -13,7 +13,7 @@
 
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
-import { NxtPlatformService } from '@nxt1/ui/services';
+import { NxtPlatformService } from '@nxt1/ui';
 import {
   createAuthStateManager,
   createCapacitorStorageAdapter,

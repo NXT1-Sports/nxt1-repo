@@ -20,7 +20,6 @@ import {
   NgZone,
   PLATFORM_ID,
   InjectionToken,
-  Optional,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { parseApiError, isNxtApiError, API_ERROR_CODES } from '@nxt1/core/errors';

@@ -42,7 +42,7 @@ import {
   type AuthEmailFormData,
   type AuthMode,
   type TeamCodeValidationState,
-} from '@nxt1/ui/auth';
+} from '@nxt1/ui';
 import { AuthFlowService, AuthApiService } from '../../services';
 import { SeoService } from '../../../../core/services';
 import { NxtToastService } from '@nxt1/ui/services';

@@ -43,7 +43,7 @@ import { Router, RouterModule } from '@angular/router';
 import { IonContent } from '@ionic/angular/standalone';
 
 // Shared UI Components
-import { AuthShellComponent, AuthTitleComponent, AuthSubtitleComponent } from '@nxt1/ui/auth';
+import { AuthShellComponent, AuthTitleComponent, AuthSubtitleComponent } from '@nxt1/ui';
 import {
   OnboardingRoleSelectionComponent,
   OnboardingProfileStepComponent,
@@ -52,7 +52,7 @@ import {
   OnboardingButtonMobileComponent,
   OnboardingStepCardComponent,
   type AnimationDirection,
-} from '@nxt1/ui/onboarding';
+} from '@nxt1/ui';
 
 // Core API - Types & Constants
 import {
@@ -74,7 +74,7 @@ import { createCapacitorStorageAdapter, STORAGE_KEYS } from '@nxt1/core/storage'
 
 // App Services
 import { AuthFlowService, AuthErrorHandler } from '../../services';
-import { HapticsService, NxtToastService } from '@nxt1/ui/services';
+import { HapticsService, NxtToastService } from '@nxt1/ui';
 
 // ============================================
 // TYPES

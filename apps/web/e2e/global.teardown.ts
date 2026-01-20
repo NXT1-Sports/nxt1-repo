@@ -18,7 +18,7 @@ async function globalTeardown(_config: FullConfig): Promise<void> {
   console.log('🧹 Running global teardown...');
 
   // Optionally clean up auth state in CI
-  if (process.env.CI) {
+  if (process.env['CI']) {
     const authFile = path.join(__dirname, '.auth', 'user.json');
 
     if (fs.existsSync(authFile)) {

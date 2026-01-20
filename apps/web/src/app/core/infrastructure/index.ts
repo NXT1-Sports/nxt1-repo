@@ -23,7 +23,7 @@ export {
 } from './http/cache.interceptor';
 
 // HTTP Error Interceptor - re-export from @nxt1/ui
-export { httpErrorInterceptor, type HttpErrorInterceptorOptions } from '@nxt1/ui/infrastructure';
+export { httpErrorInterceptor, type HttpErrorInterceptorOptions } from '@nxt1/ui';
 
 // Global Error Handling - re-export from @nxt1/ui
-export { GlobalErrorHandler, type ErrorSeverity, ERROR_MESSAGES } from '@nxt1/ui/infrastructure';
+export { GlobalErrorHandler, type ErrorSeverity, ERROR_MESSAGES } from '@nxt1/ui';

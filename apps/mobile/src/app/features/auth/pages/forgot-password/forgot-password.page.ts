@@ -11,12 +11,12 @@
 import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
-import { AuthShellComponent, AuthEmailFormComponent, type AuthEmailFormData } from '@nxt1/ui/auth';
+import { AuthShellComponent, AuthEmailFormComponent, type AuthEmailFormData } from '@nxt1/ui';
 import { IonButton, IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { arrowBackOutline, checkmarkCircleOutline } from 'ionicons/icons';
 import { AuthFlowService } from '../../services';
-import { HapticsService } from '@nxt1/ui/services';
+import { HapticsService } from '@nxt1/ui';
 
 @Component({
   selector: 'app-forgot-password',

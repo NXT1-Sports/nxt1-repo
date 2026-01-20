@@ -41,7 +41,7 @@ import {
 } from '@angular/fire/auth';
 import { Capacitor } from '@capacitor/core';
 import { Subscription } from 'rxjs';
-import { NxtPlatformService } from '@nxt1/ui/services';
+import { NxtPlatformService } from '@nxt1/ui';
 import type { FirebaseUserInfo, NativeAuthResult } from '@nxt1/core';
 import { NativeAuthService } from './native-auth.service';
 
@@ -279,15 +279,15 @@ export class FirebaseAuthService implements OnDestroy {
   private async signInWithNativeCredential(
     nativeResult: NativeAuthResult
   ): Promise<UserCredential> {
-    console.debug('[FirebaseAuthService] Converting native credential to Firebase:', nativeResult.provider);
+    console.debug(
+      '[FirebaseAuthService] Converting native credential to Firebase:',
+      nativeResult.provider
+    );
     let credential: OAuthCredential;
 
     switch (nativeResult.provider) {
       case 'google':
-        credential = GoogleAuthProvider.credential(
-          nativeResult.idToken,
-          nativeResult.accessToken
-        );
+        credential = GoogleAuthProvider.credential(nativeResult.idToken, nativeResult.accessToken);
         break;
 
       case 'apple': {
@@ -348,7 +348,9 @@ export class FirebaseAuthService implements OnDestroy {
   /**
    * Get provider from Firebase user
    */
-  getProviderFromUser(user?: FirebaseUser | null): 'email' | 'google' | 'apple' | 'microsoft' | 'anonymous' {
+  getProviderFromUser(
+    user?: FirebaseUser | null
+  ): 'email' | 'google' | 'apple' | 'microsoft' | 'anonymous' {
     const fbUser = user ?? this._firebaseUser();
     if (!fbUser) return 'anonymous';
 

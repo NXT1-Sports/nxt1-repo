@@ -7,15 +7,6 @@
       "@nxt1/core": ["../../packages/core/src/index.ts"],
       "@nxt1/core/*": ["../../packages/core/src/*/index.ts"],
       "@nxt1/ui": ["../../packages/ui/src/index.ts"],
-      "@nxt1/ui/auth": ["../../packages/ui/src/auth/index.ts"],
-      "@nxt1/ui/services": ["../../packages/ui/src/services/index.ts"],
-      "@nxt1/ui/shared": ["../../packages/ui/src/shared/index.ts"],
-      "@nxt1/ui/infrastructure": [
-        "../../packages/ui/src/infrastructure/index.ts"
-      ],
-      "@nxt1/ui/auth-services": [
-        "../../packages/ui/src/auth-services/index.ts"
-      ],
       "@nxt1/ui/*": ["../../packages/ui/src/*"]
     },
     "outDir": "./dist/out-tsc",

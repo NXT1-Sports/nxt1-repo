@@ -49,7 +49,9 @@ export interface WorkerFixtures {
 function getTestUser(suffix = ''): TestUser {
   const envSuffix = suffix ? `_${suffix}` : '';
   return {
-    email: process.env[`E2E_TEST_USER${envSuffix}_EMAIL`] || `e2e-test${suffix.toLowerCase()}@example.com`,
+    email:
+      process.env[`E2E_TEST_USER${envSuffix}_EMAIL`] ||
+      `e2e-test${suffix.toLowerCase()}@example.com`,
     password: process.env[`E2E_TEST_USER${envSuffix}_PASSWORD`] || 'TestPassword123!',
   };
 }
@@ -128,7 +130,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   authenticatedContext: [
     async ({ browser }, use) => {
       // Try to load existing auth state
-      const authFile = process.env.AUTH_STORAGE_STATE || '.auth/user.json';
+      const authFile = process.env['AUTH_STORAGE_STATE'] || '.auth/user.json';
 
       try {
         const context = await browser.newContext({

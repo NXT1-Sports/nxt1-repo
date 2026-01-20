@@ -41,8 +41,8 @@ const environments: Record<string, EnvironmentConfig> = {
     isProduction: false,
     defaultTimeout: 30_000,
     testUser: {
-      email: process.env.E2E_TEST_USER_EMAIL || 'e2e-test@example.com',
-      password: process.env.E2E_TEST_USER_PASSWORD || 'TestPassword123!',
+      email: process.env['E2E_TEST_USER_EMAIL'] || 'e2e-test@example.com',
+      password: process.env['E2E_TEST_USER_PASSWORD'] || 'TestPassword123!',
     },
   },
   staging: {
@@ -53,8 +53,8 @@ const environments: Record<string, EnvironmentConfig> = {
     isProduction: false,
     defaultTimeout: 45_000,
     testUser: {
-      email: process.env.E2E_TEST_USER_EMAIL || 'e2e-test-staging@example.com',
-      password: process.env.E2E_TEST_USER_PASSWORD || 'TestPassword123!',
+      email: process.env['E2E_TEST_USER_EMAIL'] || 'e2e-test-staging@example.com',
+      password: process.env['E2E_TEST_USER_PASSWORD'] || 'TestPassword123!',
     },
   },
   production: {
@@ -66,8 +66,8 @@ const environments: Record<string, EnvironmentConfig> = {
     defaultTimeout: 60_000,
     testUser: {
       // Production tests should use dedicated test accounts
-      email: process.env.E2E_TEST_USER_EMAIL || '',
-      password: process.env.E2E_TEST_USER_PASSWORD || '',
+      email: process.env['E2E_TEST_USER_EMAIL'] || '',
+      password: process.env['E2E_TEST_USER_PASSWORD'] || '',
     },
   },
 };
@@ -76,7 +76,7 @@ const environments: Record<string, EnvironmentConfig> = {
  * Get current environment name from E2E_ENV or NODE_ENV
  */
 function getCurrentEnvironmentName(): string {
-  return process.env.E2E_ENV || process.env.NODE_ENV || 'local';
+  return process.env['E2E_ENV'] || process.env['NODE_ENV'] || 'local';
 }
 
 /**
@@ -85,7 +85,7 @@ function getCurrentEnvironmentName(): string {
  */
 export function getEnvironment(envName?: string): EnvironmentConfig {
   const name = envName || getCurrentEnvironmentName();
-  return environments[name] || environments.local;
+  return environments[name] || environments['local'];
 }
 
 /**
@@ -96,14 +96,14 @@ export const env = getEnvironment();
 /**
  * Check if running in CI environment
  */
-export const isCI = Boolean(process.env.CI);
+export const isCI = Boolean(process.env['CI']);
 
 /**
  * Check if visual regression testing is enabled
  */
-export const enableVisualRegression = process.env.E2E_VISUAL_REGRESSION === 'true';
+export const enableVisualRegression = process.env['E2E_VISUAL_REGRESSION'] === 'true';
 
 /**
  * Slow motion delay for debugging
  */
-export const slowMo = parseInt(process.env.E2E_SLOW_MO || '0', 10);
+export const slowMo = parseInt(process.env['E2E_SLOW_MO'] || '0', 10);

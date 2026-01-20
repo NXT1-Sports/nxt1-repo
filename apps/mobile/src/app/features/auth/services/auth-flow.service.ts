@@ -32,7 +32,7 @@
  */
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
-import { NxtPlatformService, HapticsService } from '@nxt1/ui/services';
+import { NxtPlatformService, HapticsService } from '@nxt1/ui';
 import {
   type UserRole,
   type AuthState as CoreAuthState,

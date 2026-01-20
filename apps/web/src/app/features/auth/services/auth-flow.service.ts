@@ -47,14 +47,14 @@ import {
   runInInjectionContext,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { NxtPlatformService } from '@nxt1/ui/services';
+import { NxtPlatformService } from '@nxt1/ui';
 import { Subscription } from 'rxjs';
 
 // Type-only imports - these don't cause runtime code to execute
 import type { Auth as FirebaseAuthType, User as FirebaseUser } from '@angular/fire/auth';
 
 import { AuthApiService } from './auth-api.service';
-import { AuthErrorHandler } from '@nxt1/ui/auth-services';
+import { AuthErrorHandler } from '@nxt1/ui';
 import {
   type UserRole,
   type AuthState as CoreAuthState,

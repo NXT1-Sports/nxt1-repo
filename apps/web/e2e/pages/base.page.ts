@@ -53,7 +53,7 @@ export abstract class BasePage {
   protected readonly timeout: number;
 
   constructor(
-    protected readonly page: Page,
+    public readonly page: Page,
     options: PageOptions = {}
   ) {
     this.timeout = options.timeout ?? 30_000;

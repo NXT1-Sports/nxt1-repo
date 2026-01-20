@@ -43,7 +43,7 @@ import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 
 // Shared UI Components
-import { AuthShellComponent, AuthTitleComponent, AuthSubtitleComponent } from '@nxt1/ui/auth';
+import { AuthShellComponent, AuthTitleComponent, AuthSubtitleComponent } from '@nxt1/ui';
 import {
   OnboardingRoleSelectionComponent,
   OnboardingProfileStepComponent,
@@ -57,8 +57,8 @@ import {
   OnboardingButtonMobileComponent,
   OnboardingStepCardComponent,
   type AnimationDirection,
-} from '@nxt1/ui/onboarding';
-import { NxtToastService, NxtPlatformService } from '@nxt1/ui/services';
+} from '@nxt1/ui';
+import { NxtToastService, NxtPlatformService } from '@nxt1/ui';
 
 // Core API - Types & Constants
 import {

@@ -30,9 +30,9 @@ import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   ICONS,
-  IconName,
   isStrokeIcon,
   type IconDefinition,
+  type IconName,
 } from '@nxt1/design-tokens/assets/icons';
 
 @Component({
