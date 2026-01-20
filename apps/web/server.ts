@@ -140,6 +140,9 @@ export function createServer(): express.Express {
         res.setHeader('X-Frame-Options', 'SAMEORIGIN');
         res.setHeader('X-XSS-Protection', '1; mode=block');
 
+        // Allow OAuth popups without COOP blocking window.closed
+        res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+
         res.status(200).send(html);
       })
       .catch((err) => {

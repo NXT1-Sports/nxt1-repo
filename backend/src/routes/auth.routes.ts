@@ -89,6 +89,16 @@ router.post(
     const { db } = req.firebase;
     const { uid, email, teamCode, referralId } = req.body as CreateUserRequest;
 
+    console.log(`[NXT1-REPO BACKEND] 🚀 Create user request:`, {
+      uid: uid?.substring(0, 8) + '...',
+      email,
+      teamCode: teamCode || 'none',
+      referralId: referralId || 'none',
+      timestamp: new Date().toISOString(),
+      backend: 'nxt1-repo',
+      port: process.env['PORT'] || 3000,
+    });
+
     // Validation
     if (!uid || !email) {
       const error = validationError([
@@ -176,8 +186,8 @@ router.post(
 
     const newUser: NewUserData = {
       email,
-      credits: 0,
-      featureCredits: 0,
+      credits: 5,
+      featureCredits: 5,
       lastActivatedPlan,
       completeSignUp: false,
       createdAt: now,
@@ -226,14 +236,14 @@ router.post(
       await db.collection('Users').doc(uid).set(newUser);
     }
 
-    res.status(201).json({
+    const responseData = {
       success: true,
       data: {
         user: {
           id: uid,
           email,
-          credits: 0,
-          featureCredits: 0,
+          credits: 5,
+          featureCredits: 5,
           lastActivatedPlan,
           completeSignUp: false,
           teamCode: validatedTeam
@@ -244,7 +254,18 @@ router.post(
             : undefined,
         },
       },
+    };
+
+    console.log(`[NXT1-REPO BACKEND] ✅ User created successfully:`, {
+      uid: uid?.substring(0, 8) + '...',
+      email,
+      credits: responseData.data.user.credits,
+      featureCredits: responseData.data.user.featureCredits,
+      teamCode: teamCode || 'none',
+      backend: 'nxt1-repo',
     });
+
+    res.status(201).json(responseData);
   })
 );
 
@@ -419,6 +440,289 @@ router.get(
     res.json({
       success: true,
       data: profile,
+    });
+  })
+);
+
+/**
+ * POST /auth/profile/onboarding
+ * Save complete onboarding profile data
+ */
+router.post(
+  '/profile/onboarding',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase;
+    const { userId, ...profileData } = req.body;
+
+    if (!userId) {
+      const error = validationError([
+        { field: 'userId', message: 'User ID is required', rule: 'required' },
+      ]);
+      sendError(res, error);
+      return;
+    }
+
+    // Validate required fields
+    if (!profileData['firstName'] || !profileData['lastName']) {
+      const error = validationError([
+        { field: 'firstName', message: 'First name is required', rule: 'required' },
+        { field: 'lastName', message: 'Last name is required', rule: 'required' },
+      ]);
+      sendError(res, error);
+      return;
+    }
+
+    // Check if user exists
+    const userDoc = await db.collection('Users').doc(userId).get();
+    if (!userDoc.exists) {
+      const error = notFoundError('user', userId);
+      sendError(res, error);
+      return;
+    }
+
+    // Build update data
+    const updateData: Record<string, unknown> = {
+      firstName: (profileData['firstName'] as string).trim(),
+      lastName: (profileData['lastName'] as string).trim(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Add optional fields if provided
+    if (profileData['profileImg']) updateData['profileImg'] = profileData['profileImg'];
+    if (profileData['bio']) updateData['bio'] = profileData['bio'];
+    if (profileData['sport']) {
+      updateData['sport'] = profileData['sport'];
+      updateData['primarySport'] = profileData['sport'];
+    }
+    if (profileData['secondarySport']) updateData['secondarySport'] = profileData['secondarySport'];
+    if (profileData['positions']) updateData['primarySportPositions'] = profileData['positions'];
+    if (profileData['highSchool']) updateData['highSchool'] = profileData['highSchool'];
+    if (profileData['highSchoolSuffix'])
+      updateData['highSchoolSuffix'] = profileData['highSchoolSuffix'];
+    if (profileData['classOf']) updateData['classOf'] = profileData['classOf'];
+    if (profileData['state']) updateData['state'] = profileData['state'];
+    if (profileData['city']) updateData['city'] = profileData['city'];
+    if (profileData['club']) updateData['club'] = profileData['club'];
+    if (profileData['organization']) updateData['organization'] = profileData['organization'];
+    if (profileData['coachTitle']) updateData['coachTitle'] = profileData['coachTitle'];
+
+    // Set user type flags
+    if (profileData['userType']) {
+      updateData['isRecruit'] = profileData['userType'] === 'athlete';
+      updateData['isCollegeCoach'] = profileData['userType'] === 'coach';
+      updateData['isFan'] = profileData['userType'] === 'fan';
+      updateData['isMedia'] = profileData['userType'] === 'media';
+      updateData['isService'] = profileData['userType'] === 'service';
+      updateData['isParent'] = profileData['userType'] === 'parent';
+      updateData['isScout'] = profileData['userType'] === 'scout';
+    }
+
+    // Update user document
+    await db.collection('Users').doc(userId).update(updateData);
+
+    // Fetch updated user
+    const updatedUser = await db.collection('Users').doc(userId).get();
+    const userData = updatedUser.data();
+
+    res.json({
+      success: true,
+      user: {
+        id: userId,
+        firstName: userData?.['firstName'],
+        lastName: userData?.['lastName'],
+        completeSignUp: userData?.['completeSignUp'] || false,
+        primarySport: userData?.['primarySport'] || userData?.['sport'],
+      },
+      redirectPath: '/auth/onboarding',
+    });
+  })
+);
+
+/**
+ * POST /auth/profile/onboarding-step
+ * Save individual onboarding step data incrementally
+ *
+ * This allows saving data as user progresses through steps, ensuring
+ * Firebase has current data for downstream features.
+ */
+router.post(
+  '/profile/onboarding-step',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase;
+    const { userId, stepId, stepData } = req.body;
+
+    // Validate required fields
+    if (!userId || !stepId || !stepData || typeof stepData !== 'object') {
+      const error = validationError([
+        ...(!userId ? [{ field: 'userId', message: 'User ID is required', rule: 'required' }] : []),
+        ...(!stepId ? [{ field: 'stepId', message: 'Step ID is required', rule: 'required' }] : []),
+        ...(!stepData
+          ? [{ field: 'stepData', message: 'Step data is required', rule: 'required' }]
+          : []),
+      ]);
+      sendError(res, error);
+      return;
+    }
+
+    // Check if user exists
+    const userDoc = await db.collection('Users').doc(userId).get();
+    if (!userDoc.exists) {
+      const error = notFoundError('user', userId);
+      sendError(res, error);
+      return;
+    }
+
+    // Build update data based on step type
+    const updateData: Record<string, unknown> = {
+      updatedAt: new Date().toISOString(),
+      [`onboardingProgress.${stepId}`]: {
+        completed: true,
+        completedAt: new Date().toISOString(),
+      },
+    };
+
+    // Process step-specific data
+    switch (stepId) {
+      case 'role':
+        if (stepData['userType']) {
+          updateData['isRecruit'] = stepData['userType'] === 'athlete';
+          updateData['isCollegeCoach'] = stepData['userType'] === 'coach';
+          updateData['isFan'] = stepData['userType'] === 'fan';
+          updateData['isMedia'] = stepData['userType'] === 'media';
+          updateData['isService'] = stepData['userType'] === 'service';
+          updateData['isParent'] = stepData['userType'] === 'parent';
+          updateData['isScout'] = stepData['userType'] === 'scout';
+        }
+        break;
+
+      case 'profile':
+        if (stepData['firstName'])
+          updateData['firstName'] = (stepData['firstName'] as string).trim();
+        if (stepData['lastName']) updateData['lastName'] = (stepData['lastName'] as string).trim();
+        if (stepData['profileImg']) updateData['profileImg'] = stepData['profileImg'];
+        if (stepData['bio']) updateData['bio'] = (stepData['bio'] as string).trim();
+        break;
+
+      case 'school':
+        if (stepData['highSchool'])
+          updateData['highSchool'] = (stepData['highSchool'] as string).trim();
+        if (stepData['highSchoolSuffix'])
+          updateData['highSchoolSuffix'] = (stepData['highSchoolSuffix'] as string).trim();
+        if (stepData['classOf'] && !isNaN(Number(stepData['classOf']))) {
+          updateData['classOf'] = Number(stepData['classOf']);
+        }
+        if (stepData['state']) updateData['state'] = (stepData['state'] as string).trim();
+        if (stepData['city']) updateData['city'] = (stepData['city'] as string).trim();
+        if (stepData['club']) updateData['club'] = (stepData['club'] as string).trim();
+        break;
+
+      case 'organization':
+        if (stepData['organization'])
+          updateData['organization'] = (stepData['organization'] as string).trim();
+        if (stepData['secondOrganization'])
+          updateData['secondOrganization'] = (stepData['secondOrganization'] as string).trim();
+        if (stepData['coachTitle'])
+          updateData['coachTitle'] = (stepData['coachTitle'] as string).trim();
+        if (stepData['state']) updateData['state'] = (stepData['state'] as string).trim();
+        if (stepData['city']) updateData['city'] = (stepData['city'] as string).trim();
+        break;
+
+      case 'sport':
+        if (stepData['primarySport']) {
+          updateData['primarySport'] = (stepData['primarySport'] as string).trim();
+          updateData['sport'] = updateData['primarySport']; // Legacy field
+          updateData['appSport'] = updateData['primarySport'];
+        }
+        if (stepData['secondarySport']) {
+          updateData['secondarySport'] = (stepData['secondarySport'] as string).trim();
+        }
+        break;
+
+      case 'positions':
+        if (Array.isArray(stepData['positions'])) {
+          updateData['primarySportPositions'] = (stepData['positions'] as string[]).slice(0, 10);
+        }
+        break;
+
+      case 'contact':
+        if (stepData['contactEmail'] && isValidEmail(stepData['contactEmail'] as string)) {
+          updateData['contactEmail'] = (stepData['contactEmail'] as string).toLowerCase();
+        }
+        if (stepData['phoneNumber'])
+          updateData['phoneNumber'] = (stepData['phoneNumber'] as string).trim();
+        if (stepData['instagram'])
+          updateData['instagram'] = (stepData['instagram'] as string).trim();
+        if (stepData['twitter']) updateData['twitter'] = (stepData['twitter'] as string).trim();
+        if (stepData['tiktok']) updateData['tiktok'] = (stepData['tiktok'] as string).trim();
+        if (stepData['hudlAccountLink'])
+          updateData['hudlAccountLink'] = (stepData['hudlAccountLink'] as string).trim();
+        if (stepData['youtubeAccountLink'])
+          updateData['youtubeAccountLink'] = (stepData['youtubeAccountLink'] as string).trim();
+        break;
+
+      case 'referral-source':
+        updateData['showedHearAbout'] = true;
+        break;
+
+      default:
+        // For unknown steps, save raw data under onboardingSteps
+        updateData[`onboardingSteps.${stepId}`] = stepData;
+    }
+
+    // Update user document
+    await db.collection('Users').doc(userId).update(updateData);
+
+    res.json({
+      success: true,
+      stepId,
+      savedFields: Object.keys(updateData).filter(
+        (k) => !k.startsWith('onboardingProgress') && k !== 'updatedAt'
+      ),
+    });
+  })
+);
+
+/**
+ * POST /auth/profile/complete-onboarding
+ * Mark user's onboarding as complete
+ */
+router.post(
+  '/profile/complete-onboarding',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase;
+    const { userId } = req.body as { userId: string };
+
+    if (!userId) {
+      const error = validationError([
+        { field: 'userId', message: 'User ID is required', rule: 'required' },
+      ]);
+      sendError(res, error);
+      return;
+    }
+
+    const now = new Date().toISOString();
+
+    // Update user document to mark onboarding complete
+    await db.collection('Users').doc(userId).update({
+      completeSignUp: true,
+      onboardingCompletedAt: now,
+      updatedAt: now,
+    });
+
+    // Fetch updated user data
+    const updatedUser = await db.collection('Users').doc(userId).get();
+    const userData = updatedUser.data();
+
+    res.json({
+      success: true,
+      user: {
+        id: userId,
+        firstName: userData?.['firstName'],
+        lastName: userData?.['lastName'],
+        completeSignUp: true,
+        primarySport: userData?.['primarySport'] || userData?.['sport'],
+      },
+      redirectPath: '/explore',
     });
   })
 );

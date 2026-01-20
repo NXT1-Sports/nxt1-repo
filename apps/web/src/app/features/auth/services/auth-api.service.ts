@@ -61,7 +61,9 @@ export class AuthApiService {
    */
   async getUserProfile(uid: string): Promise<User> {
     try {
-      const response = (await this.http.get(`${environment.apiURL}/auth/profile/${uid}`)) as {
+      const response = (await this.http.get(`${environment.apiURL}/auth/profile/${uid}`, {
+        timeout: 3000, // 3 second timeout for faster failure when backend is down
+      })) as {
         data: User;
       };
       return response.data;

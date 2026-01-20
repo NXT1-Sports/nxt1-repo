@@ -83,7 +83,7 @@ import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { createBrowserStorageAdapter, STORAGE_KEYS } from '@nxt1/core/storage';
 
 // App Services
-import { AuthFlowService, AuthErrorHandler } from '../../services';
+import { AuthFlowService, AuthErrorHandler, AuthApiService } from '../../services';
 import { SeoService } from '../../../../core/services';
 
 // ============================================
@@ -321,6 +321,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
   private readonly authFlow = inject(AuthFlowService);
+  private readonly authApi = inject(AuthApiService);
   private readonly errorHandler = inject(AuthErrorHandler);
   private readonly seo = inject(SeoService);
   private readonly toast = inject(NxtToastService);
@@ -647,10 +648,39 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   /**
    * Handle file selected from file picker
    */
-  onFileSelected(file: File): void {
+  async onFileSelected(file: File): Promise<void> {
     console.debug('[Onboarding] File selected:', file.name, file.size);
-    // TODO: Upload to Firebase Storage when backend integration is ready
-    // For now, the component handles preview locally via DataURL
+
+    const user = this.authFlow.user();
+    if (!user) {
+      this.toast.error('Please login to upload photos');
+      return;
+    }
+
+    try {
+      this.isLoading.set(true);
+
+      // Upload to Firebase Storage
+      const photoURL = await this.authFlow.uploadProfilePhoto(file, user.uid);
+
+      // Update profile form data with new photo URL
+      this._formData.update((data) => ({
+        ...data,
+        profile: {
+          firstName: data.profile?.firstName || '',
+          lastName: data.profile?.lastName || '',
+          ...(data.profile || {}),
+          profileImg: photoURL,
+        },
+      }));
+
+      this.toast.success('Photo uploaded successfully!');
+    } catch (err) {
+      console.error('[Onboarding] Failed to upload photo:', err);
+      this.toast.error('Failed to upload photo. Please try again.');
+    } finally {
+      this.isLoading.set(false);
+    }
   }
 
   /**
@@ -802,10 +832,45 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     }
 
     try {
-      // Save form data to backend via auth flow service
-      // Note: Backend integration pending - tracking completion only
+      // Save complete profile to backend
+      const formData = this._formData() as OnboardingFormData;
       console.info('[Onboarding] Completing onboarding for user:', user.uid);
-      console.debug('[Onboarding] Form data:', this._formData());
+      console.debug('[Onboarding] Form data:', formData);
+
+      // First, save all onboarding data to backend
+      try {
+        // Flatten nested form data to match OnboardingProfileData structure
+        const profileData = {
+          userType: formData.userType,
+          firstName: formData.profile?.firstName || '',
+          lastName: formData.profile?.lastName || '',
+          profileImg: formData.profile?.profileImg || undefined,
+          bio: formData.profile?.bio,
+          sport: formData.sport?.primarySport,
+          secondarySport: formData.sport?.secondarySport,
+          positions: formData.positions?.positions, // positions array from PositionsFormData
+          highSchool: formData.school?.schoolName, // schoolName from SchoolFormData
+          highSchoolSuffix: formData.school?.schoolType, // schoolType from SchoolFormData
+          classOf: formData.school?.classYear ?? formData.profile?.classYear ?? undefined, // classYear from either, convert null to undefined
+          state: formData.school?.state,
+          city: formData.school?.city,
+          club: formData.school?.club,
+          organization: formData.organization?.organizationName, // organizationName from OrganizationFormData
+          coachTitle: formData.organization?.title, // title from OrganizationFormData
+        };
+
+        await this.authApi.saveOnboardingProfile(user.uid, profileData);
+        console.info('[Onboarding] Profile data saved successfully');
+      } catch (saveError) {
+        console.warn('[Onboarding] Failed to save profile data, continuing:', saveError);
+        // Don't fail the entire onboarding if profile save fails
+      }
+
+      // Then call backend to mark onboarding complete
+      await this.authApi.completeOnboarding(user.uid);
+
+      // Refresh user profile to update hasCompletedOnboarding flag
+      await this.authFlow.refreshUserProfile();
 
       // Clear session from localStorage - onboarding complete!
       await this.clearSession();

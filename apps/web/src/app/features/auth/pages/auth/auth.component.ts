@@ -45,6 +45,7 @@ import {
 } from '@nxt1/ui/auth';
 import { AuthFlowService, AuthApiService } from '../../services';
 import { SeoService } from '../../../../core/services';
+import { NxtToastService } from '@nxt1/ui/services';
 import { isValidTeamCode } from '@nxt1/core';
 import type { ValidatedTeamInfo } from '@nxt1/core';
 
@@ -188,6 +189,7 @@ export class AuthComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly seo = inject(SeoService);
+  private readonly toast = inject(NxtToastService);
 
   // ============================================
   // AUTH STATE
@@ -472,8 +474,8 @@ export class AuthComponent implements OnInit {
    */
   async onGoogleAuth(): Promise<void> {
     try {
-      // TODO: Pass team code to Google sign-in flow
-      await this.authFlow.signInWithGoogle();
+      const teamCode = this.validatedTeam()?.code;
+      await this.authFlow.signInWithGoogle(teamCode);
     } catch {
       // Error handled by service
     }
@@ -484,13 +486,19 @@ export class AuthComponent implements OnInit {
    */
   async onAppleAuth(): Promise<void> {
     // Apple Sign In - placeholder for future integration
+    this.toast.info('Apple Sign In coming soon!');
   }
 
   /**
    * Sign in/up with Microsoft Account
    */
   async onMicrosoftAuth(): Promise<void> {
-    // Microsoft Sign In - placeholder for future integration
+    try {
+      const teamCode = this.validatedTeam()?.code;
+      await this.authFlow.signInWithMicrosoft(teamCode);
+    } catch {
+      // Error handled by service
+    }
   }
 
   /**

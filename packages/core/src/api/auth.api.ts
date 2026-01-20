@@ -350,9 +350,34 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      */
     async createUser(data: CreateUserRequest): Promise<CreateUserResult> {
       try {
-        const response = await http.post<CreateUserResult>(`${base}/auth/create-user`, data);
+        const fullUrl = `${base}/auth/create-user`;
+        console.log(`[AUTH API] 🚀 POST ${fullUrl}`, {
+          data: {
+            uid: data.uid?.substring(0, 8) + '...',
+            email: data.email,
+            teamCode: data.teamCode || 'none',
+            referralId: data.referralId || 'none',
+          },
+          baseUrl: base,
+          timestamp: new Date().toISOString(),
+        });
+
+        const response = await http.post<CreateUserResult>(fullUrl, data);
+
+        console.log(`[AUTH API] ✅ createUser response:`, {
+          success: response.success,
+          credits: response.success ? (response as any).data?.user?.credits : 'N/A',
+          featureCredits: response.success ? (response as any).data?.user?.featureCredits : 'N/A',
+          url: fullUrl,
+        });
+
         return response;
       } catch (error) {
+        console.error(`[AUTH API] ❌ createUser failed:`, {
+          error: error instanceof Error ? error.message : String(error),
+          url: `${base}/auth/create-user`,
+        });
+
         // Return structured error response
         return {
           success: false,
