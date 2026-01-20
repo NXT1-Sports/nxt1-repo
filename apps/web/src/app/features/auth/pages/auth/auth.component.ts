@@ -485,8 +485,13 @@ export class AuthComponent implements OnInit {
    * Sign in/up with Apple ID
    */
   async onAppleAuth(): Promise<void> {
-    // Apple Sign In - placeholder for future integration
-    this.toast.info('Apple Sign In coming soon!');
+    this.authFlow.clearError();
+
+    const teamCode = this.validatedTeam()?.code;
+    await this.authFlow.signInWithApple(teamCode);
+
+    // Success/error handling and navigation managed by AuthFlowService
+    // Analytics tracking is handled within AuthFlowService
   }
 
   /**

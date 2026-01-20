@@ -400,14 +400,26 @@ export class AuthFlowService implements OnDestroy {
    * - is_premium: boolean for subscription status
    * - auth_provider: how they signed in
    * These persist across sessions until explicitly changed.
+   *
+   * @param firebaseUser Firebase user object
+   * @param throwOnNotFound If true, throws error when backend user not found (for OAuth signup flows)
    */
-  private async syncUserProfile(firebaseUser: FirebaseUser): Promise<void> {
+  private async syncUserProfile(
+    firebaseUser: FirebaseUser,
+    throwOnNotFound = false
+  ): Promise<void> {
     try {
       const backendProfile = await this.authApi.getUserProfile(firebaseUser.uid);
 
       // Check if backend user exists
       if (!backendProfile || !backendProfile.email) {
         console.warn('[AuthFlowService] No backend profile found for user:', firebaseUser.uid);
+
+        // If throwOnNotFound is true (OAuth signup), throw error so OAuth method can handle user creation
+        if (throwOnNotFound) {
+          throw new Error(`Backend user not found for uid: ${firebaseUser.uid}`);
+        }
+
         console.warn('[AuthFlowService] Attempting to create backend user document...');
 
         // Try to create backend user (in case createUser was never called)
@@ -995,6 +1007,183 @@ export class AuthFlowService implements OnDestroy {
         if (isRetryable) {
           this.authManager.setError(
             `Microsoft authentication service is currently unavailable after ${attempt + 1} attempts. Please try signing in with email/password or try again later.`
+          );
+        } else {
+          this.authManager.setError(handledError.message);
+        }
+        return false;
+      }
+    }
+
+    this.authManager.setLoading(false);
+    return false;
+  }
+
+  /**
+   * Sign in with Apple with retry logic for 503 errors
+   * Supports optional team code for new user registration
+   */
+  async signInWithApple(teamCode?: string, retries = 5): Promise<boolean> {
+    if (!this.firebaseAuth) {
+      this.authManager.setError('Authentication not available');
+      return false;
+    }
+
+    this.authManager.setLoading(true);
+    this.authManager.setError(null);
+
+    console.log(`[AuthFlowService] 🍎 Starting Apple OAuth with ${retries} max attempts...`);
+
+    for (let attempt = 0; attempt < retries; attempt++) {
+      console.log(`[AuthFlowService] 🚀 Apple OAuth attempt ${attempt + 1}/${retries} starting...`);
+      try {
+        // Dynamic imports for SSR safety
+        const { OAuthProvider, signInWithPopup } = await import('firebase/auth');
+
+        // Apple OAuth Provider
+        const provider = new OAuthProvider('apple.com');
+        // Request common scopes for Apple
+        provider.addScope('email');
+        provider.addScope('name');
+
+        const result = await signInWithPopup(this.firebaseAuth, provider);
+
+        // Check if this is a new user (Firebase detection can be unreliable)
+        // @ts-expect-error additionalUserInfo is on the result
+        const isNewUser = result._tokenResponse?.isNewUser ?? false;
+
+        console.log(`[AuthFlowService] 🔍 Firebase detected isNewUser: ${isNewUser} (Apple)`);
+
+        // Track analytics
+        this.analytics.trackEvent(
+          isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN,
+          {
+            method: AUTH_METHODS.APPLE,
+          }
+        );
+        this.analytics.setUserId(result.user.uid);
+        this.analytics.setUserProperties({ user_type: this.user()?.role });
+
+        // Set flag to prevent auth state listener from racing with user setup
+        this.signupInProgress = true;
+
+        try {
+          // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
+          console.log(`[AuthFlowService] 📡 Attempting to sync existing user profile... (Apple)`);
+          await this.syncUserProfile(result.user);
+          console.log(`[AuthFlowService] ✅ User profile sync successful - existing user (Apple)`);
+
+          // Check if user needs onboarding
+          const currentUser = this.user();
+          const needsOnboarding = !currentUser?.hasCompletedOnboarding;
+
+          if (needsOnboarding) {
+            console.log(
+              `[AuthFlowService] 🚀 Navigating to onboarding (existing user, incomplete) (Apple)`
+            );
+            await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
+          } else {
+            console.log(
+              `[AuthFlowService] 🏠 User already completed onboarding, navigating to /home (Apple)`
+            );
+            await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
+          }
+        } catch (syncError: any) {
+          console.log(
+            `[AuthFlowService] ❌ User sync failed, attempting to create new user (Apple):`,
+            syncError
+          );
+
+          try {
+            // User doesn't exist in backend, create new user
+            console.log(`[AuthFlowService] 📝 Creating new user via Apple OAuth:`, {
+              uid: result.user.uid,
+              email: result.user.email!,
+              teamCode: teamCode || 'none',
+              referralId: 'none (OAuth - no referral code)',
+            });
+
+            const createResult = await this.authApi.createUser({
+              uid: result.user.uid,
+              email: result.user.email!,
+              teamCode: teamCode || undefined,
+              // Don't pass referralId for OAuth (same as email signup when no referral)
+            });
+
+            console.log(
+              `[AuthFlowService] ✅ New user created successfully (Apple):`,
+              createResult
+            );
+
+            // Now sync the newly created user
+            await this.syncUserProfile(result.user);
+
+            // Navigate to onboarding for new users
+            console.log(`[AuthFlowService] 🚀 Navigating to onboarding (new user) (Apple)`);
+            await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
+          } catch (createError: any) {
+            console.error(`[AuthFlowService] ❌ Failed to create new user (Apple):`, createError);
+            throw createError; // Re-throw to be handled by outer catch
+          }
+        } finally {
+          // Always clear flag to prevent state leaks
+          this.signupInProgress = false;
+        }
+
+        return true;
+      } catch (err: any) {
+        console.error(
+          `[AuthFlowService] Apple sign in failed (attempt ${attempt + 1}/${retries}):`,
+          err
+        );
+        console.error('[AuthFlowService] Apple OAuth Error details:', {
+          code: err?.code,
+          message: err?.message,
+          customData: err?.customData,
+        });
+
+        // Check for 503 or network errors that are retryable
+        const isRetryable =
+          err?.code === 'auth/error-code:-47' ||
+          err?.code === 'auth/network-request-failed' ||
+          err?.code === 'auth/internal-error' ||
+          err?.message?.includes('503') ||
+          err?.message?.includes('Service Unavailable');
+
+        if (isRetryable && attempt < retries - 1) {
+          // Exponential backoff: 2s, 4s, 8s, 16s
+          const delay = 2000 * Math.pow(2, attempt);
+          const secondsRemaining = Math.round(delay / 1000);
+
+          // Show user-friendly retry message
+          this.authManager.setError(
+            `Apple authentication service is temporarily unavailable. Retrying in ${secondsRemaining}s... (${attempt + 1}/${retries})`
+          );
+
+          console.log(
+            `[AuthFlowService] 🔄 Retrying in ${delay}ms (attempt ${attempt + 2}/${retries})...`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+
+          // Clear error message before retry
+          this.authManager.setError(null);
+          continue;
+        }
+
+        // Use centralized auth error handler
+        const handledError = this.authErrorHandler.handle(err);
+
+        this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
+          method: AUTH_METHODS.APPLE,
+          error_code: handledError.code,
+          recovery_action: handledError.recovery?.type,
+          attempts: attempt + 1,
+        });
+
+        // If it was a retryable error that exhausted all attempts, provide helpful message
+        if (isRetryable) {
+          this.authManager.setError(
+            `Apple authentication service is currently unavailable after ${attempt + 1} attempts. Please try signing in with email/password or try again later.`
           );
         } else {
           this.authManager.setError(handledError.message);
