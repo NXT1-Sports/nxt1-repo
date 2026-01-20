@@ -8,14 +8,14 @@
   "scripts": {
     "start": "node --require dotenv/config dist/index.js",
     "dev": "nodemon --watch src --ext ts,js,json --exec \"npm run build && npm start\"",
-    "build": "rm -f tsconfig.tsbuildinfo && tsc",
+    "build": "rimraf tsconfig.tsbuildinfo && tsc",
     "build:watch": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts,.js",
     "lint:fix": "eslint src --ext .ts,.js --fix",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist tsconfig.tsbuildinfo node_modules",
+    "clean": "rimraf dist tsconfig.tsbuildinfo node_modules",
     "deploy:staging": "gcloud app deploy --project nxt1-staging",
     "deploy:prod": "gcloud app deploy --project nxt1-production"
   },
@@ -40,6 +40,7 @@
     "@types/multer": "^1.4.11",
     "@types/node": "^22.0.0",
     "nodemon": "^3.1.11",
+    "rimraf": "^6.0.1",
     "typescript": "~5.9.3",
     "vitest": "^3.2.0"
   }
