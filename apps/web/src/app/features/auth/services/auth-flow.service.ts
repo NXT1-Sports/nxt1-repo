@@ -688,8 +688,9 @@ export class AuthFlowService implements OnDestroy {
             await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
           } else {
             console.log(
-              `[AuthFlowService] 🏠 User already completed onboarding, auth state listener will handle navigation`
+              `[AuthFlowService] 🏠 User already completed onboarding, navigating to /home`
             );
+            await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
           }
         } catch (syncError: any) {
           console.log(
@@ -891,8 +892,9 @@ export class AuthFlowService implements OnDestroy {
             await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
           } else {
             console.log(
-              `[AuthFlowService] 🏠 User already completed onboarding, auth state listener will handle navigation (Microsoft)`
+              `[AuthFlowService] 🏠 User already completed onboarding, navigating to /home (Microsoft)`
             );
+            await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
           }
         } catch (syncError: any) {
           console.log(

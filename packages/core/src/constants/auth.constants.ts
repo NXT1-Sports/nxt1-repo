@@ -66,6 +66,8 @@ export const AUTH_ROUTES = {
   ONBOARDING: '/auth/onboarding',
   /** Explore page (public landing) */
   EXPLORE: '/explore',
+  /** Home */
+  HOME: '/home',
 } as const;
 
 /**
