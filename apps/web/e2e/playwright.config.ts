@@ -16,8 +16,8 @@ import path from 'path';
  * Environment configuration
  * Override with environment variables for different deployment targets
  */
-const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:4500';
-const CI = !!process.env.CI;
+const BASE_URL = process.env['E2E_BASE_URL'] || 'http://localhost:4500';
+const CI = !!process.env['CI'];
 
 /**
  * Auth storage state path for authenticated tests

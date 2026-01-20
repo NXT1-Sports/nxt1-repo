@@ -271,7 +271,7 @@ export class SignupPage extends BasePage {
    * Get error message text
    */
   async getErrorText(): Promise<string> {
-    return this.errorMessage.textContent() ?? '';
+    return (await this.errorMessage.textContent()) ?? '';
   }
 
   /**

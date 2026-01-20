@@ -41,7 +41,7 @@ import {
 } from '@angular/fire/auth';
 import { Capacitor } from '@capacitor/core';
 import { Subscription } from 'rxjs';
-import { NxtPlatformService } from '@nxt1/ui/services';
+import { NxtPlatformService } from '@nxt1/ui';
 import type { FirebaseUserInfo, NativeAuthResult } from '@nxt1/core';
 import { NativeAuthService } from './native-auth.service';
 

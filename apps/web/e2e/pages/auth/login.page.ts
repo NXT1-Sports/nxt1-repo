@@ -142,7 +142,7 @@ export class LoginPage extends BasePage {
   /**
    * Wait for Angular SSR hydration to complete
    */
-  async waitForHydration(): Promise<void> {
+  override async waitForHydration(): Promise<void> {
     // Wait for Ionic components to be ready
     await this.page.waitForLoadState('networkidle');
     await this.page.waitForTimeout(500); // Allow Ionic animations to settle
@@ -369,6 +369,6 @@ export class LoginPage extends BasePage {
    * Get error message text
    */
   async getErrorText(): Promise<string> {
-    return this.errorMessage.textContent() ?? '';
+    return (await this.errorMessage.textContent()) ?? '';
   }
 }

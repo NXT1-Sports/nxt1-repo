@@ -11,7 +11,7 @@
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
-import { AuthShellComponent, AuthEmailFormComponent, type AuthEmailFormData } from '@nxt1/ui/auth';
+import { AuthShellComponent, AuthEmailFormComponent, type AuthEmailFormData } from '@nxt1/ui';
 import { IonButton, IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { arrowBackOutline, checkmarkCircleOutline } from 'ionicons/icons';

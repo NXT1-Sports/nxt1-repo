@@ -38,12 +38,8 @@ import {
   type SignInResult,
   type SignInWithOAuthOptions,
 } from '@capacitor-firebase/authentication';
-import { NxtPlatformService, HapticsService } from '@nxt1/ui/services';
-import type {
-  NativeAuthResult,
-  NativeAuthProvider,
-  NativeAuthAvailability,
-} from '@nxt1/core';
+import { NxtPlatformService, HapticsService } from '@nxt1/ui';
+import type { NativeAuthResult, NativeAuthProvider, NativeAuthAvailability } from '@nxt1/core';
 
 /** Timeout for native auth operations (ms) */
 const NATIVE_AUTH_TIMEOUT = 60000;
@@ -288,10 +284,7 @@ export class NativeAuthService {
   /**
    * Map Capacitor SignInResult to portable NativeAuthResult
    */
-  private mapSignInResult(
-    result: SignInResult,
-    provider: NativeAuthProvider
-  ): NativeAuthResult {
+  private mapSignInResult(result: SignInResult, provider: NativeAuthProvider): NativeAuthResult {
     const { user, credential } = result;
 
     // Type assertion for extended user properties from Apple Sign-In
@@ -367,7 +360,9 @@ export class NativeAuthService {
       ) {
         // Log detailed error for debugging (not shown to user)
         console.error(`[NativeAuthService] Configuration error for ${provider}:`, error);
-        return new Error(`${providerName} Sign-In is not properly configured. Please contact support.`);
+        return new Error(
+          `${providerName} Sign-In is not properly configured. Please contact support.`
+        );
       }
 
       // App not authorized (Apple)
@@ -382,7 +377,9 @@ export class NativeAuthService {
 
       // Account conflicts
       if (message.includes('account-exists') || message.includes('already in use')) {
-        return new Error('An account with this email already exists. Try signing in with a different method.');
+        return new Error(
+          'An account with this email already exists. Try signing in with a different method.'
+        );
       }
 
       // Generic error - don't expose internal details to users in production

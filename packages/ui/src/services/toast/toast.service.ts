@@ -116,13 +116,14 @@ const DEFAULT_ICONS: Record<ToastType, string> = {
   info: 'information-circle',
 };
 
-/** Ionic color mapping per toast type */
-const TYPE_COLORS: Record<ToastType, string> = {
+/** Ionic color mapping per toast type - reserved for future custom styling */
+const _TYPE_COLORS: Record<ToastType, string> = {
   success: 'success',
   error: 'danger',
   warning: 'warning',
   info: 'primary',
 };
+void _TYPE_COLORS; // Suppress unused warning - reserved for future use
 
 @Injectable({ providedIn: 'root' })
 export class NxtToastService {

@@ -43,9 +43,9 @@ import {
   type AuthEmailFormData,
   type AuthMode,
   type TeamCodeValidationState,
-} from '@nxt1/ui/auth';
+} from '@nxt1/ui';
 import { AuthFlowService, AuthApiService } from '../../services';
-import { HapticsService } from '@nxt1/ui/services';
+import { HapticsService } from '@nxt1/ui';
 import { isValidTeamCode } from '@nxt1/core';
 import type { ValidatedTeamInfo } from '@nxt1/core';
 import { AUTH_PAGE_TEST_IDS } from '@nxt1/core/testing';

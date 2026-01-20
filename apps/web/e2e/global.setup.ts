@@ -29,8 +29,8 @@ async function globalSetup(config: FullConfig): Promise<void> {
   }
 
   // Get test credentials from environment
-  const email = process.env.E2E_TEST_USER_EMAIL;
-  const password = process.env.E2E_TEST_USER_PASSWORD;
+  const email = process.env['E2E_TEST_USER_EMAIL'];
+  const password = process.env['E2E_TEST_USER_PASSWORD'];
 
   // Skip auth setup if no credentials provided
   if (!email || !password) {

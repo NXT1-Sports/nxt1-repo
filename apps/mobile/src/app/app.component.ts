@@ -8,7 +8,7 @@
 
 import { Component, afterNextRender, inject } from '@angular/core';
 import { IonApp, IonRouterOutlet, Platform } from '@ionic/angular/standalone';
-import { NxtPlatformService } from '@nxt1/ui/services';
+import { NxtPlatformService } from '@nxt1/ui';
 import { NativeAppService } from './core/services';
 import { BiometricService } from './features/auth/services';
 import { NetworkService } from './services/network.service';
@@ -79,4 +79,3 @@ export class AppComponent {
     });
   }
 }
-

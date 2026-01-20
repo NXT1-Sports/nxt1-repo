@@ -17,12 +17,8 @@ import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
 import { provideAuth, getAuth } from '@angular/fire/auth';
 
 // Shared Angular infrastructure from @nxt1/ui
-import {
-  GlobalErrorHandler,
-  GLOBAL_ERROR_LOGGER,
-  httpErrorInterceptor,
-} from '@nxt1/ui/infrastructure';
-import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui/services';
+import { GlobalErrorHandler, GLOBAL_ERROR_LOGGER, httpErrorInterceptor } from '@nxt1/ui';
+import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 import { routes } from './app.routes';
 import { environment } from '../environments/environment';
