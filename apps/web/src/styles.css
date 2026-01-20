@@ -60,6 +60,8 @@
    Styles for @nxt1/ui components
    ============================================ */
 @import '@nxt1/ui/styles/auth';
+@import '@nxt1/ui/styles/components/ionic-select';
+@import '@nxt1/ui/styles/components/ionic-toast';
 
 /* ============================================
    LAYER 7: IONIC LAYOUT STABILITY (CLS Fix)

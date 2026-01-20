@@ -75,6 +75,40 @@ export {
 export { OnboardingProfileStepComponent } from './onboarding-profile-step';
 
 // ============================================
+// TEAM STEP (Step 3)
+// ============================================
+export {
+  OnboardingTeamStepComponent,
+  TEAM_TYPE_OPTIONS,
+  type TeamTypeOption,
+} from './onboarding-team-step';
+
+// ============================================
+// SPORT STEP (Step 4)
+// ============================================
+export { OnboardingSportStepComponent } from './onboarding-sport-step';
+
+// ============================================
+// POSITION STEP (Step 5)
+// ============================================
+export { OnboardingPositionStepComponent } from './onboarding-position-step';
+
+// ============================================
+// CONTACT STEP (Step 6)
+// ============================================
+export { OnboardingContactStepComponent } from './onboarding-contact-step';
+
+// ============================================
+// REFERRAL STEP (Step 7 - Final)
+// ============================================
+export {
+  OnboardingReferralStepComponent,
+  REFERRAL_OPTIONS,
+  type ReferralOption,
+  type ReferralSourceType,
+} from './onboarding-referral-step';
+
+// ============================================
 // PROGRESS BAR
 // ============================================
 export { OnboardingProgressBarComponent } from './onboarding-progress-bar';
@@ -83,6 +117,11 @@ export { OnboardingProgressBarComponent } from './onboarding-progress-bar';
 // NAVIGATION BUTTONS
 // ============================================
 export { OnboardingNavigationButtonsComponent } from './onboarding-navigation-buttons';
+
+// ============================================
+// MOBILE BUTTON FOOTER
+// ============================================
+export { OnboardingButtonMobileComponent } from './onboarding-button-mobile';
 
 // ============================================
 // STEP CARD

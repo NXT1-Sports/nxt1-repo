@@ -1,7 +1,7 @@
 /**
  * @fileoverview NXT1 UI Component Styles
  * @module @nxt1/ui/styles
- * @version 1.1.0
+ * @version 1.2.0
  *
  * ╔══════════════════════════════════════════════════════════════════════════╗
  * ║                    STYLING STRATEGY - OFFICIAL GUIDE                      ║
@@ -61,8 +61,20 @@
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
  * Usage in apps:
+ *   @import "@nxt1/ui/styles";
+ *   // Or individual modules:
  *   @import "@nxt1/ui/styles/auth";
+ *   @import "@nxt1/ui/styles/onboarding";
  */
+
+/* ============================================
+   SHARED IONIC COMPONENT OVERRIDES
+   ============================================ */
+@import './components/ionic-select.css';
+
+/* ============================================
+   FEATURE COMPONENT STYLES
+   ============================================ */
 
 /* Auth Component Styles */
 @import './auth/auth.css';

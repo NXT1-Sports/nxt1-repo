@@ -35,7 +35,17 @@
 
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { ToastController } from '@ionic/angular/standalone';
+import { addIcons } from 'ionicons';
+import { checkmarkCircle, alertCircle, warning, informationCircle } from 'ionicons/icons';
 import { NxtPlatformService } from '../platform';
+
+// Register icons used by toast service
+addIcons({
+  'checkmark-circle': checkmarkCircle,
+  'alert-circle': alertCircle,
+  warning: warning,
+  'information-circle': informationCircle,
+});
 
 // ============================================
 // TYPES
@@ -297,12 +307,12 @@ export class NxtToastService {
       }
 
       // Create and present toast
+      // Note: We don't pass 'color' to let CSS handle theming via nxt-toast-* classes
       this.activeToast = await this.toastController.create({
         message: nextToast.message,
         header: nextToast.header,
         duration: nextToast.duration,
         position: nextToast.position,
-        color: TYPE_COLORS[nextToast.type],
         icon: nextToast.icon,
         cssClass: `nxt-toast nxt-toast-${nextToast.type} ${nextToast.cssClass ?? ''}`.trim(),
         buttons: buttons.length > 0 ? buttons : undefined,

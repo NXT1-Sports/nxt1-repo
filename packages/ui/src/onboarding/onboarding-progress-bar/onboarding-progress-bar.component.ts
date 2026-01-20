@@ -1,6 +1,7 @@
 /**
  * @fileoverview OnboardingProgressBarComponent - Cross-Platform Progress Indicator
  * @module @nxt1/ui/onboarding
+ * @version 2.0.0
  *
  * Reusable step progress indicator for onboarding wizard.
  * Displays step numbers with completion states and connectors.
@@ -10,6 +11,7 @@
  * - Accessible with ARIA attributes
  * - Click navigation to completed steps
  * - Animated transitions
+ * - Mobile-friendly with horizontal scroll
  * - Test IDs for E2E testing
  *
  * Usage:
@@ -25,7 +27,7 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
+import { Component, input, output, computed, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../shared/icon';
 import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
@@ -38,21 +40,21 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
     <div class="nxt1-progress-container">
       <!-- Step Indicators -->
       <div class="nxt1-step-indicators" role="navigation" aria-label="Onboarding progress">
-        @for (step of steps; track step.id; let i = $index) {
+        @for (step of steps(); track step.id; let i = $index) {
           <button
             type="button"
             class="nxt1-step-indicator"
-            [class.active]="i === currentStepIndex"
-            [class.completed]="isStepCompleted(step.id) && i !== currentStepIndex"
+            [class.active]="i === currentStepIndex()"
+            [class.completed]="isStepCompleted(step.id) && i !== currentStepIndex()"
             [class.clickable]="canNavigateToStep(i)"
             [disabled]="!canNavigateToStep(i)"
             (click)="onStepClick(i)"
             [attr.data-testid]="'onboarding-step-' + (i + 1)"
             [attr.aria-label]="step.title + (isStepCompleted(step.id) ? ' (completed)' : '')"
-            [attr.aria-current]="i === currentStepIndex ? 'step' : null"
+            [attr.aria-current]="i === currentStepIndex() ? 'step' : null"
           >
             <span class="nxt1-step-number">
-              @if (isStepCompleted(step.id) && i !== currentStepIndex) {
+              @if (isStepCompleted(step.id) && i !== currentStepIndex()) {
                 <nxt1-icon name="checkmark" [size]="16" />
               } @else {
                 {{ i + 1 }}
@@ -61,7 +63,7 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
           </button>
 
           <!-- Connector line between steps -->
-          @if (i < steps.length - 1) {
+          @if (i < steps().length - 1) {
             <div class="nxt1-step-connector" [class.completed]="isStepCompleted(step.id)"></div>
           }
         }
@@ -69,7 +71,7 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
 
       <!-- Step count text -->
       <div class="nxt1-step-count">
-        <span>Step {{ currentStepIndex + 1 }} of {{ steps.length }}</span>
+        <span>Step {{ currentStepIndex() + 1 }} of {{ steps().length }}</span>
       </div>
     </div>
   `,
@@ -82,9 +84,10 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 12px;
+        gap: var(--nxt1-spacing-3, 12px);
         width: 100%;
-        margin-bottom: 24px;
+        margin-bottom: var(--nxt1-spacing-6, 24px);
+        overflow: hidden;
       }
 
       /* ============================================
@@ -95,6 +98,16 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
         align-items: center;
         justify-content: center;
         gap: 0;
+        max-width: 100%;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: var(--nxt1-spacing-1, 4px);
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+
+      .nxt1-step-indicators::-webkit-scrollbar {
+        display: none;
       }
 
       /* ============================================
@@ -181,41 +194,56 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OnboardingProgressBarComponent {
+  // ============================================
+  // SIGNAL INPUTS (Angular 19+ pattern)
+  // ============================================
+
   /** Array of onboarding steps */
-  @Input({ required: true }) steps: OnboardingStep[] = [];
+  readonly steps = input.required<OnboardingStep[]>();
 
   /** Current step index (0-based) */
-  @Input() currentStepIndex = 0;
+  readonly currentStepIndex = input<number>(0);
 
   /** Set of completed step IDs */
-  @Input() completedStepIds: Set<OnboardingStepId> = new Set();
+  readonly completedStepIds = input<Set<OnboardingStepId>>(new Set());
+
+  // ============================================
+  // SIGNAL OUTPUTS (Angular 19+ pattern)
+  // ============================================
 
   /** Emits when a step is clicked */
-  @Output() stepClick = new EventEmitter<number>();
+  readonly stepClick = output<number>();
+
+  // ============================================
+  // METHODS
+  // ============================================
 
   /**
    * Check if step is completed
    */
   isStepCompleted(stepId: OnboardingStepId): boolean {
-    return this.completedStepIds.has(stepId);
+    return this.completedStepIds().has(stepId);
   }
 
   /**
    * Check if can navigate to a specific step
    */
   canNavigateToStep(index: number): boolean {
-    if (index < 0 || index >= this.steps.length) return false;
-    if (index === this.currentStepIndex) return true;
+    const stepsArray = this.steps();
+    const currentIdx = this.currentStepIndex();
 
-    const targetStep = this.steps[index];
+    if (index < 0 || index >= stepsArray.length) return false;
+    if (index === currentIdx) return true;
+
+    const targetStep = stepsArray[index];
     if (!targetStep) return false;
 
     // Can always go back to completed steps
     if (this.isStepCompleted(targetStep.id)) return true;
 
     // Can go to next step if current is valid
-    if (index === this.currentStepIndex + 1) {
-      const currentStep = this.steps[this.currentStepIndex];
+    if (index === currentIdx + 1) {
+      const currentStep = stepsArray[currentIdx];
       return currentStep ? this.isStepCompleted(currentStep.id) : false;
     }
 

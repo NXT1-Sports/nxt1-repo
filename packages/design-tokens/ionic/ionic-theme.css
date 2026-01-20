@@ -98,6 +98,72 @@
 }
 
 /* ============================================
+   THEME-SPECIFIC IONIC COLOR OVERRIDES
+   Required because theme tokens cascade but Ionic
+   colors need explicit RGB values
+   ============================================ */
+
+/* Sport-Basketball Theme */
+[data-theme='sport-basketball'] {
+  --ion-color-primary: #ff6d00;
+  --ion-color-primary-rgb: 255, 109, 0;
+  --ion-color-primary-contrast: #000000;
+  --ion-color-primary-contrast-rgb: 0, 0, 0;
+  --ion-color-primary-shade: #e06000;
+  --ion-color-primary-tint: #ff7e1a;
+}
+
+/* Sport-Football Theme */
+[data-theme='sport-football'] {
+  --ion-color-primary: #4ade80;
+  --ion-color-primary-rgb: 74, 222, 128;
+  --ion-color-primary-contrast: #000000;
+  --ion-color-primary-contrast-rgb: 0, 0, 0;
+  --ion-color-primary-shade: #22c55e;
+  --ion-color-primary-tint: #86efac;
+}
+
+/* Sport-Baseball Theme */
+[data-theme='sport-baseball'] {
+  --ion-color-primary: #d84315;
+  --ion-color-primary-rgb: 216, 67, 21;
+  --ion-color-primary-contrast: #ffffff;
+  --ion-color-primary-contrast-rgb: 255, 255, 255;
+  --ion-color-primary-shade: #bf360c;
+  --ion-color-primary-tint: #ff5722;
+}
+
+/* Sport-Softball Theme */
+[data-theme='sport-softball'] {
+  --ion-color-primary: #ffed4e;
+  --ion-color-primary-rgb: 255, 237, 78;
+  --ion-color-primary-contrast: #000000;
+  --ion-color-primary-contrast-rgb: 0, 0, 0;
+  --ion-color-primary-shade: #ffc400;
+  --ion-color-primary-tint: #ffff80;
+}
+
+/* Light Theme */
+[data-theme='light'] {
+  --ion-color-primary: #ccff00;
+  --ion-color-primary-rgb: 204, 255, 0;
+  --ion-color-primary-contrast: #0a0a0a;
+  --ion-color-primary-contrast-rgb: 10, 10, 10;
+  --ion-color-primary-shade: #b8e600;
+  --ion-color-primary-tint: #d4ff4d;
+}
+
+/* Dark Theme (default) */
+[data-theme='dark'] {
+  --ion-color-primary: #ccff00;
+  --ion-color-primary-rgb: 204, 255, 0;
+  --ion-color-primary-contrast: #0a0a0a;
+  --ion-color-primary-contrast-rgb: 10, 10, 10;
+  --ion-color-primary-shade: #b8e600;
+  --ion-color-primary-tint: #d4ff4d;
+}
+
+/* ============================================
    DARK THEME (Default for NXT1)
    ============================================ */
 

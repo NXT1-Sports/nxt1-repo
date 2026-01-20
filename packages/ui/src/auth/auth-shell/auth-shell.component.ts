@@ -111,6 +111,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       <!-- Main Wrapper - scrollable content area -->
       <div
         class="nxt1-auth-wrapper relative z-10 flex w-full flex-col items-center px-4 py-6 md:py-10"
+        [class.nxt1-auth-wrapper--mobile-footer]="mobileFooterPadding"
       >
         <!-- Logo -->
         @if (showLogo) {
@@ -307,6 +308,19 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       .nxt1-auth-wrapper {
         overflow: visible;
         box-sizing: border-box;
+        /* Safe area padding for notched devices */
+        padding-top: calc(env(safe-area-inset-top, 0px) + 64px);
+      }
+
+      /* Mobile footer padding - adds space at bottom for fixed footer */
+      .nxt1-auth-wrapper--mobile-footer {
+        padding-bottom: 200px;
+      }
+
+      @media (min-width: 769px) {
+        .nxt1-auth-wrapper--mobile-footer {
+          padding-bottom: 0;
+        }
       }
 
       /* ============================================ */
@@ -462,6 +476,9 @@ export class AuthShellComponent {
 
   /** Max width of the content container */
   @Input() maxWidth = '420px';
+
+  /** Whether to add bottom padding for a fixed mobile footer (e.g., onboarding) */
+  @Input() mobileFooterPadding = false;
 
   /** Logo size variant (maps to NxtLogoComponent sizes) */
   @Input() logoSize: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' = 'md';

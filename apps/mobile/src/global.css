@@ -49,6 +49,8 @@
 
 /* UI Component Styles - Styles for @nxt1/ui components */
 @import '@nxt1/ui/styles/auth';
+@import '@nxt1/ui/styles/components/ionic-select';
+@import '@nxt1/ui/styles/components/ionic-toast';
 
 /* Ionic Component CSS - Visual styles for ion-* components */
 @import '@ionic/angular/css/core.css';

@@ -16,3 +16,9 @@ export {
 } from './image';
 
 export { NxtIconComponent, type IconName, type UIIconName, type BrandIconName } from './icon';
+
+export { NxtChipComponent, type ChipSize, type ChipVariant } from './chip';
+
+export { NxtValidationSummaryComponent, type ValidationSummaryVariant } from './validation-summary';
+
+export { NxtFormFieldComponent } from './form-field';

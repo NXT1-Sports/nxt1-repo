@@ -97,7 +97,9 @@ export {
   type OnboardingStep,
   type TeamCodePrefillData,
   type ProfileFormData,
-  type SchoolFormData,
+  type OnboardingTeamType,
+  type TeamFormData,
+  type SchoolFormData, // @deprecated - use TeamFormData
   type OrganizationFormData,
   type SportFormData,
   type PositionsFormData,
@@ -115,7 +117,8 @@ export {
   // Validation functions
   validateStep,
   validateProfile,
-  validateSchool,
+  validateTeam,
+  validateSchool, // @deprecated - use validateTeam
   validateOrganization,
   validateSport,
   validatePositions,

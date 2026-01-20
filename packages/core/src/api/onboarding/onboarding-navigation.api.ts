@@ -81,15 +81,52 @@ export interface ProfileFormData {
   lastName: string;
   profileImg?: string | null;
   bio?: string;
+  /** Graduation year (Class of) - required for athletes */
+  classYear?: number | null;
 }
 
-/** School form data */
-export interface SchoolFormData {
-  schoolName: string;
-  schoolType?: 'High School' | 'Middle School' | 'Club' | 'Juco';
+/**
+ * Team type options for onboarding UI
+ * Uses display-friendly values (vs constants/TeamType which uses kebab-case)
+ */
+export type OnboardingTeamType = 'High School' | 'Middle School' | 'Club' | 'JUCO';
+
+/**
+ * Team form data - for athletes to identify their team
+ *
+ * Note: Graduation year (classYear) was moved to ProfileFormData in v2.0
+ * to group it with other athlete-specific profile information.
+ */
+export interface TeamFormData {
+  /** Team name (e.g., "Lincoln High School", "Texas Elite FC") */
+  teamName: string;
+  /** Type of team */
+  teamType?: OnboardingTeamType;
+  /**
+   * @deprecated Moved to ProfileFormData. Kept for backward compatibility.
+   * Class year is now collected during the profile step.
+   */
   classYear?: number | null;
+  /** State/Region (optional) */
   state?: string;
+  /** City (optional) */
   city?: string;
+  /** Second team name (optional - for athletes on multiple teams) */
+  secondTeamName?: string;
+  /** Second team type (optional) */
+  secondTeamType?: OnboardingTeamType;
+}
+
+/**
+ * School form data
+ * @deprecated Use TeamFormData instead. Alias kept for backward compatibility.
+ */
+export interface SchoolFormData extends TeamFormData {
+  /** @deprecated Use teamName instead */
+  schoolName: string;
+  /** @deprecated Use teamType instead */
+  schoolType?: OnboardingTeamType;
+  /** @deprecated Club field no longer needed */
   club?: string;
 }
 
@@ -148,6 +185,11 @@ export interface ReferralSourceData {
 export interface OnboardingFormData {
   userType: OnboardingUserType;
   profile?: ProfileFormData;
+  /** Team data for athletes */
+  team?: TeamFormData;
+  /**
+   * @deprecated Use team instead. Alias kept for backward compatibility.
+   */
   school?: SchoolFormData;
   organization?: OrganizationFormData;
   sport?: SportFormData;
@@ -207,7 +249,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
     },
     {
       id: 'school',
-      title: 'Your School',
+      title: 'Your Team',
       subtitle: 'Where do you play?',
       required: true,
       order: 2,
@@ -394,20 +436,39 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
 
 /**
  * Validate profile step data
+ * Requires first name, last name, and class year (for athletes)
  * ⭐ PURE FUNCTION - No dependencies
  */
-export function validateProfile(data?: ProfileFormData): boolean {
+export function validateProfile(data?: ProfileFormData, requireClassYear = true): boolean {
   if (!data) return false;
-  return !!(data.firstName?.trim() && data.lastName?.trim());
+  const hasNames = !!(data.firstName?.trim() && data.lastName?.trim());
+  // Class year is required for athletes (default), optional for other roles
+  if (requireClassYear) {
+    return hasNames && data.classYear !== null && data.classYear !== undefined;
+  }
+  return hasNames;
+}
+
+/**
+ * Validate team step data
+ * Requires team name only (class year moved to profile step)
+ * ⭐ PURE FUNCTION - No dependencies
+ */
+export function validateTeam(data?: TeamFormData): boolean {
+  if (!data) return false;
+  return !!data.teamName?.trim();
 }
 
 /**
  * Validate school step data
+ * @deprecated Use validateTeam instead
  * ⭐ PURE FUNCTION - No dependencies
  */
 export function validateSchool(data?: SchoolFormData): boolean {
   if (!data) return false;
-  return !!(data.schoolName?.trim() && data.classYear);
+  // Support both old schoolName and new teamName
+  const teamName = data.teamName || data.schoolName;
+  return !!teamName?.trim();
 }
 
 /**
@@ -460,13 +521,18 @@ export function validateStep(
   formData: Partial<OnboardingFormData>,
   pendingRole?: OnboardingUserType | null
 ): boolean {
+  // Determine if class year is required (only for athletes)
+  const userType = pendingRole ?? formData.userType;
+  const requireClassYear = userType === 'athlete';
+
   switch (stepId) {
     case 'role':
       return pendingRole !== null || !!formData.userType;
     case 'profile':
-      return validateProfile(formData.profile);
+      return validateProfile(formData.profile, requireClassYear);
     case 'school':
-      return validateSchool(formData.school);
+      // Support both team and school (backward compatible)
+      return validateTeam(formData.team) || validateSchool(formData.school);
     case 'organization':
       return validateOrganization(formData.organization);
     case 'sport':
@@ -623,15 +689,15 @@ export function detectUserTypeFromUserData(
 }
 
 /**
- * Map team type string to school type
+ * Map team type string to OnboardingTeamType
  * ⭐ PURE FUNCTION - No dependencies
  */
-export function mapTeamType(teamType?: string): 'High School' | 'Middle School' | 'Club' | 'Juco' {
+export function mapTeamType(teamType?: string): OnboardingTeamType {
   if (!teamType) return 'High School';
   const type = teamType.toLowerCase();
   if (type.includes('club')) return 'Club';
   if (type.includes('middle')) return 'Middle School';
-  if (type.includes('juco')) return 'Juco';
+  if (type.includes('juco')) return 'JUCO';
   return 'High School';
 }
 
@@ -680,11 +746,15 @@ export function buildInitialFormDataFromTeamCode(
   const formData: Partial<OnboardingFormData> = { userType };
 
   if (userType === 'athlete') {
+    const teamName = teamCode.teamName ?? '';
     formData.school = {
-      schoolName: teamCode.teamName ?? '',
-      schoolType: mapTeamType(teamCode.teamType),
+      teamName,
+      teamType: mapTeamType(teamCode.teamType),
       classYear: null,
       state: teamCode.state,
+      // Backward compatibility aliases
+      schoolName: teamName,
+      schoolType: mapTeamType(teamCode.teamType),
     };
   } else {
     formData.organization = {
@@ -757,7 +827,8 @@ export function createOnboardingNavigationApi() {
     // Validation
     validateStep,
     validateProfile,
-    validateSchool,
+    validateTeam,
+    validateSchool, // @deprecated - use validateTeam
     validateOrganization,
     validateSport,
     validatePositions,

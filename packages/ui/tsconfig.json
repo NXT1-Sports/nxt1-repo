@@ -8,8 +8,8 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "paths": {
-      "@nxt1/core": ["../core/dist"],
-      "@nxt1/core/*": ["../core/dist/*"],
+      "@nxt1/core": ["../core/src/index.ts", "../core/dist/index.d.ts"],
+      "@nxt1/core/*": ["../core/src/*/index.ts", "../core/dist/*/index.d.ts"],
       "@nxt1/design-tokens": ["../design-tokens/src/index.ts"],
       "@nxt1/design-tokens/*": ["../design-tokens/src/*"]
     }

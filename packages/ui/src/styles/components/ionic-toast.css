@@ -1,0 +1,106 @@
+/**
+ * @fileoverview Ionic Toast Styling - Theme Integration
+ * @module @nxt1/ui/styles/components/ionic-toast
+ * @version 1.0.0
+ *
+ * Applies NXT1 design tokens to ion-toast components.
+ * Ensures toasts match the active theme (sport-basketball, dark, light, etc.)
+ */
+
+/* ============================================
+   TOAST BASE STYLES
+   ============================================ */
+
+ion-toast.nxt-toast {
+  font-family: var(--nxt1-font-family-body);
+}
+
+/* Toast wrapper (shadow host) */
+ion-toast.nxt-toast::part(container) {
+  border-radius: var(--nxt1-borderRadius-lg);
+}
+
+/* Toast content */
+ion-toast.nxt-toast::part(message) {
+  font-size: var(--nxt1-fontSize-sm);
+  font-weight: var(--nxt1-fontWeight-medium);
+}
+
+/* ============================================
+   TOAST TYPE COLORS - Use NXT1 Theme Colors
+   ============================================ */
+
+/* Success Toast */
+ion-toast.nxt-toast-success {
+  --background: var(--nxt1-color-success, #22c55e);
+  --color: #ffffff;
+  --button-color: #ffffff;
+}
+
+/* Error Toast */
+ion-toast.nxt-toast-error {
+  --background: var(--nxt1-color-error, #ef4444);
+  --color: #ffffff;
+  --button-color: #ffffff;
+}
+
+/* Warning Toast */
+ion-toast.nxt-toast-warning {
+  --background: var(--nxt1-color-warning, #f59e0b);
+  --color: #000000;
+  --button-color: #000000;
+}
+
+/* Info Toast - Default (volt green) */
+ion-toast.nxt-toast-info {
+  --background: #ccff00;
+  --color: #000000;
+  --button-color: #000000;
+}
+
+/* ============================================
+   THEME-SPECIFIC INFO TOAST COLORS
+   Uses html[data-theme] for reliable targeting
+   ============================================ */
+
+/* Sport-Basketball Theme - Orange */
+html[data-theme='sport-basketball'] ion-toast.nxt-toast-info {
+  --background: #ff6d00;
+  --color: #000000;
+  --button-color: #000000;
+}
+
+/* Sport-Football Theme - Green */
+html[data-theme='sport-football'] ion-toast.nxt-toast-info {
+  --background: #4ade80;
+  --color: #000000;
+  --button-color: #000000;
+}
+
+/* Sport-Baseball Theme - Red-brown */
+html[data-theme='sport-baseball'] ion-toast.nxt-toast-info {
+  --background: #d84315;
+  --color: #ffffff;
+  --button-color: #ffffff;
+}
+
+/* Sport-Softball Theme - Yellow */
+html[data-theme='sport-softball'] ion-toast.nxt-toast-info {
+  --background: #ffed4e;
+  --color: #000000;
+  --button-color: #000000;
+}
+
+/* Light Theme - Volt green */
+html[data-theme='light'] ion-toast.nxt-toast-info {
+  --background: #ccff00;
+  --color: #000000;
+  --button-color: #000000;
+}
+
+/* Dark Theme - Volt green */
+html[data-theme='dark'] ion-toast.nxt-toast-info {
+  --background: #ccff00;
+  --color: #000000;
+  --button-color: #000000;
+}

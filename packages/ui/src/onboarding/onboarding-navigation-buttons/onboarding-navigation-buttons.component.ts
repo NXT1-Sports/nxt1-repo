@@ -46,12 +46,16 @@ import { NxtPlatformService } from '../../services/platform';
   standalone: true,
   imports: [CommonModule, NxtIconComponent, HapticButtonDirective],
   template: `
-    <div class="nxt1-onboarding-nav" [class.mobile-layout]="isMobile()">
+    <!-- Navigation Container - Tailwind for layout -->
+    <div
+      class="flex w-full"
+      [class]="isMobile() ? 'mt-0 flex-col gap-0 p-0' : 'mt-6 items-center justify-end gap-3'"
+    >
       <!-- Skip Button (optional steps) -->
       @if (showSkip && !isLastStep) {
         <button
           type="button"
-          class="nxt1-skip-btn"
+          class="nxt1-skip-btn px-6 py-3"
           [disabled]="loading"
           (click)="skipClick.emit()"
           data-testid="onboarding-skip"
@@ -64,7 +68,8 @@ import { NxtPlatformService } from '../../services/platform';
       <!-- Continue/Complete Button -->
       <button
         type="button"
-        class="nxt1-continue-btn"
+        class="nxt1-continue-btn flex w-full items-center justify-center gap-2 whitespace-nowrap"
+        [class]="isMobile() ? 'rounded-xl px-6 py-4' : 'rounded-lg px-7 py-4'"
         [class.completing]="isLastStep"
         [disabled]="disabled || loading"
         (click)="continueClick.emit()"
@@ -85,44 +90,18 @@ import { NxtPlatformService } from '../../services/platform';
   styles: [
     `
       /* ============================================
-       NAVIGATION CONTAINER - DESKTOP
-       ============================================ */
-      .nxt1-onboarding-nav {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: var(--nxt1-spacing-3);
-        margin-top: var(--nxt1-spacing-6);
-        width: 100%;
-      }
-
-      /* ============================================
-       NAVIGATION CONTAINER - MOBILE LAYOUT
-       ============================================ */
-      .nxt1-onboarding-nav.mobile-layout {
-        flex-direction: column;
-        justify-content: flex-end;
-        gap: 0;
-        margin-top: 0;
-        padding: 0;
-        width: 100%;
-        z-index: auto;
-      }
-
-      /* ============================================
-       SKIP BUTTON
+       SKIP BUTTON - Theme colors & states (not layout)
        ============================================ */
       .nxt1-skip-btn {
-        padding: 12px 24px;
         background: transparent;
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.1));
-        border-radius: 10px;
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 15px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: var(--nxt1-borderRadius-lg);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        color: var(--nxt1-color-text-secondary);
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: all var(--nxt1-duration-normal) var(--nxt1-easing-inOut);
       }
 
       .nxt1-skip-btn:hover:not(:disabled) {
@@ -137,25 +116,17 @@ import { NxtPlatformService } from '../../services/platform';
       }
 
       /* ============================================
-       CONTINUE BUTTON - DESKTOP (Always full width primary style)
+       CONTINUE BUTTON - Theme colors & states
        ============================================ */
       .nxt1-continue-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: var(--nxt1-spacing-2);
-        width: 100%;
-        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-7);
         background: var(--nxt1-color-primary);
         border: none;
-        border-radius: var(--nxt1-borderRadius-lg);
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-base);
-        font-weight: 700;
+        font-weight: var(--nxt1-fontWeight-bold);
         color: var(--nxt1-color-text-onPrimary);
         cursor: pointer;
-        transition: all 0.2s ease;
-        white-space: nowrap;
+        transition: all var(--nxt1-duration-normal) var(--nxt1-easing-inOut);
       }
 
       .nxt1-continue-btn:hover:not(:disabled) {
@@ -173,46 +144,22 @@ import { NxtPlatformService } from '../../services/platform';
         transform: scale(0.98);
       }
 
-      /* ============================================
-       COMPLETE BUTTON - Same style, no arrow icon
-       ============================================ */
-      .nxt1-continue-btn.completing {
-        /* Same styling as continue - button text changes to "Complete" */
-      }
-
+      /* Complete state - same style, text changes via template */
       .nxt1-continue-btn.completing:hover:not(:disabled) {
         background: var(--nxt1-color-primaryDark);
         transform: translateY(-2px);
       }
 
       /* ============================================
-       CONTINUE BUTTON - MOBILE LAYOUT
-       ============================================ */
-      .mobile-layout .nxt1-continue-btn {
-        width: 100%;
-        padding: 16px 24px;
-        font-size: 16px;
-        border-radius: 14px;
-      }
-
-      .mobile-layout .nxt1-continue-btn:hover:not(:disabled) {
-        transform: none;
-      }
-
-      .mobile-layout .nxt1-continue-btn:active:not(:disabled) {
-        transform: scale(0.98);
-      }
-
-      /* ============================================
-       SPINNER
+       SPINNER - Keyframe animation (must be CSS)
        ============================================ */
       .nxt1-spinner {
         width: 16px;
         height: 16px;
         border: 2px solid transparent;
         border-top-color: currentColor;
-        border-radius: 50%;
-        animation: nxt1-spin 0.8s linear infinite;
+        border-radius: var(--nxt1-borderRadius-full);
+        animation: nxt1-spin var(--nxt1-duration-slowest) linear infinite;
       }
 
       @keyframes nxt1-spin {

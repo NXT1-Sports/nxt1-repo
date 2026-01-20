@@ -40,15 +40,16 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
-import { IonContent, IonFooter } from '@ionic/angular/standalone';
+import { IonContent } from '@ionic/angular/standalone';
 
 // Shared UI Components
 import { AuthShellComponent, AuthTitleComponent, AuthSubtitleComponent } from '@nxt1/ui/auth';
 import {
   OnboardingRoleSelectionComponent,
   OnboardingProfileStepComponent,
+  OnboardingTeamStepComponent,
   OnboardingProgressBarComponent,
-  OnboardingNavigationButtonsComponent,
+  OnboardingButtonMobileComponent,
   OnboardingStepCardComponent,
   type AnimationDirection,
 } from '@nxt1/ui/onboarding';
@@ -60,6 +61,7 @@ import {
   type OnboardingStep,
   type OnboardingFormData,
   type ProfileFormData,
+  type TeamFormData,
   ONBOARDING_STEPS,
   ROLE_SELECTION_STEP,
   validateStep,
@@ -118,14 +120,14 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     CommonModule,
     RouterModule,
     IonContent,
-    IonFooter,
     AuthShellComponent,
     AuthTitleComponent,
     AuthSubtitleComponent,
     OnboardingRoleSelectionComponent,
     OnboardingProfileStepComponent,
+    OnboardingTeamStepComponent,
     OnboardingProgressBarComponent,
-    OnboardingNavigationButtonsComponent,
+    OnboardingButtonMobileComponent,
     OnboardingStepCardComponent,
   ],
   template: `
@@ -135,6 +137,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         [showLogo]="true"
         [showBackButton]="canGoBack()"
         [maxWidth]="'560px'"
+        [mobileFooterPadding]="true"
         (backClick)="onBack()"
       >
         <!-- Title & Subtitle -->
@@ -177,14 +180,28 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               <nxt1-onboarding-profile-step
                 [profileData]="profileFormData()"
                 [disabled]="isLoading()"
+                [showClassYear]="selectedRole() === 'athlete'"
                 (profileChange)="onProfileChange($event)"
                 (photoSelect)="onPhotoSelect()"
                 (fileSelected)="onFileSelected($event)"
               />
             }
 
-            <!-- Future Steps: School, Organization, Sport, etc. -->
-            @if (currentStep().id !== 'role' && currentStep().id !== 'profile') {
+            <!-- Step 3: Team (School) -->
+            @if (currentStep().id === 'school') {
+              <nxt1-onboarding-team-step
+                [teamData]="teamFormData()"
+                [disabled]="isLoading()"
+                (teamChange)="onTeamChange($event)"
+              />
+            }
+
+            <!-- Future Steps: Organization, Sport, Positions, etc. -->
+            @if (
+              currentStep().id !== 'role' &&
+              currentStep().id !== 'profile' &&
+              currentStep().id !== 'school'
+            ) {
               <div class="py-12 text-center">
                 <div
                   class="bg-surface-200 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
@@ -204,41 +221,22 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       </nxt1-auth-shell>
     </ion-content>
 
-    <!-- Mobile: Sticky Footer with Navigation -->
-    <ion-footer class="onboarding-footer">
-      <nxt1-onboarding-navigation-buttons
-        [showSkip]="isCurrentStepOptional()"
-        [showBack]="canGoBack()"
-        [isLastStep]="isLastStep()"
-        [loading]="isLoading()"
-        [disabled]="!isCurrentStepValid()"
-        (skipClick)="onSkip()"
-        (backClick)="onBack()"
-        (continueClick)="onContinue()"
-      />
-    </ion-footer>
+    <!-- Mobile: Professional Sticky Footer -->
+    <nxt1-onboarding-button-mobile
+      [showSkip]="isCurrentStepOptional()"
+      [isLastStep]="isLastStep()"
+      [loading]="isLoading()"
+      [disabled]="!isCurrentStepValid()"
+      [showSignOut]="true"
+      (skipClick)="onSkip()"
+      (continueClick)="onContinue()"
+      (signOutClick)="onSignOut()"
+    />
   `,
   styles: [
     `
       .onboarding-page {
         --background: var(--nxt1-color-bg-primary);
-      }
-
-      /* Mobile: Sticky footer styling */
-      .onboarding-footer {
-        --background: linear-gradient(
-          to top,
-          var(--nxt1-color-bg-primary, #0a0a0a),
-          var(--nxt1-color-bg-primary, #0a0a0a) 70%,
-          transparent
-        );
-        --border-style: solid;
-        --border-color: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        --border-width: 1px 0 0 0;
-        --padding-top: 12px;
-        --padding-bottom: 12px;
-        --padding-start: 16px;
-        --padding-end: 16px;
       }
     `,
   ],
@@ -336,6 +334,9 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
   /** Profile form data computed from _formData */
   readonly profileFormData = computed(() => this._formData().profile ?? null);
+
+  /** Team form data computed from _formData */
+  readonly teamFormData = computed(() => this._formData().team ?? null);
 
   /** Current steps array */
   readonly steps = computed(() => this._steps());
@@ -476,6 +477,16 @@ export class OnboardingPage implements OnInit, OnDestroy {
   }
 
   /**
+   * Handle team data change (Step 3)
+   */
+  onTeamChange(teamData: TeamFormData): void {
+    this._formData.update((data) => ({
+      ...data,
+      team: teamData,
+    }));
+  }
+
+  /**
    * Handle photo select button click (for native photo picker)
    * On mobile, this can trigger the Capacitor Camera plugin
    */
@@ -574,6 +585,21 @@ export class OnboardingPage implements OnInit, OnDestroy {
       this._currentStepIndex.update((i) => i - 1);
       // Save session after back navigation
       void this.saveSession();
+    }
+  }
+
+  /**
+   * Handle sign out button click
+   * Signs out and redirects to auth page for testing/recovery
+   */
+  async onSignOut(): Promise<void> {
+    try {
+      await this.haptics.impact('light');
+      await this.authFlow.signOut();
+      void this.router.navigate([AUTH_ROUTES.ROOT]);
+    } catch (err) {
+      console.error('[Onboarding] Sign out failed:', err);
+      this.toast.error('Failed to sign out');
     }
   }
 

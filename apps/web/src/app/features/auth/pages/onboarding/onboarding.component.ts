@@ -47,12 +47,18 @@ import { AuthShellComponent, AuthTitleComponent, AuthSubtitleComponent } from '@
 import {
   OnboardingRoleSelectionComponent,
   OnboardingProfileStepComponent,
+  OnboardingTeamStepComponent,
+  OnboardingSportStepComponent,
+  OnboardingPositionStepComponent,
+  OnboardingContactStepComponent,
+  OnboardingReferralStepComponent,
   OnboardingProgressBarComponent,
   OnboardingNavigationButtonsComponent,
+  OnboardingButtonMobileComponent,
   OnboardingStepCardComponent,
   type AnimationDirection,
 } from '@nxt1/ui/onboarding';
-import { NxtToastService } from '@nxt1/ui/services';
+import { NxtToastService, NxtPlatformService } from '@nxt1/ui/services';
 
 // Core API - Types & Constants
 import {
@@ -61,6 +67,11 @@ import {
   type OnboardingStep,
   type OnboardingFormData,
   type ProfileFormData,
+  type TeamFormData,
+  type SportFormData,
+  type PositionsFormData,
+  type ContactFormData,
+  type ReferralSourceData,
   ONBOARDING_STEPS,
   ROLE_SELECTION_STEP,
   validateStep,
@@ -123,8 +134,14 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     AuthSubtitleComponent,
     OnboardingRoleSelectionComponent,
     OnboardingProfileStepComponent,
+    OnboardingTeamStepComponent,
+    OnboardingSportStepComponent,
+    OnboardingPositionStepComponent,
+    OnboardingContactStepComponent,
+    OnboardingReferralStepComponent,
     OnboardingProgressBarComponent,
     OnboardingNavigationButtonsComponent,
+    OnboardingButtonMobileComponent,
     OnboardingStepCardComponent,
   ],
   template: `
@@ -133,6 +150,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       [showLogo]="true"
       [showBackButton]="canGoBack()"
       [maxWidth]="'560px'"
+      [mobileFooterPadding]="isMobile()"
       (backClick)="onBack()"
     >
       <!-- Title & Subtitle -->
@@ -176,14 +194,70 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             <nxt1-onboarding-profile-step
               [profileData]="profileFormData()"
               [disabled]="isLoading()"
+              [showClassYear]="selectedRole() === 'athlete'"
               (profileChange)="onProfileChange($event)"
               (photoSelect)="onPhotoSelect()"
               (fileSelected)="onFileSelected($event)"
             />
           }
 
-          <!-- Future Steps: School, Organization, Sport, etc. -->
-          @if (currentStep().id !== 'role' && currentStep().id !== 'profile') {
+          <!-- Step 3: Team (School) -->
+          @if (currentStep().id === 'school') {
+            <nxt1-onboarding-team-step
+              [teamData]="teamFormData()"
+              [disabled]="isLoading()"
+              (teamChange)="onTeamChange($event)"
+            />
+          }
+
+          <!-- Step 4: Sport Selection -->
+          @if (currentStep().id === 'sport') {
+            <nxt1-onboarding-sport-step
+              [sportData]="sportFormData()"
+              [disabled]="isLoading()"
+              (sportChange)="onSportChange($event)"
+            />
+          }
+
+          <!-- Step 5: Position Selection -->
+          @if (currentStep().id === 'positions') {
+            <nxt1-onboarding-position-step
+              [positionData]="positionFormData()"
+              [selectedSport]="selectedSportName()"
+              [disabled]="isLoading()"
+              (positionChange)="onPositionChange($event)"
+            />
+          }
+
+          <!-- Step 6: Contact Info -->
+          @if (currentStep().id === 'contact') {
+            <nxt1-onboarding-contact-step
+              [contactData]="contactFormData()"
+              [authEmail]="authUserEmail()"
+              [disabled]="isLoading()"
+              (contactChange)="onContactChange($event)"
+            />
+          }
+
+          <!-- Step 7: Referral Source (Final Step) -->
+          @if (currentStep().id === 'referral-source') {
+            <nxt1-onboarding-referral-step
+              [referralData]="referralFormData()"
+              [disabled]="isLoading()"
+              (referralChange)="onReferralChange($event)"
+            />
+          }
+
+          <!-- Future Steps: Organization, etc. -->
+          @if (
+            currentStep().id !== 'role' &&
+            currentStep().id !== 'profile' &&
+            currentStep().id !== 'school' &&
+            currentStep().id !== 'sport' &&
+            currentStep().id !== 'positions' &&
+            currentStep().id !== 'contact' &&
+            currentStep().id !== 'referral-source'
+          ) {
             <div class="py-12 text-center">
               <div
                 class="bg-surface-200 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
@@ -200,30 +274,46 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
           }
         </nxt1-onboarding-step-card>
 
-        <!-- Navigation Buttons -->
-        <nxt1-onboarding-navigation-buttons
-          [showSkip]="isCurrentStepOptional()"
-          [showBack]="canGoBack()"
-          [isLastStep]="isLastStep()"
-          [loading]="isLoading()"
-          [disabled]="!isCurrentStepValid()"
-          (skipClick)="onSkip()"
-          (backClick)="onBack()"
-          (continueClick)="onContinue()"
-        />
+        <!-- Desktop: Navigation Buttons (inline) -->
+        @if (!isMobile()) {
+          <nxt1-onboarding-navigation-buttons
+            [showSkip]="isCurrentStepOptional()"
+            [showBack]="canGoBack()"
+            [isLastStep]="isLastStep()"
+            [loading]="isLoading()"
+            [disabled]="!isCurrentStepValid()"
+            (skipClick)="onSkip()"
+            (backClick)="onBack()"
+            (continueClick)="onContinue()"
+          />
 
-        <!-- Dev: Sign Out Button -->
-        <div class="mt-6 border-t border-gray-200 pt-4 text-center">
-          <button
-            type="button"
-            (click)="onSignOut()"
-            class="text-sm text-gray-500 hover:text-red-600 hover:underline"
-          >
-            Sign out and start over
-          </button>
-        </div>
+          <!-- Desktop: Sign Out Link -->
+          <div class="border-border-subtle mt-6 border-t pt-4 text-center">
+            <button
+              type="button"
+              (click)="onSignOut()"
+              class="text-text-tertiary hover:text-error text-sm hover:underline"
+            >
+              Sign out and start over
+            </button>
+          </div>
+        }
       </div>
     </nxt1-auth-shell>
+
+    <!-- Mobile Web: Professional Sticky Footer -->
+    @if (isMobile()) {
+      <nxt1-onboarding-button-mobile
+        [showSkip]="isCurrentStepOptional()"
+        [isLastStep]="isLastStep()"
+        [loading]="isLoading()"
+        [disabled]="!isCurrentStepValid()"
+        [showSignOut]="true"
+        (skipClick)="onSkip()"
+        (continueClick)="onContinue()"
+        (signOutClick)="onSignOut()"
+      />
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -234,6 +324,10 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private readonly errorHandler = inject(AuthErrorHandler);
   private readonly seo = inject(SeoService);
   private readonly toast = inject(NxtToastService);
+  private readonly platform = inject(NxtPlatformService);
+
+  /** Check if running on mobile (native or mobile web) */
+  readonly isMobile = computed(() => this.platform.isMobile());
 
   // ============================================
   // SESSION PERSISTENCE
@@ -282,6 +376,27 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   /** Profile form data computed from _formData */
   readonly profileFormData = computed(() => this._formData().profile ?? null);
+
+  /** Team form data computed from _formData */
+  readonly teamFormData = computed(() => this._formData().team ?? null);
+
+  /** Sport form data computed from _formData */
+  readonly sportFormData = computed(() => this._formData().sport ?? null);
+
+  /** Position form data computed from _formData */
+  readonly positionFormData = computed(() => this._formData().positions ?? null);
+
+  /** Contact form data computed from _formData */
+  readonly contactFormData = computed(() => this._formData().contact ?? {});
+
+  /** Referral source form data computed from _formData */
+  readonly referralFormData = computed(() => this._formData().referralSource ?? null);
+
+  /** User's auth email for contact step default */
+  readonly authUserEmail = computed(() => this.authFlow.user()?.email ?? '');
+
+  /** Selected sport name for position step */
+  readonly selectedSportName = computed(() => this._formData().sport?.primarySport ?? '');
 
   /** Current steps array */
   readonly steps = computed(() => this._steps());
@@ -465,6 +580,58 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     this._formData.update((data) => ({
       ...data,
       profile: profileData,
+    }));
+  }
+
+  /**
+   * Handle team data change (Step 3)
+   */
+  onTeamChange(teamData: TeamFormData): void {
+    this._formData.update((data) => ({
+      ...data,
+      team: teamData,
+    }));
+  }
+
+  /**
+   * Handle sport data change (Step 4)
+   */
+  onSportChange(sportData: SportFormData): void {
+    this._formData.update((data) => ({
+      ...data,
+      sport: sportData,
+      // Clear positions when sport changes (positions are sport-specific)
+      positions: undefined,
+    }));
+  }
+
+  /**
+   * Handle position data change (Step 5)
+   */
+  onPositionChange(positionData: PositionsFormData): void {
+    this._formData.update((data) => ({
+      ...data,
+      positions: positionData,
+    }));
+  }
+
+  /**
+   * Handle contact data change (Step 6)
+   */
+  onContactChange(contactData: ContactFormData): void {
+    this._formData.update((data) => ({
+      ...data,
+      contact: contactData,
+    }));
+  }
+
+  /**
+   * Handle referral source data change (Step 7 - Final)
+   */
+  onReferralChange(referralData: ReferralSourceData): void {
+    this._formData.update((data) => ({
+      ...data,
+      referralSource: referralData,
     }));
   }
 

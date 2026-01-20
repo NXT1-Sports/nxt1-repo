@@ -1,0 +1,125 @@
+/**
+ * @fileoverview Ionic Select Popover - Theme Colors
+ * @module @nxt1/ui/styles/components/ionic-select
+ * @version 3.0.0
+ *
+ * Applies NXT1 design token colors to ion-select popovers.
+ * Keeps Ionic's native behavior, just overrides colors.
+ *
+ * Note: ion-popover is rendered at the document root level (outside themed
+ * containers), so we must explicitly apply theme tokens via :root selectors.
+ */
+
+/* ============================================
+   BASE STYLES - Use tokens from :root
+   ============================================ */
+
+ion-popover.nxt1-select-popover {
+  --background: var(--nxt1-color-surface-300);
+}
+
+/* Invisible backdrop (keeps click-to-dismiss) */
+ion-popover.nxt1-select-popover::part(backdrop) {
+  background: transparent;
+}
+
+/* Content container */
+ion-popover.nxt1-select-popover::part(content) {
+  background: var(--nxt1-color-surface-300);
+  border: 1px solid var(--nxt1-color-border-default);
+  border-radius: var(--nxt1-borderRadius-lg);
+}
+
+/* Text color */
+ion-popover.nxt1-select-popover ion-select-popover {
+  --background: var(--nxt1-color-surface-300);
+  color: var(--nxt1-color-text-primary);
+}
+
+ion-popover.nxt1-select-popover ion-item {
+  --background: var(--nxt1-color-surface-300);
+  --color: var(--nxt1-color-text-primary);
+}
+
+ion-popover.nxt1-select-popover ion-label {
+  color: var(--nxt1-color-text-primary) !important;
+}
+
+/* Selected state */
+ion-popover.nxt1-select-popover ion-item.item-radio-checked ion-label {
+  color: var(--nxt1-color-primary) !important;
+}
+
+/* ============================================
+   SPORT-SOFTBALL THEME
+   Explicit tokens for popover since it's
+   rendered outside [data-theme] scope
+   ============================================ */
+
+[data-theme='sport-softball'] ~ ion-popover.nxt1-select-popover,
+:root:has([data-theme='sport-softball']) ion-popover.nxt1-select-popover {
+  --nxt1-color-surface-300: #3e301c;
+  --nxt1-color-text-primary: #ffffff;
+  --nxt1-color-primary: #ffed4e;
+  --nxt1-color-border-default: rgba(255, 255, 255, 0.12);
+}
+
+/* ============================================
+   SPORT-BASEBALL THEME
+   ============================================ */
+
+[data-theme='sport-baseball'] ~ ion-popover.nxt1-select-popover,
+:root:has([data-theme='sport-baseball']) ion-popover.nxt1-select-popover {
+  --nxt1-color-surface-300: #2e2015;
+  --nxt1-color-text-primary: #ffffff;
+  --nxt1-color-primary: #d84315;
+  --nxt1-color-border-default: rgba(255, 255, 255, 0.12);
+}
+
+/* ============================================
+   SPORT-FOOTBALL THEME
+   ============================================ */
+
+[data-theme='sport-football'] ~ ion-popover.nxt1-select-popover,
+:root:has([data-theme='sport-football']) ion-popover.nxt1-select-popover {
+  --nxt1-color-surface-300: #213823;
+  --nxt1-color-text-primary: #ffffff;
+  --nxt1-color-primary: #4ade80;
+  --nxt1-color-border-default: rgba(255, 255, 255, 0.12);
+}
+
+/* ============================================
+   SPORT-BASKETBALL THEME
+   ============================================ */
+
+[data-theme='sport-basketball'] ~ ion-popover.nxt1-select-popover,
+:root:has([data-theme='sport-basketball']) ion-popover.nxt1-select-popover {
+  --nxt1-color-surface-300: #1e2c4a;
+  --nxt1-color-text-primary: #ffffff;
+  --nxt1-color-primary: #f97316;
+  --nxt1-color-border-default: rgba(255, 255, 255, 0.12);
+}
+
+/* ============================================
+   LIGHT THEME
+   ============================================ */
+
+[data-theme='light'] ~ ion-popover.nxt1-select-popover,
+:root:has([data-theme='light']) ion-popover.nxt1-select-popover {
+  --nxt1-color-surface-300: #eeeeee;
+  --nxt1-color-text-primary: #212121;
+  --nxt1-color-primary: #ccff00;
+  --nxt1-color-border-default: rgba(0, 0, 0, 0.12);
+}
+
+/* ============================================
+   DARK THEME (default)
+   ============================================ */
+
+[data-theme='dark'] ~ ion-popover.nxt1-select-popover,
+:root:has([data-theme='dark']) ion-popover.nxt1-select-popover {
+  --nxt1-color-surface-300: #222222;
+  --nxt1-color-text-primary: #ffffff;
+  --nxt1-color-primary: #ccff00;
+  --nxt1-color-border-default: rgba(255, 255, 255, 0.12);
+}

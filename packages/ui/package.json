@@ -11,7 +11,9 @@
   ],
   "exports": {
     "./styles": "./src/styles/index.css",
-    "./styles/auth": "./src/styles/auth/auth.css"
+    "./styles/auth": "./src/styles/auth/auth.css",
+    "./styles/components/ionic-select": "./src/styles/components/ionic-select.css",
+    "./styles/components/ionic-toast": "./src/styles/components/ionic-toast.css"
   },
   "scripts": {
     "build": "ng-packagr -p ng-package.json",

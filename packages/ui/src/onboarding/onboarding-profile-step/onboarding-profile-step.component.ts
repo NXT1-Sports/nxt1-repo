@@ -1,15 +1,17 @@
 /**
  * @fileoverview OnboardingProfileStepComponent - Cross-Platform Profile Form
  * @module @nxt1/ui/onboarding
+ * @version 2.0.0
  *
  * Reusable profile step component for onboarding Step 2.
- * Collects user's photo (optional), first name, and last name.
+ * Collects user's photo (optional), first name, last name, and graduation year (athletes only).
  *
  * Features:
  * - Platform-adaptive with Ionic components
- * - Profile photo upload with preview
+ * - Profile photo upload with preview (max 5MB, JPG/PNG/WebP/GIF)
+ * - Graduation year selector for athletes (Class of 2026-2036)
  * - Real-time validation using @nxt1/core helpers
- * - Accessible with ARIA labels
+ * - Accessible with ARIA labels and role="radiogroup"
  * - Haptic feedback ready
  * - Test IDs for E2E testing
  *
@@ -18,8 +20,10 @@
  * <nxt1-onboarding-profile-step
  *   [profileData]="profileFormData()"
  *   [disabled]="isLoading()"
+ *   [showClassYear]="isAthlete()"
  *   (profileChange)="onProfileChange($event)"
  *   (photoSelect)="onPhotoSelect()"
+ *   (fileSelected)="onFileSelected($event)"
  * />
  * ```
  *
@@ -28,14 +32,12 @@
 
 import {
   Component,
-  Input,
-  Output,
-  EventEmitter,
+  input,
+  output,
   ChangeDetectionStrategy,
   signal,
   computed,
-  OnChanges,
-  SimpleChanges,
+  effect,
   ViewChild,
   ElementRef,
   inject,
@@ -43,13 +45,15 @@ import {
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { IonInput, IonNote } from '@ionic/angular/standalone';
+import { IonInput } from '@ionic/angular/standalone';
 import { isValidName } from '@nxt1/core/helpers';
 import type { ProfileFormData } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtToastService } from '../../services/toast';
+import { NxtChipComponent } from '../../shared/chip';
+import { NxtFormFieldComponent } from '../../shared/form-field';
 
 // ============================================
 // CONSTANTS
@@ -61,6 +65,27 @@ const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gi
 /** Maximum file size in bytes (5MB) */
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
+/** Start year for graduation options */
+const GRADUATION_YEAR_START = 2026;
+
+/** End year for graduation options */
+const GRADUATION_YEAR_END = 2036;
+
+/**
+ * Generate graduation year options
+ * Uses constants for maintainability
+ */
+function generateGraduationYears(): readonly number[] {
+  const years: number[] = [];
+  for (let year = GRADUATION_YEAR_START; year <= GRADUATION_YEAR_END; year++) {
+    years.push(year);
+  }
+  return Object.freeze(years);
+}
+
+/** Available graduation years */
+const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
+
 // ============================================
 // COMPONENT
 // ============================================
@@ -68,7 +93,14 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 @Component({
   selector: 'nxt1-onboarding-profile-step',
   standalone: true,
-  imports: [CommonModule, FormsModule, IonInput, IonNote, HapticButtonDirective],
+  imports: [
+    CommonModule,
+    FormsModule,
+    IonInput,
+    HapticButtonDirective,
+    NxtChipComponent,
+    NxtFormFieldComponent,
+  ],
   template: `
     <div class="nxt1-profile-form" data-testid="onboarding-profile-step">
       <!-- Photo Upload Section -->
@@ -77,7 +109,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
           type="button"
           class="nxt1-photo-upload"
           [class.has-image]="hasProfileImage()"
-          [disabled]="disabled"
+          [disabled]="disabled()"
           (click)="onPhotoClick()"
           data-testid="onboarding-photo-upload"
           aria-label="Add profile photo"
@@ -87,7 +119,13 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
             <!-- Profile Image Preview -->
             <img [src]="profileImg()" alt="Profile photo preview" class="nxt1-photo-preview" />
             <div class="nxt1-photo-edit-badge">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+              <svg
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                width="14"
+                height="14"
+                aria-hidden="true"
+              >
                 <path
                   d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
                 />
@@ -122,55 +160,76 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
       <!-- Name Fields -->
       <div class="nxt1-name-fields">
         <!-- First Name -->
-        <div class="nxt1-field">
-          <label class="nxt1-label" for="firstName">First Name</label>
+        <nxt1-form-field
+          label="First Name"
+          inputId="firstName"
+          [error]="
+            firstNameTouched() && firstName() && !isFirstNameValid() ? '2-50 letters only' : null
+          "
+          testId="onboarding-firstname-field"
+        >
           <ion-input
             id="firstName"
             type="text"
             class="nxt1-input"
-            [class.nxt1-input-error]="firstNameTouched() && firstName && !isFirstNameValid()"
+            [class.nxt1-input-error]="firstNameTouched() && firstName() && !isFirstNameValid()"
             fill="outline"
             placeholder="Enter first name"
-            [value]="firstName"
+            [value]="firstName()"
             (ionInput)="onFirstNameInput($event)"
             (ionBlur)="firstNameTouched.set(true)"
-            [disabled]="disabled"
+            [disabled]="disabled()"
             autocomplete="given-name"
             autocapitalize="words"
             data-testid="onboarding-input-first-name"
           />
-          @if (firstNameTouched() && firstName && !isFirstNameValid()) {
-            <ion-note class="nxt1-error-note" data-testid="onboarding-firstname-error">
-              2-50 letters only
-            </ion-note>
-          }
-        </div>
+        </nxt1-form-field>
 
         <!-- Last Name -->
-        <div class="nxt1-field">
-          <label class="nxt1-label" for="lastName">Last Name</label>
+        <nxt1-form-field
+          label="Last Name"
+          inputId="lastName"
+          [error]="
+            lastNameTouched() && lastName() && !isLastNameValid() ? '2-50 letters only' : null
+          "
+          testId="onboarding-lastname-field"
+        >
           <ion-input
             id="lastName"
             type="text"
             class="nxt1-input"
-            [class.nxt1-input-error]="lastNameTouched() && lastName && !isLastNameValid()"
+            [class.nxt1-input-error]="lastNameTouched() && lastName() && !isLastNameValid()"
             fill="outline"
             placeholder="Enter last name"
-            [value]="lastName"
+            [value]="lastName()"
             (ionInput)="onLastNameInput($event)"
             (ionBlur)="lastNameTouched.set(true)"
-            [disabled]="disabled"
+            [disabled]="disabled()"
             autocomplete="family-name"
             autocapitalize="words"
             data-testid="onboarding-input-last-name"
           />
-          @if (lastNameTouched() && lastName && !isLastNameValid()) {
-            <ion-note class="nxt1-error-note" data-testid="onboarding-lastname-error">
-              2-50 letters only
-            </ion-note>
-          }
-        </div>
+        </nxt1-form-field>
       </div>
+
+      <!-- Graduation Year (Class Of) - Athletes Only -->
+      @if (showClassYear()) {
+        <nxt1-form-field label="Class Of (Graduation Year)" testId="onboarding-classyear-field">
+          <div class="nxt1-year-chips" role="radiogroup" aria-label="Select graduation year">
+            @for (year of graduationYears; track year) {
+              <nxt1-chip
+                [selected]="classYear() === year"
+                [disabled]="disabled()"
+                [testId]="'onboarding-class-year-' + year"
+                ariaRole="radio"
+                (chipClick)="onYearSelect(year)"
+              >
+                {{ year }}
+              </nxt1-chip>
+            }
+          </div>
+        </nxt1-form-field>
+      }
     </div>
   `,
   styles: [
@@ -288,7 +347,8 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
       }
 
       /* ============================================
-       NAME FIELDS
+       NAME FIELDS - Grid layout only
+       Field/label styles handled by NxtFormFieldComponent
        ============================================ */
       .nxt1-name-fields {
         display: grid;
@@ -301,21 +361,6 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
         .nxt1-name-fields {
           grid-template-columns: 1fr;
         }
-      }
-
-      .nxt1-field {
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-1-5);
-      }
-
-      .nxt1-label {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--nxt1-color-text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
       }
 
       /* ============================================
@@ -350,19 +395,19 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
       }
 
       /* ============================================
-       ERROR NOTE
+       YEAR CHIPS - Container layout only
+       Chip styles handled by NxtChipComponent
        ============================================ */
-      .nxt1-error-note {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 12px;
-        color: var(--nxt1-color-error);
-        padding-left: 2px;
+      .nxt1-year-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--nxt1-spacing-2);
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class OnboardingProfileStepComponent implements OnChanges {
+export class OnboardingProfileStepComponent {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly loggingService = inject(NxtLoggingService);
   private readonly toast = inject(NxtToastService);
@@ -373,42 +418,63 @@ export class OnboardingProfileStepComponent implements OnChanges {
   /** Reference to the hidden file input element */
   @ViewChild('fileInput') fileInputRef!: ElementRef<HTMLInputElement>;
 
-  /** Current profile data */
-  @Input() profileData: ProfileFormData | null = null;
+  // ============================================
+  // SIGNAL INPUTS (Angular 19+ pattern)
+  // ============================================
+
+  /** Current profile data from parent */
+  readonly profileData = input<ProfileFormData | null>(null);
 
   /** Whether interaction is disabled */
-  @Input() disabled = false;
+  readonly disabled = input<boolean>(false);
 
-  /** Emits when profile data changes */
-  @Output() profileChange = new EventEmitter<ProfileFormData>();
-
-  /** Emits when photo picker should be shown (for native photo picker integration) */
-  @Output() photoSelect = new EventEmitter<void>();
-
-  /** Emits when a file is selected from the web file picker */
-  @Output() fileSelected = new EventEmitter<File>();
+  /** Whether to show class year (athletes only) */
+  readonly showClassYear = input<boolean>(true);
 
   // ============================================
-  // INTERNAL STATE
+  // SIGNAL OUTPUTS (Angular 19+ pattern)
+  // ============================================
+
+  /** Emits when profile data changes */
+  readonly profileChange = output<ProfileFormData>();
+
+  /** Emits when photo picker should be shown (for native photo picker integration) */
+  readonly photoSelect = output<void>();
+
+  /** Emits when a file is selected from the web file picker */
+  readonly fileSelected = output<File>();
+
+  // ============================================
+  // CONFIGURATION (readonly for immutability)
+  // ============================================
+
+  /** Accepted file types for input */
+  readonly acceptedTypes = ACCEPTED_IMAGE_TYPES.join(',');
+
+  /** Graduation year options */
+  readonly graduationYears = GRADUATION_YEAR_OPTIONS;
+
+  // ============================================
+  // INTERNAL STATE (signals for reactivity)
   // ============================================
 
   /** First name value */
-  firstName = '';
+  readonly firstName = signal('');
 
   /** Last name value */
-  lastName = '';
+  readonly lastName = signal('');
 
   /** Profile image URL or data URI */
   readonly profileImg = signal<string | null>(null);
+
+  /** Selected class year */
+  readonly classYear = signal<number | null>(null);
 
   /** First name field touched */
   readonly firstNameTouched = signal(false);
 
   /** Last name field touched */
   readonly lastNameTouched = signal(false);
-
-  /** Accepted file types for input */
-  readonly acceptedTypes = ACCEPTED_IMAGE_TYPES.join(',');
 
   // ============================================
   // COMPUTED SIGNALS
@@ -417,40 +483,35 @@ export class OnboardingProfileStepComponent implements OnChanges {
   /** Whether profile has an image */
   readonly hasProfileImage = computed(() => !!this.profileImg());
 
+  /** Check if first name is valid using shared helper */
+  readonly isFirstNameValid = computed(() => isValidName(this.firstName()));
+
+  /** Check if last name is valid using shared helper */
+  readonly isLastNameValid = computed(() => isValidName(this.lastName()));
+
   /** Whether running in browser (SSR safety) */
   private get isBrowser(): boolean {
     return isPlatformBrowser(this.platformId);
   }
 
   // ============================================
-  // LIFECYCLE
+  // CONSTRUCTOR - Effect for syncing input
   // ============================================
 
-  ngOnChanges(changes: SimpleChanges): void {
-    // Sync with input data when profileData changes
-    if (changes['profileData'] && this.profileData) {
-      this.firstName = this.profileData.firstName || '';
-      this.lastName = this.profileData.lastName || '';
-      this.profileImg.set(this.profileData.profileImg || null);
-    }
-  }
-
-  // ============================================
-  // VALIDATION
-  // ============================================
-
-  /**
-   * Check if first name is valid using shared helper
-   */
-  isFirstNameValid(): boolean {
-    return isValidName(this.firstName);
-  }
-
-  /**
-   * Check if last name is valid using shared helper
-   */
-  isLastNameValid(): boolean {
-    return isValidName(this.lastName);
+  constructor() {
+    // Sync internal state when profileData input changes
+    effect(
+      () => {
+        const data = this.profileData();
+        if (data) {
+          this.firstName.set(data.firstName || '');
+          this.lastName.set(data.lastName || '');
+          this.profileImg.set(data.profileImg || null);
+          this.classYear.set(data.classYear ?? null);
+        }
+      },
+      { allowSignalWrites: true }
+    );
   }
 
   // ============================================
@@ -462,7 +523,7 @@ export class OnboardingProfileStepComponent implements OnChanges {
    */
   onFirstNameInput(event: CustomEvent): void {
     const input = event.target as HTMLInputElement;
-    this.firstName = input.value || '';
+    this.firstName.set(input.value || '');
     this.emitProfileChange();
   }
 
@@ -471,7 +532,16 @@ export class OnboardingProfileStepComponent implements OnChanges {
    */
   onLastNameInput(event: CustomEvent): void {
     const input = event.target as HTMLInputElement;
-    this.lastName = input.value || '';
+    this.lastName.set(input.value || '');
+    this.emitProfileChange();
+  }
+
+  /**
+   * Handle graduation year selection
+   */
+  onYearSelect(year: number): void {
+    this.classYear.set(year);
+    this.logger.debug('Graduation year selected', { classYear: year });
     this.emitProfileChange();
   }
 
@@ -568,9 +638,10 @@ export class OnboardingProfileStepComponent implements OnChanges {
    */
   private emitProfileChange(): void {
     this.profileChange.emit({
-      firstName: this.firstName,
-      lastName: this.lastName,
+      firstName: this.firstName(),
+      lastName: this.lastName(),
       profileImg: this.profileImg(),
+      classYear: this.classYear(),
     });
   }
 }

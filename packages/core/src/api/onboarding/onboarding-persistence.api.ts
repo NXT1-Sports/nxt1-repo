@@ -152,12 +152,17 @@ export interface ProfileFormData {
   lastName: string;
   profileImg?: string | null;
   bio?: string;
+  /** Graduation year (Class of) - required for athletes */
+  classYear?: number | null;
 }
 
 /** School form data */
 export interface SchoolFormData {
   schoolName: string;
   schoolType?: 'High School' | 'Middle School' | 'Club' | 'Juco';
+  /**
+   * @deprecated Moved to ProfileFormData. Kept for backward compatibility.
+   */
   classYear?: number | null;
   state?: string;
   city?: string;
@@ -531,9 +536,11 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   }
 
   // =========== ROLE-SPECIFIC DATA ===========
-  if (userType === 'athlete' && formData.school?.classYear) {
+  // Class year is now in profile (with backward compat for school.classYear)
+  const classYear = formData.profile?.classYear ?? formData.school?.classYear;
+  if (userType === 'athlete' && classYear) {
     payload['athlete'] = {
-      classOf: formData.school.classYear,
+      classOf: classYear,
     };
   }
 
@@ -609,7 +616,8 @@ export function buildReferralSourcePayload(data: {
     // School/Organization info
     schoolName: data.formData.school?.schoolName ?? null,
     schoolType: data.formData.school?.schoolType ?? null,
-    classYear: data.formData.school?.classYear ?? null,
+    // Class year is now in profile (with backward compat for school.classYear)
+    classYear: data.formData.profile?.classYear ?? data.formData.school?.classYear ?? null,
     state: data.formData.school?.state ?? null,
     city: data.formData.school?.city ?? null,
     organizationName: data.formData.organization?.organizationName ?? null,
