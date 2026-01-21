@@ -2,7 +2,7 @@
  * Native Auth Service - Capacitor Plugin Integration
  *
  * Handles native OAuth authentication using Capacitor plugins:
- * - @capacitor-firebase/authentication for Google/Apple/Microsoft
+ * - @codetrix-studio/capacitor-google-auth for Google Sign-In
  *
  * This service provides native system UI for OAuth sign-in,
  * returning tokens that can be used with Firebase Auth.
@@ -18,7 +18,7 @@
  * │             ⭐ NativeAuthService (THIS FILE) ⭐            │
  * │           Capacitor plugins for native OAuth               │
  * ├────────────────────────────────────────────────────────────┤
- * │        @capacitor-firebase/authentication                  │
+ * │        @codetrix-studio/capacitor-google-auth              │
  * │                Native iOS/Android SDKs                     │
  * └────────────────────────────────────────────────────────────┘
  *
@@ -33,11 +33,7 @@
  */
 import { Injectable, inject } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
-import {
-  FirebaseAuthentication,
-  type SignInResult,
-  type SignInWithOAuthOptions,
-} from '@capacitor-firebase/authentication';
+import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
 import { NxtPlatformService, HapticsService } from '@nxt1/ui';
 import type { NativeAuthResult, NativeAuthProvider, NativeAuthAvailability } from '@nxt1/core';
 
@@ -88,12 +84,10 @@ export class NativeAuthService {
       return { google: false, apple: false, microsoft: false };
     }
 
-    const isIOS = this.currentPlatform === 'ios';
-
     return {
-      google: true, // Available on both iOS and Android
-      apple: isIOS, // Only available on iOS 13+
-      microsoft: true, // Available via OAuth on both platforms
+      google: true, // Available on both iOS and Android via @codetrix-studio/capacitor-google-auth
+      apple: false, // Not supported by current plugin
+      microsoft: false, // Not supported by current plugin
     };
   }
 
@@ -121,23 +115,34 @@ export class NativeAuthService {
       await this.haptics.impact('light');
 
       console.debug('[NativeAuthService] Starting Google Sign-In...');
-      const result: SignInResult = await FirebaseAuthentication.signInWithGoogle();
+      const result = await GoogleAuth.signIn();
 
-      // User cancelled
-      if (!result.user) {
+      // User cancelled or no result
+      if (!result) {
         console.debug('[NativeAuthService] Google Sign-In cancelled by user');
         return null;
       }
 
       // Get the credential for Firebase
-      const credential = result.credential;
-      if (!credential?.idToken) {
+      if (!result.authentication?.idToken) {
         console.error('[NativeAuthService] No ID token received from Google Sign-In');
         throw new Error('No ID token received from Google Sign-In');
       }
 
-      console.debug('[NativeAuthService] Google Sign-In successful:', result.user.email);
-      return this.mapSignInResult(result, 'google');
+      console.debug('[NativeAuthService] Google Sign-In successful:', result.email);
+
+      // Map to NativeAuthResult
+      return {
+        provider: 'google',
+        idToken: result.authentication.idToken,
+        accessToken: result.authentication.accessToken,
+        user: {
+          id: result.id,
+          email: result.email,
+          displayName: result.name || result.givenName || 'User',
+          photoUrl: result.imageUrl,
+        },
+      };
     } catch (error) {
       // Handle user cancellation gracefully
       if (this.isUserCancellation(error)) {
@@ -150,112 +155,30 @@ export class NativeAuthService {
   }
 
   // ============================================
-  // APPLE SIGN-IN
+  // APPLE SIGN-IN (Not supported - requires additional plugin)
   // ============================================
 
   /**
-   * Sign in with Apple using native UI (iOS only)
+   * Sign in with Apple - NOT SUPPORTED in current implementation
    *
-   * Uses ASAuthorizationController for native Apple Sign-In.
-   * Apple requires this for apps with social login on iOS.
-   *
-   * @returns NativeAuthResult with idToken for Firebase, or null on cancel
-   * @throws Error on failure or if not on iOS
+   * To enable Apple Sign-In, install:
+   * npm install @capacitor-community/apple-sign-in
    */
   async signInWithApple(): Promise<NativeAuthResult | null> {
-    if (!this.isNativeAvailable) {
-      console.warn('[NativeAuthService] Native Apple Sign-In called on non-native platform');
-      throw new Error('Native Apple Sign-In is only available on iOS');
-    }
-
-    if (this.currentPlatform !== 'ios') {
-      console.warn('[NativeAuthService] Apple Sign-In called on Android');
-      throw new Error('Apple Sign-In is only available on iOS devices');
-    }
-
-    try {
-      await this.haptics.impact('light');
-
-      console.debug('[NativeAuthService] Starting Apple Sign-In...');
-      const result: SignInResult = await FirebaseAuthentication.signInWithApple({
-        scopes: ['email', 'name'],
-        skipNativeAuth: false,
-      });
-
-      // User cancelled
-      if (!result.user) {
-        console.debug('[NativeAuthService] Apple Sign-In cancelled by user');
-        return null;
-      }
-
-      const credential = result.credential;
-      if (!credential?.idToken) {
-        console.error('[NativeAuthService] No ID token received from Apple Sign-In');
-        throw new Error('No ID token received from Apple Sign-In');
-      }
-
-      console.debug('[NativeAuthService] Apple Sign-In successful:', result.user.email);
-      return this.mapSignInResult(result, 'apple');
-    } catch (error) {
-      if (this.isUserCancellation(error)) {
-        console.debug('[NativeAuthService] Apple Sign-In cancelled');
-        return null;
-      }
-      console.error('[NativeAuthService] Apple Sign-In failed:', error);
-      throw this.mapNativeError(error, 'apple');
-    }
+    throw new Error(
+      'Apple Sign-In requires additional plugin. Install @capacitor-community/apple-sign-in'
+    );
   }
 
   // ============================================
-  // MICROSOFT SIGN-IN
+  // MICROSOFT SIGN-IN (Not supported - requires additional plugin)
   // ============================================
 
   /**
-   * Sign in with Microsoft using OAuth
-   *
-   * Uses in-app browser OAuth flow.
-   *
-   * @returns NativeAuthResult with idToken for Firebase, or null on cancel
-   * @throws Error on failure
+   * Sign in with Microsoft - NOT SUPPORTED in current implementation
    */
   async signInWithMicrosoft(): Promise<NativeAuthResult | null> {
-    if (!this.isNativeAvailable) {
-      console.warn('[NativeAuthService] Native Microsoft Sign-In called on non-native platform');
-      throw new Error('Native Microsoft Sign-In is only available on iOS/Android');
-    }
-
-    try {
-      await this.haptics.impact('light');
-
-      console.debug('[NativeAuthService] Starting Microsoft Sign-In...');
-      const options: SignInWithOAuthOptions = {
-        scopes: ['email', 'profile', 'User.Read'],
-      };
-
-      const result: SignInResult = await FirebaseAuthentication.signInWithMicrosoft(options);
-
-      // User cancelled
-      if (!result.user) {
-        console.debug('[NativeAuthService] Microsoft Sign-In cancelled by user');
-        return null;
-      }
-
-      const credential = result.credential;
-      if (!credential?.idToken && !credential?.accessToken) {
-        console.error('[NativeAuthService] No token received from Microsoft Sign-In');
-        throw new Error('No token received from Microsoft Sign-In');
-      }
-
-      console.debug('[NativeAuthService] Microsoft Sign-In successful:', result.user.email);
-      return this.mapSignInResult(result, 'microsoft');
-    } catch (error) {
-      if (this.isUserCancellation(error)) {
-        console.debug('[NativeAuthService] Microsoft Sign-In cancelled');
-        return null;
-      }
-      console.error('[NativeAuthService] Microsoft Sign-In failed:', error);
-      throw this.mapNativeError(error, 'microsoft');
-    }
+    throw new Error('Microsoft Sign-In is not currently supported in native mobile');
   }
 
   // ============================================
@@ -270,7 +193,7 @@ export class NativeAuthService {
     if (!this.isNativeAvailable) return;
 
     try {
-      await FirebaseAuthentication.signOut();
+      await GoogleAuth.signOut();
     } catch (error) {
       // Ignore sign-out errors - user is already signed out locally
       console.warn('[NativeAuth] Sign out warning:', error);
@@ -280,36 +203,6 @@ export class NativeAuthService {
   // ============================================
   // HELPERS
   // ============================================
-
-  /**
-   * Map Capacitor SignInResult to portable NativeAuthResult
-   */
-  private mapSignInResult(result: SignInResult, provider: NativeAuthProvider): NativeAuthResult {
-    const { user, credential } = result;
-
-    // Type assertion for extended user properties from Apple Sign-In
-    interface ExtendedUser {
-      givenName?: string | null;
-      familyName?: string | null;
-    }
-
-    const extendedUser = user as (typeof user & ExtendedUser) | null;
-
-    return {
-      provider,
-      idToken: credential?.idToken ?? '',
-      accessToken: credential?.accessToken ?? undefined,
-      rawNonce: credential?.nonce ?? undefined,
-      user: {
-        id: user?.uid ?? '',
-        email: user?.email ?? null,
-        displayName: user?.displayName ?? null,
-        givenName: extendedUser?.givenName ?? null,
-        familyName: extendedUser?.familyName ?? null,
-        photoUrl: user?.photoUrl ?? null,
-      },
-    };
-  }
 
   /**
    * Check if error is user cancellation
@@ -365,7 +258,7 @@ export class NativeAuthService {
         );
       }
 
-      // App not authorized (Apple)
+      // App not authorized
       if (message.includes('not authorized') || message.includes('capability')) {
         return new Error(`${providerName} Sign-In is not enabled for this app.`);
       }

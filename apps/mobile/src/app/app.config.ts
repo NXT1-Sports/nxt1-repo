@@ -47,7 +47,8 @@ export const appConfig: ApplicationConfig = {
     // - Platform-adaptive: iOS gets iOS design, Android gets Material Design
     // - Dark mode controlled via NXT1 design tokens
     provideIonicAngular({
-      // No mode specified = auto-detect platform (iOS/MD)
+      mode: 'md', // Force Material Design mode for consistent icon loading
+      innerHTMLTemplatesEnabled: true,
     }),
 
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
