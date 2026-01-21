@@ -67,98 +67,95 @@ import { AUTH_PAGE_TEST_IDS } from '@nxt1/core/testing';
     AuthTeamCodeBannerComponent,
   ],
   template: `
-    <div
+    <nxt1-auth-shell
+      variant="card-glass"
+      [showBackButton]="showEmailForm() || showTeamCodeInput()"
+      (backClick)="onBackClick()"
       [attr.data-testid]="
         mode() === 'login' ? AUTH_PAGE_TEST_IDS.LOGIN_PAGE : AUTH_PAGE_TEST_IDS.SIGNUP_PAGE
       "
     >
-      <nxt1-auth-shell
-        variant="card-glass"
-        [showBackButton]="showEmailForm() || showTeamCodeInput()"
-        (backClick)="onBackClick()"
+      <!-- Dynamic Title & Subtitle based on mode -->
+      <h1
+        authTitle
+        [attr.data-testid]="
+          mode() === 'login' ? AUTH_PAGE_TEST_IDS.LOGIN_TITLE : AUTH_PAGE_TEST_IDS.SIGNUP_TITLE
+        "
       >
-        <!-- Dynamic Title & Subtitle based on mode -->
-        <h1
-          authTitle
-          [attr.data-testid]="
-            mode() === 'login' ? AUTH_PAGE_TEST_IDS.LOGIN_TITLE : AUTH_PAGE_TEST_IDS.SIGNUP_TITLE
-          "
-        >
-          {{ title() }}
-        </h1>
-        <p
-          authSubtitle
-          [attr.data-testid]="
-            mode() === 'login'
-              ? AUTH_PAGE_TEST_IDS.LOGIN_SUBTITLE
-              : AUTH_PAGE_TEST_IDS.SIGNUP_SUBTITLE
-          "
-        >
-          {{ subtitle() }}
-        </p>
+        {{ title() }}
+      </h1>
+      <p
+        authSubtitle
+        [attr.data-testid]="
+          mode() === 'login'
+            ? AUTH_PAGE_TEST_IDS.LOGIN_SUBTITLE
+            : AUTH_PAGE_TEST_IDS.SIGNUP_SUBTITLE
+        "
+      >
+        {{ subtitle() }}
+      </p>
 
-        <!-- Team Code Input View -->
-        @if (showTeamCodeInput() && !showEmailForm()) {
-          <nxt1-auth-team-code
-            [state]="teamCodeState()"
-            [teamCode]="teamCodeInput"
-            [validatedTeam]="validatedTeam()"
-            [errorMessage]="teamCodeError()"
-            (teamCodeChange)="onTeamCodeInputChange($event)"
-            (validate)="onValidateTeamCode()"
-            (continue)="onContinueWithTeam()"
-          />
+      <!-- Team Code Input View -->
+      @if (showTeamCodeInput() && !showEmailForm()) {
+        <nxt1-auth-team-code
+          [state]="teamCodeState()"
+          [teamCode]="teamCodeInput"
+          [validatedTeam]="validatedTeam()"
+          [errorMessage]="teamCodeError()"
+          (teamCodeChange)="onTeamCodeInputChange($event)"
+          (validate)="onValidateTeamCode()"
+          (continue)="onContinueWithTeam()"
+        />
+      }
+
+      <!-- Social Buttons (default view) -->
+      @else if (!showEmailForm()) {
+        <!-- Validated Team Banner (if coming from team code) -->
+        @if (validatedTeam(); as team) {
+          <nxt1-auth-team-code-banner [team]="team" variant="full" (clear)="onClearTeamCode()" />
         }
 
-        <!-- Social Buttons (default view) -->
-        @else if (!showEmailForm()) {
-          <!-- Validated Team Banner (if coming from team code) -->
-          @if (validatedTeam(); as team) {
-            <nxt1-auth-team-code-banner [team]="team" variant="full" (clear)="onClearTeamCode()" />
-          }
+        <nxt1-auth-social-buttons
+          [loading]="authFlow.isLoading()"
+          (googleClick)="onGoogleAuth()"
+          (appleClick)="onAppleAuth()"
+          (microsoftClick)="onMicrosoftAuth()"
+        />
 
-          <nxt1-auth-social-buttons
-            [loading]="authFlow.isLoading()"
-            (googleClick)="onGoogleAuth()"
-            (appleClick)="onAppleAuth()"
-            (microsoftClick)="onMicrosoftAuth()"
-          />
+        <nxt1-auth-divider />
 
-          <nxt1-auth-divider />
+        <nxt1-auth-action-buttons
+          [loading]="authFlow.isLoading()"
+          [showTeamCode]="false"
+          (emailClick)="onShowEmailForm()"
+          (teamCodeClick)="onTeamCode()"
+        />
+      }
 
-          <nxt1-auth-action-buttons
-            [loading]="authFlow.isLoading()"
-            [showTeamCode]="!validatedTeam()"
-            (emailClick)="onShowEmailForm()"
-            (teamCodeClick)="onTeamCode()"
-          />
+      <!-- Email Form with Mode Toggle -->
+      @if (showEmailForm()) {
+        <!-- Validated Team Banner (compact) -->
+        @if (validatedTeam(); as team) {
+          <nxt1-auth-team-code-banner [team]="team" variant="compact" />
         }
 
-        <!-- Email Form with Mode Toggle -->
-        @if (showEmailForm()) {
-          <!-- Validated Team Banner (compact) -->
-          @if (validatedTeam(); as team) {
-            <nxt1-auth-team-code-banner [team]="team" variant="compact" />
-          }
+        <!-- Mode Toggle Tabs -->
+        <nxt1-auth-mode-switcher [mode]="mode()" (modeChange)="setMode($event)" />
 
-          <!-- Mode Toggle Tabs -->
-          <nxt1-auth-mode-switcher [mode]="mode()" (modeChange)="setMode($event)" />
+        <nxt1-auth-email-form
+          [mode]="mode()"
+          [loading]="authFlow.isLoading()"
+          [error]="authFlow.error()"
+          (submitForm)="onEmailSubmit($event)"
+          (forgotPasswordClick)="onForgotPassword()"
+        />
 
-          <nxt1-auth-email-form
-            [mode]="mode()"
-            [loading]="authFlow.isLoading()"
-            [error]="authFlow.error()"
-            (submitForm)="onEmailSubmit($event)"
-            (forgotPasswordClick)="onForgotPassword()"
-          />
-
-          <!-- Terms (only show for signup) -->
-          @if (mode() === 'signup') {
-            <nxt1-auth-terms-disclaimer />
-          }
+        <!-- Terms (only show for signup) -->
+        @if (mode() === 'signup') {
+          <nxt1-auth-terms-disclaimer />
         }
-      </nxt1-auth-shell>
-    </div>
+      }
+    </nxt1-auth-shell>
   `,
   styles: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -237,7 +234,7 @@ export class AuthPage implements OnInit {
     }
     return this.mode() === 'login'
       ? 'Sign in to continue to NXT1'
-      : 'Join NXT1 to start your recruiting journey';
+      : 'Join NXT1 to start your journey';
   });
 
   // ============================================

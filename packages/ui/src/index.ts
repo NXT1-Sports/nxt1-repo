@@ -99,6 +99,35 @@ export { NxtTeamLogoPickerComponent } from './shared/team-logo-picker';
 export { NxtColorPickerComponent } from './shared/color-picker';
 
 // ============================================
+// UNIFIED PICKER SYSTEM
+// ============================================
+export {
+  // Service (primary API)
+  NxtPickerService,
+  // Types
+  type PickerType,
+  type PickerBaseConfig,
+  type SportPickerConfig,
+  type SportItem,
+  type SportPickerResult,
+  type PositionGroup,
+  type PositionPickerConfig,
+  type PositionPickerResult,
+  type PickerResult,
+  // Defaults
+  SPORT_PICKER_DEFAULTS,
+  POSITION_PICKER_DEFAULTS,
+  // Type guards
+  isSportPickerResult,
+  isPositionPickerResult,
+  // Components (rarely needed directly)
+  NxtPickerShellComponent,
+  NxtPickerComponent,
+  NxtSportPickerContentComponent,
+  NxtPositionPickerContentComponent,
+} from './shared/picker';
+
+// ============================================
 // SERVICES
 // ============================================
 export {

@@ -102,9 +102,9 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       <div class="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
         <!-- Gradient Background (Theme-aware CSS custom properties) -->
         <div class="auth-bg-gradient absolute inset-0"></div>
-        <!-- Glow Effect (Theme-aware Tailwind) -->
+        <!-- Glow Effect (Desktop only - hidden on mobile for clean corner fades) -->
         <div
-          class="bg-glow animate-pulse-glow absolute top-[-200px] left-1/2 h-[600px] w-[600px] -translate-x-1/2 opacity-60 blur-[60px] md:top-[-300px] md:h-[800px] md:w-[800px]"
+          class="auth-bg-glow absolute top-[-300px] left-1/2 hidden h-[800px] w-[800px] -translate-x-1/2 opacity-60 blur-[60px] md:block"
         ></div>
       </div>
 
@@ -115,7 +115,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       >
         <!-- Logo -->
         @if (showLogo) {
-          <div class="mb-6 flex justify-center">
+          <div class="auth-logo-wrapper mb-6 flex justify-center">
             <nxt1-logo [size]="logoSize" variant="auth" />
           </div>
         }
@@ -291,8 +291,8 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       }
 
       .nxt1-back-button ion-icon {
-        font-size: 22px;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        font-size: var(--nxt1-fontSize-xl);
+        color: var(--nxt1-color-text-primary);
       }
 
       .nxt1-auth-content {
@@ -309,7 +309,12 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         overflow: visible;
         box-sizing: border-box;
         /* Safe area padding for notched devices */
-        padding-top: calc(env(safe-area-inset-top, 0px) + 64px);
+        padding-top: calc(env(safe-area-inset-top, 0px) + var(--nxt1-spacing-16));
+      }
+
+      /* Logo drop shadow for depth */
+      .auth-logo-wrapper {
+        filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
       }
 
       /* Mobile footer padding - adds space at bottom for fixed footer */
@@ -325,21 +330,83 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
 
       /* ============================================ */
       /* THEME-AWARE BACKGROUND GRADIENT             */
-      /* Complex radial gradients using CSS vars     */
+      /* Desktop: Complex radial gradients           */
+      /* Mobile: Sleek corner fades with accent      */
       /* ============================================ */
-      .auth-bg-gradient {
-        background-image:
-          radial-gradient(
-            ellipse 80% 50% at 50% -20%,
-            var(--nxt1-color-alpha-primary10) 0%,
-            transparent 50%
-          ),
-          radial-gradient(
-            ellipse 60% 40% at 100% 100%,
-            var(--nxt1-color-alpha-primary5) 0%,
-            transparent 40%
-          ),
-          linear-gradient(to bottom, var(--nxt1-color-bg-primary), var(--nxt1-color-bg-primary));
+
+      /* Desktop Background (769px+) */
+      @media (min-width: 769px) {
+        .auth-bg-gradient {
+          background-image:
+            radial-gradient(
+              ellipse 80% 50% at 50% -20%,
+              var(--nxt1-color-alpha-primary10) 0%,
+              transparent 50%
+            ),
+            radial-gradient(
+              ellipse 60% 40% at 100% 100%,
+              var(--nxt1-color-alpha-primary5) 0%,
+              transparent 40%
+            ),
+            linear-gradient(to bottom, var(--nxt1-color-bg-primary), var(--nxt1-color-bg-primary));
+        }
+      }
+
+      /* Mobile Background - Sleek corner fades */
+      @media (max-width: 768px) {
+        .auth-bg-gradient {
+          background-color: var(--nxt1-color-bg-primary);
+          background-image:
+            /* Top-left corner - primary accent fade */
+            radial-gradient(
+              ellipse 70% 50% at 0% 0%,
+              rgba(204, 255, 0, 0.12) 0%,
+              rgba(204, 255, 0, 0.05) 30%,
+              transparent 60%
+            ),
+            /* Top-right corner - subtle accent */
+              radial-gradient(
+                ellipse 50% 40% at 100% 0%,
+                rgba(204, 255, 0, 0.06) 0%,
+                transparent 50%
+              ),
+            /* Bottom-right corner - primary accent fade */
+              radial-gradient(
+                ellipse 60% 50% at 100% 100%,
+                rgba(204, 255, 0, 0.1) 0%,
+                rgba(204, 255, 0, 0.04) 35%,
+                transparent 60%
+              ),
+            /* Bottom-left corner - subtle accent */
+              radial-gradient(
+                ellipse 45% 35% at 0% 100%,
+                rgba(204, 255, 0, 0.05) 0%,
+                transparent 45%
+              );
+        }
+      }
+
+      /* Desktop glow effect */
+      .auth-bg-glow {
+        background: radial-gradient(
+          circle,
+          var(--nxt1-color-alpha-primary15, rgba(204, 255, 0, 0.15)) 0%,
+          var(--nxt1-color-alpha-primary5, rgba(204, 255, 0, 0.05)) 40%,
+          transparent 70%
+        );
+        animation: pulse-glow 4s ease-in-out infinite;
+      }
+
+      @keyframes pulse-glow {
+        0%,
+        100% {
+          opacity: 0.5;
+          transform: translateX(-50%) scale(1);
+        }
+        50% {
+          opacity: 0.7;
+          transform: translateX(-50%) scale(1.05);
+        }
       }
 
       /* ============================================ */
@@ -348,11 +415,11 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       .auth-card-glass {
         display: flex;
         flex-direction: column;
-        gap: 12px;
-        border-radius: var(--nxt1-radius-xl, 16px);
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
-        padding: 24px;
+        gap: var(--nxt1-spacing-3);
+        border-radius: var(--nxt1-borderRadius-xl);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-state-hover);
+        padding: var(--nxt1-spacing-6);
       }
 
       /* ============================================ */
@@ -361,11 +428,11 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       .auth-two-column-card {
         display: flex;
         flex-direction: column;
-        gap: 12px;
-        border-radius: var(--nxt1-radius-xl, 16px);
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
-        padding: 24px;
+        gap: var(--nxt1-spacing-3);
+        border-radius: var(--nxt1-borderRadius-xl);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-state-hover);
+        padding: var(--nxt1-spacing-6);
       }
 
       .auth-two-column {
@@ -422,13 +489,13 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       }
 
       .auth-divider-vertical .divider-text {
-        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
-        font-size: 11px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
         font-weight: 600;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
         text-transform: uppercase;
-        letter-spacing: 1px;
-        padding: 8px 0;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
+        padding: var(--nxt1-spacing-2) 0;
       }
 
       /* ============================================ */

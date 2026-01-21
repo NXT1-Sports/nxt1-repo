@@ -2,7 +2,7 @@
  * @fileoverview OnboardingRoleSelectionComponent - Cross-Platform Role Selection
  * @module @nxt1/ui/onboarding
  *
- * Reusable role selection component for onboarding Step 1.
+ * Reusable role selection component for onboarding (optional last step).
  * Uses shared constants from @nxt1/core and icons from @nxt1/design-tokens.
  *
  * Features:
@@ -52,7 +52,7 @@ export interface RoleOption {
 // ============================================
 
 /**
- * Role options for onboarding Step 1.
+ * Role options for onboarding (optional last step).
  * Maps to OnboardingUserType from @nxt1/core/api.
  * Icons reference @nxt1/design-tokens ROLE_ICONS.
  */
@@ -151,9 +151,9 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
         padding: var(--nxt1-spacing-4) var(--nxt1-spacing-5);
         background: var(--nxt1-color-state-hover);
         border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        border-radius: var(--nxt1-borderRadius-lg);
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: all var(--nxt1-duration-fast) ease;
         text-align: left;
       }
 

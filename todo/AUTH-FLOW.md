@@ -39,12 +39,19 @@
   - Handle rate limiting gracefully
 
 - [ ] **Build Onboarding wizard**
-  - Role selection step (athlete, coach, parent, etc.)
-  - Profile info step (name, photo)
-  - Sport/position selection
-  - School/organization details
-  - Contact preferences
-  - Progress persistence (resume incomplete onboarding)
+  - ✅ Role selection step (athlete, coach, parent, etc.)
+  - ✅ Profile info step (name, photo)
+  - ✅ Sport/position selection
+  - ✅ School/organization details (with team logo & colors picker)
+  - ✅ Contact preferences
+  - ✅ Step order corrected: Sport → Team (matches User model hierarchy)
+  - ✅ TeamFormData: Added teamLogo, teamColors, secondTeamLogo,
+    secondTeamColors
+  - ✅ SportFormData: Migrated to selectedSports[] array
+  - ✅ NxtTeamLogoPickerComponent created
+  - ✅ NxtColorPickerComponent created (preset colors + custom picker)
+  - [ ] Progress persistence (resume incomplete onboarding)
+  - [ ] Verify all fields save correctly to backend
 
 - [ ] **Add auth guards for protected routes**
   - `authGuard` - require authenticated user

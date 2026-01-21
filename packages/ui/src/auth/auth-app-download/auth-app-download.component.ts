@@ -164,10 +164,10 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
         display: flex;
         flex-direction: column;
         align-items: center;
-        padding: 24px;
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
-        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        border-radius: var(--nxt1-radius-xl, 16px);
+        padding: var(--nxt1-spacing-6);
+        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-xl);
         text-align: center;
         width: 100%;
         max-width: 280px;
@@ -188,18 +188,18 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
       }
 
       .app-promo-header h3 {
-        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
-        font-size: 18px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-lg);
         font-weight: 700;
-        color: var(--nxt1-color-text-primary, #ffffff);
-        margin: 0 0 6px;
+        color: var(--nxt1-color-text-primary);
+        margin: 0 0 var(--nxt1-spacing-1_5);
       }
 
       .app-promo-header p {
-        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
-        font-size: 13px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         font-weight: 500;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
         margin: 0;
       }
 
@@ -222,11 +222,11 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
       .qr-code-wrapper {
         width: 100px;
         height: 100px;
-        padding: 8px;
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
-        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        border-radius: var(--nxt1-radius-default, 8px);
-        transition: all var(--nxt1-duration-normal, 200ms) ease-out;
+        padding: var(--nxt1-spacing-2);
+        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-md);
+        transition: all var(--nxt1-duration-normal) ease-out;
         cursor: pointer;
         display: flex;
         align-items: center;
@@ -235,9 +235,9 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
       }
 
       .qr-code-wrapper:hover {
-        border-color: var(--nxt1-color-primary, #ccff00);
-        background: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
-        box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        border-color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-state-pressed);
+        box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary10);
         transform: translateY(-2px);
       }
 
@@ -250,17 +250,17 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
       .store-label {
         display: flex;
         align-items: center;
-        gap: 6px;
-        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
-        font-size: 12px;
+        gap: var(--nxt1-spacing-1_5);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         font-weight: 600;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
       }
 
       .store-label svg {
         width: 14px;
         height: 14px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* ============================================ */
@@ -273,8 +273,8 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
       .download-divider {
         display: flex;
         align-items: center;
-        gap: 12px;
-        margin-bottom: 16px;
+        gap: var(--nxt1-spacing-3);
+        margin-bottom: var(--nxt1-spacing-4);
       }
 
       .download-divider::before,
@@ -282,23 +282,23 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
         content: '';
         flex: 1;
         height: 1px;
-        background: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-border-default);
       }
 
       .download-divider span {
-        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
-        font-size: 11px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
         font-weight: 600;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
         white-space: nowrap;
       }
 
       .app-store-buttons {
         display: flex;
         flex-direction: row;
-        gap: 10px;
+        gap: var(--nxt1-spacing-2_5);
       }
 
       .app-store-btn {
@@ -306,19 +306,19 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 10px;
-        padding: 14px 12px;
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
-        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        border-radius: var(--nxt1-radius-default, 8px);
+        gap: var(--nxt1-spacing-2_5);
+        padding: var(--nxt1-spacing-3_5) var(--nxt1-spacing-3);
+        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-md);
         text-decoration: none;
-        transition: all var(--nxt1-duration-normal, 200ms) ease-out;
+        transition: all var(--nxt1-duration-normal) ease-out;
         -webkit-tap-highlight-color: transparent;
       }
 
       .app-store-btn:hover {
-        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
-        background: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
+        border-color: var(--nxt1-color-border-strong);
+        background: var(--nxt1-color-state-pressed);
         transform: translateY(-1px);
       }
 
@@ -341,19 +341,19 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
       }
 
       .app-store-btn .btn-label {
-        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
-        font-size: 9px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
         font-weight: 500;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
         line-height: 1.3;
         white-space: nowrap;
       }
 
       .app-store-btn .btn-store {
-        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
-        font-size: 14px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         font-weight: 700;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
         line-height: 1.2;
         white-space: nowrap;
       }

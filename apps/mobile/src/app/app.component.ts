@@ -10,7 +10,7 @@ import { Component, afterNextRender, inject } from '@angular/core';
 import { Router, NavigationEnd } from '@angular/router';
 import { IonApp, IonRouterOutlet, Platform } from '@ionic/angular/standalone';
 import { NxtPlatformService } from '@nxt1/ui';
-import { NativeAppService } from './core/services';
+import { NativeAppService, ThemeService } from './core/services';
 import { BiometricService } from './features/auth/services';
 import { NetworkService } from './services/network.service';
 import { filter } from 'rxjs/operators';
@@ -32,6 +32,7 @@ export class AppComponent {
   private readonly network = inject(NetworkService);
   private readonly biometric = inject(BiometricService);
   private readonly platform = inject(NxtPlatformService);
+  private readonly theme = inject(ThemeService);
 
   constructor() {
     // Log early to confirm app is loading
@@ -66,9 +67,9 @@ export class AppComponent {
         // Dark theme status bar
         statusBarColor: '#0a0a0a',
         statusBarStyle: 'light',
-        // Keyboard behavior
+        // Keyboard behavior - 'body' mode resizes the body element (2026 best practice)
         keyboardResize: 'body',
-        keyboardAccessoryBarHidden: false,
+        keyboardAccessoryBarHidden: true, // Clean pro look - hide accessory bar
         // Lifecycle handlers
         onPause: () => console.debug('[App] Backgrounded'),
         onResume: () => {
@@ -84,6 +85,11 @@ export class AppComponent {
       });
 
       console.log('[App] Native app initialized');
+
+      // Enable status bar sync with theme (2026 professional best practice)
+      // This auto-updates status bar icons when theme changes
+      this.theme.enableStatusBarSync();
+      console.log('[App] Status bar theme sync enabled');
 
       // Services auto-initialize in their constructors
       // Just injecting them is enough to start monitoring

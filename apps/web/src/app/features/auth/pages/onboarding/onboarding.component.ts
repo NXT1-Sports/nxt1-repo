@@ -20,7 +20,7 @@
  * Features:
  * - Session persistence (localStorage) for resume capability
  * - Step transition animations (fade + slide)
- * - Unified step counting (role = step 1)
+ * - Unified flow (role = last optional step)
  * - Mobile-ready architecture
  *
  * Route: /auth/onboarding
@@ -118,8 +118,8 @@ interface PartialOnboardingFormData extends Omit<Partial<OnboardingFormData>, 'u
 // CONSTANTS
 // ============================================
 
-/** Default steps before role selection */
-const DEFAULT_STEPS: OnboardingStep[] = [ROLE_SELECTION_STEP];
+/** Initial steps - role selection is added at the END of configured flows */
+const DEFAULT_STEPS: OnboardingStep[] = [];
 
 /** Session expiry time (24 hours in milliseconds) */
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
@@ -168,15 +168,13 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
       <!-- Main Content -->
       <div authContent class="flex flex-col">
-        <!-- Progress Indicator (hidden on role selection step) -->
-        @if (currentStep().id !== 'role') {
-          <nxt1-onboarding-progress-bar
-            [steps]="steps()"
-            [currentStepIndex]="currentStepIndex()"
-            [completedStepIds]="completedStepIds()"
-            (stepClick)="goToStep($event)"
-          />
-        }
+        <!-- Progress Indicator (shown throughout flow) -->
+        <nxt1-onboarding-progress-bar
+          [steps]="steps()"
+          [currentStepIndex]="currentStepIndex()"
+          [completedStepIds]="completedStepIds()"
+          (stepClick)="goToStep($event)"
+        />
 
         <!-- Scrollable Step Content Container -->
         <div class="nxt1-step-scroll-container">
@@ -187,7 +185,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             [animationDirection]="animationDirection()"
             [animationKey]="currentStep().id"
           >
-            <!-- Step 1: Role Selection -->
+            <!-- Role Selection (Optional - Last Step) -->
             @if (currentStep().id === 'role') {
               <nxt1-onboarding-role-selection
                 [selectedRole]="selectedRole()"
@@ -434,7 +432,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   /** Current step index */
   private readonly _currentStepIndex = signal(0);
 
-  /** Selected role (Step 1) */
+  /** Selected role (optional last step) */
   readonly selectedRole = signal<OnboardingUserType | null>(null);
 
   /** Configured steps based on selected role */
@@ -483,7 +481,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   /** Selected sport name for position step (first sport in array) */
   readonly selectedSportName = computed(() => {
     const sport = this._formData().sport;
-    return sport?.selectedSports?.[0] ?? '';
+    // v3.0: Use sports array (SportEntry[])
+    return sport?.sports?.[0]?.sport ?? '';
   });
 
   /** Current steps array */
@@ -662,7 +661,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   // ============================================
 
   /**
-   * Handle role selection (Step 1)
+   * Handle role selection (optional last step)
    */
   onRoleSelect(type: OnboardingUserType): void {
     this.selectedRole.set(type);
@@ -887,8 +886,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   /**
    * Configure steps based on selected role
    *
-   * IMPORTANT: Role selection step (step 1) is always included in the total count.
-   * This ensures a unified wizard experience: Step 1 (role) → Step 2 (profile) → etc.
+   * IMPORTANT: Role selection step is configured at the END (order: 999) as optional.
+   * This ensures a unified wizard experience: Profile → Sport → ... → Role (optional).
    */
   private configureStepsForRole(): void {
     const role = this.selectedRole();
@@ -900,7 +899,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     // Get role-specific steps from @nxt1/core
     const roleSteps = ONBOARDING_STEPS[role] ?? ONBOARDING_STEPS.athlete;
 
-    // Always include role selection as step 1 for unified step counting
+    // Role selection is now at the end, configured steps come first
     // This matches 2026 best practice: single-page wizard with consistent progress
     const allSteps = [ROLE_SELECTION_STEP, ...roleSteps];
     this._steps.set(allSteps);
@@ -908,7 +907,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     // Set animation direction for forward navigation
     this.animationDirection.set('forward');
 
-    // Move to step 2 (profile) - role was step 1
+    // Move to first configured step (profile/team based on role)
     this._currentStepIndex.set(1);
 
     // Track role selection analytics
@@ -950,24 +949,35 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       // First, save all onboarding data to backend
       try {
         // Flatten nested form data to match OnboardingProfileData structure
-        const selectedSports = formData.sport?.selectedSports || [];
+        // v3.0: Extract sport data from SportEntry[] model
+        const sportEntries = formData.sport?.sports || [];
+        const primarySport = sportEntries.find((e) => e.isPrimary) || sportEntries[0];
+        const secondarySport = sportEntries.find((e) => !e.isPrimary);
+
         const profileData = {
           userType: formData.userType,
           firstName: formData.profile?.firstName || '',
           lastName: formData.profile?.lastName || '',
           profileImg: formData.profile?.profileImg || undefined,
           bio: formData.profile?.bio,
-          sport: selectedSports[0],
-          secondarySport: selectedSports[1],
-          positions: formData.positions?.positions, // positions array from PositionsFormData
-          highSchool: formData.school?.schoolName, // schoolName from SchoolFormData
-          highSchoolSuffix: formData.school?.schoolType, // schoolType from SchoolFormData
-          classOf: formData.school?.classYear ?? formData.profile?.classYear ?? undefined, // classYear from either, convert null to undefined
-          state: formData.school?.state,
-          city: formData.school?.city,
+          // v3.0: Sport data from SportEntry
+          sport: primarySport?.sport,
+          secondarySport: secondarySport?.sport,
+          // v3.0: Positions from primary sport entry
+          positions: primarySport?.positions,
+          // v3.0: Team data from primary sport entry
+          highSchool: primarySport?.team?.name || formData.school?.schoolName,
+          highSchoolSuffix: primarySport?.team?.type || formData.school?.schoolType,
+          classOf: formData.profile?.classYear ?? formData.school?.classYear ?? undefined,
+          state: primarySport?.team?.state || formData.school?.state,
+          city: primarySport?.team?.city || formData.school?.city,
+          // v3.0: Team logo and colors
+          teamLogo: primarySport?.team?.logo,
+          teamColors: primarySport?.team?.colors,
+          // Legacy fields
           club: formData.school?.club,
-          organization: formData.organization?.organizationName, // organizationName from OrganizationFormData
-          coachTitle: formData.organization?.title, // title from OrganizationFormData
+          organization: formData.organization?.organizationName,
+          coachTitle: formData.organization?.title,
         };
 
         await this.authApi.saveOnboardingProfile(user.uid, profileData);
@@ -1110,10 +1120,13 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     if (!role) return;
 
     const formData = this._formData();
+    // v3.0: Get sport from SportEntry[] model
+    const primarySport =
+      formData.sport?.sports?.find((e) => e.isPrimary) || formData.sport?.sports?.[0];
     this.onboardingAnalytics.trackCompleted({
       userType: role,
       totalSteps: this._steps().length,
-      sport: formData.sport?.selectedSports?.[0],
+      sport: primarySport?.sport,
     });
   }
 

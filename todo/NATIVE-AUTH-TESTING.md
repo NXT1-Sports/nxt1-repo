@@ -1,6 +1,19 @@
 # Native Auth Testing Checklist
 
-## Status: Not Started
+## Status: ⬜ Blocked - Package Not Installed
+
+> **BLOCKER**: `@codetrix-studio/capacitor-google-auth` is not installed.
+>
+> To unblock, run:
+>
+> ```bash
+> cd apps/mobile && npm install @codetrix-studio/capacitor-google-auth
+> ```
+>
+> Then uncomment the TODOs in:
+>
+> - `apps/mobile/src/main.ts`
+> - `apps/mobile/src/app/features/auth/services/native-auth.service.ts`
 
 > From: `docs/NATIVE-AUTH-SETUP.md`
 

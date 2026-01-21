@@ -112,7 +112,7 @@ export interface SocialProvidersConfig {
       .nxt1-social-buttons {
         display: flex;
         flex-direction: column;
-        gap: 0.75rem;
+        gap: var(--nxt1-spacing-3);
         width: 100%;
       }
 
@@ -123,25 +123,25 @@ export interface SocialProvidersConfig {
         --background-activated: var(--nxt1-color-state-pressed);
         --background-focused: var(--nxt1-color-state-pressed);
         --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg, 12px);
+        --border-radius: var(--nxt1-borderRadius-lg);
         --border-width: 1px;
         --color: var(--nxt1-color-text-primary);
-        --padding-start: 1rem;
-        --padding-end: 1rem;
+        --padding-start: var(--nxt1-spacing-4);
+        --padding-end: var(--nxt1-spacing-4);
         --box-shadow: none;
         height: 52px;
-        font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
-        font-size: 1rem;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         font-weight: 600;
         text-transform: none;
         letter-spacing: normal;
         margin: 0;
-        --transition: all var(--nxt1-duration-normal, 200ms) ease-out;
+        --transition: all var(--nxt1-duration-normal) ease-out;
       }
 
       .nxt1-auth-btn::part(native) {
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
-        transition: all 200ms ease-out;
+        border-radius: var(--nxt1-borderRadius-lg);
+        transition: all var(--nxt1-duration-normal) ease-out;
       }
 
       .nxt1-auth-btn:hover::part(native) {
@@ -157,7 +157,7 @@ export interface SocialProvidersConfig {
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 0.75rem;
+        gap: var(--nxt1-spacing-3);
         width: 100%;
       }
 
@@ -171,26 +171,26 @@ export interface SocialProvidersConfig {
       /* Apple button - solid black (brand requirement) */
       .nxt1-auth-btn--apple {
         --background: #000000;
-        --background-hover: #1a1a1a;
-        --background-activated: #1a1a1a;
-        --background-focused: #1a1a1a;
+        --background-hover: var(--nxt1-color-surface-200);
+        --background-activated: var(--nxt1-color-surface-200);
+        --background-focused: var(--nxt1-color-surface-200);
         --border-color: var(--nxt1-color-border-strong);
         --color: #ffffff;
       }
 
       /* Google hover effect */
       .nxt1-auth-btn--google:hover {
-        --border-color: rgba(66, 133, 244, 0.4);
+        --border-color: var(--nxt1-color-info);
       }
 
       /* Microsoft hover effect */
       .nxt1-auth-btn--microsoft:hover {
-        --border-color: rgba(0, 164, 239, 0.4);
+        --border-color: var(--nxt1-color-info);
       }
 
       /* Apple hover effect */
       .nxt1-auth-btn--apple:hover {
-        --border-color: rgba(255, 255, 255, 0.3);
+        --border-color: var(--nxt1-color-border-strong);
       }
     `,
   ],

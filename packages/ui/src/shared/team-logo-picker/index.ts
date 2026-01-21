@@ -3,4 +3,4 @@
  * @module @nxt1/ui/shared/team-logo-picker
  */
 
-export { NxtTeamLogoPickerComponent } from './nxt-team-logo-picker.component';
+export { NxtTeamLogoPickerComponent, type LogoPickerSize } from './nxt-team-logo-picker.component';

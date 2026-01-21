@@ -62,39 +62,39 @@ export type AuthMode = 'login' | 'signup';
     `
       .mode-toggle {
         display: flex;
-        background: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.05));
-        border-radius: 12px;
-        padding: 4px;
-        gap: 4px;
-        margin-bottom: 16px;
+        background: var(--nxt1-color-surface-200);
+        border-radius: var(--nxt1-borderRadius-lg);
+        padding: var(--nxt1-spacing-1);
+        gap: var(--nxt1-spacing-1);
+        margin-bottom: var(--nxt1-spacing-4);
       }
 
       .mode-tab {
         flex: 1;
-        padding: 10px 16px;
+        padding: var(--nxt1-spacing-2_5) var(--nxt1-spacing-4);
         border: none;
         background: transparent;
-        border-radius: 8px;
-        font-family: var(--nxt1-fontFamily-brand, inherit);
-        font-size: 14px;
+        border-radius: var(--nxt1-borderRadius-md);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         font-weight: 600;
-        color: var(--nxt1-color-text-secondary, #666);
+        color: var(--nxt1-color-text-secondary);
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: all var(--nxt1-duration-fast) ease;
       }
 
       .mode-tab:hover:not(.active) {
-        color: var(--nxt1-color-text-primary, #333);
+        color: var(--nxt1-color-text-primary);
       }
 
       .mode-tab.active {
-        background: var(--nxt1-color-bg-primary, #fff);
-        color: var(--nxt1-color-text-primary, #000);
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        background: var(--nxt1-color-bg-primary);
+        color: var(--nxt1-color-text-primary);
+        box-shadow: var(--nxt1-shadow-sm);
       }
 
       .mode-tab:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary, #3b82f6);
+        outline: 2px solid var(--nxt1-color-primary);
         outline-offset: 2px;
       }
     `,

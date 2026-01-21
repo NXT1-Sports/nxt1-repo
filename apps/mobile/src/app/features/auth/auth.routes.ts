@@ -23,7 +23,8 @@ export const AUTH_ROUTES: Routes = [
   {
     path: '',
     loadComponent: () => import('./pages/auth/auth.page').then((m) => m.AuthPage),
-    canActivate: [guestGuard],
+    // TEMP: Disable guard for debugging native black screen
+    // canActivate: [guestGuard],
     title: 'Sign In | NXT1 Sports',
   },
 

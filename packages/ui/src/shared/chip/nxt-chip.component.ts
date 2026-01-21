@@ -116,9 +116,9 @@ export type ChipVariant = 'default' | 'filled';
         min-height: 44px;
         background: var(--nxt1-color-state-hover);
         border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-full, 9999px);
+        border-radius: var(--nxt1-borderRadius-full);
         cursor: pointer;
-        transition: all var(--nxt1-transition-fast, 150ms) ease;
+        transition: all var(--nxt1-duration-fast) ease;
         -webkit-tap-highlight-color: transparent;
       }
 
@@ -126,8 +126,8 @@ export type ChipVariant = 'default' | 'filled';
        CHIP CONTENT
        ============================================ */
       .nxt1-chip__content {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 15px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         font-weight: 500;
         color: var(--nxt1-color-text-secondary);
         white-space: nowrap;
@@ -143,7 +143,7 @@ export type ChipVariant = 'default' | 'filled';
       }
 
       .nxt1-chip--sm .nxt1-chip__content {
-        font-size: 12px;
+        font-size: var(--nxt1-fontSize-sm);
       }
 
       .nxt1-chip--lg {
@@ -152,7 +152,7 @@ export type ChipVariant = 'default' | 'filled';
       }
 
       .nxt1-chip--lg .nxt1-chip__content {
-        font-size: 16px;
+        font-size: var(--nxt1-fontSize-md);
       }
 
       /* ============================================

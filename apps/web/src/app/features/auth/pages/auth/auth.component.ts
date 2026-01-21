@@ -131,7 +131,7 @@ import type { ValidatedTeamInfo } from '@nxt1/core';
               [loading]="authFlow.isLoading()"
               (emailClick)="onShowEmailForm()"
               (teamCodeClick)="onTeamCode()"
-              [showTeamCode]="!validatedTeam()"
+              [showTeamCode]="false"
               data-testid="auth-action-buttons-container"
             />
           }
@@ -250,7 +250,7 @@ export class AuthComponent implements OnInit {
     }
     return this.mode() === 'login'
       ? 'Sign in to continue to NXT1'
-      : 'Join NXT1 to start your recruiting journey';
+      : 'Join NXT1 to start your journey';
   });
 
   // ============================================

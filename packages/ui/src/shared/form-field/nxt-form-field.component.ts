@@ -77,19 +77,19 @@ import { CommonModule } from '@angular/common';
       .nxt1-form-field {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-1-5);
+        gap: var(--nxt1-spacing-2);
       }
 
       /* ============================================
        LABEL
        ============================================ */
       .nxt1-form-label {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 13px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-2xs);
         font-weight: 500;
         color: var(--nxt1-color-text-secondary);
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
       }
 
       .nxt1-required {
@@ -101,8 +101,8 @@ import { CommonModule } from '@angular/common';
         font-weight: 400;
         text-transform: none;
         color: var(--nxt1-color-text-tertiary);
-        font-size: 11px;
-        margin-left: 4px;
+        font-size: var(--nxt1-fontSize-2xs);
+        margin-left: var(--nxt1-spacing-1);
       }
 
       /* ============================================
@@ -118,8 +118,8 @@ import { CommonModule } from '@angular/common';
        ERROR MESSAGE
        ============================================ */
       .nxt1-form-error {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 12px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
         color: var(--nxt1-color-error);
         padding-left: 2px;
       }
@@ -128,8 +128,8 @@ import { CommonModule } from '@angular/common';
        HINT TEXT
        ============================================ */
       .nxt1-form-hint {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 12px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
         color: var(--nxt1-color-text-tertiary);
         padding-left: 2px;
       }

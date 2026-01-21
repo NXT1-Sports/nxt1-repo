@@ -1,19 +1,19 @@
 /**
  * @fileoverview NxtTeamLogoPickerComponent - Cross-Platform Team Logo Picker
  * @module @nxt1/ui/shared
- * @version 1.0.0
+ * @version 2.0.0
  *
  * Compact, professional team logo picker component for onboarding.
  * Displays inline with team name input for seamless UX.
  *
  * Features:
- * - Compact circular design (48x48px)
+ * - Compact design with size variants (sm: 40px, md: 48px, lg: 64px)
  * - Image upload with preview (max 5MB, JPG/PNG/WebP/GIF)
  * - Native photo picker integration for mobile
  * - Fallback icon when no logo selected
  * - Edit badge overlay on hover
  * - Accessible with ARIA labels
- * - Haptic feedback ready
+ * - Haptic feedback via directive
  * - Test IDs for E2E testing
  *
  * Usage:
@@ -21,6 +21,7 @@
  * <nxt1-team-logo-picker
  *   [logoUrl]="teamLogo()"
  *   [disabled]="isLoading()"
+ *   size="md"
  *   (logoChange)="onLogoChange($event)"
  *   (fileSelected)="onFileSelected($event)"
  * />
@@ -49,6 +50,13 @@ import { NxtLoggingService } from '../../services/logging';
 import { NxtToastService } from '../../services/toast';
 
 // ============================================
+// TYPES
+// ============================================
+
+/** Size variants for the logo picker */
+export type LogoPickerSize = 'sm' | 'md' | 'lg';
+
+// ============================================
 // CONSTANTS
 // ============================================
 
@@ -72,6 +80,8 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
         type="button"
         class="nxt1-logo-button"
         [class.has-logo]="hasLogo()"
+        [class.nxt1-logo-sm]="size() === 'sm'"
+        [class.nxt1-logo-lg]="size() === 'lg'"
         [disabled]="disabled()"
         (click)="onLogoClick()"
         [attr.aria-label]="hasLogo() ? 'Change team logo' : 'Add team logo'"
@@ -81,23 +91,27 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
           <!-- Logo Preview -->
           <img [src]="currentLogo()" alt="Team logo" class="nxt1-logo-preview" />
           <div class="nxt1-logo-edit-badge">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="nxt1-edit-icon" aria-hidden="true">
               <path
                 d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
               />
             </svg>
           </div>
         } @else {
-          <!-- Placeholder Icon (Shield/Team) -->
+          <!-- Placeholder Icon (Image/Photo) -->
           <svg
             viewBox="0 0 24 24"
-            fill="currentColor"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
             class="nxt1-logo-placeholder-icon"
             aria-hidden="true"
           >
-            <path
-              d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"
-            />
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <polyline points="21 15 16 10 5 21"></polyline>
           </svg>
         }
       </button>
@@ -107,7 +121,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
         #fileInput
         type="file"
         [accept]="acceptedTypes"
-        class="hidden"
+        class="nxt1-hidden-input"
         (change)="onFileSelected($event)"
         [attr.data-testid]="testId() + '-input'"
       />
@@ -119,37 +133,50 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
         display: inline-flex;
       }
 
-      .hidden {
+      .nxt1-hidden-input {
         display: none;
       }
 
       /* ============================================
-       LOGO PICKER CONTAINER
-       ============================================ */
+         LOGO PICKER CONTAINER
+         ============================================ */
       .nxt1-logo-picker {
         display: inline-flex;
         align-items: center;
       }
 
       /* ============================================
-       LOGO BUTTON
-       ============================================ */
+         LOGO BUTTON - Base (md size: 48px)
+         ============================================ */
       .nxt1-logo-button {
         position: relative;
         width: 48px;
         height: 48px;
         min-width: 48px;
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        border-radius: var(--nxt1-borderRadius-lg);
         border: 1px solid var(--nxt1-color-border-default);
         background: var(--nxt1-color-state-hover);
         display: flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
-        transition: all var(--nxt1-transition-fast, 150ms) ease;
-        overflow: hidden;
+        transition: all var(--nxt1-duration-fast) ease;
         padding: 0;
         -webkit-tap-highlight-color: transparent;
+      }
+
+      /* Size: sm (40px) */
+      .nxt1-logo-button.nxt1-logo-sm {
+        width: 40px;
+        height: 40px;
+        min-width: 40px;
+      }
+
+      /* Size: lg (64px) */
+      .nxt1-logo-button.nxt1-logo-lg {
+        width: 64px;
+        height: 64px;
+        min-width: 64px;
       }
 
       .nxt1-logo-button:hover:not(:disabled) {
@@ -173,13 +200,23 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
       }
 
       /* ============================================
-       PLACEHOLDER ICON
-       ============================================ */
+         PLACEHOLDER ICON
+         ============================================ */
       .nxt1-logo-placeholder-icon {
         width: 24px;
         height: 24px;
         color: var(--nxt1-color-text-tertiary);
-        transition: color var(--nxt1-transition-fast, 150ms) ease;
+        transition: color var(--nxt1-duration-fast) ease;
+      }
+
+      .nxt1-logo-sm .nxt1-logo-placeholder-icon {
+        width: 20px;
+        height: 20px;
+      }
+
+      .nxt1-logo-lg .nxt1-logo-placeholder-icon {
+        width: 28px;
+        height: 28px;
       }
 
       .nxt1-logo-button:hover:not(:disabled) .nxt1-logo-placeholder-icon {
@@ -187,33 +224,60 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
       }
 
       /* ============================================
-       LOGO PREVIEW
-       ============================================ */
+         LOGO PREVIEW
+         ============================================ */
       .nxt1-logo-preview {
         width: 100%;
         height: 100%;
         object-fit: cover;
-        border-radius: calc(var(--nxt1-borderRadius-lg, 12px) - 2px);
+        border-radius: calc(var(--nxt1-borderRadius-lg) - 2px);
+        overflow: hidden;
       }
 
       /* ============================================
-       EDIT BADGE
-       ============================================ */
+         EDIT BADGE
+         ============================================ */
       .nxt1-logo-edit-badge {
         position: absolute;
         bottom: -2px;
         right: -2px;
         width: 20px;
         height: 20px;
-        border-radius: 50%;
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-primary);
         display: flex;
         align-items: center;
         justify-content: center;
         color: var(--nxt1-color-text-onPrimary);
         border: 2px solid var(--nxt1-color-bg-primary);
+        box-shadow: var(--nxt1-shadow-sm);
         opacity: 0;
-        transition: opacity var(--nxt1-transition-fast, 150ms) ease;
+        transition: opacity var(--nxt1-duration-fast) ease;
+      }
+
+      .nxt1-logo-sm .nxt1-logo-edit-badge {
+        width: 18px;
+        height: 18px;
+      }
+
+      .nxt1-logo-lg .nxt1-logo-edit-badge {
+        width: 24px;
+        height: 24px;
+      }
+
+      .nxt1-edit-icon {
+        width: 12px;
+        height: 12px;
+      }
+
+      .nxt1-logo-sm .nxt1-edit-icon {
+        width: 10px;
+        height: 10px;
+      }
+
+      .nxt1-logo-lg .nxt1-edit-icon {
+        width: 14px;
+        height: 14px;
       }
 
       .nxt1-logo-button:hover .nxt1-logo-edit-badge,
@@ -248,6 +312,9 @@ export class NxtTeamLogoPickerComponent {
 
   /** Current logo URL or data URI */
   readonly logoUrl = input<string | null>(null);
+
+  /** Size variant (sm: 40px, md: 48px, lg: 64px) */
+  readonly size = input<LogoPickerSize>('md');
 
   /** Whether interaction is disabled */
   readonly disabled = input<boolean>(false);

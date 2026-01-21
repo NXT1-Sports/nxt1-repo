@@ -298,24 +298,57 @@ export class NativeAppService {
 
   private async configureKeyboard(): Promise<void> {
     try {
-      const { Keyboard } = await import('@capacitor/keyboard');
+      const { Keyboard, KeyboardResize } = await import('@capacitor/keyboard');
 
-      // Configure keyboard behavior
+      // Configure keyboard behavior - 2026 Professional Setup
+      // Hide accessory bar for clean pro look (configurable)
       await Keyboard.setAccessoryBarVisible({
         isVisible: !this._config.keyboardAccessoryBarHidden,
       });
 
-      // Set resize mode (iOS only)
+      // Set resize mode (iOS only) - Body is best for Angular/Ionic
       if (this.ionicPlatform.is('ios')) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await Keyboard.setResizeMode({ mode: this._config.keyboardResize as any });
+        // Map string config to enum
+        const resizeMode =
+          this._config.keyboardResize === 'body'
+            ? KeyboardResize.Body
+            : this._config.keyboardResize === 'native'
+              ? KeyboardResize.Native
+              : this._config.keyboardResize === 'none'
+                ? KeyboardResize.None
+                : KeyboardResize.Body; // Default to Body (2026 best practice)
+
+        await Keyboard.setResizeMode({ mode: resizeMode });
       }
 
-      // Listen for keyboard events
+      // Listen for keyboard events - update signals and CSS custom properties
       Keyboard.addListener('keyboardWillShow', (info) => {
         this.ngZone.run(() => {
           this._keyboardVisible.set(true);
           this._keyboardHeight.set(info.keyboardHeight);
+          // Add class to body for CSS targeting
+          document.body.classList.add('keyboard-is-open');
+          document.body.style.setProperty('--keyboard-height', `${info.keyboardHeight}px`);
+          console.debug('[NativeAppService] Keyboard will show:', info.keyboardHeight);
+        });
+      });
+
+      Keyboard.addListener('keyboardDidShow', (info) => {
+        this.ngZone.run(() => {
+          // Scroll focused element into view if needed
+          const activeElement = document.activeElement as HTMLElement;
+          if (
+            activeElement &&
+            (activeElement.tagName === 'INPUT' ||
+              activeElement.tagName === 'TEXTAREA' ||
+              activeElement.tagName === 'ION-INPUT' ||
+              activeElement.tagName === 'ION-TEXTAREA')
+          ) {
+            // Small delay to let resize complete
+            setTimeout(() => {
+              activeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 100);
+          }
         });
       });
 
@@ -323,10 +356,17 @@ export class NativeAppService {
         this.ngZone.run(() => {
           this._keyboardVisible.set(false);
           this._keyboardHeight.set(0);
+          // Remove class from body
+          document.body.classList.remove('keyboard-is-open');
+          document.body.style.removeProperty('--keyboard-height');
+          console.debug('[NativeAppService] Keyboard will hide');
         });
       });
 
-      console.debug('[NativeAppService] Keyboard configured');
+      console.debug(
+        '[NativeAppService] Keyboard configured with resize mode:',
+        this._config.keyboardResize
+      );
     } catch (error) {
       console.warn('[NativeAppService] Keyboard configuration failed:', error);
     }

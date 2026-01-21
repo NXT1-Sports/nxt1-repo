@@ -84,9 +84,9 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: var(--nxt1-spacing-3, 12px);
+        gap: var(--nxt1-spacing-3);
         width: 100%;
-        margin-bottom: var(--nxt1-spacing-6, 24px);
+        margin-bottom: var(--nxt1-spacing-6);
         overflow: hidden;
       }
 
@@ -101,7 +101,7 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
         max-width: 100%;
         overflow-x: auto;
         overflow-y: hidden;
-        padding: var(--nxt1-spacing-1, 4px);
+        padding: var(--nxt1-spacing-1);
         scrollbar-width: none;
         -ms-overflow-style: none;
       }
@@ -185,7 +185,7 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-xs);
         font-weight: 500;
-        letter-spacing: 0.05em;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
         text-transform: uppercase;
         color: var(--nxt1-color-text-tertiary);
       }

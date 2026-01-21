@@ -91,9 +91,9 @@ export type ValidationSummaryVariant = 'success' | 'info' | 'warning';
         align-items: center;
         gap: var(--nxt1-spacing-2);
         padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
-        background: var(--nxt1-color-alpha-success10, rgba(34, 197, 94, 0.1));
-        border: 1px solid var(--nxt1-color-success, #22c55e);
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        background: var(--nxt1-color-successBg);
+        border: 1px solid var(--nxt1-color-success);
+        border-radius: var(--nxt1-borderRadius-lg);
       }
 
       /* ============================================
@@ -103,43 +103,43 @@ export type ValidationSummaryVariant = 'success' | 'info' | 'warning';
         width: 18px;
         height: 18px;
         flex-shrink: 0;
-        color: var(--nxt1-color-success, #22c55e);
+        color: var(--nxt1-color-success);
       }
 
       /* ============================================
        MESSAGE
        ============================================ */
       .nxt1-validation-message {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 14px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         font-weight: 500;
-        color: var(--nxt1-color-success, #22c55e);
+        color: var(--nxt1-color-success);
       }
 
       /* ============================================
        INFO VARIANT
        ============================================ */
       .nxt1-validation-summary--info {
-        background: var(--nxt1-color-alpha-info10, rgba(59, 130, 246, 0.1));
-        border-color: var(--nxt1-color-info, #3b82f6);
+        background: var(--nxt1-color-infoBg);
+        border-color: var(--nxt1-color-info);
       }
 
       .nxt1-validation-summary--info .nxt1-validation-icon,
       .nxt1-validation-summary--info .nxt1-validation-message {
-        color: var(--nxt1-color-info, #3b82f6);
+        color: var(--nxt1-color-info);
       }
 
       /* ============================================
        WARNING VARIANT
        ============================================ */
       .nxt1-validation-summary--warning {
-        background: var(--nxt1-color-alpha-warning10, rgba(245, 158, 11, 0.1));
-        border-color: var(--nxt1-color-warning, #f59e0b);
+        background: var(--nxt1-color-warningBg);
+        border-color: var(--nxt1-color-warning);
       }
 
       .nxt1-validation-summary--warning .nxt1-validation-icon,
       .nxt1-validation-summary--warning .nxt1-validation-message {
-        color: var(--nxt1-color-warning, #f59e0b);
+        color: var(--nxt1-color-warning);
       }
     `,
   ],

@@ -38,25 +38,25 @@ export type AuthSubtitleSize = 'sm' | 'md' | 'lg';
   styles: [
     `
       .auth-subtitle {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        font-family: var(--nxt1-fontFamily-brand);
         font-weight: 500;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
         text-align: center;
         margin: 0;
-        margin-bottom: 0.5rem;
+        margin-bottom: var(--nxt1-spacing-2);
         line-height: 1.4;
       }
 
       .auth-subtitle--sm {
-        font-size: 0.8125rem; /* 13px */
+        font-size: var(--nxt1-fontSize-sm);
       }
 
       .auth-subtitle--md {
-        font-size: 0.875rem; /* 14px */
+        font-size: var(--nxt1-fontSize-base);
       }
 
       .auth-subtitle--lg {
-        font-size: 1rem; /* 16px */
+        font-size: var(--nxt1-fontSize-md);
       }
     `,
   ],

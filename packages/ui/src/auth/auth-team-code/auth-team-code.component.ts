@@ -147,10 +147,10 @@ export type { ValidatedTeamInfo, TeamCodeValidationState } from '@nxt1/core';
       .team-code-input {
         --background: var(--nxt1-color-state-hover);
         --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg, 12px);
+        --border-radius: var(--nxt1-borderRadius-lg);
         --border-width: 1px;
-        --padding-start: 16px;
-        --padding-end: 16px;
+        --padding-start: var(--nxt1-spacing-4);
+        --padding-end: var(--nxt1-spacing-4);
         --padding-top: 0;
         --padding-bottom: 0;
         --color: var(--nxt1-color-text-primary);
@@ -159,19 +159,19 @@ export type { ValidatedTeamInfo, TeamCodeValidationState } from '@nxt1/core';
         --highlight-color-valid: var(--nxt1-color-border-strong);
         --highlight-color-invalid: var(--nxt1-color-error);
         --highlight-height: 1px;
-        font-size: 1rem;
+        font-size: var(--nxt1-fontSize-md);
         min-height: 52px;
         text-align: center;
         text-transform: uppercase;
-        letter-spacing: 0.1em;
-        font-family: monospace;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
+        font-family: var(--nxt1-fontFamily-mono);
         transition:
-          border-color 200ms ease-out,
-          background 200ms ease-out;
+          border-color var(--nxt1-duration-fast) ease-out,
+          background var(--nxt1-duration-fast) ease-out;
       }
 
       .team-code-input::part(native) {
-        transition: all 200ms ease-out;
+        transition: all var(--nxt1-duration-fast) ease-out;
       }
 
       .team-code-input:hover {
@@ -195,20 +195,20 @@ export type { ValidatedTeamInfo, TeamCodeValidationState } from '@nxt1/core';
         --background-activated: var(--nxt1-color-primaryDark);
         --background-focused: var(--nxt1-color-primary);
         --color: var(--nxt1-color-text-onPrimary);
-        --border-radius: var(--nxt1-borderRadius-lg, 12px);
-        --padding-top: 14px;
-        --padding-bottom: 14px;
+        --border-radius: var(--nxt1-borderRadius-lg);
+        --padding-top: var(--nxt1-spacing-3_5);
+        --padding-bottom: var(--nxt1-spacing-3_5);
         --box-shadow: none;
-        font-size: 1rem;
+        font-size: var(--nxt1-fontSize-md);
         font-weight: 600;
         text-transform: none;
-        letter-spacing: 0.025em;
-        margin-top: 0.5rem;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
+        margin-top: var(--nxt1-spacing-2);
       }
 
       .team-code-btn::part(native) {
         min-height: 52px;
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        border-radius: var(--nxt1-borderRadius-lg);
       }
 
       .team-code-btn:disabled {

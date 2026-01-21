@@ -1,6 +1,6 @@
 # NXT1 Monorepo - TODO Index
 
-> Master tracking file for all pending work items. Last updated: January 14,
+> Master tracking file for all pending work items. Last updated: January 21,
 > 2026
 
 ---
@@ -11,11 +11,11 @@
 
 Complete the authentication system for web and mobile.
 
-- Login page (email + OAuth)
-- Signup page
-- Forgot password
-- Onboarding wizard
-- Auth guards
+- ✅ Login page (email + OAuth)
+- ✅ Signup page
+- ⬜ Forgot password
+- 🟡 Onboarding wizard (UI complete, needs persistence testing)
+- ⬜ Auth guards
 
 ### [NATIVE-AUTH-TESTING.md](./NATIVE-AUTH-TESTING.md)
 
@@ -92,16 +92,17 @@ Production security checklist.
 
 ## Quick Status
 
-| Area          | Status         | Blocking Release?   |
-| ------------- | -------------- | ------------------- |
-| Auth Flow     | 🟡 In Progress | Yes                 |
-| Native Auth   | ⬜ Not Started | Yes (Mobile)        |
-| Analytics     | 🟡 Partial     | Yes (Mobile parity) |
-| CI/CD         | ⬜ Not Started | No                  |
-| SEO           | ⬜ Not Started | No                  |
-| E2E Testing   | ⬜ Not Started | No                  |
-| Design System | ⬜ Not Started | No                  |
-| Security      | ⬜ Not Started | Yes (Production)    |
+| Area          | Status         | Blocking Release?                    |
+| ------------- | -------------- | ------------------------------------ |
+| Auth Flow     | 🟡 In Progress | Yes                                  |
+| Onboarding    | 🟡 In Progress | Yes                                  |
+| Native Auth   | ⬜ Blocked     | Yes (Mobile) - needs package install |
+| Analytics     | 🟡 Partial     | Yes (Mobile parity)                  |
+| CI/CD         | ⬜ Not Started | No                                   |
+| SEO           | ⬜ Not Started | No                                   |
+| E2E Testing   | ⬜ Not Started | No                                   |
+| Design System | ⬜ Not Started | No                                   |
+| Security      | ⬜ Not Started | Yes (Production)                     |
 
 ---
 

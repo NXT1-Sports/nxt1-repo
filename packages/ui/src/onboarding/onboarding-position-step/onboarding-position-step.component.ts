@@ -160,12 +160,12 @@ const MAX_POSITIONS = 10;
       }
 
       .nxt1-group-label {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 13px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         font-weight: 600;
         color: var(--nxt1-color-text-secondary);
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
       }
 
       /* ============================================
@@ -197,16 +197,16 @@ const MAX_POSITIONS = 10;
       }
 
       .nxt1-empty-message {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 15px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         font-weight: 500;
         color: var(--nxt1-color-text-secondary);
         margin: 0 0 var(--nxt1-spacing-1);
       }
 
       .nxt1-empty-hint {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 13px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-tertiary);
         margin: 0;
       }
@@ -221,7 +221,7 @@ const MAX_POSITIONS = 10;
         padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
         background: var(--nxt1-color-alpha-success10, rgba(34, 197, 94, 0.1));
         border: 1px solid var(--nxt1-color-success, #22c55e);
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        border-radius: var(--nxt1-borderRadius-lg);
       }
 
       .nxt1-summary-icon {
@@ -232,8 +232,8 @@ const MAX_POSITIONS = 10;
       }
 
       .nxt1-summary-title {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 14px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         font-weight: 500;
         color: var(--nxt1-color-success, #22c55e);
       }
@@ -242,8 +242,8 @@ const MAX_POSITIONS = 10;
        HINT TEXT
        ============================================ */
       .nxt1-hint-text {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 13px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-tertiary);
         text-align: center;
         margin: 0;

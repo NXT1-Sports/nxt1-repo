@@ -75,11 +75,17 @@ export {
   type TeamCodePrefillData,
   type ProfileFormData,
   type OnboardingTeamType,
-  type TeamFormData,
-  type SchoolFormData, // @deprecated - use TeamFormData
-  type OrganizationFormData,
+  // Sport-centric types (v3.0)
+  type SportTeamInfo,
+  type SportEntry,
   type SportFormData,
-  type PositionsFormData,
+  createEmptySportEntry,
+  validateSportEntry,
+  // Legacy types (deprecated)
+  type TeamFormData,
+  type SchoolFormData, // @deprecated - use SportFormData
+  type PositionsFormData, // @deprecated - use SportFormData
+  type OrganizationFormData,
   type ContactFormData,
   // ReferralSourceData is NOT re-exported - use from auth.api
   type OnboardingFormData,
@@ -94,7 +100,7 @@ export {
   validateSchool, // @deprecated - use validateTeam
   validateOrganization,
   validateSport,
-  validatePositions,
+  validatePositions, // @deprecated - use validateSport
   validateContact,
   canNavigateNext,
   canNavigatePrevious,

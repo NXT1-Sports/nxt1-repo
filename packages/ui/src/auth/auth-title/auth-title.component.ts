@@ -39,28 +39,28 @@ export type AuthTitleSize = 'sm' | 'md' | 'lg' | 'xl';
   styles: [
     `
       .auth-title {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        font-family: var(--nxt1-fontFamily-brand);
         font-weight: 700;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
         text-align: center;
         margin: 0;
         line-height: 1.2;
       }
 
       .auth-title--sm {
-        font-size: 1.25rem; /* 20px */
+        font-size: var(--nxt1-fontSize-xl);
       }
 
       .auth-title--md {
-        font-size: 1.5rem; /* 24px */
+        font-size: var(--nxt1-fontSize-2xl);
       }
 
       .auth-title--lg {
-        font-size: 1.875rem; /* 30px */
+        font-size: var(--nxt1-fontSize-3xl);
       }
 
       .auth-title--xl {
-        font-size: 2.25rem; /* 36px */
+        font-size: var(--nxt1-fontSize-4xl);
       }
     `,
   ],

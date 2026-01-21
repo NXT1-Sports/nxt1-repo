@@ -192,7 +192,7 @@ const DEFAULT_MAX_COLORS = 4;
             <input
               #colorInput
               type="color"
-              class="hidden"
+              class="nxt1-color-input-hidden"
               [value]="customColorValue()"
               (change)="onCustomColorChange($event)"
               [attr.data-testid]="testId() + '-custom-input'"
@@ -220,8 +220,13 @@ const DEFAULT_MAX_COLORS = 4;
         width: 100%;
       }
 
-      .hidden {
-        display: none;
+      /* Hidden color input - positioned near button so picker opens in correct location */
+      .nxt1-color-input-hidden {
+        position: absolute;
+        opacity: 0;
+        width: 1px;
+        height: 1px;
+        pointer-events: none;
       }
 
       /* ============================================
@@ -237,27 +242,27 @@ const DEFAULT_MAX_COLORS = 4;
        LABEL
        ============================================ */
       .nxt1-color-label {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 13px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-2xs);
         font-weight: 500;
         color: var(--nxt1-color-text-secondary);
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
       }
 
       .nxt1-optional {
         font-weight: 400;
         color: var(--nxt1-color-text-tertiary);
         text-transform: none;
-        font-size: 12px;
+        font-size: var(--nxt1-fontSize-xs);
       }
 
       /* ============================================
        PLACEHOLDER TEXT
        ============================================ */
       .nxt1-color-placeholder {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 14px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-tertiary);
         padding: var(--nxt1-spacing-2) 0;
       }
@@ -279,10 +284,10 @@ const DEFAULT_MAX_COLORS = 4;
         width: 40px;
         height: 40px;
         min-width: 40px;
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        border-radius: var(--nxt1-borderRadius-lg);
         border: 2px solid var(--nxt1-color-border-default);
         cursor: pointer;
-        transition: all var(--nxt1-transition-fast, 150ms) ease;
+        transition: all var(--nxt1-duration-fast) ease;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -291,8 +296,9 @@ const DEFAULT_MAX_COLORS = 4;
       }
 
       .nxt1-color-swatch:hover:not(:disabled) {
-        transform: scale(1.05);
         border-color: var(--nxt1-color-border-strong);
+        filter: brightness(1.1);
+        box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
       }
 
       .nxt1-color-swatch:focus-visible {
@@ -325,7 +331,7 @@ const DEFAULT_MAX_COLORS = 4;
         height: 16px;
         color: white;
         opacity: 0;
-        transition: opacity var(--nxt1-transition-fast, 150ms) ease;
+        transition: opacity var(--nxt1-duration-fast) ease;
       }
 
       .nxt1-color-swatch--selected.is-light .nxt1-remove-icon {
@@ -359,7 +365,7 @@ const DEFAULT_MAX_COLORS = 4;
         width: 20px;
         height: 20px;
         color: var(--nxt1-color-text-tertiary);
-        transition: color var(--nxt1-transition-fast, 150ms) ease;
+        transition: color var(--nxt1-duration-fast) ease;
       }
 
       .nxt1-color-swatch--add:hover:not(:disabled) .nxt1-add-icon {
@@ -376,7 +382,7 @@ const DEFAULT_MAX_COLORS = 4;
         padding: var(--nxt1-spacing-4);
         background: var(--nxt1-color-bg-secondary);
         border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        border-radius: var(--nxt1-borderRadius-lg);
         margin-top: var(--nxt1-spacing-2);
       }
 
@@ -398,10 +404,10 @@ const DEFAULT_MAX_COLORS = 4;
         width: 100%;
         aspect-ratio: 1;
         min-height: 36px;
-        border-radius: var(--nxt1-borderRadius-md, 8px);
+        border-radius: var(--nxt1-borderRadius-md);
         border: 2px solid transparent;
         cursor: pointer;
-        transition: all var(--nxt1-transition-fast, 150ms) ease;
+        transition: all var(--nxt1-duration-fast) ease;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -410,7 +416,8 @@ const DEFAULT_MAX_COLORS = 4;
       }
 
       .nxt1-palette-swatch:hover:not(:disabled) {
-        transform: scale(1.1);
+        filter: brightness(1.15);
+        box-shadow: 0 0 12px rgba(255, 255, 255, 0.25);
         z-index: 1;
       }
 
@@ -443,6 +450,7 @@ const DEFAULT_MAX_COLORS = 4;
       .nxt1-custom-color {
         display: flex;
         align-items: center;
+        position: relative;
       }
 
       .nxt1-custom-color-button {
@@ -452,9 +460,9 @@ const DEFAULT_MAX_COLORS = 4;
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
         background: var(--nxt1-color-state-hover);
         border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-md, 8px);
+        border-radius: var(--nxt1-borderRadius-md);
         cursor: pointer;
-        transition: all var(--nxt1-transition-fast, 150ms) ease;
+        transition: all var(--nxt1-duration-fast) ease;
         -webkit-tap-highlight-color: transparent;
       }
 
@@ -471,7 +479,7 @@ const DEFAULT_MAX_COLORS = 4;
       .nxt1-custom-color-rainbow {
         width: 24px;
         height: 24px;
-        border-radius: var(--nxt1-borderRadius-sm, 4px);
+        border-radius: var(--nxt1-borderRadius-sm);
         background: linear-gradient(
           to right,
           #ff0000,
@@ -485,8 +493,8 @@ const DEFAULT_MAX_COLORS = 4;
       }
 
       .nxt1-custom-color-label {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 14px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         font-weight: 500;
         color: var(--nxt1-color-text-secondary);
       }
@@ -497,13 +505,13 @@ const DEFAULT_MAX_COLORS = 4;
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
         background: transparent;
         border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-md, 8px);
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 14px;
+        border-radius: var(--nxt1-borderRadius-md);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         font-weight: 500;
         color: var(--nxt1-color-text-secondary);
         cursor: pointer;
-        transition: all var(--nxt1-transition-fast, 150ms) ease;
+        transition: all var(--nxt1-duration-fast) ease;
         -webkit-tap-highlight-color: transparent;
       }
 
@@ -542,7 +550,7 @@ export class NxtColorPickerComponent {
   readonly label = input<string | null>(null);
 
   /** Placeholder text when no colors selected */
-  readonly placeholder = input<string>('Add team colors');
+  readonly placeholder = input<string>('');
 
   /** Whether interaction is disabled */
   readonly disabled = input<boolean>(false);

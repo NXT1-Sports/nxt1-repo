@@ -268,7 +268,7 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
         gap: var(--nxt1-spacing-2);
         cursor: pointer;
         transition: all 0.2s ease;
-        overflow: hidden;
+        /* Removed overflow: hidden to prevent clipping edit badge */
       }
 
       .nxt1-photo-upload:hover:not(:disabled) {
@@ -319,8 +319,8 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
       /* Edit badge on hover */
       .nxt1-photo-edit-badge {
         position: absolute;
-        bottom: var(--nxt1-spacing-1);
-        right: var(--nxt1-spacing-1);
+        bottom: 0;
+        right: 0;
         width: var(--nxt1-spacing-7);
         height: var(--nxt1-spacing-7);
         border-radius: 50%;
@@ -330,6 +330,7 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
         justify-content: center;
         color: var(--nxt1-color-text-onPrimary);
         border: 2px solid var(--nxt1-color-bg-primary);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       }
 
       /* Photo hint text */
@@ -369,7 +370,7 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
       .nxt1-input {
         --background: var(--nxt1-color-state-hover);
         --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg, 12px);
+        --border-radius: var(--nxt1-borderRadius-lg);
         --border-width: 1px;
         --color: var(--nxt1-color-text-primary);
         --placeholder-color: var(--nxt1-color-text-tertiary);
@@ -380,8 +381,8 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
         --padding-bottom: 14px;
         --highlight-color-focused: var(--nxt1-color-border-strong);
         --highlight-color-valid: var(--nxt1-color-border-strong);
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 15px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         min-height: 52px;
       }
 

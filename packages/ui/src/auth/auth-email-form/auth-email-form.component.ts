@@ -284,10 +284,10 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
       .auth-input {
         --background: var(--nxt1-color-state-hover);
         --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg, 12px);
+        --border-radius: var(--nxt1-borderRadius-lg);
         --border-width: 1px;
-        --padding-start: 16px;
-        --padding-end: 16px;
+        --padding-start: var(--nxt1-spacing-4);
+        --padding-end: var(--nxt1-spacing-4);
         --padding-top: 0;
         --padding-bottom: 0;
         --color: var(--nxt1-color-text-primary);
@@ -297,15 +297,15 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
         --highlight-color-valid: var(--nxt1-color-border-strong);
         --highlight-color-invalid: var(--nxt1-color-error);
         --highlight-height: 1px;
-        font-size: 1rem;
+        font-size: var(--nxt1-fontSize-md);
         min-height: 52px;
         transition:
-          border-color 200ms ease-out,
-          background 200ms ease-out;
+          border-color var(--nxt1-duration-fast) ease-out,
+          background var(--nxt1-duration-fast) ease-out;
       }
 
       .auth-input::part(native) {
-        transition: all 200ms ease-out;
+        transition: all var(--nxt1-duration-fast) ease-out;
       }
 
       /* Subtle hover - just a slight border brighten like social buttons */
@@ -337,11 +337,11 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
         padding: 0;
         margin: 0;
         border: none;
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        border-radius: var(--nxt1-borderRadius-lg);
         background: transparent;
         color: var(--nxt1-color-text-primary);
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: all var(--nxt1-duration-fast) ease;
       }
 
       .password-toggle:hover {
@@ -356,20 +356,20 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
         --background-activated: var(--nxt1-color-primaryDark);
         --background-focused: var(--nxt1-color-primary);
         --color: var(--nxt1-color-text-onPrimary);
-        --border-radius: var(--nxt1-borderRadius-lg, 12px);
-        --padding-top: 14px;
-        --padding-bottom: 14px;
+        --border-radius: var(--nxt1-borderRadius-lg);
+        --padding-top: var(--nxt1-spacing-3_5);
+        --padding-bottom: var(--nxt1-spacing-3_5);
         --box-shadow: none;
-        font-size: 1rem;
+        font-size: var(--nxt1-fontSize-md);
         font-weight: 600;
         text-transform: none;
-        letter-spacing: 0.025em;
-        margin-top: 0.5rem;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
+        margin-top: var(--nxt1-spacing-2);
       }
 
       .submit-btn::part(native) {
         min-height: 52px;
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        border-radius: var(--nxt1-borderRadius-lg);
       }
 
       .submit-btn ion-spinner {
@@ -383,65 +383,65 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
       .password-strength {
         display: flex;
         align-items: center;
-        gap: 8px;
-        margin-top: 4px;
+        gap: var(--nxt1-spacing-2);
+        margin-top: var(--nxt1-spacing-1);
       }
 
       .strength-bars {
         display: flex;
-        gap: 4px;
+        gap: var(--nxt1-spacing-1);
         flex: 1;
       }
 
       .strength-bar {
         height: 4px;
         flex: 1;
-        border-radius: 2px;
-        background: var(--nxt1-color-surface-300, #333);
-        transition: background 200ms ease;
+        border-radius: var(--nxt1-borderRadius-xs);
+        background: var(--nxt1-color-surface-300);
+        transition: background var(--nxt1-duration-normal) ease;
       }
 
       .strength-bar.active.strength-weak {
-        background: #ef4444;
+        background: var(--nxt1-color-error);
       }
 
       .strength-bar.active.strength-fair {
-        background: #f59e0b;
+        background: var(--nxt1-color-warning);
       }
 
       .strength-bar.active.strength-good {
-        background: #22c55e;
+        background: var(--nxt1-color-success);
       }
 
       .strength-bar.active.strength-strong {
-        background: #10b981;
+        background: var(--nxt1-color-successDark, #10b981);
       }
 
       .strength-text {
-        font-size: 12px;
+        font-size: var(--nxt1-fontSize-xs);
         font-weight: 500;
         min-width: 50px;
         text-align: right;
       }
 
       .text-weak {
-        color: #ef4444;
+        color: var(--nxt1-color-error);
       }
       .text-fair {
-        color: #f59e0b;
+        color: var(--nxt1-color-warning);
       }
       .text-good {
-        color: #22c55e;
+        color: var(--nxt1-color-success);
       }
       .text-strong {
-        color: #10b981;
+        color: var(--nxt1-color-successDark, #10b981);
       }
 
       .password-requirements {
         display: flex;
         flex-direction: column;
-        gap: 2px;
-        margin-top: 4px;
+        gap: var(--nxt1-spacing-0_5);
+        margin-top: var(--nxt1-spacing-1);
       }
 
       .requirement-text {

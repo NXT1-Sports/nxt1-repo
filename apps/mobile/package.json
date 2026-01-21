@@ -7,6 +7,7 @@
     "ng": "ng",
     "start": "ng serve",
     "dev": "ng serve",
+    "dev:host": "ng serve --host 0.0.0.0",
     "build": "ng build --configuration production",
     "build:dev": "ng build --configuration development",
     "test": "vitest run",
@@ -21,6 +22,8 @@
     "android": "npm run build && npx cap sync android && npx cap open android",
     "ios:dev": "npm run build:dev && npx cap sync ios && npx cap run ios",
     "android:dev": "npm run build:dev && npx cap sync android && npx cap run android",
+    "ios:live": "npx cap sync ios && npx cap run ios --live-reload",
+    "android:live": "npx cap sync android && npx cap run android --live-reload",
     "resources": "npx @capacitor/assets generate"
   },
   "dependencies": {

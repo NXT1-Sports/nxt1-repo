@@ -1,20 +1,34 @@
 /**
- * @fileoverview OnboardingSportStepComponent - Cross-Platform Multi-Sport Selection
+ * @fileoverview OnboardingSportStepComponent - Sport-Centric Onboarding (v3.0)
  * @module @nxt1/ui/onboarding
- * @version 3.1.0
+ * @version 3.0.0
  *
- * Reusable sport step component for onboarding Step 4.
- * Supports multi-sport selection with professional UX.
+ * Consolidated sport step component that handles:
+ * - Sport selection
+ * - Team info (name, type, logo, colors)
+ * - Position selection
+ *
+ * All bundled together per sport using expandable cards.
+ *
+ * Architecture:
+ * ```
+ * OnboardingSportStepComponent (container)
+ *   ├── Add Sport Button (opens sport picker modal)
+ *   ├── OnboardingSportEntryComponent (for each sport)
+ *   │   ├── Team Info Section
+ *   │   └── Positions Section
+ *   └── Validation Summary
+ * ```
  *
  * Features:
- * - Multi-sport selection (configurable max)
- * - Selected sports shown as removable chips
+ * - Multi-sport support (1-3 sports)
+ * - First sport = primary sport
+ * - Expandable cards for each sport
+ * - Add/remove sports dynamically
+ * - Real-time validation per sport
  * - Platform-adaptive with Ionic components
- * - Search/filter functionality for easy sport discovery
- * - Grid layout with sport icons/emojis
- * - Real-time search filtering
- * - Accessible with ARIA labels
- * - Haptic feedback on selection/deselection
+ * - Haptic feedback
+ * - ARIA accessibility
  * - Test IDs for E2E testing
  *
  * Usage:
@@ -22,8 +36,9 @@
  * <nxt1-onboarding-sport-step
  *   [sportData]="sportFormData()"
  *   [disabled]="isLoading()"
- *   [maxSelections]="5"
+ *   [maxSports]="3"
  *   (sportChange)="onSportChange($event)"
+ *   (logoFileSelected)="onLogoFileSelected($event)"
  * />
  * ```
  *
@@ -42,22 +57,25 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { IonInput, IonIcon, IonChip, IonLabel } from '@ionic/angular/standalone';
+import { IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { searchOutline, closeCircle, close } from 'ionicons/icons';
-import type { SportFormData } from '@nxt1/core/api';
+import { addCircleOutline } from 'ionicons/icons';
+import type { SportFormData, SportEntry } from '@nxt1/core/api';
+import { createEmptySportEntry } from '@nxt1/core/api';
 import { DEFAULT_SPORTS, formatSportDisplayName, type SportCell } from '@nxt1/core/constants';
 import type { ILogger } from '@nxt1/core/logging';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
+import { NxtPickerService } from '../../shared/picker';
 import { NxtValidationSummaryComponent } from '../../shared/validation-summary';
+import { OnboardingSportEntryComponent } from '../onboarding-sport-entry/onboarding-sport-entry.component';
 
 // ============================================
 // CONSTANTS
 // ============================================
 
-/** Minimum characters before filtering is applied */
-const MIN_SEARCH_LENGTH = 0;
+/** Default maximum sports allowed */
+const DEFAULT_MAX_SPORTS = 3;
 
 // ============================================
 // COMPONENT
@@ -69,146 +87,74 @@ const MIN_SEARCH_LENGTH = 0;
   imports: [
     CommonModule,
     FormsModule,
-    IonInput,
     IonIcon,
-    IonChip,
-    IonLabel,
     HapticButtonDirective,
     NxtValidationSummaryComponent,
+    OnboardingSportEntryComponent,
   ],
   template: `
-    <div class="nxt1-sport-form" data-testid="onboarding-sport-step">
-      <!-- Selected Sports Chips (shown when sports are selected) -->
-      @if (selectedSports().length > 0) {
-        <div class="nxt1-selected-sports" data-testid="onboarding-selected-sports">
-          <div class="nxt1-selected-header">
-            <span class="nxt1-selected-label">Your Sports</span>
-            <span class="nxt1-selected-count"
-              >{{ selectedSports().length
-              }}{{ maxSelections() ? ' / ' + maxSelections() : '' }}</span
-            >
+    <div class="nxt1-sport-step" data-testid="onboarding-sport-step">
+      <!-- Header with Add Sport Button -->
+      <div class="nxt1-step-header">
+        <p class="nxt1-step-description">
+          Add your sports, team info, and positions.
+          @if (maxSports() > 1) {
+            <span class="nxt1-max-hint">Up to {{ maxSports() }} sports allowed.</span>
+          }
+        </p>
+      </div>
+
+      <!-- Sport Entries -->
+      <div class="nxt1-entries-container">
+        @for (entry of sportEntries(); track entry.sport; let i = $index) {
+          <nxt1-onboarding-sport-entry
+            [entry]="entry"
+            [expanded]="expandedIndex() === i"
+            [disabled]="disabled()"
+            (entryChange)="onEntryChange(i, $event)"
+            (delete)="onDeleteSport(i)"
+            (expandedChange)="onExpandedChange(i, $event)"
+            (logoFileSelected)="onLogoFile($event, entry.sport)"
+          />
+        } @empty {
+          <div class="nxt1-empty-state" data-testid="onboarding-sport-empty">
+            <p class="nxt1-empty-text">
+              No sports added yet. Click the button below to add your first sport.
+            </p>
           </div>
-          <div class="nxt1-chips-container">
-            @for (sport of selectedSports(); track sport; let i = $index) {
-              <ion-chip
-                class="nxt1-sport-chip"
-                [disabled]="disabled()"
-                (click)="onChipRemove(sport)"
-                [attr.data-testid]="'onboarding-sport-chip-' + sanitizeTestId(sport)"
-              >
-                <ion-label>{{ formatDisplayName(sport) }}</ion-label>
-                <ion-icon name="close" class="nxt1-remove-icon" aria-label="Remove" />
-              </ion-chip>
-            }
-          </div>
-        </div>
+        }
+      </div>
+
+      <!-- Add Sport Button -->
+      @if (canAddMore()) {
+        <button
+          type="button"
+          class="nxt1-add-sport-btn"
+          (click)="openSportPicker()"
+          [disabled]="disabled()"
+          nxtHaptic="light"
+          data-testid="onboarding-add-sport-btn"
+        >
+          <ion-icon name="add-circle-outline" aria-hidden="true" />
+          Add {{ sportEntries().length === 0 ? 'Sport' : 'Another Sport' }}
+        </button>
       }
 
-      <!-- Search Input -->
-      <div class="nxt1-search-container">
-        <ion-icon name="search-outline" class="nxt1-search-icon" aria-hidden="true" />
-        <ion-input
-          type="text"
-          class="nxt1-search-input"
-          fill="outline"
-          placeholder="Search sports..."
-          aria-label="Search for a sport"
-          [value]="searchQuery()"
-          (ionInput)="onSearchInput($event)"
-          [disabled]="disabled()"
-          enterkeyhint="search"
-          inputmode="search"
-          autocomplete="off"
-          autocorrect="off"
-          spellcheck="false"
-          data-testid="onboarding-sport-search"
-        />
-        @if (searchQuery()) {
-          <button
-            type="button"
-            class="nxt1-search-clear"
-            (click)="clearSearch()"
-            aria-label="Clear search"
-            nxtHaptic="selection"
-          >
-            <ion-icon name="close-circle" aria-hidden="true" />
-          </button>
-        }
-      </div>
-
-      <!-- Sport Selection Grid -->
-      <div
-        class="nxt1-sport-grid"
-        role="listbox"
-        [attr.aria-label]="
-          'Select your sports' +
-          (maxSelections() ? '. Maximum ' + maxSelections() + ' selections.' : '')
-        "
-        [attr.aria-multiselectable]="true"
-        data-testid="onboarding-sport-grid"
-      >
-        @for (sport of filteredSports(); track sport.name) {
-          <button
-            type="button"
-            class="nxt1-sport-card"
-            [class.selected]="isSelected(sport.name)"
-            [disabled]="disabled() || (isAtMaxSelections() && !isSelected(sport.name))"
-            (click)="onSportSelect(sport.name)"
-            [attr.aria-selected]="isSelected(sport.name)"
-            [attr.aria-disabled]="isAtMaxSelections() && !isSelected(sport.name)"
-            [attr.data-testid]="'onboarding-sport-' + sanitizeTestId(sport.name)"
-            role="option"
-            nxtHaptic="selection"
-          >
-            <span class="nxt1-sport-icon" aria-hidden="true">
-              @if (isIconUrl(sport.icon)) {
-                <img
-                  [src]="sport.icon"
-                  [alt]="formatDisplayName(sport.name)"
-                  class="nxt1-sport-img"
-                />
-              } @else {
-                {{ sport.icon }}
-              }
-            </span>
-            <span class="nxt1-sport-name">{{ formatDisplayName(sport.name) }}</span>
-            @if (isSelected(sport.name)) {
-              <span class="nxt1-sport-check" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                  <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-                </svg>
-              </span>
-            }
-            @if (getSelectionOrder(sport.name); as order) {
-              <span class="nxt1-selection-order" aria-label="Selection order {{ order }}">
-                {{ order }}
-              </span>
-            }
-          </button>
-        } @empty {
-          <div class="nxt1-sport-empty" data-testid="onboarding-sport-empty">
-            <p class="nxt1-empty-message">No sports found matching "{{ searchQuery() }}"</p>
-            <button
-              type="button"
-              class="nxt1-clear-link"
-              (click)="clearSearch()"
-              nxtHaptic="selection"
-            >
-              Clear search
-            </button>
-          </div>
-        }
-      </div>
-
       <!-- Validation Summary -->
-      @if (selectedSports().length > 0) {
-        <nxt1-validation-summary testId="onboarding-sport-validation" variant="success">
-          {{ selectedSports().length }}
-          {{ selectedSports().length === 1 ? 'sport' : 'sports' }} selected
-        </nxt1-validation-summary>
+      @if (sportEntries().length > 0) {
+        @if (isAllValid()) {
+          <nxt1-validation-summary testId="onboarding-sport-validation" variant="success">
+            {{ sportEntries().length }}
+            {{ sportEntries().length === 1 ? 'sport' : 'sports' }} configured
+          </nxt1-validation-summary>
+        } @else {
+          <nxt1-validation-summary testId="onboarding-sport-validation" variant="warning">
+            Complete all required fields for each sport
+          </nxt1-validation-summary>
+        }
       } @else {
         <nxt1-validation-summary testId="onboarding-sport-hint" variant="info">
-          Select at least one sport to continue
+          Add at least one sport to continue
         </nxt1-validation-summary>
       }
     </div>
@@ -216,377 +162,171 @@ const MIN_SEARCH_LENGTH = 0;
   styles: [
     `
       /* ============================================
-       SPORT FORM CONTAINER
-       ============================================ */
-      .nxt1-sport-form {
+         STEP CONTAINER
+         ============================================ */
+      .nxt1-sport-step {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-5);
+        gap: var(--nxt1-spacing-4);
         width: 100%;
       }
 
       /* ============================================
-       SELECTED SPORTS SECTION
-       ============================================ */
-      .nxt1-selected-sports {
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-3);
-        padding: var(--nxt1-spacing-4);
-        background: var(--nxt1-color-alpha-primary5);
-        border: 1px solid var(--nxt1-color-alpha-primary20);
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
-      }
-
-      .nxt1-selected-header {
+         HEADER
+         ============================================ */
+      .nxt1-step-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-      }
-
-      .nxt1-selected-label {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-      }
-
-      .nxt1-selected-count {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .nxt1-chips-container {
-        display: flex;
-        flex-wrap: wrap;
-        gap: var(--nxt1-spacing-2);
-      }
-
-      .nxt1-sport-chip {
-        --background: var(--nxt1-color-surface-elevated);
-        --color: var(--nxt1-color-text-primary);
-        --padding-start: 12px;
-        --padding-end: 8px;
-        margin: 0;
-        height: 36px;
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all var(--nxt1-transition-fast, 150ms) ease;
-      }
-
-      .nxt1-sport-chip:hover {
-        --background: var(--nxt1-color-state-hover);
-      }
-
-      .nxt1-remove-icon {
-        font-size: 18px;
-        margin-left: 4px;
-        opacity: 0.7;
-        transition: opacity var(--nxt1-transition-fast, 150ms) ease;
-      }
-
-      .nxt1-sport-chip:hover .nxt1-remove-icon {
-        opacity: 1;
-      }
-
-      /* ============================================
-       SEARCH CONTAINER
-       ============================================ */
-      .nxt1-search-container {
-        position: relative;
-        display: flex;
-        align-items: center;
-      }
-
-      .nxt1-search-icon {
-        position: absolute;
-        left: 14px;
-        z-index: 1;
-        font-size: 20px;
-        color: var(--nxt1-color-text-tertiary);
-        pointer-events: none;
-      }
-
-      .nxt1-search-input {
-        --background: var(--nxt1-color-state-hover);
-        --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg, 12px);
-        --border-width: 1px;
-        --color: var(--nxt1-color-text-primary);
-        --placeholder-color: var(--nxt1-color-text-tertiary);
-        --placeholder-opacity: 1;
-        --padding-start: 44px;
-        --padding-end: 44px;
-        --padding-top: 12px;
-        --padding-bottom: 12px;
-        --highlight-color-focused: var(--nxt1-color-border-strong);
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 15px;
-        min-height: 48px;
-        width: 100%;
-      }
-
-      .nxt1-search-input:hover {
-        --border-color: var(--nxt1-color-border-strong);
-      }
-
-      .nxt1-search-clear {
-        position: absolute;
-        right: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 32px;
-        height: 32px;
-        border: none;
-        background: transparent;
-        color: var(--nxt1-color-text-tertiary);
-        cursor: pointer;
-        transition: color var(--nxt1-transition-fast, 150ms) ease;
-      }
-
-      .nxt1-search-clear:hover {
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .nxt1-search-clear ion-icon {
-        font-size: 20px;
-      }
-
-      /* ============================================
-       SPORT GRID
-       ============================================ */
-      .nxt1-sport-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
         gap: var(--nxt1-spacing-3);
-        padding: var(--nxt1-spacing-1);
-        margin: calc(-1 * var(--nxt1-spacing-1));
-        /* No max-height/overflow - parent container handles scrolling */
+      }
+
+      .nxt1-step-description {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
+        color: var(--nxt1-color-text-secondary);
+        margin: 0;
+        line-height: 1.5;
+      }
+
+      .nxt1-max-hint {
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* ============================================
-       SPORT CARD
-       ============================================ */
-      .nxt1-sport-card {
-        position: relative;
+         ENTRIES CONTAINER
+         ============================================ */
+      .nxt1-entries-container {
         display: flex;
         flex-direction: column;
+        gap: var(--nxt1-spacing-3);
+      }
+
+      /* ============================================
+         EMPTY STATE
+         ============================================ */
+      .nxt1-empty-state {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--nxt1-spacing-8) var(--nxt1-spacing-4);
+        background: var(--nxt1-color-state-hover);
+        border: 1px dashed var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-xl);
+      }
+
+      .nxt1-empty-text {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
+        color: var(--nxt1-color-text-tertiary);
+        text-align: center;
+        margin: 0;
+      }
+
+      /* ============================================
+         ADD SPORT BUTTON
+         ============================================ */
+      .nxt1-add-sport-btn {
+        display: flex;
         align-items: center;
         justify-content: center;
         gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-3);
-        min-height: 100px;
-        background: var(--nxt1-color-state-hover);
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
-        cursor: pointer;
-        transition: all var(--nxt1-transition-fast, 150ms) ease;
-      }
-
-      .nxt1-sport-card:hover:not(:disabled):not(.selected) {
-        border-color: var(--nxt1-color-border-strong);
+        width: 100%;
+        padding: var(--nxt1-spacing-4);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-lg);
+        font-weight: 600;
+        color: var(--nxt1-color-primary);
         background: var(--nxt1-color-alpha-primary5);
-        transform: translateY(-1px);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-xl);
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast) ease;
       }
 
-      .nxt1-sport-card:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary);
-        outline-offset: 2px;
-      }
-
-      .nxt1-sport-card.selected {
+      .nxt1-add-sport-btn:hover:not(:disabled) {
         background: var(--nxt1-color-alpha-primary10);
         border-color: var(--nxt1-color-primary);
-        box-shadow: 0 0 0 1px var(--nxt1-color-primary);
       }
 
-      .nxt1-sport-card:disabled {
+      .nxt1-add-sport-btn:disabled {
         opacity: 0.5;
         cursor: not-allowed;
       }
 
-      .nxt1-sport-card:disabled:not(.selected) {
-        opacity: 0.35;
-      }
-
-      /* Sport icon */
-      .nxt1-sport-icon {
-        font-size: 32px;
-        line-height: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .nxt1-sport-img {
-        width: 32px;
-        height: 32px;
-        object-fit: contain;
-      }
-
-      /* Sport name */
-      .nxt1-sport-name {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--nxt1-color-text-secondary);
-        text-align: center;
-        line-height: 1.2;
-        word-break: break-word;
-      }
-
-      .nxt1-sport-card.selected .nxt1-sport-name {
-        color: var(--nxt1-color-primary);
-        font-weight: 600;
-      }
-
-      /* Selection checkmark */
-      .nxt1-sport-check {
-        position: absolute;
-        top: 6px;
-        right: 6px;
-        width: 20px;
-        height: 20px;
-        border-radius: 50%;
-        background: var(--nxt1-color-primary);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--nxt1-color-text-onPrimary);
-      }
-
-      /* Selection order badge */
-      .nxt1-selection-order {
-        position: absolute;
-        bottom: 6px;
-        right: 6px;
-        min-width: 18px;
-        height: 18px;
-        padding: 0 4px;
-        border-radius: 9px;
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-onPrimary);
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 11px;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-
-      /* ============================================
-       EMPTY STATE
-       ============================================ */
-      .nxt1-sport-empty {
-        grid-column: 1 / -1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: var(--nxt1-spacing-8) var(--nxt1-spacing-4);
-        text-align: center;
-      }
-
-      .nxt1-empty-message {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 14px;
-        color: var(--nxt1-color-text-tertiary);
-        margin: 0 0 var(--nxt1-spacing-3);
-      }
-
-      .nxt1-clear-link {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 14px;
-        font-weight: 500;
-        color: var(--nxt1-color-primary);
-        background: transparent;
-        border: none;
-        cursor: pointer;
-        text-decoration: underline;
-        padding: var(--nxt1-spacing-1) var(--nxt1-spacing-2);
-      }
-
-      .nxt1-clear-link:hover {
-        text-decoration: none;
+      .nxt1-add-sport-btn ion-icon {
+        font-size: var(--nxt1-fontSize-2xl);
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OnboardingSportStepComponent {
+  // ============================================
+  // DEPENDENCIES
+  // ============================================
+
   private readonly loggingService = inject(NxtLoggingService);
+  private readonly picker = inject(NxtPickerService);
 
   /** Namespaced logger for this component */
   private readonly logger: ILogger = this.loggingService.child('OnboardingSportStep');
 
   // ============================================
-  // SIGNAL INPUTS (Angular 19+ pattern)
+  // SIGNAL INPUTS
   // ============================================
 
-  /** Current sport data from parent */
+  /** Current sport data from parent (v3.0 SportEntry[] format) */
   readonly sportData = input<SportFormData | null>(null);
 
   /** Whether interaction is disabled */
   readonly disabled = input<boolean>(false);
 
-  /** Custom sports list (optional - defaults to DEFAULT_SPORTS from @nxt1/core) */
+  /** Available sports list (optional - defaults to DEFAULT_SPORTS) */
   readonly sports = input<SportCell[]>(DEFAULT_SPORTS as SportCell[]);
 
-  /** Maximum number of sports that can be selected (0 = unlimited) */
-  readonly maxSelections = input<number>(0);
+  /** Maximum number of sports allowed */
+  readonly maxSports = input<number>(DEFAULT_MAX_SPORTS);
 
   // ============================================
-  // SIGNAL OUTPUTS (Angular 19+ pattern)
+  // SIGNAL OUTPUTS
   // ============================================
 
   /** Emits when sport data changes */
   readonly sportChange = output<SportFormData>();
 
+  /** Emits when a logo file is selected for a specific sport */
+  readonly logoFileSelected = output<{ sport: string; file: File }>();
+
   // ============================================
-  // INTERNAL STATE (signals for reactivity)
+  // INTERNAL STATE
   // ============================================
 
-  /** Search query */
-  readonly searchQuery = signal('');
+  /** Array of sport entries (local state synced from input) */
+  readonly sportEntries = signal<SportEntry[]>([]);
 
-  /** Array of selected sport names (order is preserved) */
-  readonly selectedSports = signal<string[]>([]);
+  /** Index of currently expanded entry (-1 = none) */
+  readonly expandedIndex = signal<number>(0);
 
   // ============================================
   // COMPUTED SIGNALS
   // ============================================
 
-  /**
-   * Filtered sports based on search query.
-   * Memoized via Angular's computed() - only recalculates when dependencies change.
-   */
-  readonly filteredSports = computed((): readonly SportCell[] => {
-    const query = this.searchQuery().toLowerCase().trim();
-    const sportsList = this.sports();
-
-    // Return full list if no search query
-    if (query.length <= MIN_SEARCH_LENGTH) {
-      return sportsList;
-    }
-
-    // Filter sports by name match (case-insensitive)
-    return sportsList.filter((sport) => sport.name.toLowerCase().includes(query));
+  /** Check if we can add more sports */
+  readonly canAddMore = computed((): boolean => {
+    return this.sportEntries().length < this.maxSports();
   });
 
-  /** Count of filtered results for screen readers */
-  readonly filteredCount = computed(() => this.filteredSports().length);
+  /** Check if all entries are valid */
+  readonly isAllValid = computed((): boolean => {
+    const entries = this.sportEntries();
+    if (entries.length === 0) return false;
+    return entries.every((e) => this.isEntryValid(e));
+  });
 
-  /** Check if at maximum selections */
-  readonly isAtMaxSelections = computed(() => {
-    const max = this.maxSelections();
-    return max > 0 && this.selectedSports().length >= max;
+  /** Get list of sports already added */
+  readonly addedSportNames = computed((): string[] => {
+    return this.sportEntries().map((e) => e.sport);
   });
 
   // ============================================
@@ -595,123 +335,121 @@ export class OnboardingSportStepComponent {
 
   constructor() {
     // Register Ionicons
-    addIcons({ searchOutline, closeCircle, close });
+    addIcons({ addCircleOutline });
 
     // Sync internal state when sportData input changes
     effect(
       () => {
         const data = this.sportData();
-        if (!data) {
-          // Reset state when data is null/undefined
-          this.selectedSports.set([]);
+        if (!data || !data.sports) {
+          this.sportEntries.set([]);
           return;
         }
-
-        // Use selectedSports array
-        if (data.selectedSports && data.selectedSports.length > 0) {
-          this.selectedSports.set([...data.selectedSports]);
-        } else {
-          this.selectedSports.set([]);
-        }
+        this.sportEntries.set([...data.sports]);
+        // Auto-expand first incomplete entry, or first entry if all complete
+        const incompleteIdx = data.sports.findIndex((e) => !this.isEntryValid(e));
+        this.expandedIndex.set(incompleteIdx >= 0 ? incompleteIdx : 0);
       },
       { allowSignalWrites: true }
     );
   }
 
   // ============================================
-  // EVENT HANDLERS
+  // SPORT PICKER (via unified service)
   // ============================================
 
-  /**
-   * Handle search input
-   */
-  onSearchInput(event: CustomEvent): void {
-    const input = event.target as HTMLInputElement;
-    this.searchQuery.set(input.value || '');
-  }
-
-  /**
-   * Clear search query
-   */
-  clearSearch(): void {
-    this.searchQuery.set('');
-  }
-
-  /**
-   * Handle sport selection (toggle on/off for multi-select).
-   */
-  onSportSelect(sportName: string): void {
-    const current = this.selectedSports();
-    const index = current.indexOf(sportName);
-
-    if (index >= 0) {
-      // Already selected - remove it
-      this.selectedSports.update((sports) => sports.filter((s) => s !== sportName));
-      this.logger.debug('Sport deselected', {
-        sport: sportName,
-        remaining: this.selectedSports().length,
-      });
-    } else {
-      // Not selected - add if under max
-      const max = this.maxSelections();
-      if (max === 0 || current.length < max) {
-        this.selectedSports.update((sports) => [...sports, sportName]);
-        this.logger.debug('Sport selected', {
-          sport: sportName,
-          total: this.selectedSports().length,
-        });
-      }
-    }
-    this.emitSportChange();
-  }
-
-  /**
-   * Handle chip removal (click on chip removes sport)
-   */
-  onChipRemove(sportName: string): void {
-    this.selectedSports.update((sports) => sports.filter((s) => s !== sportName));
-    this.logger.debug('Sport removed via chip', {
-      sport: sportName,
-      remaining: this.selectedSports().length,
+  /** Open the sport picker modal via unified picker service */
+  async openSportPicker(): Promise<void> {
+    const result = await this.picker.openSportPicker({
+      selectedSports: this.addedSportNames(),
+      availableSports: this.sports(),
+      maxSports: this.maxSports(),
     });
-    this.emitSportChange();
+
+    if (result.confirmed && result.sport) {
+      this.addSport(result.sport);
+    }
   }
 
-  /**
-   * Check if sport is selected
-   */
-  isSelected(sportName: string): boolean {
-    return this.selectedSports().includes(sportName);
+  /** Add a sport to the entries list */
+  private addSport(sportName: string): void {
+    const entries = this.sportEntries();
+    const isPrimary = entries.length === 0;
+    const newEntry = createEmptySportEntry(sportName, isPrimary);
+
+    const updatedEntries = [...entries, newEntry];
+    this.sportEntries.set(updatedEntries);
+    this.expandedIndex.set(updatedEntries.length - 1); // Expand newly added
+
+    this.logger.debug('Sport added', { sport: sportName, isPrimary, total: updatedEntries.length });
+    this.emitChange(updatedEntries);
   }
 
-  /**
-   * Get the selection order (1-based) for a sport, or null if not selected
-   */
-  getSelectionOrder(sportName: string): number | null {
-    const index = this.selectedSports().indexOf(sportName);
-    return index >= 0 ? index + 1 : null;
+  // ============================================
+  // ENTRY HANDLERS
+  // ============================================
+
+  /** Handle entry data change */
+  onEntryChange(index: number, updatedEntry: SportEntry): void {
+    const entries = [...this.sportEntries()];
+    entries[index] = updatedEntry;
+    this.sportEntries.set(entries);
+    this.emitChange(entries);
   }
 
-  /**
-   * Check if icon is a URL (for img tag) vs emoji (for text).
-   * URLs are used for custom sport icons from Firebase Storage.
-   */
+  /** Handle delete sport */
+  onDeleteSport(index: number): void {
+    const entries = [...this.sportEntries()];
+    const removed = entries.splice(index, 1)[0];
+
+    // If we removed the primary, make the first remaining one primary
+    if (removed?.isPrimary && entries.length > 0) {
+      entries[0] = { ...entries[0], isPrimary: true };
+    }
+
+    this.sportEntries.set(entries);
+    this.expandedIndex.set(Math.min(index, entries.length - 1));
+
+    this.logger.debug('Sport removed', { sport: removed?.sport, remaining: entries.length });
+    this.emitChange(entries);
+  }
+
+  /** Handle expanded state change */
+  onExpandedChange(index: number, expanded: boolean): void {
+    if (expanded) {
+      this.expandedIndex.set(index);
+    } else if (this.expandedIndex() === index) {
+      // Collapse - don't auto-expand another
+      this.expandedIndex.set(-1);
+    }
+  }
+
+  /** Handle logo file selected */
+  onLogoFile(file: File, sport: string): void {
+    this.logoFileSelected.emit({ sport, file });
+  }
+
+  // ============================================
+  // HELPER METHODS
+  // ============================================
+
+  /** Check if entry is valid */
+  isEntryValid(entry: SportEntry): boolean {
+    return !!(entry.sport && entry.team?.name?.trim() && entry.positions?.length > 0);
+  }
+
+  /** Check if icon is a URL */
   isIconUrl(icon: string | undefined | null): boolean {
     if (!icon || typeof icon !== 'string') return false;
     return icon.startsWith('http://') || icon.startsWith('https://');
   }
 
-  /**
-   * Format sport name for display using @nxt1/core formatter.
-   * Converts 'basketball mens' → "Men's Basketball"
-   */
+  /** Format sport name for display */
   formatDisplayName(sportName: string): string {
     return formatSportDisplayName(sportName);
   }
 
-  /**
-   * Sanitize sport name for test ID
-   */
+  /** Sanitize string for test ID */
   sanitizeTestId(name: string): string {
     return name
       .toLowerCase()
@@ -723,12 +461,10 @@ export class OnboardingSportStepComponent {
   // PRIVATE METHODS
   // ============================================
 
-  /**
-   * Emit sport change event with current data
-   */
-  private emitSportChange(): void {
+  /** Emit sport change with current data */
+  private emitChange(entries: SportEntry[]): void {
     const data: SportFormData = {
-      selectedSports: [...this.selectedSports()],
+      sports: entries,
     };
     this.sportChange.emit(data);
   }

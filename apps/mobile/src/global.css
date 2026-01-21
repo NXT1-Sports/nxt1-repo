@@ -89,6 +89,8 @@
     /* Tell browser we're using dark mode - prevents white flash */
     color-scheme: dark;
     background-color: var(--nxt1-color-bg-primary);
+    /* Full height on iOS */
+    height: 100%;
   }
 
   body {
@@ -97,6 +99,12 @@
     color: var(--nxt1-color-text-primary);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Full height on iOS */
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    /* Ensure content extends to edges */
+    overflow: hidden;
   }
 
   /* Typography */
@@ -126,11 +134,73 @@
    COMPONENTS LAYER - Mobile Components
    ============================================ */
 @layer components {
-  /* Safe area padding for notched devices */
+  /* Ionic App - Edge to edge, full screen */
+  ion-app {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    background: var(--nxt1-color-bg-primary) !important;
+  }
+
+  /* Ion Content - Full screen, no extra padding (content handles safe areas) */
   ion-content {
     --background: var(--nxt1-color-bg-primary);
-    --padding-top: var(--nxt1-safe-area-top);
-    --padding-bottom: var(--nxt1-safe-area-bottom);
+    --keyboard-offset: 0px;
+    --padding-top: 0px;
+    --padding-bottom: 0px;
+    --padding-start: 0px;
+    --padding-end: 0px;
+  }
+
+  /* ============================================
+     KEYBOARD HANDLING - 2026 Professional Best Practices
+     
+     Using KeyboardResize.Body mode which resizes the <body> element.
+     This allows ion-content to naturally resize and scroll the 
+     focused input into view.
+     
+     Reference: @capacitor/keyboard v7.x with Angular 21 + Ionic
+     ============================================ */
+
+  /* Ion Content scroll container */
+  ion-content::part(scroll) {
+    /* Prevent overscroll bounce causing layout issues */
+    overscroll-behavior: contain;
+  }
+
+  /* Input elements - prevent iOS zoom */
+  ion-input,
+  ion-textarea,
+  input,
+  textarea {
+    /* CRITICAL: 16px prevents iOS auto-zoom on focus */
+    font-size: 16px !important;
+  }
+
+  /* Keyboard handling - body class added by NativeAppService */
+  body.keyboard-is-open {
+    /* Prevent body scroll bounce on iOS */
+    overflow: hidden;
+  }
+
+  /* Safe area utility classes */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .safe-area-inset {
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
   }
 
   /* Action buttons - now imported from @nxt1/ui/styles/auth */

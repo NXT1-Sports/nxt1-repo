@@ -306,7 +306,7 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
       .nxt1-input {
         --background: var(--nxt1-color-state-hover);
         --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg, 12px);
+        --border-radius: var(--nxt1-borderRadius-lg);
         --border-width: 1px;
         --color: var(--nxt1-color-text-primary);
         --placeholder-color: var(--nxt1-color-text-tertiary);
@@ -317,8 +317,8 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
         --padding-bottom: 14px;
         --highlight-color-focused: var(--nxt1-color-border-strong);
         --highlight-color-valid: var(--nxt1-color-border-strong);
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 15px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         min-height: 48px;
       }
 
@@ -337,7 +337,7 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
       .nxt1-select {
         --background: var(--nxt1-color-state-hover);
         --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg, 12px);
+        --border-radius: var(--nxt1-borderRadius-lg);
         --border-width: 1px;
         --color: var(--nxt1-color-text-primary);
         --placeholder-color: var(--nxt1-color-text-tertiary);
@@ -345,11 +345,11 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
         --padding-start: 12px;
         --padding-end: 12px;
         --highlight-color-focused: var(--nxt1-color-border-strong);
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 15px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         min-height: 48px;
         border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        border-radius: var(--nxt1-borderRadius-lg);
         background: var(--nxt1-color-state-hover);
       }
 

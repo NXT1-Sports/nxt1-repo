@@ -357,7 +357,7 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
         padding: var(--nxt1-spacing-4);
         background: var(--nxt1-color-state-hover);
         border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        border-radius: var(--nxt1-borderRadius-lg);
         cursor: pointer;
         transition: all 0.2s ease;
         text-align: left;
@@ -440,7 +440,7 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
         align-items: center;
         justify-content: center;
         background: var(--nxt1-color-surface-300);
-        border-radius: var(--nxt1-borderRadius-md, 8px);
+        border-radius: var(--nxt1-borderRadius-md);
         color: var(--nxt1-color-text-secondary);
         transition: all 0.2s ease;
       }
@@ -467,16 +467,16 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       }
 
       .nxt1-card-label {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 15px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         font-weight: 600;
         color: var(--nxt1-color-text-primary);
         line-height: 1.3;
       }
 
       .nxt1-card-description {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 13px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-tertiary);
         line-height: 1.3;
       }
@@ -492,7 +492,7 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       .nxt1-card-input .nxt1-input {
         --background: var(--nxt1-color-state-hover);
         --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg, 12px);
+        --border-radius: var(--nxt1-borderRadius-lg);
         --border-width: 1px;
         --color: var(--nxt1-color-text-primary);
         --placeholder-color: var(--nxt1-color-text-tertiary);
@@ -503,8 +503,8 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
         --padding-bottom: 14px;
         --highlight-color-focused: var(--nxt1-color-border-strong);
         --highlight-color-valid: var(--nxt1-color-border-strong);
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 15px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         min-height: 52px;
       }
 

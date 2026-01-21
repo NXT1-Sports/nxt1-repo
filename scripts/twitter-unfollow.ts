@@ -11,12 +11,12 @@ import { chromium } from 'playwright';
 
 const CONFIG = {
   username: 'nxt1sports',
-  scrollCount: 30, // Number of times to scroll (loads ~300-500 users)
-  maxUnfollows: 50, // Max unfollows per run (be conservative)
+  scrollCount: 150, // Number of times to scroll (loads ~300-500 users)
+  maxUnfollows: 200, // Max unfollows per run (be conservative)
   delayMin: 1000, // Min delay between unfollows (ms)
   delayMax: 3000, // Max delay between unfollows (ms)
   breakInterval: 10, // Take break every N unfollows
-  breakDuration: 10000, // Break duration (ms)
+  breakDuration: 30000, // Break duration (ms)
 };
 
 async function autoUnfollow() {
@@ -76,15 +76,35 @@ async function autoUnfollow() {
     }
 
     // Make sure we're on the following page
-    const currentUrl = page.url();
+    let currentUrl = page.url();
     console.log(`📍 Current page: ${currentUrl}`);
 
     if (!currentUrl.includes('/following')) {
-      console.log('❌ Not on following page! Navigating there now...');
-      await page.goto(`https://x.com/${CONFIG.username}/following`, {
-        waitUntil: 'networkidle',
-        timeout: 30000,
-      });
+      console.log('🔄 Navigating to following page...');
+
+      // Try clicking the Following tab if we're on the profile
+      try {
+        const followingLink = await page.$('a[href$="/following"]');
+        if (followingLink) {
+          console.log('   Clicking "Following" tab...');
+          await followingLink.click();
+          await page.waitForTimeout(3000);
+          currentUrl = page.url();
+          console.log(`   ✅ Now on: ${currentUrl}`);
+        } else {
+          // Fallback: direct navigation
+          await page.evaluate((username) => {
+            window.location.href = `https://x.com/${username}/following`;
+          }, CONFIG.username);
+          await page.waitForTimeout(3000);
+        }
+      } catch (e) {
+        console.log('⚠️  Using fallback navigation...');
+        await page.evaluate((username) => {
+          window.location.href = `https://x.com/${username}/following`;
+        }, CONFIG.username);
+        await page.waitForTimeout(3000);
+      }
     }
 
     // Wait for followers list to render

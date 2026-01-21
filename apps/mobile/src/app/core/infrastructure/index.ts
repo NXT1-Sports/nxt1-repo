@@ -4,6 +4,7 @@
  * Re-exports all infrastructure services for clean imports:
  * - HTTP adapters (Capacitor/Fetch)
  * - Error handling (shared with web)
+ * - Storage adapters (native)
  * - Firebase services
  *
  * @module @nxt1/mobile/core/infrastructure
@@ -11,6 +12,9 @@
 
 // HTTP
 export { CapacitorHttpAdapter } from './http/capacitor-http-adapter.service';
+
+// Storage (native - uses static Capacitor imports)
+export { createNativeStorageAdapter } from './native-storage.adapter';
 
 // Error Handling (shared with web via re-exports)
 export {

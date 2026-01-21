@@ -33,7 +33,8 @@
  */
 import { Injectable, inject } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
-import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
+// TODO: Uncomment when @codetrix-studio/capacitor-google-auth is installed
+// import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
 import { NxtPlatformService, HapticsService } from '@nxt1/ui';
 import type { NativeAuthResult, NativeAuthProvider, NativeAuthAvailability } from '@nxt1/core';
 
@@ -85,7 +86,8 @@ export class NativeAuthService {
     }
 
     return {
-      google: true, // Available on both iOS and Android via @codetrix-studio/capacitor-google-auth
+      // TODO: Set to true when @codetrix-studio/capacitor-google-auth is installed
+      google: false, // Requires @codetrix-studio/capacitor-google-auth
       apple: false, // Not supported by current plugin
       microsoft: false, // Not supported by current plugin
     };
@@ -105,53 +107,10 @@ export class NativeAuthService {
    * @throws Error on failure
    */
   async signInWithGoogle(): Promise<NativeAuthResult | null> {
-    if (!this.isNativeAvailable) {
-      console.warn('[NativeAuthService] Native Google Sign-In called on non-native platform');
-      throw new Error('Native Google Sign-In is only available on iOS/Android');
-    }
-
-    try {
-      // Provide haptic feedback for native feel
-      await this.haptics.impact('light');
-
-      console.debug('[NativeAuthService] Starting Google Sign-In...');
-      const result = await GoogleAuth.signIn();
-
-      // User cancelled or no result
-      if (!result) {
-        console.debug('[NativeAuthService] Google Sign-In cancelled by user');
-        return null;
-      }
-
-      // Get the credential for Firebase
-      if (!result.authentication?.idToken) {
-        console.error('[NativeAuthService] No ID token received from Google Sign-In');
-        throw new Error('No ID token received from Google Sign-In');
-      }
-
-      console.debug('[NativeAuthService] Google Sign-In successful:', result.email);
-
-      // Map to NativeAuthResult
-      return {
-        provider: 'google',
-        idToken: result.authentication.idToken,
-        accessToken: result.authentication.accessToken,
-        user: {
-          id: result.id,
-          email: result.email,
-          displayName: result.name || result.givenName || 'User',
-          photoUrl: result.imageUrl,
-        },
-      };
-    } catch (error) {
-      // Handle user cancellation gracefully
-      if (this.isUserCancellation(error)) {
-        console.debug('[NativeAuthService] Google Sign-In cancelled');
-        return null;
-      }
-      console.error('[NativeAuthService] Google Sign-In failed:', error);
-      throw this.mapNativeError(error, 'google');
-    }
+    // TODO: Uncomment when @codetrix-studio/capacitor-google-auth is installed
+    throw new Error(
+      'Google Sign-In requires @codetrix-studio/capacitor-google-auth. Install with: npm install @codetrix-studio/capacitor-google-auth'
+    );
   }
 
   // ============================================
@@ -192,12 +151,13 @@ export class NativeAuthService {
   async signOut(): Promise<void> {
     if (!this.isNativeAvailable) return;
 
-    try {
-      await GoogleAuth.signOut();
-    } catch (error) {
-      // Ignore sign-out errors - user is already signed out locally
-      console.warn('[NativeAuth] Sign out warning:', error);
-    }
+    // TODO: Uncomment when @codetrix-studio/capacitor-google-auth is installed
+    // try {
+    //   await GoogleAuth.signOut();
+    // } catch (error) {
+    //   // Ignore sign-out errors - user is already signed out locally
+    //   console.warn('[NativeAuth] Sign out warning:', error);
+    // }
   }
 
   // ============================================

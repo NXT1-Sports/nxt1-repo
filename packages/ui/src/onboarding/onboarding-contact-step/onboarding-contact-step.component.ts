@@ -363,7 +363,7 @@ const MAX_CITY_LENGTH = 100;
       .nxt1-input {
         --background: var(--nxt1-color-state-hover);
         --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg, 12px);
+        --border-radius: var(--nxt1-borderRadius-lg);
         --border-width: 1px;
         --color: var(--nxt1-color-text-primary);
         --placeholder-color: var(--nxt1-color-text-tertiary);
@@ -374,8 +374,8 @@ const MAX_CITY_LENGTH = 100;
         --padding-bottom: 14px;
         --highlight-color-focused: var(--nxt1-color-border-strong);
         --highlight-color-valid: var(--nxt1-color-border-strong);
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 15px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         min-height: 52px;
       }
 
@@ -394,7 +394,7 @@ const MAX_CITY_LENGTH = 100;
       .nxt1-select {
         --background: var(--nxt1-color-state-hover);
         --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg, 12px);
+        --border-radius: var(--nxt1-borderRadius-lg);
         --border-width: 1px;
         --color: var(--nxt1-color-text-primary);
         --placeholder-color: var(--nxt1-color-text-tertiary);
@@ -402,11 +402,11 @@ const MAX_CITY_LENGTH = 100;
         --padding-start: 12px;
         --padding-end: 12px;
         --highlight-color-focused: var(--nxt1-color-border-strong);
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 15px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         min-height: 52px;
         border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        border-radius: var(--nxt1-borderRadius-lg);
         background: var(--nxt1-color-state-hover);
       }
 
@@ -455,17 +455,17 @@ const MAX_CITY_LENGTH = 100;
       }
 
       .nxt1-section-title {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 14px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
         font-weight: 600;
         color: var(--nxt1-color-text-secondary);
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
       }
 
       .nxt1-section-subtitle {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 12px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-tertiary);
       }
     `,

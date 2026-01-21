@@ -8,7 +8,7 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  *
  * Components:
- * - OnboardingRoleSelectionComponent - Step 1: Role selection
+ * - OnboardingRoleSelectionComponent - Optional last step: Role selection
  * - OnboardingProfileStepComponent - Step 2: Profile (name, photo)
  * - OnboardingProgressBarComponent - Step indicators with navigation
  * - OnboardingNavigationButtonsComponent - Skip/Continue buttons
@@ -61,7 +61,7 @@
  */
 
 // ============================================
-// ROLE SELECTION (Step 1)
+// ROLE SELECTION (Optional Last Step)
 // ============================================
 export {
   OnboardingRoleSelectionComponent,
@@ -75,7 +75,7 @@ export {
 export { OnboardingProfileStepComponent } from './onboarding-profile-step';
 
 // ============================================
-// TEAM STEP (Step 3)
+// TEAM STEP (Step 3) - Legacy, deprecated in v3.0
 // ============================================
 export {
   OnboardingTeamStepComponent,
@@ -84,12 +84,20 @@ export {
 } from './onboarding-team-step';
 
 // ============================================
-// SPORT STEP (Step 4)
+// SPORT ENTRY (v3.0 - Single sport card)
+// ============================================
+export {
+  OnboardingSportEntryComponent,
+  TEAM_TYPE_OPTIONS as SPORT_ENTRY_TEAM_TYPE_OPTIONS,
+} from './onboarding-sport-entry/onboarding-sport-entry.component';
+
+// ============================================
+// SPORT STEP (v3.0 - Consolidated sport/team/positions)
 // ============================================
 export { OnboardingSportStepComponent } from './onboarding-sport-step';
 
 // ============================================
-// POSITION STEP (Step 5)
+// POSITION STEP (Legacy - deprecated in v3.0)
 // ============================================
 export { OnboardingPositionStepComponent } from './onboarding-position-step';
 

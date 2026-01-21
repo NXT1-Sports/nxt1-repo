@@ -39,7 +39,6 @@ import {
   type AuthStateManager,
   type AuthUser,
   createAuthStateManager,
-  createCapacitorStorageAdapter,
   createBrowserStorageAdapter,
   createMemoryStorageAdapter,
   getAuthErrorMessage,
@@ -49,6 +48,7 @@ import {
   isAndroid,
   INITIAL_AUTH_STATE,
 } from '@nxt1/core';
+import { createNativeStorageAdapter } from '../../../core/infrastructure/native-storage.adapter';
 import { AUTH_ROUTES, AUTH_REDIRECTS, AUTH_METHODS } from '@nxt1/core/constants';
 import {
   type AnalyticsAdapter,
@@ -187,13 +187,14 @@ export class AuthFlowService implements OnDestroy {
   private async initializeAuthManager(): Promise<void> {
     // Use appropriate storage based on platform:
     // - Non-browser (server/prerender): memory storage
-    // - Native (Capacitor): Capacitor Preferences (secure storage)
+    // - Native (Capacitor): Native storage with static Capacitor Preferences import
     // - Browser: localStorage
     let storage;
     if (!this.platform.isBrowser()) {
       storage = createMemoryStorageAdapter();
     } else if (isCapacitor()) {
-      storage = await createCapacitorStorageAdapter();
+      // Use native storage adapter with static imports (no dynamic import issues on iOS)
+      storage = createNativeStorageAdapter();
     } else {
       storage = createBrowserStorageAdapter();
     }

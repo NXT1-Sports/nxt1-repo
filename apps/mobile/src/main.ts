@@ -12,7 +12,8 @@ import { Capacitor } from '@capacitor/core';
 import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
 import { environment } from './environments/environment';
-import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
+// TODO: Uncomment when @codetrix-studio/capacitor-google-auth is installed
+// import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
 
 console.log('[Bootstrap] Starting app bootstrap...');
 console.log('[Bootstrap] Environment:', { production: environment.production });
@@ -69,20 +70,21 @@ if (environment.production) {
 // Note: Ionicons are bundled with @ionic/angular web components
 // No need to configure SVG paths for Capacitor
 
+// TODO: Uncomment when @codetrix-studio/capacitor-google-auth is installed
 // Initialize Google Auth plugin ONLY on native platforms
-if (Capacitor.isNativePlatform()) {
-  try {
-    console.log('[Bootstrap] Initializing GoogleAuth...');
-    GoogleAuth.initialize({
-      clientId: environment.googleClientId,
-      scopes: ['profile', 'email'],
-      grantOfflineAccess: true,
-    });
-    console.log('[Bootstrap] GoogleAuth initialized');
-  } catch (error) {
-    console.error('[Bootstrap] GoogleAuth initialization error:', error);
-  }
-}
+// if (Capacitor.isNativePlatform()) {
+//   try {
+//     console.log('[Bootstrap] Initializing GoogleAuth...');
+//     GoogleAuth.initialize({
+//       clientId: environment.googleClientId,
+//       scopes: ['profile', 'email'],
+//       grantOfflineAccess: true,
+//     });
+//     console.log('[Bootstrap] GoogleAuth initialized');
+//   } catch (error) {
+//     console.error('[Bootstrap] GoogleAuth initialization error:', error);
+//   }
+// }
 
 console.log('[Bootstrap] Bootstrapping Angular application...');
 bootstrapApplication(AppComponent, appConfig)
