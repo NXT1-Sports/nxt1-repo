@@ -18,7 +18,7 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
   imports: [CommonModule, RouterModule],
   template: `
     <div
-      class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800"
+      class="min-h-screen overflow-y-auto bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800"
     >
       <!-- Header -->
       <header class="bg-white shadow-sm dark:bg-gray-800">

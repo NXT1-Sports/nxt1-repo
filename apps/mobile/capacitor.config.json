@@ -23,10 +23,6 @@
     "Keyboard": {
       "resize": "body",
       "resizeOnFullScreen": true
-    },
-    "FirebaseAuthentication": {
-      "skipNativeAuth": false,
-      "providers": ["google.com", "apple.com", "microsoft.com"]
     }
   },
   "ios": {
@@ -37,6 +33,6 @@
   "android": {
     "allowMixedContent": false,
     "captureInput": true,
-    "webContentsDebuggingEnabled": false
+    "webContentsDebuggingEnabled": true
   }
 }
