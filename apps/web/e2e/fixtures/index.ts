@@ -5,4 +5,10 @@
  * Central export for all test fixtures.
  */
 
-export { test, expect, type TestFixtures, type WorkerFixtures, type TestUser } from './test.fixture';
+export {
+  test,
+  expect,
+  type TestFixtures,
+  type WorkerFixtures,
+  type TestUser,
+} from './test.fixture';

@@ -172,9 +172,7 @@ function isCacheable(req: HttpRequest<unknown>, excludePatterns: RegExp[]): bool
  * @param options - Interceptor configuration
  * @returns HTTP interceptor function
  */
-export function httpCacheInterceptor(
-  options: HttpCacheInterceptorOptions = {}
-): HttpInterceptorFn {
+export function httpCacheInterceptor(options: HttpCacheInterceptorOptions = {}): HttpInterceptorFn {
   const {
     maxSize = CACHE_CONFIG.DEFAULT_MAX_SIZE,
     defaultTtl = CACHE_CONFIG.DEFAULT_TTL,

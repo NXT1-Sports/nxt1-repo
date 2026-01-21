@@ -191,9 +191,9 @@ export class LoginComponent {
 The application uses Tailwind CSS for utility-first styling:
 
 ```html
-<div class="flex items-center justify-between p-4 bg-white rounded-lg shadow">
+<div class="flex items-center justify-between rounded-lg bg-white p-4 shadow">
   <h2 class="text-xl font-semibold text-gray-900">Profile</h2>
-  <button class="px-4 py-2 text-white bg-blue-600 rounded hover:bg-blue-700">
+  <button class="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700">
     Edit
   </button>
 </div>
@@ -309,10 +309,12 @@ npx webpack-bundle-analyzer dist/nxt1-web/browser/stats.json
 
 ```html
 <!-- src/index.html -->
-<meta http-equiv="Content-Security-Policy"
-      content="default-src 'self';
+<meta
+  http-equiv="Content-Security-Policy"
+  content="default-src 'self';
                script-src 'self' 'unsafe-inline';
-               style-src 'self' 'unsafe-inline';">
+               style-src 'self' 'unsafe-inline';"
+/>
 ```
 
 ### Environment Security

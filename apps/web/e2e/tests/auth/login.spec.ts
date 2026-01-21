@@ -7,12 +7,7 @@
  */
 
 import { test, expect } from '../../fixtures';
-import {
-  generateTestEmail,
-  INVALID_EMAILS,
-  AUTH_ERRORS,
-  ROUTES,
-} from '../../utils';
+import { generateTestEmail, INVALID_EMAILS, AUTH_ERRORS, ROUTES } from '../../utils';
 
 test.describe('Login Page', () => {
   test.beforeEach(async ({ loginPage }) => {

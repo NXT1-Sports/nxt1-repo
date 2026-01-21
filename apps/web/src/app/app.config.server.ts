@@ -48,7 +48,10 @@ import { provideIonicAngular } from '@ionic/angular/standalone';
 // IMPORTANT: Import directly from files, NOT from barrel export
 // Barrel exports would pull in BrowserAuthService which imports Firebase Auth
 import { AUTH_SERVICE } from './features/auth/services/auth.interface';
-import { ServerAuthService, initializeServerAuth } from './features/auth/services/server-auth.service';
+import {
+  ServerAuthService,
+  initializeServerAuth,
+} from './features/auth/services/server-auth.service';
 import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './features/auth/services/ssr-tokens';
 
 // Environment for Firebase config

@@ -14,11 +14,6 @@ export {
   type AppLifecycleHandler,
 } from '../core/services/native-app.service';
 
-export {
-  BiometricService,
-  type BiometricType,
-} from '../features/auth/services/biometric.service';
+export { BiometricService, type BiometricType } from '../features/auth/services/biometric.service';
 
-export {
-  NetworkService,
-} from './network.service';
+export { NetworkService } from './network.service';

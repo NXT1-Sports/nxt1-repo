@@ -102,7 +102,7 @@ export class ShareService {
   /** Whether native sharing is available */
   readonly canShare = computed(() => {
     // Web Share API or native Capacitor share
-    return this.platform.is('capacitor') || ('share' in navigator);
+    return this.platform.is('capacitor') || 'share' in navigator;
   });
 
   // ============================================

@@ -77,3 +77,5 @@ temp/
 
 # Turborepo
 .turbo
+.husky
+.github

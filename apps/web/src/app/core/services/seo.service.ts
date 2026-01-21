@@ -123,7 +123,9 @@ export class SeoService {
    * });
    * ```
    */
-  updateForProfile(profile: Omit<ShareableProfile, 'type' | 'title' | 'description'> & { id: string }): void {
+  updateForProfile(
+    profile: Omit<ShareableProfile, 'type' | 'title' | 'description'> & { id: string }
+  ): void {
     const shareableProfile: ShareableProfile = {
       type: 'profile',
       id: profile.id,
@@ -160,7 +162,9 @@ export class SeoService {
    * });
    * ```
    */
-  updateForTeam(team: Omit<ShareableTeam, 'type' | 'title' | 'description'> & { id: string }): void {
+  updateForTeam(
+    team: Omit<ShareableTeam, 'type' | 'title' | 'description'> & { id: string }
+  ): void {
     const shareableTeam: ShareableTeam = {
       type: 'team',
       id: team.id,
@@ -196,7 +200,9 @@ export class SeoService {
    * });
    * ```
    */
-  updateForVideo(video: Omit<ShareableVideo, 'type' | 'title' | 'description'> & { id: string }): void {
+  updateForVideo(
+    video: Omit<ShareableVideo, 'type' | 'title' | 'description'> & { id: string }
+  ): void {
     const shareableVideo: ShareableVideo = {
       type: 'video',
       id: video.id,
@@ -315,10 +321,7 @@ export class SeoService {
   /**
    * Update Open Graph meta tags
    */
-  private updateOpenGraphTags(
-    page: PageMetadata,
-    og?: Partial<SeoConfig['openGraph']>
-  ): void {
+  private updateOpenGraphTags(page: PageMetadata, og?: Partial<SeoConfig['openGraph']>): void {
     this.updatePropertyTag('og:type', og?.type || 'website');
     this.updatePropertyTag('og:site_name', og?.siteName || SITE_NAME);
     this.updatePropertyTag('og:title', og?.title || page.title);
@@ -386,7 +389,10 @@ export class SeoService {
         this.meta.updateTag({ name: 'twitter:player:width', content: String(twitter.playerWidth) });
       }
       if (twitter.playerHeight) {
-        this.meta.updateTag({ name: 'twitter:player:height', content: String(twitter.playerHeight) });
+        this.meta.updateTag({
+          name: 'twitter:player:height',
+          content: String(twitter.playerHeight),
+        });
       }
     }
   }

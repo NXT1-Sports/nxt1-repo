@@ -49,7 +49,10 @@ test.describe('Forgot Password Page', () => {
       expect(hasSuccess || stillOnPage || hasError).toBe(true);
     });
 
-    test('should show success message for existing email', async ({ forgotPasswordPage, testUser }) => {
+    test('should show success message for existing email', async ({
+      forgotPasswordPage,
+      testUser,
+    }) => {
       test.skip(!testUser.email, 'Test user not configured');
 
       await forgotPasswordPage.requestReset(testUser.email);

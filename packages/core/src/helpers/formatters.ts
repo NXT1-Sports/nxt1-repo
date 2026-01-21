@@ -17,10 +17,7 @@ export type DateFormat = 'short' | 'medium' | 'long' | 'relative' | 'iso';
 /**
  * Format date to human-readable string
  */
-export function formatDate(
-  date: Date | string | number,
-  format: DateFormat = 'short'
-): string {
+export function formatDate(date: Date | string | number, format: DateFormat = 'short'): string {
   const d = toDate(date);
   if (!d || isNaN(d.getTime())) return '';
 
@@ -251,11 +248,7 @@ export function getInitials(firstName?: string, lastName?: string): string {
 /**
  * Format athlete name with year
  */
-export function formatAthleteName(
-  firstName: string,
-  lastName: string,
-  classOf?: number
-): string {
+export function formatAthleteName(firstName: string, lastName: string, classOf?: number): string {
   const name = formatFullName(firstName, lastName);
   return classOf ? `${name} '${String(classOf).slice(-2)}` : name;
 }

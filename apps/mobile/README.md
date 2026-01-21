@@ -289,9 +289,7 @@ export class LoginPage {}
   <ion-card-header>
     <ion-card-title>Card Title</ion-card-title>
   </ion-card-header>
-  <ion-card-content>
-    Card content here
-  </ion-card-content>
+  <ion-card-content> Card content here </ion-card-content>
 </ion-card>
 ```
 
@@ -509,10 +507,10 @@ const routes: Routes = [
 
 ```html
 <!-- Use appropriate image sizes -->
-<img [src]="imageUrl | imageSize: 'thumbnail'" alt="Profile">
+<img [src]="imageUrl | imageSize: 'thumbnail'" alt="Profile" />
 
 <!-- Lazy load images -->
-<img loading="lazy" [src]="photo">
+<img loading="lazy" [src]="photo" />
 ```
 
 ---

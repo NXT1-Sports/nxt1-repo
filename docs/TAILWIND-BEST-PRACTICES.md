@@ -103,7 +103,7 @@ All CSS custom properties use the `--nxt1-*` namespace:
           <!-- Specific shade -->
 
           <!-- Border -->
-          <div class="border border-border-subtle"><!-- 8% white --></div>
+          <div class="border-border-subtle border"><!-- 8% white --></div>
         </button>
       </button>
     </p>
@@ -127,7 +127,7 @@ All CSS custom properties use the `--nxt1-*` namespace:
 
 ```html
 <h1 class="font-brand text-3xl font-bold">
-  <p class="font-sans text-base text-text-secondary"></p>
+  <p class="text-text-secondary font-sans text-base"></p>
 </h1>
 ```
 
@@ -141,21 +141,20 @@ All CSS custom properties use the `--nxt1-*` namespace:
   selector: 'nxt1-auth-shell',
   standalone: true,
   template: `
-    <ion-content class="bg-transparent min-h-screen flex flex-col">
+    <ion-content class="flex min-h-screen flex-col bg-transparent">
       <!-- Background Effects -->
-      <div class="fixed inset-0 z-0 pointer-events-none">
+      <div class="pointer-events-none fixed inset-0 z-0">
         <div
-          class="absolute inset-0 bg-gradient-to-b from-bg-primary to-black"
+          class="from-bg-primary absolute inset-0 bg-gradient-to-b to-black"
         ></div>
         <div
-          class="absolute top-[-200px] left-1/2 w-[600px] h-[600px] 
-          -translate-x-1/2 bg-glow blur-[60px] opacity-60 animate-pulse-glow"
+          class="bg-glow animate-pulse-glow absolute top-[-200px] left-1/2 h-[600px] w-[600px] -translate-x-1/2 opacity-60 blur-[60px]"
         ></div>
       </div>
 
       <!-- Content Card -->
       <div
-        class="w-full bg-surface-100 border border-border-subtle rounded-2xl p-6 md:p-8"
+        class="bg-surface-100 border-border-subtle w-full rounded-2xl border p-6 md:p-8"
       >
         <ng-content></ng-content>
       </div>

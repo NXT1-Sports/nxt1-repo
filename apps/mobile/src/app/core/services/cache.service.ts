@@ -116,11 +116,7 @@ const DEFAULT_CONFIG: MobileCacheConfig = {
   memoryMaxSize: 50,
   memoryTtl: CACHE_CONFIG.MEDIUM_TTL,
   persistentTtl: CACHE_CONFIG.LONG_TTL,
-  warmupKeys: [
-    CACHE_KEYS.USER_PROFILE,
-    CACHE_KEYS.USER_PREFERENCES,
-    CACHE_KEYS.TEAM_LIST,
-  ],
+  warmupKeys: [CACHE_KEYS.USER_PROFILE, CACHE_KEYS.USER_PREFERENCES, CACHE_KEYS.TEAM_LIST],
 };
 
 @Injectable({

@@ -530,20 +530,20 @@ import { cva, type VariantProps } from 'class-variance-authority';
 
 export const buttonVariants = cva(
   // Base styles
-  'inline-flex items-center justify-center font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50',
+  'focus-visible:ring-primary inline-flex items-center justify-center font-medium transition-colors focus-visible:ring-2 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {
-        primary: 'bg-primary text-black hover:bg-primary-300 shadow-nxt1-glow',
+        primary: 'bg-primary hover:bg-primary-300 shadow-nxt1-glow text-black',
         secondary:
-          'bg-surface-200 text-text-primary hover:bg-surface-300 border border-border-subtle',
+          'bg-surface-200 text-text-primary hover:bg-surface-300 border-border-subtle border',
         ghost: 'text-text-primary hover:bg-surface-100',
-        danger: 'bg-error text-white hover:bg-error-dark',
+        danger: 'bg-error hover:bg-error-dark text-white',
       },
       size: {
-        sm: 'h-8 px-3 text-sm rounded-nxt1-sm',
-        md: 'h-10 px-4 text-base rounded-nxt1-md',
-        lg: 'h-12 px-6 text-lg rounded-nxt1-lg',
+        sm: 'rounded-nxt1-sm h-8 px-3 text-sm',
+        md: 'rounded-nxt1-md h-10 px-4 text-base',
+        lg: 'rounded-nxt1-lg h-12 px-6 text-lg',
       },
     },
     defaultVariants: {
@@ -835,17 +835,15 @@ module.exports = {
   standalone: true,
   template: `
     <div
-      class="bg-surface-200 border border-border-subtle rounded-nxt1-lg p-nxt1-4 
-                hover:bg-surface-300 transition-colors duration-normal
-                shadow-nxt1-sm hover:shadow-nxt1-md"
+      class="bg-surface-200 border-border-subtle rounded-nxt1-lg p-nxt1-4 hover:bg-surface-300 duration-normal shadow-nxt1-sm hover:shadow-nxt1-md border transition-colors"
     >
-      <div class="flex items-center gap-nxt1-3">
+      <div class="gap-nxt1-3 flex items-center">
         <img
           [src]="athlete.photoURL"
           class="w-nxt1-12 h-nxt1-12 rounded-full object-cover"
         />
         <div>
-          <h3 class="text-text-primary font-semibold text-lg">
+          <h3 class="text-text-primary text-lg font-semibold">
             {{ athlete.displayName }}
           </h3>
           <p class="text-text-secondary text-sm">
@@ -853,7 +851,7 @@ module.exports = {
           </p>
         </div>
       </div>
-      <div class="mt-nxt1-4 flex gap-nxt1-2">
+      <div class="mt-nxt1-4 gap-nxt1-2 flex">
         <span
           class="bg-sport-{{ athlete.sport | lowercase }} text-white 
                      px-2 py-1 rounded-nxt1-sm text-xs"
@@ -861,7 +859,7 @@ module.exports = {
           {{ athlete.sport }}
         </span>
         <span
-          class="bg-primary/10 text-primary px-2 py-1 rounded-nxt1-sm text-xs"
+          class="bg-primary/10 text-primary rounded-nxt1-sm px-2 py-1 text-xs"
         >
           Class of {{ athlete.graduationYear }}
         </span>
