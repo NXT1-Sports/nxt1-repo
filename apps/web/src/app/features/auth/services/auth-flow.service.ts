@@ -946,11 +946,11 @@ export class AuthFlowService implements OnDestroy {
 
       const errorMessage = this.handleOAuthError(err, 'Microsoft');
 
-      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
-        method: AUTH_METHODS.MICROSOFT,
-        error_code: err?.code || 'unknown',
-        recovery_action: err?.code === 'auth/error-code:-47' ? 'retry_later' : 'unknown',
-      });
+      // this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
+      //   method: AUTH_METHODS.MICROSOFT,
+      //   error_code: err?.code || 'unknown',
+      //   recovery_action: err?.code === 'auth/error-code:-47' ? 'retry_later' : 'unknown',
+      // });
 
       this.authManager.setError(errorMessage);
       return false;
