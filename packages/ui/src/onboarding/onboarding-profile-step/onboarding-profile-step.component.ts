@@ -144,7 +144,7 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
             <span class="nxt1-photo-label">Add Photo</span>
           }
         </button>
-        <p class="nxt1-photo-hint">Optional · Max 5MB · JPG, PNG, WebP, GIF</p>
+        <p class="nxt1-photo-hint">Optional</p>
       </div>
 
       <!-- Hidden File Input -->
@@ -259,7 +259,7 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
         width: var(--nxt1-spacing-32);
         height: var(--nxt1-spacing-32);
         border-radius: 50%;
-        border: 2px dashed var(--nxt1-color-border-default);
+        border: 2px solid var(--nxt1-color-border-default);
         background: transparent;
         display: flex;
         flex-direction: column;

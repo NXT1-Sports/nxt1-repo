@@ -38,26 +38,22 @@ import type {
 /** Current schema version for migration tracking */
 export const USER_SCHEMA_VERSION = 2;
 
-/** Video image metadata */
-export interface VideoImage {
-  url: string;
-  thumbnailUrl?: string;
-  width?: number;
-  height?: number;
-  format?: string;
-}
+// ============================================
+// LEGACY TYPES - For backward compatibility only
+// These will be removed in a future version
+// ============================================
 
-/** Statistical data */
+/** @deprecated Use Record<string, string | number | boolean> instead */
 export interface StatData {
   [key: string]: string | number | boolean;
 }
 
-/** Sport information */
+/** @deprecated Use Record<string, string | number | boolean | null> instead */
 export interface SportInfo {
   [key: string]: string | number | boolean | null;
 }
 
-/** Player tag */
+/** Player tag for recruiting */
 export interface PlayerTag {
   id: string;
   name: string;
@@ -65,27 +61,7 @@ export interface PlayerTag {
   value?: string | number;
 }
 
-/** Campaign */
-export interface Campaign {
-  id: string;
-  name: string;
-  sentAt: Date | string;
-  status?: 'sent' | 'draft' | 'scheduled';
-  recipientCount?: number;
-}
-
-/** Video clip */
-export interface VideoClip {
-  id: string;
-  url: string;
-  thumbnailUrl?: string;
-  duration?: number;
-  startTime?: number;
-  endTime?: number;
-  tags?: string[];
-}
-
-/** Primary sport stat */
+/** @deprecated Use SeasonStats from SportProfile instead */
 export interface primarySportStat {
   year?: string;
   data: StatData;
@@ -95,7 +71,7 @@ export interface primarySportStat {
   isRanked?: boolean;
 }
 
-/** Game stat */
+/** @deprecated Use GameStats from SportProfile instead */
 export interface GameStat {
   game: string;
   data: StatData;
@@ -106,8 +82,8 @@ export interface GameStat {
   isRanked?: boolean;
 }
 
-/** College */
-export interface College {
+/** @deprecated Use CollegeOffer or CollegeInteraction instead */
+export interface LegacyCollege {
   _id?: string | null;
   'IPEDS/NCES_ID'?: string | null;
   city?: string | null;
@@ -115,24 +91,20 @@ export interface College {
   name?: string | null;
   state?: string | null;
   visitDate?: string | null;
-  sportInfo: SportInfo;
+  sportInfo?: SportInfo;
 }
 
-/** College visit */
-interface collegeVisit {
+/** @deprecated */
+export type College = LegacyCollege;
+/** @deprecated */
+export type CollegeVisits = LegacyCollege & {
   visitType?: string | null;
   visitDate?: string | null;
-}
+};
+/** @deprecated */
+export type CollegeCamp = LegacyCollege & { visitDate?: string | null };
 
-/** College camp */
-interface collegeCamp {
-  visitDate?: string | null;
-}
-
-export type CollegeVisits = College & collegeVisit;
-export type CollegeCamp = College & collegeCamp;
-
-/** Recent game */
+/** @deprecated Use recentGames in SportProfile instead */
 export interface recentGame {
   name?: string | null;
   date?: string | null;
@@ -156,12 +128,12 @@ export interface Event {
   name?: string | null;
 }
 
-/** Award */
+/** @deprecated Use awards[] in SportProfile instead */
 export interface Award {
   award: string;
 }
 
-/** Personal best */
+/** @deprecated Use personalBests[] in SportProfile instead */
 export interface personalBest {
   personalBest?: string | null;
 }
@@ -255,7 +227,7 @@ export interface UserPost {
 /** Game clips collection - reference to prospect model */
 export interface GameClipsCollection {
   id: string;
-  [key: string]: any;
+  [key: string]: string | number | boolean | null | undefined;
 }
 
 /** Team code - reference */
@@ -263,7 +235,7 @@ export interface TeamCode {
   id: string;
   code: string;
   teamName: string;
-  [key: string]: any;
+  [key: string]: string | number | boolean | null | undefined;
 }
 
 // ============================================
@@ -433,7 +405,7 @@ export interface Commitment {
  * Array-based design supports unlimited sports
  */
 export interface SportProfile {
-  /** Sport identifier (e.g., 'football', 'basketball') */
+  /** Sport identifier (e.g., 'football', 'basketball mens') */
   sport: string;
 
   /** Display order (0 = primary) */
@@ -451,7 +423,7 @@ export interface SportProfile {
   /** Side preference (e.g., 'left', 'right', 'both') */
   side?: string[];
 
-  /** Athletic measurements */
+  /** Athletic measurements (height, weight, 40-yard, etc.) */
   metrics: AthleticMetrics;
 
   /** Season statistics */
@@ -470,38 +442,70 @@ export interface SportProfile {
   /** Team information */
   team: TeamInfo;
 
-  /** Coach contact */
+  /** Club team (if different from high school) */
+  clubTeam?: TeamInfo;
+
+  /** Head coach contact */
   coach?: CoachContact;
 
-  /** Account type for this sport */
+  /** Account type for this sport (athlete, parent managing, coach) */
   accountType: AccountType;
 
-  /** College recruiting */
+  /** College recruiting data */
   recruiting?: {
+    /** College offers received */
     offers: CollegeOffer[];
+    /** College interactions (interests, visits, camps) */
     interactions: CollegeInteraction[];
+    /** Commitment status */
     commitment?: Commitment;
+    /** Target recruitment level (D1, D2, D3, NAIA, JUCO) */
     level?: string;
+    /** Recruiting tags/notes */
     tags?: string[];
+    /** Player rating (1-5) */
+    rating?: number;
+    /** Who rated the player */
+    ratedBy?: string;
   };
 
-  /** Schedule/events */
+  /** Schedule and events */
   schedule?: {
+    /** Schedule page URL */
     url?: string;
+    /** Upcoming event description */
     upcomingEvent?: string;
+    /** Link to upcoming event */
     eventLink?: string;
   };
 
-  /** Recent games */
+  /** Recent games/matches */
   recentGames?: Array<{
     date: Date | string;
     opponent: string;
-    result: string;
+    result: 'win' | 'loss' | 'tie';
+    score?: string;
     highlights?: string;
+    location?: string;
   }>;
 
-  /** Season record */
+  /** Season win/loss record */
   seasonRecord?: SeasonRecord;
+
+  /** Awards and honors for this sport */
+  awards?: string[];
+
+  /** Primary highlight video */
+  primaryVideo?: {
+    url: string;
+    thumbnailUrl?: string;
+  };
+
+  /** Created timestamp */
+  createdAt?: Date | string;
+
+  /** Updated timestamp */
+  updatedAt?: Date | string;
 }
 
 // ============================================
@@ -623,7 +627,9 @@ export interface Referral {
  * 5. Preferences replace boolean flags
  */
 export interface User {
-  // =========== CORE IDENTITY ===========
+  // ============================================
+  // CORE IDENTITY (required)
+  // ============================================
   id: string;
   email: string;
   firstName: string;
@@ -631,57 +637,167 @@ export interface User {
   profileImg: string | null;
   aboutMe: string;
 
-  // =========== ONBOARDING ===========
-  completeSignUp: boolean;
-  completeAddSport: boolean;
+  // ============================================
+  // ROLE & STATUS
+  // ============================================
+  role?: UserRole;
+  status?: AccountStatus;
+
+  // ============================================
+  // SPORTS (new architecture - use this)
+  // ============================================
+  /** Array of sport profiles - unlimited sports support */
+  sports?: SportProfile[];
+  /** Currently active sport index in sports array */
+  activeSportIndex?: number;
+
+  // ============================================
+  // LOCATION & CONTACT (structured)
+  // ============================================
+  location?: Location;
+  contact?: ContactInfo;
+  social?: SocialLinks;
+
+  // ============================================
+  // ROLE-SPECIFIC DATA
+  // ============================================
+  /** Athlete-specific data (classOf, academics, parent info) */
+  athlete?: AthleteData;
+  /** Coach-specific data */
+  coach?: CoachData;
+  /** College coach-specific data */
+  collegeCoach?: CollegeCoachData;
+  /** Fan-specific data */
+  fan?: FanData;
+
+  // ============================================
+  // ONBOARDING & FLAGS
+  // ============================================
   onboardingCompleted?: boolean;
   signupCompleted?: boolean;
+  canAddSport: boolean;
 
-  // =========== SPORTS SETUP ===========
+  // ============================================
+  // PREFERENCES
+  // ============================================
+  preferences?: UserPreferences;
+
+  // ============================================
+  // SUBSCRIPTION & PAYMENT
+  // ============================================
+  planTier?: PlanTier;
+  credits: number;
+  lastActivatedPlan: string;
+
+  // ============================================
+  // CONNECTED ACCOUNTS
+  // ============================================
+  connectedAccounts?: ConnectedAccounts;
+
+  // ============================================
+  // ANALYTICS & COUNTERS
+  // ============================================
+  _counters?: UserCounters;
+
+  // ============================================
+  // TIMESTAMPS
+  // ============================================
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+  lastLoginAt?: Date | string;
+
+  // ============================================
+  // PUSH NOTIFICATIONS
+  // ============================================
+  fcmToken: string | null;
+
+  // ============================================
+  // SCHEMA VERSION
+  // ============================================
+  _schemaVersion?: typeof USER_SCHEMA_VERSION;
+
+  // ============================================
+  // LEGACY FIELDS (deprecated - for backward compatibility)
+  // These will be removed in a future version.
+  // Use sports[], location, contact, social instead.
+  // ============================================
+
+  /** @deprecated Use onboardingCompleted */
+  completeSignUp: boolean;
+  /** @deprecated Use onboardingCompleted */
+  completeAddSport: boolean;
+
+  /** @deprecated Use sports[activeSportIndex] */
   appSport: 'primary' | 'secondary' | null;
+  /** @deprecated Use sports[0].sport */
   sport: string;
+  /** @deprecated Use sports[0].sport */
   primarySport: string;
+  /** @deprecated Use sports[0].positions */
   primarySportPositions: string[];
+  /** @deprecated Use sports[1].sport */
   secondarySport: string;
+  /** @deprecated Use sports[1].positions */
   secondarySportPositions: string[];
+  /** @deprecated Use sports[0].positions[0] */
   position: string;
+  /** @deprecated Use sports[0].side */
   side?: string[];
 
-  // =========== HIGH SCHOOL / TEAM ===========
+  /** @deprecated Use sports[0].team.name */
   highSchool: string;
+  /** @deprecated Use sports[0].team.type */
   highSchoolSuffix: 'High School' | 'Club';
+  /** @deprecated Use sports[1].team.name */
   secondaryHighSchool: string;
+  /** @deprecated Use sports[1].team.type */
   secondaryHighSchoolSuffix: 'High School' | 'Club';
+  /** @deprecated Use sports[0].clubTeam */
   club: string | null;
+  /** @deprecated Use sports[1].clubTeam */
   secondaryClub: string | null;
+  /** @deprecated Use athlete.classOf */
   classOf: number;
 
-  // =========== IMAGES ===========
+  /** @deprecated Use sports[1].profileImg */
   secondarySportProfileImg: string | null;
+  /** @deprecated Use sports[0].team.logo */
   teamLogoImg: string | null;
+  /** @deprecated Use sports[1].team.logo */
   secondarySportTeamLogoImg: string | null;
-  primaryVideoImage: VideoImage | string | null;
-  secondaryVideoImage: VideoImage | string | null;
+  /** @deprecated Use sports[0].primaryVideo */
+  primaryVideoImage: { url: string; thumbnailUrl?: string } | string | null;
+  /** @deprecated Use sports[1].primaryVideo */
+  secondaryVideoImage: { url: string; thumbnailUrl?: string } | string | null;
 
-  // =========== CONTACT INFO ===========
+  /** @deprecated Use contact.email */
   contactEmail: string;
+  /** @deprecated Use contact.phone */
   phoneNumber: string;
+  /** @deprecated Use location.address */
   address: string;
+  /** @deprecated Use location.city */
   city: string;
+  /** @deprecated Use location.state */
   state: string;
+  /** @deprecated Use location.zipCode */
   zipCode: number;
+  /** @deprecated Use location.country */
   country: string;
-  contact?: ContactInfo;
-  location?: Location;
 
-  // =========== SOCIAL LINKS ===========
+  /** @deprecated Use social.twitter */
   twitter: string | null;
+  /** @deprecated Use social.instagram */
   instagram: string | null;
+  /** @deprecated Use social.tiktok */
   tiktok: string | null;
+  /** @deprecated Use social.hudl */
   hudlAccountLink: string;
+  /** @deprecated Use social.youtube */
   youtubeAccountLink: string;
+  /** @deprecated */
   sportsAccountLink: string;
-  social?: SocialLinks;
+  /** @deprecated Use social */
   socialLinks?: {
     instagram?: string;
     twitter?: string;
@@ -689,208 +805,293 @@ export interface User {
     youtube?: string;
   };
 
-  // =========== ROLE & ACCOUNT TYPE ===========
-  role?: UserRole;
-  status?: AccountStatus;
+  /** @deprecated Use role */
   athleteOrParentOrCoach: string;
+  /** @deprecated Use sports[1].accountType */
   secondaryAthleteOrParentOrCoach: string;
+  /** @deprecated Use role === 'athlete' */
   isRecruit?: boolean | null;
+  /** @deprecated Use role === 'college-coach' */
   isCollegeCoach?: boolean | null;
+  /** @deprecated Use role === 'fan' */
   isFan?: boolean | null;
 
-  // =========== COACH INFO ===========
+  /** @deprecated Use sports[0].coach */
   coachCount: number;
+  /** @deprecated Use sports[1].coach */
   secondarySportCoachCount: number;
+  /** @deprecated Use sports[0].coach.title */
   coachTitle: string | null;
+  /** @deprecated Use sports[0].coach.firstName */
   coachFirstName: string;
+  /** @deprecated Use sports[1].coach.firstName */
   secondarySportCoachFirstName: string;
+  /** @deprecated Use sports[0].coach.lastName */
   coachLastName: string;
+  /** @deprecated Use sports[1].coach.lastName */
   secondarySportCoachLastName: string;
+  /** @deprecated Use sports[0].coach.phone */
   coachPhoneNumber: string;
+  /** @deprecated Use sports[1].coach.phone */
   secondarySportCoachPhoneNumber: string;
+  /** @deprecated Use sports[0].coach.email */
   coachEmail: string;
+  /** @deprecated Use sports[1].coach.email */
   secondarySportCoachEmail: string;
+  /** @deprecated Use coach.canManageMultipleTeams */
   canManageMultipleTeams?: boolean | null;
 
-  // =========== ORGANIZATION / COLLEGE ===========
+  /** @deprecated */
   organization?: string | null;
+  /** @deprecated */
   secondOrganization?: string | null;
+  /** @deprecated */
   collegeTeamName?: string | null;
+  /** @deprecated Use sports[0].team.conference */
   conference?: string | null;
+  /** @deprecated Use sports[0].team.division */
   division?: string | null;
+  /** @deprecated */
   title: string;
+  /** @deprecated Use sports[0].team.mascot */
   mascot: string;
+  /** @deprecated Use sports[0].team.name */
   teamName?: string;
 
-  // =========== TEAM SETTINGS ===========
+  /** Team code reference */
   teamCode?: TeamCode | string | null;
+  /** Team code trial info */
   teamCodeTrial?: {
     id: string;
     expireAt: Date | string;
     isActive: boolean;
     expiredAt?: Date | string;
   };
+  /** @deprecated Use sports[0].team.colors */
   teamColors?: string[] | null;
+  /** @deprecated Use sports[0].team.colors[0] */
   teamColor1?: string | null;
+  /** @deprecated Use sports[0].team.colors[1] */
   teamColor2?: string | null;
+  /** @deprecated Use sports[1].team.colors[0] */
   secondarySportTeamColor1?: string | null;
+  /** @deprecated Use sports[1].team.colors[1] */
   secondarySportTeamColor2?: string | null;
 
-  // =========== SCHEDULING ===========
+  /** @deprecated Use sports[0].schedule.url */
   schedule?: string | null;
+  /** @deprecated Use sports[0].schedule.upcomingEvent */
   upcomingPastEvent?: string | null;
+  /** @deprecated Use sports[0].schedule.eventLink */
   upcomingGameLink?: string | null;
+  /** @deprecated Use sports[1].schedule.url */
   secondarySportSchedule?: string | null;
+  /** @deprecated Use sports[1].schedule.upcomingEvent */
   secondarySportUpcomingPastEvent?: string | null;
+  /** @deprecated Use sports[1].schedule.eventLink */
   secondarySportUpcomingGameLink?: string | null;
 
-  // =========== SPORT-SPECIFIC TEXT ===========
+  /** @deprecated */
   unicode?: string | null;
+  /** @deprecated */
   secondarySportUnicode?: string | null;
+  /** @deprecated Use sports[1].aboutMe */
   secondarySportAboutMe?: string | null;
 
-  // =========== ACADEMIC INFO ===========
+  /** @deprecated Use athlete.academics */
   academicInfo: {
     [key: string]: string | number;
   };
 
-  // =========== ATHLETIC INFO & STATS ===========
+  /** @deprecated Use sports[0].metrics */
   primarySportAthleticInfo: {
     [key: string]: string | number;
   };
+  /** @deprecated Use sports[1].metrics */
   secondarySportAthleticInfo: {
     [key: string]: string | number;
   };
+  /** @deprecated Use sports[0].seasonStats */
   primarySportStats: primarySportStat[];
+  /** @deprecated Use sports[1].seasonStats */
   secondarySportStats: primarySportStat[];
+  /** @deprecated Use sports[0].gameStats */
   primarySportGameStats?: GameStat[];
+  /** @deprecated Use sports[1].gameStats */
   secondarySportGameStats?: GameStat[];
 
-  // =========== SEASON RECORD ===========
+  /** @deprecated Use sports[0].seasonRecord */
   seasonRecord?: {
     wins: number;
     losses: number;
     ties?: number;
   };
 
-  // =========== RECRUITING ===========
+  /** @deprecated Use sports[0].recruiting.level */
   level?: string;
+  /** @deprecated */
   playerRole?: string;
+  /** @deprecated Use sports[0].recruiting.tags */
   playerTags: PlayerTag[];
+  /** @deprecated Use sports[0].recruiting.offers */
   offers: string | null;
+  /** @deprecated Use sports[1].recruiting.offers */
   secondarySportOffers: string | null;
+  /** @deprecated */
   offerLogos?: { [collegeName: string]: string };
+  /** @deprecated */
   secondarySportOfferLogos?: { [collegeName: string]: string };
+  /** @deprecated Use sports[0].recruiting.commitment.status */
   committmentStatus?: string;
+  /** @deprecated Use sports[0].recruiting.commitment */
   committmentBy?: College;
+  /** @deprecated Use sports[0].recruiting.interactions */
   collegeInterests?: College[] | null;
+  /** @deprecated Use sports[0].recruiting.interactions */
   collegeVisits?: CollegeVisits[] | null;
+  /** @deprecated Use sports[0].recruiting.interactions */
   collegeCamps?: CollegeCamp[] | null;
+  /** @deprecated Use isCommitted(user) helper */
   isCommitted: boolean;
+  /** @deprecated Use sports[0].recruiting.rating */
   rating?: number;
+  /** @deprecated Use sports[0].recruiting.ratedBy */
   ratedBy?: string;
 
-  // =========== EVENTS & ACHIEVEMENTS ===========
+  /** @deprecated Use sports[0].recentGames */
   recentGames?: recentGame[];
+  /** @deprecated */
   events?: Event[];
+  /** @deprecated Use sports[0].awards */
   awards?: Award[];
+  /** @deprecated Use sports[0].personalBests */
   personalBests?: personalBest[];
 
-  // =========== MEDIA & CONTENT ===========
+  /** @deprecated Use Posts collection via userId */
   posts: UserPost[] | null;
+  /** @deprecated Use UserMedia collection */
   favoriteTemplate: string[] | null;
+  /** @deprecated Use UserMedia collection */
   favoriteProfile: string[] | null;
+  /** @deprecated Use UserMedia collection */
   availableTemplate: string[] | null;
+  /** @deprecated Use UserMedia collection */
   availableProfiles: string[] | null;
+  /** @deprecated Use UserMedia collection */
   availableMixtapes: string[] | null;
+  /** @deprecated Use UserMedia collection */
   ownTemplates: OwnTemplate[] | null;
+  /** @deprecated Use UserMedia collection */
   ownProfiles: OwnProfile[] | null;
+  /** @deprecated Use UserMedia collection */
   ownMixtapes: OwnMixtape[] | null;
+  /** @deprecated */
   pinnedProfileVideo?: string | null;
+  /** @deprecated */
   gameClipsCollection?: GameClipsCollection | null;
 
-  // =========== EMAIL TEMPLATES ===========
+  /** @deprecated Use UserCampaigns collection */
   ownEmailTemplate: {
     [key: string]: string;
   };
+  /** @deprecated Use UserCampaigns collection */
   generalEmailTemplate: {
     [key: string]: string;
   };
+  /** @deprecated Use UserCampaigns collection */
   personalEmailTemplate: {
     [key: string]: string;
   };
+  /** @deprecated Use UserCampaigns collection */
   secondarySportOwnEmailTemplate: {
     [key: string]: string;
   };
+  /** @deprecated Use UserCampaigns collection */
   secondarySportGeneralEmailTemplate: {
     [key: string]: string;
   };
+  /** @deprecated Use UserCampaigns collection */
   secondarySportPersonalEmailTemplate: {
     [key: string]: string;
   };
 
-  // =========== CAMPAIGNS ===========
-  campaignsSent: Campaign[] | null;
+  /** @deprecated Use Campaigns collection */
+  campaignsSent: { id: string; name: string; sentAt: Date | string }[] | null;
+  /** @deprecated */
   completeQuestionnaires: string[] | null;
+  /** @deprecated */
   completeCamps: string[] | null;
+  /** @deprecated */
   isFirstTimeAtCampaign: boolean;
+  /** @deprecated */
   taggedColleges: [string | number];
 
-  // =========== CONNECTED ACCOUNTS ===========
+  /** @deprecated Use connectedAccounts.gmail.token */
   connectedGmailToken?: string;
+  /** @deprecated Use connectedAccounts.microsoft.token */
   connectedMicrosoftToken?: string;
+  /** @deprecated Use connectedAccounts */
   connectedEmail?: string;
-  connectedAccounts?: ConnectedAccounts;
 
-  // =========== SUBSCRIPTION & PAYMENT ===========
+  /** @deprecated Use planTier and subscription in Subscriptions collection */
   payment: {
-    expiresIn: any;
-    firstYearExpiresIn: any;
+    expiresIn: Date | string | null;
+    firstYearExpiresIn: Date | string | null;
   };
-  planTier?: PlanTier;
-  credits: number;
-  lastActivatedPlan: string;
+  /** @deprecated */
   lastActivePlan: string;
+  /** @deprecated */
   showedTrialMessage?: boolean;
 
-  // =========== PREFERENCES & FLAGS ===========
+  /** @deprecated Use preferences.activityTracking */
   activityTracking: boolean | null;
+  /** @deprecated Use preferences.notifications.push */
   pushNotifications: boolean;
-  preferences?: UserPreferences;
-  canAddSport: boolean;
+  /** @deprecated */
   availableColleges: string[];
+  /** @deprecated */
   showedHearAbout: boolean;
 
-  // =========== UI STATE FLAGS ===========
+  /** @deprecated Use preferences.dismissedPrompts */
   isShowedHowCollegeCreditWorks: boolean | null;
+  /** @deprecated Use preferences.dismissedPrompts */
   isShowedFirstOpenCampaigns: boolean | null;
+  /** @deprecated Use preferences.dismissedPrompts */
   isShowedHowMediaCreditWorks?: boolean | null;
+  /** @deprecated */
   isSavingMedia: boolean | null;
+  /** @deprecated */
   isNeedCreateThumbnail?: boolean | null;
+  /** @deprecated Use preferences.dismissedPrompts */
   hasSeenFeedbackModal?: boolean | null;
+  /** @deprecated */
   feedbackModalSeenAt?: Date | string | null;
 
-  // =========== ANALYTICS & COUNTERS ===========
+  /** @deprecated Use _counters.profileViews */
   profileViews?: number;
+  /** @deprecated Use _counters.videoViews */
   videoViews: number;
+  /** @deprecated Use _counters.followersCount */
   followersCount?: number;
+  /** @deprecated Use _counters.followingCount */
   followingCount?: number;
-  _counters?: UserCounters;
 
-  // =========== REFERRALS ===========
+  /** @deprecated */
   referrals: [{ userId: string; date: Date; status: string }];
 
-  // =========== PARENT INFO ===========
+  /** @deprecated Use athlete.parentInfo */
   parentInfo: {
     [key: string]: number;
   };
 
-  // =========== MISC ===========
+  /** @deprecated */
   order?: number | string;
+  /** @deprecated */
   removedBgImages?: string | null;
+  /** @deprecated */
   qrCode?: string | null;
 
-  // =========== CONTACT INFO (structured) ===========
+  /** @deprecated Use contact and location instead */
   contactInfo?: {
     phoneNumber?: string;
     email?: string;
@@ -901,7 +1102,7 @@ export interface User {
     fieldLocation?: string;
   };
 
-  // =========== TEAM LINKS ===========
+  /** Team links for coach pages */
   teamLinks?: {
     newsPageUrl?: string;
     schedulePageUrl?: string;
@@ -909,32 +1110,13 @@ export interface User {
     customLinks?: TeamCustomLink[];
   };
 
-  // =========== SESSIONS & AI ===========
+  /** @deprecated */
   sessions?: Session[] | null;
-  aiCopilotUsage?: {
-    dailyTaskCount: number;
-    lastResetDate: string;
-    totalTasksCompleted: number;
-  };
 
-  // =========== TIMESTAMPS ===========
-  lastLoginTime: Date | string | any | null;
-  lastUpdated?: Date | string | any | null;
-  createdAt?: Date | string;
-  updatedAt?: Date | string;
-  lastLoginAt?: Date | string;
-
-  // =========== FCM ===========
-  fcmToken: string | null;
-
-  // =========== NEW ARCHITECTURE (optional for migration) ===========
-  _schemaVersion?: typeof USER_SCHEMA_VERSION;
-  sports?: SportProfile[];
-  activeSportIndex?: number;
-  athlete?: AthleteData;
-  coach?: CoachData;
-  collegeCoach?: CollegeCoachData;
-  fan?: FanData;
+  /** @deprecated Use lastLoginAt */
+  lastLoginTime: Date | string | null;
+  /** @deprecated Use updatedAt */
+  lastUpdated?: Date | string | null;
 }
 
 // ============================================
@@ -965,17 +1147,138 @@ export function isOnboarded(user: User): boolean {
 // HELPER FUNCTIONS
 // ============================================
 
-/** Get primary sport (first in array) */
+/** Get primary sport (first in array or legacy primarySport) */
 export function getPrimarySport(user: User): SportProfile | undefined {
-  return user.sports?.[0];
+  // Prefer new sports array
+  if (user.sports && user.sports.length > 0) {
+    return user.sports.find((s) => s.order === 0) || user.sports[0];
+  }
+  return undefined;
 }
 
-/** Get active sport */
+/** Get active sport based on activeSportIndex */
 export function getActiveSport(user: User): SportProfile | undefined {
-  if (!user.sports || !user.activeSportIndex) {
-    return user.sports?.[0];
+  if (!user.sports || user.sports.length === 0) return undefined;
+  const index = user.activeSportIndex ?? 0;
+  return user.sports[index] ?? user.sports[0];
+}
+
+/** Get sport by name */
+export function getSportByName(user: User, sportName: string): SportProfile | undefined {
+  return user.sports?.find((s) => s.sport.toLowerCase() === sportName.toLowerCase());
+}
+
+/** Check if user plays a specific sport */
+export function playsSport(user: User, sportName: string): boolean {
+  // Check new architecture first
+  if (user.sports?.some((s) => s.sport.toLowerCase() === sportName.toLowerCase())) {
+    return true;
   }
-  return user.sports[user.activeSportIndex] ?? user.sports[0];
+  // Fallback to legacy fields
+  return (
+    user.primarySport?.toLowerCase() === sportName.toLowerCase() ||
+    user.secondarySport?.toLowerCase() === sportName.toLowerCase()
+  );
+}
+
+/** Get total number of college offers across all sports */
+export function getTotalOffers(user: User): number {
+  if (!user.sports) return 0;
+  return user.sports.reduce((total, sport) => total + (sport.recruiting?.offers?.length || 0), 0);
+}
+
+/** Get all awards across all sports */
+export function getAllAwards(user: User): string[] {
+  if (!user.sports) return user.awards?.map((a) => a.award) || [];
+  const sportAwards = user.sports.flatMap((s) => s.awards || []);
+  const legacyAwards = user.awards?.map((a) => a.award) || [];
+  return [...new Set([...sportAwards, ...legacyAwards])];
+}
+
+/** Check if user is multi-sport athlete */
+export function isMultiSport(user: User): boolean {
+  if (user.sports && user.sports.length > 1) return true;
+  return !!(user.primarySport && user.secondarySport);
+}
+
+/** Check if user is committed for any sport */
+export function isCommitted(user: User): boolean {
+  // Check new architecture
+  if (user.sports?.some((s) => s.recruiting?.commitment)) return true;
+  // Fallback to legacy
+  return user.isCommitted;
+}
+
+/** Add a new sport to user (returns new user object) */
+export function addSport(user: User, sportProfile: SportProfile): User {
+  const existingSports = user.sports || [];
+
+  // Check if sport already exists
+  if (existingSports.some((s) => s.sport === sportProfile.sport)) {
+    return user;
+  }
+
+  // Set order to next available
+  const maxOrder = existingSports.reduce((max, s) => Math.max(max, s.order), -1);
+  const newProfile = { ...sportProfile, order: maxOrder + 1 };
+
+  return {
+    ...user,
+    sports: [...existingSports, newProfile],
+    canAddSport: existingSports.length + 1 < 5, // Limit to 5 sports
+  };
+}
+
+/** Update a specific sport profile (returns new user object) */
+export function updateSport(user: User, sportName: string, updates: Partial<SportProfile>): User {
+  if (!user.sports) return user;
+
+  const updatedSports = user.sports.map((s) =>
+    s.sport === sportName ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s
+  );
+
+  return { ...user, sports: updatedSports };
+}
+
+/** Remove a sport from user (returns new user object) */
+export function removeSport(user: User, sportName: string): User {
+  if (!user.sports) return user;
+
+  const filtered = user.sports.filter((s) => s.sport !== sportName);
+
+  // Reorder remaining sports
+  const reordered = filtered.map((s, index) => ({ ...s, order: index }));
+
+  return {
+    ...user,
+    sports: reordered,
+    activeSportIndex: 0,
+    canAddSport: true,
+  };
+}
+
+/** Set primary sport (move to order 0) */
+export function setPrimarySport(user: User, sportName: string): User {
+  if (!user.sports) return user;
+
+  const targetSport = user.sports.find((s) => s.sport === sportName);
+  if (!targetSport) return user;
+
+  const others = user.sports.filter((s) => s.sport !== sportName);
+  const reordered = [
+    { ...targetSport, order: 0 },
+    ...others.map((s, i) => ({ ...s, order: i + 1 })),
+  ];
+
+  return { ...user, sports: reordered, activeSportIndex: 0 };
+}
+
+/** Set active sport by index */
+export function setActiveSport(user: User, index: number): User {
+  if (!user.sports || index < 0 || index >= user.sports.length) {
+    return user;
+  }
+  return { ...user, activeSportIndex: index };
 }
 
 // ============================================

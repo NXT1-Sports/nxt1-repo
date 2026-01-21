@@ -60,7 +60,7 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
   {
     type: 'athlete',
     label: 'Athlete',
-    description: 'High school, club, or college athlete looking to get recruited',
+    description: 'High school, club, or college athlete',
     icon: 'athlete',
   },
   {

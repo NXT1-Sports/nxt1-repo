@@ -490,21 +490,22 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       }
 
       .nxt1-card-input .nxt1-input {
-        --background: var(--nxt1-color-surface-100);
+        --background: var(--nxt1-color-state-hover);
         --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-md, 8px);
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
         --color: var(--nxt1-color-text-primary);
         --placeholder-color: var(--nxt1-color-text-tertiary);
         --placeholder-opacity: 1;
-        --padding-start: 12px;
-        --padding-end: 12px;
-        --padding-top: 10px;
-        --padding-bottom: 10px;
-        --highlight-color-focused: var(--nxt1-color-primary);
+        --padding-start: 16px;
+        --padding-end: 16px;
+        --padding-top: 14px;
+        --padding-bottom: 14px;
+        --highlight-color-focused: var(--nxt1-color-border-strong);
+        --highlight-color-valid: var(--nxt1-color-border-strong);
         font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 14px;
-        min-height: 44px;
+        font-size: 15px;
+        min-height: 52px;
       }
 
       .nxt1-card-input .nxt1-input:hover:not(:disabled) {

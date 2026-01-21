@@ -333,6 +333,8 @@ export const APP_EVENTS = {
   ONBOARDING_STEP_COMPLETED: 'onboarding_step_completed',
   /** User selected their role during onboarding */
   ONBOARDING_ROLE_SELECTED: 'onboarding_role_selected',
+  /** User submitted referral source (how they heard about NXT1) */
+  ONBOARDING_REFERRAL_SUBMITTED: 'onboarding_referral_submitted',
   /** User skipped onboarding */
   ONBOARDING_SKIPPED: 'onboarding_skipped',
   /** User abandoned onboarding */

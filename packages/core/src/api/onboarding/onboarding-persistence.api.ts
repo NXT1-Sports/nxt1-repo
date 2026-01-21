@@ -142,6 +142,7 @@ export interface TeamCodePrefillData {
 /** Referral source data */
 export interface ReferralSourceData {
   source: string;
+  details?: string;
   clubName?: string;
   otherSpecify?: string;
 }
@@ -177,10 +178,10 @@ export interface OrganizationFormData {
   secondOrganization?: string;
 }
 
-/** Sport form data */
+/** Sport form data - array of selected sports */
 export interface SportFormData {
-  primarySport: string;
-  secondarySport?: string;
+  /** Array of selected sports */
+  selectedSports: string[];
 }
 
 /** Positions form data */
@@ -489,9 +490,11 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   }
 
   // =========== SPORTS ARRAY ===========
-  if (formData.sport?.primarySport) {
+  const selectedSports = formData.sport?.selectedSports || [];
+  if (selectedSports.length > 0) {
+    const primarySportName = selectedSports[0];
     const primarySport: Record<string, unknown> = {
-      sport: formData.sport.primarySport,
+      sport: primarySportName,
       order: 0,
       positions: formData.positions?.positions || [],
       metrics: {},
@@ -515,11 +518,11 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
 
     const sports = [primarySport];
 
-    // Add secondary sport if exists
-    if (formData.sport?.secondarySport) {
+    // Add secondary sports if exist
+    for (let i = 1; i < selectedSports.length; i++) {
       sports.push({
-        sport: formData.sport.secondarySport,
-        order: 1,
+        sport: selectedSports[i],
+        order: i,
         positions: [],
         metrics: {},
         seasonStats: [],
@@ -610,7 +613,7 @@ export function buildReferralSourcePayload(data: {
     lastName: data.formData.profile?.lastName ?? null,
 
     // Sport info
-    primarySport: data.formData.sport?.primarySport ?? null,
+    primarySport: data.formData.sport?.selectedSports?.[0] ?? null,
     positions: data.formData.positions?.positions ?? [],
 
     // School/Organization info
@@ -633,7 +636,7 @@ export function buildReferralSourcePayload(data: {
       data.formData.organization?.organizationName ??
       null,
     teamType: data.teamCodeData?.teamType ?? null,
-    teamSport: data.teamCodeData?.sport ?? data.formData.sport?.primarySport ?? null,
+    teamSport: data.teamCodeData?.sport ?? data.formData.sport?.selectedSports?.[0] ?? null,
   };
 
   // Add source-specific fields

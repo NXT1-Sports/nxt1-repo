@@ -83,7 +83,12 @@ import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { createBrowserStorageAdapter, STORAGE_KEYS } from '@nxt1/core/storage';
 
 // App Services
-import { AuthFlowService, AuthErrorHandler, AuthApiService } from '../../services';
+import {
+  AuthFlowService,
+  AuthErrorHandler,
+  AuthApiService,
+  OnboardingAnalyticsService,
+} from '../../services';
 import { SeoService } from '../../../../core/services';
 
 // ============================================
@@ -162,7 +167,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       </nxt1-auth-subtitle>
 
       <!-- Main Content -->
-      <div authContent>
+      <div authContent class="flex flex-col">
         <!-- Progress Indicator (hidden on role selection step) -->
         @if (currentStep().id !== 'role') {
           <nxt1-onboarding-progress-bar
@@ -173,108 +178,111 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
           />
         }
 
-        <!-- Step Card Container with Animations -->
-        <nxt1-onboarding-step-card
-          variant="seamless"
-          [error]="error()"
-          [animationDirection]="animationDirection()"
-          [animationKey]="currentStep().id"
-        >
-          <!-- Step 1: Role Selection -->
-          @if (currentStep().id === 'role') {
-            <nxt1-onboarding-role-selection
-              [selectedRole]="selectedRole()"
-              [disabled]="isLoading()"
-              (roleSelected)="onRoleSelect($event)"
-            />
-          }
+        <!-- Scrollable Step Content Container -->
+        <div class="nxt1-step-scroll-container">
+          <!-- Step Card Container with Animations -->
+          <nxt1-onboarding-step-card
+            variant="seamless"
+            [error]="error()"
+            [animationDirection]="animationDirection()"
+            [animationKey]="currentStep().id"
+          >
+            <!-- Step 1: Role Selection -->
+            @if (currentStep().id === 'role') {
+              <nxt1-onboarding-role-selection
+                [selectedRole]="selectedRole()"
+                [disabled]="isLoading()"
+                (roleSelected)="onRoleSelect($event)"
+              />
+            }
 
-          <!-- Step 2: Profile -->
-          @if (currentStep().id === 'profile') {
-            <nxt1-onboarding-profile-step
-              [profileData]="profileFormData()"
-              [disabled]="isLoading()"
-              [showClassYear]="selectedRole() === 'athlete'"
-              (profileChange)="onProfileChange($event)"
-              (photoSelect)="onPhotoSelect()"
-              (fileSelected)="onFileSelected($event)"
-            />
-          }
+            <!-- Step 2: Profile -->
+            @if (currentStep().id === 'profile') {
+              <nxt1-onboarding-profile-step
+                [profileData]="profileFormData()"
+                [disabled]="isLoading()"
+                [showClassYear]="selectedRole() === 'athlete'"
+                (profileChange)="onProfileChange($event)"
+                (photoSelect)="onPhotoSelect()"
+                (fileSelected)="onFileSelected($event)"
+              />
+            }
 
-          <!-- Step 3: Team (School) -->
-          @if (currentStep().id === 'school') {
-            <nxt1-onboarding-team-step
-              [teamData]="teamFormData()"
-              [disabled]="isLoading()"
-              (teamChange)="onTeamChange($event)"
-            />
-          }
+            <!-- Step 3: Team (School) -->
+            @if (currentStep().id === 'school') {
+              <nxt1-onboarding-team-step
+                [teamData]="teamFormData()"
+                [disabled]="isLoading()"
+                (teamChange)="onTeamChange($event)"
+              />
+            }
 
-          <!-- Step 4: Sport Selection -->
-          @if (currentStep().id === 'sport') {
-            <nxt1-onboarding-sport-step
-              [sportData]="sportFormData()"
-              [disabled]="isLoading()"
-              (sportChange)="onSportChange($event)"
-            />
-          }
+            <!-- Step 4: Sport Selection -->
+            @if (currentStep().id === 'sport') {
+              <nxt1-onboarding-sport-step
+                [sportData]="sportFormData()"
+                [disabled]="isLoading()"
+                (sportChange)="onSportChange($event)"
+              />
+            }
 
-          <!-- Step 5: Position Selection -->
-          @if (currentStep().id === 'positions') {
-            <nxt1-onboarding-position-step
-              [positionData]="positionFormData()"
-              [selectedSport]="selectedSportName()"
-              [disabled]="isLoading()"
-              (positionChange)="onPositionChange($event)"
-            />
-          }
+            <!-- Step 5: Position Selection -->
+            @if (currentStep().id === 'positions') {
+              <nxt1-onboarding-position-step
+                [positionData]="positionFormData()"
+                [selectedSport]="selectedSportName()"
+                [disabled]="isLoading()"
+                (positionChange)="onPositionChange($event)"
+              />
+            }
 
-          <!-- Step 6: Contact Info -->
-          @if (currentStep().id === 'contact') {
-            <nxt1-onboarding-contact-step
-              [contactData]="contactFormData()"
-              [authEmail]="authUserEmail()"
-              [disabled]="isLoading()"
-              (contactChange)="onContactChange($event)"
-            />
-          }
+            <!-- Step 6: Contact Info -->
+            @if (currentStep().id === 'contact') {
+              <nxt1-onboarding-contact-step
+                [contactData]="contactFormData()"
+                [authEmail]="authUserEmail()"
+                [disabled]="isLoading()"
+                (contactChange)="onContactChange($event)"
+              />
+            }
 
-          <!-- Step 7: Referral Source (Final Step) -->
-          @if (currentStep().id === 'referral-source') {
-            <nxt1-onboarding-referral-step
-              [referralData]="referralFormData()"
-              [disabled]="isLoading()"
-              (referralChange)="onReferralChange($event)"
-            />
-          }
+            <!-- Step 7: Referral Source (Final Step) -->
+            @if (currentStep().id === 'referral-source') {
+              <nxt1-onboarding-referral-step
+                [referralData]="referralFormData()"
+                [disabled]="isLoading()"
+                (referralChange)="onReferralChange($event)"
+              />
+            }
 
-          <!-- Future Steps: Organization, etc. -->
-          @if (
-            currentStep().id !== 'role' &&
-            currentStep().id !== 'profile' &&
-            currentStep().id !== 'school' &&
-            currentStep().id !== 'sport' &&
-            currentStep().id !== 'positions' &&
-            currentStep().id !== 'contact' &&
-            currentStep().id !== 'referral-source'
-          ) {
-            <div class="py-12 text-center">
-              <div
-                class="bg-surface-200 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
-              >
-                <svg viewBox="0 0 24 24" fill="none" class="text-text-tertiary h-8 w-8">
-                  <path
-                    d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"
-                    fill="currentColor"
-                  />
-                </svg>
+            <!-- Future Steps: Organization, etc. -->
+            @if (
+              currentStep().id !== 'role' &&
+              currentStep().id !== 'profile' &&
+              currentStep().id !== 'school' &&
+              currentStep().id !== 'sport' &&
+              currentStep().id !== 'positions' &&
+              currentStep().id !== 'contact' &&
+              currentStep().id !== 'referral-source'
+            ) {
+              <div class="py-12 text-center">
+                <div
+                  class="bg-surface-200 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" class="text-text-tertiary h-8 w-8">
+                    <path
+                      d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </div>
+                <p class="text-text-secondary">{{ currentStep().title }} coming soon...</p>
               </div>
-              <p class="text-text-secondary">{{ currentStep().title }} coming soon...</p>
-            </div>
-          }
-        </nxt1-onboarding-step-card>
+            }
+          </nxt1-onboarding-step-card>
+        </div>
 
-        <!-- Desktop: Navigation Buttons (inline) -->
+        <!-- Desktop: Navigation Buttons (fixed below scroll area) -->
         @if (!isMobile()) {
           <nxt1-onboarding-navigation-buttons
             [showSkip]="isCurrentStepOptional()"
@@ -315,6 +323,81 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       />
     }
   `,
+  styles: [
+    `
+      /* ============================================
+       SCROLLABLE STEP CONTENT CONTAINER
+       Fixed-height scroll container - button never moves
+       ============================================ */
+      .nxt1-step-scroll-container {
+        /* FIXED height - prevents button shift */
+        height: 320px;
+
+        /* Scrollable content */
+        overflow-y: auto;
+        overflow-x: hidden;
+
+        /* Smooth scrolling */
+        scroll-behavior: smooth;
+        -webkit-overflow-scrolling: touch;
+
+        /* Thin scrollbar */
+        scrollbar-width: thin;
+        scrollbar-color: var(--nxt1-color-border-default) transparent;
+
+        /* Minimal spacing */
+        padding: var(--nxt1-spacing-1) 0;
+        margin: var(--nxt1-spacing-2) 0;
+      }
+
+      /* Custom scrollbar styling (Webkit browsers) */
+      .nxt1-step-scroll-container::-webkit-scrollbar {
+        width: 4px;
+      }
+
+      .nxt1-step-scroll-container::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .nxt1-step-scroll-container::-webkit-scrollbar-thumb {
+        background: var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-full);
+      }
+
+      .nxt1-step-scroll-container::-webkit-scrollbar-thumb:hover {
+        background: var(--nxt1-color-border-strong);
+      }
+
+      /* Mobile: disable fixed height, let content flow naturally */
+      @media (max-width: 768px) {
+        .nxt1-step-scroll-container {
+          height: auto;
+          overflow: visible;
+          padding: 0;
+          margin: var(--nxt1-spacing-2) 0;
+        }
+      }
+
+      /* Taller screens get more space */
+      @media (min-height: 800px) and (min-width: 769px) {
+        .nxt1-step-scroll-container {
+          height: 380px;
+        }
+      }
+
+      @media (min-height: 900px) and (min-width: 769px) {
+        .nxt1-step-scroll-container {
+          height: 440px;
+        }
+      }
+
+      @media (min-height: 1000px) and (min-width: 769px) {
+        .nxt1-step-scroll-container {
+          height: 500px;
+        }
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OnboardingComponent implements OnInit, OnDestroy {
@@ -326,6 +409,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private readonly seo = inject(SeoService);
   private readonly toast = inject(NxtToastService);
   private readonly platform = inject(NxtPlatformService);
+  private readonly onboardingAnalytics = inject(OnboardingAnalyticsService);
 
   /** Check if running on mobile (native or mobile web) */
   readonly isMobile = computed(() => this.platform.isMobile());
@@ -396,8 +480,11 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   /** User's auth email for contact step default */
   readonly authUserEmail = computed(() => this.authFlow.user()?.email ?? '');
 
-  /** Selected sport name for position step */
-  readonly selectedSportName = computed(() => this._formData().sport?.primarySport ?? '');
+  /** Selected sport name for position step (first sport in array) */
+  readonly selectedSportName = computed(() => {
+    const sport = this._formData().sport;
+    return sport?.selectedSports?.[0] ?? '';
+  });
 
   /** Current steps array */
   readonly steps = computed(() => this._steps());
@@ -487,6 +574,11 @@ export class OnboardingComponent implements OnInit, OnDestroy {
           this._currentStepIndex.set(0);
           // Track onboarding started event
           this.trackStarted();
+          // Track initial step view (role selection)
+          this.trackStepViewed();
+        } else {
+          // Restored session - track the resumed step view
+          this.trackStepViewed();
         }
       });
     });
@@ -509,7 +601,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    // Cleanup if needed
+    // End analytics session - this will track abandonment if onboarding wasn't completed
+    this.onboardingAnalytics.endSession();
   }
 
   // ============================================
@@ -557,6 +650,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       // Set animation direction based on navigation direction
       this.animationDirection.set(index > currentIndex ? 'forward' : 'backward');
       this._currentStepIndex.set(index);
+      // Track step view for analytics funnel
+      this.trackStepViewed();
       // Save session after navigation
       void this.saveSession();
     }
@@ -692,6 +787,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     const step = this.currentStep();
     if (!step) return;
 
+    // Track step completion for analytics funnel
+    this.trackStepCompleted();
+
     // Mark current step as completed
     this._completedSteps.update((set) => {
       const newSet = new Set(set);
@@ -714,6 +812,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       this.completeOnboarding();
     } else {
       this._currentStepIndex.update((i) => i + 1);
+      // Track new step view for analytics funnel
+      this.trackStepViewed();
       // Save session after step completion
       void this.saveSession();
     }
@@ -725,6 +825,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   onSkip(): void {
     const step = this.currentStep();
     if (!step || step.required) return;
+
+    // Track step skipped for analytics funnel
+    this.trackStepSkipped();
 
     // Mark as completed without data
     this._completedSteps.update((set) => {
@@ -741,6 +844,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       this.completeOnboarding();
     } else {
       this._currentStepIndex.update((i) => i + 1);
+      // Track new step view for analytics funnel
+      this.trackStepViewed();
       // Save session after step skip
       void this.saveSession();
     }
@@ -754,6 +859,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       // Set animation direction for backward navigation
       this.animationDirection.set('backward');
       this._currentStepIndex.update((i) => i - 1);
+      // Track step view when going back
+      this.trackStepViewed();
       // Save session after back navigation
       void this.saveSession();
     }
@@ -804,8 +911,11 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     // Move to step 2 (profile) - role was step 1
     this._currentStepIndex.set(1);
 
-    // Track role selection
+    // Track role selection analytics
     this.trackRoleSelected(role);
+
+    // Track new step view (profile step)
+    this.trackStepViewed();
 
     // Save session after role configuration
     void this.saveSession();
@@ -840,14 +950,15 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       // First, save all onboarding data to backend
       try {
         // Flatten nested form data to match OnboardingProfileData structure
+        const selectedSports = formData.sport?.selectedSports || [];
         const profileData = {
           userType: formData.userType,
           firstName: formData.profile?.firstName || '',
           lastName: formData.profile?.lastName || '',
           profileImg: formData.profile?.profileImg || undefined,
           bio: formData.profile?.bio,
-          sport: formData.sport?.primarySport,
-          secondarySport: formData.sport?.secondarySport,
+          sport: selectedSports[0],
+          secondarySport: selectedSports[1],
           positions: formData.positions?.positions, // positions array from PositionsFormData
           highSchool: formData.school?.schoolName, // schoolName from SchoolFormData
           highSchoolSuffix: formData.school?.schoolType, // schoolType from SchoolFormData
@@ -864,6 +975,32 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       } catch (saveError) {
         console.warn('[Onboarding] Failed to save profile data, continuing:', saveError);
         // Don't fail the entire onboarding if profile save fails
+      }
+
+      // Save referral source to user document + track via GA4
+      if (formData.referralSource?.source) {
+        try {
+          // Save to user document (single source of truth)
+          await this.authApi.saveReferralSource(user.uid, {
+            source: formData.referralSource.source,
+            details: formData.referralSource.details,
+            clubName: formData.referralSource.clubName,
+            otherSpecify: formData.referralSource.otherSpecify,
+          });
+
+          // Track to GA4 for analytics (replaces HearAbout collection)
+          this.onboardingAnalytics.trackReferralSourceSubmitted({
+            source: formData.referralSource.source,
+            details: formData.referralSource.details,
+            clubName: formData.referralSource.clubName,
+            otherSpecify: formData.referralSource.otherSpecify,
+          });
+
+          console.info('[Onboarding] Referral source saved successfully');
+        } catch (referralError) {
+          console.warn('[Onboarding] Failed to save referral source, continuing:', referralError);
+          // Don't fail the entire onboarding if referral save fails
+        }
       }
 
       // Then call backend to mark onboarding complete
@@ -909,60 +1046,82 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   // ============================================
 
   /**
-   * Track onboarding started
-   */
-  /**
    * Track onboarding started event.
-   * Analytics integration: @nxt1/core/api createOnboardingAnalyticsApi
+   * Called when user first enters the onboarding flow.
    */
   private trackStarted(): void {
     const user = this.authFlow.user();
     if (!user) return;
 
-    console.debug('[Onboarding] Started:', {
+    this.onboardingAnalytics.startSession(user.uid);
+    this.onboardingAnalytics.trackStarted({
       userId: user.uid,
       totalSteps: this._steps().length,
+      firstStepId: this.currentStep().id,
     });
   }
 
   /**
-   * Track role selected
+   * Track role selected.
+   * Called when user picks their role (athlete, coach, etc.)
    */
   private trackRoleSelected(role: OnboardingUserType): void {
-    const user = this.authFlow.user();
-    if (!user) return;
-
-    console.debug('[Onboarding] Role selected:', {
-      userId: user.uid,
-      userType: role,
-      totalSteps: this._steps().length,
-    });
+    this.onboardingAnalytics.trackRoleSelected(role, this._steps().length);
   }
 
   /**
-   * Track onboarding completed
+   * Track step viewed.
+   * Called when a step becomes visible.
+   */
+  private trackStepViewed(): void {
+    const step = this.currentStep();
+    if (!step) return;
+
+    this.onboardingAnalytics.trackStepViewed(step, this._steps(), this._currentStepIndex());
+  }
+
+  /**
+   * Track step completed.
+   * Called when user successfully completes a step.
+   */
+  private trackStepCompleted(): void {
+    const step = this.currentStep();
+    if (!step) return;
+
+    this.onboardingAnalytics.trackStepCompleted(step, this._steps(), this._currentStepIndex());
+  }
+
+  /**
+   * Track step skipped.
+   * Called when user skips an optional step.
+   */
+  private trackStepSkipped(): void {
+    const step = this.currentStep();
+    if (!step) return;
+
+    this.onboardingAnalytics.trackStepSkipped(step, this._steps(), this._currentStepIndex());
+  }
+
+  /**
+   * Track onboarding completed successfully.
    */
   private trackCompleted(): void {
-    const user = this.authFlow.user();
-    if (!user) return;
+    const role = this.selectedRole();
+    if (!role) return;
 
-    console.info('[Onboarding] Completed:', {
-      userId: user.uid,
-      userType: this.selectedRole(),
+    const formData = this._formData();
+    this.onboardingAnalytics.trackCompleted({
+      userType: role,
       totalSteps: this._steps().length,
+      sport: formData.sport?.selectedSports?.[0],
     });
   }
 
   /**
-   * Track onboarding error
+   * Track onboarding error.
    */
   private trackError(errorMessage: string): void {
-    const user = this.authFlow.user();
-    console.error('[Onboarding] Error:', {
-      userId: user?.uid,
-      error: errorMessage,
-      step: this.currentStep()?.id,
-    });
+    this.onboardingAnalytics.trackError(errorMessage, this.currentStep()?.id);
   }
 
   // ============================================

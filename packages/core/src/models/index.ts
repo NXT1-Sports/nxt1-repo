@@ -22,18 +22,77 @@ export {
   type TeamCode,
 } from './team-code.model';
 
-// User model
+// User model - Core types (use these)
 export {
   USER_SCHEMA_VERSION,
-  // Legacy types
-  type VideoImage,
+  // Primary types
+  type User,
+  type UserUpdate,
+  type UserCreate,
+  type UserSummary,
+  // Location & Contact
+  type Location,
+  type SocialLinks,
+  type ContactInfo,
+  type ConnectedAccounts,
+  // Sports architecture
+  type SportProfile,
+  type TeamInfo,
+  type CoachContact,
+  type AthleticMetrics,
+  type SeasonStats,
+  type GameStats,
+  type SeasonRecord,
+  type CollegeOffer,
+  type CollegeInteraction,
+  type Commitment,
+  type AcademicInfo,
+  // Role-specific data
+  type AthleteData,
+  type CoachData,
+  type CollegeCoachData,
+  type FanData,
+  // Preferences & Settings
+  type NotificationPreferences,
+  type UserPreferences,
+  type UserCounters,
+  type Referral,
+  // Type guards
+  isAthlete,
+  isCoach,
+  isCollegeCoach,
+  isOnboarded,
+  isMultiSport,
+  isCommitted,
+  // Sport getters
+  getPrimarySport,
+  getActiveSport,
+  getSportByName,
+  playsSport,
+  getTotalOffers,
+  getAllAwards,
+  // Sport management
+  addSport,
+  updateSport,
+  removeSport,
+  setPrimarySport,
+  setActiveSport,
+  // Factory functions
+  toUserSummary,
+  createDefaultPreferences,
+  createDefaultCounters,
+  createEmptySportProfile,
+  // ====================================
+  // LEGACY TYPES - @deprecated
+  // Exported for backward compatibility only
+  // Will be removed in future version
+  // ====================================
   type StatData,
   type SportInfo,
   type PlayerTag,
-  type VideoClip,
   type primarySportStat,
   type GameStat,
-  type College,
+  type LegacyCollege,
   type CollegeVisits,
   type CollegeCamp,
   type recentGame,
@@ -47,44 +106,6 @@ export {
   type OwnProfile,
   type UserPost,
   type GameClipsCollection,
-  // New architecture types
-  type Location,
-  type SocialLinks,
-  type ContactInfo,
-  type ConnectedAccounts,
-  type AcademicInfo,
-  type TeamInfo,
-  type CoachContact,
-  type AthleticMetrics,
-  type SeasonStats,
-  type SeasonRecord,
-  type CollegeOffer,
-  type CollegeInteraction,
-  type Commitment,
-  type SportProfile,
-  type NotificationPreferences,
-  type UserPreferences,
-  type UserCounters,
-  type AthleteData,
-  type CoachData,
-  type CollegeCoachData,
-  type FanData,
-  type Referral,
-  type User,
-  type UserUpdate,
-  type UserCreate,
-  type UserSummary,
-  // Helper functions
-  isAthlete,
-  isCoach,
-  isCollegeCoach,
-  isOnboarded,
-  getPrimarySport,
-  getActiveSport,
-  toUserSummary,
-  createDefaultPreferences,
-  createDefaultCounters,
-  createEmptySportProfile,
 } from './user.model';
 
 // Media model (videos, profile cards, posts)

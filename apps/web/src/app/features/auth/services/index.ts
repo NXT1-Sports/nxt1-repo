@@ -29,6 +29,9 @@ export {
 // Browser auth implementation
 export { BrowserAuthService } from './browser-auth.service';
 
+// Onboarding Analytics Service - professional funnel tracking
+export { OnboardingAnalyticsService } from './onboarding-analytics.service';
+
 // Auth Cookie Service (for token persistence)
 export { AuthCookieService, AUTH_TOKEN_COOKIE } from './auth-cookie.service';
 

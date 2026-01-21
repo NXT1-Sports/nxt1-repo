@@ -720,4 +720,15 @@ export class AuthFlowService implements OnDestroy {
   async getIdToken(): Promise<string | null> {
     return this.firebaseAuth.getIdToken();
   }
+
+  /**
+   * Refresh user profile from Firebase
+   * Call after completing onboarding to update hasCompletedOnboarding flag
+   */
+  async refreshUserProfile(): Promise<void> {
+    const firebaseUser = this.firebaseAuth.getCurrentUser();
+    if (!firebaseUser) return;
+
+    await this.syncUserProfile(firebaseUser.uid);
+  }
 }

@@ -48,6 +48,7 @@ import {
   OnboardingRoleSelectionComponent,
   OnboardingProfileStepComponent,
   OnboardingTeamStepComponent,
+  OnboardingSportStepComponent,
   OnboardingProgressBarComponent,
   OnboardingButtonMobileComponent,
   OnboardingStepCardComponent,
@@ -62,6 +63,7 @@ import {
   type OnboardingFormData,
   type ProfileFormData,
   type TeamFormData,
+  type SportFormData,
   ONBOARDING_STEPS,
   ROLE_SELECTION_STEP,
   validateStep,
@@ -73,7 +75,7 @@ import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { createCapacitorStorageAdapter, STORAGE_KEYS } from '@nxt1/core/storage';
 
 // App Services
-import { AuthFlowService, AuthErrorHandler } from '../../services';
+import { AuthFlowService, AuthErrorHandler, AuthApiService } from '../../services';
 import { HapticsService, NxtToastService } from '@nxt1/ui';
 
 // ============================================
@@ -126,6 +128,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     OnboardingRoleSelectionComponent,
     OnboardingProfileStepComponent,
     OnboardingTeamStepComponent,
+    OnboardingSportStepComponent,
     OnboardingProgressBarComponent,
     OnboardingButtonMobileComponent,
     OnboardingStepCardComponent,
@@ -196,11 +199,21 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               />
             }
 
-            <!-- Future Steps: Organization, Sport, Positions, etc. -->
+            <!-- Step 4: Sport Selection (uses DEFAULT_SPORTS from @nxt1/core/constants) -->
+            @if (currentStep().id === 'sport') {
+              <nxt1-onboarding-sport-step
+                [sportData]="sportFormData()"
+                [disabled]="isLoading()"
+                (sportChange)="onSportChange($event)"
+              />
+            }
+
+            <!-- Future Steps: Organization, Positions, Contact, etc. -->
             @if (
               currentStep().id !== 'role' &&
               currentStep().id !== 'profile' &&
-              currentStep().id !== 'school'
+              currentStep().id !== 'school' &&
+              currentStep().id !== 'sport'
             ) {
               <div class="py-12 text-center">
                 <div
@@ -245,6 +258,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 export class OnboardingPage implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly authFlow = inject(AuthFlowService);
+  private readonly authApi = inject(AuthApiService);
   private readonly errorHandler = inject(AuthErrorHandler);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
@@ -337,6 +351,9 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
   /** Team form data computed from _formData */
   readonly teamFormData = computed(() => this._formData().team ?? null);
+
+  /** Sport form data computed from _formData */
+  readonly sportFormData = computed(() => this._formData().sport ?? null);
 
   /** Current steps array */
   readonly steps = computed(() => this._steps());
@@ -483,6 +500,17 @@ export class OnboardingPage implements OnInit, OnDestroy {
     this._formData.update((data) => ({
       ...data,
       team: teamData,
+    }));
+  }
+
+  /**
+   * Handle sport data change (Step 4)
+   * Uses DEFAULT_SPORTS from @nxt1/core/constants - no hardcoded values
+   */
+  onSportChange(sportData: SportFormData): void {
+    this._formData.update((data) => ({
+      ...data,
+      sport: sportData,
     }));
   }
 
@@ -662,13 +690,75 @@ export class OnboardingPage implements OnInit, OnDestroy {
     }
 
     try {
+      // Save form data to backend
+      const formData = this._formData() as OnboardingFormData;
+      console.info('[Onboarding] Completing onboarding for user:', user.uid);
+      console.debug('[Onboarding] Form data:', formData);
+
+      // First, save all onboarding data to backend
+      try {
+        // Flatten nested form data to match OnboardingProfileData structure
+        const selectedSports = formData.sport?.selectedSports || [];
+        const profileData = {
+          userType: formData.userType,
+          firstName: formData.profile?.firstName || '',
+          lastName: formData.profile?.lastName || '',
+          profileImg: formData.profile?.profileImg || undefined,
+          bio: formData.profile?.bio,
+          sport: selectedSports[0],
+          secondarySport: selectedSports[1],
+          positions: formData.positions?.positions,
+          highSchool: formData.school?.schoolName,
+          highSchoolSuffix: formData.school?.schoolType,
+          classOf: formData.school?.classYear ?? formData.profile?.classYear ?? undefined,
+          state: formData.school?.state,
+          city: formData.school?.city,
+          club: formData.school?.club,
+          organization: formData.organization?.organizationName,
+          coachTitle: formData.organization?.title,
+        };
+
+        await this.authApi.saveOnboardingProfile(user.uid, profileData);
+        console.info('[Onboarding] Profile data saved successfully');
+      } catch (saveError) {
+        console.warn('[Onboarding] Failed to save profile data, continuing:', saveError);
+        // Don't fail the entire onboarding if profile save fails
+      }
+
+      // Save referral source to user document + track via GA4
+      if (formData.referralSource?.source) {
+        try {
+          // Save to user document (single source of truth)
+          await this.authApi.saveReferralSource(user.uid, {
+            source: formData.referralSource.source,
+            details: formData.referralSource.details,
+            clubName: formData.referralSource.clubName,
+            otherSpecify: formData.referralSource.otherSpecify,
+          });
+
+          // TODO: Add GA4 tracking when MobileAnalyticsService is implemented
+          // this.analytics.trackReferralSourceSubmitted({
+          //   source: formData.referralSource.source,
+          //   details: formData.referralSource.details,
+          //   clubName: formData.referralSource.clubName,
+          //   otherSpecify: formData.referralSource.otherSpecify,
+          // });
+
+          console.info('[Onboarding] Referral source saved successfully');
+        } catch (referralError) {
+          console.warn('[Onboarding] Failed to save referral source, continuing:', referralError);
+          // Don't fail the entire onboarding if referral save fails
+        }
+      }
+
+      // Then call backend to mark onboarding complete
+      await this.authApi.completeOnboarding(user.uid);
+
+      // Refresh user profile to update hasCompletedOnboarding flag
+      await this.authFlow.refreshUserProfile();
+
       // Success haptic feedback
       await this.haptics.notification('success');
-
-      // Save form data to backend via auth flow service
-      // Note: Backend integration pending - tracking completion only
-      console.info('[Onboarding] Completing onboarding for user:', user.uid);
-      console.debug('[Onboarding] Form data:', this._formData());
 
       // Clear session from storage - onboarding complete!
       await this.clearSession();

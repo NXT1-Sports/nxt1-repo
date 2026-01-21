@@ -111,10 +111,18 @@ export interface TeamFormData {
   state?: string;
   /** City (optional) */
   city?: string;
+  /** Team logo URL or base64 data URI */
+  teamLogo?: string | null;
+  /** Team colors array (hex values, e.g., ["#000000", "#CCFF00"]) */
+  teamColors?: string[];
   /** Second team name (optional - for athletes on multiple teams) */
   secondTeamName?: string;
   /** Second team type (optional) */
   secondTeamType?: OnboardingTeamType;
+  /** Second team logo URL or base64 data URI */
+  secondTeamLogo?: string | null;
+  /** Second team colors array (hex values) */
+  secondTeamColors?: string[];
 }
 
 /**
@@ -138,12 +146,10 @@ export interface OrganizationFormData {
   secondOrganization?: string;
 }
 
-/** Sport form data */
+/** Sport form data - array of selected sports */
 export interface SportFormData {
-  primarySport: string;
-  secondarySport?: string;
-  thirdSport?: string;
-  selectedSports?: string[];
+  /** Array of selected sports */
+  selectedSports: string[];
 }
 
 /** Positions form data */
@@ -177,6 +183,7 @@ export interface ContactFormData {
 /** Referral source data */
 export interface ReferralSourceData {
   source: string;
+  details?: string;
   clubName?: string;
   otherSpecify?: string;
 }
@@ -482,17 +489,12 @@ export function validateOrganization(data?: OrganizationFormData): boolean {
 
 /**
  * Validate sport step data
- * Accepts either primarySport or selectedSports array with at least one item
+ * Requires at least one sport selected
  * ⭐ PURE FUNCTION - No dependencies
  */
 export function validateSport(data?: SportFormData): boolean {
   if (!data) return false;
-  // Check selectedSports array first (new multi-select system)
-  if (data.selectedSports && data.selectedSports.length > 0) {
-    return true;
-  }
-  // Fallback to primarySport (backwards compatibility)
-  return !!data.primarySport?.trim();
+  return data.selectedSports?.length > 0 && data.selectedSports.every((s) => s.trim().length > 0);
 }
 
 /**
@@ -765,7 +767,7 @@ export function buildInitialFormDataFromTeamCode(
 
   if (teamCode.sport) {
     formData.sport = {
-      primarySport: teamCode.sport,
+      selectedSports: [teamCode.sport],
     };
   }
 

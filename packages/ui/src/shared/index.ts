@@ -22,3 +22,7 @@ export { NxtChipComponent, type ChipSize, type ChipVariant } from './chip';
 export { NxtValidationSummaryComponent, type ValidationSummaryVariant } from './validation-summary';
 
 export { NxtFormFieldComponent } from './form-field';
+
+export { NxtTeamLogoPickerComponent } from './team-logo-picker';
+
+export { NxtColorPickerComponent } from './color-picker';

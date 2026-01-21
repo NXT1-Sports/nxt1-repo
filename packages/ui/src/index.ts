@@ -95,6 +95,8 @@ export {
   type ValidationSummaryVariant,
 } from './shared/validation-summary';
 export { NxtFormFieldComponent } from './shared/form-field';
+export { NxtTeamLogoPickerComponent } from './shared/team-logo-picker';
+export { NxtColorPickerComponent } from './shared/color-picker';
 
 // ============================================
 // SERVICES

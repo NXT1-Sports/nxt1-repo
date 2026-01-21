@@ -114,24 +114,24 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
        STEP INDICATOR (Circle)
        ============================================ */
       .nxt1-step-indicator {
-        width: 36px;
-        height: 36px;
+        width: var(--nxt1-spacing-9);
+        height: var(--nxt1-spacing-9);
         border-radius: 50%;
-        border: 2px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border: 2px solid var(--nxt1-color-border-subtle);
         background: transparent;
         display: flex;
         align-items: center;
         justify-content: center;
         cursor: default;
-        transition: all 0.2s ease-out;
+        transition: all var(--nxt1-transition-fast) var(--nxt1-easing-default);
         flex-shrink: 0;
       }
 
       .nxt1-step-indicator .nxt1-step-number {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 14px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
         font-weight: 600;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -142,52 +142,52 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
       }
 
       .nxt1-step-indicator.clickable:hover:not(.active) {
-        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        border-color: var(--nxt1-color-border-default);
+        background: var(--nxt1-color-state-hover);
       }
 
       .nxt1-step-indicator.active {
-        border-color: var(--nxt1-color-primary, #ccff00);
-        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        border-color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-alpha-primary10);
       }
 
       .nxt1-step-indicator.active .nxt1-step-number {
-        color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary);
       }
 
       .nxt1-step-indicator.completed:not(.active) {
-        border-color: var(--nxt1-color-success, #22c55e);
-        background: var(--nxt1-color-successBg, rgba(34, 197, 94, 0.1));
+        border-color: var(--nxt1-color-success);
+        background: var(--nxt1-color-successBg);
       }
 
       .nxt1-step-indicator.completed:not(.active) .nxt1-step-number {
-        color: var(--nxt1-color-success, #22c55e);
+        color: var(--nxt1-color-success);
       }
 
       /* ============================================
        STEP CONNECTOR (Line between circles)
        ============================================ */
       .nxt1-step-connector {
-        width: 32px;
+        width: var(--nxt1-spacing-8);
         height: 2px;
-        background: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        transition: background 0.3s ease-out;
+        background: var(--nxt1-color-border-subtle);
+        transition: background var(--nxt1-transition-normal) var(--nxt1-easing-default);
       }
 
       .nxt1-step-connector.completed {
-        background: var(--nxt1-color-success, #22c55e);
+        background: var(--nxt1-color-success);
       }
 
       /* ============================================
        STEP COUNT TEXT
        ============================================ */
       .nxt1-step-count {
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        font-size: 12px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
         font-weight: 500;
         letter-spacing: 0.05em;
         text-transform: uppercase;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
     `,
   ],

@@ -95,19 +95,34 @@ export function normalizeSportKey(sportName: string): string {
 export function formatSportDisplayName(sportName: string): string {
   if (!sportName) return '';
 
-  const genderMatch = sportName.match(/^(.+?)\s*\((Mens|Womens)\)$/i);
-  if (genderMatch) {
-    const sport = genderMatch[1].trim();
-    const gender = genderMatch[2].toLowerCase();
+  // Handle v1 format: "basketball mens" → "Men's Basketball"
+  const v1GenderMatch = sportName.match(/^(.+?)\s+(mens|womens)$/i);
+  if (v1GenderMatch) {
+    const sport = v1GenderMatch[1].trim();
+    const gender = v1GenderMatch[2].toLowerCase();
     const genderPrefix = gender === 'mens' ? "Men's" : "Women's";
     return `${genderPrefix} ${toTitleCase(sport)}`;
   }
 
+  // Handle parentheses format: "Basketball (Mens)" → "Men's Basketball"
+  const parenGenderMatch = sportName.match(/^(.+?)\s*\((Mens|Womens)\)$/i);
+  if (parenGenderMatch) {
+    const sport = parenGenderMatch[1].trim();
+    const gender = parenGenderMatch[2].toLowerCase();
+    const genderPrefix = gender === 'mens' ? "Men's" : "Women's";
+    return `${genderPrefix} ${toTitleCase(sport)}`;
+  }
+
+  // Handle underscore format: "basketball_mens" → "Men's Basketball"
   if (sportName.includes('_')) {
-    return sportName
-      .split('_')
-      .map((word) => toTitleCase(word))
-      .join(' ');
+    const parts = sportName.split('_');
+    const lastPart = parts[parts.length - 1].toLowerCase();
+    if (lastPart === 'mens' || lastPart === 'womens') {
+      const sport = parts.slice(0, -1).join(' ');
+      const genderPrefix = lastPart === 'mens' ? "Men's" : "Women's";
+      return `${genderPrefix} ${toTitleCase(sport)}`;
+    }
+    return parts.map((word) => toTitleCase(word)).join(' ');
   }
 
   return toTitleCase(sportName);
@@ -156,7 +171,6 @@ export type SportId = (typeof SPORT_IDS)[keyof typeof SPORT_IDS];
 
 export const SPORTS: readonly string[] = [
   'football',
-  'field hockey',
   'basketball mens',
   'basketball womens',
   'baseball',
@@ -165,28 +179,29 @@ export const SPORTS: readonly string[] = [
   'soccer womens',
   'lacrosse mens',
   'lacrosse womens',
+  'volleyball mens',
+  'volleyball womens',
   'golf mens',
   'golf womens',
   'track & field mens',
   'track & field womens',
   'cross country mens',
   'cross country womens',
-  'volleyball mens',
-  'volleyball womens',
-  'rowing mens',
-  'rowing womens',
-  'wrestling',
-  'bowling womens',
+  'field hockey',
   'ice hockey mens',
   'ice hockey womens',
   'tennis mens',
   'tennis womens',
   'swimming & diving mens',
   'swimming & diving womens',
+  'rowing mens',
+  'rowing womens',
+  'wrestling',
   'gymnastics mens',
   'gymnastics womens',
   'water polo mens',
   'water polo womens',
+  'bowling womens',
 ] as const;
 
 export type SportName = (typeof SPORTS)[number];
@@ -381,49 +396,46 @@ export const POSITION_ABBREVIATIONS: Record<string, Record<string, string>> = {
 export const POSITION_MAPPING_BY_SPORT = POSITION_ABBREVIATIONS;
 
 // ============================================
-// DEFAULT SPORTS (SSR/Offline Fallback)
+// DEFAULT SPORTS (Single Source of Truth)
 // ============================================
+// ⚠️ MUST MATCH v1 nxt1/src/app/shared/const.ts SPORTS array exactly
+// These are the official NCAA sport names used throughout the platform.
+// Order matches v1 for consistency across web, mobile, and backend.
 
 export const DEFAULT_SPORTS: SportCell[] = [
-  { name: 'Football', icon: '🏈' },
-  { name: 'Basketball (Mens)', icon: '🏀' },
-  { name: 'Basketball (Womens)', icon: '🏀' },
-  { name: 'Baseball', icon: '⚾' },
-  { name: 'Softball', icon: '🥎' },
-  { name: 'Soccer (Mens)', icon: '⚽' },
-  { name: 'Soccer (Womens)', icon: '⚽' },
-  { name: 'Volleyball (Womens)', icon: '🏐' },
-  { name: 'Volleyball (Mens)', icon: '🏐' },
-  { name: 'Tennis', icon: '🎾' },
-  { name: 'Golf', icon: '⛳' },
-  { name: 'Swimming', icon: '🏊' },
-  { name: 'Track & Field', icon: '🏃' },
-  { name: 'Cross Country', icon: '🏃‍♂️' },
-  { name: 'Wrestling', icon: '🤼' },
-  { name: 'Lacrosse (Mens)', icon: '🥍' },
-  { name: 'Lacrosse (Womens)', icon: '🥍' },
-  { name: 'Ice Hockey', icon: '🏒' },
-  { name: 'Field Hockey', icon: '🏑' },
-  { name: 'Gymnastics', icon: '🤸' },
-  { name: 'Cheerleading', icon: '📣' },
-  { name: 'Dance', icon: '💃' },
-  { name: 'Water Polo', icon: '🤽' },
-  { name: 'Diving', icon: '🤿' },
-  { name: 'Boxing', icon: '🥊' },
-  { name: 'MMA', icon: '🥋' },
-  { name: 'Rowing', icon: '🚣' },
-  { name: 'Skiing', icon: '⛷️' },
-  { name: 'Snowboarding', icon: '🏂' },
-  { name: 'Surfing', icon: '🏄' },
-  { name: 'Skateboarding', icon: '🛹' },
-  { name: 'Cycling', icon: '🚴' },
-  { name: 'Rugby', icon: '🏉' },
-  { name: 'Fencing', icon: '🤺' },
-  { name: 'Bowling', icon: '🎳' },
-  { name: 'Equestrian', icon: '🏇' },
-  { name: 'Triathlon', icon: '🏊‍♂️' },
-  { name: 'Esports', icon: '🎮' },
-  { name: 'Other', icon: '🏅' },
+  // Core Sports - ordered by popularity/participation
+  { name: 'football', icon: '🏈' },
+  { name: 'basketball mens', icon: '🏀' },
+  { name: 'basketball womens', icon: '🏀' },
+  { name: 'baseball', icon: '⚾' },
+  { name: 'softball', icon: '🥎' },
+  { name: 'soccer mens', icon: '⚽' },
+  { name: 'soccer womens', icon: '⚽' },
+  { name: 'lacrosse mens', icon: '🥍' },
+  { name: 'lacrosse womens', icon: '🥍' },
+  { name: 'volleyball mens', icon: '🏐' },
+  { name: 'volleyball womens', icon: '🏐' },
+  { name: 'golf mens', icon: '⛳' },
+  { name: 'golf womens', icon: '⛳' },
+  { name: 'track & field mens', icon: '🏃' },
+  { name: 'track & field womens', icon: '🏃‍♀️' },
+  { name: 'cross country mens', icon: '🏃‍♂️' },
+  { name: 'cross country womens', icon: '🏃‍♀️' },
+  { name: 'field hockey', icon: '🏑' },
+  { name: 'ice hockey mens', icon: '🏒' },
+  { name: 'ice hockey womens', icon: '🏒' },
+  { name: 'tennis mens', icon: '🎾' },
+  { name: 'tennis womens', icon: '🎾' },
+  { name: 'swimming & diving mens', icon: '🏊' },
+  { name: 'swimming & diving womens', icon: '🏊‍♀️' },
+  { name: 'rowing mens', icon: '🚣' },
+  { name: 'rowing womens', icon: '🚣‍♀️' },
+  { name: 'wrestling', icon: '🤼' },
+  { name: 'gymnastics mens', icon: '🤸' },
+  { name: 'gymnastics womens', icon: '🤸‍♀️' },
+  { name: 'water polo mens', icon: '🤽' },
+  { name: 'water polo womens', icon: '🤽‍♀️' },
+  { name: 'bowling womens', icon: '🎳' },
 ];
 
 export const SPORT_EMOJI_MAP: Record<string, string> = DEFAULT_SPORTS.reduce(
