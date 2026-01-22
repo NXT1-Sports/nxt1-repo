@@ -828,15 +828,16 @@ export class OnboardingPage implements OnInit, OnDestroy {
       this.toast.success('Profile setup complete! Welcome to NXT1.');
 
       // Navigate to home - guard will now see hasCompletedOnboarding = true
-      console.log('[Onboarding] Attempting navigation to:', AUTH_REDIRECTS.DEFAULT);
+      // router.navigate() expects path segments (without leading slash), not full URL
+      console.log('[Onboarding] Navigating to home');
 
       try {
-        const navigationResult = await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
+        const navigationResult = await this.router.navigate(['home']);
         console.log('[Onboarding] Navigation result:', navigationResult);
 
         if (!navigationResult) {
-          console.error('[Onboarding] Navigation failed, trying navigateByUrl');
-          // Fallback: Force navigation with navigateByUrl
+          console.error('[Onboarding] Navigation failed, trying navigateByUrl as fallback');
+          // Fallback: Use navigateByUrl which accepts full URL string
           await this.router.navigateByUrl(AUTH_REDIRECTS.DEFAULT);
         }
       } catch (navError) {

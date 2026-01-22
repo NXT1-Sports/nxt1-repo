@@ -433,14 +433,33 @@ router.get(
     }
 
     const userData = userDoc.data();
-    const profile = {
+    const profile: {
+      id: string;
+      email?: string;
+      firstName?: string;
+      lastName?: string;
+      profileImg?: string;
+      primarySport?: string;
+      isRecruit?: boolean;
+      isCollegeCoach?: boolean;
+      completeSignUp?: boolean;
+      lastActivatedPlan?: string;
+      teamCode?: unknown;
+      [key: string]: unknown;
+    } = {
       id: userDoc.id,
-      ...userData,
+      email: userData?.['email'],
+      firstName: userData?.['firstName'],
+      lastName: userData?.['lastName'],
+      profileImg: userData?.['profileImg'],
+      primarySport: userData?.['primarySport'] || userData?.['sport'],
+      isRecruit: userData?.['isRecruit'] || false,
+      isCollegeCoach: userData?.['isCollegeCoach'] || false,
+      completeSignUp: userData?.['completeSignUp'] || false,
+      lastActivatedPlan: userData?.['lastActivatedPlan'],
+      teamCode: userData?.['teamCode'],
     };
-    res.json({
-      success: true,
-      data: profile,
-    });
+    res.json(profile);
   })
 );
 

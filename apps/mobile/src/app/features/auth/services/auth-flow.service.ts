@@ -148,7 +148,15 @@ export class AuthFlowService implements OnDestroy {
   readonly photoURL = computed(() => this.user()?.photoURL);
 
   constructor() {
-    this.initializeAuthManager();
+    // Initialize auth manager immediately and start listening to Firebase
+    // Note: This is async but we don't await it here because:
+    // 1. Constructor can't be async
+    // 2. app.component.ts waits for isInitialized signal before navigating
+    // 3. isInitialized is set to true when auth check completes
+    this.initializeAuthManager().catch((err) => {
+      console.error('[AuthFlowService] Failed to initialize auth:', err);
+      this.authManager?.setInitialized(true);
+    });
   }
 
   ngOnDestroy(): void {
@@ -253,9 +261,23 @@ export class AuthFlowService implements OnDestroy {
           // Sync profile
           await this.syncUserProfile(firebaseUser.uid);
         } else {
-          // No user - reset state
-          this.httpAdapter.setAuthToken(null);
-          await this.authManager.reset();
+          // No Firebase user - check if we have a persisted user
+          // On page reload, Firebase might not have synced yet, but we have persisted state
+          const currentState = this._state();
+          if (!currentState.user) {
+            // No persisted user either - reset state
+            console.log('[AuthFlowService] No Firebase user and no persisted user, resetting');
+            this.httpAdapter.setAuthToken(null);
+            await this.authManager.reset();
+          } else {
+            // We have persisted user but Firebase returned null
+            // This is normal on initial app startup - Firebase hasn't fully initialized
+            console.log(
+              '[AuthFlowService] Persisted user found, keeping state despite Firebase null'
+            );
+            // Re-sync profile to ensure it's fresh
+            await this.syncUserProfile(currentState.user.uid);
+          }
         }
       } catch (err) {
         console.error('[AuthFlowService] Auth state sync failed:', err);
@@ -266,8 +288,8 @@ export class AuthFlowService implements OnDestroy {
       }
     };
 
-    // Initial check
-    checkAuth();
+    // Initial check - await to ensure auth is fully initialized before app routes
+    void checkAuth();
   }
 
   /**
