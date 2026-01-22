@@ -9,11 +9,17 @@
 import { Routes } from '@angular/router';
 
 export const routes: Routes = [
-  // Redirect root to auth
+  // Redirect root to home (home guard handles auth check)
   {
     path: '',
     pathMatch: 'full',
-    redirectTo: 'auth',
+    redirectTo: 'home',
+  },
+
+  // Home (requires authentication + completed onboarding)
+  {
+    path: 'home',
+    loadChildren: () => import('./features/home/home.routes').then((m) => m.HOME_ROUTES),
   },
 
   // Authentication Routes (matches web's AUTH_ROUTES)
@@ -22,9 +28,9 @@ export const routes: Routes = [
     loadChildren: () => import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),
   },
 
-  // Catch-all redirect to auth
+  // Catch-all redirect to home (guard will redirect to auth if needed)
   {
     path: '**',
-    redirectTo: 'auth',
+    redirectTo: 'home',
   },
 ];

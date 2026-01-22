@@ -17,7 +17,6 @@
 
 import {
   Component,
-  input,
   signal,
   computed,
   viewChild,
@@ -53,26 +52,26 @@ export type PickerMode = 'sport' | 'position';
   ],
   template: `
     <nxt1-picker-shell
-      [title]="title()"
-      [showSearch]="showSearch()"
-      [searchPlaceholder]="searchPlaceholder()"
-      [showCount]="showCount()"
+      [title]="title"
+      [showSearch]="showSearch"
+      [searchPlaceholder]="searchPlaceholder"
+      [showCount]="showCount"
       [currentCount]="currentCount()"
-      [maxCount]="maxCount()"
-      [confirmText]="confirmText()"
-      [cancelText]="cancelText()"
+      [maxCount]="maxCount"
+      [confirmText]="confirmText"
+      [cancelText]="cancelText"
       [canConfirm]="canConfirm()"
-      [autoFocusSearch]="autoFocusSearch()"
+      [autoFocusSearch]="autoFocusSearch"
       (confirm)="onConfirm()"
       (cancel)="onCancel()"
       (searchChange)="onSearchChange($event)"
     >
-      @switch (mode()) {
+      @switch (mode) {
         @case ('sport') {
           <nxt1-sport-picker-content
             #sportContent
-            [addedSports]="addedSports()"
-            [availableSports]="availableSports()"
+            [addedSports]="addedSports"
+            [availableSports]="availableSports"
             [searchQuery]="searchQuery()"
             (sportSelected)="onSportSelected($event)"
           />
@@ -80,9 +79,9 @@ export type PickerMode = 'sport' | 'position';
         @case ('position') {
           <nxt1-position-picker-content
             #positionContent
-            [positionGroups]="positionGroups()"
-            [initialSelectedPositions]="initialSelectedPositions()"
-            [maxPositions]="maxPositions()"
+            [positionGroups]="positionGroups"
+            [initialSelectedPositions]="initialSelectedPositions"
+            [maxPositions]="maxPositions"
             [searchQuery]="searchQuery()"
             (selectionChange)="onPositionSelectionChange($event)"
           />
@@ -107,58 +106,60 @@ export class NxtPickerComponent implements AfterViewInit {
   readonly positionContent = viewChild<NxtPositionPickerContentComponent>('positionContent');
 
   // ============================================
-  // SHARED INPUTS (from service)
+  // SHARED INPUTS (from service via componentProps)
+  // Note: Using regular properties instead of signal inputs because
+  // ModalController.create() doesn't properly bind signal inputs
   // ============================================
 
   /** Picker mode (determines which content to show) */
-  readonly mode = input.required<PickerMode>();
+  mode!: PickerMode;
 
   /** Title for the picker */
-  readonly title = input<string>('Select');
+  title = 'Select';
 
   /** Whether to show search */
-  readonly showSearch = input<boolean>(false);
+  showSearch = false;
 
   /** Search placeholder */
-  readonly searchPlaceholder = input<string>('Search...');
+  searchPlaceholder = 'Search...';
 
   /** Whether to show count badge */
-  readonly showCount = input<boolean>(false);
+  showCount = false;
 
   /** Maximum selections allowed */
-  readonly maxCount = input<number>(0);
+  maxCount = 0;
 
   /** Confirm button text */
-  readonly confirmText = input<string>('Done');
+  confirmText = 'Done';
 
   /** Cancel button text */
-  readonly cancelText = input<string>('Cancel');
+  cancelText = 'Cancel';
 
   /** Auto-focus search on open */
-  readonly autoFocusSearch = input<boolean>(false);
+  autoFocusSearch = false;
 
   // ============================================
   // SPORT PICKER INPUTS
   // ============================================
 
   /** Sports already added (shown as disabled) */
-  readonly addedSports = input<readonly string[]>([]);
+  addedSports: readonly string[] = [];
 
   /** Available sports to display */
-  readonly availableSports = input<readonly SportItem[]>([]);
+  availableSports: readonly SportItem[] = [];
 
   // ============================================
   // POSITION PICKER INPUTS
   // ============================================
 
   /** Position groups for display */
-  readonly positionGroups = input<readonly PositionGroup[]>([]);
+  positionGroups: readonly PositionGroup[] = [];
 
   /** Initially selected positions */
-  readonly initialSelectedPositions = input<readonly string[]>([]);
+  initialSelectedPositions: readonly string[] = [];
 
   /** Maximum positions allowed */
-  readonly maxPositions = input<number>(5);
+  maxPositions = 5;
 
   // ============================================
   // INTERNAL STATE
@@ -179,7 +180,7 @@ export class NxtPickerComponent implements AfterViewInit {
 
   /** Current count for display */
   readonly currentCount = computed(() => {
-    if (this.mode() === 'position') {
+    if (this.mode === 'position') {
       return this.selectedPositions().length;
     }
     return this.selectedSport() ? 1 : 0;
@@ -187,7 +188,7 @@ export class NxtPickerComponent implements AfterViewInit {
 
   /** Whether confirm button should be enabled */
   readonly canConfirm = computed(() => {
-    if (this.mode() === 'sport') {
+    if (this.mode === 'sport') {
       return this.selectedSport() !== null;
     }
     // For positions, allow confirmation even with 0 selections (user may want to clear)
@@ -200,8 +201,8 @@ export class NxtPickerComponent implements AfterViewInit {
 
   ngAfterViewInit(): void {
     // Initialize position selection from input
-    if (this.mode() === 'position') {
-      this.selectedPositions.set([...this.initialSelectedPositions()]);
+    if (this.mode === 'position') {
+      this.selectedPositions.set([...this.initialSelectedPositions]);
     }
   }
 
@@ -242,7 +243,7 @@ export class NxtPickerComponent implements AfterViewInit {
 
   /** Dismiss the modal with result */
   private dismiss(confirmed: boolean): void {
-    if (this.mode() === 'sport') {
+    if (this.mode === 'sport') {
       this.modalCtrl.dismiss({
         confirmed,
         sport: confirmed ? this.selectedSport() : null,

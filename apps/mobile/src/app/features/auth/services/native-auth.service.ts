@@ -33,8 +33,7 @@
  */
 import { Injectable, inject } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
-// TODO: Uncomment when @codetrix-studio/capacitor-google-auth is installed
-// import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
+import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
 import { NxtPlatformService, HapticsService } from '@nxt1/ui';
 import type { NativeAuthResult, NativeAuthProvider, NativeAuthAvailability } from '@nxt1/core';
 
@@ -107,10 +106,52 @@ export class NativeAuthService {
    * @throws Error on failure
    */
   async signInWithGoogle(): Promise<NativeAuthResult | null> {
-    // TODO: Uncomment when @codetrix-studio/capacitor-google-auth is installed
-    throw new Error(
-      'Google Sign-In requires @codetrix-studio/capacitor-google-auth. Install with: npm install @codetrix-studio/capacitor-google-auth'
-    );
+    if (!this.isNativeAvailable) {
+      throw new Error('Native Google Sign-In is only available on iOS/Android');
+    }
+
+    try {
+      console.log('[NativeAuth] Starting Google Sign-In...');
+      await this.haptics.selection();
+
+      // Sign in with Google using native UI
+      const googleUser = await GoogleAuth.signIn();
+
+      console.log('[NativeAuth] Google Sign-In successful:', {
+        email: googleUser.email,
+        name: googleUser.name,
+        hasIdToken: !!googleUser.authentication?.idToken,
+      });
+
+      // Haptic feedback on success
+      await this.haptics.notification('success');
+
+      // Return standardized result
+      return {
+        provider: 'google',
+        idToken: googleUser.authentication.idToken,
+        user: {
+          id: googleUser.id,
+          email: googleUser.email,
+          displayName: googleUser.name,
+          photoUrl: googleUser.imageUrl ?? null,
+        },
+      };
+    } catch (error: unknown) {
+      // User canceled
+      if (error && typeof error === 'object' && 'error' in error) {
+        const err = error as { error: string };
+        if (err.error === 'popup_closed_by_user' || err.error === 'cancelled') {
+          console.log('[NativeAuth] Google Sign-In canceled by user');
+          return null;
+        }
+      }
+
+      // Error haptic feedback
+      await this.haptics.notification('error');
+      console.error('[NativeAuth] Google Sign-In error:', error);
+      throw error;
+    }
   }
 
   // ============================================

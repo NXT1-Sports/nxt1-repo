@@ -150,14 +150,31 @@ export const onboardingCompleteGuard: CanActivateFn = () => {
 
   if (authService.isInitialized()) {
     const state = getAuthState(authService);
+    console.log('[onboardingCompleteGuard] Checking access:', {
+      isAuthenticated: !!state.user,
+      hasCompletedOnboarding: state.user?.hasCompletedOnboarding,
+    });
     const result = requireOnboarding(state, { loginPath: AUTH_ROUTES.ROOT });
+    console.log('[onboardingCompleteGuard] Result:', {
+      allowed: result.allowed,
+      redirectTo: result.redirectTo,
+    });
     if (result.allowed) return true;
     return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.ONBOARDING]);
   }
 
+  console.log('[onboardingCompleteGuard] Waiting for auth initialization');
   return waitForAuthInitialization(authService).pipe(
     map((state) => {
+      console.log('[onboardingCompleteGuard] Auth initialized, checking access:', {
+        isAuthenticated: !!state.user,
+        hasCompletedOnboarding: state.user?.hasCompletedOnboarding,
+      });
       const result = requireOnboarding(state, { loginPath: AUTH_ROUTES.ROOT });
+      console.log('[onboardingCompleteGuard] Result:', {
+        allowed: result.allowed,
+        redirectTo: result.redirectTo,
+      });
       if (result.allowed) return true;
       return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.ONBOARDING]);
     })

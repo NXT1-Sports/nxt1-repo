@@ -119,7 +119,8 @@ interface PartialOnboardingFormData extends Omit<Partial<OnboardingFormData>, 'u
 // ============================================
 
 /** Initial steps - role selection is added at the END of configured flows */
-const DEFAULT_STEPS: OnboardingStep[] = [];
+/** Initial steps - role selection is the default starting step */
+const DEFAULT_STEPS: OnboardingStep[] = [ROLE_SELECTION_STEP];
 
 /** Session expiry time (24 hours in milliseconds) */
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
@@ -160,10 +161,10 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     >
       <!-- Title & Subtitle -->
       <nxt1-auth-title authTitle testId="onboarding-title">
-        {{ currentStep().title }}
+        {{ currentStep().title || 'Loading...' }}
       </nxt1-auth-title>
       <nxt1-auth-subtitle authSubtitle testId="onboarding-subtitle">
-        {{ currentStep().subtitle }}
+        {{ currentStep().subtitle || '' }}
       </nxt1-auth-subtitle>
 
       <!-- Main Content -->
@@ -183,7 +184,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             variant="seamless"
             [error]="error()"
             [animationDirection]="animationDirection()"
-            [animationKey]="currentStep().id"
+            [animationKey]="currentStep().id || 'loading'"
           >
             <!-- Role Selection (Optional - Last Step) -->
             @if (currentStep().id === 'role') {
@@ -274,7 +275,9 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                     />
                   </svg>
                 </div>
-                <p class="text-text-secondary">{{ currentStep().title }} coming soon...</p>
+                <p class="text-text-secondary">
+                  {{ currentStep().title || 'Step' }} coming soon...
+                </p>
               </div>
             }
           </nxt1-onboarding-step-card>
@@ -501,7 +504,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   readonly currentStep = computed(() => {
     const steps = this._steps();
     const index = this._currentStepIndex();
-    return steps[index] ?? steps[0];
+    return steps[index] ?? steps[0] ?? ROLE_SELECTION_STEP;
   });
 
   /** Whether user can go back */
@@ -666,6 +669,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   onRoleSelect(type: OnboardingUserType): void {
     this.selectedRole.set(type);
     this._formData.update((data) => ({ ...data, userType: type }));
+
+    // Configure steps based on selected role
+    this.configureStepsForRole();
   }
 
   /**
@@ -899,9 +905,12 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     // Get role-specific steps from @nxt1/core
     const roleSteps = ONBOARDING_STEPS[role] ?? ONBOARDING_STEPS.athlete;
 
-    // Role selection is now at the end, configured steps come first
-    // This matches 2026 best practice: single-page wizard with consistent progress
-    const allSteps = [ROLE_SELECTION_STEP, ...roleSteps];
+    // Filter out role step from roleSteps since we add ROLE_SELECTION_STEP at the beginning
+    // This prevents duplicate role steps in the array
+    const stepsWithoutRole = roleSteps.filter((step) => step.id !== 'role');
+
+    // Role selection is now at the beginning, other steps follow
+    const allSteps = [ROLE_SELECTION_STEP, ...stepsWithoutRole];
     this._steps.set(allSteps);
 
     // Set animation direction for forward navigation
@@ -1134,7 +1143,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    * Track onboarding error.
    */
   private trackError(errorMessage: string): void {
-    this.onboardingAnalytics.trackError(errorMessage, this.currentStep()?.id);
+    this.onboardingAnalytics.trackError(errorMessage, this.currentStep().id);
   }
 
   // ============================================
@@ -1164,7 +1173,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
       await this.sessionApi.saveSession(session);
       console.debug('[Onboarding] Session saved:', {
-        step: this.currentStep()?.id,
+        step: this.currentStep().id,
         index: session.stepIndex,
       });
     } catch (err) {

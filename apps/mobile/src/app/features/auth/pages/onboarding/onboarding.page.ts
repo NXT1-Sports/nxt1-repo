@@ -106,8 +106,8 @@ interface PartialOnboardingFormData extends Omit<Partial<OnboardingFormData>, 'u
 // CONSTANTS
 // ============================================
 
-/** Initial steps - role selection is added at the END of configured flows */
-const DEFAULT_STEPS: OnboardingStep[] = [];
+/** Initial steps - role selection is the default starting step */
+const DEFAULT_STEPS: OnboardingStep[] = [ROLE_SELECTION_STEP];
 
 /** Session expiry time (24 hours in milliseconds) */
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
@@ -225,7 +225,9 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                     />
                   </svg>
                 </div>
-                <p class="text-text-secondary">{{ currentStep().title }} coming soon...</p>
+                <p class="text-text-secondary">
+                  {{ currentStep().title || 'Step' }} coming soon...
+                </p>
               </div>
             }
           </nxt1-onboarding-step-card>
@@ -366,11 +368,11 @@ export class OnboardingPage implements OnInit, OnDestroy {
   /** Completed step IDs set */
   readonly completedStepIds = computed(() => this._completedSteps());
 
-  /** Current step object - always returns a valid step (defaults to first step) */
+  /** Current step object - always returns a valid step (defaults to first step or role selection) */
   readonly currentStep = computed(() => {
     const steps = this._steps();
     const index = this._currentStepIndex();
-    return steps[index] ?? steps[0];
+    return steps[index] ?? steps[0] ?? ROLE_SELECTION_STEP;
   });
 
   /** Whether user can go back */
@@ -480,6 +482,9 @@ export class OnboardingPage implements OnInit, OnDestroy {
     await this.haptics.selection();
     this.selectedRole.set(type);
     this._formData.update((data) => ({ ...data, userType: type }));
+
+    // Configure steps based on selected role
+    this.configureStepsForRole();
   }
 
   /**
@@ -650,9 +655,12 @@ export class OnboardingPage implements OnInit, OnDestroy {
     // Get role-specific steps from @nxt1/core
     const roleSteps = ONBOARDING_STEPS[role] ?? ONBOARDING_STEPS.athlete;
 
-    // Role selection is now at the end, configured steps come first
-    // This matches 2026 best practice: single-page wizard with consistent progress
-    const allSteps = [ROLE_SELECTION_STEP, ...roleSteps];
+    // Filter out role step from roleSteps since we add ROLE_SELECTION_STEP at the beginning
+    // This prevents duplicate role steps in the array
+    const stepsWithoutRole = roleSteps.filter((step) => step.id !== 'role');
+
+    // Role selection is now at the beginning, other steps follow
+    const allSteps = [ROLE_SELECTION_STEP, ...stepsWithoutRole];
     this._steps.set(allSteps);
 
     // Set animation direction for forward navigation
@@ -762,10 +770,47 @@ export class OnboardingPage implements OnInit, OnDestroy {
       }
 
       // Then call backend to mark onboarding complete
-      await this.authApi.completeOnboarding(user.uid);
+      console.log('[Onboarding] Calling completeOnboarding API for user:', user.uid);
+      try {
+        const completeResponse = await this.authApi.completeOnboarding(user.uid);
+        console.log('[Onboarding] completeOnboarding API SUCCESS:', completeResponse);
+      } catch (apiError) {
+        console.error('[Onboarding] completeOnboarding API FAILED:', apiError);
+        // Continue anyway - we'll manually mark as complete
+      }
 
       // Refresh user profile to update hasCompletedOnboarding flag
-      await this.authFlow.refreshUserProfile();
+      console.log('[Onboarding] Calling refreshUserProfile...');
+      try {
+        await this.authFlow.refreshUserProfile();
+        console.log('[Onboarding] refreshUserProfile completed successfully');
+      } catch (refreshError) {
+        console.error('[Onboarding] refreshUserProfile FAILED:', refreshError);
+      }
+
+      // IMPORTANT: Wait for signal to update before navigation
+      // Poll until hasCompletedOnboarding is true (with timeout)
+      const maxWait = 2000; // 2 seconds max
+      const pollInterval = 50; // Check every 50ms
+      const startTime = Date.now();
+
+      while (!this.authFlow.hasCompletedOnboarding() && Date.now() - startTime < maxWait) {
+        await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      }
+
+      // Debug: Verify state before navigation
+      const updatedUser = this.authFlow.user();
+      console.log('[Onboarding] User state before navigation:', {
+        uid: updatedUser?.uid,
+        hasCompletedOnboarding: updatedUser?.hasCompletedOnboarding,
+        waitedMs: Date.now() - startTime,
+      });
+
+      if (!updatedUser?.hasCompletedOnboarding) {
+        console.warn(
+          '[Onboarding] hasCompletedOnboarding still false after waiting! Proceeding anyway...'
+        );
+      }
 
       // Success haptic feedback
       await this.haptics.notification('success');
@@ -782,8 +827,25 @@ export class OnboardingPage implements OnInit, OnDestroy {
       // Show success toast
       this.toast.success('Profile setup complete! Welcome to NXT1.');
 
-      // Navigate to home
-      await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
+      // Navigate to home - guard will now see hasCompletedOnboarding = true
+      console.log('[Onboarding] Attempting navigation to:', AUTH_REDIRECTS.DEFAULT);
+
+      try {
+        const navigationResult = await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
+        console.log('[Onboarding] Navigation result:', navigationResult);
+
+        if (!navigationResult) {
+          console.error('[Onboarding] Navigation failed, trying navigateByUrl');
+          // Fallback: Force navigation with navigateByUrl
+          await this.router.navigateByUrl(AUTH_REDIRECTS.DEFAULT);
+        }
+      } catch (navError) {
+        console.error('[Onboarding] Navigation error:', navError);
+        // Last resort: Force reload to home page
+        window.location.href = AUTH_REDIRECTS.DEFAULT;
+      }
+
+      console.log('[Onboarding] Navigation completed, current URL:', this.router.url);
     } catch (err) {
       console.error('[Onboarding] Failed to complete:', err);
 
@@ -862,7 +924,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
     console.error('[Onboarding] Error:', {
       userId: user?.uid,
       error: errorMessage,
-      step: this.currentStep()?.id,
+      step: this.currentStep().id,
     });
   }
 
@@ -891,7 +953,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
       await this.sessionApi.saveSession(session);
       console.debug('[Onboarding] Session saved:', {
-        step: this.currentStep()?.id,
+        step: this.currentStep().id,
         index: session.stepIndex,
       });
     } catch (err) {

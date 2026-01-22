@@ -7,7 +7,7 @@ export const environment = {
   production: false,
   appVersion: '2.0.0-dev',
   // Use staging API path - use Mac's IP for device testing
-  apiUrl: 'https://backend.nxt1sports.com/api/v1/staging',
+  apiUrl: 'http://localhost:3000/api/v1/staging',
   firebase: {
     apiKey: 'AIzaSyDSwJsZTCXeUQ2qPPqrGHQjMwxksQ-fkvE',
     authDomain: 'nxt-1-staging.firebaseapp.com',
@@ -17,5 +17,5 @@ export const environment = {
     appId: '1:455734259010:web:34d2571568094bb75a6cdb',
     measurementId: 'G-TH51Q9XZNB',
   },
-  googleClientId: '574223545656-od13fibpirieo8hqmlk1ajhpvqs9vp60.apps.googleusercontent.com',
+  googleClientId: '455734259010-d04kqk9g2kkfov38t0lrdqcrlujtrsom.apps.googleusercontent.com',
 };

@@ -683,6 +683,55 @@ router.post(
 );
 
 /**
+ * POST /auth/profile/onboarding
+ * Save user's complete onboarding profile data
+ */
+router.post(
+  '/profile/onboarding',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase;
+    const { userId, ...profileData } = req.body as { userId: string; [key: string]: unknown };
+
+    if (!userId) {
+      const error = validationError([
+        { field: 'userId', message: 'User ID is required', rule: 'required' },
+      ]);
+      sendError(res, error);
+      return;
+    }
+
+    const now = new Date().toISOString();
+
+    // Update user document with complete onboarding data
+    await db
+      .collection('Users')
+      .doc(userId)
+      .update({
+        ...profileData,
+        signupCompleted: true,
+        onboardingCompleted: true,
+        updatedAt: now,
+      });
+
+    // Fetch updated user data
+    const updatedUser = await db.collection('Users').doc(userId).get();
+    const userData = updatedUser.data();
+
+    res.json({
+      success: true,
+      user: {
+        id: userId,
+        firstName: userData?.['firstName'],
+        lastName: userData?.['lastName'],
+        completeSignUp: userData?.['completeSignUp'] || true,
+        primarySport: userData?.['primarySport'] || userData?.['sport'],
+      },
+      redirectPath: '/home',
+    });
+  })
+);
+
+/**
  * POST /auth/profile/complete-onboarding
  * Mark user's onboarding as complete
  */
@@ -723,6 +772,64 @@ router.post(
         primarySport: userData?.['primarySport'] || userData?.['sport'],
       },
       redirectPath: '/explore',
+    });
+  })
+);
+
+/**
+ * POST /auth/analytics/hear-about
+ * Save referral source ("How did you hear about us")
+ */
+router.post(
+  '/analytics/hear-about',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { db } = req.firebase;
+    const { userId, source, details, clubName, otherSpecify } = req.body as {
+      userId: string;
+      source: string;
+      details?: string;
+      clubName?: string;
+      otherSpecify?: string;
+    };
+
+    if (!userId || !source) {
+      const error = validationError([
+        { field: 'userId', message: 'User ID is required', rule: 'required' },
+        { field: 'source', message: 'Source is required', rule: 'required' },
+      ]);
+      sendError(res, error);
+      return;
+    }
+
+    const now = new Date();
+
+    // Create HearAbout document
+    const hearAboutData: Record<string, unknown> = {
+      userId,
+      source,
+      timestamp: now,
+      createdAt: now.toISOString(),
+    };
+
+    if (details) hearAboutData['details'] = details;
+    if (clubName) hearAboutData['clubName'] = clubName;
+    if (otherSpecify) hearAboutData['otherSpecify'] = otherSpecify;
+
+    const hearAboutRef = await db.collection('HearAbout').add(hearAboutData);
+
+    // Update user document with referral source
+    await db
+      .collection('Users')
+      .doc(userId)
+      .update({
+        referralSource: source,
+        referralDetails: details || null,
+        updatedAt: now.toISOString(),
+      });
+
+    res.json({
+      success: true,
+      id: hearAboutRef.id,
     });
   })
 );

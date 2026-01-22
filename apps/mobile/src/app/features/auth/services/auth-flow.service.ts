@@ -38,6 +38,7 @@ import {
   type AuthState as CoreAuthState,
   type AuthStateManager,
   type AuthUser,
+  type UserProfileResponse,
   createAuthStateManager,
   createBrowserStorageAdapter,
   createMemoryStorageAdapter,
@@ -281,16 +282,36 @@ export class AuthFlowService implements OnDestroy {
       const rawProvider = this.firebaseAuth.getProviderFromUser(firebaseUser);
       const provider = rawProvider === 'microsoft' ? 'email' : rawProvider;
 
-      // Create AuthUser from Firebase data
-      // Note: Full profile data will be fetched from backend API
+      // Fetch full profile data from backend
+      let backendProfile: UserProfileResponse | null = null;
+      try {
+        backendProfile = await this.authApi.getUserProfile(firebaseUser.uid);
+        console.log('[AuthFlowService] Backend profile fetched:', {
+          uid: firebaseUser.uid,
+          completeSignUp: backendProfile.completeSignUp,
+        });
+      } catch (err) {
+        console.warn('[AuthFlowService] Failed to fetch backend profile, using defaults:', err);
+      }
+
+      // Map backend completeSignUp -> frontend hasCompletedOnboarding
+      const hasCompletedOnboarding = backendProfile?.completeSignUp === true;
+
+      console.log('[AuthFlowService] Mapped hasCompletedOnboarding:', hasCompletedOnboarding);
+
+      // Create AuthUser from Firebase + backend data
       const authUser: AuthUser = {
         uid: firebaseUser.uid,
         email: firebaseUser.email ?? '',
-        displayName: firebaseUser.displayName ?? 'User',
-        photoURL: firebaseUser.photoURL ?? undefined,
-        role: 'athlete' as UserRole, // Default - should come from backend
-        isPremium: false, // Should come from backend
-        hasCompletedOnboarding: false, // Should come from backend
+        displayName:
+          firebaseUser.displayName ??
+          (backendProfile?.firstName && backendProfile?.lastName
+            ? `${backendProfile.firstName} ${backendProfile.lastName}`
+            : 'User'),
+        photoURL: firebaseUser.photoURL ?? backendProfile?.profileImg ?? undefined,
+        role: this.getUserRole(backendProfile),
+        isPremium: backendProfile?.lastActivatedPlan !== 'free',
+        hasCompletedOnboarding,
         provider,
         emailVerified: firebaseUser.emailVerified,
         createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
@@ -298,9 +319,24 @@ export class AuthFlowService implements OnDestroy {
       };
 
       await this.authManager.setUser(authUser);
+      console.log(
+        '[AuthFlowService] User state updated with hasCompletedOnboarding:',
+        authUser.hasCompletedOnboarding
+      );
     } catch (err) {
       console.error('[AuthFlowService] Failed to sync user profile:', err);
     }
+  }
+
+  /**
+   * Determine user role from backend profile
+   * Maps legacy flags to UserRole enum
+   */
+  private getUserRole(user: UserProfileResponse | null): UserRole {
+    if (!user) return 'athlete';
+    if (user.isCollegeCoach) return 'coach'; // Map college-coach to coach
+    if (user.isRecruit) return 'athlete';
+    return 'athlete'; // default
   }
 
   // ============================================

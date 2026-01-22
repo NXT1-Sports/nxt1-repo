@@ -29,6 +29,8 @@
  * @version 2.0.0
  */
 
+import type { SportEntry } from './onboarding-navigation.api';
+
 // ============================================
 // ADAPTER INTERFACE
 // ============================================
@@ -178,13 +180,19 @@ export interface OrganizationFormData {
   secondOrganization?: string;
 }
 
-/** Sport form data - array of selected sports */
+/**
+ * Sport form data - v3.0 format with full SportEntry objects
+ * @see SportEntry from onboarding-navigation.api.ts
+ */
 export interface SportFormData {
-  /** Array of selected sports */
-  selectedSports: string[];
+  /** Array of sport entries (1-3 sports supported) */
+  sports: SportEntry[];
 }
 
-/** Positions form data */
+/**
+ * Positions form data
+ * @deprecated Use SportFormData.sports[].positions instead (v3.0)
+ */
 export interface PositionsFormData {
   positions: string[];
 }
@@ -490,49 +498,39 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   }
 
   // =========== SPORTS ARRAY ===========
-  const selectedSports = formData.sport?.selectedSports || [];
-  if (selectedSports.length > 0) {
-    const primarySportName = selectedSports[0];
-    const primarySport: Record<string, unknown> = {
-      sport: primarySportName,
-      order: 0,
-      positions: formData.positions?.positions || [],
-      metrics: {},
-      seasonStats: [],
-      accountType: 'athlete',
-      team: {
-        name: formData.school?.schoolName || formData.organization?.organizationName || '',
-        type: formData.school?.schoolType === 'Club' ? 'club' : 'high-school',
-      },
-    };
-
-    // Add team code data to sport if available
-    if (teamCodeData) {
-      primarySport['team'] = {
-        name: teamCodeData.teamName || formData.school?.schoolName || '',
-        type: teamCodeData.teamType || 'high-school',
-        logo: teamCodeData.teamLogoImg || null,
-        colors: [teamCodeData.teamColor1 || '', teamCodeData.teamColor2 || ''].filter(Boolean),
-      };
-    }
-
-    const sports = [primarySport];
-
-    // Add secondary sports if exist
-    for (let i = 1; i < selectedSports.length; i++) {
-      sports.push({
-        sport: selectedSports[i],
-        order: i,
-        positions: [],
+  // V3.0 format: sports is an array of SportEntry objects
+  const sportEntries = formData.sport?.sports || [];
+  if (sportEntries.length > 0) {
+    const sports = sportEntries.map((entry, index) => {
+      const sportData: Record<string, unknown> = {
+        sport: entry.sport,
+        order: index,
+        positions: entry.positions || [],
         metrics: {},
         seasonStats: [],
         accountType: 'athlete',
         team: {
-          name: '',
-          type: 'high-school',
+          name:
+            entry.team ||
+            formData.school?.schoolName ||
+            formData.organization?.organizationName ||
+            '',
+          type: formData.school?.schoolType === 'Club' ? 'club' : 'high-school',
         },
-      });
-    }
+      };
+
+      // Add team code data to primary sport if available
+      if (index === 0 && teamCodeData) {
+        sportData['team'] = {
+          name: teamCodeData.teamName || entry.team || formData.school?.schoolName || '',
+          type: teamCodeData.teamType || 'high-school',
+          logo: teamCodeData.teamLogoImg || null,
+          colors: [teamCodeData.teamColor1 || '', teamCodeData.teamColor2 || ''].filter(Boolean),
+        };
+      }
+
+      return sportData;
+    });
 
     payload['sports'] = sports;
     payload['activeSportIndex'] = 0;
@@ -612,9 +610,10 @@ export function buildReferralSourcePayload(data: {
     firstName: data.formData.profile?.firstName ?? null,
     lastName: data.formData.profile?.lastName ?? null,
 
-    // Sport info
-    primarySport: data.formData.sport?.selectedSports?.[0] ?? null,
-    positions: data.formData.positions?.positions ?? [],
+    // Sport info (v3.0 format)
+    primarySport: data.formData.sport?.sports?.[0]?.sport ?? null,
+    positions:
+      data.formData.sport?.sports?.[0]?.positions ?? data.formData.positions?.positions ?? [],
 
     // School/Organization info
     schoolName: data.formData.school?.schoolName ?? null,
@@ -636,7 +635,7 @@ export function buildReferralSourcePayload(data: {
       data.formData.organization?.organizationName ??
       null,
     teamType: data.teamCodeData?.teamType ?? null,
-    teamSport: data.teamCodeData?.sport ?? data.formData.sport?.selectedSports?.[0] ?? null,
+    teamSport: data.teamCodeData?.sport ?? data.formData.sport?.sports?.[0]?.sport ?? null,
   };
 
   // Add source-specific fields

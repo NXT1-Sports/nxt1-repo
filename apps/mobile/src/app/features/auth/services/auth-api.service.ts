@@ -13,7 +13,7 @@
  * @module @nxt1/mobile/features/auth
  */
 import { Injectable, inject } from '@angular/core';
-import { createAuthApi, type AuthApi } from '@nxt1/core';
+import { createAuthApi, type AuthApi, type UserProfileResponse } from '@nxt1/core';
 import { CapacitorHttpAdapter } from '../../../core/infrastructure';
 import { environment } from '../../../../environments/environment';
 
@@ -47,6 +47,17 @@ export class AuthApiService {
       this._api = createAuthApi(this.http, environment.apiUrl);
     }
     return this._api;
+  }
+
+  // ============================================
+  // USER PROFILE
+  // ============================================
+
+  /**
+   * Get user profile by UID
+   */
+  async getUserProfile(uid: string): Promise<UserProfileResponse> {
+    return this.api.getProfile(uid);
   }
 
   // ============================================
