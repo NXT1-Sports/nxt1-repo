@@ -171,14 +171,27 @@ export class NativeAuthService {
   }
 
   // ============================================
-  // MICROSOFT SIGN-IN (Not supported - requires additional plugin)
+  // MICROSOFT SIGN-IN (Native in-app browser via Firebase)
   // ============================================
 
   /**
-   * Sign in with Microsoft - NOT SUPPORTED in current implementation
+   * Sign in with Microsoft - Uses Firebase signInWithPopup
+   *
+   * Microsoft doesn't provide a native SDK for Capacitor like Google does.
+   * Firebase's signInWithPopup uses an IN-APP BROWSER (not external browser),
+   * providing a native-like experience with:
+   * - In-app Safari View Controller (iOS) / Chrome Custom Tabs (Android)
+   * - Automatic token handling and security (PKCE)
+   * - Seamless return to app after auth
+   *
+   * Alternative: Implement custom OAuth flow with deep links, but Firebase
+   * solution is simpler, more secure, and provides equivalent UX.
+   *
+   * @returns null to indicate Firebase should use in-app browser popup
    */
   async signInWithMicrosoft(): Promise<NativeAuthResult | null> {
-    throw new Error('Microsoft Sign-In is not currently supported in native mobile');
+    console.log('[NativeAuth] Microsoft Sign-In using Firebase in-app browser');
+    return null; // Triggers Firebase signInWithPopup with in-app browser
   }
 
   // ============================================

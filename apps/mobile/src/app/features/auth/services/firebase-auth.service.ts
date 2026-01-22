@@ -248,24 +248,27 @@ export class FirebaseAuthService implements OnDestroy {
    * @throws Error on failure
    */
   async signInWithMicrosoft(): Promise<UserCredential> {
-    // Use native auth on iOS/Android
+    // Check native auth first
     if (this.nativeAuth.isNativeAvailable) {
-      console.debug('[FirebaseAuthService] Using native Microsoft Sign-In');
+      console.debug('[FirebaseAuthService] Checking native Microsoft Sign-In');
       const nativeResult = await this.nativeAuth.signInWithMicrosoft();
 
-      // User cancelled
-      if (!nativeResult) {
-        throw new Error('Sign-in was cancelled');
+      // If nativeResult exists, use native credential
+      if (nativeResult) {
+        return this.signInWithNativeCredential(nativeResult);
       }
 
-      // Convert native result to Firebase credential
-      return this.signInWithNativeCredential(nativeResult);
+      // If null, fall through to Firebase popup (native auth unavailable for Microsoft)
+      console.debug('[FirebaseAuthService] Native Microsoft unavailable, using Firebase popup');
     }
 
-    // Web fallback (development/PWA)
-    console.debug('[FirebaseAuthService] Using web Microsoft Sign-In (fallback)');
+    // Use Firebase popup flow (works on both web and mobile)
+    // On mobile, Firebase automatically opens in-app browser for OAuth
+    console.debug('[FirebaseAuthService] Using Firebase popup for Microsoft Sign-In');
     const provider = new OAuthProvider('microsoft.com');
     provider.addScope('user.read');
+    provider.addScope('email');
+    provider.addScope('profile');
     return signInWithPopup(this.auth, provider);
   }
 
