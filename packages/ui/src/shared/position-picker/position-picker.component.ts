@@ -49,7 +49,7 @@ import {
 import { formatPositionDisplay } from '@nxt1/core/constants';
 import type { PositionGroup } from '@nxt1/core/constants';
 import { HapticButtonDirective } from '../../services/haptics';
-import type { PositionPickerResult, PositionPickerState } from './position-picker.types';
+import type { PositionPickerResult } from './position-picker.types';
 import { POSITION_PICKER_DEFAULTS } from './position-picker.types';
 
 @Component({

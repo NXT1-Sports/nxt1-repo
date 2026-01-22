@@ -131,7 +131,7 @@ export class NxtPositionPickerService {
     await modal.present();
 
     // Wait for dismiss and get result
-    const { data, role } = await modal.onDidDismiss<PositionPickerResult>();
+    const { data } = await modal.onDidDismiss<PositionPickerResult>();
 
     // Return result (default to cancelled if no data)
     return (
