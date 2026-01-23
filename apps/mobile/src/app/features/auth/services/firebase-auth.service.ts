@@ -39,7 +39,7 @@ import {
   OAuthProvider,
   OAuthCredential,
 } from '@angular/fire/auth';
-import { Capacitor } from '@capacitor/core';
+// import { Capacitor } from '@capacitor/core';
 import { Subscription } from 'rxjs';
 import { NxtPlatformService } from '@nxt1/ui';
 import type { FirebaseUserInfo, NativeAuthResult } from '@nxt1/core';
@@ -128,16 +128,100 @@ export class FirebaseAuthService implements OnDestroy {
 
   /**
    * Sign in with email and password
+   * Ensures Firebase is fully initialized before attempting authentication
    */
   async signInWithEmail(email: string, password: string): Promise<UserCredential> {
-    return signInWithEmailAndPassword(this.auth, email, password);
+    console.log('[FirebaseAuthService] Signing in with email:', email);
+
+    try {
+      // Wait for auth to be fully initialized
+      console.log('[FirebaseAuthService] Waiting for Firebase Auth initialization...');
+
+      // Check if Firebase can access current user (indicates initialization)
+      let retries = 0;
+      while (retries < 5) {
+        try {
+          // this.auth.currentUser;
+          console.log('[FirebaseAuthService] Firebase Auth ready');
+          break;
+        } catch (e) {
+          retries++;
+          if (retries >= 5) throw e;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+
+      console.log('[FirebaseAuthService] Calling Firebase signInWithEmailAndPassword...');
+      const signInResult = await this.withTimeout(
+        signInWithEmailAndPassword(this.auth, email, password),
+        20000,
+        'Firebase sign in'
+      );
+      console.log('[FirebaseAuthService] Firebase sign in completed, uid:', signInResult.user.uid);
+      return signInResult;
+    } catch (err) {
+      console.error('[FirebaseAuthService] Firebase sign in failed:', err);
+      throw err;
+    }
   }
 
   /**
    * Create user with email and password
+   * Ensures Firebase is fully initialized before attempting user creation
    */
   async createUserWithEmail(email: string, password: string): Promise<UserCredential> {
-    return createUserWithEmailAndPassword(this.auth, email, password);
+    console.log('[FirebaseAuthService] Creating user with email:', email);
+    try {
+      // Wait for auth to be fully initialized
+      console.log('[FirebaseAuthService] Waiting for Firebase Auth initialization...');
+
+      // Check if Firebase can access current user (indicates initialization)
+      let retries = 0;
+      while (retries < 5) {
+        try {
+          // this.auth.currentUser;
+          console.log('[FirebaseAuthService] Firebase Auth ready');
+          break;
+        } catch (e) {
+          retries++;
+          if (retries >= 5) throw e;
+          await new Promise((r) => setTimeout(r, 500));
+        }
+      }
+
+      const createResult = await this.withTimeout(
+        createUserWithEmailAndPassword(this.auth, email, password),
+        15000,
+        'Firebase user creation'
+      );
+      console.log(
+        '[FirebaseAuthService] Firebase user creation completed, uid:',
+        createResult.user.uid
+      );
+      return createResult;
+    } catch (err) {
+      console.error('[FirebaseAuthService] User creation failed:', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Helper to add timeout to Promise
+   */
+  private withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    operationName: string
+  ): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => {
+          console.error(`[FirebaseAuthService] ${operationName} timed out after ${timeoutMs}ms`);
+          reject(new Error(`${operationName} timeout - Firebase is not responding`));
+        }, timeoutMs)
+      ),
+    ]);
   }
 
   /**

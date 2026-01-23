@@ -57,7 +57,15 @@ export class AuthApiService {
    * Get user profile by UID
    */
   async getUserProfile(uid: string): Promise<UserProfileResponse> {
-    return this.api.getProfile(uid);
+    console.log('[AuthApiService] Getting profile for uid:', uid);
+    try {
+      const profile = await this.api.getProfile(uid);
+      console.log('[AuthApiService] Profile fetched successfully');
+      return profile;
+    } catch (err) {
+      console.error('[AuthApiService] Failed to get profile:', err);
+      throw err;
+    }
   }
 
   // ============================================

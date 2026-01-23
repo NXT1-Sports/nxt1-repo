@@ -304,10 +304,19 @@ export class AuthFlowService implements OnDestroy {
       const rawProvider = this.firebaseAuth.getProviderFromUser(firebaseUser);
       const provider = rawProvider === 'microsoft' ? 'email' : rawProvider;
 
-      // Fetch full profile data from backend
+      // Fetch full profile data from backend with timeout
       let backendProfile: UserProfileResponse | null = null;
       try {
-        backendProfile = await this.authApi.getUserProfile(firebaseUser.uid);
+        console.log('[AuthFlowService] Fetching backend profile for uid:', firebaseUser.uid);
+
+        // Add timeout to prevent hanging
+        const profilePromise = this.authApi.getUserProfile(firebaseUser.uid);
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Backend profile fetch timeout')), 10000)
+        );
+
+        backendProfile = await Promise.race([profilePromise, timeoutPromise]);
+
         console.log('[AuthFlowService] Backend profile fetched:', {
           uid: firebaseUser.uid,
           completeSignUp: backendProfile.completeSignUp,
@@ -373,10 +382,12 @@ export class AuthFlowService implements OnDestroy {
     this.authManager.setError(null);
 
     try {
+      console.log('[AuthFlowService] Starting email sign in for:', credentials.email);
       const result = await this.firebaseAuth.signInWithEmail(
         credentials.email,
         credentials.password
       );
+      console.log('[AuthFlowService] Firebase sign in successful, uid:', result.user.uid);
 
       // Track successful sign in
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: AUTH_METHODS.EMAIL });
@@ -384,6 +395,7 @@ export class AuthFlowService implements OnDestroy {
 
       // Get token and update HTTP adapter
       const token = await result.user.getIdToken();
+      console.log('[AuthFlowService] Got ID token for user');
       this.httpAdapter.setAuthToken(token);
       await this.authManager.setToken({
         token,
@@ -392,6 +404,7 @@ export class AuthFlowService implements OnDestroy {
       });
 
       // Sync profile
+      console.log('[AuthFlowService] Syncing user profile...');
       await this.syncUserProfile(result.user.uid);
 
       // Set analytics user properties after sync
@@ -408,11 +421,14 @@ export class AuthFlowService implements OnDestroy {
       const redirectPath = this.hasCompletedOnboarding()
         ? AUTH_REDIRECTS.DEFAULT
         : AUTH_REDIRECTS.ONBOARDING;
+      console.log('[AuthFlowService] Navigating to:', redirectPath);
       await this.router.navigate([redirectPath]);
 
+      console.log('[AuthFlowService] Email sign in completed successfully');
       return true;
     } catch (err) {
       // Track sign-in error
+      console.error('[AuthFlowService] Email sign in failed:', err);
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
         method: AUTH_METHODS.EMAIL,
         error_code: getAuthErrorCode(err) ?? 'unknown',

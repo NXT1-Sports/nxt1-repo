@@ -427,19 +427,23 @@ export class AuthPage implements OnInit {
     this.authFlow.clearError();
     try {
       await this.haptics.impact('medium');
+      console.log('[AuthPage] Email submit - mode:', this.mode(), 'email:', data.email);
 
       if (this.mode() === 'login') {
+        console.log('[AuthPage] Attempting email/password sign in...');
         const success = await this.authFlow.signInWithEmail({
           email: data.email,
           password: data.password,
         });
 
+        console.log('[AuthPage] Email sign in result:', success);
         if (success) {
           await this.haptics.notification('success');
         } else {
           await this.haptics.notification('error');
         }
       } else {
+        console.log('[AuthPage] Attempting email/password sign up...');
         // Pass team code if validated
         const success = await this.authFlow.signUpWithEmail({
           email: data.email,
@@ -447,13 +451,15 @@ export class AuthPage implements OnInit {
           teamCode: this.validatedTeam()?.code,
         });
 
+        console.log('[AuthPage] Email sign up result:', success);
         if (success) {
           await this.haptics.notification('success');
         } else {
           await this.haptics.notification('error');
         }
       }
-    } catch {
+    } catch (err) {
+      console.error('[AuthPage] Email submit error:', err);
       await this.haptics.notification('error');
     }
   }
