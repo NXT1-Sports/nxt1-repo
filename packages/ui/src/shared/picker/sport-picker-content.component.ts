@@ -15,15 +15,7 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import {
-  Component,
-  input,
-  output,
-  signal,
-  computed,
-  ChangeDetectionStrategy,
-  inject,
-} from '@angular/core';
+import { Component, input, output, signal, computed, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';

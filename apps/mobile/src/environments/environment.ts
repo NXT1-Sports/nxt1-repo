@@ -6,8 +6,8 @@
 export const environment = {
   production: false,
   appVersion: '2.0.0-dev',
-  // Use staging API path - use Mac's IP for device testing
-  apiUrl: 'http://localhost:3000/api/v1/staging',
+  // Use Mac's IP for device testing (localhost doesn't work on physical devices)
+  apiUrl: 'http://192.168.1.112:3000/api/v1/staging',
   firebase: {
     apiKey: 'AIzaSyDSwJsZTCXeUQ2qPPqrGHQjMwxksQ-fkvE',
     authDomain: 'nxt-1-staging.firebaseapp.com',

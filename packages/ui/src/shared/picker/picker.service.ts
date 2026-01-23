@@ -70,8 +70,6 @@ import type {
   SportPickerResult,
   PositionPickerConfig,
   PositionPickerResult,
-  SPORT_PICKER_DEFAULTS,
-  POSITION_PICKER_DEFAULTS,
 } from './picker.types';
 
 // ============================================

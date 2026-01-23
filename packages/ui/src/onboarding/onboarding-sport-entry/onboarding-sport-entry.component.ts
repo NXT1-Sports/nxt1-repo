@@ -77,7 +77,7 @@ import { NxtPickerService } from '../../shared/picker';
 // ============================================
 
 /** Minimum team name length for validation */
-const MIN_TEAM_NAME_LENGTH = 2;
+// const MIN_TEAM_NAME_LENGTH = 2; // TODO: Use for validation
 
 /** Maximum team colors allowed */
 const MAX_TEAM_COLORS = 4;

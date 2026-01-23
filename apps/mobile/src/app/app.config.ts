@@ -7,7 +7,12 @@
  */
 
 import { ApplicationConfig, provideZoneChangeDetection, ErrorHandler } from '@angular/core';
-import { provideRouter, withComponentInputBinding, RouteReuseStrategy } from '@angular/router';
+import {
+  provideRouter,
+  withComponentInputBinding,
+  RouteReuseStrategy,
+  withHashLocation,
+} from '@angular/router';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideIonicAngular, IonicRouteStrategy } from '@ionic/angular/standalone';
@@ -27,7 +32,7 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
 
-    provideRouter(routes, withComponentInputBinding()),
+    provideRouter(routes, withComponentInputBinding(), withHashLocation()),
 
     // HTTP client with error handling
     provideHttpClient(

@@ -40,7 +40,6 @@ import {
   computed,
   ChangeDetectionStrategy,
   ViewChild,
-  inject,
   ElementRef,
   AfterViewInit,
 } from '@angular/core';
@@ -54,7 +53,6 @@ import {
   IonIcon,
   IonContent,
   IonInput,
-  ModalController,
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { close, closeCircle, searchOutline, checkmark } from 'ionicons/icons';
@@ -316,7 +314,7 @@ export class NxtPickerShellComponent implements AfterViewInit {
   // DEPENDENCIES
   // ============================================
 
-  private readonly modalCtrl = inject(ModalController);
+  // private readonly modalCtrl = inject(ModalController); // TODO: Remove if not needed
 
   // ============================================
   // VIEW CHILDREN
