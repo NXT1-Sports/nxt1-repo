@@ -48,6 +48,8 @@ import {
 } from '@nxt1/core';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { AuthFlowService } from '../services/auth-flow.service';
+import { NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 
 // ============================================
 // HELPER FUNCTIONS
@@ -78,6 +80,7 @@ function getAuthState(authService: AuthFlowService): AuthState {
     isLoading: authService.isLoading(),
     isInitialized: authService.isInitialized(),
     error: authService.error(),
+    signupInProgress: false,
   };
 }
 
@@ -138,11 +141,12 @@ export const authGuard: CanActivateFn = () => {
 export const guestGuard: CanActivateFn = (route) => {
   const authService = inject(AuthFlowService);
   const router = inject(Router);
+  const logger: ILogger = inject(NxtLoggingService).child('GuestGuard');
 
   // DEV BYPASS: Allow access with ?dev=1 query param for testing
   const devBypass = route.queryParams['dev'] === '1';
   if (devBypass) {
-    console.warn('[guestGuard] DEV BYPASS ACTIVE - Remove ?dev=1 for production testing');
+    logger.warn('DEV BYPASS ACTIVE - Remove ?dev=1 for production testing');
     return true;
   }
 

@@ -1,17 +1,18 @@
 /**
  * @fileoverview OnboardingProgressBarComponent - Cross-Platform Progress Indicator
  * @module @nxt1/ui/onboarding
- * @version 2.0.0
+ * @version 3.0.0
  *
- * Reusable step progress indicator for onboarding wizard.
- * Displays step numbers with completion states and connectors.
+ * Professional step progress indicator for onboarding wizard.
+ * Displays step circles with completion states, connectors, and progress bar.
  *
  * Features:
+ * - Native app-like progress bar with smooth animation
+ * - Step circles with checkmarks for completed steps
  * - Platform-adaptive styling
  * - Accessible with ARIA attributes
  * - Click navigation to completed steps
  * - Animated transitions
- * - Mobile-friendly with horizontal scroll
  * - Test IDs for E2E testing
  *
  * Usage:
@@ -27,7 +28,7 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, input, output, ChangeDetectionStrategy } from '@angular/core';
+import { Component, input, output, computed, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../shared/icon';
 import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
@@ -69,9 +70,22 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
         }
       </div>
 
-      <!-- Step count text -->
-      <div class="nxt1-step-count">
-        <span>Step {{ currentStepIndex() + 1 }} of {{ steps().length }}</span>
+      <!-- Progress Bar with Motivational Message -->
+      <div class="nxt1-progress-section">
+        <span class="nxt1-progress-message">{{ progressMessage() }}</span>
+        <div class="nxt1-progress-row">
+          <div class="nxt1-progress-bar-container">
+            <div
+              class="nxt1-progress-bar-fill"
+              [style.width.%]="progressPercentage()"
+              role="progressbar"
+              [attr.aria-valuenow]="progressPercentage()"
+              aria-valuemin="0"
+              aria-valuemax="100"
+            ></div>
+          </div>
+          <span class="nxt1-progress-label">{{ progressPercentage() }}%</span>
+        </div>
       </div>
     </div>
   `,
@@ -148,20 +162,20 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
 
       .nxt1-step-indicator.active {
         border-color: var(--nxt1-color-primary);
-        background: var(--nxt1-color-alpha-primary10);
+        background: var(--nxt1-color-primary);
       }
 
       .nxt1-step-indicator.active .nxt1-step-number {
-        color: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
       }
 
       .nxt1-step-indicator.completed:not(.active) {
-        border-color: var(--nxt1-color-success);
-        background: var(--nxt1-color-successBg);
+        border-color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-primary);
       }
 
       .nxt1-step-indicator.completed:not(.active) .nxt1-step-number {
-        color: var(--nxt1-color-success);
+        color: var(--nxt1-color-text-onPrimary);
       }
 
       /* ============================================
@@ -175,19 +189,68 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
       }
 
       .nxt1-step-connector.completed {
-        background: var(--nxt1-color-success);
+        background: var(--nxt1-color-primary);
       }
 
       /* ============================================
-       STEP COUNT TEXT
+       PROGRESS SECTION
        ============================================ */
-      .nxt1-step-count {
+      .nxt1-progress-section {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+        width: 100%;
+        max-width: 280px;
+      }
+
+      .nxt1-progress-message {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-xs);
+        font-size: var(--nxt1-fontSize-sm);
         font-weight: 500;
-        letter-spacing: var(--nxt1-letterSpacing-wide);
-        text-transform: uppercase;
-        color: var(--nxt1-color-text-tertiary);
+        color: var(--nxt1-color-text-secondary);
+        text-align: center;
+      }
+
+      .nxt1-progress-row {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3);
+        width: 100%;
+      }
+
+      /* ============================================
+       PROGRESS BAR
+       ============================================ */
+      .nxt1-progress-bar-container {
+        flex: 1;
+        height: 6px;
+        background: var(--nxt1-color-surface-300);
+        border-radius: 100px;
+        overflow: hidden;
+      }
+
+      .nxt1-progress-bar-fill {
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          var(--nxt1-color-primary) 0%,
+          var(--nxt1-color-primaryLight) 100%
+        );
+        border-radius: 100px;
+        transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      /* ============================================
+       PROGRESS LABEL
+       ============================================ */
+      .nxt1-progress-label {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: 600;
+        color: var(--nxt1-color-primary);
+        min-width: 40px;
+        text-align: right;
       }
     `,
   ],
@@ -213,6 +276,43 @@ export class OnboardingProgressBarComponent {
 
   /** Emits when a step is clicked */
   readonly stepClick = output<number>();
+
+  // ============================================
+  // COMPUTED SIGNALS
+  // ============================================
+
+  /**
+   * Calculate progress percentage based on current step
+   * Shows partial progress within each step for smoother UX
+   */
+  readonly progressPercentage = computed(() => {
+    const total = this.steps().length;
+    if (total === 0) return 0;
+
+    const current = this.currentStepIndex();
+    // Progress = completed steps / total, showing current step as "in progress"
+    const percentage = Math.round(((current + 1) / total) * 100);
+    return Math.min(percentage, 100);
+  });
+
+  /**
+   * Get motivational message with emoji based on progress
+   */
+  readonly progressMessage = computed(() => {
+    const percentage = this.progressPercentage();
+
+    if (percentage <= 25) {
+      return "Let's get started 🚀";
+    } else if (percentage <= 50) {
+      return 'Great progress! 💪';
+    } else if (percentage <= 75) {
+      return 'Almost there ✨';
+    } else if (percentage < 100) {
+      return 'Final step 🎯';
+    } else {
+      return "You're all set! 🎉";
+    }
+  });
 
   // ============================================
   // METHODS

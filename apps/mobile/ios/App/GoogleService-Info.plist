@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CLIENT_ID</key>
+	<string>455734259010-qagtsakkvchuf3tnbgjgitjj80e740ib.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.455734259010-qagtsakkvchuf3tnbgjgitjj80e740ib</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>455734259010-33dk9g9nktnk982sh0lk61e84bv5o0f0.apps.googleusercontent.com</string>
+	<key>API_KEY</key>
+	<string>AIzaSyByV6jZgZAhPig3wAwnGnBWIWa7pSMRBKY</string>
+	<key>GCM_SENDER_ID</key>
+	<string>455734259010</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>com.nxt1.sports</string>
+	<key>PROJECT_ID</key>
+	<string>nxt-1-staging</string>
+	<key>STORAGE_BUCKET</key>
+	<string>nxt-1-staging.appspot.com</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:455734259010:ios:0e3891c1c716f3dc5a6cdb</string>
+</dict>
+</plist>

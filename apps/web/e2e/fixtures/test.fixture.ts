@@ -9,7 +9,7 @@
  */
 
 import { test as base, expect, Page, BrowserContext } from '@playwright/test';
-import { LoginPage, SignupPage, ForgotPasswordPage } from '../pages';
+import { LoginPage, SignupPage, ForgotPasswordPage, OnboardingPage } from '../pages';
 
 /**
  * Test user credentials loaded from environment
@@ -29,6 +29,8 @@ export interface TestFixtures {
   signupPage: SignupPage;
   /** Forgot password page object instance */
   forgotPasswordPage: ForgotPasswordPage;
+  /** Onboarding page object instance */
+  onboardingPage: OnboardingPage;
   /** Primary test user credentials */
   testUser: TestUser;
   /** Secondary test user credentials */
@@ -99,6 +101,15 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   forgotPasswordPage: async ({ page }, use) => {
     const forgotPasswordPage = new ForgotPasswordPage(page);
     await use(forgotPasswordPage);
+  },
+
+  /**
+   * Onboarding page fixture
+   * Creates a new OnboardingPage instance for each test
+   */
+  onboardingPage: async ({ page }, use) => {
+    const onboardingPage = new OnboardingPage(page);
+    await use(onboardingPage);
   },
 
   // ===========================================================================

@@ -77,6 +77,17 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
       </div>
     }
     <form class="flex w-full flex-col gap-5" (ngSubmit)="onSubmit()" data-testid="auth-email-form">
+      <!-- Hidden username field for accessibility and password managers -->
+      <input
+        type="text"
+        name="username"
+        autocomplete="username"
+        [value]="email"
+        class="sr-only"
+        tabindex="-1"
+        aria-hidden="true"
+      />
+
       <!-- Name Fields (signup only) -->
       @if (mode === 'signup' && showNameFields) {
         <div class="grid grid-cols-2 gap-3">
@@ -627,12 +638,23 @@ export class AuthEmailFormComponent {
   }
 
   onSubmit(): void {
-    if (!this.isFormValid() || this.loading) return;
+    console.log('[AuthEmailForm] onSubmit called', {
+      isFormValid: this.isFormValid(),
+      loading: this.loading,
+      mode: this.mode,
+      email: this.email,
+      passwordLength: this.password.length,
+    });
+    if (!this.isFormValid() || this.loading) {
+      console.log('[AuthEmailForm] Form invalid or loading, not submitting');
+      return;
+    }
 
     // Build display name from first/last if available
     const displayName =
       [this.firstName, this.lastName].filter(Boolean).join(' ').trim() || undefined;
 
+    console.log('[AuthEmailForm] Emitting submitForm event');
     this.submitForm.emit({
       email: this.email.trim(),
       password: this.password,

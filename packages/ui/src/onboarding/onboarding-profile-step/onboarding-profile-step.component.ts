@@ -1,17 +1,24 @@
 /**
  * @fileoverview OnboardingProfileStepComponent - Cross-Platform Profile Form
  * @module @nxt1/ui/onboarding
- * @version 2.0.0
+ * @version 3.0.0
  *
- * Reusable profile step component for onboarding Step 2.
- * Collects user's photo (optional), first name, last name, and graduation year (athletes only).
+ * Progressive disclosure profile step for onboarding.
+ * Collects ONLY essential info first: photo (optional), first name, last name.
+ *
+ * ⭐ 2026 UX BEST PRACTICES:
+ * - Progressive disclosure: classYear collected later in sport step
+ * - Gender selection: Inclusive options with professional UI
+ * - Location: Auto-detect via geolocation with manual fallback
+ * - Minimal cognitive load on first interaction
  *
  * Features:
  * - Platform-adaptive with Ionic components
  * - Profile photo upload with preview (max 5MB, JPG/PNG/WebP/GIF)
- * - Graduation year selector for athletes (Class of 2026-2036)
+ * - Professional gender selection (Male/Female/Non-binary/Prefer not to say)
+ * - Geolocation-based location auto-detect
  * - Real-time validation using @nxt1/core helpers
- * - Accessible with ARIA labels and role="radiogroup"
+ * - Accessible with ARIA labels
  * - Haptic feedback ready
  * - Test IDs for E2E testing
  *
@@ -20,10 +27,12 @@
  * <nxt1-onboarding-profile-step
  *   [profileData]="profileFormData()"
  *   [disabled]="isLoading()"
- *   [showClassYear]="isAthlete()"
+ *   [showGender]="true"
+ *   [showLocation]="true"
  *   (profileChange)="onProfileChange($event)"
  *   (photoSelect)="onPhotoSelect()"
  *   (fileSelected)="onFileSelected($event)"
+ *   (locationRequest)="onLocationRequest()"
  * />
  * ```
  *
@@ -45,9 +54,10 @@ import {
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { IonInput } from '@ionic/angular/standalone';
+import { IonInput, IonSpinner } from '@ionic/angular/standalone';
 import { isValidName } from '@nxt1/core/helpers';
-import type { ProfileFormData } from '@nxt1/core/api';
+import type { ProfileFormData, GenderOption, ProfileLocationData } from '@nxt1/core/api';
+import { GENDER_OPTIONS } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
@@ -65,27 +75,6 @@ const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gi
 /** Maximum file size in bytes (5MB) */
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
-/** Start year for graduation options */
-const GRADUATION_YEAR_START = 2026;
-
-/** End year for graduation options */
-const GRADUATION_YEAR_END = 2036;
-
-/**
- * Generate graduation year options
- * Uses constants for maintainability
- */
-function generateGraduationYears(): readonly number[] {
-  const years: number[] = [];
-  for (let year = GRADUATION_YEAR_START; year <= GRADUATION_YEAR_END; year++) {
-    years.push(year);
-  }
-  return Object.freeze(years);
-}
-
-/** Available graduation years */
-const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
-
 // ============================================
 // COMPONENT
 // ============================================
@@ -97,6 +86,7 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
     CommonModule,
     FormsModule,
     IonInput,
+    IonSpinner,
     HapticButtonDirective,
     NxtChipComponent,
     NxtFormFieldComponent,
@@ -144,7 +134,6 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
             <span class="nxt1-photo-label">Add Photo</span>
           }
         </button>
-        <p class="nxt1-photo-hint">Optional</p>
       </div>
 
       <!-- Hidden File Input -->
@@ -212,20 +201,82 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
         </nxt1-form-field>
       </div>
 
-      <!-- Graduation Year (Class Of) - Athletes Only -->
-      @if (showClassYear()) {
-        <nxt1-form-field label="Class Of (Graduation Year)" testId="onboarding-classyear-field">
-          <div class="nxt1-year-chips" role="radiogroup" aria-label="Select graduation year">
-            @for (year of graduationYears; track year) {
+      <!-- Gender Selection (Progressive disclosure - optional) -->
+      @if (showGender()) {
+        <nxt1-form-field label="Gender" testId="onboarding-gender-field">
+          <div class="nxt1-gender-chips" role="radiogroup" aria-label="Select gender">
+            @for (option of genderOptions; track option.value) {
               <nxt1-chip
-                [selected]="classYear() === year"
+                [selected]="gender() === option.value"
                 [disabled]="disabled()"
-                [testId]="'onboarding-class-year-' + year"
+                [testId]="'onboarding-gender-' + option.value"
                 ariaRole="radio"
-                (chipClick)="onYearSelect(year)"
+                (chipClick)="onGenderSelect(option.value)"
               >
-                {{ year }}
+                {{ option.label }}
               </nxt1-chip>
+            }
+          </div>
+        </nxt1-form-field>
+      }
+
+      <!-- Location Selection (with auto-detect) -->
+      @if (showLocation()) {
+        <nxt1-form-field label="Location" testId="onboarding-location-field">
+          <div class="nxt1-location-section">
+            <!-- Auto-detect button -->
+            <button
+              type="button"
+              class="nxt1-location-detect"
+              [class.has-location]="hasLocation()"
+              [disabled]="disabled() || isLoadingLocation()"
+              (click)="onDetectLocation()"
+              data-testid="onboarding-location-detect"
+              nxtHaptic="selection"
+            >
+              @if (isLoadingLocation()) {
+                <ion-spinner name="crescent" class="nxt1-location-spinner"></ion-spinner>
+                <span>Detecting location...</span>
+              } @else if (hasLocation()) {
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  class="nxt1-location-icon check"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"
+                  />
+                </svg>
+                <span class="nxt1-location-text">{{ locationDisplay() }}</span>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  class="nxt1-location-edit"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+                  />
+                </svg>
+              } @else {
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                  class="nxt1-location-icon"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"
+                  />
+                </svg>
+                <span>Detect My Location</span>
+              }
+            </button>
+
+            <!-- Location error -->
+            @if (locationError()) {
+              <p class="nxt1-location-error">{{ locationError() }}</p>
             }
           </div>
         </nxt1-form-field>
@@ -240,7 +291,7 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
       .nxt1-profile-form {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-6);
+        gap: var(--nxt1-spacing-6, 24px);
         width: 100%;
       }
 
@@ -251,64 +302,69 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: var(--nxt1-spacing-3);
+        gap: var(--nxt1-spacing-3, 12px);
       }
 
       .nxt1-photo-upload {
         position: relative;
-        width: var(--nxt1-spacing-32);
-        height: var(--nxt1-spacing-32);
+        width: var(--nxt1-spacing-32, 128px);
+        height: var(--nxt1-spacing-32, 128px);
         border-radius: 50%;
-        border: 2px solid var(--nxt1-color-border-default);
+        border: 2px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         background: transparent;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: var(--nxt1-spacing-2);
+        gap: var(--nxt1-spacing-2, 8px);
         cursor: pointer;
-        transition: all 0.2s ease;
-        /* Removed overflow: hidden to prevent clipping edit badge */
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
+        -webkit-tap-highlight-color: transparent;
       }
 
       .nxt1-photo-upload:hover:not(:disabled) {
-        border-color: var(--nxt1-color-primary);
-        background: var(--nxt1-color-alpha-primary5);
+        border-color: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-alpha-primary5, rgba(204, 255, 0, 0.05));
+        transform: scale(1.02);
+      }
+
+      .nxt1-photo-upload:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary, #ccff00);
+        outline-offset: 2px;
       }
 
       .nxt1-photo-upload:disabled {
-        opacity: 0.5;
+        opacity: 0.4;
         cursor: not-allowed;
+        transform: none;
       }
 
       .nxt1-photo-upload.has-image {
         border-style: solid;
-        border-color: var(--nxt1-color-primary);
+        border-color: var(--nxt1-color-primary, #ccff00);
       }
 
-      /* Photo placeholder */
       .nxt1-photo-placeholder {
-        width: var(--nxt1-spacing-12);
-        height: var(--nxt1-spacing-12);
+        width: var(--nxt1-spacing-12, 48px);
+        height: var(--nxt1-spacing-12, 48px);
         display: flex;
         align-items: center;
         justify-content: center;
       }
 
       .nxt1-photo-icon {
-        width: var(--nxt1-spacing-10);
-        height: var(--nxt1-spacing-10);
-        color: var(--nxt1-color-text-tertiary);
+        width: var(--nxt1-spacing-10, 40px);
+        height: var(--nxt1-spacing-10, 40px);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 
       .nxt1-photo-label {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-tertiary);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 
-      /* Photo preview */
       .nxt1-photo-preview {
         width: 100%;
         height: 100%;
@@ -316,45 +372,33 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
         border-radius: 50%;
       }
 
-      /* Edit badge on hover */
       .nxt1-photo-edit-badge {
         position: absolute;
         bottom: 0;
         right: 0;
-        width: var(--nxt1-spacing-7);
-        height: var(--nxt1-spacing-7);
+        width: var(--nxt1-spacing-7, 28px);
+        height: var(--nxt1-spacing-7, 28px);
         border-radius: 50%;
-        background: var(--nxt1-color-primary);
+        background: var(--nxt1-color-primary, #ccff00);
         display: flex;
         align-items: center;
         justify-content: center;
-        color: var(--nxt1-color-text-onPrimary);
-        border: 2px solid var(--nxt1-color-bg-primary);
+        color: var(--nxt1-color-text-onPrimary, #1a1a2e);
+        border: 2px solid var(--nxt1-color-bg-primary, #1a1a2e);
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       }
 
-      /* Photo hint text */
-      .nxt1-photo-hint {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-xs);
-        color: var(--nxt1-color-text-tertiary);
-        text-align: center;
-        margin: 0;
-      }
-
-      /* Hidden file input */
       .hidden {
         display: none;
       }
 
       /* ============================================
-       NAME FIELDS - Grid layout only
-       Field/label styles handled by NxtFormFieldComponent
+       NAME FIELDS
        ============================================ */
       .nxt1-name-fields {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: var(--nxt1-spacing-4);
+        gap: var(--nxt1-spacing-4, 16px);
         width: 100%;
       }
 
@@ -365,44 +409,146 @@ const GRADUATION_YEAR_OPTIONS: readonly number[] = generateGraduationYears();
       }
 
       /* ============================================
-       INPUT STYLING - Matches auth-email-form design tokens
+       INPUT STYLING
        ============================================ */
       .nxt1-input {
-        --background: var(--nxt1-color-state-hover);
-        --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg);
+        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
-        --color: var(--nxt1-color-text-primary);
-        --placeholder-color: var(--nxt1-color-text-tertiary);
+        --color: var(--nxt1-color-text-primary, #ffffff);
+        --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         --placeholder-opacity: 1;
         --padding-start: 16px;
         --padding-end: 16px;
         --padding-top: 14px;
         --padding-bottom: 14px;
-        --highlight-color-focused: var(--nxt1-color-border-strong);
-        --highlight-color-valid: var(--nxt1-color-border-strong);
+        --highlight-color-focused: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        --highlight-color-valid: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         min-height: 52px;
       }
 
       .nxt1-input:hover:not(.nxt1-input-error) {
-        --border-color: var(--nxt1-color-border-strong);
+        --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 
       .nxt1-input-error {
-        --border-color: var(--nxt1-color-error);
-        --highlight-color-focused: var(--nxt1-color-error);
+        --border-color: var(--nxt1-color-error, #ef4444);
+        --highlight-color-focused: var(--nxt1-color-error, #ef4444);
       }
 
       /* ============================================
-       YEAR CHIPS - Container layout only
-       Chip styles handled by NxtChipComponent
+       GENDER CHIPS
        ============================================ */
-      .nxt1-year-chips {
+      .nxt1-gender-chips {
         display: flex;
         flex-wrap: wrap;
-        gap: var(--nxt1-spacing-2);
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      /* ============================================
+       LOCATION SECTION
+       ============================================ */
+      .nxt1-location-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .nxt1-location-detect {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--nxt1-spacing-3, 12px);
+        width: 100%;
+        padding: var(--nxt1-spacing-4, 16px);
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        background: transparent;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: 500;
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-location-detect:hover:not(:disabled):not(.has-location) {
+        border-color: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-alpha-primary5, rgba(204, 255, 0, 0.05));
+        color: var(--nxt1-color-primary, #ccff00);
+        transform: translateY(-1px);
+      }
+
+      .nxt1-location-detect:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary, #ccff00);
+        outline-offset: 2px;
+      }
+
+      .nxt1-location-detect:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .nxt1-location-detect.has-location {
+        border-style: solid;
+        border-color: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        justify-content: flex-start;
+      }
+
+      .nxt1-location-detect.has-location:hover:not(:disabled) {
+        border-color: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        transform: none;
+      }
+
+      .nxt1-location-icon {
+        width: var(--nxt1-spacing-5);
+        height: var(--nxt1-spacing-5);
+        flex-shrink: 0;
+      }
+
+      .nxt1-location-icon.check {
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+      }
+
+      .nxt1-location-text {
+        flex: 1;
+        text-align: left;
+      }
+
+      .nxt1-location-edit {
+        width: var(--nxt1-spacing-4);
+        height: var(--nxt1-spacing-4);
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        opacity: 0.7;
+      }
+
+      .nxt1-location-spinner {
+        width: var(--nxt1-spacing-5);
+        height: var(--nxt1-spacing-5);
+        --color: var(--nxt1-color-primary);
+      }
+
+      .nxt1-location-hint {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        color: var(--nxt1-color-text-tertiary);
+        margin: 0;
+      }
+
+      .nxt1-location-error {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        color: var(--nxt1-color-error);
+        margin: 0;
       }
     `,
   ],
@@ -429,8 +575,22 @@ export class OnboardingProfileStepComponent {
   /** Whether interaction is disabled */
   readonly disabled = input<boolean>(false);
 
-  /** Whether to show class year (athletes only) */
-  readonly showClassYear = input<boolean>(true);
+  /**
+   * Whether to show gender selection
+   * @default true - Progressive disclosure but included for most users
+   */
+  readonly showGender = input<boolean>(true);
+
+  /**
+   * Whether to show location selection
+   * @default true - Helps connect users with local teams
+   */
+  readonly showLocation = input<boolean>(true);
+
+  /**
+   * @deprecated Use showGender/showLocation instead. ClassYear moved to sport step.
+   */
+  readonly showClassYear = input<boolean>(false);
 
   // ============================================
   // SIGNAL OUTPUTS (Angular 19+ pattern)
@@ -445,6 +605,9 @@ export class OnboardingProfileStepComponent {
   /** Emits when a file is selected from the web file picker */
   readonly fileSelected = output<File>();
 
+  /** Emits when location detection is requested */
+  readonly locationRequest = output<void>();
+
   // ============================================
   // CONFIGURATION (readonly for immutability)
   // ============================================
@@ -452,8 +615,8 @@ export class OnboardingProfileStepComponent {
   /** Accepted file types for input */
   readonly acceptedTypes = ACCEPTED_IMAGE_TYPES.join(',');
 
-  /** Graduation year options */
-  readonly graduationYears = GRADUATION_YEAR_OPTIONS;
+  /** Gender options from core */
+  readonly genderOptions = GENDER_OPTIONS;
 
   // ============================================
   // INTERNAL STATE (signals for reactivity)
@@ -468,8 +631,17 @@ export class OnboardingProfileStepComponent {
   /** Profile image URL or data URI */
   readonly profileImg = signal<string | null>(null);
 
-  /** Selected class year */
-  readonly classYear = signal<number | null>(null);
+  /** Selected gender */
+  readonly gender = signal<GenderOption | null>(null);
+
+  /** Location data */
+  readonly location = signal<ProfileLocationData | null>(null);
+
+  /** Whether location is being detected */
+  readonly isLoadingLocation = signal(false);
+
+  /** Location error message */
+  readonly locationError = signal<string | null>(null);
 
   /** First name field touched */
   readonly firstNameTouched = signal(false);
@@ -483,6 +655,24 @@ export class OnboardingProfileStepComponent {
 
   /** Whether profile has an image */
   readonly hasProfileImage = computed(() => !!this.profileImg());
+
+  /** Whether location is set */
+  readonly hasLocation = computed(() => {
+    const loc = this.location();
+    return !!(loc?.city || loc?.state);
+  });
+
+  /** Location display string */
+  readonly locationDisplay = computed(() => {
+    const loc = this.location();
+    if (!loc) return '';
+
+    const parts: string[] = [];
+    if (loc.city) parts.push(loc.city);
+    if (loc.state) parts.push(loc.state);
+
+    return parts.join(', ') || loc.formatted || '';
+  });
 
   /** Check if first name is valid using shared helper */
   readonly isFirstNameValid = computed(() => isValidName(this.firstName()));
@@ -501,18 +691,16 @@ export class OnboardingProfileStepComponent {
 
   constructor() {
     // Sync internal state when profileData input changes
-    effect(
-      () => {
-        const data = this.profileData();
-        if (data) {
-          this.firstName.set(data.firstName || '');
-          this.lastName.set(data.lastName || '');
-          this.profileImg.set(data.profileImg || null);
-          this.classYear.set(data.classYear ?? null);
-        }
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const data = this.profileData();
+      if (data) {
+        this.firstName.set(data.firstName || '');
+        this.lastName.set(data.lastName || '');
+        this.profileImg.set(data.profileImg || null);
+        this.gender.set(data.gender ?? null);
+        this.location.set(data.location ?? null);
+      }
+    });
   }
 
   // ============================================
@@ -538,12 +726,44 @@ export class OnboardingProfileStepComponent {
   }
 
   /**
-   * Handle graduation year selection
+   * Handle gender selection
    */
-  onYearSelect(year: number): void {
-    this.classYear.set(year);
-    this.logger.debug('Graduation year selected', { classYear: year });
+  onGenderSelect(value: GenderOption): void {
+    this.gender.set(value);
+    this.logger.debug('Gender selected', { gender: value });
     this.emitProfileChange();
+  }
+
+  /**
+   * Handle location detection request
+   */
+  onDetectLocation(): void {
+    this.isLoadingLocation.set(true);
+    this.locationError.set(null);
+    this.logger.debug('Location detection requested');
+
+    // Emit event for parent to handle geolocation
+    this.locationRequest.emit();
+  }
+
+  /**
+   * Set location from external source (e.g., geolocation service)
+   */
+  setLocation(location: ProfileLocationData): void {
+    this.location.set(location);
+    this.isLoadingLocation.set(false);
+    this.locationError.set(null);
+    this.logger.debug('Location set', { location });
+    this.emitProfileChange();
+  }
+
+  /**
+   * Set location error
+   */
+  setLocationError(error: string): void {
+    this.isLoadingLocation.set(false);
+    this.locationError.set(error);
+    this.logger.warn('Location detection failed', { error });
   }
 
   /**
@@ -642,7 +862,9 @@ export class OnboardingProfileStepComponent {
       firstName: this.firstName(),
       lastName: this.lastName(),
       profileImg: this.profileImg(),
-      classYear: this.classYear(),
+      gender: this.gender(),
+      location: this.location(),
+      // classYear intentionally omitted - collected in sport step for athletes
     });
   }
 }

@@ -34,6 +34,8 @@ import {
   getFieldErrors,
 } from '@nxt1/core/errors';
 import { getAuthErrorMessage } from '@nxt1/core';
+import { NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 
 // ============================================
 // ERROR TYPES
@@ -122,6 +124,7 @@ const FIREBASE_ERROR_FIELDS: Record<string, AuthError['field']> = {
 export class AuthErrorHandler {
   private readonly router = inject(Router);
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly logger: ILogger = inject(NxtLoggingService).child('AuthErrorHandler');
 
   /** Track retry counts per error code */
   private retryCounts = new Map<string, number>();
@@ -496,7 +499,7 @@ export class AuthErrorHandler {
     if (!isPlatformBrowser(this.platformId)) return;
 
     // TODO: Integrate with analytics service
-    console.debug('[AuthErrorHandler] Tracking error:', {
+    this.logger.debug('Tracking error', {
       code: error.code,
       field: error.field,
       recoverable: error.recoverable,

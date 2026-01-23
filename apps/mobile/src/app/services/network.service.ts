@@ -40,6 +40,8 @@ import { Injectable, PLATFORM_ID, inject, signal, computed, OnDestroy } from '@a
 import { isPlatformBrowser } from '@angular/common';
 import { Network, ConnectionStatus } from '@capacitor/network';
 import { Subject } from 'rxjs';
+import { NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 import type { NetworkStatus, NetworkChangeEvent, ConnectionType } from '@nxt1/core';
 
 @Injectable({
@@ -47,6 +49,7 @@ import type { NetworkStatus, NetworkChangeEvent, ConnectionType } from '@nxt1/co
 })
 export class NetworkService implements OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly logger: ILogger = inject(NxtLoggingService).child('NetworkService');
 
   // Private state
   private _isInitialized = false;
@@ -143,7 +146,7 @@ export class NetworkService implements OnDestroy {
 
       this._isInitialized = true;
 
-      console.debug('[NetworkService] Initialized', {
+      this.logger.debug('Initialized', {
         isOnline: this._isOnline(),
         connectionType: this._connectionType(),
         platform: 'mobile',
@@ -173,7 +176,7 @@ export class NetworkService implements OnDestroy {
       timestamp: Date.now(),
     });
 
-    console.debug('[NetworkService] Connection changed', {
+    this.logger.debug('Connection changed', {
       from: { connected: wasConnected, type: previousType },
       to: { connected: this._isOnline(), type: this._connectionType() },
     });
@@ -217,7 +220,7 @@ export class NetworkService implements OnDestroy {
   // ============================================
 
   private fallbackToBrowserAPIs(): void {
-    console.debug('[NetworkService] Using browser fallback');
+    this.logger.debug('Using browser fallback');
 
     this._isOnline.set(navigator.onLine);
     this._connectionType.set(navigator.onLine ? 'unknown' : 'none');

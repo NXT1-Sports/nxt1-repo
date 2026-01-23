@@ -71,6 +71,7 @@
    SHARED IONIC COMPONENT OVERRIDES
    ============================================ */
 @import './components/ionic-select.css';
+@import './components/ionic-modal.css';
 
 /* ============================================
    FEATURE COMPONENT STYLES

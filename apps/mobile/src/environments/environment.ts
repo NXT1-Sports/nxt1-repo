@@ -6,8 +6,9 @@
 export const environment = {
   production: false,
   appVersion: '2.0.0-dev',
-  // Use Mac's IP for device testing (localhost doesn't work on physical devices)
-  apiUrl: 'http://192.168.1.112:3000/api/v1/staging',
+  // Use your Mac's IP address for physical device testing
+  // Your iPhone must be on the same WiFi network
+  apiUrl: 'http://192.168.1.127:3000/api/v1/staging',
   firebase: {
     apiKey: 'AIzaSyDSwJsZTCXeUQ2qPPqrGHQjMwxksQ-fkvE',
     authDomain: 'nxt-1-staging.firebaseapp.com',

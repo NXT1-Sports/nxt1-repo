@@ -10,7 +10,8 @@ import {
 import { CommonModule } from '@angular/common';
 import { Router, NavigationEnd } from '@angular/router';
 import { IonApp, IonRouterOutlet } from '@ionic/angular/standalone';
-import { NxtPlatformService } from '@nxt1/ui';
+import { NxtPlatformService, NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 import { filter } from 'rxjs/operators';
 
 /**
@@ -38,6 +39,7 @@ import { filter } from 'rxjs/operators';
 export class AppComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly platform = inject(NxtPlatformService);
+  private readonly logger: ILogger = inject(NxtLoggingService).child('AppComponent');
 
   // ============================================
   // STATE SIGNALS
@@ -83,7 +85,7 @@ export class AppComponent implements OnInit {
 
       this.loading.set(false);
     } catch (err) {
-      console.error('[AppComponent] Initialization failed:', err);
+      this.logger.error('Initialization failed', err);
       this.error.set(err instanceof Error ? err.message : 'Failed to initialize application');
       this.loading.set(false);
     }

@@ -13,9 +13,11 @@
  *
  * @module @nxt1/mobile/core/infrastructure
  */
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { CapacitorHttp, HttpResponse } from '@capacitor/core';
 import { Capacitor } from '@capacitor/core';
+import { NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 import type { HttpAdapter, HttpRequestConfig, HttpAdapterError } from '@nxt1/core';
 
 /**
@@ -40,6 +42,8 @@ const DEFAULT_TIMEOUT = 30000;
  */
 @Injectable({ providedIn: 'root' })
 export class CapacitorHttpAdapter implements HttpAdapter {
+  private readonly logger: ILogger = inject(NxtLoggingService).child('CapacitorHttpAdapter');
+
   /**
    * Whether we're running on a native platform (iOS/Android)
    */
@@ -93,6 +97,13 @@ export class CapacitorHttpAdapter implements HttpAdapter {
   async post<T>(url: string, body: unknown, config?: HttpRequestConfig): Promise<T> {
     const headers = this.buildHeaders(config);
 
+    this.logger.debug('POST request', {
+      url: this.buildUrl(url, config?.params),
+      isNative: this.isNative,
+      hasAuthToken: !!this.authToken,
+      bodyPreview: JSON.stringify(body).substring(0, 100),
+    });
+
     if (this.isNative) {
       const response = await CapacitorHttp.post({
         url: this.buildUrl(url, config?.params),
@@ -105,6 +116,7 @@ export class CapacitorHttpAdapter implements HttpAdapter {
     }
 
     // Fallback to fetch for web/PWA
+    this.logger.debug('Using fetch fallback (browser mode)');
     const response = await this.fetchWithTimeout(
       this.buildUrl(url, config?.params),
       {
@@ -257,16 +269,44 @@ export class CapacitorHttpAdapter implements HttpAdapter {
     timeoutMs: number
   ): Promise<Response> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+    this.logger.debug(`${requestId} Starting fetch`, {
+      url,
+      method: options.method,
+      timeoutMs,
+      isNative: this.isNative,
+    });
+
+    const timeoutId = setTimeout(() => {
+      this.logger.warn(`${requestId} TIMEOUT after ${timeoutMs}ms - aborting`);
+      controller.abort();
+    }, timeoutMs);
 
     try {
       const response = await fetch(url, {
         ...options,
         signal: controller.signal,
       });
+      this.logger.debug(`${requestId} Fetch completed`, {
+        status: response.status,
+        ok: response.ok,
+      });
       return response;
+    } catch (error) {
+      // Check if this is an abort error vs other network errors
+      const isAbortError = error instanceof Error && error.name === 'AbortError';
+      this.logger.error(`${requestId} Fetch error`, {
+        isAbortError,
+        errorName: error instanceof Error ? error.name : 'unknown',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        wasTimedOut: controller.signal.aborted,
+        abortReason: controller.signal.reason,
+      });
+      throw error;
     } finally {
       clearTimeout(timeoutId);
+      this.logger.debug(`${requestId} Cleanup complete`);
     }
   }
 

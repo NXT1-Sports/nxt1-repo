@@ -167,62 +167,69 @@ import { HapticButtonDirective } from '../../services/haptics';
        HEADER & TOOLBAR
        ============================================ */
       .nxt1-picker-header {
-        --background: var(--nxt1-color-surface-elevated);
+        --background: var(--nxt1-color-surface-elevated, #121212);
+        /* Prevent header from being affected by safe areas incorrectly */
+        padding-top: 0;
+      }
+
+      .nxt1-picker-header ion-toolbar:first-of-type {
+        /* Remove top padding from first toolbar (modal handles safe area) */
+        --padding-top: 0;
       }
 
       .nxt1-picker-toolbar {
-        --background: var(--nxt1-color-surface-elevated);
-        --border-color: var(--nxt1-color-border-subtle);
+        --background: var(--nxt1-color-surface-elevated, #121212);
+        --border-color: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
         --min-height: 56px;
-        --padding-start: var(--nxt1-spacing-2);
-        --padding-end: var(--nxt1-spacing-2);
+        --padding-start: var(--nxt1-spacing-2, 8px);
+        --padding-end: var(--nxt1-spacing-2, 8px);
       }
 
       .nxt1-picker-title {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-lg);
+        font-size: var(--nxt1-fontSize-lg, 1.125rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-primary);
+        color: var(--nxt1-color-text-primary, #ffffff);
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: var(--nxt1-spacing-2);
+        gap: var(--nxt1-spacing-2, 8px);
       }
 
       .nxt1-count-badge {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        padding: var(--nxt1-spacing-1) var(--nxt1-spacing-2);
+        padding: var(--nxt1-spacing-1, 4px) var(--nxt1-spacing-2, 8px);
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-xs);
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-secondary);
-        background: var(--nxt1-color-state-hover);
-        border-radius: var(--nxt1-borderRadius-full);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        border-radius: var(--nxt1-borderRadius-full, 9999px);
         min-width: 40px;
       }
 
       .nxt1-count-badge.at-max {
-        color: var(--nxt1-color-text-onPrimary);
-        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        background: var(--nxt1-color-primary, #ccff00);
       }
 
       .nxt1-cancel-btn {
-        --color: var(--nxt1-color-text-secondary);
+        --color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         font-family: var(--nxt1-fontFamily-brand);
         font-weight: 500;
       }
 
       .nxt1-confirm-btn {
-        --color: var(--nxt1-color-text-tertiary);
+        --color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         font-family: var(--nxt1-fontFamily-brand);
         font-weight: 600;
-        transition: color var(--nxt1-duration-fast) ease;
+        transition: color var(--nxt1-duration-fast, 150ms) ease;
       }
 
       .nxt1-confirm-btn.active {
-        --color: var(--nxt1-color-primary);
+        --color: var(--nxt1-color-primary, #ccff00);
       }
 
       .nxt1-confirm-btn:disabled {
@@ -233,12 +240,12 @@ import { HapticButtonDirective } from '../../services/haptics';
        SEARCH BAR
        ============================================ */
       .nxt1-search-toolbar {
-        --background: var(--nxt1-color-surface-elevated);
+        --background: var(--nxt1-color-surface-elevated, #121212);
         --border-width: 0;
-        --padding-start: var(--nxt1-spacing-4);
-        --padding-end: var(--nxt1-spacing-4);
+        --padding-start: var(--nxt1-spacing-4, 16px);
+        --padding-end: var(--nxt1-spacing-4, 16px);
         --padding-top: 0;
-        --padding-bottom: var(--nxt1-spacing-3);
+        --padding-bottom: var(--nxt1-spacing-3, 12px);
       }
 
       .nxt1-search-container {
@@ -250,31 +257,31 @@ import { HapticButtonDirective } from '../../services/haptics';
 
       .nxt1-search-icon {
         position: absolute;
-        left: var(--nxt1-spacing-3);
-        font-size: var(--nxt1-fontSize-lg);
-        color: var(--nxt1-color-text-tertiary);
+        left: var(--nxt1-spacing-3, 12px);
+        font-size: var(--nxt1-fontSize-lg, 1.125rem);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         z-index: 1;
         pointer-events: none;
       }
 
       .nxt1-search-input {
-        --background: var(--nxt1-color-state-hover);
-        --border-radius: var(--nxt1-borderRadius-lg);
+        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --padding-start: 40px;
         --padding-end: 40px;
-        --padding-top: var(--nxt1-spacing-3);
-        --padding-bottom: var(--nxt1-spacing-3);
-        --placeholder-color: var(--nxt1-color-text-tertiary);
-        --color: var(--nxt1-color-text-primary);
+        --padding-top: var(--nxt1-spacing-3, 12px);
+        --padding-bottom: var(--nxt1-spacing-3, 12px);
+        --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        --color: var(--nxt1-color-text-primary, #ffffff);
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         width: 100%;
         min-height: 44px;
       }
 
       .nxt1-search-clear {
         position: absolute;
-        right: var(--nxt1-spacing-2);
+        right: var(--nxt1-spacing-2, 8px);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -283,27 +290,37 @@ import { HapticButtonDirective } from '../../services/haptics';
         background: transparent;
         border: none;
         cursor: pointer;
-        color: var(--nxt1-color-text-tertiary);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         -webkit-tap-highlight-color: transparent;
       }
 
       .nxt1-search-clear:hover {
-        color: var(--nxt1-color-text-secondary);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
       }
 
       .nxt1-search-clear ion-icon {
-        font-size: var(--nxt1-fontSize-xl);
+        font-size: var(--nxt1-fontSize-xl, 1.25rem);
       }
 
       /* ============================================
        CONTENT AREA
        ============================================ */
       .nxt1-picker-content {
-        --background: var(--nxt1-color-surface-default);
+        --background: var(--nxt1-color-surface-default, var(--ion-background-color, #0a0a0a));
         --padding-start: 0;
         --padding-end: 0;
         --padding-top: 0;
-        --padding-bottom: env(safe-area-inset-bottom, 0);
+        --padding-bottom: env(safe-area-inset-bottom, 16px);
+        /* Ensure content can scroll and doesn't clip */
+        overflow-y: auto;
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+
+      /* Ensure the scroll container has proper dimensions */
+      .nxt1-picker-content::part(scroll) {
+        overflow-y: auto;
+        padding-bottom: var(--nxt1-spacing-4, 16px);
       }
     `,
   ],

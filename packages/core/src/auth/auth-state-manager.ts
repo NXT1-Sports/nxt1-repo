@@ -64,6 +64,7 @@ export interface AuthStateManager {
   getFirebaseUser(): FirebaseUserInfo | null;
   isAuthenticated(): boolean;
   isInitialized(): boolean;
+  isSignupInProgress(): boolean;
 
   // State mutation
   setUser(user: AuthUser | null): Promise<void>;
@@ -71,6 +72,7 @@ export interface AuthStateManager {
   setLoading(loading: boolean): void;
   setError(error: string | null): void;
   setInitialized(initialized: boolean): void;
+  setSignupInProgress(inProgress: boolean): void;
 
   // Token management
   getToken(): Promise<StoredAuthToken | null>;
@@ -165,6 +167,10 @@ export function createAuthStateManager(storage: StorageAdapter): AuthStateManage
       return state.isInitialized;
     },
 
+    isSignupInProgress(): boolean {
+      return state.signupInProgress;
+    },
+
     // ============================================
     // STATE MUTATION
     // ============================================
@@ -201,6 +207,10 @@ export function createAuthStateManager(storage: StorageAdapter): AuthStateManage
 
     setInitialized(initialized: boolean): void {
       updateState({ isInitialized: initialized });
+    },
+
+    setSignupInProgress(inProgress: boolean): void {
+      updateState({ signupInProgress: inProgress });
     },
 
     // ============================================
@@ -291,7 +301,12 @@ export function createAuthStateManager(storage: StorageAdapter): AuthStateManage
       await storage.remove(STORAGE_KEYS.SESSION_ID);
 
       // Reset state - isLoading should be false after reset
-      state = { ...INITIAL_AUTH_STATE, isLoading: false, isInitialized: true };
+      state = {
+        ...INITIAL_AUTH_STATE,
+        isLoading: false,
+        isInitialized: true,
+        signupInProgress: false,
+      };
       notifyStateListeners();
       emitEvent('SIGN_OUT');
     },

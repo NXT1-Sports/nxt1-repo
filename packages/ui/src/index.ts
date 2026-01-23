@@ -223,11 +223,17 @@ export { OnboardingNavigationButtonsComponent } from './onboarding/onboarding-na
 
 export { OnboardingButtonMobileComponent } from './onboarding/onboarding-button-mobile';
 
+export { OnboardingProgressPillsComponent } from './onboarding/onboarding-progress-pills';
+
 export {
   OnboardingStepCardComponent,
   type StepCardVariant,
   type AnimationDirection,
 } from './onboarding/onboarding-step-card';
+
+export { OnboardingCelebrationComponent } from './onboarding/onboarding-celebration';
+
+export { OnboardingCompleteComponent } from './onboarding/onboarding-complete';
 
 // ============================================
 // GENERAL COMPONENTS

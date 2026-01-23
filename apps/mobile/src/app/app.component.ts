@@ -9,7 +9,8 @@
 import { Component, afterNextRender, inject, effect } from '@angular/core';
 import { Router, NavigationEnd } from '@angular/router';
 import { IonApp, IonRouterOutlet, Platform } from '@ionic/angular/standalone';
-import { NxtPlatformService } from '@nxt1/ui';
+import { NxtPlatformService, NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 import { NativeAppService, ThemeService } from './core/services';
 import { BiometricService, AuthFlowService } from './features/auth/services';
 import { NetworkService } from './services/network.service';
@@ -35,19 +36,20 @@ export class AppComponent {
   private readonly platform = inject(NxtPlatformService);
   private readonly theme = inject(ThemeService);
   private readonly authFlow = inject(AuthFlowService);
+  private readonly logger: ILogger = inject(NxtLoggingService).child('AppComponent');
 
   /** Track if we've performed initial navigation */
   private hasPerformedInitialNavigation = false;
 
   constructor() {
     // Log early to confirm app is loading
-    console.log('[App] AppComponent constructor called');
+    this.logger.info('AppComponent constructor called');
 
     // Debug routing
     this.router.events
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe((event) => {
-        console.log('[App] Navigation completed:', event.url);
+        this.logger.debug('Navigation completed', { url: event.url });
       });
 
     // Handle initial navigation after auth initializes
@@ -75,8 +77,7 @@ export class AppComponent {
 
     // Use afterNextRender for proper SSR safety (though mobile doesn't have SSR, good practice)
     afterNextRender(() => {
-      console.log('[App] afterNextRender called');
-      console.log('[App] Current URL:', this.router.url);
+      this.logger.debug('afterNextRender called', { currentUrl: this.router.url });
       this.initializeApp();
     });
   }
@@ -87,26 +88,26 @@ export class AppComponent {
    */
   private handleInitialNavigation(user: ReturnType<typeof this.authFlow.user>): void {
     const currentUrl = this.router.url;
-    console.log('[App] Handling initial navigation. Current URL:', currentUrl, 'User:', user?.uid);
+    this.logger.debug('Handling initial navigation', { currentUrl, userId: user?.uid });
 
     // If already on a specific route (deep link), respect it
     if (currentUrl !== '/' && currentUrl !== '/auth' && currentUrl !== '/home') {
-      console.log('[App] On specific route, respecting current navigation');
+      this.logger.debug('On specific route, respecting current navigation');
       return;
     }
 
     // Determine where to navigate
     if (!user) {
       // Not authenticated - go to auth
-      console.log('[App] Not authenticated, navigating to auth');
+      this.logger.info('Not authenticated, navigating to auth');
       void this.router.navigate([AUTH_ROUTES.ROOT]);
     } else if (!user.hasCompletedOnboarding) {
       // Authenticated but onboarding incomplete - go to onboarding
-      console.log('[App] Onboarding incomplete, navigating to onboarding');
+      this.logger.info('Onboarding incomplete, navigating to onboarding');
       void this.router.navigate([AUTH_REDIRECTS.ONBOARDING]);
     } else {
       // Authenticated and onboarding complete - go to home
-      console.log('[App] Authenticated and onboarded, navigating to home');
+      this.logger.info('Authenticated and onboarded, navigating to home');
       void this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
     }
   }
@@ -116,9 +117,9 @@ export class AppComponent {
    */
   private async initializeApp(): Promise<void> {
     try {
-      console.log('[App] Initializing app...');
+      this.logger.info('Initializing app...');
       await this.ionicPlatform.ready();
-      console.log('[App] Platform ready');
+      this.logger.debug('Platform ready');
 
       // Initialize native app features (StatusBar, SplashScreen, Keyboard, lifecycle)
       await this.nativeApp.initialize({
@@ -129,9 +130,9 @@ export class AppComponent {
         keyboardResize: 'body',
         keyboardAccessoryBarHidden: true, // Clean pro look - hide accessory bar
         // Lifecycle handlers
-        onPause: () => console.debug('[App] Backgrounded'),
+        onPause: () => this.logger.debug('Backgrounded'),
         onResume: () => {
-          console.debug('[App] Resumed');
+          this.logger.debug('Resumed');
           // Refresh network status when app resumes
           this.network.checkStatus();
         },
@@ -142,17 +143,17 @@ export class AppComponent {
         },
       });
 
-      console.log('[App] Native app initialized');
+      this.logger.info('Native app initialized');
 
       // Enable status bar sync with theme (2026 professional best practice)
       // This auto-updates status bar icons when theme changes
       this.theme.enableStatusBarSync();
-      console.log('[App] Status bar theme sync enabled');
+      this.logger.debug('Status bar theme sync enabled');
 
       // Services auto-initialize in their constructors
       // Just injecting them is enough to start monitoring
 
-      console.debug('[App] Platform initialized', {
+      this.logger.debug('Platform initialized', {
         device: this.platform.deviceType(),
         os: this.platform.os(),
         isNative: this.platform.isNative(),
@@ -162,7 +163,7 @@ export class AppComponent {
         biometricType: this.biometric.biometryType(),
       });
     } catch (error) {
-      console.error('[App] Initialization error:', error);
+      this.logger.error('Initialization error', error);
     }
   }
 }

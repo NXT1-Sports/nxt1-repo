@@ -251,18 +251,145 @@ export const COMMON_TEST_IDS = {
   TIMESTAMP: 'timestamp',
 } as const;
 
+// ============================================
+// ONBOARDING TEST IDS
+// Defined in packages/ui/src/onboarding/
+// ============================================
+
+/**
+ * Test IDs for shared onboarding components from @nxt1/ui
+ * These are used across web and mobile platforms for E2E testing
+ *
+ * @example
+ * ```typescript
+ * import { ONBOARDING_TEST_IDS } from '@nxt1/core/testing';
+ *
+ * // Playwright
+ * this.continueButton = page.getByTestId(ONBOARDING_TEST_IDS.BTN_CONTINUE);
+ * this.profileStep = page.getByTestId(ONBOARDING_TEST_IDS.STEP_PROFILE);
+ *
+ * // Detox/Appium (mobile)
+ * element(by.id(ONBOARDING_TEST_IDS.STEP_SPORT));
+ * ```
+ */
+export const ONBOARDING_TEST_IDS = {
+  // -------------------------
+  // Progress Bar Component
+  // packages/ui/src/onboarding/onboarding-progress-bar/
+  // -------------------------
+  PROGRESS_BAR: 'onboarding-progress-bar',
+  STEP_INDICATOR: 'onboarding-step', // suffixed with -1, -2, etc.
+
+  // -------------------------
+  // Navigation Buttons Component
+  // packages/ui/src/onboarding/onboarding-navigation-buttons/
+  // -------------------------
+  BTN_SKIP: 'onboarding-skip',
+  BTN_CONTINUE: 'onboarding-continue',
+  BTN_COMPLETE: 'onboarding-complete',
+
+  // -------------------------
+  // Step Card Component
+  // packages/ui/src/onboarding/onboarding-step-card/
+  // -------------------------
+  STEP_CARD: 'onboarding-step-card',
+  STEP_ERROR: 'onboarding-error',
+
+  // -------------------------
+  // Profile Step Component
+  // packages/ui/src/onboarding/onboarding-profile-step/
+  // -------------------------
+  STEP_PROFILE: 'onboarding-profile-step',
+  INPUT_FIRST_NAME: 'onboarding-input-first-name',
+  INPUT_LAST_NAME: 'onboarding-input-last-name',
+  PHOTO_UPLOAD: 'onboarding-photo-upload',
+  PHOTO_INPUT: 'onboarding-photo-input',
+  LOCATION_DETECT: 'onboarding-location-detect',
+
+  // -------------------------
+  // Sport Step Component (v3.0)
+  // packages/ui/src/onboarding/onboarding-sport-step/
+  // -------------------------
+  STEP_SPORT: 'onboarding-sport-step',
+  SPORT_CHIP: 'sport-chip', // suffixed with -{sport-name}
+
+  // -------------------------
+  // Sport Entry Component
+  // packages/ui/src/onboarding/onboarding-sport-entry/
+  // -------------------------
+  SPORT_ENTRY: 'sport-entry', // suffixed with -{sport-name}
+  SPORT_ENTRY_TEAM_NAME: 'sport-entry-team-name', // suffixed with -{sport-name}
+  SPORT_ENTRY_TEAM_TYPE: 'sport-entry-team-type', // suffixed with -{sport-name}
+  SPORT_ENTRY_POSITION: 'sport-entry-position', // suffixed with -{sport-name}
+  SPORT_ENTRY_DELETE: 'sport-entry-delete', // suffixed with -{sport-name}
+
+  // -------------------------
+  // Position Step Component (Legacy)
+  // packages/ui/src/onboarding/onboarding-position-step/
+  // -------------------------
+  STEP_POSITION: 'onboarding-position-step',
+
+  // -------------------------
+  // Role Selection Component
+  // packages/ui/src/onboarding/onboarding-role-selection/
+  // -------------------------
+  STEP_ROLE: 'onboarding-role-selection',
+  ROLE_OPTION: 'onboarding-role-option', // suffixed with -{role}
+
+  // -------------------------
+  // Referral Step Component
+  // packages/ui/src/onboarding/onboarding-referral-step/
+  // -------------------------
+  STEP_REFERRAL: 'onboarding-referral-step',
+  REFERRAL_OPTION: 'onboarding-referral-option', // suffixed with -{type}
+  REFERRAL_INPUT: 'onboarding-referral-input', // suffixed with -{type}
+
+  // -------------------------
+  // Gender Step Component
+  // packages/ui/src/onboarding/onboarding-gender-step/
+  // -------------------------
+  STEP_GENDER: 'onboarding-gender-step',
+  GENDER_OPTION: 'onboarding-gender-option', // suffixed with -{gender}
+
+  // -------------------------
+  // Birthdate Step Component
+  // packages/ui/src/onboarding/onboarding-birthdate-step/
+  // -------------------------
+  STEP_BIRTHDATE: 'onboarding-birthdate-step',
+  INPUT_BIRTHDATE: 'onboarding-input-birthdate',
+} as const;
+
+/**
+ * Page-level test IDs for onboarding pages (web/mobile specific)
+ */
+export const ONBOARDING_PAGE_TEST_IDS = {
+  // Page container
+  ONBOARDING_PAGE: 'onboarding-page',
+  ONBOARDING_TITLE: 'onboarding-title',
+  ONBOARDING_SUBTITLE: 'onboarding-subtitle',
+
+  // Success/completion
+  ONBOARDING_SUCCESS: 'onboarding-success',
+  ONBOARDING_CELEBRATION: 'onboarding-celebration',
+} as const;
+
 /**
  * All test IDs combined for easy import
  */
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
+  ONBOARDING: ONBOARDING_TEST_IDS,
+  ONBOARDING_PAGE: ONBOARDING_PAGE_TEST_IDS,
   COMMON: COMMON_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript
 export type AuthTestId = (typeof AUTH_TEST_IDS)[keyof typeof AUTH_TEST_IDS];
 export type AuthPageTestId = (typeof AUTH_PAGE_TEST_IDS)[keyof typeof AUTH_PAGE_TEST_IDS];
+export type OnboardingTestId = (typeof ONBOARDING_TEST_IDS)[keyof typeof ONBOARDING_TEST_IDS];
+export type OnboardingPageTestId =
+  (typeof ONBOARDING_PAGE_TEST_IDS)[keyof typeof ONBOARDING_PAGE_TEST_IDS];
 export type CommonTestId = (typeof COMMON_TEST_IDS)[keyof typeof COMMON_TEST_IDS];
 
 // ============================================

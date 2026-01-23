@@ -156,6 +156,24 @@
   outline: none;
 }
 
+/**
+ * Remove focus outline from native inputs inside Ionic components.
+ * Ionic components handle focus indication via CSS custom properties
+ * (--highlight-color-focused, --highlight-height, etc.).
+ * This prevents the blue box/outline appearing on ion-input focus.
+ */
+ion-input input:focus,
+ion-input input:focus-visible,
+ion-textarea textarea:focus,
+ion-textarea textarea:focus-visible,
+ion-select:focus,
+ion-select:focus-visible,
+ion-searchbar input:focus,
+ion-searchbar input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 /* High contrast focus for accessibility */
 @media (prefers-contrast: more) {
   :focus-visible {

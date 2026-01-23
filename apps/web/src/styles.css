@@ -62,6 +62,27 @@
 @import '@nxt1/ui/styles/auth';
 @import '@nxt1/ui/styles/components/ionic-select';
 @import '@nxt1/ui/styles/components/ionic-toast';
+@import '@nxt1/ui/styles/components/ionic-modal';
+
+/* ============================================
+   IONIC INPUT FOCUS FIX (Global)
+   Remove native browser focus outline from inputs inside
+   Ionic components. Ionic handles focus indication via 
+   CSS custom properties (--highlight-color-focused).
+   This prevents the blue box/square outline on focus.
+   ============================================ */
+ion-input input,
+ion-input input:focus,
+ion-input input:focus-visible,
+ion-textarea textarea,
+ion-textarea textarea:focus,
+ion-textarea textarea:focus-visible,
+ion-searchbar input,
+ion-searchbar input:focus,
+ion-searchbar input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
 
 /* ============================================
    LAYER 7: IONIC LAYOUT STABILITY (CLS Fix)
@@ -502,7 +523,7 @@ ion-app {
 ion-app:has(nxt1-auth-shell) {
   position: static !important;
   height: auto !important;
-  min-height: auto !important;
+  min-height: 0 !important;
   overflow: visible !important;
   contain: none !important;
 }
@@ -519,7 +540,7 @@ ion-app:has(nxt1-auth-shell) ion-router-outlet {
 ion-app:has(nxt1-auth-shell) ion-router-outlet > .ion-page {
   position: static !important;
   height: auto !important;
-  min-height: auto !important;
+  min-height: 0 !important;
   overflow: visible !important;
   contain: none !important;
 }
@@ -528,7 +549,7 @@ ion-app:has(nxt1-auth-shell) ion-router-outlet > .ion-page {
 ion-app:has(nxt1-auth-shell) nxt1-auth-shell {
   position: static !important;
   height: auto !important;
-  min-height: auto !important;
+  min-height: 0 !important;
   overflow: visible !important;
 }
 
@@ -536,7 +557,7 @@ ion-app:has(nxt1-auth-shell) nxt1-auth-shell {
 ion-app:has(nxt1-auth-shell) ion-content.nxt1-auth-content {
   position: static !important;
   height: auto !important;
-  min-height: auto !important;
+  min-height: 0 !important;
   overflow: visible !important;
   contain: none !important;
   --offset-top: 0 !important;

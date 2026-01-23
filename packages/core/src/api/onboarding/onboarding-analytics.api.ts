@@ -32,14 +32,19 @@ import { APP_EVENTS, type ViewerType } from '../../analytics/events';
 // TYPES
 // ============================================
 
-/** User type for onboarding - maps to ViewerType */
+/**
+ * User type for onboarding - maps to UserRole from constants.
+ * All roles supported by the platform.
+ */
 export type OnboardingUserType =
   | 'athlete'
   | 'coach'
+  | 'college-coach'
+  | 'director'
+  | 'recruiting-service'
   | 'parent'
   | 'scout'
   | 'media'
-  | 'service'
   | 'fan';
 
 /** Step IDs */
@@ -139,10 +144,12 @@ export function toAnalyticsUserType(userType: OnboardingUserType): ViewerType {
   const mapping: Record<OnboardingUserType, ViewerType> = {
     athlete: 'athlete',
     coach: 'coach',
+    'college-coach': 'coach', // College coaches map to coach viewer type
+    director: 'coach', // Directors map to coach viewer type
+    'recruiting-service': 'recruiting-service', // Recruiting services get their own type
     parent: 'parent',
     scout: 'scout',
     media: 'media',
-    service: 'media', // Map service to media (closest match)
     fan: 'fan',
   };
   return mapping[userType] ?? 'anonymous';

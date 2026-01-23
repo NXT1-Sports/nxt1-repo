@@ -6,6 +6,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
+import { httpLogger } from '../utils/logger.js';
 
 // Production Firebase
 import { db, auth, storage } from '../utils/firebase.js';
@@ -29,12 +30,10 @@ export const firebaseContext = (req: Request, _res: Response, next: NextFunction
     storage: isStaging ? stagingStorage : storage,
   };
 
-  // Log for debugging (optional - remove in production)
-  if (process.env['NODE_ENV'] !== 'production') {
-    console.log(
-      `[Firebase Context] ${req.method} ${req.originalUrl} → ${isStaging ? '🟡 STAGING' : '🟢 PRODUCTION'}`
-    );
-  }
+  // Log for debugging (development/staging only)
+  httpLogger.request(req.method, req.originalUrl, {
+    environment: isStaging ? 'STAGING' : 'PRODUCTION',
+  });
 
   next();
 };

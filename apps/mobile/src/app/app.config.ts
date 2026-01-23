@@ -19,7 +19,14 @@ import { provideIonicAngular, IonicRouteStrategy } from '@ionic/angular/standalo
 
 // Firebase
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
-import { provideAuth, getAuth } from '@angular/fire/auth';
+import {
+  provideAuth,
+  getAuth,
+  indexedDBLocalPersistence,
+  initializeAuth,
+  browserLocalPersistence,
+} from '@angular/fire/auth';
+import { Capacitor } from '@capacitor/core';
 
 // Shared Angular infrastructure from @nxt1/ui
 import { GlobalErrorHandler, GLOBAL_ERROR_LOGGER, httpErrorInterceptor } from '@nxt1/ui';
@@ -27,6 +34,23 @@ import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 import { routes } from './app.routes';
 import { environment } from '../environments/environment';
+
+/**
+ * Get Firebase Auth with proper persistence for the platform.
+ * iOS WebView has issues with IndexedDB, so we use browserLocalPersistence.
+ */
+function getAuthWithPersistence() {
+  const app = initializeApp(environment.firebase);
+
+  if (Capacitor.isNativePlatform()) {
+    // Use indexedDB persistence on native - it works better than the default
+    return initializeAuth(app, {
+      persistence: indexedDBLocalPersistence,
+    });
+  }
+
+  return getAuth(app);
+}
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -49,18 +73,18 @@ export const appConfig: ApplicationConfig = {
     provideAnimationsAsync(),
 
     // Ionic Configuration
-    // - Platform-adaptive: iOS gets iOS design, Android gets Material Design
+    // - iOS mode for consistent horizontal slide animations across all platforms
     // - Dark mode controlled via NXT1 design tokens
     provideIonicAngular({
-      mode: 'md', // Force Material Design mode for consistent icon loading
+      mode: 'ios', // iOS mode = horizontal slide animations (like Instagram/TikTok)
       innerHTMLTemplatesEnabled: true,
     }),
 
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
 
-    // Firebase
+    // Firebase - use custom auth initialization for native platforms
     provideFirebaseApp(() => initializeApp(environment.firebase)),
-    provideAuth(() => getAuth()),
+    provideAuth(() => getAuthWithPersistence()),
 
     // ============================================
     // LOGGING & ERROR HANDLING (same as web)

@@ -20,6 +20,7 @@ import type { PlanTier } from '../constants/payment.constants';
 import type {
   UserRole,
   AccountStatus,
+  Gender,
   TeamType,
   Theme,
   ParentRelationship,
@@ -313,7 +314,8 @@ export interface AcademicInfo {
 
 /** Team information (school/club) */
 export interface TeamInfo {
-  name: string;
+  /** Team name (optional - user may not know it initially) */
+  name?: string;
   type: TeamType;
   logo?: string | null;
   mascot?: string;
@@ -403,6 +405,9 @@ export interface Commitment {
 /**
  * Sport profile - contains all data for ONE sport
  * Array-based design supports unlimited sports
+ *
+ * Note: Only `sport`, `order`, and `accountType` are required.
+ * Other fields are populated progressively as user completes profile.
  */
 export interface SportProfile {
   /** Sport identifier (e.g., 'football', 'basketball mens') */
@@ -417,17 +422,17 @@ export interface SportProfile {
   /** Sport-specific bio */
   aboutMe?: string;
 
-  /** Positions played */
-  positions: string[];
+  /** Positions played (optional - added during profile completion) */
+  positions?: string[];
 
   /** Side preference (e.g., 'left', 'right', 'both') */
   side?: string[];
 
-  /** Athletic measurements (height, weight, 40-yard, etc.) */
-  metrics: AthleticMetrics;
+  /** Athletic measurements - optional, added during profile completion */
+  metrics?: AthleticMetrics;
 
-  /** Season statistics */
-  seasonStats: SeasonStats[];
+  /** Season statistics - optional, added over time */
+  seasonStats?: SeasonStats[];
 
   /** Game-by-game stats */
   gameStats?: GameStats[];
@@ -439,8 +444,8 @@ export interface SportProfile {
     date?: Date | string;
   }>;
 
-  /** Team information */
-  team: TeamInfo;
+  /** Team information - optional, added during profile completion */
+  team?: TeamInfo;
 
   /** Club team (if different from high school) */
   clubTeam?: TeamInfo;
@@ -565,39 +570,168 @@ export interface UserCounters {
 // ROLE-SPECIFIC DATA
 // ============================================
 
-/** Athlete-specific data */
+/**
+ * Athlete-specific data
+ * Personal info that applies across ALL sports the athlete plays.
+ * Sport-specific data (positions, stats, team) goes in SportProfile[].
+ */
 export interface AthleteData {
+  /** Graduation year (e.g., 2027) */
   classOf: number;
+  /** Academic information (GPA, test scores, etc.) */
   academics?: AcademicInfo;
+  /** Parent/guardian contact info */
   parentInfo?: {
     name?: string;
     email?: string;
     phone?: string;
     relationship?: ParentRelationship;
   };
+  /** NCAA/NAIA eligibility status */
+  eligibilityStatus?: 'eligible' | 'pending' | 'ineligible';
+  /** Eligibility center ID (NCAA Clearinghouse, etc.) */
+  eligibilityId?: string;
 }
 
-/** Coach-specific data */
+/**
+ * Coach-specific data
+ * For high school, club, and travel team coaches.
+ */
 export interface CoachData {
+  /** Job title (Head Coach, Assistant Coach, etc.) */
   title: string;
+  /** Years of coaching experience */
   yearsExperience?: number;
+  /** Coaching certifications */
   certifications?: string[];
+  /** Can manage multiple teams under one account */
   canManageMultipleTeams?: boolean;
+  /** Team codes this coach manages */
   managedTeamCodes?: string[];
+  /** Sports this coach is involved with */
+  coachingSports?: string[];
 }
 
-/** College coach-specific data */
+/**
+ * College coach-specific data
+ * Extends CoachData with college recruiting capabilities.
+ */
 export interface CollegeCoachData extends CoachData {
+  /** College/university name */
   institution: string;
+  /** Athletic department */
   department?: string;
+  /** Geographic recruiting regions */
   recruitingRegions?: string[];
+  /** NCAA Division (D1, D2, D3) or NAIA, JUCO */
+  division?: string;
+  /** Conference affiliation */
+  conference?: string;
 }
 
-/** Fan-specific data */
+/**
+ * Director-specific data
+ * For Athletic Directors, Program Directors, and administrators
+ * who oversee multiple sports/programs organization-wide.
+ */
+export interface DirectorData {
+  /** Job title (Athletic Director, Program Director, etc.) */
+  title: string;
+  /** Organization/school name */
+  organization: string;
+  /** Sports/programs they oversee (empty = all sports) */
+  overseeSports?: string[];
+  /** Team codes under their organization */
+  organizationTeamCodes?: string[];
+  /** Administrative capabilities */
+  permissions?: {
+    canManageCoaches?: boolean;
+    canManageTeams?: boolean;
+    canViewAllAthletes?: boolean;
+    canManageBilling?: boolean;
+  };
+  /** Years in administrative role */
+  yearsExperience?: number;
+}
+
+/**
+ * Scout-specific data
+ * For professional scouts evaluating athletes.
+ */
+export interface ScoutData {
+  /** Organization/agency name */
+  organization?: string;
+  /** Sports they scout */
+  scoutingSports?: string[];
+  /** Geographic regions they cover */
+  regions?: string[];
+  /** Professional affiliations */
+  affiliations?: string[];
+}
+
+/**
+ * Recruiting Service-specific data
+ * For professional recruiting services helping athletes get recruited.
+ * Similar to a scout but focused on service delivery to athletes/families.
+ */
+export interface RecruitingServiceData {
+  /** Company/service name */
+  companyName: string;
+  /** Business website */
+  website?: string;
+  /** Sports they specialize in */
+  specialtySports?: string[];
+  /** Geographic regions they serve */
+  serviceRegions?: string[];
+  /** Service offerings (e.g., 'video editing', 'college matching', 'camp placement') */
+  services?: string[];
+  /** Years in business */
+  yearsInBusiness?: number;
+  /** Can manage multiple athlete clients */
+  canManageAthletes?: boolean;
+  /** Athlete UIDs they manage */
+  managedAthleteIds?: string[];
+}
+
+/**
+ * Media-specific data
+ * For journalists, content creators, photographers.
+ */
+export interface MediaData {
+  /** Media outlet/organization */
+  outlet?: string;
+  /** Type of media coverage */
+  mediaType?: 'journalist' | 'photographer' | 'videographer' | 'blogger' | 'podcaster';
+  /** Sports they cover */
+  coversSports?: string[];
+  /** Press credentials */
+  credentials?: string;
+}
+
+/**
+ * Parent-specific data
+ * For parents/guardians managing athlete profiles.
+ */
+export interface ParentData {
+  /** UIDs of athletes they manage */
+  managedAthleteIds?: string[];
+  /** Relationship to athlete(s) */
+  relationship?: ParentRelationship;
+}
+
+/**
+ * Fan-specific data
+ * For fans following athletes and teams.
+ */
 export interface FanData {
+  /** Team codes or IDs they follow */
   followedTeams?: string[];
+  /** Athlete UIDs they follow */
   followedAthletes?: string[];
+  /** Colleges they're interested in */
   favoriteColleges?: string[];
+  /** Sports they're interested in */
+  favoriteSports?: string[];
 }
 
 // ============================================
@@ -637,6 +771,12 @@ export interface User {
   profileImg: string | null;
   aboutMe: string;
 
+  /**
+   * User's gender (inclusive options).
+   * @see GENDERS in @nxt1/core/constants for valid values
+   */
+  gender?: Gender;
+
   // ============================================
   // ROLE & STATUS
   // ============================================
@@ -660,22 +800,36 @@ export interface User {
 
   // ============================================
   // ROLE-SPECIFIC DATA
+  // Only ONE of these should be populated based on user's role.
+  // Athletes also have sports[] for sport-specific data.
   // ============================================
-  /** Athlete-specific data (classOf, academics, parent info) */
+  /** Athlete-specific data (classOf, academics, parent info) - role: 'athlete' */
   athlete?: AthleteData;
-  /** Coach-specific data */
+  /** HS/Club coach-specific data - role: 'coach' */
   coach?: CoachData;
-  /** College coach-specific data */
+  /** College coach-specific data - role: 'college-coach' */
   collegeCoach?: CollegeCoachData;
-  /** Fan-specific data */
+  /** Athletic/Program director data - role: 'director' */
+  director?: DirectorData;
+  /** Recruiting service-specific data - role: 'recruiting-service' */
+  recruitingService?: RecruitingServiceData;
+  /** Scout-specific data - role: 'scout' */
+  scout?: ScoutData;
+  /** Media-specific data - role: 'media' */
+  media?: MediaData;
+  /** Parent-specific data - role: 'parent' */
+  parent?: ParentData;
+  /** Fan-specific data - role: 'fan' */
   fan?: FanData;
 
   // ============================================
-  // ONBOARDING & FLAGS
+  // ONBOARDING
   // ============================================
+  /**
+   * Whether user has completed onboarding wizard.
+   * Once true, user has full access to the platform.
+   */
   onboardingCompleted?: boolean;
-  signupCompleted?: boolean;
-  canAddSport: boolean;
 
   // ============================================
   // PREFERENCES
@@ -684,10 +838,16 @@ export interface User {
 
   // ============================================
   // SUBSCRIPTION & PAYMENT
+  // Note: Full payment/subscription data is in Subscriptions collection
+  // planTier is cached here for quick access (synced from Subscriptions)
   // ============================================
+  /**
+   * Cached plan tier from Subscriptions collection.
+   * Updated when subscription changes.
+   * Use Subscriptions/{userId} for authoritative subscription state.
+   * @see Subscriptions collection
+   */
   planTier?: PlanTier;
-  credits: number;
-  lastActivatedPlan: string;
 
   // ============================================
   // CONNECTED ACCOUNTS
@@ -1140,7 +1300,14 @@ export function isCollegeCoach(user: User): user is User & { collegeCoach: Colle
 
 /** Check if user has completed onboarding */
 export function isOnboarded(user: User): boolean {
-  return !!(user.onboardingCompleted && user.signupCompleted);
+  // Legacy support: check both old and new flags
+  return !!(user.onboardingCompleted || user.completeSignUp);
+}
+
+/** Check if user can add another sport (computed, not stored) */
+export function canAddSport(user: User, maxSports: number = 5): boolean {
+  const currentCount = user.sports?.length ?? 0;
+  return currentCount < maxSports;
 }
 
 // ============================================
@@ -1225,7 +1392,6 @@ export function addSport(user: User, sportProfile: SportProfile): User {
   return {
     ...user,
     sports: [...existingSports, newProfile],
-    canAddSport: existingSports.length + 1 < 5, // Limit to 5 sports
   };
 }
 
@@ -1253,7 +1419,6 @@ export function removeSport(user: User, sportName: string): User {
     ...user,
     sports: reordered,
     activeSportIndex: 0,
-    canAddSport: true,
   };
 }
 
@@ -1318,7 +1483,7 @@ export function toUserSummary(user: User): UserSummary {
       state: user.location?.state || user.state || '',
     },
     primarySport: primarySport?.sport,
-    primaryPosition: primarySport?.positions[0],
+    primaryPosition: primarySport?.positions?.[0],
     classOf: user.athlete?.classOf,
   };
 }

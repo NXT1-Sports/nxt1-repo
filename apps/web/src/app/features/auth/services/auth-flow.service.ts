@@ -4,7 +4,8 @@
  * Orchestrates authentication flows by coordinating between:
  * - Firebase Auth (SDK operations)
  * - Auth API (Backend HTTP calls)
- * - Router (Navigation)
+ * - NavController (Ionic navigation with animations)
+ * - Router (URL access for redirect logic)
  * - State management (via @nxt1/core AuthStateManager)
  *
  * This is the DOMAIN layer - it knows about business rules but not UI.
@@ -47,7 +48,9 @@ import {
   runInInjectionContext,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { NxtPlatformService } from '@nxt1/ui';
+import { NavController } from '@ionic/angular/standalone';
+import { NxtPlatformService, NxtLoggingService } from '@nxt1/ui';
+import { type ILogger } from '@nxt1/core/logging';
 import { Subscription } from 'rxjs';
 
 // Type-only imports - these don't cause runtime code to execute
@@ -132,10 +135,14 @@ export interface SignUpCredentials {
 @Injectable({ providedIn: 'root' })
 export class AuthFlowService implements OnDestroy {
   private readonly router = inject(Router);
+  private readonly navController = inject(NavController);
   private readonly platform = inject(NxtPlatformService);
   private readonly injector = inject(Injector);
   private readonly authApi = inject(AuthApiService);
   private readonly authErrorHandler = inject(AuthErrorHandler);
+
+  /** Structured logger for auth operations */
+  private readonly logger: ILogger = inject(NxtLoggingService).child('AuthFlowService');
 
   /** Analytics adapter - web or memory based on platform */
   private readonly analytics: AnalyticsAdapter = this.createAnalyticsAdapter();
@@ -147,13 +154,6 @@ export class AuthFlowService implements OnDestroy {
    */
   private firebaseAuth: Auth | null = null;
   private authStateSubscription?: Subscription;
-
-  /**
-   * Flag to prevent auth state listener from calling syncUserProfile
-   * during signup flow. The signup methods handle this manually after
-   * creating the backend user to avoid race conditions.
-   */
-  private signupInProgress = false;
 
   /**
    * ⭐ Core Auth State Manager - Same pattern as mobile app ⭐
@@ -197,6 +197,47 @@ export class AuthFlowService implements OnDestroy {
   ngOnDestroy(): void {
     this.authStateSubscription?.unsubscribe();
   }
+
+  // ============================================
+  // NAVIGATION HELPERS (Ionic NavController)
+  // ============================================
+
+  /**
+   * Navigate forward with Ionic slide animation
+   * Uses NavController for proper ion-router-outlet animations
+   */
+  private async navigateForward(path: string): Promise<void> {
+    await this.navController.navigateForward(path, {
+      animated: true,
+      animationDirection: 'forward',
+    });
+  }
+
+  /**
+   * Navigate back with Ionic slide animation
+   * Uses NavController for proper ion-router-outlet animations
+   */
+  private async navigateBack(path: string): Promise<void> {
+    await this.navController.navigateBack(path, {
+      animated: true,
+      animationDirection: 'back',
+    });
+  }
+
+  /**
+   * Navigate to root (replaces navigation stack)
+   * Uses NavController for proper ion-router-outlet animations
+   */
+  private async navigateRoot(path: string): Promise<void> {
+    await this.navController.navigateRoot(path, {
+      animated: true,
+      animationDirection: 'forward',
+    });
+  }
+
+  // ============================================
+  // ANALYTICS
+  // ============================================
 
   /**
    * Create appropriate analytics adapter based on platform
@@ -256,7 +297,7 @@ export class AuthFlowService implements OnDestroy {
     // Force initialization after 5 seconds to prevent infinite loading
     const forceInitTimeout = setTimeout(() => {
       if (!this.authManager.getState().isInitialized) {
-        console.warn('[AuthFlowService] Force initializing after timeout');
+        this.logger.warn('Force initializing after timeout');
         this.authManager.setLoading(false);
         this.authManager.setInitialized(true);
       }
@@ -277,7 +318,7 @@ export class AuthFlowService implements OnDestroy {
         this.authManager.setInitialized(true);
       }
     } catch (err) {
-      console.error('[AuthFlowService] Failed to initialize Firebase Auth:', err);
+      this.logger.error('Failed to initialize Firebase Auth', err);
       this.authManager.setLoading(false);
       this.authManager.setInitialized(true);
     } finally {
@@ -329,8 +370,8 @@ export class AuthFlowService implements OnDestroy {
 
             // Skip sync if signup is in progress - the signup method will handle it
             // after creating the backend user to avoid race conditions
-            if (this.signupInProgress) {
-              console.log('[AuthFlowService] Signup in progress, skipping auth state sync');
+            if (this.authManager.isSignupInProgress()) {
+              this.logger.debug('Signup in progress, skipping auth state sync');
               return;
             }
 
@@ -343,7 +384,7 @@ export class AuthFlowService implements OnDestroy {
             const completedOnboarding = this.hasCompletedOnboarding();
             const currentUser = this.user();
 
-            console.log('[AuthFlowService] User authenticated:', {
+            this.logger.info('User authenticated', {
               uid: firebaseUser.uid,
               email: firebaseUser.email,
               hasDisplayName: !!currentUser?.displayName && currentUser.displayName !== 'User',
@@ -361,15 +402,13 @@ export class AuthFlowService implements OnDestroy {
 
             // If not completed onboarding and not already on onboarding page → force redirect
             if (!completedOnboarding && !isOnOnboardingPage) {
-              console.log(
-                '[AuthFlowService] ⚠️  Onboarding not complete, redirecting to onboarding'
-              );
-              await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
+              this.logger.info('⚠️ Onboarding not complete, redirecting to onboarding');
+              await this.navigateForward(AUTH_ROUTES.ONBOARDING);
             }
             // If completed and on auth/home page → redirect to home
             else if (completedOnboarding && (isOnAuthPage || isOnHomepage)) {
-              console.log('[AuthFlowService] ✅ Onboarding complete, redirecting to home');
-              await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
+              this.logger.info('✅ Onboarding complete, redirecting to home');
+              await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
             }
           } else {
             // User is signed out - reset state
@@ -379,7 +418,7 @@ export class AuthFlowService implements OnDestroy {
             this.authManager.setLoading(false);
           }
         } catch (err) {
-          console.error('[AuthFlowService] Auth state sync failed:', err);
+          this.logger.error('Auth state sync failed', err);
           this.authManager.setError(err instanceof Error ? err.message : 'Authentication error');
           this.authManager.setLoading(false);
           this.authManager.setInitialized(true);
@@ -391,112 +430,53 @@ export class AuthFlowService implements OnDestroy {
   /**
    * Sync user profile from Firebase user and set analytics identity
    *
+   * SINGLE RESPONSIBILITY: This method ONLY syncs profile to local state.
+   * It does NOT create users - that's the job of signup methods.
+   *
    * This method:
    * 1. Fetches user profile from backend API
-   * 2. Sets analytics user ID and properties for tracking
+   * 2. Maps backend profile to AuthUser
+   * 3. Sets analytics user ID and properties
    *
-   * Analytics user properties allow you to segment users in GA4:
-   * - user_type: 'athlete' | 'coach' | 'parent' | etc.
-   * - is_premium: boolean for subscription status
-   * - auth_provider: how they signed in
-   * These persist across sessions until explicitly changed.
+   * If profile fetch fails, uses Firebase data with safe defaults.
+   * This matches the mobile pattern for consistency across platforms.
    *
    * @param firebaseUser Firebase user object
-   * @param throwOnNotFound If true, throws error when backend user not found (for OAuth signup flows)
+   * @param throwOnNotFound If true, throws error when backend user not found (for OAuth flows that need to detect new users)
    */
   private async syncUserProfile(
     firebaseUser: FirebaseUser,
     throwOnNotFound = false
   ): Promise<void> {
     try {
-      const backendProfile = await this.authApi.getUserProfile(firebaseUser.uid);
+      // Fetch profile from backend
+      let backendProfile: Awaited<ReturnType<typeof this.authApi.getUserProfile>> | null = null;
 
-      // Check if backend user exists
-      if (!backendProfile || !backendProfile.email) {
-        console.warn('[AuthFlowService] No backend profile found for user:', firebaseUser.uid);
+      try {
+        backendProfile = await this.authApi.getUserProfile(firebaseUser.uid);
+        this.logger.debug('Backend profile fetched', {
+          uid: firebaseUser.uid,
+          completeSignUp: backendProfile?.completeSignUp,
+        });
+      } catch (err) {
+        this.logger.warn('Failed to fetch backend profile', { error: err });
 
-        // If throwOnNotFound is true (OAuth signup), throw error so OAuth method can handle user creation
+        // If caller needs to know about missing profile (OAuth new user detection), throw
         if (throwOnNotFound) {
           throw new Error(`Backend user not found for uid: ${firebaseUser.uid}`);
         }
-
-        console.warn('[AuthFlowService] Attempting to create backend user document...');
-
-        // Try to create backend user (in case createUser was never called)
-        try {
-          await this.authApi.createUser({
-            uid: firebaseUser.uid,
-            email: firebaseUser.email!,
-          });
-          console.log('[AuthFlowService] ✅ Backend user created successfully');
-
-          // Retry fetching profile after creation
-          const newProfile = await this.authApi.getUserProfile(firebaseUser.uid);
-          if (newProfile) {
-            // Continue with normal flow using new profile
-            const hasCompletedOnboarding = Boolean(newProfile?.completeSignUp);
-            const authUser: AuthUser = {
-              ...newProfile,
-              uid: firebaseUser.uid,
-              email: firebaseUser.email ?? '',
-              displayName:
-                firebaseUser.displayName ??
-                (newProfile?.firstName && newProfile?.lastName
-                  ? `${newProfile.firstName} ${newProfile.lastName}`
-                  : 'User'),
-              photoURL: firebaseUser.photoURL ?? newProfile?.profileImg ?? undefined,
-              role: this.getUserRole(newProfile),
-              isPremium: newProfile?.lastActivatedPlan !== 'free',
-              hasCompletedOnboarding,
-              provider: this.getProviderFromFirebase(firebaseUser),
-              emailVerified: firebaseUser.emailVerified,
-              createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            };
-            await this.authManager.setUser(authUser);
-            this.analytics.setUserId(authUser.uid);
-            this.analytics.setUserProperties({
-              user_type: authUser.role,
-              is_premium: authUser.isPremium,
-              auth_provider: authUser.provider,
-            });
-            return;
-          }
-        } catch (createError) {
-          console.error('[AuthFlowService] Failed to auto-create backend user:', createError);
-        }
-
-        // Fallback: Set basic user with hasCompletedOnboarding: false
-        const authUser: AuthUser = {
-          uid: firebaseUser.uid,
-          email: firebaseUser.email ?? '',
-          displayName: firebaseUser.displayName ?? 'User',
-          photoURL: firebaseUser.photoURL ?? undefined,
-          role: 'athlete' as UserRole,
-          isPremium: false,
-          hasCompletedOnboarding: false, // No backend profile = not completed
-          provider: this.getProviderFromFirebase(firebaseUser),
-          emailVerified: firebaseUser.emailVerified,
-          createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        await this.authManager.setUser(authUser);
-        return;
+        // Otherwise continue with null profile - use Firebase data with defaults
       }
 
-      // Determine hasCompletedOnboarding from backend profile
-      // Backend uses 'completeSignUp' field to track onboarding completion
-      const hasCompletedOnboarding = Boolean(backendProfile?.completeSignUp);
+      // V2: Prefer onboardingCompleted, fallback to legacy completeSignUp
+      const hasCompletedOnboarding =
+        backendProfile?.onboardingCompleted === true || backendProfile?.completeSignUp === true;
 
-      console.log('[AuthFlowService] Backend profile found:', {
-        uid: firebaseUser.uid,
-        hasFirstName: !!backendProfile.firstName,
-        completeSignUp: backendProfile.completeSignUp,
-        hasCompletedOnboarding,
-      });
+      this.logger.debug('Onboarding status determined', { hasCompletedOnboarding });
 
+      // Build AuthUser from Firebase + backend data
       const authUser: AuthUser = {
-        ...backendProfile,
+        ...(backendProfile ?? {}),
         uid: firebaseUser.uid,
         email: firebaseUser.email ?? '',
         displayName:
@@ -506,7 +486,9 @@ export class AuthFlowService implements OnDestroy {
             : 'User'),
         photoURL: firebaseUser.photoURL ?? backendProfile?.profileImg ?? undefined,
         role: this.getUserRole(backendProfile),
-        isPremium: backendProfile?.lastActivatedPlan !== 'free',
+        // Premium status: Check planTier (cached from Subscriptions collection)
+        // Free users have no planTier or planTier === 'free'
+        isPremium: !!backendProfile?.planTier && backendProfile.planTier !== 'free',
         hasCompletedOnboarding,
         provider: this.getProviderFromFirebase(firebaseUser),
         emailVerified: firebaseUser.emailVerified,
@@ -516,31 +498,22 @@ export class AuthFlowService implements OnDestroy {
 
       await this.authManager.setUser(authUser);
 
-      // Set analytics user identity and properties
-      // These properties persist in GA4 and allow audience segmentation
+      // Set analytics identity
       this.analytics.setUserId(authUser.uid);
       this.analytics.setUserProperties({
         user_type: authUser.role,
         is_premium: authUser.isPremium,
         auth_provider: authUser.provider,
       });
+
+      this.logger.info('User state synced', {
+        uid: authUser.uid,
+        hasCompletedOnboarding: authUser.hasCompletedOnboarding,
+      });
     } catch (err) {
-      console.error('[AuthFlowService] Failed to sync user profile:', err);
-      // Fallback to basic Firebase data - new user hasn't completed onboarding
-      const authUser: AuthUser = {
-        uid: firebaseUser.uid,
-        email: firebaseUser.email ?? '',
-        displayName: firebaseUser.displayName ?? 'User',
-        photoURL: firebaseUser.photoURL ?? undefined,
-        role: 'athlete' as UserRole,
-        isPremium: false,
-        hasCompletedOnboarding: false,
-        provider: this.getProviderFromFirebase(firebaseUser),
-        emailVerified: firebaseUser.emailVerified,
-        createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      await this.authManager.setUser(authUser);
+      this.logger.error('Failed to sync user profile', err);
+      // Re-throw if caller needs to handle it
+      throw err;
     }
   }
 
@@ -562,14 +535,27 @@ export class AuthFlowService implements OnDestroy {
   }
 
   /**
-   * Get user role from legacy User model
+   * Get user role from V2 model with legacy fallback
+   * @param user - User profile (V2 or legacy format)
+   * @returns UserRole - The determined user role
    */
-  private getUserRole(user: any): UserRole {
-    if (user?.isCollegeCoach) return 'coach' as UserRole; // Map college-coach to coach
-    if (user?.isRecruit) return 'athlete' as UserRole;
-    if (user?.isFan) return 'fan' as UserRole;
-    if (user?.athleteOrParentOrCoach === 'Coach') return 'coach' as UserRole;
-    return 'athlete' as UserRole; // default
+  private getUserRole(
+    user: {
+      role?: UserRole | null;
+      isCollegeCoach?: boolean | null;
+      isRecruit?: boolean | null;
+    } | null
+  ): UserRole {
+    if (!user) return 'athlete';
+
+    // V2: Use role field directly if present
+    if (user.role) return user.role;
+
+    // Legacy fallback: Map boolean flags to role
+    if (user.isCollegeCoach) return 'coach';
+    if (user.isRecruit) return 'athlete';
+
+    return 'athlete';
   }
 
   // ============================================
@@ -613,7 +599,7 @@ export class AuthFlowService implements OnDestroy {
       // Auth state listener handles profile sync and navigation
       return true;
     } catch (err) {
-      console.error('[AuthFlowService] Sign in failed:', err);
+      this.logger.error('Sign in failed', err);
 
       // Use centralized auth error handler
       const handledError = this.authErrorHandler.handle(err);
@@ -645,7 +631,7 @@ export class AuthFlowService implements OnDestroy {
     // Check if this is a new user (Firebase detection can be unreliable)
     const isNewUser = result._tokenResponse?.isNewUser ?? false;
 
-    console.log(`[AuthFlowService] 🔍 Firebase detected isNewUser: ${isNewUser} (Microsoft)`);
+    this.logger.debug('🔍 Firebase detected isNewUser (Microsoft)', { isNewUser });
 
     // Track analytics
     this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
@@ -654,43 +640,37 @@ export class AuthFlowService implements OnDestroy {
     this.analytics.setUserId(result.user.uid);
     this.analytics.setUserProperties({ user_type: this.user()?.role });
 
-    // Set flag to prevent auth state listener from racing with user setup
-    this.signupInProgress = true;
+    // Set flag to prevent auth state listener from racing with user setup (via core state manager)
+    this.authManager.setSignupInProgress(true);
 
     try {
       // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
-      console.log(`[AuthFlowService] 📡 Attempting to sync existing user profile... (Microsoft)`);
+      this.logger.debug('📡 Attempting to sync existing user profile (Microsoft)');
       await this.syncUserProfile(result.user);
-      console.log(`[AuthFlowService] ✅ User profile sync successful - existing user (Microsoft)`);
+      this.logger.info('✅ User profile sync successful - existing user (Microsoft)');
 
       // Check if user needs onboarding
       const currentUser = this.user();
       const needsOnboarding = !currentUser?.hasCompletedOnboarding;
 
       if (needsOnboarding) {
-        console.log(
-          `[AuthFlowService] 🚀 Navigating to onboarding (existing user, incomplete) (Microsoft)`
-        );
-        await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
+        this.logger.info('🚀 Navigating to onboarding (existing user, incomplete) (Microsoft)');
+        await this.navigateForward(AUTH_ROUTES.ONBOARDING);
       } else {
-        console.log(
-          `[AuthFlowService] 🏠 User already completed onboarding, navigating to /home (Microsoft)`
-        );
-        await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
+        this.logger.info('🏠 User already completed onboarding, navigating to /home (Microsoft)');
+        await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
       }
     } catch (syncError: any) {
-      console.log(
-        `[AuthFlowService] ❌ User sync failed, attempting to create new user (Microsoft):`,
-        syncError
-      );
+      this.logger.warn('❌ User sync failed, attempting to create new user (Microsoft)', {
+        error: syncError?.message,
+      });
 
       try {
         // User doesn't exist in backend, create new user
-        console.log(`[AuthFlowService] 📝 Creating new user via Microsoft OAuth:`, {
+        this.logger.debug('📝 Creating new user via Microsoft OAuth', {
           uid: result.user.uid,
           email: result.user.email!,
           teamCode: teamCode || 'none',
-          referralId: 'none (OAuth - no referral code)',
         });
 
         const createResult = await this.authApi.createUser({
@@ -700,24 +680,21 @@ export class AuthFlowService implements OnDestroy {
           // Don't pass referralId for OAuth (same as email signup when no referral)
         });
 
-        console.log(
-          `[AuthFlowService] ✅ New user created successfully (Microsoft):`,
-          createResult
-        );
+        this.logger.info('✅ New user created successfully (Microsoft)', { createResult });
 
-        // Now sync the newly created user
+        // Sync the newly created user to local state
         await this.syncUserProfile(result.user);
 
         // Navigate to onboarding for new users
-        console.log(`[AuthFlowService] 🚀 Navigating to onboarding (new user) (Microsoft)`);
-        await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
+        this.logger.info('🚀 Navigating to onboarding (new user) (Microsoft)');
+        await this.navigateForward(AUTH_ROUTES.ONBOARDING);
       } catch (createError: any) {
-        console.error(`[AuthFlowService] ❌ Failed to create new user (Microsoft):`, createError);
+        this.logger.error('❌ Failed to create new user (Microsoft)', createError);
         throw createError; // Re-throw to be handled by outer catch
       }
     } finally {
-      // Always clear flag to prevent state leaks
-      this.signupInProgress = false;
+      // Always clear flag to prevent state leaks (via core state manager)
+      this.authManager.setSignupInProgress(false);
     }
 
     return true;
@@ -764,7 +741,7 @@ export class AuthFlowService implements OnDestroy {
     this.authManager.setLoading(true);
     this.authManager.setError(null);
 
-    console.log('[AuthFlowService] 🎯 Starting Google OAuth (popup)...');
+    this.logger.info('🎯 Starting Google OAuth (popup)');
 
     try {
       // Dynamic imports for SSR safety
@@ -781,7 +758,7 @@ export class AuthFlowService implements OnDestroy {
       // @ts-expect-error additionalUserInfo is on the result
       const isNewUser = result._tokenResponse?.isNewUser ?? false;
 
-      console.log(`[AuthFlowService] 🔍 Firebase detected isNewUser: ${isNewUser}`);
+      this.logger.debug('🔍 Firebase detected isNewUser', { isNewUser });
 
       // Track analytics
       this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
@@ -790,42 +767,37 @@ export class AuthFlowService implements OnDestroy {
       this.analytics.setUserId(result.user.uid);
       this.analytics.setUserProperties({ user_type: this.user()?.role });
 
-      // Set flag to prevent auth state listener from racing with user setup
-      this.signupInProgress = true;
+      // Set flag to prevent auth state listener from racing with user setup (via core state manager)
+      this.authManager.setSignupInProgress(true);
 
       try {
         // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
-        console.log(`[AuthFlowService] 📡 Attempting to sync existing user profile...`);
+        this.logger.debug('📡 Attempting to sync existing user profile');
         await this.syncUserProfile(result.user);
-        console.log(`[AuthFlowService] ✅ User profile sync successful - existing user`);
+        this.logger.info('✅ User profile sync successful - existing user');
 
         // Check if user needs onboarding
         const currentUser = this.user();
         const needsOnboarding = !currentUser?.hasCompletedOnboarding;
 
         if (needsOnboarding) {
-          console.log(`[AuthFlowService] 🚀 Navigating to onboarding (existing user, incomplete)`);
-          await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
+          this.logger.info('🚀 Navigating to onboarding (existing user, incomplete)');
+          await this.navigateForward(AUTH_ROUTES.ONBOARDING);
         } else {
-          console.log(
-            `[AuthFlowService] 🏠 User already completed onboarding, navigating to /home`
-          );
-          await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
+          this.logger.info('🏠 User already completed onboarding, navigating to /home');
+          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
         }
       } catch (syncError: any) {
-        console.log(
-          `[AuthFlowService] ❌ User sync failed, attempting to create new user:`,
-          syncError
-        );
+        this.logger.warn('❌ User sync failed, attempting to create new user', {
+          error: syncError?.message,
+        });
 
         try {
           // User doesn't exist in backend, create new user
-          console.log(`[AuthFlowService] 📝 Creating new user via OAuth:`, {
+          this.logger.debug('📝 Creating new user via OAuth', {
             uid: result.user.uid,
             email: result.user.email!,
             teamCode: teamCode || 'none',
-            referralId: 'none (OAuth - no referral code)',
-            apiEndpoint: 'http://localhost:3000/api/v1/staging/auth/create-user',
           });
 
           const createResult = await this.authApi.createUser({
@@ -835,27 +807,26 @@ export class AuthFlowService implements OnDestroy {
             // Don't pass referralId for OAuth (same as email signup when no referral)
           });
 
-          console.log(`[AuthFlowService] ✅ New user created successfully (OAuth):`, createResult);
+          this.logger.info('✅ New user created successfully (OAuth)', { createResult });
 
-          // Now sync the newly created user
+          // Sync the newly created user to local state
           await this.syncUserProfile(result.user);
 
           // Navigate to onboarding for new users
-          console.log(`[AuthFlowService] 🚀 Navigating to onboarding (new user)`);
-          await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
+          this.logger.info('🚀 Navigating to onboarding (new user)');
+          await this.navigateForward(AUTH_ROUTES.ONBOARDING);
         } catch (createError: any) {
-          console.error(`[AuthFlowService] ❌ Failed to create new user:`, createError);
+          this.logger.error('❌ Failed to create new user', createError);
           throw createError; // Re-throw to be handled by outer catch
         }
       } finally {
-        // Always clear flag to prevent state leaks
-        this.signupInProgress = false;
+        // Always clear flag to prevent state leaks (via core state manager)
+        this.authManager.setSignupInProgress(false);
       }
 
       return true;
     } catch (err: any) {
-      console.error('[AuthFlowService] Google OAuth failed:', err);
-      console.error('[AuthFlowService] Google OAuth Error details:', {
+      this.logger.error('Google OAuth failed', err, {
         code: err?.code,
         message: err?.message,
         customData: err?.customData,
@@ -925,10 +896,10 @@ export class AuthFlowService implements OnDestroy {
       // provider.addScope('profile');
       // provider.addScope('openid');
 
-      console.log('[AuthFlowService] 🚀 Starting Microsoft OAuth (popup)...');
+      this.logger.info('🚀 Starting Microsoft OAuth (popup)');
       const result = await signInWithPopup(this.firebaseAuth, provider);
 
-      console.log('[AuthFlowService] ✅ Microsoft OAuth popup success:', {
+      this.logger.info('✅ Microsoft OAuth popup success', {
         uid: result.user.uid,
         email: result.user.email,
         displayName: result.user.displayName,
@@ -937,8 +908,7 @@ export class AuthFlowService implements OnDestroy {
       // Process result using helper method
       return await this.processMicrosoftAuthResult(result, teamCode);
     } catch (err: any) {
-      console.error('[AuthFlowService] Microsoft sign in failed:', err);
-      console.error('[AuthFlowService] Microsoft OAuth Error details:', {
+      this.logger.error('Microsoft sign in failed', err, {
         code: err?.code,
         message: err?.message,
         customData: err?.customData,
@@ -972,7 +942,7 @@ export class AuthFlowService implements OnDestroy {
     this.authManager.setLoading(true);
     this.authManager.setError(null);
 
-    console.log('[AuthFlowService] 🍎 Starting Apple OAuth (popup)...');
+    this.logger.info('🍎 Starting Apple OAuth (popup)');
 
     try {
       // Dynamic imports for SSR safety
@@ -990,7 +960,7 @@ export class AuthFlowService implements OnDestroy {
       // @ts-expect-error additionalUserInfo is on the result
       const isNewUser = result._tokenResponse?.isNewUser ?? false;
 
-      console.log(`[AuthFlowService] 🔍 Firebase detected isNewUser: ${isNewUser} (Apple)`);
+      this.logger.debug('🔍 Firebase detected isNewUser (Apple)', { isNewUser });
 
       // Track analytics
       this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
@@ -999,43 +969,37 @@ export class AuthFlowService implements OnDestroy {
       this.analytics.setUserId(result.user.uid);
       this.analytics.setUserProperties({ user_type: this.user()?.role });
 
-      // Set flag to prevent auth state listener from racing with user setup
-      this.signupInProgress = true;
+      // Set flag to prevent auth state listener from racing with user setup (via core state manager)
+      this.authManager.setSignupInProgress(true);
 
       try {
         // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
-        console.log(`[AuthFlowService] 📡 Attempting to sync existing user profile... (Apple)`);
+        this.logger.debug('📡 Attempting to sync existing user profile (Apple)');
         await this.syncUserProfile(result.user);
-        console.log(`[AuthFlowService] ✅ User profile sync successful - existing user (Apple)`);
+        this.logger.info('✅ User profile sync successful - existing user (Apple)');
 
         // Check if user needs onboarding
         const currentUser = this.user();
         const needsOnboarding = !currentUser?.hasCompletedOnboarding;
 
         if (needsOnboarding) {
-          console.log(
-            `[AuthFlowService] 🚀 Navigating to onboarding (existing user, incomplete) (Apple)`
-          );
-          await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
+          this.logger.info('🚀 Navigating to onboarding (existing user, incomplete) (Apple)');
+          await this.navigateForward(AUTH_ROUTES.ONBOARDING);
         } else {
-          console.log(
-            `[AuthFlowService] 🏠 User already completed onboarding, navigating to /home (Apple)`
-          );
-          await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
+          this.logger.info('🏠 User already completed onboarding, navigating to /home (Apple)');
+          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
         }
       } catch (syncError: any) {
-        console.log(
-          `[AuthFlowService] ❌ User sync failed, attempting to create new user (Apple):`,
-          syncError
-        );
+        this.logger.warn('❌ User sync failed, attempting to create new user (Apple)', {
+          error: syncError?.message,
+        });
 
         try {
           // User doesn't exist in backend, create new user
-          console.log(`[AuthFlowService] 📝 Creating new user via Apple OAuth:`, {
+          this.logger.debug('📝 Creating new user via Apple OAuth', {
             uid: result.user.uid,
             email: result.user.email!,
             teamCode: teamCode || 'none',
-            referralId: 'none (OAuth - no referral code)',
           });
 
           const createResult = await this.authApi.createUser({
@@ -1045,27 +1009,26 @@ export class AuthFlowService implements OnDestroy {
             // Don't pass referralId for OAuth (same as email signup when no referral)
           });
 
-          console.log(`[AuthFlowService] ✅ New user created successfully (Apple):`, createResult);
+          this.logger.info('✅ New user created successfully (Apple)', { createResult });
 
-          // Now sync the newly created user
+          // Sync the newly created user to local state
           await this.syncUserProfile(result.user);
 
           // Navigate to onboarding for new users
-          console.log(`[AuthFlowService] 🚀 Navigating to onboarding (new user) (Apple)`);
-          await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
+          this.logger.info('🚀 Navigating to onboarding (new user) (Apple)');
+          await this.navigateForward(AUTH_ROUTES.ONBOARDING);
         } catch (createError: any) {
-          console.error(`[AuthFlowService] ❌ Failed to create new user (Apple):`, createError);
+          this.logger.error('❌ Failed to create new user (Apple)', createError);
           throw createError; // Re-throw to be handled by outer catch
         }
       } finally {
-        // Always clear flag to prevent state leaks
-        this.signupInProgress = false;
+        // Always clear flag to prevent state leaks (via core state manager)
+        this.authManager.setSignupInProgress(false);
       }
 
       return true;
     } catch (err: any) {
-      console.error('[AuthFlowService] Apple sign in failed:', err);
-      console.error('[AuthFlowService] Apple OAuth Error details:', {
+      this.logger.error('Apple sign in failed', err, {
         code: err?.code,
         message: err?.message,
         customData: err?.customData,
@@ -1100,8 +1063,8 @@ export class AuthFlowService implements OnDestroy {
     }
 
     // Set flag to prevent auth state listener from calling syncUserProfile
-    // before we create the backend user
-    this.signupInProgress = true;
+    // before we create the backend user (via core state manager)
+    this.authManager.setSignupInProgress(true);
     this.authManager.setLoading(true);
     this.authManager.setError(null);
 
@@ -1118,12 +1081,11 @@ export class AuthFlowService implements OnDestroy {
 
       try {
         // Create user in backend
-        console.log(`[AuthFlowService] 📝 Creating new user via Email signup:`, {
+        this.logger.debug('📝 Creating new user via Email signup', {
           uid: result.user.uid,
           email: credentials.email,
           teamCode: credentials.teamCode || 'none',
           referralId: credentials.referralId || 'none',
-          apiEndpoint: 'http://localhost:3000/api/v1/staging/auth/create-user',
         });
 
         const createResult = await this.authApi.createUser({
@@ -1133,7 +1095,7 @@ export class AuthFlowService implements OnDestroy {
           referralId: credentials.referralId,
         });
 
-        console.log(`[AuthFlowService] ✅ Email signup user created:`, createResult);
+        this.logger.info('✅ Email signup user created', { createResult });
 
         if (!createResult.success) {
           throw new Error(
@@ -1149,18 +1111,18 @@ export class AuthFlowService implements OnDestroy {
         });
         this.analytics.setUserId(result.user.uid);
 
-        // Set user state BEFORE navigating (required for onboarding page)
+        // Sync user state BEFORE navigating (required for onboarding page)
         await this.syncUserProfile(result.user);
 
         // Navigate to onboarding
-        await this.router.navigate([AUTH_ROUTES.ONBOARDING]);
+        await this.navigateForward(AUTH_ROUTES.ONBOARDING);
         return true;
       } finally {
-        // Always clear flag to prevent state leaks
-        this.signupInProgress = false;
+        // Always clear flag to prevent state leaks (via core state manager)
+        this.authManager.setSignupInProgress(false);
       }
     } catch (err) {
-      console.error('[AuthFlowService] Sign up failed:', err);
+      this.logger.error('Sign up failed', err);
 
       // Use centralized auth error handler
       const handledError = this.authErrorHandler.handle(err);
@@ -1199,9 +1161,9 @@ export class AuthFlowService implements OnDestroy {
 
       await signOut(this.firebaseAuth);
       await this.authManager.reset();
-      await this.router.navigate([AUTH_ROUTES.ROOT]);
+      await this.navigateRoot(AUTH_ROUTES.ROOT);
     } catch (err) {
-      console.error('[AuthFlowService] Sign out failed:', err);
+      this.logger.error('Sign out failed', err);
       this.authManager.setError('Failed to sign out');
     } finally {
       this.authManager.setLoading(false);
@@ -1237,7 +1199,7 @@ export class AuthFlowService implements OnDestroy {
 
       return true;
     } catch (err) {
-      console.error('[AuthFlowService] Password reset failed:', err);
+      this.logger.error('Password reset failed', err);
 
       // Use centralized auth error handler
       const handledError = this.authErrorHandler.handle(err);
@@ -1336,7 +1298,7 @@ export class AuthFlowService implements OnDestroy {
 
       return downloadURL;
     } catch (error) {
-      console.error('[AuthFlowService] Photo upload failed:', error);
+      this.logger.error('Photo upload failed', error);
       throw new Error('Failed to upload photo. Please try again.');
     }
   }

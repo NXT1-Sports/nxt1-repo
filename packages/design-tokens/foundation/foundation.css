@@ -494,6 +494,11 @@ dialog::backdrop {
 /**
  * Focus visible styles for accessibility.
  * Uses brand primary color for focus rings.
+ * 
+ * IMPORTANT: Exclude native inputs inside Ionic components.
+ * Ionic components (ion-input, ion-textarea, ion-select) have their
+ * own focus handling via CSS custom properties (--highlight-color-focused).
+ * Applying outline to their internal native elements causes visual bugs.
  */
 :focus-visible {
   outline: 2px solid var(--nxt1-color-primary, #ccff00);
@@ -505,6 +510,21 @@ dialog::backdrop {
  */
 :focus:not(:focus-visible) {
   outline: none;
+}
+
+/**
+ * Remove focus outline from native inputs inside Ionic components.
+ * Ionic uses --highlight-color-focused for its own focus indication.
+ */
+ion-input input:focus,
+ion-input input:focus-visible,
+ion-textarea textarea:focus,
+ion-textarea textarea:focus-visible,
+ion-select:focus,
+ion-select:focus-visible,
+ion-searchbar input:focus,
+ion-searchbar input:focus-visible {
+  outline: none !important;
 }
 
 /* ============================================

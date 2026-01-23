@@ -3,10 +3,11 @@
  * @module @nxt1/ui/onboarding
  *
  * Enterprise-grade sticky bottom footer for mobile onboarding flows.
- * Provides a seamless, professional UI pattern used by top apps (Instagram, TikTok, Uber, etc.)
+ * Provides a seamless, professional UI pattern used by top apps (Instagram, TikTok, MaxPreps, etc.)
  *
  * Features:
  * - Fixed position at bottom with safe area handling
+ * - Compact progress pills indicator (native app style)
  * - Gradient background for seamless blend with content
  * - Native haptic feedback integration
  * - Loading state with spinner
@@ -18,20 +19,22 @@
  * Design Pattern:
  * - Detached from main scrollable content
  * - Always visible regardless of scroll position
+ * - Progress pills above continue button (MaxPreps-style)
  * - Gradient fade at top for seamless content transition
  * - Full-width button for easy thumb access
  *
  * Usage:
  * ```html
  * <nxt1-onboarding-button-mobile
+ *   [totalSteps]="4"
+ *   [currentStepIndex]="1"
+ *   [completedStepIndices]="[0]"
  *   [showSkip]="isCurrentStepOptional()"
  *   [isLastStep]="isLastStep()"
  *   [loading]="isLoading()"
  *   [disabled]="!isCurrentStepValid()"
- *   [showSignOut]="true"
  *   (skipClick)="onSkip()"
  *   (continueClick)="onContinue()"
- *   (signOutClick)="onSignOut()"
  * />
  * ```
  *
@@ -42,11 +45,17 @@ import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from 
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../shared/icon';
 import { HapticButtonDirective } from '../../services/haptics';
+import { OnboardingProgressPillsComponent } from '../onboarding-progress-pills';
 
 @Component({
   selector: 'nxt1-onboarding-button-mobile',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, HapticButtonDirective],
+  imports: [
+    CommonModule,
+    NxtIconComponent,
+    HapticButtonDirective,
+    OnboardingProgressPillsComponent,
+  ],
   template: `
     <!-- Mobile Footer - Fixed position handled by CSS (complex positioning) -->
     <div class="nxt1-mobile-footer">
@@ -54,7 +63,16 @@ import { HapticButtonDirective } from '../../services/haptics';
       <div class="nxt1-footer-gradient" aria-hidden="true"></div>
 
       <!-- Footer Content - Tailwind for layout -->
-      <div class="bg-bg-primary pb-safe pointer-events-auto px-5 pt-4">
+      <div class="bg-bg-primary pb-safe pointer-events-auto px-5 pt-3">
+        <!-- Progress Pills - Native MaxPreps-style indicator -->
+        @if (totalSteps > 0) {
+          <nxt1-onboarding-progress-pills
+            [totalSteps]="totalSteps"
+            [currentStepIndex]="currentStepIndex"
+            [completedStepIndices]="completedStepIndices"
+          />
+        }
+
         <!-- Button Row -->
         <div class="flex w-full gap-3">
           <!-- Skip Button (optional steps only) -->
@@ -90,22 +108,6 @@ import { HapticButtonDirective } from '../../services/haptics';
             }
           </button>
         </div>
-
-        <!-- Sign Out Link -->
-        @if (showSignOut) {
-          <div class="mt-4 flex flex-col items-center gap-3">
-            <div class="bg-border-subtle h-px w-full"></div>
-            <button
-              type="button"
-              class="nxt1-signout-link px-4 py-2"
-              (click)="signOutClick.emit()"
-              data-testid="onboarding-signout"
-              nxtHaptic="light"
-            >
-              Sign out and start over
-            </button>
-          </div>
-        }
       </div>
     </div>
   `,
@@ -220,35 +222,28 @@ import { HapticButtonDirective } from '../../services/haptics';
           transform: rotate(360deg);
         }
       }
-
-      /* ============================================
-       SIGN OUT LINK - Theme colors & states
-       ============================================ */
-      .nxt1-signout-link {
-        background: none;
-        border: none;
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-text-tertiary);
-        cursor: pointer;
-        transition: color var(--nxt1-duration-normal) var(--nxt1-easing-inOut);
-        -webkit-tap-highlight-color: transparent;
-      }
-
-      .nxt1-signout-link:hover {
-        color: var(--nxt1-color-error);
-      }
-
-      .nxt1-signout-link:active {
-        color: var(--nxt1-color-error);
-        opacity: 0.8;
-      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OnboardingButtonMobileComponent {
+  // ============================================
+  // PROGRESS INDICATOR INPUTS
+  // ============================================
+
+  /** Total number of steps in the onboarding flow */
+  @Input() totalSteps = 0;
+
+  /** Current step index (0-based) */
+  @Input() currentStepIndex = 0;
+
+  /** Array of completed step indices (0-based) */
+  @Input() completedStepIndices: number[] = [];
+
+  // ============================================
+  // BUTTON STATE INPUTS
+  // ============================================
+
   /** Whether to show the skip button (for optional steps) */
   @Input() showSkip = false;
 
@@ -261,15 +256,9 @@ export class OnboardingButtonMobileComponent {
   /** Whether the form is in loading state */
   @Input() loading = false;
 
-  /** Whether to show the sign out link */
-  @Input() showSignOut = true;
-
   /** Emits when skip is clicked */
   @Output() skipClick = new EventEmitter<void>();
 
   /** Emits when continue/complete is clicked */
   @Output() continueClick = new EventEmitter<void>();
-
-  /** Emits when sign out is clicked */
-  @Output() signOutClick = new EventEmitter<void>();
 }

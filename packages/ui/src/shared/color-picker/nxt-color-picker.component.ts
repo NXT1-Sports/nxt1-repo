@@ -603,13 +603,10 @@ export class NxtColorPickerComponent {
 
   constructor() {
     // Sync internal state when colors input changes
-    effect(
-      () => {
-        const inputColors = this.colors();
-        this.selectedColors.set([...inputColors]);
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const inputColors = this.colors();
+      this.selectedColors.set([...inputColors]);
+    });
   }
 
   // ============================================

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <title>NXT1 Sports</title>
@@ -13,8 +13,14 @@
     -->
     <script>
       (function () {
-        // Get stored preference, default to 'light' for testing
-        var theme = localStorage.getItem("nxt1-theme") || "light";
+        // Get stored preference, default to 'dark' for NXT1 brand
+        var stored = localStorage.getItem("nxt1-theme");
+        var theme = stored || "dark";
+
+        // Persist dark as default if not set
+        if (!stored) {
+          localStorage.setItem("nxt1-theme", "dark");
+        }
 
         // Apply immediately to prevent flash
         document.documentElement.setAttribute("data-theme", theme);
@@ -26,10 +32,7 @@
     </script>
 
     <meta name="color-scheme" content="dark light" />
-    <meta
-      name="viewport"
-      content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"
-    />
+    <meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1.0" />
     <meta name="format-detection" content="telephone=no" />
     <meta name="msapplication-tap-highlight" content="no" />
 

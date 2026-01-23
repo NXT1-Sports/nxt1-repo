@@ -302,15 +302,12 @@ export class NxtPositionPickerContentComponent {
     addIcons({ checkmarkCircle, ellipseOutline });
 
     // Initialize selection from input
-    effect(
-      () => {
-        const initial = this.initialSelectedPositions();
-        if (initial.length > 0) {
-          this.selectedPositions.set([...initial]);
-        }
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const initial = this.initialSelectedPositions();
+      if (initial.length > 0) {
+        this.selectedPositions.set([...initial]);
+      }
+    });
   }
 
   // ============================================

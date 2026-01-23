@@ -33,4 +33,17 @@
  * - Reset request flow
  * - Navigation
  * - Edge cases
+ *
+ * onboarding.spec.ts
+ * - Page load verification
+ * - Profile step (name, photo, location)
+ * - Sport selection step
+ * - Gender selection step
+ * - Birthdate step
+ * - Referral step
+ * - Role selection (optional)
+ * - Complete flow end-to-end
+ * - Session persistence
+ * - Mobile viewport
+ * - Accessibility
  */

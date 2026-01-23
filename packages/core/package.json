@@ -80,6 +80,11 @@
       "types": "./dist/testing/index.d.ts",
       "import": "./dist/testing/index.mjs",
       "require": "./dist/testing/index.js"
+    },
+    "./geolocation": {
+      "types": "./dist/geolocation/index.d.ts",
+      "import": "./dist/geolocation/index.mjs",
+      "require": "./dist/geolocation/index.js"
     }
   },
   "files": [

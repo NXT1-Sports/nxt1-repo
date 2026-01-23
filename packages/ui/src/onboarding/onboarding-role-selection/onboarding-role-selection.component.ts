@@ -55,6 +55,10 @@ export interface RoleOption {
  * Role options for onboarding (optional last step).
  * Maps to OnboardingUserType from @nxt1/core/api.
  * Icons reference @nxt1/design-tokens ROLE_ICONS.
+ *
+ * All 9 roles supported by the NXT1 platform (as of 2026):
+ * - athlete, coach, college-coach, director, recruiting-service
+ * - parent, scout, media, fan
  */
 export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
   {
@@ -66,20 +70,50 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
   {
     type: 'coach',
     label: 'Coach',
-    description: 'High school, club, or college coach managing a team',
+    description: 'High school or club coach',
     icon: 'coach',
+  },
+  {
+    type: 'college-coach',
+    label: 'College Coach',
+    description: 'College coach recruiting athletes',
+    icon: 'college-coach',
+  },
+  {
+    type: 'director',
+    label: 'Athletic Director',
+    description: 'Program director or administrator',
+    icon: 'director',
+  },
+  {
+    type: 'recruiting-service',
+    label: 'Recruiting Service',
+    description: 'Professional recruiting service',
+    icon: 'recruiting-service',
   },
   {
     type: 'parent',
     label: 'Parent / Guardian',
-    description: 'Supporting an athlete on their recruiting journey',
+    description: 'Supporting an athlete',
     icon: 'parent',
   },
   {
     type: 'scout',
-    label: 'Scout / Recruiter',
-    description: 'Discovering and evaluating athletic talent',
+    label: 'Scout',
+    description: 'Evaluating athletic talent',
     icon: 'scout',
+  },
+  {
+    type: 'media',
+    label: 'Media',
+    description: 'Journalist or content creator',
+    icon: 'media',
+  },
+  {
+    type: 'fan',
+    label: 'Fan',
+    description: 'Following athletes and teams',
+    icon: 'fan',
   },
 ] as const;
 
@@ -146,58 +180,70 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
       .nxt1-role-card {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-4);
+        gap: var(--nxt1-spacing-4, 16px);
         width: 100%;
-        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-5);
-        background: var(--nxt1-color-state-hover);
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg);
+        padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-5, 20px);
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
         cursor: pointer;
-        transition: all var(--nxt1-duration-fast) ease;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         text-align: left;
+        -webkit-tap-highlight-color: transparent;
       }
 
       .nxt1-role-card:hover:not(.selected):not(:disabled) {
-        border-color: var(--nxt1-color-border-strong);
-        background: var(--nxt1-color-state-hover);
-        transform: translateY(-1px);
+        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        transform: translateY(-2px);
+      }
+
+      .nxt1-role-card:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary, #ccff00);
+        outline-offset: 2px;
       }
 
       .nxt1-role-card:disabled {
-        opacity: 0.5;
+        opacity: 0.4;
         cursor: not-allowed;
+        transform: none;
       }
 
       .nxt1-role-card.selected {
         border-color: var(--nxt1-color-primary, #ccff00);
-        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        background: var(--nxt1-color-primary, #ccff00);
       }
 
       .nxt1-role-card.selected .nxt1-role-icon {
-        background: var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.2));
-        border-color: var(--nxt1-color-alpha-primary30, rgba(204, 255, 0, 0.3));
-        color: var(--nxt1-color-primary, #ccff00);
+        background: rgba(0, 0, 0, 0.15);
+        border-color: transparent;
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
       }
 
       .nxt1-role-card.selected .nxt1-role-label {
-        color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+      }
+
+      .nxt1-role-card.selected .nxt1-role-description {
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        opacity: 0.8;
       }
 
       /* ============================================
        ROLE ICON
        ============================================ */
       .nxt1-role-icon {
-        width: var(--nxt1-spacing-12);
-        height: var(--nxt1-spacing-12);
-        border-radius: var(--nxt1-borderRadius-lg);
-        background: var(--nxt1-color-state-hover);
-        border: 1px solid var(--nxt1-color-border-default);
+        width: var(--nxt1-spacing-12, 48px);
+        height: var(--nxt1-spacing-12, 48px);
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        transition: all 0.2s ease;
-        color: var(--nxt1-color-text-secondary);
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
       }
 
       /* ============================================
@@ -206,22 +252,22 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
       .nxt1-role-content {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-1);
+        gap: var(--nxt1-spacing-1, 4px);
         flex: 1;
         min-width: 0;
       }
 
       .nxt1-role-label {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         font-weight: 600;
         color: var(--nxt1-color-text-primary, #ffffff);
-        transition: color 0.2s ease;
+        transition: color var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
       }
 
       .nxt1-role-description {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         line-height: 1.4;
       }
@@ -230,15 +276,15 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
        CHECK INDICATOR
        ============================================ */
       .nxt1-role-check {
-        width: var(--nxt1-spacing-6);
-        height: var(--nxt1-spacing-6);
+        width: var(--nxt1-spacing-6, 24px);
+        height: var(--nxt1-spacing-6, 24px);
         border-radius: 50%;
         background: var(--nxt1-color-primary, #ccff00);
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        color: var(--nxt1-color-text-onPrimary, #000000);
+        color: var(--nxt1-color-text-onPrimary, #1a1a2e);
       }
     `,
   ],

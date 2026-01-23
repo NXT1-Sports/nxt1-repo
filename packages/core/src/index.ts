@@ -321,6 +321,49 @@ export {
 } from './platform/theme';
 
 // ============================================
+// GEOLOCATION
+// ============================================
+
+export {
+  // Position types
+  type GeolocationCoordinates,
+  type GeolocationPosition,
+  type GeolocationError,
+  type GeolocationErrorCode,
+  type GeolocationOptions,
+  type GeolocationPermissionStatus,
+  type GeolocationResult,
+  // Location data
+  type ReverseGeocodedLocation,
+  type LocationData,
+  // Adapter interfaces
+  type GeolocationAdapter,
+  type ReverseGeocodingAdapter,
+  type GeolocationService,
+  // Factory
+  createGeolocationService,
+  // Browser adapter (web)
+  BrowserGeolocationAdapter,
+  // Capacitor adapter factory (mobile)
+  createCapacitorGeolocationAdapter,
+  type CapacitorGeolocationPlugin,
+  // Geocoding adapters
+  NominatimGeocodingAdapter,
+  CachedGeocodingAdapter,
+  type NominatimConfig,
+  // Error utilities
+  createGeolocationError,
+  mapBrowserGeolocationError,
+  // Location helpers
+  formatLocation as formatGeoLocation,
+  formatLocationShort,
+  calculateDistance,
+  calculateDistanceMiles,
+  // Default options
+  GEOLOCATION_DEFAULTS,
+} from './geolocation';
+
+// ============================================
 // CACHE
 // ============================================
 

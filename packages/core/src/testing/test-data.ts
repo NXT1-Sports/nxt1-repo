@@ -217,7 +217,13 @@ export const TEST_PROFILES: Record<UserRole, TestProfile> = {
   scout: {
     role: 'scout',
     displayName: 'Scout Test',
-    organization: 'Test University',
+    organization: 'Test Scouting Agency',
+    sport: 'Basketball',
+  },
+  'recruiting-service': {
+    role: 'recruiting-service',
+    displayName: 'Recruiting Service Test',
+    organization: 'Test Recruiting Services LLC',
     sport: 'Basketball',
   },
   media: {
@@ -226,10 +232,16 @@ export const TEST_PROFILES: Record<UserRole, TestProfile> = {
     outlet: 'Test Sports Network',
     sport: 'Basketball',
   },
-  service: {
-    role: 'service',
-    displayName: 'Service Account',
-    organization: 'NXT1 Internal',
+  director: {
+    role: 'director',
+    displayName: 'Director Test',
+    organization: 'Test High School',
+  },
+  'college-coach': {
+    role: 'college-coach',
+    displayName: 'College Coach Test',
+    organization: 'Test University',
+    sport: 'Football',
   },
   fan: {
     role: 'fan',

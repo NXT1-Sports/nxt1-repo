@@ -36,7 +36,7 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { ToastController } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { checkmarkCircle, alertCircle, warning, informationCircle } from 'ionicons/icons';
+import { checkmarkCircle, alertCircle, warning, informationCircle, close } from 'ionicons/icons';
 import { NxtPlatformService } from '../platform';
 
 // Register icons used by toast service
@@ -45,6 +45,7 @@ addIcons({
   'alert-circle': alertCircle,
   warning: warning,
   'information-circle': informationCircle,
+  close: close,
 });
 
 // ============================================

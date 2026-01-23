@@ -12,6 +12,9 @@ import bodyParser from 'body-parser';
 // Import unified error handling from @nxt1/core
 import { requestTracker, notFoundHandler, createErrorHandler } from '@nxt1/core/errors/express';
 
+// Import logger
+import { logger } from './utils/logger.js';
+
 // Middleware
 import { firebaseContext } from './middleware/firebase-context.middleware.js';
 
@@ -76,11 +79,11 @@ app.use(
 // Start Server
 // ============================================================================
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Environment: ${process.env['NODE_ENV'] || 'development'}`);
-  console.log(`\nAPI Endpoints:`);
-  console.log(`   Production: /api/v1/*`);
-  console.log(`   Staging:    /api/v1/staging/*`);
+  logger.info(`Backend server running on port ${PORT}`);
+  logger.info(`Environment: ${process.env['NODE_ENV'] || 'development'}`);
+  logger.info(`API Endpoints:`);
+  logger.info(`   Production: /api/v1/*`);
+  logger.info(`   Staging:    /api/v1/staging/*`);
 });
 
 export default app;

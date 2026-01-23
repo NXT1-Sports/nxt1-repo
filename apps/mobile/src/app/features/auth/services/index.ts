@@ -26,3 +26,6 @@ export {
   type BiometricAuthOptions,
   type BiometricAuthResult,
 } from './biometric.service';
+
+// Onboarding Analytics
+export { OnboardingAnalyticsService } from './onboarding-analytics.service';

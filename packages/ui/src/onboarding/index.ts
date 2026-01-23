@@ -132,6 +132,11 @@ export { OnboardingNavigationButtonsComponent } from './onboarding-navigation-bu
 export { OnboardingButtonMobileComponent } from './onboarding-button-mobile';
 
 // ============================================
+// PROGRESS PILLS (Compact Mobile Indicator)
+// ============================================
+export { OnboardingProgressPillsComponent } from './onboarding-progress-pills';
+
+// ============================================
 // STEP CARD
 // ============================================
 export {
@@ -139,3 +144,13 @@ export {
   type StepCardVariant,
   type AnimationDirection,
 } from './onboarding-step-card';
+
+// ============================================
+// CELEBRATION (Step Completion Animation)
+// ============================================
+export { OnboardingCelebrationComponent } from './onboarding-celebration';
+
+// ============================================
+// COMPLETE PAGE (2026 Best Practice - Dedicated Route)
+// ============================================
+export { OnboardingCompleteComponent } from './onboarding-complete';

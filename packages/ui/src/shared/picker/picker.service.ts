@@ -192,12 +192,15 @@ export class NxtPickerService {
 
   /**
    * Create a modal with platform-adaptive presentation.
+   *
+   * Presentation Logic:
+   * - Native (Capacitor): Always bottom sheet
+   * - Mobile viewport (<768px): Always bottom sheet
+   * - Touch device: Always bottom sheet
+   * - Desktop viewport (≥768px) without touch: Centered modal
    */
   private async createModal(props: Record<string, unknown>) {
-    // Determine presentation style based on platform
-    const isNative = this.platform.isNative();
-    const isMobileDevice = this.platform.isMobile() || this.platform.isTablet();
-    const useBottomSheet = isNative || isMobileDevice;
+    const useBottomSheet = this.shouldUseBottomSheet();
 
     return this.modalCtrl.create({
       component: NxtPickerComponent,
@@ -205,20 +208,52 @@ export class NxtPickerService {
       // Platform-adaptive presentation
       ...(useBottomSheet
         ? {
-            // Mobile: Bottom sheet with breakpoints
-            breakpoints: [0, 0.5, 0.75, 1],
-            initialBreakpoint: 0.75,
+            // Mobile/Touch: Bottom sheet with breakpoints
+            breakpoints: [0, 0.5, 0.85, 1],
+            initialBreakpoint: 0.85,
             handle: true,
             handleBehavior: 'cycle' as const,
+            cssClass: 'nxt1-picker-modal nxt1-picker-modal--sheet',
           }
         : {
-            // Web: Centered modal
-            cssClass: 'nxt1-picker-modal-web',
+            // Desktop: Centered modal
+            cssClass: 'nxt1-picker-modal nxt1-picker-modal--centered',
           }),
       // Common options
       backdropDismiss: true,
       showBackdrop: true,
-      cssClass: 'nxt1-picker-modal',
     });
+  }
+
+  /**
+   * Determine if bottom sheet presentation should be used.
+   * Uses multiple signals for reliable detection.
+   */
+  private shouldUseBottomSheet(): boolean {
+    // Always use bottom sheet on native apps
+    if (this.platform.isNative()) {
+      return true;
+    }
+
+    // Check if we're in a browser context
+    if (!this.platform.isBrowser()) {
+      return false; // SSR - default to centered modal
+    }
+
+    // Check viewport width - mobile/tablet breakpoint
+    const viewportWidth = window.innerWidth;
+    if (viewportWidth < 768) {
+      return true;
+    }
+
+    // Check for touch capability (includes tablets in desktop viewport)
+    // hasTouch is a computed signal, so call it as a function
+    const hasTouch = this.platform.hasTouch();
+    if (hasTouch && viewportWidth < 1024) {
+      return true;
+    }
+
+    // Desktop with mouse/keyboard - use centered modal
+    return false;
   }
 }

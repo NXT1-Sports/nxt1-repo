@@ -8,14 +8,10 @@
  * These types define the contract for auth state and operations.
  */
 
-// ============================================
-// USER TYPES
-// ============================================
+import type { UserRole } from '../constants/user.constants';
 
-/**
- * User role in the application
- */
-export type UserRole = 'athlete' | 'coach' | 'parent' | 'scout' | 'media' | 'service' | 'fan';
+// Re-export UserRole from single source of truth
+export type { UserRole } from '../constants/user.constants';
 
 /**
  * Authentication provider used for sign-in
@@ -115,6 +111,12 @@ export interface AuthState {
   isInitialized: boolean;
   /** Current error message or null */
   error: string | null;
+  /**
+   * Flag to indicate signup is in progress.
+   * Prevents auth state listeners from syncing profile before
+   * backend user is created (race condition prevention).
+   */
+  signupInProgress: boolean;
 }
 
 /**
@@ -126,6 +128,7 @@ export const INITIAL_AUTH_STATE: AuthState = {
   isLoading: true,
   isInitialized: false,
   error: null,
+  signupInProgress: false,
 };
 
 // ============================================

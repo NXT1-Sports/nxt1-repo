@@ -122,10 +122,12 @@ export type RetryErrorType =
 export type OnboardingUserType =
   | 'athlete'
   | 'coach'
+  | 'college-coach'
+  | 'director'
+  | 'recruiting-service'
   | 'parent'
   | 'scout'
   | 'media'
-  | 'service'
   | 'fan';
 
 /** Team code prefill data */

@@ -2,8 +2,8 @@
  * @fileoverview OnboardingStepCardComponent - Cross-Platform Step Container
  * @module @nxt1/ui/onboarding
  *
- * Reusable card container for onboarding step content.
- * Provides consistent styling and error message display.
+ * Reusable card container for onboarding step content with professional
+ * 2026 best-practice animations matching apps like Instagram, TikTok, and Duolingo.
  *
  * Features:
  * - Glass morphism styling matching auth shell
@@ -11,7 +11,11 @@
  * - Content projection for step-specific content
  * - Accessible error announcements
  * - Variant support for seamless (no card styling) mode
- * - Step transition animations (fade + slide)
+ * - Professional step transition animations:
+ *   - GPU-accelerated transform3d for 60fps
+ *   - Spring physics easing (cubic-bezier)
+ *   - Crossfade with scale for depth
+ *   - Staggered content fade-in
  *
  * Usage:
  * ```html
@@ -34,8 +38,19 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import {
+  Component,
+  Input,
+  ChangeDetectionStrategy,
+  signal,
+  effect,
+  ElementRef,
+  inject,
+  PLATFORM_ID,
+  AfterViewInit,
+  OnDestroy,
+} from '@angular/core';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { NxtIconComponent } from '../../shared/icon';
 
 /** Step card visual variants */
@@ -44,20 +59,39 @@ export type StepCardVariant = 'card' | 'seamless';
 /** Animation direction for step transitions */
 export type AnimationDirection = 'forward' | 'backward' | 'none';
 
+/** Animation timing configuration - 2026 best practices */
+const ANIMATION_CONFIG = {
+  /** Main transition duration (ms) - fast enough to feel snappy, slow enough to be perceived */
+  duration: 350,
+  /** Spring physics easing - natural bounce feel like iOS/Android native */
+  easing: 'cubic-bezier(0.32, 0.72, 0, 1)',
+  /** Slight scale reduction during transition for depth */
+  scaleOut: 0.96,
+  /** Translation distance as percentage of container width */
+  translatePercent: 8,
+  /** Stagger delay for child elements (ms) */
+  staggerDelay: 50,
+} as const;
+
 @Component({
   selector: 'nxt1-onboarding-step-card',
   standalone: true,
   imports: [CommonModule, NxtIconComponent],
   template: `
     <div
-      class="nxt1-onboarding-card"
-      [class.nxt1-onboarding-card--seamless]="variant === 'seamless'"
-      [class.nxt1-onboarding-card--animate-forward]="animationDirection === 'forward'"
-      [class.nxt1-onboarding-card--animate-backward]="animationDirection === 'backward'"
+      class="nxt1-step-wrapper"
+      [class.nxt1-step-wrapper--card]="variant === 'card'"
+      [class.nxt1-step-wrapper--seamless]="variant === 'seamless'"
+      [class.nxt1-step-wrapper--animate-forward]="isAnimating() && animationDirection === 'forward'"
+      [class.nxt1-step-wrapper--animate-backward]="
+        isAnimating() && animationDirection === 'backward'
+      "
       [attr.data-animation-key]="animationKey"
     >
       <!-- Step Content (projected) -->
-      <ng-content></ng-content>
+      <div class="nxt1-step-content">
+        <ng-content></ng-content>
+      </div>
 
       <!-- Error Message -->
       @if (error) {
@@ -71,31 +105,87 @@ export type AnimationDirection = 'forward' | 'backward' | 'none';
   styles: [
     `
       /* ============================================
-       ANIMATION KEYFRAMES
-       ============================================ */
-      @keyframes slideInFromRight {
-        from {
+         CSS CUSTOM PROPERTIES FOR ANIMATION
+         ============================================ */
+      :host {
+        --step-duration: ${ANIMATION_CONFIG.duration}ms;
+        --step-easing: ${ANIMATION_CONFIG.easing};
+        --step-scale-out: ${ANIMATION_CONFIG.scaleOut};
+        --step-translate: ${ANIMATION_CONFIG.translatePercent}%;
+        --step-stagger: ${ANIMATION_CONFIG.staggerDelay}ms;
+
+        display: block;
+        width: 100%;
+        position: relative;
+
+        /* Contain animations for performance */
+        contain: layout style;
+      }
+
+      /* ============================================
+         ANIMATION KEYFRAMES - GPU Accelerated
+         ============================================ */
+
+      /* Forward: Slide in from right with scale */
+      @keyframes stepSlideInForward {
+        0% {
           opacity: 0;
-          transform: translateX(var(--nxt1-spacing-8));
+          transform: translate3d(var(--step-translate), 0, 0) scale(var(--step-scale-out));
         }
-        to {
+        100% {
           opacity: 1;
-          transform: translateX(0);
+          transform: translate3d(0, 0, 0) scale(1);
         }
       }
 
-      @keyframes slideInFromLeft {
-        from {
+      /* Backward: Slide in from left with scale */
+      @keyframes stepSlideInBackward {
+        0% {
           opacity: 0;
-          transform: translateX(calc(var(--nxt1-spacing-8) * -1));
+          transform: translate3d(calc(var(--step-translate) * -1), 0, 0)
+            scale(var(--step-scale-out));
         }
-        to {
+        100% {
           opacity: 1;
-          transform: translateX(0);
+          transform: translate3d(0, 0, 0) scale(1);
         }
       }
 
-      @keyframes fadeIn {
+      /* Content stagger fade in */
+      @keyframes contentFadeIn {
+        0% {
+          opacity: 0;
+          transform: translate3d(0, 8px, 0);
+        }
+        100% {
+          opacity: 1;
+          transform: translate3d(0, 0, 0);
+        }
+      }
+
+      /* Error shake animation */
+      @keyframes errorShake {
+        0%,
+        100% {
+          transform: translate3d(0, 0, 0);
+        }
+        10%,
+        30%,
+        50%,
+        70%,
+        90% {
+          transform: translate3d(-4px, 0, 0);
+        }
+        20%,
+        40%,
+        60%,
+        80% {
+          transform: translate3d(4px, 0, 0);
+        }
+      }
+
+      /* Simple fade for reduced motion */
+      @keyframes simpleFade {
         from {
           opacity: 0;
         }
@@ -105,42 +195,33 @@ export type AnimationDirection = 'forward' | 'backward' | 'none';
       }
 
       /* ============================================
-       ONBOARDING CARD
-       ============================================ */
-      .nxt1-onboarding-card {
+         STEP WRAPPER - Container
+         ============================================ */
+      .nxt1-step-wrapper {
         width: 100%;
+
+        /* GPU acceleration - always use transform3d */
+        transform: translate3d(0, 0, 0);
+        will-change: transform, opacity;
+
+        /* Prevent content jump during animation */
+        backface-visibility: hidden;
+        -webkit-backface-visibility: hidden;
+        perspective: 1000px;
+      }
+
+      /* Card variant - glass morphism styling */
+      .nxt1-step-wrapper--card {
         background: var(--nxt1-color-state-hover);
         border: 1px solid var(--nxt1-color-border-default);
         border-radius: var(--nxt1-borderRadius-2xl);
         padding: var(--nxt1-spacing-6);
         backdrop-filter: blur(20px);
-
-        /* Smooth transitions for property changes */
-        transition:
-          opacity var(--nxt1-transition-normal) var(--nxt1-easing-default),
-          transform var(--nxt1-transition-normal) var(--nxt1-easing-default);
+        -webkit-backdrop-filter: blur(20px);
       }
 
-      /* Animation: Forward (next step) - slide in from right */
-      .nxt1-onboarding-card--animate-forward {
-        animation: slideInFromRight var(--nxt1-transition-normal) var(--nxt1-easing-default);
-      }
-
-      /* Animation: Backward (previous step) - slide in from left */
-      .nxt1-onboarding-card--animate-backward {
-        animation: slideInFromLeft var(--nxt1-transition-normal) var(--nxt1-easing-default);
-      }
-
-      /* Reduced motion preference - use simple fade */
-      @media (prefers-reduced-motion: reduce) {
-        .nxt1-onboarding-card--animate-forward,
-        .nxt1-onboarding-card--animate-backward {
-          animation: fadeIn var(--nxt1-transition-fast) var(--nxt1-easing-default);
-        }
-      }
-
-      /* Seamless variant - removes card styling for full-width content */
-      .nxt1-onboarding-card--seamless {
+      /* Seamless variant - no card styling */
+      .nxt1-step-wrapper--seamless {
         background: transparent;
         border: none;
         border-radius: 0;
@@ -149,8 +230,56 @@ export type AnimationDirection = 'forward' | 'backward' | 'none';
       }
 
       /* ============================================
-       ERROR MESSAGE
-       ============================================ */
+         ANIMATION STATES
+         ============================================ */
+
+      /* Forward animation - slide from right */
+      .nxt1-step-wrapper--animate-forward {
+        animation: stepSlideInForward var(--step-duration) var(--step-easing) both;
+      }
+
+      /* Backward animation - slide from left */
+      .nxt1-step-wrapper--animate-backward {
+        animation: stepSlideInBackward var(--step-duration) var(--step-easing) both;
+      }
+
+      /* Staggered content animation */
+      .nxt1-step-wrapper--animate-forward .nxt1-step-content,
+      .nxt1-step-wrapper--animate-backward .nxt1-step-content {
+        animation: contentFadeIn calc(var(--step-duration) * 0.8) var(--step-easing) both;
+        animation-delay: calc(var(--step-duration) * 0.15);
+      }
+
+      /* ============================================
+         REDUCED MOTION - Accessibility
+         ============================================ */
+      @media (prefers-reduced-motion: reduce) {
+        .nxt1-step-wrapper {
+          will-change: auto;
+        }
+
+        .nxt1-step-wrapper--animate-forward,
+        .nxt1-step-wrapper--animate-backward {
+          animation: simpleFade 150ms ease-out both;
+        }
+
+        .nxt1-step-wrapper--animate-forward .nxt1-step-content,
+        .nxt1-step-wrapper--animate-backward .nxt1-step-content {
+          animation: none;
+        }
+      }
+
+      /* ============================================
+         STEP CONTENT
+         ============================================ */
+      .nxt1-step-content {
+        /* Ensure smooth animation inheritance */
+        transform: translate3d(0, 0, 0);
+      }
+
+      /* ============================================
+         ERROR MESSAGE
+         ============================================ */
       .nxt1-error-message {
         display: flex;
         align-items: center;
@@ -163,8 +292,10 @@ export type AnimationDirection = 'forward' | 'backward' | 'none';
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-sm);
 
-        /* Animate error message appearance */
-        animation: fadeIn var(--nxt1-transition-fast) var(--nxt1-easing-default);
+        /* Attention-grabbing shake animation */
+        animation:
+          errorShake 0.5s ease-in-out,
+          simpleFade 200ms ease-out;
       }
 
       .nxt1-error-message nxt1-icon {
@@ -174,7 +305,10 @@ export type AnimationDirection = 'forward' | 'backward' | 'none';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class OnboardingStepCardComponent {
+export class OnboardingStepCardComponent implements AfterViewInit, OnDestroy {
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly elementRef = inject(ElementRef);
+
   /** Visual variant - 'card' shows container styling, 'seamless' removes it */
   @Input() variant: StepCardVariant = 'card';
 
@@ -195,4 +329,47 @@ export class OnboardingStepCardComponent {
    * the animation plays again.
    */
   @Input() animationKey: string = '';
+
+  /** Track if animation is currently playing */
+  readonly isAnimating = signal(false);
+
+  /** Previous animation key for change detection */
+  private previousKey = '';
+
+  /** Animation end listener cleanup */
+  private animationEndHandler: (() => void) | null = null;
+
+  constructor() {
+    // Watch for animation key changes to trigger animation state
+    effect(() => {
+      const currentKey = this.animationKey;
+      if (currentKey && currentKey !== this.previousKey && this.animationDirection !== 'none') {
+        this.isAnimating.set(true);
+        this.previousKey = currentKey;
+      }
+    });
+  }
+
+  ngAfterViewInit(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    // Listen for animation end to reset state
+    const wrapper = this.elementRef.nativeElement.querySelector('.nxt1-step-wrapper');
+    if (wrapper) {
+      this.animationEndHandler = () => {
+        this.isAnimating.set(false);
+      };
+      wrapper.addEventListener('animationend', this.animationEndHandler);
+    }
+  }
+
+  ngOnDestroy(): void {
+    // Cleanup animation listener
+    if (this.animationEndHandler && isPlatformBrowser(this.platformId)) {
+      const wrapper = this.elementRef.nativeElement.querySelector('.nxt1-step-wrapper');
+      if (wrapper) {
+        wrapper.removeEventListener('animationend', this.animationEndHandler);
+      }
+    }
+  }
 }
