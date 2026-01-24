@@ -35,4 +35,18 @@ end
 
 post_install do |installer|
   assertDeploymentTarget(installer)
+  
+  # Fix "Update to recommended settings" warning
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      # Silence deprecation warnings from third-party pods
+      config.build_settings['GCC_WARN_ABOUT_DEPRECATED_FUNCTIONS'] = 'NO'
+    end
+  end
+  
+  # Silence "Run script build phase" warnings
+  installer.pods_project.build_configurations.each do |config|
+    config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
+  end
 end
