@@ -146,7 +146,7 @@ const MAX_POSITIONS = 10;
       .nxt1-position-form {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-5);
+        gap: var(--nxt1-spacing-5, 20px);
         width: 100%;
       }
 
@@ -156,16 +156,16 @@ const MAX_POSITIONS = 10;
       .nxt1-position-group {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-3);
+        gap: var(--nxt1-spacing-3, 12px);
       }
 
       .nxt1-group-label {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-secondary);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         text-transform: uppercase;
-        letter-spacing: var(--nxt1-letterSpacing-wide);
+        letter-spacing: var(--nxt1-letterSpacing-wide, 0.05em);
       }
 
       /* ============================================
@@ -175,7 +175,7 @@ const MAX_POSITIONS = 10;
       .nxt1-position-chips {
         display: flex;
         flex-wrap: wrap;
-        gap: var(--nxt1-spacing-2);
+        gap: var(--nxt1-spacing-2, 8px);
       }
 
       /* ============================================
@@ -186,28 +186,28 @@ const MAX_POSITIONS = 10;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        padding: var(--nxt1-spacing-8) var(--nxt1-spacing-4);
+        padding: var(--nxt1-spacing-8, 32px) var(--nxt1-spacing-4, 16px);
         text-align: center;
       }
 
       .nxt1-empty-icon {
-        color: var(--nxt1-color-text-tertiary);
-        margin-bottom: var(--nxt1-spacing-3);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        margin-bottom: var(--nxt1-spacing-3, 12px);
         opacity: 0.5;
       }
 
       .nxt1-empty-message {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-secondary);
-        margin: 0 0 var(--nxt1-spacing-1);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        margin: 0 0 var(--nxt1-spacing-1, 4px);
       }
 
       .nxt1-empty-hint {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-tertiary);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         margin: 0;
       }
 
@@ -217,11 +217,11 @@ const MAX_POSITIONS = 10;
       .nxt1-selection-summary {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
+        gap: var(--nxt1-spacing-2, 8px);
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
         background: var(--nxt1-color-alpha-success10, rgba(34, 197, 94, 0.1));
         border: 1px solid var(--nxt1-color-success, #22c55e);
-        border-radius: var(--nxt1-borderRadius-lg);
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
       }
 
       .nxt1-summary-icon {
@@ -233,7 +233,7 @@ const MAX_POSITIONS = 10;
 
       .nxt1-summary-title {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         font-weight: 500;
         color: var(--nxt1-color-success, #22c55e);
       }
@@ -243,8 +243,8 @@ const MAX_POSITIONS = 10;
        ============================================ */
       .nxt1-hint-text {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-tertiary);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         text-align: center;
         margin: 0;
       }
@@ -313,15 +313,12 @@ export class OnboardingPositionStepComponent {
 
   constructor() {
     // Sync internal state when positionData input changes
-    effect(
-      () => {
-        const data = this.positionData();
-        if (data?.positions) {
-          this.selectedPositions.set([...data.positions]);
-        }
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const data = this.positionData();
+      if (data?.positions) {
+        this.selectedPositions.set([...data.positions]);
+      }
+    });
   }
 
   // ============================================

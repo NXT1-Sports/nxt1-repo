@@ -155,6 +155,46 @@ export const UI_ICONS = {
     type: 'fill' as const,
     paths: [{ d: 'M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8-8-8z' }],
   },
+
+  /** Close/X icon */
+  close: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M18 6L6 18' }, { d: 'M6 6l12 12' }],
+  },
+
+  /** Chevron down icon */
+  chevronDown: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M6 9l6 6 6-6' }],
+  },
+
+  /** Chevron up icon */
+  chevronUp: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M18 15l-6-6-6 6' }],
+  },
+
+  /** Chevron right icon */
+  chevronRight: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M9 18l6-6-6-6' }],
+  },
+
+  /** Chevron left icon */
+  chevronLeft: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M15 18l-6-6 6-6' }],
+  },
 } as const;
 
 // ============================================
@@ -248,6 +288,44 @@ export const ROLE_ICONS = {
         d: 'M12.22 19.85c-.18.18-.5.21-.71 0L3 11.41V8.59l1.77 1.77 3.54-3.54-2.83-2.83L3 6.47v-.88C3 4.71 3.71 4 4.59 4h4.23c.53 0 1.04.21 1.41.59l1.06 1.06-4.95 4.95 6.24 6.24c.97-.97 2.54-.97 3.54 0l.53-.53L21 20.59v.88c0 .88-.71 1.59-1.59 1.59h-4.23c-.53 0-1.04-.21-1.41-.59l-1.55-1.62z',
       },
       { d: 'M21 6.47l-2.48-2.48-3.54 3.54 2.83 2.83L21 7.12V6.47z' },
+    ],
+  },
+
+  /** College Coach - Graduation cap with clipboard */
+  'college-coach': {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M5 13.18v4L12 21l7-3.82v-4L12 17l-7-3.82zM12 3L1 9l11 6 9-4.91V17h2V9L12 3z',
+        fill: 'currentColor',
+      },
+    ],
+  },
+
+  /** Director - Organization/building icon */
+  director: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10zm-2-8h-2v2h2v-2zm0 4h-2v2h2v-2z',
+      },
+    ],
+  },
+
+  /** Recruiting Service - Target with star */
+  'recruiting-service': {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z',
+      },
+      {
+        d: 'M12 6c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm0 10c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4z',
+      },
+      { d: 'M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z' },
     ],
   },
 } as const;

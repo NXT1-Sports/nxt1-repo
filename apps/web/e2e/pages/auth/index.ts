@@ -6,3 +6,4 @@
 export { LoginPage, type LoginCredentials } from './login.page';
 export { SignupPage, type SignupData } from './signup.page';
 export { ForgotPasswordPage } from './forgot-password.page';
+export { OnboardingPage, type OnboardingProfileData, type SportEntryData } from './onboarding.page';

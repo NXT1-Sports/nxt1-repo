@@ -230,6 +230,37 @@
           "primary20": { "$value": "rgba(204, 255, 0, 0.2)", "$type": "color" },
           "primary30": { "$value": "rgba(204, 255, 0, 0.3)", "$type": "color" },
           "primary50": { "$value": "rgba(204, 255, 0, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": {
+            "$value": "rgba(204, 255, 0, 0.5)",
+            "$type": "color",
+            "$description": "Focus ring color for accessibility"
+          },
+          "ringOffset": {
+            "$value": "rgba(10, 10, 10, 1)",
+            "$type": "color",
+            "$description": "Focus ring offset background"
+          }
+        },
+
+        "loading": {
+          "spinner": {
+            "$value": "{color.brand.volt.400}",
+            "$type": "color",
+            "$description": "Loading spinner primary color"
+          },
+          "skeleton": {
+            "$value": "rgba(255, 255, 255, 0.08)",
+            "$type": "color",
+            "$description": "Skeleton loading background"
+          },
+          "skeletonShimmer": {
+            "$value": "rgba(255, 255, 255, 0.15)",
+            "$type": "color",
+            "$description": "Skeleton shimmer highlight"
+          }
         }
       },
 
@@ -421,9 +452,25 @@
             "$value": "{color.semantic.success.600}",
             "$type": "color"
           },
+          "successLight": {
+            "$value": "{color.semantic.success.500}",
+            "$type": "color"
+          },
+          "successDark": {
+            "$value": "{color.semantic.success.700}",
+            "$type": "color"
+          },
           "successBg": { "$value": "rgba(34, 197, 94, 0.1)", "$type": "color" },
           "warning": {
             "$value": "{color.semantic.warning.600}",
+            "$type": "color"
+          },
+          "warningLight": {
+            "$value": "{color.semantic.warning.500}",
+            "$type": "color"
+          },
+          "warningDark": {
+            "$value": "{color.semantic.warning.700}",
             "$type": "color"
           },
           "warningBg": {
@@ -431,8 +478,24 @@
             "$type": "color"
           },
           "error": { "$value": "{color.semantic.error.600}", "$type": "color" },
+          "errorLight": {
+            "$value": "{color.semantic.error.500}",
+            "$type": "color"
+          },
+          "errorDark": {
+            "$value": "{color.semantic.error.700}",
+            "$type": "color"
+          },
           "errorBg": { "$value": "rgba(239, 68, 68, 0.1)", "$type": "color" },
           "info": { "$value": "{color.semantic.info.600}", "$type": "color" },
+          "infoLight": {
+            "$value": "{color.semantic.info.500}",
+            "$type": "color"
+          },
+          "infoDark": {
+            "$value": "{color.semantic.info.700}",
+            "$type": "color"
+          },
           "infoBg": { "$value": "rgba(59, 130, 246, 0.1)", "$type": "color" }
         },
 
@@ -461,6 +524,37 @@
           "primary20": { "$value": "rgba(163, 204, 0, 0.2)", "$type": "color" },
           "primary30": { "$value": "rgba(163, 204, 0, 0.3)", "$type": "color" },
           "primary50": { "$value": "rgba(163, 204, 0, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": {
+            "$value": "rgba(163, 204, 0, 0.5)",
+            "$type": "color",
+            "$description": "Focus ring color for accessibility"
+          },
+          "ringOffset": {
+            "$value": "rgba(255, 255, 255, 1)",
+            "$type": "color",
+            "$description": "Focus ring offset background"
+          }
+        },
+
+        "loading": {
+          "spinner": {
+            "$value": "{color.brand.volt.600}",
+            "$type": "color",
+            "$description": "Loading spinner primary color"
+          },
+          "skeleton": {
+            "$value": "rgba(0, 0, 0, 0.08)",
+            "$type": "color",
+            "$description": "Skeleton loading background"
+          },
+          "skeletonShimmer": {
+            "$value": "rgba(0, 0, 0, 0.15)",
+            "$type": "color",
+            "$description": "Skeleton shimmer highlight"
+          }
         }
       },
 
@@ -611,6 +705,32 @@
           "primary20": { "$value": "rgba(0, 200, 83, 0.2)", "$type": "color" },
           "primary30": { "$value": "rgba(0, 200, 83, 0.3)", "$type": "color" },
           "primary50": { "$value": "rgba(0, 200, 83, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": {
+            "$value": "rgba(0, 200, 83, 0.5)",
+            "$type": "color"
+          },
+          "ringOffset": {
+            "$value": "#0d1a0f",
+            "$type": "color"
+          }
+        },
+
+        "loading": {
+          "spinner": {
+            "$value": "#00c853",
+            "$type": "color"
+          },
+          "skeleton": {
+            "$value": "rgba(255, 255, 255, 0.08)",
+            "$type": "color"
+          },
+          "skeletonShimmer": {
+            "$value": "rgba(255, 255, 255, 0.15)",
+            "$type": "color"
+          }
         }
       },
 
@@ -758,6 +878,32 @@
           "primary20": { "$value": "rgba(255, 109, 0, 0.2)", "$type": "color" },
           "primary30": { "$value": "rgba(255, 109, 0, 0.3)", "$type": "color" },
           "primary50": { "$value": "rgba(255, 109, 0, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": {
+            "$value": "rgba(255, 109, 0, 0.5)",
+            "$type": "color"
+          },
+          "ringOffset": {
+            "$value": "#1a1410",
+            "$type": "color"
+          }
+        },
+
+        "loading": {
+          "spinner": {
+            "$value": "#ff6d00",
+            "$type": "color"
+          },
+          "skeleton": {
+            "$value": "rgba(255, 255, 255, 0.08)",
+            "$type": "color"
+          },
+          "skeletonShimmer": {
+            "$value": "rgba(255, 255, 255, 0.15)",
+            "$type": "color"
+          }
         }
       },
 
@@ -914,6 +1060,32 @@
           "primary20": { "$value": "rgba(30, 91, 198, 0.2)", "$type": "color" },
           "primary30": { "$value": "rgba(30, 91, 198, 0.3)", "$type": "color" },
           "primary50": { "$value": "rgba(30, 91, 198, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": {
+            "$value": "rgba(30, 91, 198, 0.5)",
+            "$type": "color"
+          },
+          "ringOffset": {
+            "$value": "#0e1826",
+            "$type": "color"
+          }
+        },
+
+        "loading": {
+          "spinner": {
+            "$value": "#2575ff",
+            "$type": "color"
+          },
+          "skeleton": {
+            "$value": "rgba(255, 255, 255, 0.08)",
+            "$type": "color"
+          },
+          "skeletonShimmer": {
+            "$value": "rgba(255, 255, 255, 0.15)",
+            "$type": "color"
+          }
         }
       },
 
@@ -1070,6 +1242,37 @@
           "primary20": { "$value": "rgba(255, 193, 7, 0.2)", "$type": "color" },
           "primary30": { "$value": "rgba(255, 193, 7, 0.3)", "$type": "color" },
           "primary50": { "$value": "rgba(255, 193, 7, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": {
+            "$value": "rgba(255, 193, 7, 0.5)",
+            "$type": "color",
+            "$description": "Focus ring color for softball theme"
+          },
+          "ringOffset": {
+            "$value": "#1a1a2e",
+            "$type": "color",
+            "$description": "Focus ring offset matches background"
+          }
+        },
+
+        "loading": {
+          "spinner": {
+            "$value": "#ffc107",
+            "$type": "color",
+            "$description": "Loading spinner color - softball primary"
+          },
+          "skeleton": {
+            "$value": "rgba(255, 255, 255, 0.08)",
+            "$type": "color",
+            "$description": "Skeleton loading base color"
+          },
+          "skeletonShimmer": {
+            "$value": "rgba(255, 255, 255, 0.15)",
+            "$type": "color",
+            "$description": "Skeleton loading shimmer highlight"
+          }
         }
       },
 
@@ -1100,6 +1303,193 @@
         },
         "lg": {
           "$value": "0 0 24px rgba(255, 193, 7, 0.55)",
+          "$type": "shadow"
+        }
+      }
+    },
+
+    "team": {
+      "$description": "Team theme - Dynamic team branding (uses CSS custom properties for runtime customization)",
+
+      "color": {
+        "primary": {
+          "$value": "var(--team-primary, #ccff00)",
+          "$type": "color",
+          "$description": "Team primary color - set dynamically via --team-primary"
+        },
+        "primaryLight": {
+          "$value": "var(--team-primary-light, #d4ff4d)",
+          "$type": "color"
+        },
+        "primaryDark": {
+          "$value": "var(--team-primary-dark, #a3cc00)",
+          "$type": "color"
+        },
+        "secondary": {
+          "$value": "var(--team-secondary, #ffffff)",
+          "$type": "color",
+          "$description": "Team secondary color - set dynamically via --team-secondary"
+        },
+        "secondaryLight": {
+          "$value": "var(--team-secondary-light, #ffffff)",
+          "$type": "color"
+        },
+        "secondaryDark": {
+          "$value": "var(--team-secondary-dark, #e0e0e0)",
+          "$type": "color"
+        },
+        "accent": {
+          "$value": "var(--team-accent, #ccff00)",
+          "$type": "color",
+          "$description": "Team accent color"
+        },
+        "accentLight": {
+          "$value": "var(--team-accent-light, #d4ff4d)",
+          "$type": "color"
+        },
+        "accentDark": {
+          "$value": "var(--team-accent-dark, #a3cc00)",
+          "$type": "color"
+        },
+
+        "background": {
+          "primary": { "$value": "#0a0a0a", "$type": "color" },
+          "secondary": { "$value": "#121212", "$type": "color" },
+          "tertiary": { "$value": "#1a1a1a", "$type": "color" },
+          "elevated": { "$value": "#1e1e1e", "$type": "color" },
+          "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
+        },
+
+        "surface": {
+          "100": { "$value": "#161616", "$type": "color" },
+          "200": { "$value": "#1a1a1a", "$type": "color" },
+          "300": { "$value": "#222222", "$type": "color" },
+          "400": { "$value": "#2a2a2a", "$type": "color" },
+          "500": { "$value": "#333333", "$type": "color" }
+        },
+
+        "text": {
+          "primary": { "$value": "#ffffff", "$type": "color" },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.7)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.5)",
+            "$type": "color"
+          },
+          "disabled": {
+            "$value": "rgba(255, 255, 255, 0.3)",
+            "$type": "color"
+          },
+          "inverse": { "$value": "#0a0a0a", "$type": "color" },
+          "onPrimary": {
+            "$value": "var(--team-text-on-primary, #000000)",
+            "$type": "color",
+            "$description": "Text color on primary - set based on primary color brightness"
+          }
+        },
+
+        "border": {
+          "subtle": { "$value": "rgba(255, 255, 255, 0.08)", "$type": "color" },
+          "default": {
+            "$value": "rgba(255, 255, 255, 0.12)",
+            "$type": "color"
+          },
+          "strong": { "$value": "rgba(255, 255, 255, 0.2)", "$type": "color" },
+          "primary": {
+            "$value": "var(--team-border-primary, rgba(204, 255, 0, 0.3))",
+            "$type": "color"
+          }
+        },
+
+        "feedback": {
+          "success": { "$value": "#22c55e", "$type": "color" },
+          "successBg": {
+            "$value": "rgba(34, 197, 94, 0.1)",
+            "$type": "color"
+          },
+          "warning": { "$value": "#f59e0b", "$type": "color" },
+          "warningBg": {
+            "$value": "rgba(245, 158, 11, 0.1)",
+            "$type": "color"
+          },
+          "error": { "$value": "#ef4444", "$type": "color" },
+          "errorBg": { "$value": "rgba(239, 68, 68, 0.1)", "$type": "color" },
+          "info": { "$value": "#3b82f6", "$type": "color" },
+          "infoBg": { "$value": "rgba(59, 130, 246, 0.1)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": {
+            "$value": "var(--team-state-hover, rgba(204, 255, 0, 0.08))",
+            "$type": "color"
+          },
+          "pressed": {
+            "$value": "var(--team-state-pressed, rgba(204, 255, 0, 0.16))",
+            "$type": "color"
+          },
+          "focus": {
+            "$value": "var(--team-state-focus, rgba(204, 255, 0, 0.24))",
+            "$type": "color"
+          },
+          "disabled": {
+            "$value": "rgba(255, 255, 255, 0.12)",
+            "$type": "color"
+          }
+        },
+
+        "alpha": {
+          "primary5": {
+            "$value": "var(--team-alpha-5, rgba(204, 255, 0, 0.05))",
+            "$type": "color"
+          },
+          "primary10": {
+            "$value": "var(--team-alpha-10, rgba(204, 255, 0, 0.1))",
+            "$type": "color"
+          },
+          "primary20": {
+            "$value": "var(--team-alpha-20, rgba(204, 255, 0, 0.2))",
+            "$type": "color"
+          },
+          "primary30": {
+            "$value": "var(--team-alpha-30, rgba(204, 255, 0, 0.3))",
+            "$type": "color"
+          },
+          "primary50": {
+            "$value": "var(--team-alpha-50, rgba(204, 255, 0, 0.5))",
+            "$type": "color"
+          }
+        }
+      },
+
+      "shadow": {
+        "xs": { "$value": "0 1px 2px rgba(0, 0, 0, 0.5)", "$type": "shadow" },
+        "sm": { "$value": "0 2px 4px rgba(0, 0, 0, 0.5)", "$type": "shadow" },
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.5)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.5)", "$type": "shadow" },
+        "xl": { "$value": "0 8px 16px rgba(0, 0, 0, 0.5)", "$type": "shadow" },
+        "2xl": {
+          "$value": "0 16px 32px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": {
+          "$value": "var(--team-glow-sm, 0 0 8px rgba(204, 255, 0, 0.3))",
+          "$type": "shadow"
+        },
+        "md": {
+          "$value": "var(--team-glow-md, 0 0 16px rgba(204, 255, 0, 0.4))",
+          "$type": "shadow"
+        },
+        "lg": {
+          "$value": "var(--team-glow-lg, 0 0 24px rgba(204, 255, 0, 0.5))",
           "$type": "shadow"
         }
       }

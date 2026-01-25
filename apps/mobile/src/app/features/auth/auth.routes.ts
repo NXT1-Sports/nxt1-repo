@@ -8,15 +8,17 @@
  * - Uses async guards that wait for auth initialization
  * - Uses shared constants from @nxt1/core
  * - Matches web's AUTH_ROUTES structure exactly
+ * - Dedicated completion page (not overlay) for reliability
  *
  * Route structure:
  * - /auth - Main unified auth page (login/signup) - requires guest
  * - /auth/forgot-password - Password reset flow - requires guest
  * - /auth/onboarding - Profile setup flow - requires auth but NOT completed onboarding
+ * - /auth/onboarding/complete - Welcome/success page after onboarding
  */
 
 import { Routes } from '@angular/router';
-import { guestGuard, onboardingInProgressGuard } from './guards/auth.guards';
+import { guestGuard, onboardingInProgressGuard, authGuard } from './guards/auth.guards';
 
 export const AUTH_ROUTES: Routes = [
   // Main unified auth page (only for guests)
@@ -43,5 +45,13 @@ export const AUTH_ROUTES: Routes = [
     loadComponent: () => import('./pages/onboarding/onboarding.page').then((m) => m.OnboardingPage),
     canActivate: [onboardingInProgressGuard],
     title: 'Complete Profile | NXT1 Sports',
+  },
+
+  // Onboarding complete - dedicated success page (2026 best practice)
+  {
+    path: 'onboarding/complete',
+    loadComponent: () => import('@nxt1/ui').then((m) => m.OnboardingCompleteComponent),
+    canActivate: [authGuard],
+    title: 'Welcome to NXT1!',
   },
 ];

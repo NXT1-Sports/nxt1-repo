@@ -733,12 +733,13 @@ export type TrafficSource =
 export type UserRole =
   | 'athlete'
   | 'coach'
-  | 'college_coach'
+  | 'college-coach'
+  | 'director'
+  | 'recruiting-service'
   | 'parent'
   | 'scout'
   | 'media'
   | 'fan'
-  | 'service'
   | 'anonymous';
 
 /** Viewer type (alias for UserRole for analytics compatibility) */

@@ -294,6 +294,10 @@ export function createMockAuthStateManager(
       return state.isInitialized;
     },
 
+    isSignupInProgress(): boolean {
+      return state.signupInProgress;
+    },
+
     async setUser(user: AuthUser | null): Promise<void> {
       updateState({ user });
       if (user) {
@@ -324,6 +328,10 @@ export function createMockAuthStateManager(
 
     setInitialized(initialized: boolean): void {
       updateState({ isInitialized: initialized });
+    },
+
+    setSignupInProgress(inProgress: boolean): void {
+      updateState({ signupInProgress: inProgress });
     },
 
     async getToken(): Promise<StoredAuthToken | null> {

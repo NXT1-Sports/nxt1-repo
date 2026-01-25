@@ -83,7 +83,11 @@ import { HapticButtonDirective } from '../../services/haptics';
        CONTENT CONTAINER
        ============================================ */
       .nxt1-sport-picker-content {
-        padding: var(--nxt1-spacing-4);
+        padding: var(--nxt1-spacing-4, 16px);
+        padding-bottom: calc(var(--nxt1-spacing-4, 16px) + env(safe-area-inset-bottom, 0px));
+        min-height: 200px;
+        width: 100%;
+        box-sizing: border-box;
       }
 
       /* ============================================
@@ -92,7 +96,7 @@ import { HapticButtonDirective } from '../../services/haptics';
       .nxt1-sport-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        gap: var(--nxt1-spacing-3);
+        gap: var(--nxt1-spacing-3, 12px);
       }
 
       @media (min-width: 480px) {
@@ -116,30 +120,38 @@ import { HapticButtonDirective } from '../../services/haptics';
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-2);
-        background: var(--nxt1-color-surface-elevated);
-        border: 2px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-xl);
+        gap: var(--nxt1-spacing-2, 8px);
+        padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-2, 8px);
+        background: var(--nxt1-color-surface-elevated, #121212);
+        border: 2px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-xl, 16px);
         cursor: pointer;
-        transition: all var(--nxt1-duration-fast) ease;
+        transition: all var(--nxt1-duration-fast, 150ms) ease;
         -webkit-tap-highlight-color: transparent;
         min-height: 100px;
       }
 
-      .nxt1-sport-card:hover:not(:disabled) {
-        border-color: var(--nxt1-color-primary);
-        background: var(--nxt1-color-alpha-primary5);
+      .nxt1-sport-card:hover:not(:disabled):not(.selected) {
+        border-color: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-alpha-primary5, rgba(204, 255, 0, 0.05));
         transform: translateY(-2px);
       }
 
-      .nxt1-sport-card:active:not(:disabled) {
+      .nxt1-sport-card:active:not(:disabled):not(.selected) {
         transform: scale(0.96);
       }
 
       .nxt1-sport-card.selected {
-        border-color: var(--nxt1-color-primary);
-        background: var(--nxt1-color-alpha-primary10);
+        border-color: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-primary, #ccff00);
+      }
+
+      .nxt1-sport-card.selected:hover:not(:disabled) {
+        transform: none;
+      }
+
+      .nxt1-sport-card.selected .nxt1-sport-name {
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
       }
 
       .nxt1-sport-card.disabled {
@@ -149,8 +161,8 @@ import { HapticButtonDirective } from '../../services/haptics';
 
       .nxt1-sport-card.disabled:hover {
         transform: none;
-        border-color: var(--nxt1-color-border-default);
-        background: var(--nxt1-color-surface-elevated);
+        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        background: var(--nxt1-color-surface-elevated, #121212);
       }
 
       /* ============================================
@@ -172,9 +184,9 @@ import { HapticButtonDirective } from '../../services/haptics';
        ============================================ */
       .nxt1-sport-name {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-xs);
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-primary);
+        color: var(--nxt1-color-text-primary, #ffffff);
         text-align: center;
         line-height: 1.2;
         word-break: break-word;
@@ -186,24 +198,24 @@ import { HapticButtonDirective } from '../../services/haptics';
        ============================================ */
       .nxt1-added-badge {
         position: absolute;
-        top: var(--nxt1-spacing-1);
-        right: var(--nxt1-spacing-1);
-        padding: 2px var(--nxt1-spacing-2);
+        top: var(--nxt1-spacing-1, 4px);
+        right: var(--nxt1-spacing-1, 4px);
+        padding: 2px var(--nxt1-spacing-2, 8px);
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-2xs);
+        font-size: var(--nxt1-fontSize-2xs, 0.625rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-onPrimary);
-        background: var(--nxt1-color-text-tertiary);
-        border-radius: var(--nxt1-borderRadius-full);
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        background: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        border-radius: var(--nxt1-borderRadius-full, 9999px);
         text-transform: uppercase;
       }
 
       .nxt1-selected-icon {
         position: absolute;
-        top: var(--nxt1-spacing-1);
-        right: var(--nxt1-spacing-1);
-        font-size: var(--nxt1-fontSize-xl);
-        color: var(--nxt1-color-primary);
+        top: var(--nxt1-spacing-1, 4px);
+        right: var(--nxt1-spacing-1, 4px);
+        font-size: var(--nxt1-fontSize-xl, 1.25rem);
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
       }
 
       /* ============================================
@@ -215,14 +227,14 @@ import { HapticButtonDirective } from '../../services/haptics';
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        padding: var(--nxt1-spacing-8);
+        padding: var(--nxt1-spacing-8, 32px);
         text-align: center;
       }
 
       .nxt1-empty-message {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
-        color: var(--nxt1-color-text-tertiary);
+        font-size: var(--nxt1-fontSize-base, 1rem);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         margin: 0;
       }
     `,

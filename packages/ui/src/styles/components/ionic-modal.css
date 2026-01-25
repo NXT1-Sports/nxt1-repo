@@ -1,0 +1,300 @@
+/**
+ * @fileoverview Ionic Modal Styling - Theme Integration
+ * @module @nxt1/ui/styles/components/ionic-modal
+ * @version 1.0.0
+ *
+ * Applies NXT1 design tokens to ion-modal components.
+ * Provides consistent modal theming for both sheet and centered presentations.
+ *
+ * Features:
+ * - Design token integration for all colors
+ * - Bottom sheet presentation styling
+ * - Centered modal presentation styling
+ * - Theme-aware colors (dark/light/sport themes)
+ * - Safe area handling
+ * - Proper backdrop styling
+ *
+ * Usage:
+ *   @import '@nxt1/ui/styles/components/ionic-modal';
+ */
+
+/* ============================================
+   MODAL BASE STYLES - Applied to all modals
+   ============================================ */
+
+ion-modal.nxt1-picker-modal {
+  /* Backdrop */
+  --backdrop-opacity: 0.7;
+
+  /* Modal surface colors - uses design tokens */
+  --background: var(--nxt1-color-surface-elevated, var(--ion-background-color, #121212));
+  --ion-background-color: var(--nxt1-color-surface-elevated, #121212);
+
+  /* Border radius for the modal */
+  --border-radius: var(--nxt1-borderRadius-2xl, 20px);
+
+  /* Box shadow for depth */
+  --box-shadow: 0 -4px 40px rgba(0, 0, 0, 0.4);
+
+  /* Maximum dimensions for the modal content */
+  --max-height: 90vh;
+  --max-width: 500px;
+  --min-height: 300px;
+}
+
+/* ============================================
+   BOTTOM SHEET PRESENTATION
+   Used on mobile devices and touch interfaces
+   ============================================ */
+
+ion-modal.nxt1-picker-modal--sheet {
+  /* Sheet-specific border radius (top only) */
+  --border-radius: var(--nxt1-borderRadius-2xl, 20px) var(--nxt1-borderRadius-2xl, 20px) 0 0;
+
+  /* Align to bottom */
+  align-items: flex-end;
+}
+
+/* Sheet modal wrapper */
+ion-modal.nxt1-picker-modal--sheet .modal-wrapper {
+  border-radius: var(--nxt1-borderRadius-2xl, 20px) var(--nxt1-borderRadius-2xl, 20px) 0 0;
+  overflow: hidden;
+}
+
+/* Sheet handle styling */
+ion-modal.nxt1-picker-modal--sheet .modal-handle {
+  background: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.3));
+  width: 36px;
+  height: 5px;
+  border-radius: var(--nxt1-borderRadius-full, 9999px);
+  margin: 8px auto;
+}
+
+/* ============================================
+   CENTERED MODAL PRESENTATION
+   Used on desktop viewports
+   ============================================ */
+
+ion-modal.nxt1-picker-modal--centered {
+  /* Full rounded corners for centered modal */
+  --border-radius: var(--nxt1-borderRadius-2xl, 20px);
+
+  /* Center alignment */
+  align-items: center;
+  justify-content: center;
+
+  /* Add subtle border */
+  --border-width: 1px;
+  --border-style: solid;
+  --border-color: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+/* Centered modal wrapper */
+ion-modal.nxt1-picker-modal--centered .modal-wrapper {
+  border-radius: var(--nxt1-borderRadius-2xl, 20px);
+  overflow: hidden;
+  max-width: 500px;
+  width: 95%;
+  margin: auto;
+}
+
+/* ============================================
+   MODAL INTERNAL COMPONENTS
+   Styling for header, content, footer inside modal
+   ============================================ */
+
+/* Modal header */
+ion-modal.nxt1-picker-modal ion-header {
+  --background: var(--nxt1-color-surface-elevated, #121212);
+}
+
+ion-modal.nxt1-picker-modal ion-toolbar {
+  --background: var(--nxt1-color-surface-elevated, #121212);
+  --border-color: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+  --color: var(--nxt1-color-text-primary, #ffffff);
+  --min-height: 56px;
+}
+
+/* Modal title */
+ion-modal.nxt1-picker-modal ion-title {
+  font-family: var(--nxt1-fontFamily-brand);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
+  font-size: var(--nxt1-fontSize-lg, 1.125rem);
+  color: var(--nxt1-color-text-primary, #ffffff);
+}
+
+/* Modal buttons in toolbar */
+ion-modal.nxt1-picker-modal ion-button[fill='clear'] {
+  --color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+  font-family: var(--nxt1-fontFamily-brand);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
+}
+
+ion-modal.nxt1-picker-modal ion-button[fill='clear']:hover {
+  --color: var(--nxt1-color-text-primary, #ffffff);
+}
+
+/* Confirm/Done button - highlight when active */
+ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion-button {
+  --color: var(--nxt1-color-primary, #ccff00);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
+}
+
+ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion-button:disabled {
+  --color: var(--nxt1-color-text-disabled, rgba(255, 255, 255, 0.3));
+  opacity: 0.5;
+}
+
+/* Modal content area */
+ion-modal.nxt1-picker-modal ion-content {
+  --background: var(--nxt1-color-surface-default, #0a0a0a);
+  --color: var(--nxt1-color-text-primary, #ffffff);
+}
+
+/* Input styling inside modal */
+ion-modal.nxt1-picker-modal ion-input {
+  --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+  --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+  --color: var(--nxt1-color-text-primary, #ffffff);
+  font-family: var(--nxt1-fontFamily-brand);
+}
+
+/* ============================================
+   BACKDROP STYLING
+   ============================================ */
+
+ion-modal.nxt1-picker-modal::part(backdrop) {
+  background: var(--nxt1-color-background-overlay, rgba(0, 0, 0, 0.8));
+}
+
+/* ============================================
+   LIGHT THEME OVERRIDES
+   ============================================ */
+
+html[data-theme='light'] ion-modal.nxt1-picker-modal {
+  --background: var(--nxt1-color-surface-elevated, #ffffff);
+  --ion-background-color: var(--nxt1-color-surface-elevated, #ffffff);
+}
+
+html[data-theme='light'] ion-modal.nxt1-picker-modal ion-header,
+html[data-theme='light'] ion-modal.nxt1-picker-modal ion-toolbar {
+  --background: var(--nxt1-color-surface-elevated, #ffffff);
+  --color: var(--nxt1-color-text-primary, #212121);
+  --border-color: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+html[data-theme='light'] ion-modal.nxt1-picker-modal ion-title {
+  color: var(--nxt1-color-text-primary, #212121);
+}
+
+html[data-theme='light'] ion-modal.nxt1-picker-modal ion-button[fill='clear'] {
+  --color: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
+}
+
+html[data-theme='light'] ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion-button {
+  --color: var(--nxt1-color-primary, #a3cc00);
+}
+
+html[data-theme='light'] ion-modal.nxt1-picker-modal ion-content {
+  --background: var(--nxt1-color-surface-default, #fafafa);
+  --color: var(--nxt1-color-text-primary, #212121);
+}
+
+html[data-theme='light'] ion-modal.nxt1-picker-modal--sheet .modal-handle {
+  background: var(--nxt1-color-border-strong, rgba(0, 0, 0, 0.2));
+}
+
+html[data-theme='light'] ion-modal.nxt1-picker-modal::part(backdrop) {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* ============================================
+   SPORT THEME OVERRIDES
+   Primary color changes for themed experience
+   ============================================ */
+
+/* Sport-Basketball Theme - Orange accent */
+html[data-theme='sport-basketball'] ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion-button {
+  --color: #ff6d00;
+}
+
+/* Sport-Football Theme - Green accent */
+html[data-theme='sport-football'] ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion-button {
+  --color: #4ade80;
+}
+
+/* Sport-Baseball Theme - Red-brown accent */
+html[data-theme='sport-baseball'] ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion-button {
+  --color: #ff5722;
+}
+
+/* Sport-Softball Theme - Yellow accent */
+html[data-theme='sport-softball'] ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion-button {
+  --color: #ffed4e;
+}
+
+/* ============================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================ */
+
+/* Small mobile - full width sheet */
+@media (max-width: 479px) {
+  ion-modal.nxt1-picker-modal--sheet {
+    --width: 100%;
+    --max-width: 100%;
+  }
+}
+
+/* Tablet and larger - constrain sheet width */
+@media (min-width: 480px) and (max-width: 767px) {
+  ion-modal.nxt1-picker-modal--sheet {
+    --width: 100%;
+    --max-width: 100%;
+  }
+}
+
+/* Desktop - centered modal sizing */
+@media (min-width: 768px) {
+  ion-modal.nxt1-picker-modal--centered {
+    --width: 480px;
+    --max-width: 90vw;
+    --height: auto;
+    --min-height: 400px;
+    --max-height: 80vh;
+  }
+
+  ion-modal.nxt1-picker-modal--centered .modal-wrapper {
+    width: var(--width);
+    max-width: var(--max-width);
+    height: var(--height, auto);
+    min-height: var(--min-height);
+    max-height: var(--max-height);
+  }
+}
+
+/* Large desktop */
+@media (min-width: 1024px) {
+  ion-modal.nxt1-picker-modal--centered {
+    --width: 520px;
+  }
+}
+
+/* ============================================
+   ANIMATION IMPROVEMENTS
+   ============================================ */
+
+ion-modal.nxt1-picker-modal {
+  --transition-duration: 250ms;
+}
+
+/* Sheet entry animation */
+ion-modal.nxt1-picker-modal--sheet {
+  --transition: transform var(--transition-duration) cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Centered modal entry animation */
+ion-modal.nxt1-picker-modal--centered {
+  --transition:
+    opacity var(--transition-duration) ease-out,
+    transform var(--transition-duration) cubic-bezier(0.32, 0.72, 0, 1);
+}

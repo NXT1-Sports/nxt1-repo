@@ -17,6 +17,9 @@ PODS:
   - CapacitorFilesystem (7.1.6):
     - Capacitor
     - IONFilesystemLib (~> 1.0.1)
+  - CapacitorGeolocation (8.0.0):
+    - Capacitor
+    - IONGeolocationLib (= 2.0.0)
   - CapacitorHaptics (7.0.3):
     - Capacitor
   - CapacitorKeyboard (7.0.4):
@@ -47,6 +50,7 @@ PODS:
     - GTMSessionFetcher/Core (< 3.0, >= 1.5)
   - GTMSessionFetcher/Core (2.3.0)
   - IONFilesystemLib (1.0.1)
+  - IONGeolocationLib (2.0.0)
 
 DEPENDENCIES:
   - "Capacitor (from `../../../../node_modules/@capacitor/ios`)"
@@ -55,6 +59,7 @@ DEPENDENCIES:
   - "CapacitorCordova (from `../../../../node_modules/@capacitor/ios`)"
   - "CapacitorDevice (from `../../../../node_modules/@capacitor/device`)"
   - "CapacitorFilesystem (from `../../../../node_modules/@capacitor/filesystem`)"
+  - "CapacitorGeolocation (from `../../node_modules/@capacitor/geolocation`)"
   - "CapacitorHaptics (from `../../../../node_modules/@capacitor/haptics`)"
   - "CapacitorKeyboard (from `../../../../node_modules/@capacitor/keyboard`)"
   - CapacitorNativeBiometric (from `../../../../node_modules/capacitor-native-biometric`)
@@ -73,6 +78,7 @@ SPEC REPOS:
     - GTMAppAuth
     - GTMSessionFetcher
     - IONFilesystemLib
+    - IONGeolocationLib
 
 EXTERNAL SOURCES:
   Capacitor:
@@ -87,6 +93,8 @@ EXTERNAL SOURCES:
     :path: "../../../../node_modules/@capacitor/device"
   CapacitorFilesystem:
     :path: "../../../../node_modules/@capacitor/filesystem"
+  CapacitorGeolocation:
+    :path: "../../node_modules/@capacitor/geolocation"
   CapacitorHaptics:
     :path: "../../../../node_modules/@capacitor/haptics"
   CapacitorKeyboard:
@@ -116,6 +124,7 @@ SPEC CHECKSUMS:
   CapacitorCordova: 31bbe4466000c6b86d9b7f1181ee286cff0205aa
   CapacitorDevice: b64654eb4d404373e733c01d835055ba59286e5c
   CapacitorFilesystem: 66f05ee0d8b1ccdc00d509091273a9b3b57c4a0b
+  CapacitorGeolocation: 8a405e707de9aff6ac9eca7f408966a370f7ca33
   CapacitorHaptics: ce15be8f287fa2c61c7d2d9e958885b90cf0bebc
   CapacitorKeyboard: 5660c760113bfa48962817a785879373cf5339c3
   CapacitorNativeBiometric: 78cf21304251a512e4597437325b5e9b0cd9f7b3
@@ -130,7 +139,8 @@ SPEC CHECKSUMS:
   GTMAppAuth: 0ff230db599948a9ad7470ca667337803b3fc4dd
   GTMSessionFetcher: 3a63d75eecd6aa32c2fc79f578064e1214dfdec2
   IONFilesystemLib: 89258b8e3e85465da93127d25d7ce37f977e8a6f
+  IONGeolocationLib: a5e40b54edc2ee9902036eda5aaa41ddf07bb68d
 
-PODFILE CHECKSUM: 9e05ea42c0c09e8cef14008d5a6eabe704f8a743
+PODFILE CHECKSUM: 129974f022b31ab49aa13b44a8c7e0f2a1a9f9eb
 
 COCOAPODS: 1.16.2

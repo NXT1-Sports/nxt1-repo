@@ -40,6 +40,8 @@ import {
 import { AuthApiService } from './auth-api.service';
 import { AuthCookieService } from './auth-cookie.service';
 import { type UserRole, getAuthErrorMessage } from '@nxt1/core';
+import { NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 
 /**
  * Browser Authentication Service
@@ -57,6 +59,7 @@ export class BrowserAuthService implements IAuthService {
   private readonly firebaseAuth = inject(Auth);
   private readonly authApi = inject(AuthApiService);
   private readonly authCookie = inject(AuthCookieService);
+  private readonly logger: ILogger = inject(NxtLoggingService).child('BrowserAuthService');
 
   // ============================================
   // STATE SIGNALS (Private Writable)
@@ -112,7 +115,7 @@ export class BrowserAuthService implements IAuthService {
           this.authCookie.clearAuthCookie();
         }
       } catch (err) {
-        console.error('[BrowserAuthService] Auth state sync failed:', err);
+        this.logger.error('Auth state sync failed', err);
         this._error.set(err instanceof Error ? err.message : 'Authentication error');
       } finally {
         this._isLoading.set(false);
@@ -131,7 +134,7 @@ export class BrowserAuthService implements IAuthService {
       // Firebase ID tokens expire in 1 hour
       this.authCookie.setAuthCookie(idToken, 3600000);
     } catch (err) {
-      console.warn('[BrowserAuthService] Failed to set auth cookie:', err);
+      this.logger.warn('Failed to set auth cookie', { error: err });
     }
   }
 
@@ -172,7 +175,7 @@ export class BrowserAuthService implements IAuthService {
         updatedAt: new Date().toISOString(),
       });
     } catch (err) {
-      console.error('[BrowserAuthService] Failed to sync user profile:', err);
+      this.logger.error('Failed to sync user profile', err);
     }
   }
 
@@ -289,7 +292,7 @@ export class BrowserAuthService implements IAuthService {
       this._firebaseUser.set(null);
       await this.router.navigate(['/explore']);
     } catch (err) {
-      console.error('[BrowserAuthService] Sign out failed:', err);
+      this.logger.error('Sign out failed', err);
       this._error.set('Failed to sign out');
     } finally {
       this._isLoading.set(false);

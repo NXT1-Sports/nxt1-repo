@@ -99,6 +99,12 @@ export {
   type ProfileFormData,
   type OnboardingTeamType,
 
+  // Gender & Location types (v3.1)
+  type GenderOption,
+  GENDER_OPTIONS,
+  type ProfileLocationData,
+  toUserLocation,
+
   // Sport-centric types (v3.0)
   type SportTeamInfo,
   type SportEntry,

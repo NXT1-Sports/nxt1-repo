@@ -899,6 +899,24 @@ nxt1-auth-email-form ion-input[fill='outline'],
     background 200ms ease-out;
 }
 
+/**
+ * CRITICAL: Remove native browser focus outline from inputs inside ion-input.
+ * Ionic handles focus indication via --highlight-color-focused CSS variable.
+ * This prevents the blue box/square outline appearing when input is focused.
+ */
+.auth-input input,
+.auth-input input:focus,
+.auth-input input:focus-visible,
+nxt1-auth-email-form ion-input input,
+nxt1-auth-email-form ion-input input:focus,
+nxt1-auth-email-form ion-input input:focus-visible,
+.nxt1-auth-form ion-input input,
+.nxt1-auth-form ion-input input:focus,
+.nxt1-auth-form ion-input input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 /* Subtle hover state - matches social button style */
 .auth-input:hover,
 nxt1-auth-email-form ion-input[fill='outline']:hover,

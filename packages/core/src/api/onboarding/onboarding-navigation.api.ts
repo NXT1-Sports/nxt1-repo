@@ -26,18 +26,28 @@
  * @version 2.0.0
  */
 
+// Import from source of truth
+import type { Gender } from '../../constants/user.constants';
+import { GENDER_CONFIGS } from '../../constants/user.constants';
+import type { Location } from '../../models/user.model';
+
 // ============================================
 // TYPES
 // ============================================
 
-/** User type for onboarding */
+/**
+ * User type for onboarding - matches UserRole from constants.
+ * All roles supported by the platform.
+ */
 export type OnboardingUserType =
   | 'athlete'
   | 'coach'
+  | 'college-coach'
+  | 'director'
+  | 'recruiting-service'
   | 'parent'
   | 'scout'
   | 'media'
-  | 'service'
   | 'fan';
 
 /** Step IDs */
@@ -75,13 +85,90 @@ export interface TeamCodePrefillData {
   role?: string;
 }
 
+// ============================================
+// GENDER OPTIONS - Re-export from constants (source of truth)
+// ============================================
+
+/**
+ * Gender option type - re-exported from user constants.
+ * @see GENDERS in @nxt1/core/constants for values
+ * @see GENDER_CONFIGS for display options
+ */
+export type GenderOption = Gender;
+
+/**
+ * Gender display labels - re-exported from user constants.
+ * Use this for UI rendering (dropdowns, chips, etc.)
+ * @deprecated Use GENDER_CONFIGS directly for type safety
+ */
+export const GENDER_OPTIONS: readonly { value: GenderOption; label: string }[] = GENDER_CONFIGS.map(
+  (config) => ({ value: config.id, label: config.label })
+);
+
+// ============================================
+// LOCATION DATA - Compatible with User.location
+// ============================================
+
+/**
+ * Profile location data for onboarding forms.
+ * Designed to be compatible with User.location interface.
+ *
+ * Flow: Geolocation → ProfileLocationData → User.location
+ *
+ * @see Location in @nxt1/core/models for the User model type
+ * @see ReverseGeocodedLocation in @nxt1/core/geolocation for full geolocation data
+ */
+export interface ProfileLocationData {
+  /** Street address (optional during onboarding) */
+  address?: string;
+  /** City name (required for User.location) */
+  city?: string;
+  /** State/Province/Region code (e.g., 'TX', 'CA') - required for User.location */
+  state?: string;
+  /** Postal/ZIP code */
+  zipCode?: string;
+  /** Country (defaults to 'US' if not provided) */
+  country?: string;
+  /** Full formatted address (for display only, not persisted) */
+  formatted?: string;
+  /** Whether location was auto-detected via geolocation (metadata, not persisted) */
+  isAutoDetected?: boolean;
+}
+
+/**
+ * Convert ProfileLocationData to User.location format.
+ * Ensures all required fields are present.
+ */
+export function toUserLocation(data: ProfileLocationData): Location | undefined {
+  if (!data.city || !data.state) {
+    return undefined;
+  }
+  return {
+    address: data.address,
+    city: data.city,
+    state: data.state,
+    zipCode: data.zipCode,
+    country: data.country || 'US',
+  };
+}
+
 /** Profile form data */
 export interface ProfileFormData {
   firstName: string;
   lastName: string;
   profileImg?: string | null;
   bio?: string;
-  /** Graduation year (Class of) - required for athletes */
+  /**
+   * Gender selection (inclusive options).
+   * @see Gender in @nxt1/core/constants
+   */
+  gender?: GenderOption | null;
+  /**
+   * User location (city, state).
+   * Converts to User.location on save via toUserLocation()
+   */
+  location?: ProfileLocationData | null;
+  /** Graduation year (Class of) - collected later for athletes, not in initial profile step */
   classYear?: number | null;
 }
 
@@ -333,8 +420,8 @@ export interface UserDataForDetection {
 /** Role selection step - shown at the END as optional enhancement */
 export const ROLE_SELECTION_STEP: OnboardingStep = {
   id: 'role',
-  title: 'Enhance Your Experience',
-  subtitle: 'How do you want to use NXT1? (Optional)',
+  title: 'Select Your Role',
+  subtitle: 'Personalize your experience',
   required: false,
   order: 999, // End of flow
 };
@@ -358,15 +445,15 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
     },
     {
       id: 'referral-source',
-      title: 'Almost Done',
+      title: 'Before We Begin',
       subtitle: 'How did you hear about us?',
       required: false,
       order: 3,
     },
     {
       id: 'role',
-      title: 'Enhance Your Experience',
-      subtitle: 'Want to unlock more features? (Optional)',
+      title: 'Select Your Role',
+      subtitle: 'Personalize your experience',
       required: false,
       order: 4,
     },
@@ -388,15 +475,15 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
     },
     {
       id: 'referral-source',
-      title: 'Almost Done',
+      title: 'Before We Begin',
       subtitle: 'How did you hear about us?',
       required: false,
       order: 3,
     },
     {
       id: 'role',
-      title: 'Enhance Your Experience',
-      subtitle: 'Want to unlock more features? (Optional)',
+      title: 'Select Your Role',
+      subtitle: 'Personalize your experience',
       required: false,
       order: 4,
     },
@@ -418,15 +505,15 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
     },
     {
       id: 'referral-source',
-      title: 'Almost Done',
+      title: 'Before We Begin',
       subtitle: 'How did you hear about us?',
       required: false,
       order: 3,
     },
     {
       id: 'role',
-      title: 'Enhance Your Experience',
-      subtitle: 'Want to unlock more features? (Optional)',
+      title: 'Select Your Role',
+      subtitle: 'Personalize your experience',
       required: false,
       order: 4,
     },
@@ -448,15 +535,15 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
     },
     {
       id: 'referral-source',
-      title: 'Almost Done',
+      title: 'Before We Begin',
       subtitle: 'How did you hear about us?',
       required: false,
       order: 3,
     },
     {
       id: 'role',
-      title: 'Enhance Your Experience',
-      subtitle: 'Want to unlock more features? (Optional)',
+      title: 'Select Your Role',
+      subtitle: 'Personalize your experience',
       required: false,
       order: 4,
     },
@@ -478,20 +565,20 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
     },
     {
       id: 'referral-source',
-      title: 'Almost Done',
+      title: 'Before We Begin',
       subtitle: 'How did you hear about us?',
       required: false,
       order: 3,
     },
     {
       id: 'role',
-      title: 'Enhance Your Experience',
-      subtitle: 'Want to unlock more features? (Optional)',
+      title: 'Select Your Role',
+      subtitle: 'Personalize your experience',
       required: false,
       order: 4,
     },
   ],
-  service: [
+  'college-coach': [
     {
       id: 'profile',
       title: 'Get Started',
@@ -502,21 +589,81 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
     {
       id: 'sport',
       title: 'Your Sports',
-      subtitle: 'What sports do you follow?',
+      subtitle: 'What sports do you recruit for?',
       required: true,
       order: 2,
     },
     {
       id: 'referral-source',
-      title: 'Almost Done',
+      title: 'Before We Begin',
       subtitle: 'How did you hear about us?',
       required: false,
       order: 3,
     },
     {
       id: 'role',
-      title: 'Enhance Your Experience',
-      subtitle: 'Want to unlock more features? (Optional)',
+      title: 'Select Your Role',
+      subtitle: 'Personalize your experience',
+      required: false,
+      order: 4,
+    },
+  ],
+  director: [
+    {
+      id: 'profile',
+      title: 'Get Started',
+      subtitle: "Let's get to know you",
+      required: true,
+      order: 1,
+    },
+    {
+      id: 'sport',
+      title: 'Your Sports',
+      subtitle: 'What sports does your program offer?',
+      required: true,
+      order: 2,
+    },
+    {
+      id: 'referral-source',
+      title: 'Before We Begin',
+      subtitle: 'How did you hear about us?',
+      required: false,
+      order: 3,
+    },
+    {
+      id: 'role',
+      title: 'Select Your Role',
+      subtitle: 'Personalize your experience',
+      required: false,
+      order: 4,
+    },
+  ],
+  'recruiting-service': [
+    {
+      id: 'profile',
+      title: 'Get Started',
+      subtitle: "Let's set up your recruiting service profile",
+      required: true,
+      order: 1,
+    },
+    {
+      id: 'sport',
+      title: 'Your Sports',
+      subtitle: 'What sports do you recruit for?',
+      required: true,
+      order: 2,
+    },
+    {
+      id: 'referral-source',
+      title: 'Before We Begin',
+      subtitle: 'How did you hear about us?',
+      required: false,
+      order: 3,
+    },
+    {
+      id: 'role',
+      title: 'Select Your Role',
+      subtitle: 'Personalize your experience',
       required: false,
       order: 4,
     },
@@ -538,15 +685,15 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
     },
     {
       id: 'referral-source',
-      title: 'Almost Done',
+      title: 'Before We Begin',
       subtitle: 'How did you hear about us?',
       required: false,
       order: 3,
     },
     {
       id: 'role',
-      title: 'Enhance Your Experience',
-      subtitle: 'Want to unlock more features? (Optional)',
+      title: 'Select Your Role',
+      subtitle: 'Personalize your experience',
       required: false,
       order: 4,
     },
@@ -604,39 +751,36 @@ export function validateOrganization(data?: OrganizationFormData): boolean {
 }
 
 /**
- * Validate a single sport entry
- * Requires sport name, team name, and at least one position
+ * Validate a single sport entry (v4.0 - Simplified)
+ * For initial onboarding, only requires sport name to be selected.
+ * Team and positions are collected LATER based on user role.
  * ⭐ PURE FUNCTION - No dependencies
  */
 export function validateSportEntry(entry: SportEntry): boolean {
   if (!entry) return false;
 
-  // Must have sport selected
-  if (!entry.sport?.trim()) return false;
-
-  // Must have team name
-  if (!entry.team?.name?.trim()) return false;
-
-  // Must have at least one position
-  if (!entry.positions || entry.positions.length === 0) return false;
-  if (!entry.positions.every((p) => p.trim().length > 0)) return false;
-
-  return true;
+  // Only requirement: sport must be selected
+  return !!entry.sport?.trim();
 }
 
 /**
- * Validate sport step data (v3.0)
- * Requires at least one complete sport entry with team and positions
+ * Validate sport step data (v4.0 - Simplified)
+ * For initial onboarding, only requires at least one sport to be selected.
+ * Team info and positions are collected LATER based on role:
+ * - Athletes: Full team/positions in athlete-specific flow
+ * - Coaches: Team they coach
+ * - Fans: No additional info needed
+ *
  * ⭐ PURE FUNCTION - No dependencies
  *
  * @example
  * ```typescript
- * // Valid - has complete sport entry
- * validateSport({ sports: [{ sport: 'Football', team: { name: 'Lincoln HS' }, positions: ['QB'] }] })
+ * // Valid - at least one sport selected
+ * validateSport({ sports: [{ sport: 'Football', isPrimary: true }] })
  * // => true
  *
- * // Invalid - missing positions
- * validateSport({ sports: [{ sport: 'Football', team: { name: 'Lincoln HS' }, positions: [] }] })
+ * // Invalid - no sports selected
+ * validateSport({ sports: [] })
  * // => false
  * ```
  */
@@ -644,13 +788,13 @@ export function validateSport(data?: SportFormData): boolean {
   if (!data) return false;
   if (!data.sports || data.sports.length === 0) return false;
 
-  // All entries must be valid
+  // All entries must have a sport selected
   return data.sports.every((entry) => validateSportEntry(entry));
 }
 
 /**
  * Validate positions step data
- * @deprecated Positions are now validated as part of validateSport (v3.0)
+ * @deprecated Positions are now collected later based on role
  * ⭐ PURE FUNCTION - No dependencies
  */
 export function validatePositions(data?: PositionsFormData): boolean {
@@ -807,11 +951,14 @@ export function mapTeamCodeRole(role: string): OnboardingUserType {
   const roleMap: Record<string, OnboardingUserType> = {
     athlete: 'athlete',
     coach: 'coach',
-    admin: 'coach',
+    'college-coach': 'college-coach',
+    director: 'director',
+    admin: 'director', // Map admin to director
+    'recruiting-service': 'recruiting-service',
+    service: 'recruiting-service', // Legacy 'service' maps to recruiting-service
     media: 'media',
     parent: 'parent',
     scout: 'scout',
-    service: 'service',
   };
   return roleMap[role.toLowerCase()] ?? 'athlete';
 }
@@ -879,15 +1026,18 @@ export function getStepsForUserType(
 }
 
 /**
- * Configure steps when user type changes (includes role selection)
+ * Configure steps when user type changes (includes role selection at end)
  * ⭐ PURE FUNCTION - No dependencies
+ *
+ * NOTE: Role selection is the LAST step (optional), not first.
+ * Flow: Profile → Sports → Referral → Role (optional)
  */
 export function configureStepsForUserType(
   userType: OnboardingUserType,
   teamCode?: TeamCodePrefillData
 ): OnboardingStep[] {
-  const typeSteps = getStepsForUserType(userType, teamCode);
-  return [ROLE_SELECTION_STEP, ...typeSteps];
+  // Steps from ONBOARDING_STEPS already include role at the end (order: 4)
+  return getStepsForUserType(userType, teamCode);
 }
 
 /**

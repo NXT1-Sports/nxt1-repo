@@ -15,6 +15,8 @@ import { Injectable, inject } from '@angular/core';
 import { createAuthApi, type AuthApi, type User } from '@nxt1/core';
 import { AngularHttpAdapter } from '../../../core/infrastructure';
 import { environment } from '../../../../environments/environment';
+import { NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 
 /**
  * Angular service wrapper for @nxt1/core Auth API
@@ -36,6 +38,7 @@ import { environment } from '../../../../environments/environment';
 @Injectable({ providedIn: 'root' })
 export class AuthApiService {
   private readonly http = inject(AngularHttpAdapter);
+  private readonly logger: ILogger = inject(NxtLoggingService).child('AuthApiService');
   private _api: AuthApi | null = null;
 
   private get api(): AuthApi {
@@ -68,7 +71,7 @@ export class AuthApiService {
       };
       return response.data;
     } catch (error) {
-      console.error('[AuthApiService] Failed to fetch user profile:', error);
+      this.logger.error('Failed to fetch user profile', error);
       throw error;
     }
   }

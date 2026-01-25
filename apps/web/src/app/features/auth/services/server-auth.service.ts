@@ -20,7 +20,7 @@
  * @see https://firebase.google.com/docs/reference/js/app.firebaseserverapp
  */
 
-import { Injectable, signal, computed, Optional, Inject, OnDestroy } from '@angular/core';
+import { Injectable, signal, computed, Optional, Inject, OnDestroy, inject } from '@angular/core';
 import { FirebaseServerApp, initializeServerApp, FirebaseOptions } from 'firebase/app';
 import { Auth, getAuth, User as FirebaseUser } from 'firebase/auth';
 import { Firestore, getFirestore, doc, getDoc } from 'firebase/firestore';
@@ -34,6 +34,8 @@ import {
 } from './auth.interface';
 import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './ssr-tokens';
 import type { UserRole } from '@nxt1/core';
+import { NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 
 // Re-export tokens for convenience (but import from ssr-tokens.ts for server.ts)
 export { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './ssr-tokens';
@@ -73,6 +75,8 @@ export class ServerAuthService implements IAuthService, OnDestroy {
   private firebaseApp: FirebaseServerApp | null = null;
   private firebaseAuth: Auth | null = null;
   private firestore: Firestore | null = null;
+
+  private readonly logger: ILogger = inject(NxtLoggingService).child('ServerAuthService');
 
   // ============================================
   // STATE SIGNALS (Private Writable)
@@ -122,7 +126,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
   async initialize(): Promise<void> {
     // If no Firebase config, skip initialization (shouldn't happen in production)
     if (!this.firebaseConfig) {
-      console.warn('[ServerAuthService] No Firebase config provided - skipping initialization');
+      this.logger.warn('No Firebase config provided - skipping initialization');
       this._isInitialized.set(true);
       this._isLoading.set(false);
       return;
@@ -165,20 +169,16 @@ export class ServerAuthService implements IAuthService, OnDestroy {
           // User exists in Firebase Auth but not in Firestore
           // Create minimal user from Firebase data
           this._user.set(this.createMinimalUser(currentUser));
-          console.warn(
-            '[ServerAuthService] User profile not found in Firestore - using minimal data'
-          );
+          this.logger.warn('User profile not found in Firestore - using minimal data');
         }
       } else {
         // Token was invalid or expired
-        console.warn(
-          '[ServerAuthService] Auth token invalid or expired - rendering unauthenticated'
-        );
+        this.logger.warn('Auth token invalid or expired - rendering unauthenticated');
       }
     } catch (err) {
       // Log error but don't fail SSR - render as unauthenticated
       const message = err instanceof Error ? err.message : 'Unknown error';
-      console.error('[ServerAuthService] Initialization failed:', message);
+      this.logger.error('Initialization failed', { message, error: err });
       this._error.set(message);
 
       // Clean up partial initialization
@@ -198,7 +198,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
    */
   ngOnDestroy(): void {
     this.cleanup().catch((err) => {
-      console.error('[ServerAuthService] Cleanup error:', err);
+      this.logger.error('Cleanup error', err);
     });
   }
 
@@ -273,7 +273,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
         updatedAt: data['updatedAt']?.toDate?.()?.toISOString() ?? new Date().toISOString(),
       };
     } catch (err) {
-      console.error('[ServerAuthService] Failed to fetch user profile:', err);
+      this.logger.error('Failed to fetch user profile', err);
       return null;
     }
   }
@@ -321,7 +321,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
    * Noop - authentication happens on client
    */
   async signInWithEmail(_credentials: SignInCredentials): Promise<boolean> {
-    console.warn('[ServerAuthService] signInWithEmail called on server - noop');
+    this.logger.warn('signInWithEmail called on server - noop');
     return false;
   }
 
@@ -329,7 +329,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
    * Noop - OAuth requires browser
    */
   async signInWithGoogle(): Promise<boolean> {
-    console.warn('[ServerAuthService] signInWithGoogle called on server - noop');
+    this.logger.warn('signInWithGoogle called on server - noop');
     return false;
   }
 
@@ -337,7 +337,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
    * Noop - sign up happens on client
    */
   async signUpWithEmail(_credentials: SignUpCredentials): Promise<boolean> {
-    console.warn('[ServerAuthService] signUpWithEmail called on server - noop');
+    this.logger.warn('signUpWithEmail called on server - noop');
     return false;
   }
 
@@ -345,14 +345,14 @@ export class ServerAuthService implements IAuthService, OnDestroy {
    * Noop - sign out happens on client
    */
   async signOut(): Promise<void> {
-    console.warn('[ServerAuthService] signOut called on server - noop');
+    this.logger.warn('signOut called on server - noop');
   }
 
   /**
    * Noop - password reset happens on client
    */
   async sendPasswordResetEmail(_email: string): Promise<boolean> {
-    console.warn('[ServerAuthService] sendPasswordResetEmail called on server - noop');
+    this.logger.warn('sendPasswordResetEmail called on server - noop');
     return false;
   }
 
@@ -374,7 +374,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
    * Noop - profile refresh happens on client
    */
   async refreshUserProfile(): Promise<void> {
-    console.warn('[ServerAuthService] refreshUserProfile called on server - noop');
+    this.logger.warn('refreshUserProfile called on server - noop');
   }
 }
 

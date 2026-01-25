@@ -32,6 +32,7 @@ import { inject } from '@angular/core';
 import { Router, type CanActivateFn } from '@angular/router';
 import { toObservable } from '@angular/core/rxjs-interop';
 import { filter, map, take } from 'rxjs';
+import { NxtLoggingService } from '@nxt1/ui';
 import {
   requireAuth,
   requireGuest,
@@ -73,6 +74,7 @@ function getAuthState(authService: AuthFlowService): AuthState {
     isLoading: authService.isLoading(),
     isInitialized: authService.isInitialized(),
     error: authService.error(),
+    signupInProgress: false,
   };
 }
 
@@ -147,15 +149,16 @@ export const guestGuard: CanActivateFn = () => {
 export const onboardingCompleteGuard: CanActivateFn = () => {
   const authService = inject(AuthFlowService);
   const router = inject(Router);
+  const logger = inject(NxtLoggingService).child('onboardingCompleteGuard');
 
   if (authService.isInitialized()) {
     const state = getAuthState(authService);
-    console.log('[onboardingCompleteGuard] Checking access:', {
+    logger.debug('Checking access', {
       isAuthenticated: !!state.user,
       hasCompletedOnboarding: state.user?.hasCompletedOnboarding,
     });
     const result = requireOnboarding(state, { loginPath: AUTH_ROUTES.ROOT });
-    console.log('[onboardingCompleteGuard] Result:', {
+    logger.debug('Access result', {
       allowed: result.allowed,
       redirectTo: result.redirectTo,
     });
@@ -163,15 +166,15 @@ export const onboardingCompleteGuard: CanActivateFn = () => {
     return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.ONBOARDING]);
   }
 
-  console.log('[onboardingCompleteGuard] Waiting for auth initialization');
+  logger.debug('Waiting for auth initialization');
   return waitForAuthInitialization(authService).pipe(
     map((state) => {
-      console.log('[onboardingCompleteGuard] Auth initialized, checking access:', {
+      logger.debug('Auth initialized, checking access', {
         isAuthenticated: !!state.user,
         hasCompletedOnboarding: state.user?.hasCompletedOnboarding,
       });
       const result = requireOnboarding(state, { loginPath: AUTH_ROUTES.ROOT });
-      console.log('[onboardingCompleteGuard] Result:', {
+      logger.debug('Access result', {
         allowed: result.allowed,
         redirectTo: result.redirectTo,
       });

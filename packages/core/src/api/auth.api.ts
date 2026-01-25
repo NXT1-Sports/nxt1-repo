@@ -45,6 +45,8 @@
 
 import type { HttpAdapter } from './http-adapter';
 import type { TeamTypeApi } from '../models/team-code.model';
+import type { UserRole } from '../constants/user.constants';
+import type { PlanTier } from '../constants/payment.constants';
 
 // ============================================
 // TYPES - Backend API Request/Response
@@ -93,13 +95,24 @@ export type TeamCodeValidationState = 'idle' | 'validating' | 'success' | 'error
 
 /**
  * Onboarding profile data to save
+ * userType values must match UserRole from @nxt1/core/constants
  */
 export interface OnboardingProfileData {
   firstName: string;
   lastName: string;
   profileImg?: string;
   bio?: string;
-  userType: 'athlete' | 'coach' | 'parent' | 'scout' | 'media' | 'service' | 'fan';
+  /** User role - matches UserRole type from constants */
+  userType:
+    | 'athlete'
+    | 'coach'
+    | 'college-coach'
+    | 'director'
+    | 'recruiting-service'
+    | 'parent'
+    | 'scout'
+    | 'media'
+    | 'fan';
   sport?: string;
   secondarySport?: string;
   positions?: string[];
@@ -152,27 +165,46 @@ export interface HearAboutResponse {
 }
 
 /**
- * User profile response
+ * User profile response - V2 Model
  * Field names aligned with User model (user.model.ts)
  */
 export interface UserProfileResponse {
+  /** Firestore document ID (same as Firebase Auth uid) */
   id: string;
+  /** User email address */
   email: string;
+  /** User first name */
   firstName: string;
+  /** User last name */
   lastName: string;
-  /** Profile image URL - matches User.profileImg */
+  /** Profile image URL */
   profileImg?: string;
-  /** Primary sport - matches User.primarySport */
-  primarySport?: string;
-  isRecruit: boolean;
-  isCollegeCoach: boolean;
-  completeSignUp: boolean;
-  lastActivatedPlan?: string;
+  /** User role - single source of truth for user type */
+  role?: UserRole;
+  /** Sports array - user's sports with positions */
+  sports?: Array<{
+    sport: string;
+    positions?: string[];
+    isPrimary?: boolean;
+  }>;
+  /** Current plan tier - cached from Subscriptions collection */
+  planTier?: PlanTier;
+  /** Whether user has completed onboarding */
+  onboardingCompleted?: boolean;
+  /** Team code info if user joined via team */
   teamCode?: {
     teamCode: string;
     teamName: string;
     isFreeTrial: boolean;
   };
+  /** @deprecated Use role instead */
+  isRecruit?: boolean;
+  /** @deprecated Use role instead */
+  isCollegeCoach?: boolean;
+  /** @deprecated Use onboardingCompleted instead */
+  completeSignUp?: boolean;
+  /** @deprecated Use planTier instead */
+  lastActivatedPlan?: string;
 }
 
 /**
@@ -594,7 +626,16 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      */
     async updateRole(
       userId: string,
-      userType: 'athlete' | 'coach' | 'parent' | 'scout' | 'media' | 'service' | 'fan'
+      userType:
+        | 'athlete'
+        | 'coach'
+        | 'college-coach'
+        | 'director'
+        | 'recruiting-service'
+        | 'parent'
+        | 'scout'
+        | 'media'
+        | 'fan'
     ): Promise<OnboardingStepResponse> {
       const v2Base = base.replace('/v1', '/v2');
       return http.patch(`${v2Base}/auth/profile/role`, { userId, userType });

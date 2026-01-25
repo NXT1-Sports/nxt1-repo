@@ -38,6 +38,7 @@ import {
   OnDestroy,
   PLATFORM_ID,
   effect,
+  ViewChild,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
@@ -56,6 +57,7 @@ import {
   OnboardingNavigationButtonsComponent,
   OnboardingButtonMobileComponent,
   OnboardingStepCardComponent,
+  OnboardingCelebrationComponent,
   type AnimationDirection,
 } from '@nxt1/ui';
 import { NxtToastService, NxtPlatformService } from '@nxt1/ui';
@@ -67,6 +69,7 @@ import {
   type OnboardingStep,
   type OnboardingFormData,
   type ProfileFormData,
+  type ProfileLocationData,
   type TeamFormData,
   type SportFormData,
   type PositionsFormData,
@@ -82,6 +85,16 @@ import {
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { createBrowserStorageAdapter, STORAGE_KEYS } from '@nxt1/core/storage';
 
+// Geolocation - Cross-platform location detection
+import {
+  createGeolocationService,
+  BrowserGeolocationAdapter,
+  NominatimGeocodingAdapter,
+  CachedGeocodingAdapter,
+  type GeolocationService,
+  GEOLOCATION_DEFAULTS,
+} from '@nxt1/core/geolocation';
+
 // App Services
 import {
   AuthFlowService,
@@ -90,6 +103,8 @@ import {
   OnboardingAnalyticsService,
 } from '../../services';
 import { SeoService } from '../../../../core/services';
+import { NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 
 // ============================================
 // TYPES
@@ -98,7 +113,6 @@ import { SeoService } from '../../../../core/services';
 /** State machine states - matches step IDs plus workflow states */
 type OnboardingState =
   | 'idle'
-  | 'role_selection'
   | 'profile'
   | 'school'
   | 'organization'
@@ -106,6 +120,7 @@ type OnboardingState =
   | 'positions'
   | 'contact'
   | 'referral'
+  | 'role' // Optional last step
   | 'completing'
   | 'complete';
 
@@ -118,9 +133,8 @@ interface PartialOnboardingFormData extends Omit<Partial<OnboardingFormData>, 'u
 // CONSTANTS
 // ============================================
 
-/** Initial steps - role selection is added at the END of configured flows */
-/** Initial steps - role selection is the default starting step */
-const DEFAULT_STEPS: OnboardingStep[] = [ROLE_SELECTION_STEP];
+/** Initial steps - Profile → Sports → Referral → Role (optional last) */
+const DEFAULT_STEPS: OnboardingStep[] = ONBOARDING_STEPS.athlete;
 
 /** Session expiry time (24 hours in milliseconds) */
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
@@ -149,6 +163,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     OnboardingNavigationButtonsComponent,
     OnboardingButtonMobileComponent,
     OnboardingStepCardComponent,
+    OnboardingCelebrationComponent,
   ],
   template: `
     <nxt1-auth-shell
@@ -195,19 +210,23 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               />
             }
 
-            <!-- Step 2: Profile -->
+            <!-- Step 1: Profile -->
             @if (currentStep().id === 'profile') {
               <nxt1-onboarding-profile-step
+                #profileStep
                 [profileData]="profileFormData()"
                 [disabled]="isLoading()"
-                [showClassYear]="selectedRole() === 'athlete'"
+                [showGender]="true"
+                [showLocation]="true"
+                [showClassYear]="false"
                 (profileChange)="onProfileChange($event)"
                 (photoSelect)="onPhotoSelect()"
                 (fileSelected)="onFileSelected($event)"
+                (locationRequest)="onLocationRequest()"
               />
             }
 
-            <!-- Step 3: Team (School) -->
+            <!-- Step 2: Team (School) -->
             @if (currentStep().id === 'school') {
               <nxt1-onboarding-team-step
                 [teamData]="teamFormData()"
@@ -216,7 +235,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               />
             }
 
-            <!-- Step 4: Sport Selection -->
+            <!-- Step 3: Sport Selection -->
             @if (currentStep().id === 'sport') {
               <nxt1-onboarding-sport-step
                 [sportData]="sportFormData()"
@@ -225,7 +244,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               />
             }
 
-            <!-- Step 5: Position Selection -->
+            <!-- Step 4: Position Selection -->
             @if (currentStep().id === 'positions') {
               <nxt1-onboarding-position-step
                 [positionData]="positionFormData()"
@@ -317,12 +336,17 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         [isLastStep]="isLastStep()"
         [loading]="isLoading()"
         [disabled]="!isCurrentStepValid()"
-        [showSignOut]="true"
         (skipClick)="onSkip()"
         (continueClick)="onContinue()"
-        (signOutClick)="onSignOut()"
       />
     }
+
+    <!-- Celebration Overlay -->
+    <nxt1-onboarding-celebration
+      [show]="showCelebration()"
+      message="Welcome to NXT1!"
+      (complete)="onCelebrationComplete()"
+    />
   `,
   styles: [
     `
@@ -411,9 +435,23 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private readonly toast = inject(NxtToastService);
   private readonly platform = inject(NxtPlatformService);
   private readonly onboardingAnalytics = inject(OnboardingAnalyticsService);
+  private readonly logger: ILogger = inject(NxtLoggingService).child('Onboarding');
 
   /** Check if running on mobile (native or mobile web) */
   readonly isMobile = computed(() => this.platform.isMobile());
+
+  // ============================================
+  // GEOLOCATION SERVICE (2026 Best Practice)
+  // ============================================
+
+  /** Cross-platform geolocation service with cached reverse geocoding */
+  private readonly geolocationService: GeolocationService = createGeolocationService(
+    new BrowserGeolocationAdapter(),
+    new CachedGeocodingAdapter(new NominatimGeocodingAdapter())
+  );
+
+  /** Reference to profile step for location callbacks */
+  @ViewChild('profileStep') profileStepRef?: OnboardingProfileStepComponent;
 
   // ============================================
   // SESSION PERSISTENCE
@@ -455,6 +493,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   /** Animation direction for step transitions */
   readonly animationDirection = signal<AnimationDirection>('none');
+
+  /** Show celebration overlay when onboarding completes */
+  readonly showCelebration = signal(false);
 
   // ============================================
   // COMPUTED SIGNALS
@@ -512,14 +553,16 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   /** Whether current step is the last step */
   readonly isLastStep = computed(() => {
-    // Role selection is never the last step (even if it's the only step in the array initially)
-    const currentStep = this.currentStep();
-    if (currentStep.id === 'role') return false;
+    // Role step is now the LAST step (optional) in the flow
     return this._currentStepIndex() === this._steps().length - 1;
   });
 
-  /** Whether current step is optional */
-  readonly isCurrentStepOptional = computed(() => !this.currentStep().required);
+  /** Whether current step is optional (but NOT the last step - last step shows Complete, not Skip) */
+  readonly isCurrentStepOptional = computed(() => {
+    // Don't show skip on the last step - user should complete or go back
+    if (this.isLastStep()) return false;
+    return !this.currentStep().required;
+  });
 
   /** Whether current step is valid (can proceed) - uses shared validation from @nxt1/core */
   readonly isCurrentStepValid = computed(() => {
@@ -571,12 +614,12 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       // Try to restore session from localStorage
       this.restoreSession(user.uid).then((restored) => {
         if (!restored) {
-          // No valid session - start fresh
-          this._state.set('role_selection');
+          // No valid session - start fresh with Profile step
+          this._state.set('profile');
           this._currentStepIndex.set(0);
           // Track onboarding started event
           this.trackStarted();
-          // Track initial step view (role selection)
+          // Track initial step view (profile)
           this.trackStepViewed();
         } else {
           // Restored session - track the resumed step view
@@ -665,17 +708,19 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   /**
    * Handle role selection (optional last step)
+   * User taps on a role card - just save the selection
    */
   onRoleSelect(type: OnboardingUserType): void {
     this.selectedRole.set(type);
     this._formData.update((data) => ({ ...data, userType: type }));
 
-    // Configure steps based on selected role
-    this.configureStepsForRole();
+    // Role is the last step - just save the selection
+    // User will click Continue to complete onboarding
+    console.info(`[Onboarding] Role selected: ${type}`);
   }
 
   /**
-   * Handle profile data change (Step 2)
+   * Handle profile data change (Step 1)
    */
   onProfileChange(profileData: ProfileFormData): void {
     this._formData.update((data) => ({
@@ -685,7 +730,79 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle team data change (Step 3)
+   * Handle location detection request from profile step.
+   * Uses browser geolocation + Nominatim reverse geocoding.
+   */
+  async onLocationRequest(): Promise<void> {
+    console.info('[Onboarding] Location detection requested');
+
+    // Check if geolocation is supported
+    if (!this.geolocationService.isSupported()) {
+      this.profileStepRef?.setLocationError('Location detection is not supported on this device');
+      return;
+    }
+
+    try {
+      // Request location with quick settings (coarse location is sufficient)
+      const result = await this.geolocationService.getCurrentLocation(GEOLOCATION_DEFAULTS.QUICK);
+
+      if (result.success) {
+        const { address } = result.data;
+
+        // Map to ProfileLocationData
+        const locationData: ProfileLocationData = {
+          city: address?.city,
+          state: address?.state,
+          country: address?.countryCode,
+          formatted: address?.formatted,
+          isAutoDetected: true,
+        };
+
+        // Update profile step
+        this.profileStepRef?.setLocation(locationData);
+
+        // Update form data
+        this._formData.update((data) => ({
+          ...data,
+          profile: {
+            ...data.profile,
+            firstName: data.profile?.firstName || '',
+            lastName: data.profile?.lastName || '',
+            location: locationData,
+          },
+        }));
+
+        this.logger.info('Location detected', {
+          city: address?.city,
+          state: address?.state,
+        });
+      } else {
+        // Handle error
+        let errorMessage = 'Unable to detect location';
+
+        switch (result.error.code) {
+          case 'PERMISSION_DENIED':
+            errorMessage = 'Location permission denied. Please enable location access.';
+            break;
+          case 'POSITION_UNAVAILABLE':
+            errorMessage = 'Location unavailable. Please try again.';
+            break;
+          case 'TIMEOUT':
+            errorMessage = 'Location request timed out. Please try again.';
+            break;
+        }
+
+        this.profileStepRef?.setLocationError(errorMessage);
+        this.logger.warn('Location detection failed', { error: result.error });
+      }
+    } catch (err) {
+      this.profileStepRef?.setLocationError('An error occurred detecting location');
+      this.logger.error('Location detection error', err);
+    }
+  }
+
+  /**
+   * Handle team data change (Step 2)
    */
   onTeamChange(teamData: TeamFormData): void {
     this._formData.update((data) => ({
@@ -742,14 +859,14 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    */
   onPhotoSelect(): void {
     // File input click is triggered by the component
-    console.debug('[Onboarding] Photo select triggered');
+    this.logger.debug('Photo select triggered');
   }
 
   /**
    * Handle file selected from file picker
    */
   async onFileSelected(file: File): Promise<void> {
-    console.debug('[Onboarding] File selected:', file.name, file.size);
+    this.logger.debug('File selected', { name: file.name, size: file.size });
 
     const user = this.authFlow.user();
     if (!user) {
@@ -776,7 +893,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
       this.toast.success('Photo uploaded successfully!');
     } catch (err) {
-      console.error('[Onboarding] Failed to upload photo:', err);
+      this.logger.error('Failed to upload photo', err);
       this.toast.error('Failed to upload photo. Please try again.');
     } finally {
       this.isLoading.set(false);
@@ -801,13 +918,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       newSet.add(step.id);
       return newSet;
     });
-
-    // Handle role step specially - reconfigure steps and navigate
-    // configureStepsForRole() handles the navigation internally
-    if (step.id === 'role') {
-      this.configureStepsForRole();
-      return; // Already navigated to step 2 in configureStepsForRole
-    }
 
     // Set animation direction for forward navigation
     this.animationDirection.set('forward');
@@ -876,62 +986,33 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    * Signs out and redirects to auth page for testing
    */
   async onSignOut(): Promise<void> {
+    // Blur to prevent aria-hidden focus warning during navigation
+    if (typeof document !== 'undefined') {
+      (document.activeElement as HTMLElement)?.blur?.();
+    }
+
     try {
       await this.authFlow.signOut();
       void this.router.navigate([AUTH_ROUTES.ROOT]);
     } catch (err) {
-      console.error('[Onboarding] Sign out failed:', err);
+      this.logger.error('Sign out failed', err);
       this.toast.error('Failed to sign out');
     }
+  }
+
+  /**
+   * Handle celebration animation completion
+   * Shows success toast and navigates to home
+   */
+  async onCelebrationComplete(): Promise<void> {
+    this.showCelebration.set(false);
+    this.toast.success('Profile setup complete! Welcome to NXT1.');
+    await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
   }
 
   // ============================================
   // PRIVATE METHODS
   // ============================================
-
-  /**
-   * Configure steps based on selected role
-   *
-   * IMPORTANT: Role selection step is configured at the END (order: 999) as optional.
-   * This ensures a unified wizard experience: Profile → Sport → ... → Role (optional).
-   */
-  private configureStepsForRole(): void {
-    const role = this.selectedRole();
-    if (!role) {
-      console.error('[Onboarding] configureStepsForRole called without selected role');
-      return;
-    }
-
-    // Get role-specific steps from @nxt1/core
-    const roleSteps = ONBOARDING_STEPS[role] ?? ONBOARDING_STEPS.athlete;
-
-    // Filter out role step from roleSteps since we add ROLE_SELECTION_STEP at the beginning
-    // This prevents duplicate role steps in the array
-    const stepsWithoutRole = roleSteps.filter((step) => step.id !== 'role');
-
-    // Role selection is now at the beginning, other steps follow
-    const allSteps = [ROLE_SELECTION_STEP, ...stepsWithoutRole];
-    this._steps.set(allSteps);
-
-    // Set animation direction for forward navigation
-    this.animationDirection.set('forward');
-
-    // Move to first configured step (profile/team based on role)
-    this._currentStepIndex.set(1);
-
-    // Track role selection analytics
-    this.trackRoleSelected(role);
-
-    // Track new step view (profile step)
-    this.trackStepViewed();
-
-    // Save session after role configuration
-    void this.saveSession();
-
-    console.info(
-      `[Onboarding] Configured ${allSteps.length} total steps (including role) for: ${role}`
-    );
-  }
 
   /**
    * Complete onboarding and redirect
@@ -952,8 +1033,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     try {
       // Save complete profile to backend
       const formData = this._formData() as OnboardingFormData;
-      console.info('[Onboarding] Completing onboarding for user:', user.uid);
-      console.debug('[Onboarding] Form data:', formData);
+      this.logger.info('Completing onboarding for user', { userId: user.uid });
+      this.logger.debug('Form data', { formData });
 
       // First, save all onboarding data to backend
       try {
@@ -990,9 +1071,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         };
 
         await this.authApi.saveOnboardingProfile(user.uid, profileData);
-        console.info('[Onboarding] Profile data saved successfully');
+        this.logger.info('Profile data saved successfully');
       } catch (saveError) {
-        console.warn('[Onboarding] Failed to save profile data, continuing:', saveError);
+        this.logger.warn('Failed to save profile data, continuing', { error: saveError });
         // Don't fail the entire onboarding if profile save fails
       }
 
@@ -1015,9 +1096,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
             otherSpecify: formData.referralSource.otherSpecify,
           });
 
-          console.info('[Onboarding] Referral source saved successfully');
+          this.logger.info('Referral source saved successfully');
         } catch (referralError) {
-          console.warn('[Onboarding] Failed to save referral source, continuing:', referralError);
+          this.logger.warn('Failed to save referral source, continuing', { error: referralError });
           // Don't fail the entire onboarding if referral save fails
         }
       }
@@ -1037,18 +1118,20 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       // Track completion
       this.trackCompleted();
 
-      // Show success toast
-      this.toast.success('Profile setup complete! Welcome to NXT1.');
+      // Blur any focused element to prevent aria-hidden focus warning
+      if (typeof document !== 'undefined') {
+        (document.activeElement as HTMLElement)?.blur?.();
+      }
 
-      // Navigate to home
-      await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
+      // Show celebration overlay (navigation happens in onCelebrationComplete)
+      this.showCelebration.set(true);
     } catch (err) {
-      console.error('[Onboarding] Failed to complete:', err);
+      this.logger.error('Failed to complete', err);
 
       // Use shared error handler for consistent messaging
       const handledError = this.errorHandler.handle(err);
       this.error.set(handledError.message);
-      this._state.set('role_selection');
+      this._state.set('profile');
 
       // Show error toast
       this.toast.error(handledError.message);
@@ -1172,13 +1255,13 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       );
 
       await this.sessionApi.saveSession(session);
-      console.debug('[Onboarding] Session saved:', {
+      this.logger.debug('Session saved', {
         step: this.currentStep().id,
         index: session.stepIndex,
       });
     } catch (err) {
       // Non-critical - log but don't interrupt flow
-      console.warn('[Onboarding] Failed to save session:', err);
+      this.logger.warn('Failed to save session', { error: err });
     }
   }
 
@@ -1199,12 +1282,12 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
       // No valid session found
       if (!session) {
-        console.debug('[Onboarding] No valid session found, starting fresh');
+        this.logger.debug('No valid session found, starting fresh');
         return false;
       }
 
       // Restore state from session
-      console.info('[Onboarding] Restoring session:', {
+      this.logger.info('Restoring session', {
         index: session.stepIndex,
         role: session.selectedRole,
         completedSteps: session.completedSteps,
@@ -1214,10 +1297,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       if (session.selectedRole) {
         this.selectedRole.set(session.selectedRole);
 
-        // Reconfigure steps for the role
+        // Reconfigure steps for the role (role is at the end in ONBOARDING_STEPS)
         const roleSteps = ONBOARDING_STEPS[session.selectedRole] ?? ONBOARDING_STEPS.athlete;
-        const allSteps = [ROLE_SELECTION_STEP, ...roleSteps];
-        this._steps.set(allSteps);
+        this._steps.set(roleSteps);
       }
 
       // Restore completed steps
@@ -1237,7 +1319,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
       // Set initial state based on restored step
       const restoredStep = this._steps()[restoredIndex];
-      this._state.set((restoredStep?.id ?? 'role') as OnboardingState);
+      this._state.set((restoredStep?.id ?? 'profile') as OnboardingState);
 
       // No animation on restore
       this.animationDirection.set('none');
@@ -1247,7 +1329,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
       return true;
     } catch (err) {
-      console.warn('[Onboarding] Failed to restore session:', err);
+      this.logger.warn('Failed to restore session', { error: err });
       return false;
     }
   }
@@ -1261,10 +1343,10 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
     try {
       await this.sessionApi.deleteSession(STORAGE_KEYS.ONBOARDING_SESSION);
-      console.debug('[Onboarding] Session cleared');
+      this.logger.debug('Session cleared');
     } catch (err) {
       // Non-critical - log but don't interrupt flow
-      console.warn('[Onboarding] Failed to clear session:', err);
+      this.logger.warn('Failed to clear session', { error: err });
     }
   }
 }

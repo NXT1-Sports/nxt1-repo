@@ -18,6 +18,10 @@ export const USER_ROLES = {
   ATHLETE: 'athlete',
   COACH: 'coach',
   COLLEGE_COACH: 'college-coach',
+  DIRECTOR: 'director',
+  RECRUITING_SERVICE: 'recruiting-service',
+  SCOUT: 'scout',
+  MEDIA: 'media',
   PARENT: 'parent',
   FAN: 'fan',
 } as const;
@@ -29,6 +33,10 @@ export interface RoleConfig {
   label: string;
   description: string;
   icon: string;
+  /** Whether this role can manage athlete profiles */
+  canManageAthletes?: boolean;
+  /** Whether this role has recruiting capabilities */
+  canRecruit?: boolean;
 }
 
 export const ROLE_CONFIGS: readonly RoleConfig[] = [
@@ -38,20 +46,61 @@ export const ROLE_CONFIGS: readonly RoleConfig[] = [
     description: 'Student athlete looking to get recruited',
     icon: '🏃',
   },
-  { id: 'coach', label: 'Coach', description: 'High school or club coach', icon: '🏆' },
+  {
+    id: 'coach',
+    label: 'Coach',
+    description: 'High school or club coach',
+    icon: '🏆',
+    canManageAthletes: true,
+  },
   {
     id: 'college-coach',
     label: 'College Coach',
     description: 'College coach recruiting athletes',
     icon: '🎓',
+    canRecruit: true,
+  },
+  {
+    id: 'director',
+    label: 'Athletic Director',
+    description: 'Athletic director or program administrator',
+    icon: '📋',
+    canManageAthletes: true,
+  },
+  {
+    id: 'scout',
+    label: 'Scout',
+    description: 'Professional scout evaluating athletes',
+    icon: '🔍',
+    canRecruit: true,
+  },
+  {
+    id: 'recruiting-service',
+    label: 'Recruiting Service',
+    description: 'Professional recruiting service helping athletes get recruited',
+    icon: '🎯',
+    canRecruit: true,
+    canManageAthletes: true,
+  },
+  {
+    id: 'media',
+    label: 'Media',
+    description: 'Journalist, photographer, or content creator',
+    icon: '📰',
   },
   {
     id: 'parent',
     label: 'Parent/Guardian',
     description: 'Parent managing athlete profile',
     icon: '👨‍👩‍👧',
+    canManageAthletes: true,
   },
-  { id: 'fan', label: 'Fan', description: 'Following athletes and teams', icon: '📣' },
+  {
+    id: 'fan',
+    label: 'Fan',
+    description: 'Following athletes and teams',
+    icon: '📣',
+  },
 ] as const;
 
 // ============================================
@@ -88,6 +137,37 @@ export const ACCOUNT_STATUSES = {
 } as const;
 
 export type AccountStatus = (typeof ACCOUNT_STATUSES)[keyof typeof ACCOUNT_STATUSES];
+
+// ============================================
+// GENDER (inclusive per 2026 UX standards)
+// ============================================
+
+/**
+ * Gender values for user profiles.
+ * Inclusive options following 2026 best practices.
+ */
+export const GENDERS = {
+  MALE: 'male',
+  FEMALE: 'female',
+  NON_BINARY: 'non-binary',
+  PREFER_NOT_TO_SAY: 'prefer-not-to-say',
+} as const;
+
+export type Gender = (typeof GENDERS)[keyof typeof GENDERS];
+
+/** Gender display configuration */
+export interface GenderConfig {
+  id: Gender;
+  label: string;
+}
+
+/** Gender options for UI display (ordered by convention) */
+export const GENDER_CONFIGS: readonly GenderConfig[] = Object.freeze([
+  { id: 'male', label: 'Male' },
+  { id: 'female', label: 'Female' },
+  { id: 'non-binary', label: 'Non-binary' },
+  { id: 'prefer-not-to-say', label: 'Prefer not to say' },
+]);
 
 // ============================================
 // TEAM TYPES

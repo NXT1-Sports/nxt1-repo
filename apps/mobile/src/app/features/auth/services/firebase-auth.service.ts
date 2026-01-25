@@ -20,9 +20,22 @@
  * │      (Capacitor plugins)        (Web SDK fallback)         │
  * └────────────────────────────────────────────────────────────┘
  *
+ * IMPORTANT: All Firebase API calls must run within Angular's injection context
+ * to prevent "Firebase APIs outside of an Injection context" errors.
+ * This is achieved by using runInInjectionContext() for async operations
+ * that are called from outside the constructor.
+ *
  * @module @nxt1/mobile/features/auth
  */
-import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
+import {
+  Injectable,
+  inject,
+  signal,
+  computed,
+  OnDestroy,
+  Injector,
+  runInInjectionContext,
+} from '@angular/core';
 import {
   Auth,
   User as FirebaseUser,
@@ -61,6 +74,7 @@ export class FirebaseAuthService implements OnDestroy {
   private readonly auth = inject(Auth);
   private readonly platform = inject(NxtPlatformService);
   private readonly nativeAuth = inject(NativeAuthService);
+  private readonly injector = inject(Injector);
 
   private authStateSubscription?: Subscription;
 
@@ -128,121 +142,69 @@ export class FirebaseAuthService implements OnDestroy {
 
   /**
    * Sign in with email and password
-   * Ensures Firebase is fully initialized before attempting authentication
+   *
+   * Uses runInInjectionContext to ensure Firebase APIs
+   * are called within Angular's injection context.
    */
   async signInWithEmail(email: string, password: string): Promise<UserCredential> {
-    console.log('[FirebaseAuthService] Signing in with email:', email);
-
-    try {
-      // Wait for auth to be fully initialized
-      console.log('[FirebaseAuthService] Waiting for Firebase Auth initialization...');
-
-      // Check if Firebase can access current user (indicates initialization)
-      let retries = 0;
-      while (retries < 5) {
-        try {
-          // this.auth.currentUser;
-          console.log('[FirebaseAuthService] Firebase Auth ready');
-          break;
-        } catch (e) {
-          retries++;
-          if (retries >= 5) throw e;
-          await new Promise((r) => setTimeout(r, 500));
-        }
-      }
-
-      console.log('[FirebaseAuthService] Calling Firebase signInWithEmailAndPassword...');
-      const signInResult = await this.withTimeout(
-        signInWithEmailAndPassword(this.auth, email, password),
-        20000,
-        'Firebase sign in'
-      );
-      console.log('[FirebaseAuthService] Firebase sign in completed, uid:', signInResult.user.uid);
-      return signInResult;
-    } catch (err) {
-      console.error('[FirebaseAuthService] Firebase sign in failed:', err);
-      throw err;
-    }
+    return runInInjectionContext(this.injector, () =>
+      signInWithEmailAndPassword(this.auth, email, password)
+    );
   }
 
   /**
    * Create user with email and password
-   * Ensures Firebase is fully initialized before attempting user creation
+   *
+   * Uses runInInjectionContext to ensure Firebase APIs
+   * are called within Angular's injection context.
    */
   async createUserWithEmail(email: string, password: string): Promise<UserCredential> {
-    console.log('[FirebaseAuthService] Creating user with email:', email);
+    console.log('[FirebaseAuthService] createUserWithEmail called', { email });
+    console.log('[FirebaseAuthService] Auth instance:', this.auth ? 'exists' : 'null');
+    console.log('[FirebaseAuthService] Auth app name:', this.auth?.app?.name);
+
     try {
-      // Wait for auth to be fully initialized
-      console.log('[FirebaseAuthService] Waiting for Firebase Auth initialization...');
-
-      // Check if Firebase can access current user (indicates initialization)
-      let retries = 0;
-      while (retries < 5) {
-        try {
-          // this.auth.currentUser;
-          console.log('[FirebaseAuthService] Firebase Auth ready');
-          break;
-        } catch (e) {
-          retries++;
-          if (retries >= 5) throw e;
-          await new Promise((r) => setTimeout(r, 500));
-        }
-      }
-
-      const createResult = await this.withTimeout(
-        createUserWithEmailAndPassword(this.auth, email, password),
-        15000,
-        'Firebase user creation'
-      );
-      console.log(
-        '[FirebaseAuthService] Firebase user creation completed, uid:',
-        createResult.user.uid
-      );
-      return createResult;
-    } catch (err) {
-      console.error('[FirebaseAuthService] User creation failed:', err);
-      throw err;
+      const result = await runInInjectionContext(this.injector, () => {
+        console.log(
+          '[FirebaseAuthService] Inside runInInjectionContext, calling createUserWithEmailAndPassword...'
+        );
+        return createUserWithEmailAndPassword(this.auth, email, password);
+      });
+      console.log('[FirebaseAuthService] createUserWithEmail succeeded', { uid: result.user.uid });
+      return result;
+    } catch (error) {
+      console.error('[FirebaseAuthService] createUserWithEmail failed:', error);
+      throw error;
     }
   }
 
   /**
-   * Helper to add timeout to Promise
-   */
-  private withTimeout<T>(
-    promise: Promise<T>,
-    timeoutMs: number,
-    operationName: string
-  ): Promise<T> {
-    return Promise.race([
-      promise,
-      new Promise<T>((_, reject) =>
-        setTimeout(() => {
-          console.error(`[FirebaseAuthService] ${operationName} timed out after ${timeoutMs}ms`);
-          reject(new Error(`${operationName} timeout - Firebase is not responding`));
-        }, timeoutMs)
-      ),
-    ]);
-  }
-
-  /**
    * Update user profile
+   *
+   * Uses runInInjectionContext to ensure Firebase APIs
+   * are called within Angular's injection context.
    */
   async updateUserProfile(displayName?: string, photoURL?: string): Promise<void> {
-    const user = this.auth.currentUser;
-    if (!user) throw new Error('No user signed in');
+    return runInInjectionContext(this.injector, async () => {
+      const user = this.auth.currentUser;
+      if (!user) throw new Error('No user signed in');
 
-    const updates: { displayName?: string; photoURL?: string } = {};
-    if (displayName !== undefined) updates.displayName = displayName;
-    if (photoURL !== undefined) updates.photoURL = photoURL;
+      const updates: { displayName?: string; photoURL?: string } = {};
+      if (displayName !== undefined) updates.displayName = displayName;
+      if (photoURL !== undefined) updates.photoURL = photoURL;
 
-    await updateProfile(user, updates);
+      await updateProfile(user, updates);
+    });
   }
 
   /**
    * Send password reset email
+   *
+   * Uses runInInjectionContext to ensure Firebase APIs
+   * are called within Angular's injection context.
    */
   async sendPasswordReset(email: string): Promise<void> {
-    return sendPasswordResetEmail(this.auth, email);
+    return runInInjectionContext(this.injector, () => sendPasswordResetEmail(this.auth, email));
   }
 
   // ============================================
@@ -261,6 +223,9 @@ export class FirebaseAuthService implements OnDestroy {
    *
    * - Native (iOS/Android): Uses Google Sign-In SDK via Capacitor
    * - Web fallback: Uses Firebase signInWithPopup
+   *
+   * Uses runInInjectionContext to ensure Firebase APIs
+   * are called within Angular's injection context.
    *
    * @returns UserCredential from Firebase Auth
    * @throws Error on failure (cancellation returns null internally, but this throws)
@@ -282,10 +247,12 @@ export class FirebaseAuthService implements OnDestroy {
 
     // Web fallback (development/PWA)
     console.debug('[FirebaseAuthService] Using web Google Sign-In (fallback)');
-    const provider = new GoogleAuthProvider();
-    provider.addScope('profile');
-    provider.addScope('email');
-    return signInWithPopup(this.auth, provider);
+    return runInInjectionContext(this.injector, () => {
+      const provider = new GoogleAuthProvider();
+      provider.addScope('profile');
+      provider.addScope('email');
+      return signInWithPopup(this.auth, provider);
+    });
   }
 
   /**
@@ -295,6 +262,8 @@ export class FirebaseAuthService implements OnDestroy {
    * - Web fallback: Uses Firebase signInWithPopup
    *
    * Note: Apple Sign-In is required on iOS if you offer any social login.
+   * Uses runInInjectionContext to ensure Firebase APIs
+   * are called within Angular's injection context.
    *
    * @returns UserCredential from Firebase Auth
    * @throws Error on failure
@@ -316,10 +285,12 @@ export class FirebaseAuthService implements OnDestroy {
 
     // Web fallback (development/PWA)
     console.debug('[FirebaseAuthService] Using web Apple Sign-In (fallback)');
-    const provider = new OAuthProvider('apple.com');
-    provider.addScope('email');
-    provider.addScope('name');
-    return signInWithPopup(this.auth, provider);
+    return runInInjectionContext(this.injector, () => {
+      const provider = new OAuthProvider('apple.com');
+      provider.addScope('email');
+      provider.addScope('name');
+      return signInWithPopup(this.auth, provider);
+    });
   }
 
   /**
@@ -327,6 +298,9 @@ export class FirebaseAuthService implements OnDestroy {
    *
    * - Native (iOS/Android): Uses OAuth flow via Capacitor
    * - Web fallback: Uses Firebase signInWithPopup
+   *
+   * Uses runInInjectionContext to ensure Firebase APIs
+   * are called within Angular's injection context.
    *
    * @returns UserCredential from Firebase Auth
    * @throws Error on failure
@@ -349,11 +323,13 @@ export class FirebaseAuthService implements OnDestroy {
     // Use Firebase popup flow (works on both web and mobile)
     // On mobile, Firebase automatically opens in-app browser for OAuth
     console.debug('[FirebaseAuthService] Using Firebase popup for Microsoft Sign-In');
-    const provider = new OAuthProvider('microsoft.com');
-    provider.addScope('user.read');
-    provider.addScope('email');
-    provider.addScope('profile');
-    return signInWithPopup(this.auth, provider);
+    return runInInjectionContext(this.injector, () => {
+      const provider = new OAuthProvider('microsoft.com');
+      provider.addScope('user.read');
+      provider.addScope('email');
+      provider.addScope('profile');
+      return signInWithPopup(this.auth, provider);
+    });
   }
 
   /**
@@ -362,6 +338,9 @@ export class FirebaseAuthService implements OnDestroy {
    * This bridges the Capacitor native plugins with Firebase Auth.
    * The native plugins return OAuth tokens, which we use to create
    * Firebase credentials.
+   *
+   * Uses runInInjectionContext to ensure Firebase APIs
+   * are called within Angular's injection context.
    */
   private async signInWithNativeCredential(
     nativeResult: NativeAuthResult
@@ -370,37 +349,43 @@ export class FirebaseAuthService implements OnDestroy {
       '[FirebaseAuthService] Converting native credential to Firebase:',
       nativeResult.provider
     );
-    let credential: OAuthCredential;
 
-    switch (nativeResult.provider) {
-      case 'google':
-        credential = GoogleAuthProvider.credential(nativeResult.idToken, nativeResult.accessToken);
-        break;
+    return runInInjectionContext(this.injector, () => {
+      let credential: OAuthCredential;
 
-      case 'apple': {
-        const appleProvider = new OAuthProvider('apple.com');
-        credential = appleProvider.credential({
-          idToken: nativeResult.idToken,
-          rawNonce: nativeResult.rawNonce,
-        });
-        break;
+      switch (nativeResult.provider) {
+        case 'google':
+          credential = GoogleAuthProvider.credential(
+            nativeResult.idToken,
+            nativeResult.accessToken
+          );
+          break;
+
+        case 'apple': {
+          const appleProvider = new OAuthProvider('apple.com');
+          credential = appleProvider.credential({
+            idToken: nativeResult.idToken,
+            rawNonce: nativeResult.rawNonce,
+          });
+          break;
+        }
+
+        case 'microsoft': {
+          const msProvider = new OAuthProvider('microsoft.com');
+          credential = msProvider.credential({
+            idToken: nativeResult.idToken,
+            accessToken: nativeResult.accessToken,
+          });
+          break;
+        }
+
+        default:
+          throw new Error(`Unsupported provider: ${nativeResult.provider}`);
       }
 
-      case 'microsoft': {
-        const msProvider = new OAuthProvider('microsoft.com');
-        credential = msProvider.credential({
-          idToken: nativeResult.idToken,
-          accessToken: nativeResult.accessToken,
-        });
-        break;
-      }
-
-      default:
-        throw new Error(`Unsupported provider: ${nativeResult.provider}`);
-    }
-
-    // Sign in to Firebase with the OAuth credential
-    return signInWithCredential(this.auth, credential);
+      // Sign in to Firebase with the OAuth credential
+      return signInWithCredential(this.auth, credential);
+    });
   }
 
   // ============================================
@@ -410,13 +395,16 @@ export class FirebaseAuthService implements OnDestroy {
   /**
    * Sign out current user
    * Clears both Firebase and native auth state
+   *
+   * Uses runInInjectionContext to ensure Firebase APIs
+   * are called within Angular's injection context.
    */
   async signOut(): Promise<void> {
     // Sign out from native providers (clears cached credentials)
     await this.nativeAuth.signOut();
 
     // Sign out from Firebase
-    return firebaseSignOut(this.auth);
+    return runInInjectionContext(this.injector, () => firebaseSignOut(this.auth));
   }
 
   // ============================================
@@ -425,11 +413,16 @@ export class FirebaseAuthService implements OnDestroy {
 
   /**
    * Get current ID token
+   *
+   * Uses runInInjectionContext to ensure Firebase APIs
+   * are called within Angular's injection context.
    */
   async getIdToken(forceRefresh = false): Promise<string | null> {
-    const user = this.auth.currentUser;
-    if (!user) return null;
-    return user.getIdToken(forceRefresh);
+    return runInInjectionContext(this.injector, async () => {
+      const user = this.auth.currentUser;
+      if (!user) return null;
+      return user.getIdToken(forceRefresh);
+    });
   }
 
   /**

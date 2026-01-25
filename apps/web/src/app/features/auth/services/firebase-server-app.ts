@@ -21,6 +21,20 @@
 import { FirebaseServerApp, initializeServerApp, FirebaseOptions } from 'firebase/app';
 import { Auth, getAuth } from 'firebase/auth';
 import { Firestore, getFirestore } from 'firebase/firestore';
+import { createLogger, consoleTransport, type ILogger } from '@nxt1/core/logging';
+
+/** Simple logger for server-side operations (no Angular DI available) */
+const logger: ILogger = createLogger(
+  {
+    environment: 'production',
+    minLevel: 'warn',
+    enabled: true,
+    platform: 'server',
+    appVersion: '1.0.0',
+    transports: [consoleTransport()],
+  },
+  'FirebaseServerApp'
+);
 
 /**
  * Configuration for FirebaseServerApp
@@ -96,7 +110,7 @@ export async function initializeFirebaseServer(
       await auth.authStateReady();
       isAuthenticated = auth.currentUser !== null;
     } catch (error) {
-      console.warn('[FirebaseServerApp] Auth state initialization failed:', error);
+      logger.warn('Auth state initialization failed', { error });
       isAuthenticated = false;
     }
   }

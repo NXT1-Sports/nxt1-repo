@@ -1065,3 +1065,173 @@ END DISABLED SECTION */
   clip: auto;
   white-space: normal;
 }
+
+/* ============================================
+   19. SELECTION GRID & CHIPS
+   Reusable grid layout for multi-select UI patterns
+   Used in: onboarding sports, position selection, interests, etc.
+   ============================================ */
+
+/**
+ * Selection Grid Container
+ * Responsive grid that auto-fills with minimum item width
+ * 
+ * Usage:
+ *   <div class="nxt1-selection-grid">
+ *     <button class="nxt1-selection-chip">Item</button>
+ *   </div>
+ */
+.nxt1-selection-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--nxt1-spacing-3, 12px);
+  width: 100%;
+}
+
+/* Compact variant - smaller items */
+.nxt1-selection-grid--compact {
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: var(--nxt1-spacing-2, 8px);
+}
+
+/* Large variant - bigger items */
+.nxt1-selection-grid--lg {
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--nxt1-spacing-4, 16px);
+}
+
+/* 2-column fixed layout */
+.nxt1-selection-grid--2col {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+/* 3-column fixed layout */
+.nxt1-selection-grid--3col {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* Responsive breakpoints */
+@media (max-width: 400px) {
+  .nxt1-selection-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .nxt1-selection-grid--3col {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/**
+ * Selection Chip - Base button style
+ * Theme-aware colors for light/dark mode
+ * 
+ * States:
+ *   - Default: surface secondary background
+ *   - Hover: elevated surface, lift effect
+ *   - Selected: primary border, alpha background
+ *   - Disabled: reduced opacity
+ */
+.nxt1-selection-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-2, 8px);
+  padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-3, 12px);
+  min-height: 90px;
+  font-family: var(--nxt1-fontFamily-brand);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: 500;
+  /* Theme-aware text */
+  color: var(--nxt1-color-text-primary);
+  /* Theme-aware surface */
+  background: var(--nxt1-color-surface-secondary);
+  /* Theme-aware border */
+  border: 1px solid var(--nxt1-color-border);
+  border-radius: var(--nxt1-borderRadius-lg, 12px);
+  cursor: pointer;
+  transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Hover State */
+.nxt1-selection-chip:hover:not(:disabled) {
+  background: var(--nxt1-color-surface-elevated);
+  border-color: var(--nxt1-color-border-strong);
+  transform: translateY(-2px);
+  box-shadow: var(--nxt1-shadow-md, 0 4px 12px rgba(0, 0, 0, 0.15));
+}
+
+/* Focus State */
+.nxt1-selection-chip:focus-visible {
+  outline: 2px solid var(--nxt1-color-primary, #ccff00);
+  outline-offset: 2px;
+}
+
+/* Disabled State */
+.nxt1-selection-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Selected State */
+.nxt1-selection-chip--selected,
+.nxt1-selection-chip[aria-pressed='true'] {
+  color: var(--nxt1-color-text-primary);
+  background: var(--nxt1-color-alpha-primary20);
+  border-color: var(--nxt1-color-primary, #ccff00);
+  border-width: 2px;
+}
+
+/* Selected + Hover */
+.nxt1-selection-chip--selected:hover:not(:disabled),
+.nxt1-selection-chip[aria-pressed='true']:hover:not(:disabled) {
+  background: var(--nxt1-color-alpha-primary20);
+  border-color: var(--nxt1-color-primary, #ccff00);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px var(--nxt1-color-alpha-primary20);
+}
+
+/* Compact chip variant */
+.nxt1-selection-chip--compact {
+  min-height: 64px;
+  padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-2, 8px);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+}
+
+/* Horizontal chip variant (icon + text side by side) */
+.nxt1-selection-chip--horizontal {
+  flex-direction: row;
+  min-height: 48px;
+  padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+}
+
+/* Chip emoji/icon */
+.nxt1-selection-chip__icon {
+  font-size: var(--nxt1-fontSize-2xl, 1.5rem);
+  line-height: 1;
+}
+
+/* Chip label text */
+.nxt1-selection-chip__label {
+  text-align: center;
+  line-height: 1.2;
+  color: inherit;
+}
+
+/* Primary/Featured badge on chip */
+.nxt1-selection-chip__badge {
+  position: absolute;
+  top: var(--nxt1-spacing-1, 4px);
+  right: var(--nxt1-spacing-1, 4px);
+  padding: 2px 8px;
+  font-size: var(--nxt1-fontSize-2xs, 0.625rem);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--nxt1-color-text-onPrimary);
+  background: var(--nxt1-color-primary, #ccff00);
+  border-radius: var(--nxt1-borderRadius-full, 9999px);
+  box-shadow: var(--nxt1-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.15));
+}

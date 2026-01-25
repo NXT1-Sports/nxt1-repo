@@ -40,26 +40,50 @@ import {
   standalone: true,
   imports: [CommonModule],
   template: `
-    <svg
-      [attr.viewBox]="iconDef.viewBox"
-      [attr.width]="size"
-      [attr.height]="size"
-      [attr.fill]="isStroke ? 'none' : 'currentColor'"
-      [attr.stroke]="isStroke ? 'currentColor' : 'none'"
-      [attr.stroke-width]="isStroke ? iconDef.strokeWidth : null"
-      [attr.stroke-linecap]="isStroke ? 'round' : null"
-      [attr.stroke-linejoin]="isStroke ? 'round' : null"
-      [attr.aria-hidden]="ariaHidden"
-      [attr.aria-label]="ariaLabel"
-      [class]="className"
-      role="img"
-    >
-      @if (iconDef.paths) {
-        @for (path of iconDef.paths; track $index) {
-          <path [attr.d]="path.d" [attr.fill]="path.fill" [attr.stroke]="path.stroke" />
+    @if (iconDef) {
+      <svg
+        [attr.viewBox]="iconDef.viewBox"
+        [attr.width]="size"
+        [attr.height]="size"
+        [attr.fill]="isStroke ? 'none' : 'currentColor'"
+        [attr.stroke]="isStroke ? 'currentColor' : 'none'"
+        [attr.stroke-width]="isStroke ? iconDef.strokeWidth : null"
+        [attr.stroke-linecap]="isStroke ? 'round' : null"
+        [attr.stroke-linejoin]="isStroke ? 'round' : null"
+        [attr.aria-hidden]="ariaHidden"
+        [attr.aria-label]="ariaLabel"
+        [class]="className"
+        role="img"
+      >
+        @if (iconDef.paths) {
+          @for (path of iconDef.paths; track $index) {
+            <path [attr.d]="path.d" [attr.fill]="path.fill" [attr.stroke]="path.stroke" />
+          }
         }
-      }
-    </svg>
+      </svg>
+    } @else {
+      <!-- Fallback for missing icons: empty placeholder -->
+      <svg
+        [attr.viewBox]="'0 0 24 24'"
+        [attr.width]="size"
+        [attr.height]="size"
+        [attr.aria-hidden]="ariaHidden"
+        [class]="className"
+        role="img"
+      >
+        <rect
+          x="4"
+          y="4"
+          width="16"
+          height="16"
+          rx="2"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1"
+          opacity="0.3"
+        />
+      </svg>
+    }
   `,
   styles: [
     `
@@ -95,13 +119,19 @@ export class NxtIconComponent {
   /** Whether to hide from screen readers (default: true for decorative icons) */
   @Input() ariaHidden: boolean = true;
 
-  /** Get icon definition from registry */
-  get iconDef(): IconDefinition {
-    return ICONS[this.name] as IconDefinition;
+  /** Get icon definition from registry (null if not found) */
+  get iconDef(): IconDefinition | null {
+    const icon = ICONS[this.name];
+    if (!icon) {
+      console.warn(`[NxtIconComponent] Icon "${this.name}" not found in registry`);
+      return null;
+    }
+    return icon as IconDefinition;
   }
 
   /** Check if icon should use stroke rendering */
   get isStroke(): boolean {
+    if (!this.iconDef) return false;
     return isStrokeIcon(this.name);
   }
 }

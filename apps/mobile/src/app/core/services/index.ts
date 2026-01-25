@@ -18,11 +18,14 @@ export {
   type AppLifecycleHandler,
 } from './native-app.service';
 
+// Analytics service
+export { AnalyticsService } from './analytics.service';
+
 // Two-tier caching (memory + persistent)
 export { MobileCacheService } from './cache.service';
 
 // Theme management
-export { ThemeService } from './theme.service';
+export { ThemeService, type SportTheme } from './theme.service';
 
 // Share service for native social sharing
 export { ShareService, type ShareResultData, type ShareContentOptions } from './share.service';

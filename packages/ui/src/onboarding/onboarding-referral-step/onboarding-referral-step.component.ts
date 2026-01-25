@@ -82,30 +82,22 @@ export interface ReferralOption {
  */
 export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
   {
-    type: 'club',
-    label: 'Club or Team',
-    description: 'Through my club, team, or organization',
-    icon: 'club',
-    hasInput: true,
-    inputPlaceholder: 'Enter club or team name...',
-  },
-  {
     type: 'social',
     label: 'Social Media',
     description: 'Instagram, TikTok, Twitter, Facebook, etc.',
     icon: 'social',
   },
   {
-    type: 'search',
-    label: 'Search Engine',
-    description: 'Google, Bing, or another search engine',
-    icon: 'search',
-  },
-  {
     type: 'friend',
     label: 'Friend or Teammate',
     description: 'Recommended by someone I know',
     icon: 'friend',
+  },
+  {
+    type: 'search',
+    label: 'Search Engine',
+    description: 'Google, Bing, or another search engine',
+    icon: 'search',
   },
   {
     type: 'advertisement',
@@ -118,6 +110,14 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
     label: 'Team Invite Code',
     description: 'Received an invite code from my team',
     icon: 'team-code',
+  },
+  {
+    type: 'club',
+    label: 'Club or Team',
+    description: 'My club/team uses NXT1',
+    icon: 'club',
+    hasInput: true,
+    inputPlaceholder: 'Enter team name...',
   },
   {
     type: 'other',
@@ -334,7 +334,7 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       .nxt1-referral-form {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-5);
+        gap: var(--nxt1-spacing-5, 20px);
         width: 100%;
       }
 
@@ -344,49 +344,59 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       .nxt1-referral-options {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-3);
+        gap: var(--nxt1-spacing-3, 12px);
       }
 
       /* ============================================
-       REFERRAL CARD
+       REFERRAL CARD - Base State
+       Matches sport chip styling pattern
        ============================================ */
       .nxt1-referral-card {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-3);
-        padding: var(--nxt1-spacing-4);
-        background: var(--nxt1-color-state-hover);
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg);
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-4, 16px);
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         text-align: left;
         width: 100%;
+        -webkit-tap-highlight-color: transparent;
       }
 
-      .nxt1-referral-card:hover:not(:disabled) {
-        border-color: var(--nxt1-color-border-strong);
-        background: var(--nxt1-color-surface-200);
+      /* Hover State - only for non-selected */
+      .nxt1-referral-card:hover:not(:disabled):not(.nxt1-referral-card-selected) {
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        transform: translateY(-2px);
       }
 
+      /* Focus State */
       .nxt1-referral-card:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary);
+        outline: 2px solid var(--nxt1-color-primary, #ccff00);
         outline-offset: 2px;
       }
 
+      /* Disabled State */
       .nxt1-referral-card:disabled {
-        opacity: 0.5;
+        opacity: 0.4;
         cursor: not-allowed;
+        transform: none;
       }
 
+      /* Selected State - Fill with primary like role selection */
       .nxt1-referral-card-selected {
-        border-color: var(--nxt1-color-primary);
-        background: var(--nxt1-color-primary-subtle, rgba(255, 107, 0, 0.08));
+        border-color: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-primary, #ccff00);
       }
 
+      /* Selected + Hover State - No transform */
       .nxt1-referral-card-selected:hover:not(:disabled) {
-        border-color: var(--nxt1-color-primary);
-        background: var(--nxt1-color-primary-subtle, rgba(255, 107, 0, 0.12));
+        border-color: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-primary, #ccff00);
+        transform: none;
       }
 
       /* ============================================
@@ -395,7 +405,7 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       .nxt1-card-content {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-3);
+        gap: var(--nxt1-spacing-3, 12px);
       }
 
       /* ============================================
@@ -405,16 +415,16 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
         flex-shrink: 0;
         width: 20px;
         height: 20px;
-        border: 2px solid var(--nxt1-color-border-default);
+        border: 2px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: all 0.2s ease;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
       }
 
       .nxt1-referral-card-selected .nxt1-card-radio {
-        border-color: var(--nxt1-color-primary);
+        border-color: var(--nxt1-color-text-onPrimary, #0a0a0a);
       }
 
       .nxt1-radio-inner {
@@ -422,11 +432,11 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
         height: 10px;
         border-radius: 50%;
         background: transparent;
-        transition: background 0.2s ease;
+        transition: background var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
       }
 
       .nxt1-referral-card-selected .nxt1-radio-inner {
-        background: var(--nxt1-color-primary);
+        background: var(--nxt1-color-text-onPrimary, #0a0a0a);
       }
 
       /* ============================================
@@ -439,15 +449,15 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--nxt1-color-surface-300);
-        border-radius: var(--nxt1-borderRadius-md);
-        color: var(--nxt1-color-text-secondary);
-        transition: all 0.2s ease;
+        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.12));
+        border-radius: var(--nxt1-borderRadius-md, 8px);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
       }
 
       .nxt1-referral-card-selected .nxt1-card-icon {
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-on-primary, white);
+        background: rgba(0, 0, 0, 0.15);
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
       }
 
       .nxt1-card-icon svg {
@@ -468,17 +478,28 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
 
       .nxt1-card-label {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-primary);
+        color: var(--nxt1-color-text-primary, #ffffff);
         line-height: 1.3;
+        transition: color var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
+      }
+
+      .nxt1-referral-card-selected .nxt1-card-label {
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
       }
 
       .nxt1-card-description {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-tertiary);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         line-height: 1.3;
+        transition: color var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
+      }
+
+      .nxt1-referral-card-selected .nxt1-card-description {
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        opacity: 0.8;
       }
 
       /* ============================================
@@ -490,33 +511,43 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       }
 
       .nxt1-card-input .nxt1-input {
-        --background: var(--nxt1-color-state-hover);
-        --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg);
+        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
-        --color: var(--nxt1-color-text-primary);
-        --placeholder-color: var(--nxt1-color-text-tertiary);
+        --color: var(--nxt1-color-text-primary, #ffffff);
+        --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         --placeholder-opacity: 1;
         --padding-start: 16px;
         --padding-end: 16px;
         --padding-top: 14px;
         --padding-bottom: 14px;
-        --highlight-color-focused: var(--nxt1-color-border-strong);
-        --highlight-color-valid: var(--nxt1-color-border-strong);
+        --highlight-color-focused: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        --highlight-color-valid: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         min-height: 52px;
       }
 
+      /* Input inside selected card - needs dark text on light background */
+      .nxt1-referral-card-selected .nxt1-card-input .nxt1-input {
+        --background: rgba(255, 255, 255, 0.95);
+        --border-color: rgba(0, 0, 0, 0.15);
+        --color: #0a0a0a;
+        --placeholder-color: rgba(0, 0, 0, 0.5);
+        --highlight-color-focused: rgba(0, 0, 0, 0.3);
+        --highlight-color-valid: rgba(0, 0, 0, 0.3);
+      }
+
       .nxt1-card-input .nxt1-input:hover:not(:disabled) {
-        --border-color: var(--nxt1-color-border-strong);
+        --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 
       /* ============================================
        VALIDATION CONTAINER
        ============================================ */
       .nxt1-validation-container {
-        margin-top: var(--nxt1-spacing-1);
+        margin-top: var(--nxt1-spacing-1, 4px);
       }
     `,
   ],
@@ -602,36 +633,33 @@ export class OnboardingReferralStepComponent {
 
   constructor() {
     // Sync input data to local signals
-    effect(
-      () => {
-        const data = this.referralData();
-        const teamCodeUsed = this.teamCodeUsed();
+    effect(() => {
+      const data = this.referralData();
+      const teamCodeUsed = this.teamCodeUsed();
 
-        if (data?.source) {
-          this.selectedSource.set(data.source as ReferralSourceType);
+      if (data?.source) {
+        this.selectedSource.set(data.source as ReferralSourceType);
 
-          if (data.clubName) {
-            this.clubName.set(data.clubName);
-          }
-
-          if (data.otherSpecify) {
-            this.otherSpecify.set(data.otherSpecify);
-          }
-        } else if (teamCodeUsed && !this.selectedSource()) {
-          // Auto-select team-code if user came via team code
-          this.selectedSource.set('team-code');
-          this.emitChange();
+        if (data.clubName) {
+          this.clubName.set(data.clubName);
         }
 
-        this.logger.debug('Referral data synced from input', {
-          source: this.selectedSource(),
-          hasClubName: !!this.clubName(),
-          hasOtherSpecify: !!this.otherSpecify(),
-          teamCodeUsed,
-        });
-      },
-      { allowSignalWrites: true }
-    );
+        if (data.otherSpecify) {
+          this.otherSpecify.set(data.otherSpecify);
+        }
+      } else if (teamCodeUsed && !this.selectedSource()) {
+        // Auto-select team-code if user came via team code
+        this.selectedSource.set('team-code');
+        this.emitChange();
+      }
+
+      this.logger.debug('Referral data synced from input', {
+        source: this.selectedSource(),
+        hasClubName: !!this.clubName(),
+        hasOtherSpecify: !!this.otherSpecify(),
+        teamCodeUsed,
+      });
+    });
   }
 
   // ============================================

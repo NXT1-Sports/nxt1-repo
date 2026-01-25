@@ -74,6 +74,10 @@ export {
   type OnboardingStep,
   type TeamCodePrefillData,
   type ProfileFormData,
+  type ProfileLocationData,
+  type GenderOption,
+  GENDER_OPTIONS,
+  toUserLocation,
   type OnboardingTeamType,
   // Sport-centric types (v3.0)
   type SportTeamInfo,

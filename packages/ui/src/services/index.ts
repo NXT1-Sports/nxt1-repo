@@ -38,3 +38,5 @@ export {
 } from './haptics';
 
 export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './logging';
+
+export { AuthNavigationService, type NavAnimation, type NavOptions } from './auth-navigation';

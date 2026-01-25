@@ -424,13 +424,14 @@ export class AuthPage implements OnInit {
    * Submit email/password credentials
    */
   async onEmailSubmit(data: AuthEmailFormData): Promise<void> {
+    console.log('[AuthPage] onEmailSubmit called', { mode: this.mode(), email: data.email });
     this.authFlow.clearError();
     try {
       await this.haptics.impact('medium');
       console.log('[AuthPage] Email submit - mode:', this.mode(), 'email:', data.email);
 
       if (this.mode() === 'login') {
-        console.log('[AuthPage] Attempting email/password sign in...');
+        console.log('[AuthPage] Starting login...');
         const success = await this.authFlow.signInWithEmail({
           email: data.email,
           password: data.password,
@@ -445,13 +446,14 @@ export class AuthPage implements OnInit {
       } else {
         console.log('[AuthPage] Attempting email/password sign up...');
         // Pass team code if validated
+        console.log('[AuthPage] Starting signup...', { teamCode: this.validatedTeam()?.code });
         const success = await this.authFlow.signUpWithEmail({
           email: data.email,
           password: data.password,
           teamCode: this.validatedTeam()?.code,
         });
 
-        console.log('[AuthPage] Email sign up result:', success);
+        console.log('[AuthPage] Signup result:', success);
         if (success) {
           await this.haptics.notification('success');
         } else {
@@ -459,7 +461,7 @@ export class AuthPage implements OnInit {
         }
       }
     } catch (err) {
-      console.error('[AuthPage] Email submit error:', err);
+      console.error('[AuthPage] onEmailSubmit error:', err);
       await this.haptics.notification('error');
     }
   }

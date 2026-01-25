@@ -370,15 +370,12 @@ export class NxtTeamLogoPickerComponent {
 
   constructor() {
     // Sync local preview when logoUrl changes externally
-    effect(
-      () => {
-        const url = this.logoUrl();
-        if (url) {
-          this.localPreview.set(null);
-        }
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const url = this.logoUrl();
+      if (url) {
+        this.localPreview.set(null);
+      }
+    });
   }
 
   // ============================================

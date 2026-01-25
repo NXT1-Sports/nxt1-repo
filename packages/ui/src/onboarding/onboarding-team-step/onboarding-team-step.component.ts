@@ -246,7 +246,7 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
       .nxt1-team-form {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-8);
+        gap: var(--nxt1-spacing-8, 32px);
         width: 100%;
       }
 
@@ -256,12 +256,12 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
       .nxt1-team-section {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-4);
+        gap: var(--nxt1-spacing-4, 16px);
       }
 
       .nxt1-team-section--secondary {
-        padding-top: var(--nxt1-spacing-4);
-        border-top: 1px solid var(--nxt1-color-border-subtle);
+        padding-top: var(--nxt1-spacing-4, 16px);
+        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.05));
       }
 
       /* ============================================
@@ -269,7 +269,7 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
        ============================================ */
       .nxt1-team-row {
         display: flex;
-        gap: var(--nxt1-spacing-4);
+        gap: var(--nxt1-spacing-4, 16px);
         width: 100%;
         align-items: flex-start;
       }
@@ -281,7 +281,7 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
         flex: 1;
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-3);
+        gap: var(--nxt1-spacing-3, 12px);
         min-width: 0;
       }
 
@@ -304,65 +304,65 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
        INPUT STYLING - Matches auth-email-form design tokens
        ============================================ */
       .nxt1-input {
-        --background: var(--nxt1-color-state-hover);
-        --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg);
+        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
-        --color: var(--nxt1-color-text-primary);
-        --placeholder-color: var(--nxt1-color-text-tertiary);
+        --color: var(--nxt1-color-text-primary, #ffffff);
+        --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         --placeholder-opacity: 1;
         --padding-start: 16px;
         --padding-end: 16px;
         --padding-top: 14px;
         --padding-bottom: 14px;
-        --highlight-color-focused: var(--nxt1-color-border-strong);
-        --highlight-color-valid: var(--nxt1-color-border-strong);
+        --highlight-color-focused: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        --highlight-color-valid: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         min-height: 48px;
       }
 
       .nxt1-input:hover:not(.nxt1-input-error) {
-        --border-color: var(--nxt1-color-border-strong);
+        --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 
       .nxt1-input-error {
-        --border-color: var(--nxt1-color-error);
-        --highlight-color-focused: var(--nxt1-color-error);
+        --border-color: var(--nxt1-color-error, #ef4444);
+        --highlight-color-focused: var(--nxt1-color-error, #ef4444);
       }
 
       /* ============================================
        SELECT STYLING - Matches input design
        ============================================ */
       .nxt1-select {
-        --background: var(--nxt1-color-state-hover);
-        --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg);
+        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
-        --color: var(--nxt1-color-text-primary);
-        --placeholder-color: var(--nxt1-color-text-tertiary);
+        --color: var(--nxt1-color-text-primary, #ffffff);
+        --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         --placeholder-opacity: 1;
         --padding-start: 12px;
         --padding-end: 12px;
-        --highlight-color-focused: var(--nxt1-color-border-strong);
+        --highlight-color-focused: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         min-height: 48px;
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg);
-        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
       }
 
       .nxt1-select:hover:not(:disabled) {
-        border-color: var(--nxt1-color-border-strong);
+        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 
       .nxt1-select::part(icon) {
-        color: var(--nxt1-color-text-tertiary);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 
       .nxt1-select:disabled {
-        opacity: 0.5;
+        opacity: 0.4;
       }
     `,
   ],
@@ -475,22 +475,19 @@ export class OnboardingTeamStepComponent {
 
   constructor() {
     // Sync internal state when teamData input changes
-    effect(
-      () => {
-        const data = this.teamData();
-        if (data) {
-          this.teamName.set(data.teamName || '');
-          this.teamType.set(data.teamType ?? null);
-          this.teamLogo.set(data.teamLogo ?? null);
-          this.teamColors.set(data.teamColors ?? []);
-          this.secondTeamName.set(data.secondTeamName || '');
-          this.secondTeamType.set(data.secondTeamType ?? null);
-          this.secondTeamLogo.set(data.secondTeamLogo ?? null);
-          this.secondTeamColors.set(data.secondTeamColors ?? []);
-        }
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const data = this.teamData();
+      if (data) {
+        this.teamName.set(data.teamName || '');
+        this.teamType.set(data.teamType ?? null);
+        this.teamLogo.set(data.teamLogo ?? null);
+        this.teamColors.set(data.teamColors ?? []);
+        this.secondTeamName.set(data.secondTeamName || '');
+        this.secondTeamType.set(data.secondTeamType ?? null);
+        this.secondTeamLogo.set(data.secondTeamLogo ?? null);
+        this.secondTeamColors.set(data.secondTeamColors ?? []);
+      }
+    });
   }
 
   // ============================================

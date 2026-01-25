@@ -327,22 +327,23 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
         align-items: center;
         justify-content: space-between;
         width: 100%;
-        padding: var(--nxt1-spacing-4);
-        background: var(--nxt1-color-surface-elevated);
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-xl);
+        padding: var(--nxt1-spacing-4, 16px);
+        background: var(--nxt1-color-surface-elevated, rgba(255, 255, 255, 0.06));
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-xl, 16px);
         cursor: pointer;
-        transition: all var(--nxt1-duration-fast) ease;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         -webkit-tap-highlight-color: transparent;
       }
 
       .nxt1-collapsed-header:hover {
-        border-color: var(--nxt1-color-border-strong);
-        background: var(--nxt1-color-state-hover);
+        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        transform: translateY(-1px);
       }
 
       .nxt1-collapsed-header:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary);
+        outline: 2px solid var(--nxt1-color-primary, #ccff00);
         outline-offset: 2px;
       }
 
@@ -452,18 +453,18 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
         justify-content: center;
         width: 36px;
         height: 36px;
-        background: var(--nxt1-color-state-hover);
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg);
-        color: var(--nxt1-color-text-secondary);
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         cursor: pointer;
-        transition: all var(--nxt1-duration-fast) ease;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         -webkit-tap-highlight-color: transparent;
       }
 
       .nxt1-collapse-btn:hover {
-        border-color: var(--nxt1-color-border-strong);
-        color: var(--nxt1-color-text-primary);
+        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        color: var(--nxt1-color-text-primary, #ffffff);
       }
 
       .nxt1-collapse-btn ion-icon {
@@ -513,60 +514,60 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
          FORM INPUTS
          ============================================ */
       .nxt1-input {
-        --background: var(--nxt1-color-state-hover);
-        --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg);
+        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
-        --color: var(--nxt1-color-text-primary);
-        --placeholder-color: var(--nxt1-color-text-tertiary);
+        --color: var(--nxt1-color-text-primary, #ffffff);
+        --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         --placeholder-opacity: 1;
-        --padding-start: var(--nxt1-spacing-4);
-        --padding-end: var(--nxt1-spacing-4);
+        --padding-start: var(--nxt1-spacing-4, 16px);
+        --padding-end: var(--nxt1-spacing-4, 16px);
         --padding-top: 14px;
         --padding-bottom: 14px;
-        --highlight-color-focused: var(--nxt1-color-border-strong);
+        --highlight-color-focused: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         min-height: 48px;
       }
 
       .nxt1-input:hover:not(.has-focus) {
-        --border-color: var(--nxt1-color-border-strong);
+        --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 
       /* ============================================
          SELECT STYLING - Matches contact step popover
          ============================================ */
       .nxt1-select {
-        --background: var(--nxt1-color-state-hover);
-        --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg);
+        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
-        --color: var(--nxt1-color-text-primary);
-        --placeholder-color: var(--nxt1-color-text-tertiary);
+        --color: var(--nxt1-color-text-primary, #ffffff);
+        --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         --placeholder-opacity: 1;
         --padding-start: 12px;
         --padding-end: 12px;
-        --highlight-color-focused: var(--nxt1-color-border-strong);
+        --highlight-color-focused: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         min-height: 48px;
         width: 100%;
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg);
-        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
       }
 
       .nxt1-select:hover:not(:disabled) {
-        border-color: var(--nxt1-color-border-strong);
+        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 
       .nxt1-select::part(icon) {
-        color: var(--nxt1-color-text-tertiary);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 
       .nxt1-select:disabled {
-        opacity: 0.5;
+        opacity: 0.4;
       }
 
       /* ============================================
@@ -575,14 +576,14 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
       .nxt1-colors-section {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-2);
+        gap: var(--nxt1-spacing-2, 8px);
       }
 
       .nxt1-label {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-secondary);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
       }
 
       .nxt1-label-hint {
@@ -608,23 +609,23 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
       .nxt1-position-pill {
         display: inline-flex;
         align-items: center;
-        gap: var(--nxt1-spacing-1);
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        gap: var(--nxt1-spacing-1, 4px);
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-3, 12px);
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-primary);
-        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-primary, #ffffff);
+        background: var(--nxt1-color-primary, #ccff00);
         background: linear-gradient(
           135deg,
-          var(--nxt1-color-primary) 0%,
-          var(--nxt1-color-primary-dark, var(--nxt1-color-primary)) 100%
+          var(--nxt1-color-primary, #ccff00) 0%,
+          var(--nxt1-color-primary-dark, #b8e600) 100%
         );
-        color: var(--nxt1-color-text-onPrimary);
+        color: var(--nxt1-color-text-onPrimary, #1a1a2e);
         border: none;
-        border-radius: var(--nxt1-borderRadius-full);
+        border-radius: var(--nxt1-borderRadius-full, 9999px);
         cursor: pointer;
-        transition: all var(--nxt1-duration-fast) ease;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         -webkit-tap-highlight-color: transparent;
       }
 
@@ -634,7 +635,7 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
       }
 
       .nxt1-position-pill:disabled {
-        opacity: 0.5;
+        opacity: 0.4;
         cursor: not-allowed;
       }
 
@@ -645,28 +646,28 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
       .nxt1-add-position-btn {
         display: inline-flex;
         align-items: center;
-        gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
+        gap: var(--nxt1-spacing-2, 8px);
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-4, 16px);
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 500;
-        color: var(--nxt1-color-primary);
+        color: var(--nxt1-color-primary, #ccff00);
         background: transparent;
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-full);
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-full, 9999px);
         cursor: pointer;
-        transition: all var(--nxt1-duration-fast) ease;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         -webkit-tap-highlight-color: transparent;
         align-self: flex-start;
       }
 
       .nxt1-add-position-btn:hover:not(:disabled) {
-        border-color: var(--nxt1-color-primary);
-        background: var(--nxt1-color-alpha-primary5);
+        border-color: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-alpha-primary5, rgba(204, 255, 0, 0.05));
       }
 
       .nxt1-add-position-btn:disabled {
-        opacity: 0.5;
+        opacity: 0.4;
         cursor: not-allowed;
       }
 
@@ -689,28 +690,28 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: var(--nxt1-spacing-2);
+        gap: var(--nxt1-spacing-2, 8px);
         width: 100%;
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 500;
-        color: var(--nxt1-color-danger);
+        color: var(--nxt1-color-danger, #ef4444);
         background: transparent;
-        border: 1px solid var(--nxt1-color-danger);
-        border-radius: var(--nxt1-borderRadius-lg);
+        border: 1px solid var(--nxt1-color-danger, #ef4444);
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
         cursor: pointer;
-        transition: all var(--nxt1-duration-fast) ease;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         -webkit-tap-highlight-color: transparent;
-        margin-top: var(--nxt1-spacing-2);
+        margin-top: var(--nxt1-spacing-2, 8px);
       }
 
       .nxt1-remove-btn:hover:not(:disabled) {
-        background: var(--nxt1-color-alpha-danger10);
+        background: var(--nxt1-color-alpha-danger10, rgba(239, 68, 68, 0.1));
       }
 
       .nxt1-remove-btn:disabled {
-        opacity: 0.5;
+        opacity: 0.4;
         cursor: not-allowed;
       }
 
@@ -844,17 +845,14 @@ export class OnboardingSportEntryComponent {
     addIcons({ chevronDown, chevronUp, trashOutline, checkmarkCircle, alertCircle, add, close });
 
     // Sync positions from entry input
-    effect(
-      () => {
-        const e = this.entry();
-        if (e?.positions) {
-          this.selectedPositions.set([...e.positions]);
-        } else {
-          this.selectedPositions.set([]);
-        }
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const e = this.entry();
+      if (e?.positions) {
+        this.selectedPositions.set([...e.positions]);
+      } else {
+        this.selectedPositions.set([]);
+      }
+    });
   }
 
   // ============================================

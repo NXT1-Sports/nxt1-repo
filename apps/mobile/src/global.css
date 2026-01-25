@@ -51,6 +51,7 @@
 @import '@nxt1/ui/styles/auth';
 @import '@nxt1/ui/styles/components/ionic-select';
 @import '@nxt1/ui/styles/components/ionic-toast';
+@import '@nxt1/ui/styles/components/ionic-modal';
 
 /* Ionic Component CSS - Visual styles for ion-* components */
 @import '@ionic/angular/css/core.css';
@@ -301,6 +302,26 @@ html[data-theme='light'] {
 
 .animate-pulse-glow {
   animation: pulse-glow 8s ease-in-out infinite;
+}
+
+/* ============================================
+   IONIC INPUT FOCUS FIX (Global)
+   Remove native browser focus outline from inputs inside
+   Ionic components. Ionic handles focus via CSS custom
+   properties (--highlight-color-focused, --highlight-height).
+   This prevents the blue box/square outline on focus.
+   ============================================ */
+ion-input input,
+ion-input input:focus,
+ion-input input:focus-visible,
+ion-textarea textarea,
+ion-textarea textarea:focus,
+ion-textarea textarea:focus-visible,
+ion-searchbar input,
+ion-searchbar input:focus,
+ion-searchbar input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 /* Custom scrollbar for tablet/desktop */

@@ -32,6 +32,8 @@ import { Injectable, inject, PLATFORM_ID, signal, computed, NgZone } from '@angu
 import { isPlatformBrowser } from '@angular/common';
 import { Platform } from '@ionic/angular/standalone';
 import { Subject } from 'rxjs';
+import { NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 
 /** Status bar style options */
 export type StatusBarStyle = 'dark' | 'light' | 'default';
@@ -96,6 +98,7 @@ export class NativeAppService {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly ionicPlatform = inject(Platform);
   private readonly ngZone = inject(NgZone);
+  private readonly logger: ILogger = inject(NxtLoggingService).child('NativeAppService');
 
   // ============================================
   // PRIVATE STATE
@@ -151,7 +154,7 @@ export class NativeAppService {
     }
 
     if (this._isInitialized()) {
-      console.debug('[NativeAppService] Already initialized');
+      this.logger.debug('Already initialized');
       return;
     }
 
@@ -169,7 +172,7 @@ export class NativeAppService {
     }
 
     this._isInitialized.set(true);
-    console.debug('[NativeAppService] Initialized', { isNative: this._isNative() });
+    this.logger.debug('Initialized', { isNative: this._isNative() });
   }
 
   private async initializeNativeFeatures(): Promise<void> {
@@ -205,9 +208,9 @@ export class NativeAppService {
       // Make status bar overlay content (iOS style)
       await StatusBar.setOverlaysWebView({ overlay: true });
 
-      console.debug('[NativeAppService] Status bar configured');
+      this.logger.debug('Status bar configured');
     } catch (error) {
-      console.warn('[NativeAppService] Status bar configuration failed:', error);
+      this.logger.warn('Status bar configuration failed', { error });
     }
   }
 
@@ -225,7 +228,7 @@ export class NativeAppService {
         style: style === 'dark' ? Style.Dark : Style.Light,
       });
     } catch (error) {
-      console.warn('[NativeAppService] Failed to set status bar style:', error);
+      this.logger.warn('Failed to set status bar style', { error });
     }
   }
 
@@ -240,7 +243,7 @@ export class NativeAppService {
       await StatusBar.show();
       this._statusBarVisible.set(true);
     } catch (error) {
-      console.warn('[NativeAppService] Failed to show status bar:', error);
+      this.logger.warn('Failed to show status bar', { error });
     }
   }
 
@@ -255,7 +258,7 @@ export class NativeAppService {
       await StatusBar.hide();
       this._statusBarVisible.set(false);
     } catch (error) {
-      console.warn('[NativeAppService] Failed to hide status bar:', error);
+      this.logger.warn('Failed to hide status bar', { error });
     }
   }
 
@@ -272,9 +275,9 @@ export class NativeAppService {
     try {
       const { SplashScreen } = await import('@capacitor/splash-screen');
       await SplashScreen.hide({ fadeOutDuration: 300 });
-      console.debug('[NativeAppService] Splash screen hidden');
+      this.logger.debug('Splash screen hidden');
     } catch (error) {
-      console.warn('[NativeAppService] Failed to hide splash screen:', error);
+      this.logger.warn('Failed to hide splash screen', { error });
     }
   }
 
@@ -288,7 +291,7 @@ export class NativeAppService {
       const { SplashScreen } = await import('@capacitor/splash-screen');
       await SplashScreen.show({ autoHide: false });
     } catch (error) {
-      console.warn('[NativeAppService] Failed to show splash screen:', error);
+      this.logger.warn('Failed to show splash screen', { error });
     }
   }
 
@@ -329,7 +332,7 @@ export class NativeAppService {
           // Add class to body for CSS targeting
           document.body.classList.add('keyboard-is-open');
           document.body.style.setProperty('--keyboard-height', `${info.keyboardHeight}px`);
-          console.debug('[NativeAppService] Keyboard will show:', info.keyboardHeight);
+          this.logger.debug('Keyboard will show', { height: info.keyboardHeight });
         });
       });
 
@@ -359,16 +362,13 @@ export class NativeAppService {
           // Remove class from body
           document.body.classList.remove('keyboard-is-open');
           document.body.style.removeProperty('--keyboard-height');
-          console.debug('[NativeAppService] Keyboard will hide');
+          this.logger.debug('Keyboard will hide');
         });
       });
 
-      console.debug(
-        '[NativeAppService] Keyboard configured with resize mode:',
-        this._config.keyboardResize
-      );
+      this.logger.debug('Keyboard configured', { resizeMode: this._config.keyboardResize });
     } catch (error) {
-      console.warn('[NativeAppService] Keyboard configuration failed:', error);
+      this.logger.warn('Keyboard configuration failed', { error });
     }
   }
 
@@ -382,7 +382,7 @@ export class NativeAppService {
       const { Keyboard } = await import('@capacitor/keyboard');
       await Keyboard.show();
     } catch (error) {
-      console.warn('[NativeAppService] Failed to show keyboard:', error);
+      this.logger.warn('Failed to show keyboard', { error });
     }
   }
 
@@ -396,7 +396,7 @@ export class NativeAppService {
       const { Keyboard } = await import('@capacitor/keyboard');
       await Keyboard.hide();
     } catch (error) {
-      console.warn('[NativeAppService] Failed to hide keyboard:', error);
+      this.logger.warn('Failed to hide keyboard', { error });
     }
   }
 
@@ -441,9 +441,9 @@ export class NativeAppService {
         });
       });
 
-      console.debug('[NativeAppService] Lifecycle listeners configured');
+      this.logger.debug('Lifecycle listeners configured');
     } catch (error) {
-      console.warn('[NativeAppService] Lifecycle setup failed:', error);
+      this.logger.warn('Lifecycle setup failed', { error });
     }
   }
 
@@ -457,7 +457,7 @@ export class NativeAppService {
       const { App } = await import('@capacitor/app');
       await App.exitApp();
     } catch (error) {
-      console.warn('[NativeAppService] Failed to exit app:', error);
+      this.logger.warn('Failed to exit app', { error });
     }
   }
 
@@ -476,7 +476,7 @@ export class NativeAppService {
         build: info.build,
       };
     } catch (error) {
-      console.warn('[NativeAppService] Failed to get app info:', error);
+      this.logger.warn('Failed to get app info', { error });
       return null;
     }
   }

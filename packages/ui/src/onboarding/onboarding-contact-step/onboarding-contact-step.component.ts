@@ -353,7 +353,7 @@ const MAX_CITY_LENGTH = 100;
       .nxt1-contact-form {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-5);
+        gap: var(--nxt1-spacing-5, 20px);
         width: 100%;
       }
 
@@ -361,70 +361,70 @@ const MAX_CITY_LENGTH = 100;
        INPUT STYLING - Matches auth-email-form design tokens
        ============================================ */
       .nxt1-input {
-        --background: var(--nxt1-color-state-hover);
-        --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg);
+        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
-        --color: var(--nxt1-color-text-primary);
-        --placeholder-color: var(--nxt1-color-text-tertiary);
+        --color: var(--nxt1-color-text-primary, #ffffff);
+        --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         --placeholder-opacity: 1;
         --padding-start: 16px;
         --padding-end: 16px;
         --padding-top: 14px;
         --padding-bottom: 14px;
-        --highlight-color-focused: var(--nxt1-color-border-strong);
-        --highlight-color-valid: var(--nxt1-color-border-strong);
+        --highlight-color-focused: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        --highlight-color-valid: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         min-height: 52px;
       }
 
       .nxt1-input:hover:not(.nxt1-input-error) {
-        --border-color: var(--nxt1-color-border-strong);
+        --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 
       .nxt1-input-error {
-        --border-color: var(--nxt1-color-error);
-        --highlight-color-focused: var(--nxt1-color-error);
+        --border-color: var(--nxt1-color-error, #ef4444);
+        --highlight-color-focused: var(--nxt1-color-error, #ef4444);
       }
 
       /* ============================================
        SELECT STYLING - Matches input design
        ============================================ */
       .nxt1-select {
-        --background: var(--nxt1-color-state-hover);
-        --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg);
+        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
-        --color: var(--nxt1-color-text-primary);
-        --placeholder-color: var(--nxt1-color-text-tertiary);
+        --color: var(--nxt1-color-text-primary, #ffffff);
+        --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         --placeholder-opacity: 1;
         --padding-start: 12px;
         --padding-end: 12px;
-        --highlight-color-focused: var(--nxt1-color-border-strong);
+        --highlight-color-focused: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         min-height: 52px;
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg);
-        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
       }
 
       .nxt1-select:hover:not(:disabled) {
-        border-color: var(--nxt1-color-border-strong);
+        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 
       .nxt1-select::part(icon) {
-        color: var(--nxt1-color-text-tertiary);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 
       .nxt1-select:disabled {
-        opacity: 0.5;
+        opacity: 0.4;
       }
 
       .nxt1-select-error {
-        --border-color: var(--nxt1-color-error);
-        border-color: var(--nxt1-color-error);
+        --border-color: var(--nxt1-color-error, #ef4444);
+        border-color: var(--nxt1-color-error, #ef4444);
       }
 
       /* ============================================
@@ -433,7 +433,7 @@ const MAX_CITY_LENGTH = 100;
       .nxt1-location-fields {
         display: grid;
         grid-template-columns: 1fr 140px;
-        gap: var(--nxt1-spacing-3);
+        gap: var(--nxt1-spacing-3, 12px);
         width: 100%;
       }
 
@@ -449,24 +449,24 @@ const MAX_CITY_LENGTH = 100;
       .nxt1-section-header {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-1);
-        padding-top: var(--nxt1-spacing-2);
-        border-top: 1px solid var(--nxt1-color-border-subtle);
+        gap: var(--nxt1-spacing-1, 4px);
+        padding-top: var(--nxt1-spacing-2, 8px);
+        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.05));
       }
 
       .nxt1-section-title {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-secondary);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         text-transform: uppercase;
-        letter-spacing: var(--nxt1-letterSpacing-wide);
+        letter-spacing: var(--nxt1-letterSpacing-wide, 0.05em);
       }
 
       .nxt1-section-subtitle {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-tertiary);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
     `,
   ],
@@ -626,67 +626,64 @@ export class OnboardingContactStepComponent {
 
   constructor() {
     // Sync input data to local signals when contactData or authEmail changes
-    effect(
-      () => {
-        const data = this.contactData();
-        const authEmail = this.authEmail();
+    effect(() => {
+      const data = this.contactData();
+      const authEmail = this.authEmail();
 
-        // Use auth email as default if no contact email set
-        const emailValue = data.contactEmail || authEmail || '';
+      // Use auth email as default if no contact email set
+      const emailValue = data.contactEmail || authEmail || '';
 
-        if (emailValue !== this.contactEmail()) {
-          this.contactEmail.set(emailValue);
-        }
+      if (emailValue !== this.contactEmail()) {
+        this.contactEmail.set(emailValue);
+      }
 
-        if ((data.phoneNumber ?? '') !== this.phoneNumber()) {
-          this.phoneNumber.set(data.phoneNumber ?? '');
-        }
+      if ((data.phoneNumber ?? '') !== this.phoneNumber()) {
+        this.phoneNumber.set(data.phoneNumber ?? '');
+      }
 
-        if ((data.city ?? '') !== this.city()) {
-          this.city.set(data.city ?? '');
-        }
+      if ((data.city ?? '') !== this.city()) {
+        this.city.set(data.city ?? '');
+      }
 
-        if ((data.state ?? '') !== this.state()) {
-          this.state.set(data.state ?? '');
-        }
+      if ((data.state ?? '') !== this.state()) {
+        this.state.set(data.state ?? '');
+      }
 
-        // Social media
-        if ((data.instagram ?? '') !== this.instagram()) {
-          this.instagram.set(data.instagram ?? '');
-        }
+      // Social media
+      if ((data.instagram ?? '') !== this.instagram()) {
+        this.instagram.set(data.instagram ?? '');
+      }
 
-        if ((data.twitter ?? '') !== this.twitter()) {
-          this.twitter.set(data.twitter ?? '');
-        }
+      if ((data.twitter ?? '') !== this.twitter()) {
+        this.twitter.set(data.twitter ?? '');
+      }
 
-        if ((data.tiktok ?? '') !== this.tiktok()) {
-          this.tiktok.set(data.tiktok ?? '');
-        }
+      if ((data.tiktok ?? '') !== this.tiktok()) {
+        this.tiktok.set(data.tiktok ?? '');
+      }
 
-        // Platform links
-        if ((data.hudlAccountLink ?? '') !== this.hudl()) {
-          this.hudl.set(data.hudlAccountLink ?? '');
-        }
+      // Platform links
+      if ((data.hudlAccountLink ?? '') !== this.hudl()) {
+        this.hudl.set(data.hudlAccountLink ?? '');
+      }
 
-        if ((data.youtubeAccountLink ?? '') !== this.youtube()) {
-          this.youtube.set(data.youtubeAccountLink ?? '');
-        }
+      if ((data.youtubeAccountLink ?? '') !== this.youtube()) {
+        this.youtube.set(data.youtubeAccountLink ?? '');
+      }
 
-        if ((data.sportsAccountLink ?? '') !== this.maxpreps()) {
-          this.maxpreps.set(data.sportsAccountLink ?? '');
-        }
+      if ((data.sportsAccountLink ?? '') !== this.maxpreps()) {
+        this.maxpreps.set(data.sportsAccountLink ?? '');
+      }
 
-        this.logger.debug('Contact data synced from input', {
-          hasEmail: !!emailValue,
-          hasPhone: !!(data.phoneNumber ?? ''),
-          hasCity: !!(data.city ?? ''),
-          hasState: !!(data.state ?? ''),
-          hasSocial: !!(data.instagram || data.twitter || data.tiktok),
-          hasLinks: !!(data.hudlAccountLink || data.youtubeAccountLink || data.sportsAccountLink),
-        });
-      },
-      { allowSignalWrites: true }
-    );
+      this.logger.debug('Contact data synced from input', {
+        hasEmail: !!emailValue,
+        hasPhone: !!(data.phoneNumber ?? ''),
+        hasCity: !!(data.city ?? ''),
+        hasState: !!(data.state ?? ''),
+        hasSocial: !!(data.instagram || data.twitter || data.tiktok),
+        hasLinks: !!(data.hudlAccountLink || data.youtubeAccountLink || data.sportsAccountLink),
+      });
+    });
   }
 
   // ============================================

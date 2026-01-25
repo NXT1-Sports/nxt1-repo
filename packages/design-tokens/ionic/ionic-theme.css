@@ -163,6 +163,25 @@
   --ion-color-primary-tint: #d4ff4d;
 }
 
+/* Team Theme (Dynamic team branding via CSS custom properties) */
+[data-theme='team'] {
+  /* Primary color from team branding - uses CSS custom properties with fallbacks */
+  --ion-color-primary: var(--team-primary, #ccff00);
+  --ion-color-primary-rgb: var(--team-primary-rgb, 204, 255, 0);
+  --ion-color-primary-contrast: var(--team-text-on-primary, #0a0a0a);
+  --ion-color-primary-contrast-rgb: var(--team-text-on-primary-rgb, 10, 10, 10);
+  --ion-color-primary-shade: var(--team-primary-dark, #b8e600);
+  --ion-color-primary-tint: var(--team-primary-light, #d4ff4d);
+
+  /* Secondary uses team secondary with fallbacks */
+  --ion-color-secondary: var(--team-secondary, #ffffff);
+  --ion-color-secondary-rgb: var(--team-secondary-rgb, 255, 255, 255);
+  --ion-color-secondary-contrast: var(--team-text-on-secondary, #0a0a0a);
+  --ion-color-secondary-contrast-rgb: var(--team-text-on-secondary-rgb, 10, 10, 10);
+  --ion-color-secondary-shade: var(--team-secondary-dark, #e0e0e0);
+  --ion-color-secondary-tint: var(--team-secondary-light, #ffffff);
+}
+
 /* ============================================
    DARK THEME (Default for NXT1)
    ============================================ */

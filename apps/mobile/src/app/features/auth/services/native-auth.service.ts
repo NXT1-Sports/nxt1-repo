@@ -34,7 +34,8 @@
 import { Injectable, inject } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
-import { NxtPlatformService, HapticsService } from '@nxt1/ui';
+import { NxtPlatformService, HapticsService, NxtLoggingService } from '@nxt1/ui';
+import { type ILogger } from '@nxt1/core/logging';
 import type { NativeAuthResult, NativeAuthProvider, NativeAuthAvailability } from '@nxt1/core';
 
 /** Timeout for native auth operations (ms) */
@@ -60,6 +61,9 @@ const NATIVE_AUTH_TIMEOUT = 60000;
 export class NativeAuthService {
   private readonly platform = inject(NxtPlatformService);
   private readonly haptics = inject(HapticsService);
+
+  /** Structured logger for native auth operations */
+  private readonly logger: ILogger = inject(NxtLoggingService).child('NativeAuthService');
 
   /**
    * Check if native auth is available
@@ -111,13 +115,13 @@ export class NativeAuthService {
     }
 
     try {
-      console.log('[NativeAuth] Starting Google Sign-In...');
+      this.logger.info('Starting Google Sign-In');
       await this.haptics.selection();
 
       // Sign in with Google using native UI
       const googleUser = await GoogleAuth.signIn();
 
-      console.log('[NativeAuth] Google Sign-In successful:', {
+      this.logger.info('Google Sign-In successful', {
         email: googleUser.email,
         name: googleUser.name,
         hasIdToken: !!googleUser.authentication?.idToken,
@@ -142,14 +146,14 @@ export class NativeAuthService {
       if (error && typeof error === 'object' && 'error' in error) {
         const err = error as { error: string };
         if (err.error === 'popup_closed_by_user' || err.error === 'cancelled') {
-          console.log('[NativeAuth] Google Sign-In canceled by user');
+          this.logger.debug('Google Sign-In canceled by user');
           return null;
         }
       }
 
       // Error haptic feedback
       await this.haptics.notification('error');
-      console.error('[NativeAuth] Google Sign-In error:', error);
+      this.logger.error('Google Sign-In error', error);
       throw error;
     }
   }
@@ -190,7 +194,7 @@ export class NativeAuthService {
    * @returns null to indicate Firebase should use in-app browser popup
    */
   async signInWithMicrosoft(): Promise<NativeAuthResult | null> {
-    console.log('[NativeAuth] Microsoft Sign-In using Firebase in-app browser');
+    this.logger.debug('Microsoft Sign-In using Firebase in-app browser');
     return null; // Triggers Firebase signInWithPopup with in-app browser
   }
 
@@ -266,7 +270,7 @@ export class NativeAuthService {
         message.includes('invalid_client')
       ) {
         // Log detailed error for debugging (not shown to user)
-        console.error(`[NativeAuthService] Configuration error for ${provider}:`, error);
+        this.logger.error(`Configuration error for ${provider}`, error);
         return new Error(
           `${providerName} Sign-In is not properly configured. Please contact support.`
         );
@@ -290,7 +294,7 @@ export class NativeAuthService {
       }
 
       // Generic error - don't expose internal details to users in production
-      console.error(`[NativeAuthService] ${providerName} Sign-In error:`, error);
+      this.logger.error(`${providerName} Sign-In error`, error);
       return new Error(`${providerName} Sign-In failed. Please try again.`);
     }
 

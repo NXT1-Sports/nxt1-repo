@@ -105,20 +105,21 @@ export type ChipVariant = 'default' | 'filled';
 
       /* ============================================
        BASE CHIP STYLES
+       Unified with sport/referral selection patterns
        ============================================ */
       .nxt1-chip {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: var(--nxt1-spacing-1-5);
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-5);
+        gap: var(--nxt1-spacing-1-5, 6px);
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-5, 20px);
         min-width: 80px;
         min-height: 44px;
-        background: var(--nxt1-color-state-hover);
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-full);
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-full, 9999px);
         cursor: pointer;
-        transition: all var(--nxt1-duration-fast) ease;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         -webkit-tap-highlight-color: transparent;
       }
 
@@ -127,59 +128,69 @@ export type ChipVariant = 'default' | 'filled';
        ============================================ */
       .nxt1-chip__content {
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-fontSize-base, 1rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-secondary);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         white-space: nowrap;
         line-height: 1.3;
+        transition: color var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
       }
 
       /* ============================================
        SIZE VARIANTS
        ============================================ */
       .nxt1-chip--sm {
-        padding: var(--nxt1-spacing-1-5) var(--nxt1-spacing-3);
+        padding: var(--nxt1-spacing-1-5, 6px) var(--nxt1-spacing-3, 12px);
         min-width: 48px;
+        min-height: 32px;
       }
 
       .nxt1-chip--sm .nxt1-chip__content {
-        font-size: var(--nxt1-fontSize-sm);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
       }
 
       .nxt1-chip--lg {
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-5);
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-5, 20px);
         min-width: 80px;
+        min-height: 52px;
       }
 
       .nxt1-chip--lg .nxt1-chip__content {
-        font-size: var(--nxt1-fontSize-md);
+        font-size: var(--nxt1-fontSize-md, 1.125rem);
       }
 
       /* ============================================
        FILLED VARIANT
        ============================================ */
       .nxt1-chip--filled {
-        background: var(--nxt1-color-alpha-primary10);
+        background: var(--nxt1-color-state-focus, rgba(204, 255, 0, 0.08));
         border-color: transparent;
       }
 
       .nxt1-chip--filled .nxt1-chip__content {
-        color: var(--nxt1-color-text-primary);
+        color: var(--nxt1-color-text-primary, #ffffff);
       }
 
       /* ============================================
-       INTERACTIVE STATES
+       INTERACTIVE STATES - Hover
        ============================================ */
       .nxt1-chip:hover:not(:disabled):not(.selected) {
-        border-color: var(--nxt1-color-border-strong);
-        background: var(--nxt1-color-alpha-primary5);
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        transform: translateY(-1px);
       }
 
+      .nxt1-chip:hover:not(:disabled):not(.selected) .nxt1-chip__content {
+        color: var(--nxt1-color-text-primary, #ffffff);
+      }
+
+      /* Focus State */
       .nxt1-chip:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary);
+        outline: 2px solid var(--nxt1-color-primary, #ccff00);
         outline-offset: 2px;
       }
 
+      /* Active/Pressed State */
       .nxt1-chip:active:not(:disabled) {
         transform: scale(0.98);
       }
@@ -188,20 +199,27 @@ export type ChipVariant = 'default' | 'filled';
        SELECTED STATE
        ============================================ */
       .nxt1-chip.selected {
-        background: var(--nxt1-color-primary);
-        border-color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-primary, #ccff00);
+        border-color: var(--nxt1-color-primary, #ccff00);
       }
 
       .nxt1-chip.selected .nxt1-chip__content {
-        color: var(--nxt1-color-text-onPrimary);
+        color: var(--nxt1-color-text-onPrimary, #1a1a2e);
+      }
+
+      .nxt1-chip.selected:hover:not(:disabled) {
+        background: var(--nxt1-color-primary-dark, #b8e600);
+        border-color: var(--nxt1-color-primary-dark, #b8e600);
+        transform: translateY(-1px);
       }
 
       /* ============================================
        DISABLED STATE
        ============================================ */
       .nxt1-chip:disabled {
-        opacity: 0.5;
+        opacity: 0.4;
         cursor: not-allowed;
+        transform: none;
       }
 
       /* ============================================
@@ -211,7 +229,7 @@ export type ChipVariant = 'default' | 'filled';
         display: flex;
         align-items: center;
         justify-content: center;
-        color: var(--nxt1-color-text-onPrimary);
+        color: var(--nxt1-color-text-onPrimary, #1a1a2e);
         flex-shrink: 0;
       }
 
