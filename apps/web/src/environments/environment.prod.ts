@@ -16,7 +16,6 @@ export const environment = {
 
   // Logging Configuration
   loggingEndpoint: 'https://backend.nxt1sports.com/api/v1/logs', // Remote logging endpoint
-  sentryDsn: '', // Add Sentry DSN when configured: 'https://xxx@sentry.io/xxx'
 
   // Firebase Configuration (Production)
   firebase: {

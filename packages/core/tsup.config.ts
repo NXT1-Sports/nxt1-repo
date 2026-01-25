@@ -17,6 +17,8 @@ export default defineConfig({
     'src/errors/express.middleware.ts',
     'src/logging/index.ts',
     'src/testing/index.ts', // Shared testing infrastructure
+    'src/geolocation/index.ts', // Geolocation helpers
+    'src/crashlytics/index.ts', // Firebase Crashlytics adapter
   ],
   format: ['cjs', 'esm'],
   dts: {

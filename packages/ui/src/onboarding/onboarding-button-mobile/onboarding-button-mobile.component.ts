@@ -108,6 +108,18 @@ import { OnboardingProgressPillsComponent } from '../onboarding-progress-pills';
             }
           </button>
         </div>
+
+        <!-- Sign Out Link -->
+        @if (showSignOut) {
+          <button
+            type="button"
+            class="nxt1-signout-link"
+            (click)="signOutClick.emit()"
+            data-testid="onboarding-signout"
+          >
+            Sign out and start over
+          </button>
+        }
       </div>
     </div>
   `,
@@ -222,6 +234,30 @@ import { OnboardingProgressPillsComponent } from '../onboarding-progress-pills';
           transform: rotate(360deg);
         }
       }
+
+      /* ============================================
+       SIGN OUT LINK - Subtle recovery option
+       ============================================ */
+      .nxt1-signout-link {
+        display: block;
+        width: 100%;
+        margin-top: 12px;
+        padding: 8px;
+        background: transparent;
+        border: none;
+        color: var(--nxt1-color-text-tertiary, #888);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: 12px;
+        text-align: center;
+        text-decoration: underline;
+        cursor: pointer;
+        opacity: 0.8;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-signout-link:active {
+        opacity: 1;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -256,9 +292,15 @@ export class OnboardingButtonMobileComponent {
   /** Whether the form is in loading state */
   @Input() loading = false;
 
+  /** Whether to show the sign out link */
+  @Input() showSignOut = false;
+
   /** Emits when skip is clicked */
   @Output() skipClick = new EventEmitter<void>();
 
   /** Emits when continue/complete is clicked */
   @Output() continueClick = new EventEmitter<void>();
+
+  /** Emits when sign out is clicked */
+  @Output() signOutClick = new EventEmitter<void>();
 }

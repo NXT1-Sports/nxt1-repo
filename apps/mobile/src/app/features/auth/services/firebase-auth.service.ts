@@ -159,23 +159,9 @@ export class FirebaseAuthService implements OnDestroy {
    * are called within Angular's injection context.
    */
   async createUserWithEmail(email: string, password: string): Promise<UserCredential> {
-    console.log('[FirebaseAuthService] createUserWithEmail called', { email });
-    console.log('[FirebaseAuthService] Auth instance:', this.auth ? 'exists' : 'null');
-    console.log('[FirebaseAuthService] Auth app name:', this.auth?.app?.name);
-
-    try {
-      const result = await runInInjectionContext(this.injector, () => {
-        console.log(
-          '[FirebaseAuthService] Inside runInInjectionContext, calling createUserWithEmailAndPassword...'
-        );
-        return createUserWithEmailAndPassword(this.auth, email, password);
-      });
-      console.log('[FirebaseAuthService] createUserWithEmail succeeded', { uid: result.user.uid });
-      return result;
-    } catch (error) {
-      console.error('[FirebaseAuthService] createUserWithEmail failed:', error);
-      throw error;
-    }
+    return runInInjectionContext(this.injector, () =>
+      createUserWithEmailAndPassword(this.auth, email, password)
+    );
   }
 
   /**
@@ -234,15 +220,35 @@ export class FirebaseAuthService implements OnDestroy {
     // Use native auth on iOS/Android
     if (this.nativeAuth.isNativeAvailable) {
       console.debug('[FirebaseAuthService] Using native Google Sign-In');
-      const nativeResult = await this.nativeAuth.signInWithGoogle();
 
-      // User cancelled
-      if (!nativeResult) {
-        throw new Error('Sign-in was cancelled');
+      try {
+        const nativeResult = await this.nativeAuth.signInWithGoogle();
+        console.debug('[FirebaseAuthService] Native Google result:', {
+          hasResult: !!nativeResult,
+          provider: nativeResult?.provider,
+          hasIdToken: !!nativeResult?.idToken,
+          idTokenLength: nativeResult?.idToken?.length,
+          userEmail: nativeResult?.user?.email,
+        });
+
+        // User cancelled
+        if (!nativeResult) {
+          console.debug('[FirebaseAuthService] User cancelled Google Sign-In');
+          throw new Error('Sign-in was cancelled');
+        }
+
+        // Convert native result to Firebase credential
+        console.debug('[FirebaseAuthService] Converting to Firebase credential...');
+        const firebaseResult = await this.signInWithNativeCredential(nativeResult);
+        console.debug('[FirebaseAuthService] Firebase sign-in successful:', {
+          uid: firebaseResult.user.uid,
+          email: firebaseResult.user.email,
+        });
+        return firebaseResult;
+      } catch (error) {
+        console.error('[FirebaseAuthService] Google Sign-In error:', error);
+        throw error;
       }
-
-      // Convert native result to Firebase credential
-      return this.signInWithNativeCredential(nativeResult);
     }
 
     // Web fallback (development/PWA)
@@ -347,17 +353,27 @@ export class FirebaseAuthService implements OnDestroy {
   ): Promise<UserCredential> {
     console.debug(
       '[FirebaseAuthService] Converting native credential to Firebase:',
-      nativeResult.provider
+      nativeResult.provider,
+      'idToken length:',
+      nativeResult.idToken?.length
     );
 
-    return runInInjectionContext(this.injector, () => {
+    return runInInjectionContext(this.injector, async () => {
       let credential: OAuthCredential;
 
       switch (nativeResult.provider) {
         case 'google':
-          credential = GoogleAuthProvider.credential(
-            nativeResult.idToken,
-            nativeResult.accessToken
+          console.debug('[FirebaseAuthService] Creating Google credential with:', {
+            hasIdToken: !!nativeResult.idToken,
+            idTokenLength: nativeResult.idToken?.length,
+            hasAccessToken: !!nativeResult.accessToken,
+            accessTokenLength: nativeResult.accessToken?.length,
+          });
+          // For Google, we only need the idToken. accessToken is optional.
+          // The idToken must be from an OAuth client that's linked to this Firebase project
+          credential = GoogleAuthProvider.credential(nativeResult.idToken);
+          console.debug(
+            '[FirebaseAuthService] Google credential created, calling signInWithCredential...'
           );
           break;
 
@@ -384,7 +400,25 @@ export class FirebaseAuthService implements OnDestroy {
       }
 
       // Sign in to Firebase with the OAuth credential
-      return signInWithCredential(this.auth, credential);
+      try {
+        console.debug('[FirebaseAuthService] Calling signInWithCredential...');
+        const result = await signInWithCredential(this.auth, credential);
+        console.debug('[FirebaseAuthService] signInWithCredential SUCCESS:', {
+          uid: result.user.uid,
+          email: result.user.email,
+        });
+        return result;
+      } catch (error: unknown) {
+        // Log detailed error info for debugging
+        console.error('[FirebaseAuthService] signInWithCredential FAILED:', {
+          error,
+          errorCode: (error as { code?: string })?.code,
+          errorMessage: (error as { message?: string })?.message,
+          provider: nativeResult.provider,
+          idTokenPrefix: nativeResult.idToken?.substring(0, 50) + '...',
+        });
+        throw error;
+      }
     });
   }
 

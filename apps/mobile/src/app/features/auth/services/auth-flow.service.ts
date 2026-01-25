@@ -58,6 +58,8 @@ import {
   createMemoryAnalyticsAdapter,
   APP_EVENTS,
 } from '@nxt1/core/analytics';
+import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
+import { GLOBAL_CRASHLYTICS } from '@nxt1/ui';
 import { CapacitorHttpAdapter } from '../../../core/infrastructure';
 import { AuthApiService } from './auth-api.service';
 import { FirebaseAuthService } from './firebase-auth.service';
@@ -70,6 +72,8 @@ import { environment } from '../../../../environments/environment';
 export interface SignInCredentials {
   email: string;
   password: string;
+  /** Skip auto-navigation after success (for biometric enrollment flow) */
+  skipNavigation?: boolean;
 }
 
 export interface SignUpCredentials {
@@ -79,6 +83,8 @@ export interface SignUpCredentials {
   lastName?: string;
   teamCode?: string;
   referralId?: string;
+  /** Skip auto-navigation after success (for biometric enrollment flow) */
+  skipNavigation?: boolean;
 }
 
 /**
@@ -118,6 +124,9 @@ export class AuthFlowService implements OnDestroy {
 
   /** Analytics adapter - mobile or memory based on platform */
   private readonly analytics: AnalyticsAdapter = this.createAnalyticsAdapter();
+
+  /** Crashlytics adapter for crash reporting with user context */
+  private readonly crashlytics: CrashlyticsAdapter = inject(GLOBAL_CRASHLYTICS);
 
   /**
    * Core Auth State Manager - Same pattern as web app
@@ -202,6 +211,21 @@ export class AuthFlowService implements OnDestroy {
       animated: true,
       animationDirection: 'forward',
     });
+  }
+
+  /**
+   * Navigate to the appropriate post-auth destination
+   * Call this after showing biometric enrollment prompt
+   */
+  async navigateToPostAuthDestination(): Promise<void> {
+    const redirectPath = this.hasCompletedOnboarding()
+      ? AUTH_REDIRECTS.DEFAULT
+      : AUTH_REDIRECTS.ONBOARDING;
+    if (this.hasCompletedOnboarding()) {
+      await this.navigateRoot(redirectPath);
+    } else {
+      await this.navigateForward(redirectPath);
+    }
   }
 
   // ============================================
@@ -391,6 +415,20 @@ export class AuthFlowService implements OnDestroy {
       };
 
       await this.authManager.setUser(authUser);
+
+      // Set crashlytics user context for crash attribution
+      const crashUser: CrashUser = {
+        userId: authUser.uid,
+        email: authUser.email,
+        displayName: authUser.displayName,
+      };
+      await this.crashlytics.setUser(crashUser);
+      await this.crashlytics.setCustomKeys({
+        user_role: authUser.role,
+        is_premium: authUser.isPremium,
+        auth_provider: authUser.provider,
+      });
+
       this.logger.info('User state synced', {
         uid: authUser.uid,
         hasCompletedOnboarding: authUser.hasCompletedOnboarding,
@@ -467,14 +505,16 @@ export class AuthFlowService implements OnDestroy {
         });
       }
 
-      // Navigate to appropriate screen using constants
-      const redirectPath = this.hasCompletedOnboarding()
-        ? AUTH_REDIRECTS.DEFAULT
-        : AUTH_REDIRECTS.ONBOARDING;
-      if (this.hasCompletedOnboarding()) {
-        await this.navigateRoot(redirectPath);
-      } else {
-        await this.navigateForward(redirectPath);
+      // Navigate to appropriate screen (unless skipNavigation is set)
+      if (!credentials.skipNavigation) {
+        const redirectPath = this.hasCompletedOnboarding()
+          ? AUTH_REDIRECTS.DEFAULT
+          : AUTH_REDIRECTS.ONBOARDING;
+        if (this.hasCompletedOnboarding()) {
+          await this.navigateRoot(redirectPath);
+        } else {
+          await this.navigateForward(redirectPath);
+        }
       }
 
       return true;
@@ -497,15 +537,22 @@ export class AuthFlowService implements OnDestroy {
    * Sign in with Google
    */
   async signInWithGoogle(): Promise<boolean> {
+    console.debug('[AuthFlowService] signInWithGoogle started');
     this.authManager.setLoading(true);
     this.authManager.setError(null);
 
     try {
+      console.debug('[AuthFlowService] Calling firebaseAuth.signInWithGoogle()...');
       const result = await this.firebaseAuth.signInWithGoogle();
+      console.debug('[AuthFlowService] Firebase sign-in result:', {
+        uid: result.user.uid,
+        email: result.user.email,
+      });
 
       // Check if new user
       // @ts-expect-error additionalUserInfo is on the result
       const isNewUser = result._tokenResponse?.isNewUser ?? false;
+      console.debug('[AuthFlowService] isNewUser:', isNewUser);
 
       // Track analytics
       this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
@@ -514,7 +561,9 @@ export class AuthFlowService implements OnDestroy {
       this.analytics.setUserId(result.user.uid);
 
       // Get token
+      console.debug('[AuthFlowService] Getting ID token...');
       const token = await result.user.getIdToken();
+      console.debug('[AuthFlowService] Got token, length:', token.length);
       this.httpAdapter.setAuthToken(token);
       await this.authManager.setToken({
         token,
@@ -523,6 +572,7 @@ export class AuthFlowService implements OnDestroy {
       });
 
       if (isNewUser) {
+        console.debug('[AuthFlowService] New user - creating in backend...');
         // Create user in backend
         await this.authApi.createUser({
           uid: result.user.uid,
@@ -530,8 +580,10 @@ export class AuthFlowService implements OnDestroy {
         });
         // Set user state BEFORE navigating (required for onboarding page)
         await this.syncUserProfile(result.user.uid);
+        console.debug('[AuthFlowService] Navigating to onboarding...');
         await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
       } else {
+        console.debug('[AuthFlowService] Existing user - syncing profile...');
         await this.syncUserProfile(result.user.uid);
         // Set user properties after sync
         const user = this.user();
@@ -545,6 +597,12 @@ export class AuthFlowService implements OnDestroy {
         const redirectPath = this.hasCompletedOnboarding()
           ? AUTH_REDIRECTS.DEFAULT
           : AUTH_REDIRECTS.ONBOARDING;
+        console.debug(
+          '[AuthFlowService] Navigating to:',
+          redirectPath,
+          'hasCompletedOnboarding:',
+          this.hasCompletedOnboarding()
+        );
         if (this.hasCompletedOnboarding()) {
           await this.navigateRoot(redirectPath);
         } else {
@@ -552,8 +610,10 @@ export class AuthFlowService implements OnDestroy {
         }
       }
 
+      console.debug('[AuthFlowService] Google sign-in complete, returning true');
       return true;
     } catch (err) {
+      console.error('[AuthFlowService] Google sign-in error:', err);
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
         method: AUTH_METHODS.GOOGLE,
         error_code: getAuthErrorCode(err) ?? 'unknown',
@@ -712,7 +772,6 @@ export class AuthFlowService implements OnDestroy {
    * Sign up with email and password
    */
   async signUpWithEmail(credentials: SignUpCredentials): Promise<boolean> {
-    console.log('[AuthFlowService] signUpWithEmail starting', { email: credentials.email });
     // Set flag to prevent auth state listener from calling syncUserProfile
     // before we create the backend user (via core state manager)
     this.authManager.setSignupInProgress(true);
@@ -721,12 +780,10 @@ export class AuthFlowService implements OnDestroy {
 
     try {
       // Create Firebase user
-      console.log('[AuthFlowService] Creating Firebase user...');
       const result = await this.firebaseAuth.createUserWithEmail(
         credentials.email,
         credentials.password
       );
-      console.log('[AuthFlowService] Firebase user created', { uid: result.user.uid });
 
       try {
         // Track signup analytics
@@ -742,14 +799,11 @@ export class AuthFlowService implements OnDestroy {
           const displayName = [credentials.firstName, credentials.lastName]
             .filter(Boolean)
             .join(' ');
-          console.log('[AuthFlowService] Updating display name', { displayName });
           await this.firebaseAuth.updateUserProfile(displayName);
         }
 
-        // Get token
-        console.log('[AuthFlowService] Getting Firebase ID token...');
+        // Get token and set on HTTP adapter
         const token = await result.user.getIdToken();
-        console.log('[AuthFlowService] Got token, setting on HTTP adapter');
         this.httpAdapter.setAuthToken(token);
         await this.authManager.setToken({
           token,
@@ -758,18 +812,12 @@ export class AuthFlowService implements OnDestroy {
         });
 
         // Create user in backend
-        console.log('[AuthFlowService] Creating backend user...', {
-          uid: result.user.uid,
-          email: credentials.email,
-          teamCode: credentials.teamCode,
-        });
         const createResult = await this.authApi.createUser({
           uid: result.user.uid,
           email: credentials.email,
           teamCode: credentials.teamCode,
           referralId: credentials.referralId,
         });
-        console.log('[AuthFlowService] Backend user created', { createResult });
 
         if (!createResult.success) {
           throw new Error(
@@ -778,13 +826,12 @@ export class AuthFlowService implements OnDestroy {
         }
 
         // Set user state BEFORE navigating (required for onboarding page)
-        console.log('[AuthFlowService] Syncing user profile...');
         await this.syncUserProfile(result.user.uid);
 
-        // Navigate to onboarding
-        console.log('[AuthFlowService] Navigating to onboarding');
-        await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
-        console.log('[AuthFlowService] signUpWithEmail success');
+        // Navigate to onboarding (unless skipNavigation is set)
+        if (!credentials.skipNavigation) {
+          await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
+        }
         return true;
       } finally {
         // Always clear flag to prevent state leaks (via core state manager)
@@ -853,6 +900,9 @@ export class AuthFlowService implements OnDestroy {
       // Track sign out before clearing user
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_OUT);
       this.analytics.clearUser();
+
+      // Clear crashlytics user context
+      await this.crashlytics.clearUser();
 
       await this.firebaseAuth.signOut();
       this.httpAdapter.setAuthToken(null);

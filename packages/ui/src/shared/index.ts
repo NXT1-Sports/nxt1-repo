@@ -26,3 +26,12 @@ export { NxtFormFieldComponent } from './form-field';
 export { NxtTeamLogoPickerComponent } from './team-logo-picker';
 
 export { NxtColorPickerComponent } from './color-picker';
+
+export {
+  NxtBottomSheetComponent,
+  NxtBottomSheetService,
+  type BottomSheetAction,
+  type BottomSheetConfig,
+  type BottomSheetResult,
+  type BottomSheetVariant,
+} from './bottom-sheet';

@@ -71,6 +71,20 @@ export {
   type TeamCodeValidationState,
   type ValidatedTeamInfo,
 } from './auth/auth-team-code';
+export { AuthBiometricPromptComponent } from './auth/auth-biometric-prompt';
+export {
+  AuthBiometricButtonComponent,
+  type BiometryButtonType,
+} from './auth/auth-biometric-button';
+
+// Biometric Prompt Service (2026 Native-Style Modal)
+export {
+  BiometricPromptService,
+  BiometricPromptContentComponent,
+  type BiometryDisplayType,
+  type BiometricPromptConfig,
+  type BiometricPromptResult,
+} from './auth/biometric-prompt';
 
 // ============================================
 // SHARED COMPONENTS
@@ -97,6 +111,18 @@ export {
 export { NxtFormFieldComponent } from './shared/form-field';
 export { NxtTeamLogoPickerComponent } from './shared/team-logo-picker';
 export { NxtColorPickerComponent } from './shared/color-picker';
+
+// ============================================
+// BOTTOM SHEET (2026 Native-Style Modal)
+// ============================================
+export {
+  NxtBottomSheetComponent,
+  NxtBottomSheetService,
+  type BottomSheetAction,
+  type BottomSheetConfig,
+  type BottomSheetResult,
+  type BottomSheetVariant,
+} from './shared/bottom-sheet';
 
 // ============================================
 // UNIFIED PICKER SYSTEM
@@ -161,11 +187,22 @@ export {
 export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './services/logging';
 
 // ============================================
+// BREADCRUMB TRACKING (Crashlytics Integration)
+// ============================================
+export {
+  NxtBreadcrumbService,
+  NxtTrackClickDirective,
+  NxtTrackFormDirective,
+  NxtTrackVisibleDirective,
+} from './services/breadcrumb';
+
+// ============================================
 // INFRASTRUCTURE - Error Handling
 // ============================================
 export {
   GlobalErrorHandler,
   GLOBAL_ERROR_LOGGER,
+  GLOBAL_CRASHLYTICS,
   type ErrorSeverity,
   ERROR_MESSAGES,
 } from './infrastructure/error-handling';

@@ -11,6 +11,13 @@
 
 import { defineConfig, devices } from '@playwright/test';
 import path from 'path';
+import dotenv from 'dotenv';
+
+/**
+ * Load environment variables from .env file
+ * Must be done before accessing process.env
+ */
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 /**
  * Environment configuration

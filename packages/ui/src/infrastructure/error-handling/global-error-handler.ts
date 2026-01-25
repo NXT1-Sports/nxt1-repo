@@ -5,12 +5,14 @@
  * Enterprise-grade global error handler for Angular applications.
  * Catches all unhandled errors and provides:
  * - Centralized error logging (via optional ILogger injection)
+ * - Firebase Crashlytics integration (via optional CrashlyticsAdapter injection)
  * - User-friendly toast notifications
  * - Error tracking/analytics integration
  * - Chunk load error recovery (lazy loading failures)
+ * - PII scrubbing for GDPR/CCPA compliance
  *
  * @author NXT1 Engineering
- * @version 2.0.0
+ * @version 3.1.0
  */
 
 import {
@@ -24,6 +26,13 @@ import {
 import { isPlatformBrowser } from '@angular/common';
 import { parseApiError, isNxtApiError, API_ERROR_CODES } from '@nxt1/core/errors';
 import type { ILogger } from '@nxt1/core/logging';
+import type {
+  CrashlyticsAdapter,
+  CrashSeverity,
+  CrashCategory,
+  AppError,
+} from '@nxt1/core/crashlytics';
+import { createAppError, scrubString, scrubStackTrace } from '@nxt1/core/crashlytics';
 import { NxtToastService } from '../../services/toast';
 
 // ============================================
@@ -45,6 +54,28 @@ import { NxtToastService } from '../../services/toast';
  * If not provided, falls back to console logging.
  */
 export const GLOBAL_ERROR_LOGGER = new InjectionToken<ILogger>('GLOBAL_ERROR_LOGGER');
+
+/**
+ * Injection token for providing a Crashlytics adapter to GlobalErrorHandler.
+ *
+ * Apps provide their platform-specific CrashlyticsService:
+ * ```typescript
+ * // Mobile app.config.ts
+ * providers: [
+ *   { provide: GLOBAL_CRASHLYTICS, useExisting: CrashlyticsService },
+ *   { provide: ErrorHandler, useClass: GlobalErrorHandler },
+ * ]
+ *
+ * // Web app.config.ts
+ * providers: [
+ *   { provide: GLOBAL_CRASHLYTICS, useExisting: CrashlyticsService },
+ *   { provide: ErrorHandler, useClass: GlobalErrorHandler },
+ * ]
+ * ```
+ *
+ * If not provided, crashlytics reporting is skipped.
+ */
+export const GLOBAL_CRASHLYTICS = new InjectionToken<CrashlyticsAdapter>('GLOBAL_CRASHLYTICS');
 
 // ============================================
 // EXPORTED TYPES & CONSTANTS
@@ -119,6 +150,9 @@ export class GlobalErrorHandler implements ErrorHandler {
 
   /** Optional structured logger - falls back to console if not provided */
   private readonly injectedLogger = inject(GLOBAL_ERROR_LOGGER, { optional: true });
+
+  /** Optional Crashlytics adapter for crash reporting */
+  private readonly crashlytics = inject(GLOBAL_CRASHLYTICS, { optional: true });
 
   /** Track chunk errors to prevent infinite reload loops */
   private chunkErrorCount = 0;
@@ -375,28 +409,135 @@ export class GlobalErrorHandler implements ErrorHandler {
   }
 
   /**
-   * Report error to external monitoring service
-   * TODO: Integrate with Sentry, Datadog, or similar
+   * Report error to Firebase Crashlytics
+   *
+   * Integrates with the injected CrashlyticsAdapter to send crash reports.
+   * Falls back gracefully if no adapter is provided.
    */
-  private reportError(_details: ErrorDetails, severity: ErrorSeverity): void {
-    // Skip reporting for warnings
-    if (severity === 'warning' || severity === 'info') return;
+  private reportError(details: ErrorDetails, severity: ErrorSeverity): void {
+    // Skip reporting for info-level errors
+    if (severity === 'info') return;
 
-    // TODO: Integrate with error monitoring service
-    // Example Sentry integration:
-    // Sentry.captureException(new Error(_details.message), {
-    //   level: severity,
-    //   tags: { code: _details.code },
-    //   extra: _details,
-    // });
-
-    // For now, we can track via Firebase Analytics if needed
-    if (isPlatformBrowser(this.platformId)) {
-      // gtag('event', 'exception', {
-      //   description: _details.message,
-      //   fatal: severity === 'fatal',
-      // });
+    // Report to Crashlytics if available
+    if (this.crashlytics?.isReady()) {
+      this.reportToCrashlytics(details, severity);
     }
+  }
+
+  /**
+   * Send error to Crashlytics with full context
+   * Includes PII scrubbing for GDPR/CCPA compliance.
+   */
+  private async reportToCrashlytics(details: ErrorDetails, severity: ErrorSeverity): Promise<void> {
+    if (!this.crashlytics) return;
+
+    try {
+      // Map severity to Crashlytics severity
+      const crashSeverity: CrashSeverity =
+        severity === 'fatal'
+          ? 'fatal'
+          : severity === 'error'
+            ? 'error'
+            : severity === 'warning'
+              ? 'warning'
+              : 'info';
+
+      // Determine error category
+      const category = this.determineCategory(details);
+
+      // Scrub PII from message and stack trace
+      const scrubbedMessage = scrubString(details.message);
+      const scrubbedStack = details.stack ? scrubStackTrace(details.stack) : undefined;
+      const scrubbedUrl = details.url ? scrubString(details.url) : undefined;
+
+      // Record the exception with scrubbed data
+      await this.crashlytics.recordException({
+        message: scrubbedMessage,
+        code: details.code,
+        name: details.name,
+        stacktrace: scrubbedStack,
+        severity: crashSeverity,
+        category,
+        context: {
+          url: scrubbedUrl,
+          timestamp: details.timestamp,
+        },
+      });
+
+      // Add breadcrumb for context (also scrubbed)
+      await this.crashlytics.addBreadcrumb({
+        type: 'error',
+        message: `Error handled: ${scrubbedMessage.substring(0, 100)}`,
+        data: {
+          code: details.code,
+          severity: crashSeverity,
+          url: scrubbedUrl,
+        },
+      });
+    } catch (crashError) {
+      // Don't let Crashlytics errors cause more problems
+      console.error('[GlobalErrorHandler] Failed to report to Crashlytics:', crashError);
+    }
+  }
+
+  /**
+   * Determine the error category for Crashlytics
+   */
+  private determineCategory(details: ErrorDetails): CrashCategory {
+    const message = details.message.toLowerCase();
+    const code = details.code?.toLowerCase() ?? '';
+
+    // Network errors
+    if (
+      message.includes('network') ||
+      message.includes('fetch') ||
+      message.includes('http') ||
+      code.includes('network')
+    ) {
+      return 'network';
+    }
+
+    // Auth errors
+    if (
+      message.includes('auth') ||
+      message.includes('unauthorized') ||
+      message.includes('forbidden') ||
+      code.includes('auth')
+    ) {
+      return 'authentication';
+    }
+
+    // Navigation/routing errors
+    if (
+      message.includes('route') ||
+      message.includes('navigate') ||
+      message.includes('chunk') ||
+      code.includes('route')
+    ) {
+      return 'navigation';
+    }
+
+    // Storage errors
+    if (message.includes('storage') || message.includes('quota') || message.includes('indexeddb')) {
+      return 'storage';
+    }
+
+    // Payment errors
+    if (
+      message.includes('payment') ||
+      message.includes('stripe') ||
+      message.includes('subscription')
+    ) {
+      return 'payment';
+    }
+
+    // Media errors
+    if (message.includes('image') || message.includes('video') || message.includes('media')) {
+      return 'media';
+    }
+
+    // Default to javascript error
+    return 'javascript';
   }
 
   /**

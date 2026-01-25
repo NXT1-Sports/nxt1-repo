@@ -9,7 +9,7 @@
 import { Component, afterNextRender, inject, effect } from '@angular/core';
 import { Router, NavigationEnd } from '@angular/router';
 import { IonApp, IonRouterOutlet, Platform } from '@ionic/angular/standalone';
-import { NxtPlatformService, NxtLoggingService } from '@nxt1/ui';
+import { NxtPlatformService, NxtLoggingService, NxtBreadcrumbService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import { NativeAppService, ThemeService } from './core/services';
 import { BiometricService, AuthFlowService } from './features/auth/services';
@@ -37,6 +37,7 @@ export class AppComponent {
   private readonly theme = inject(ThemeService);
   private readonly authFlow = inject(AuthFlowService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('AppComponent');
+  private readonly breadcrumbs = inject(NxtBreadcrumbService);
 
   /** Track if we've performed initial navigation */
   private hasPerformedInitialNavigation = false;
@@ -118,6 +119,10 @@ export class AppComponent {
   private async initializeApp(): Promise<void> {
     try {
       this.logger.info('Initializing app...');
+
+      // Initialize breadcrumb tracking for crashlytics context (early as possible)
+      this.breadcrumbs.initialize();
+
       await this.ionicPlatform.ready();
       this.logger.debug('Platform ready');
 
@@ -126,9 +131,9 @@ export class AppComponent {
         // Dark theme status bar
         statusBarColor: '#0a0a0a',
         statusBarStyle: 'light',
-        // Keyboard behavior - 'body' mode resizes the body element (2026 best practice)
-        keyboardResize: 'body',
-        keyboardAccessoryBarHidden: true, // Clean pro look - hide accessory bar
+        // Keyboard behavior - 'ionic' lets Ionic handle scrolling with ion-content
+        keyboardResize: 'ionic',
+        keyboardAccessoryBarHidden: true, // Hide accessory bar for clean look
         // Lifecycle handlers
         onPause: () => this.logger.debug('Backgrounded'),
         onResume: () => {

@@ -65,6 +65,7 @@ export type GeolocationErrorCode =
   | 'POSITION_UNAVAILABLE'
   | 'TIMEOUT'
   | 'NOT_SUPPORTED'
+  | 'SERVICES_DISABLED'
   | 'UNKNOWN';
 
 /**
@@ -251,6 +252,7 @@ export function createGeolocationError(
     POSITION_UNAVAILABLE: 'Location information is unavailable',
     TIMEOUT: 'Location request timed out',
     NOT_SUPPORTED: 'Geolocation is not supported on this device',
+    SERVICES_DISABLED: 'Location services are disabled. Please enable in Settings.',
     UNKNOWN: 'An unknown error occurred',
   };
 

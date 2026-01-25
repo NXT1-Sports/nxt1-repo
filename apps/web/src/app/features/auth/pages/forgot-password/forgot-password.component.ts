@@ -1,148 +1,305 @@
 /**
- * @fileoverview Forgot Password Component - Using Shared Auth Components
+ * @fileoverview Forgot Password Component - Professional Password Reset UI
  * @module @nxt1/web
  *
  * Professional password reset page using shared auth components from @nxt1/ui.
- * Demonstrates cross-platform code sharing between web and mobile.
+ * Uses Ionic components and design tokens for 100% consistency with other auth pages.
+ *
+ * Route: /auth/forgot-password
  *
  * ⭐ MATCHES MOBILE'S forgot-password.page.ts INTERFACE ⭐
+ * ⭐ USES SHARED COMPONENTS FROM @nxt1/ui ⭐
  */
 
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router, RouterModule } from '@angular/router';
+import { IonButton } from '@ionic/angular/standalone';
 import { AuthShellComponent, AuthEmailFormComponent, type AuthEmailFormData } from '@nxt1/ui';
-import { IonButton, IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { arrowBackOutline, checkmarkCircleOutline } from 'ionicons/icons';
+import { NxtIconComponent } from '@nxt1/ui';
+import { AuthNavigationService } from '@nxt1/ui/services';
 import { AuthFlowService } from '../../services';
 import { SeoService } from '../../../../core/services';
 
 @Component({
   selector: 'app-forgot-password',
   standalone: true,
-  imports: [
-    CommonModule,
-    RouterModule,
-    AuthShellComponent,
-    AuthEmailFormComponent,
-    IonButton,
-    IonIcon,
-  ],
+  imports: [CommonModule, IonButton, AuthShellComponent, AuthEmailFormComponent, NxtIconComponent],
   template: `
-    <div data-testid="forgot-password-page">
-      <nxt1-auth-shell variant="card-glass" [showBackButton]="true" (backClick)="onBackClick()">
-        <!-- Title - Conditionally rendered -->
-        <ng-container authTitle>
-          @if (emailSent()) {
-            <h1
-              class="text-text-primary text-2xl font-bold"
-              data-testid="forgot-password-success-title"
-            >
-              Check Your Email
-            </h1>
-          } @else {
-            <h1 class="text-text-primary text-2xl font-bold" data-testid="forgot-password-title">
-              Reset Password
-            </h1>
-          }
-        </ng-container>
+    <nxt1-auth-shell
+      variant="card-glass"
+      [showBackButton]="!emailSent()"
+      [showLogo]="true"
+      [maxWidth]="'440px'"
+      (backClick)="onBackClick()"
+    >
+      <!-- Title -->
+      <h1
+        authTitle
+        class="text-text-primary text-2xl font-bold"
+        [attr.data-testid]="emailSent() ? 'forgot-password-success-title' : 'forgot-password-title'"
+      >
+        {{ emailSent() ? 'Check Your Email' : 'Reset Password' }}
+      </h1>
 
-        <!-- Subtitle - Conditionally rendered -->
-        <ng-container authSubtitle>
-          @if (emailSent()) {
-            <p
-              class="text-text-secondary mb-2 text-sm"
-              data-testid="forgot-password-success-subtitle"
-            >
-              We've sent reset instructions to {{ sentEmail() }}
-            </p>
-          } @else {
-            <p class="text-text-secondary mb-2 text-sm" data-testid="forgot-password-subtitle">
-              Enter your email to receive a reset link
-            </p>
-          }
-        </ng-container>
+      <!-- Subtitle -->
+      <p
+        authSubtitle
+        class="text-text-secondary mb-2 text-sm"
+        [attr.data-testid]="
+          emailSent() ? 'forgot-password-success-subtitle' : 'forgot-password-subtitle'
+        "
+      >
+        @if (emailSent()) {
+          We've sent reset instructions to
+          <strong class="text-text-primary font-semibold">{{ sentEmail() }}</strong>
+        } @else {
+          Enter your email and we'll send you a link to reset your password
+        }
+      </p>
 
-        <!-- Content - Conditionally rendered -->
-        <ng-container authContent>
-          @if (emailSent()) {
-            <div
-              class="flex flex-col items-center gap-6 py-4"
-              data-testid="forgot-password-success"
-            >
-              <div
-                class="bg-feedback-success/10 flex h-20 w-20 items-center justify-center rounded-full"
-                data-testid="forgot-password-success-icon"
-              >
-                <ion-icon
-                  name="checkmark-circle-outline"
-                  class="text-feedback-success text-5xl"
-                ></ion-icon>
-              </div>
+      <!-- Main Content -->
+      <div authContent>
+        @if (emailSent()) {
+          <!-- Success State -->
+          <div class="success-container" data-testid="forgot-password-success">
+            <!-- Success Icon -->
+            <div class="success-icon" data-testid="forgot-password-success-icon">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" />
+                <path
+                  d="M8 12l2.5 2.5L16 9"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
 
-              <p
-                class="text-text-tertiary text-center text-sm"
-                data-testid="forgot-password-success-message"
-              >
-                Didn't receive the email? Check your spam folder or
-                <button type="button" class="text-primary hover:underline" (click)="resetForm()">
-                  try again
-                </button>
+            <!-- Instructions -->
+            <div class="instructions-box">
+              <p class="text-text-secondary text-sm">
+                Click the link in your email to reset your password.
               </p>
+              <p class="text-text-tertiary mt-1 text-xs">
+                If you don't see it, check your spam folder.
+              </p>
+            </div>
 
-              <ion-button
-                expand="block"
-                class="w-full"
-                routerLink="/auth"
-                data-testid="forgot-password-btn-back-to-login"
+            <!-- Try Again Button (Secondary) -->
+            <ion-button
+              fill="outline"
+              expand="block"
+              class="action-btn"
+              (click)="resetForm()"
+              data-testid="forgot-password-try-again"
+            >
+              <svg
+                slot="start"
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="currentColor"
+                aria-hidden="true"
               >
-                Back to Sign In
-              </ion-button>
-            </div>
-          } @else {
-            <div data-testid="forgot-password-form">
-              <nxt1-auth-email-form
-                mode="reset"
-                [loading]="authFlow.isLoading()"
-                [error]="authFlow.error()"
-                [showForgotPassword]="false"
-                (submitForm)="onSubmit($event)"
-              />
-            </div>
-          }
-        </ng-container>
+                <path
+                  d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+                />
+              </svg>
+              <span>Didn't receive it? Try again</span>
+            </ion-button>
 
-        <!-- Footer -->
-        <p authFooter data-testid="forgot-password-footer">
-          <a
-            routerLink="/auth"
-            class="text-primary hover:text-primaryLight inline-flex items-center gap-2 text-sm transition-colors"
+            <!-- Back to Sign In Button (Primary) -->
+            <ion-button
+              expand="block"
+              class="action-btn action-btn--primary"
+              (click)="goToSignIn()"
+              data-testid="forgot-password-btn-back-to-login"
+            >
+              <span>Back to Sign In</span>
+              <nxt1-icon name="arrowRight" size="18" slot="end" aria-hidden="true" />
+            </ion-button>
+          </div>
+        } @else {
+          <!-- Request State - Form Only (matches auth.component.ts pattern) -->
+          <nxt1-auth-email-form
+            mode="reset"
+            [loading]="authFlow.isLoading()"
+            [error]="authFlow.error()"
+            [showForgotPassword]="false"
+            (submitForm)="onSubmit($event)"
+            data-testid="forgot-password-form"
+          />
+        }
+      </div>
+
+      <!-- Footer -->
+      <div authFooter class="footer-container" data-testid="forgot-password-footer">
+        @if (!emailSent()) {
+          <ion-button
+            fill="clear"
+            class="back-link"
+            (click)="goToSignIn()"
             data-testid="forgot-password-link-back"
           >
-            <ion-icon name="arrow-back-outline" class="text-lg"></ion-icon>
-            Back to Sign In
-          </a>
-        </p>
-      </nxt1-auth-shell>
-    </div>
+            <nxt1-icon name="chevronLeft" size="16" slot="start" aria-hidden="true" />
+            <span>Back to Sign In</span>
+          </ion-button>
+        }
+      </div>
+    </nxt1-auth-shell>
   `,
+  styles: [
+    `
+      :host {
+        display: block;
+        height: 100%;
+      }
+
+      /* ============================================ */
+      /* SUCCESS STATE                               */
+      /* ============================================ */
+      .success-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-4);
+        padding: var(--nxt1-spacing-4) 0;
+        width: 100%;
+      }
+
+      .success-icon {
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: linear-gradient(
+          135deg,
+          var(--nxt1-color-success) 0%,
+          var(--nxt1-color-successDark, #059669) 100%
+        );
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        animation: scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+
+      .success-icon svg {
+        width: 40px;
+        height: 40px;
+      }
+
+      @keyframes scaleIn {
+        from {
+          transform: scale(0.5);
+          opacity: 0;
+        }
+        to {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+
+      /* Instructions Box */
+      .instructions-box {
+        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: var(--nxt1-borderRadius-lg);
+        padding: var(--nxt1-spacing-4);
+        width: 100%;
+        max-width: 320px;
+        text-align: center;
+      }
+
+      /* ============================================ */
+      /* ACTION BUTTONS - Using Ionic + Design Tokens */
+      /* ============================================ */
+      .action-btn {
+        --border-radius: var(--nxt1-borderRadius-lg);
+        --padding-start: var(--nxt1-spacing-4);
+        --padding-end: var(--nxt1-spacing-4);
+        --box-shadow: none;
+        --background: transparent;
+        --background-hover: var(--nxt1-color-state-hover);
+        --background-activated: var(--nxt1-color-state-pressed);
+        --border-color: var(--nxt1-color-primary);
+        --border-width: 2px;
+        --color: var(--nxt1-color-primary);
+        width: 100%;
+        max-width: 320px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
+        font-weight: 600;
+        text-transform: none;
+        letter-spacing: normal;
+        margin: 0;
+      }
+
+      .action-btn::part(native) {
+        min-height: 52px;
+        transition: all var(--nxt1-duration-normal) ease-out;
+      }
+
+      /* Primary Button (Filled) */
+      .action-btn--primary {
+        --background: var(--nxt1-color-primary);
+        --background-hover: var(--nxt1-color-primaryDark);
+        --background-activated: var(--nxt1-color-primaryDark);
+        --border-width: 0;
+        --color: var(--nxt1-color-text-onPrimary);
+      }
+
+      .action-btn--primary:hover::part(native) {
+        transform: translateY(-1px);
+      }
+
+      /* ============================================ */
+      /* FOOTER                                      */
+      /* ============================================ */
+      .footer-container {
+        display: flex;
+        justify-content: center;
+        width: 100%;
+      }
+
+      /* Back Link - Clear Button Style */
+      .back-link {
+        --background: transparent;
+        --background-hover: transparent;
+        --background-activated: transparent;
+        --color: var(--nxt1-color-primary);
+        --padding-start: var(--nxt1-spacing-2);
+        --padding-end: var(--nxt1-spacing-2);
+        font-family: var(--nxt1-fontFamily-body);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+        text-transform: none;
+        letter-spacing: normal;
+        margin: 0;
+      }
+
+      .back-link::part(native) {
+        padding: var(--nxt1-spacing-2);
+        min-height: auto;
+        transition: opacity var(--nxt1-duration-fast) ease;
+      }
+
+      .back-link:hover::part(native) {
+        opacity: 0.8;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ForgotPasswordComponent implements OnInit {
   protected readonly authFlow = inject(AuthFlowService);
-  private readonly router = inject(Router);
+  private readonly nav = inject(AuthNavigationService);
   private readonly seo = inject(SeoService);
 
   readonly emailSent = signal(false);
   readonly sentEmail = signal('');
 
-  constructor() {
-    addIcons({ arrowBackOutline, checkmarkCircleOutline });
-  }
-
   ngOnInit(): void {
-    // Set SEO metadata for password reset page
     this.seo.updatePage({
       title: 'Reset Password',
       description:
@@ -152,7 +309,11 @@ export class ForgotPasswordComponent implements OnInit {
   }
 
   onBackClick(): void {
-    this.router.navigate(['/auth']);
+    this.nav.navigateBack('/auth');
+  }
+
+  goToSignIn(): void {
+    this.nav.navigateBack('/auth');
   }
 
   resetForm(): void {

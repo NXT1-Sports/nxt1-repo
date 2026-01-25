@@ -311,6 +311,8 @@ export const APP_EVENTS = {
   AUTH_SIGNED_UP: 'auth_signed_up',
   /** Password reset requested */
   AUTH_PASSWORD_RESET: 'auth_password_reset',
+  /** Verification email sent */
+  AUTH_VERIFICATION_EMAIL_SENT: 'auth_verification_email_sent',
   /** Email verified */
   AUTH_EMAIL_VERIFIED: 'auth_email_verified',
   /** Sign-up flow started (before completion) */

@@ -732,18 +732,40 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   /**
    * Handle location detection request from profile step.
    * Uses browser geolocation + Nominatim reverse geocoding.
+   *
+   * 2026 Best Practices:
+   * - Check permission status before requesting
+   * - Provide user-friendly error messages
+   * - Handle secure context (HTTPS) requirement
    */
   async onLocationRequest(): Promise<void> {
-    console.info('[Onboarding] Location detection requested');
+    this.logger.info('Location detection requested');
 
-    // Check if geolocation is supported
+    // Check if geolocation is supported (includes HTTPS check)
     if (!this.geolocationService.isSupported()) {
-      this.profileStepRef?.setLocationError('Location detection is not supported on this device');
+      const errorMessage =
+        typeof window !== 'undefined' && !window.isSecureContext
+          ? 'Location requires a secure connection (HTTPS). Please access the site via HTTPS.'
+          : 'Location detection is not supported on this device or browser.';
+      this.profileStepRef?.setLocationError(errorMessage);
+      this.logger.warn('Geolocation not supported', { isSecureContext: window?.isSecureContext });
       return;
     }
 
     try {
-      // Request location with quick settings (coarse location is sufficient)
+      // Check current permission status first
+      const permissionStatus = await this.geolocationService.checkPermission();
+      this.logger.debug('Permission status', { status: permissionStatus });
+
+      // If permission is denied, show helpful message
+      if (permissionStatus === 'denied') {
+        this.profileStepRef?.setLocationError(
+          'Location access was previously denied. Please enable location in your browser settings and try again.'
+        );
+        return;
+      }
+
+      // Request location with quick settings (coarse location is sufficient for city/state)
       const result = await this.geolocationService.getCurrentLocation(GEOLOCATION_DEFAULTS.QUICK);
 
       if (result.success) {
@@ -777,18 +799,25 @@ export class OnboardingComponent implements OnInit, OnDestroy {
           state: address?.state,
         });
       } else {
-        // Handle error
-        let errorMessage = 'Unable to detect location';
+        // Handle error with user-friendly messages
+        let errorMessage = result.error.message || 'Unable to detect location';
 
+        // Provide specific guidance based on error code
         switch (result.error.code) {
           case 'PERMISSION_DENIED':
-            errorMessage = 'Location permission denied. Please enable location access.';
+            errorMessage =
+              'Location permission denied. Please allow location access in your browser and try again.';
             break;
           case 'POSITION_UNAVAILABLE':
-            errorMessage = 'Location unavailable. Please try again.';
+            errorMessage =
+              'Unable to determine your location. Please check your internet connection and try again.';
             break;
           case 'TIMEOUT':
-            errorMessage = 'Location request timed out. Please try again.';
+            errorMessage =
+              'Location request timed out. Please try again or enter your location manually.';
+            break;
+          case 'NOT_SUPPORTED':
+            errorMessage = 'Location is not available. Please enter your location manually.';
             break;
         }
 
@@ -796,7 +825,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         this.logger.warn('Location detection failed', { error: result.error });
       }
     } catch (err) {
-      this.profileStepRef?.setLocationError('An error occurred detecting location');
+      this.profileStepRef?.setLocationError(
+        'An unexpected error occurred. Please try again or enter your location manually.'
+      );
       this.logger.error('Location detection error', err);
     }
   }

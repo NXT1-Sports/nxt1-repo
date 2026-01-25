@@ -165,10 +165,19 @@ export abstract class BasePage {
   // ===========================================================================
 
   /**
+   * Escape special regex characters in a string
+   */
+  protected escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /**
    * Assert that the page is loaded (URL matches)
    */
   async assertPageLoaded(): Promise<void> {
-    await expect(this.page).toHaveURL(new RegExp(this.url));
+    // Escape special regex characters in the URL path
+    const escapedUrl = this.escapeRegex(this.url);
+    await expect(this.page).toHaveURL(new RegExp(escapedUrl));
   }
 
   /**

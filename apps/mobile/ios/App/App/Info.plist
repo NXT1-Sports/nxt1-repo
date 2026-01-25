@@ -54,5 +54,42 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- Geolocation Permissions (Required for @capacitor/geolocation) -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>NXT1 uses your location to automatically detect your city and state for your athlete profile, and to help you discover nearby teams and events.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>NXT1 uses your location to automatically detect your city and state for your athlete profile, and to help you discover nearby teams and events.</string>
+	<!-- Camera Permissions (for profile photos) -->
+	<key>NSCameraUsageDescription</key>
+	<string>NXT1 needs camera access to take profile photos and capture highlight videos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>NXT1 needs photo library access to select profile photos and highlight videos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>NXT1 saves photos and videos to your photo library.</string>
+	<!-- Biometric Authentication (Face ID / Touch ID) -->
+	<key>NSFaceIDUsageDescription</key>
+	<string>NXT1 uses Face ID for quick and secure sign-in to your account.</string>
+	<!-- URL Schemes for OAuth Callbacks (Google Sign-In, Deep Links) -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<!-- Google Sign-In URL Scheme (REVERSED_CLIENT_ID from GoogleService-Info.plist) -->
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.455734259010-qagtsakkvchuf3tnbgjgitjj80e740ib</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>Google Sign-In</string>
+		</dict>
+		<!-- App Deep Link Scheme -->
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>nxt1</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>NXT1 Deep Links</string>
+		</dict>
+	</array>
 </dict>
 </plist>

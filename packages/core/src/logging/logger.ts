@@ -396,8 +396,10 @@ export function createNamespacedLogger(parent: ILogger, namespace: string): ILog
 // ============================================
 
 /**
- * No-op logger for testing or when logging is disabled
+ * No-op logger for testing or when logging is disabled.
+ * All methods intentionally do nothing.
  */
+/* eslint-disable @typescript-eslint/no-empty-function */
 export const nullLogger: ILogger = {
   debug: () => {},
   info: () => {},
@@ -409,3 +411,4 @@ export const nullLogger: ILogger = {
   clearContext: () => {},
   flush: () => Promise.resolve(),
 };
+/* eslint-enable @typescript-eslint/no-empty-function */

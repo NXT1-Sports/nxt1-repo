@@ -1,0 +1,104 @@
+/**
+ * @fileoverview Bottom Sheet Global Modal Styles
+ * @module @nxt1/ui/styles/components/bottom-sheet
+ * @version 1.0.0
+ *
+ * Global styles for NxtBottomSheet modal presentation.
+ * Uses 100% NXT1 design tokens for full theme awareness.
+ *
+ * Theme Support:
+ * - Dark (default)
+ * - Light
+ * - Sport themes (football, basketball, baseball, softball)
+ * - Team themes (dynamic CSS custom properties)
+ *
+ * Platform Support:
+ * - iOS: Sheet presentation with blur effect
+ * - Android: Material Design 3 elevation
+ */
+
+/* ============================================
+ * Bottom Sheet Modal - Base Styles
+ * ============================================ */
+.nxt1-bottom-sheet-modal {
+  --background: transparent;
+  --box-shadow: none;
+}
+
+.nxt1-bottom-sheet-modal::part(content) {
+  --background: transparent;
+}
+
+.nxt1-bottom-sheet-modal::part(backdrop) {
+  background: var(--nxt1-color-bg-overlay);
+  backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
+  -webkit-backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
+}
+
+/* ============================================
+ * Bottom Sheet Modal - iOS-Specific
+ * Apple HIG: 24px corner radius, system blur
+ * ============================================ */
+.nxt1-bottom-sheet-ios {
+  --border-radius: var(--nxt1-radius-2xl) var(--nxt1-radius-2xl) 0 0;
+  --max-height: auto;
+  --min-height: auto;
+
+  align-items: flex-end !important;
+}
+
+.nxt1-bottom-sheet-ios::part(content) {
+  border-radius: var(--nxt1-radius-2xl) var(--nxt1-radius-2xl) 0 0;
+  background: var(--nxt1-color-surface-200);
+  margin-top: auto;
+  max-height: 92vh;
+}
+
+.nxt1-bottom-sheet-ios::part(handle) {
+  display: none; /* Custom handle in component */
+}
+
+/* iOS: System blur effect for premium feel */
+@supports (backdrop-filter: blur(40px)) {
+  .nxt1-bottom-sheet-ios::part(content) {
+    background: var(--nxt1-color-surface-glass, rgba(28, 28, 30, 0.85));
+    backdrop-filter: blur(var(--nxt1-blur-xl, 40px));
+    -webkit-backdrop-filter: blur(var(--nxt1-blur-xl, 40px));
+  }
+}
+
+/* ============================================
+ * Bottom Sheet Modal - Android/Material
+ * Material Design 3: 28px corner radius, elevation
+ * ============================================ */
+.nxt1-bottom-sheet-android {
+  --border-radius: var(--nxt1-radius-3xl) var(--nxt1-radius-3xl) 0 0;
+  --max-height: auto;
+  --min-height: auto;
+
+  align-items: flex-end !important;
+}
+
+.nxt1-bottom-sheet-android::part(content) {
+  border-radius: var(--nxt1-radius-3xl) var(--nxt1-radius-3xl) 0 0;
+  background: var(--nxt1-color-surface-200);
+  margin-top: auto;
+  max-height: 92vh;
+  box-shadow: var(--nxt1-shadow-xl);
+}
+
+/* ============================================
+ * Animation
+ * ============================================ */
+.nxt1-bottom-sheet-modal.modal-sheet {
+  --animation-timing-function: var(--nxt1-easing-spring, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+/* ============================================
+ * Accessibility: Reduced Motion
+ * ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  .nxt1-bottom-sheet-modal {
+    --animation-duration: 0.01ms !important;
+  }
+}

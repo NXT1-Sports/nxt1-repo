@@ -4,12 +4,18 @@
  *
  * Professional unified authentication page using shared auth components from @nxt1/ui.
  * Combines login and signup functionality into a single seamless experience.
- * Features native iOS/Android haptic feedback.
+ * Features native iOS/Android haptic feedback and biometric authentication.
  *
  * Team Code Flow:
  * - /auth?code=ABC123 - Pre-validates team code and shows team info
  * - "Have a team code?" button - Opens team code input
  * - Validated team info persists through signup
+ *
+ * Biometric Flow (2026 Professional Standard):
+ * - AUTO-TRIGGERS Face ID/Touch ID on page load if enrolled (like Instagram, banking apps)
+ * - No visible biometric button - seamless automatic experience
+ * - After successful signup/login, prompts to enable biometric
+ * - User can toggle biometric on/off in settings
  *
  * Route: /auth
  *
@@ -45,10 +51,14 @@ import {
   type TeamCodeValidationState,
 } from '@nxt1/ui';
 import { AuthFlowService, AuthApiService } from '../../services';
+import { AuthNavigationService } from '@nxt1/ui/services';
 import { HapticsService } from '@nxt1/ui';
+import { BiometricService } from '../../../../services/biometric.service';
 import { isValidTeamCode } from '@nxt1/core';
 import type { ValidatedTeamInfo } from '@nxt1/core';
 import { AUTH_PAGE_TEST_IDS } from '@nxt1/core/testing';
+import { Preferences } from '@capacitor/preferences';
+import { environment } from '../../../../../environments/environment';
 
 @Component({
   selector: 'app-auth',
@@ -67,6 +77,22 @@ import { AUTH_PAGE_TEST_IDS } from '@nxt1/core/testing';
     AuthTeamCodeBannerComponent,
   ],
   template: `
+    <!-- DEV ONLY: Triple-tap area to reset onboarding state -->
+    @if (!environment.production) {
+      <div
+        class="dev-reset-area"
+        (click)="onDevTap()"
+        style="position: absolute; top: 0; left: 0; width: 100px; height: 50px; z-index: 9999;"
+      ></div>
+      <!-- DEV: Reset biometric button -->
+      <button
+        (click)="onResetBiometric()"
+        style="position: absolute; top: 60px; right: 10px; z-index: 9999; padding: 6px 12px; background: #ff6b6b; color: white; border: none; border-radius: 8px; font-size: 11px; font-weight: 600;"
+      >
+        Reset Bio
+      </button>
+    }
+
     <nxt1-auth-shell
       variant="card-glass"
       [showBackButton]="showEmailForm() || showTeamCodeInput()"
@@ -162,9 +188,20 @@ import { AUTH_PAGE_TEST_IDS } from '@nxt1/core/testing';
 })
 export class AuthPage implements OnInit {
   // ============================================
+  // DEV CONSTANTS
+  // ============================================
+  readonly environment = environment;
+
+  // ============================================
   // TEST ID CONSTANTS (for template access)
   // ============================================
   readonly AUTH_PAGE_TEST_IDS = AUTH_PAGE_TEST_IDS;
+
+  // ============================================
+  // DEV RESET STATE (triple-tap detection)
+  // ============================================
+  private devTapCount = 0;
+  private devTapTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ============================================
   // DEPENDENCIES
@@ -173,7 +210,9 @@ export class AuthPage implements OnInit {
   private readonly authApi = inject(AuthApiService);
   private readonly haptics = inject(HapticsService);
   private readonly router = inject(Router);
+  private readonly nav = inject(AuthNavigationService);
   private readonly route = inject(ActivatedRoute);
+  readonly biometricService = inject(BiometricService);
 
   // ============================================
   // AUTH STATE
@@ -184,6 +223,13 @@ export class AuthPage implements OnInit {
 
   /** Whether to show email form vs social buttons */
   readonly showEmailForm = signal(false);
+
+  // ============================================
+  // BIOMETRIC STATE
+  // ============================================
+
+  /** Whether biometric authentication is in progress */
+  readonly biometricAuthenticating = signal(false);
 
   // ============================================
   // TEAM CODE STATE
@@ -241,7 +287,10 @@ export class AuthPage implements OnInit {
   // LIFECYCLE
   // ============================================
 
-  ngOnInit(): void {
+  async ngOnInit(): Promise<void> {
+    // Initialize biometric and auto-trigger if enrolled (professional UX like Instagram/banking)
+    await this.initializeBiometricAndAutoTrigger();
+
     // Check for mode query param (e.g., ?mode=signup)
     const queryMode = this.route.snapshot.queryParamMap.get('mode');
     if (queryMode === 'signup') {
@@ -255,6 +304,76 @@ export class AuthPage implements OnInit {
       this.teamCodeInput = codeParam.toUpperCase();
       // Auto-validate the team code from URL
       this.onValidateTeamCode();
+    }
+  }
+
+  /**
+   * Initialize biometric and AUTO-TRIGGER if enrolled
+   *
+   * Professional UX (like Instagram, Chase, 1Password):
+   * - Immediately attempts Face ID/Touch ID on page load
+   * - If user cancels, they can use other auth methods
+   * - No visible button - seamless automatic experience
+   */
+  private async initializeBiometricAndAutoTrigger(): Promise<void> {
+    try {
+      const availability = await this.biometricService.initialize();
+      await this.biometricService.loadEnrollmentStatus();
+
+      console.log('[AuthPage] Biometric initialized:', {
+        available: this.biometricService.isAvailable(),
+        enrolled: this.biometricService.isEnrolled(),
+        type: this.biometricService.biometryType(),
+        name: this.biometricService.biometryName(),
+      });
+
+      // AUTO-TRIGGER: If enrolled, immediately attempt biometric login
+      if (this.biometricService.isReadyForLogin() && this.mode() === 'login') {
+        console.log('[AuthPage] Auto-triggering biometric authentication...');
+
+        // Small delay for page to render first
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        // Trigger biometric authentication automatically
+        await this.performBiometricLogin();
+      }
+    } catch (error) {
+      console.error('[AuthPage] Biometric initialization failed:', error);
+    }
+  }
+
+  /**
+   * Perform biometric authentication (used by auto-trigger)
+   * Silently handles cancellation - user can still use other auth methods
+   */
+  private async performBiometricLogin(): Promise<void> {
+    this.biometricAuthenticating.set(true);
+
+    try {
+      const credentials = await this.biometricService.authenticateAndGetCredentials();
+
+      if (credentials) {
+        // Success - authenticate with stored credentials
+        await this.haptics.notification('success');
+
+        const success = await this.authFlow.signInWithEmail({
+          email: credentials.email,
+          password: credentials.password,
+        });
+
+        if (!success) {
+          // Credentials might be outdated
+          console.warn('[AuthPage] Biometric login failed - credentials may be outdated');
+          await this.haptics.notification('error');
+        }
+      } else {
+        // User cancelled - that's fine, they can use other methods
+        console.debug('[AuthPage] Biometric cancelled, showing normal auth options');
+      }
+    } catch (error) {
+      console.error('[AuthPage] Biometric login error:', error);
+    } finally {
+      this.biometricAuthenticating.set(false);
     }
   }
 
@@ -424,44 +543,95 @@ export class AuthPage implements OnInit {
    * Submit email/password credentials
    */
   async onEmailSubmit(data: AuthEmailFormData): Promise<void> {
-    console.log('[AuthPage] onEmailSubmit called', { mode: this.mode(), email: data.email });
     this.authFlow.clearError();
     try {
       await this.haptics.impact('medium');
 
+      // Always skip navigation for email auth - we'll handle it after biometric check
       if (this.mode() === 'login') {
-        console.log('[AuthPage] Starting login...');
         const success = await this.authFlow.signInWithEmail({
           email: data.email,
           password: data.password,
+          skipNavigation: true, // Always skip - we'll navigate after biometric check
         });
 
         if (success) {
           await this.haptics.notification('success');
+          // Check if we should offer biometric enrollment
+          await this.handlePostAuthBiometric(data.email, data.password);
         } else {
           await this.haptics.notification('error');
         }
       } else {
-        // Pass team code if validated
-        console.log('[AuthPage] Starting signup...', { teamCode: this.validatedTeam()?.code });
         const success = await this.authFlow.signUpWithEmail({
           email: data.email,
           password: data.password,
           teamCode: this.validatedTeam()?.code,
+          skipNavigation: true, // Always skip - we'll navigate after biometric check
         });
 
-        console.log('[AuthPage] Signup result:', success);
         if (success) {
           await this.haptics.notification('success');
+          // Check if we should offer biometric enrollment
+          await this.handlePostAuthBiometric(data.email, data.password);
         } else {
           await this.haptics.notification('error');
         }
       }
-    } catch (err) {
-      console.error('[AuthPage] onEmailSubmit error:', err);
+    } catch {
       await this.haptics.notification('error');
     }
   }
+
+  /**
+   * Handle biometric enrollment check after successful authentication
+   * This is called AFTER auth succeeds, BEFORE navigation
+   *
+   * Uses NATIVE biometric prompt only (no custom UI) for a clean,
+   * trusted experience that users recognize from other apps.
+   */
+  private async handlePostAuthBiometric(email: string, password: string): Promise<void> {
+    // Re-initialize biometric to get fresh status
+    const availability = await this.biometricService.initialize();
+    await this.biometricService.loadEnrollmentStatus();
+
+    console.log('[AuthPage] Post-auth biometric check:', {
+      available: availability.available,
+      enrolled: this.biometricService.isEnrolled(),
+      biometryType: availability.biometryType,
+    });
+
+    // Check if we should offer biometric enrollment
+    if (availability.available && !this.biometricService.isEnrolled()) {
+      // Small delay for better UX (let auth animation finish)
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      await this.haptics.impact('light');
+
+      // Use NATIVE biometric prompt (Face ID / Touch ID / Fingerprint dialog)
+      // No custom modal - shows the real system dialog
+      const result = await this.biometricService.promptNativeEnrollment(email, password);
+
+      console.log('[AuthPage] Native biometric enrollment result:', result);
+
+      if (result.enrolled) {
+        await this.haptics.notification('success');
+        console.debug('[AuthPage] Biometric enrollment successful');
+      } else if (result.reason === 'cancelled') {
+        // User tapped "Not Now" - that's fine, continue
+        console.debug('[AuthPage] User skipped biometric enrollment');
+      } else {
+        console.warn('[AuthPage] Biometric enrollment failed');
+      }
+    }
+
+    // Navigate after prompt is handled (or skipped)
+    await this.authFlow.navigateToPostAuthDestination();
+  }
+
+  // ============================================
+  // SOCIAL AUTH ACTIONS
+  // ============================================
 
   /**
    * Sign in/up with Google OAuth
@@ -521,8 +691,92 @@ export class AuthPage implements OnInit {
   // NAVIGATION
   // ============================================
 
-  /** Navigate to forgot password page */
+  /** Navigate to forgot password page with Ionic slide animation */
   onForgotPassword(): void {
-    this.router.navigate(['/auth/forgot-password']);
+    this.nav.navigateForward('/auth/forgot-password');
+  }
+
+  // ============================================
+  // DEV RESET (Triple-tap to clear all auth/onboarding state)
+  // ============================================
+
+  /**
+   * DEV ONLY: Reset biometric enrollment to test the prompt again
+   */
+  async onResetBiometric(): Promise<void> {
+    if (environment.production) return;
+
+    await this.biometricService.clearEnrollment();
+    await this.haptics.notification('success');
+    console.log('[DEV] Biometric enrollment cleared! Sign in again to see the prompt.');
+  }
+
+  /**
+   * Handle dev area tap - triggers reset after 3 rapid taps
+   * Only available in non-production builds
+   */
+  async onDevTap(): Promise<void> {
+    if (environment.production) return;
+
+    this.devTapCount++;
+
+    // Reset counter after 1 second of no taps
+    if (this.devTapTimer) {
+      clearTimeout(this.devTapTimer);
+    }
+    this.devTapTimer = setTimeout(() => {
+      this.devTapCount = 0;
+    }, 1000);
+
+    // Trigger reset on 3rd tap
+    if (this.devTapCount >= 3) {
+      this.devTapCount = 0;
+      await this.performDevReset();
+    }
+  }
+
+  /**
+   * Clear all auth and onboarding state for development
+   */
+  private async performDevReset(): Promise<void> {
+    try {
+      await this.haptics.notification('warning');
+
+      // Clear all onboarding-related keys
+      const keysToRemove = [
+        'nxt1_onboarding_session',
+        'nxt1_onboarding_step',
+        'nxt1_onboarding_form_data',
+        'nxt1_onboarding_selected_role',
+        'nxt1_onboarding_completed',
+        'nxt1_user_profile',
+        'nxt1_auth_token',
+        'nxt1_refresh_token',
+        'nxt1_user_id',
+        'nxt1_biometric_enrolled',
+        'nxt1_biometric_last_email',
+      ];
+
+      for (const key of keysToRemove) {
+        await Preferences.remove({ key });
+        localStorage.removeItem(key);
+      }
+
+      // Clear biometric enrollment
+      await this.biometricService.clearEnrollment();
+
+      // Sign out from Firebase
+      await this.authFlow.signOut();
+
+      await this.haptics.notification('success');
+
+      console.log('[DEV] Auth, onboarding & biometric state cleared!');
+
+      // Force reload the app
+      window.location.reload();
+    } catch (error) {
+      console.error('[DEV] Reset failed:', error);
+      await this.haptics.notification('error');
+    }
   }
 }

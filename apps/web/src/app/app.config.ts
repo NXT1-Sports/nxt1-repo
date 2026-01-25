@@ -48,11 +48,19 @@ import { provideIonicAngular, IonicRouteStrategy } from '@ionic/angular/standalo
 import { routes } from './app.routes';
 
 // Shared Angular infrastructure from @nxt1/ui
-import { GlobalErrorHandler, GLOBAL_ERROR_LOGGER, httpErrorInterceptor } from '@nxt1/ui';
+import {
+  GlobalErrorHandler,
+  GLOBAL_ERROR_LOGGER,
+  GLOBAL_CRASHLYTICS,
+  httpErrorInterceptor,
+} from '@nxt1/ui';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 // Core infrastructure (app-specific)
 import { httpCacheInterceptor } from './core/infrastructure';
+
+// Crashlytics service (web uses GA4 fallback)
+import { CrashlyticsService } from './core/services/crashlytics.service';
 
 // Firebase
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
@@ -187,6 +195,9 @@ export const appConfig: ApplicationConfig = {
 
     // Provide shared logging service to GlobalErrorHandler
     { provide: GLOBAL_ERROR_LOGGER, useExisting: NxtLoggingService },
+
+    // Provide Crashlytics service for crash reporting (web uses GA4 fallback)
+    { provide: GLOBAL_CRASHLYTICS, useExisting: CrashlyticsService },
 
     // Global error handler - catches all unhandled errors
     // Handles chunk loading failures, tracks errors, provides recovery

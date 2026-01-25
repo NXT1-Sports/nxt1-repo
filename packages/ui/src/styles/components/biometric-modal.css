@@ -1,0 +1,147 @@
+/**
+ * @fileoverview Native Biometric Modal Styles
+ * @module @nxt1/ui/styles/components
+ *
+ * Global styles for the biometric enrollment modal.
+ * Achieves 100% native iOS/Android appearance.
+ *
+ * iOS: System blur, SF Pro typography, native corners
+ * Android: Material Design 3, surface elevation, rounded corners
+ *
+ * Usage:
+ *   @import '@nxt1/ui/styles/components/biometric-modal';
+ */
+
+/* ============================================
+ * Base Modal Styles
+ * ============================================ */
+
+ion-modal.nxt1-biometric-modal {
+  --backdrop-opacity: 0.5;
+  --box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.3);
+
+  /* Align to bottom for sheet presentation */
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+ion-modal.nxt1-biometric-modal::part(backdrop) {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+ion-modal.nxt1-biometric-modal::part(content) {
+  border-radius: 20px 20px 0 0;
+  overflow: hidden;
+}
+
+ion-modal.nxt1-biometric-modal::part(handle) {
+  display: none; /* We render our own handle in component */
+}
+
+/* ============================================
+ * iOS Native Styling
+ * ============================================ */
+
+ion-modal.nxt1-biometric-modal--ios {
+  --background: rgba(28, 28, 30, 0.98);
+}
+
+ion-modal.nxt1-biometric-modal--ios::part(content) {
+  border-radius: 16px 16px 0 0;
+  /* iOS system blur effect */
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+ion-modal.nxt1-biometric-modal--ios::part(backdrop) {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* iOS Light Theme */
+html[data-theme='light'] ion-modal.nxt1-biometric-modal--ios {
+  --background: rgba(255, 255, 255, 0.98);
+}
+
+html[data-theme='light'] ion-modal.nxt1-biometric-modal--ios::part(backdrop) {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* ============================================
+ * Android Material Design 3 Styling
+ * ============================================ */
+
+ion-modal.nxt1-biometric-modal--android {
+  --background: #1e1e1e;
+}
+
+ion-modal.nxt1-biometric-modal--android::part(content) {
+  border-radius: 28px 28px 0 0;
+  /* Material elevation */
+  box-shadow:
+    0 -1px 2px rgba(0, 0, 0, 0.3),
+    0 -2px 6px rgba(0, 0, 0, 0.15),
+    0 -8px 24px rgba(0, 0, 0, 0.15);
+}
+
+ion-modal.nxt1-biometric-modal--android::part(backdrop) {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* Android Light Theme */
+html[data-theme='light'] ion-modal.nxt1-biometric-modal--android {
+  --background: #ffffff;
+}
+
+html[data-theme='light'] ion-modal.nxt1-biometric-modal--android::part(content) {
+  box-shadow:
+    0 -1px 2px rgba(0, 0, 0, 0.1),
+    0 -2px 6px rgba(0, 0, 0, 0.08),
+    0 -8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* ============================================
+ * Animation Enhancements
+ * ============================================ */
+
+ion-modal.nxt1-biometric-modal {
+  --transition-duration: 300ms;
+}
+
+/* iOS spring animation */
+ion-modal.nxt1-biometric-modal--ios {
+  --transition: transform 350ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Android Material motion */
+ion-modal.nxt1-biometric-modal--android {
+  --transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ============================================
+ * Safe Area Handling
+ * ============================================ */
+
+ion-modal.nxt1-biometric-modal ion-content {
+  --padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ============================================
+ * Reduced Motion
+ * ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  ion-modal.nxt1-biometric-modal {
+    --transition-duration: 0ms;
+    --transition: none;
+  }
+}
+
+/* ============================================
+ * Landscape Orientation
+ * ============================================ */
+
+@media (orientation: landscape) and (max-height: 500px) {
+  ion-modal.nxt1-biometric-modal::part(content) {
+    max-height: 95vh;
+  }
+}

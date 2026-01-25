@@ -257,6 +257,12 @@ export const onboardingInProgressGuard: CanActivateFn = () => {
       return router.createUrlTree([AUTH_ROUTES.ROOT]);
     }
 
+    // Email not verified - redirect to verify-email page (for email signups)
+    // Skip for OAuth users (they're pre-verified)
+    if (state.user.provider === 'email' && state.user.emailVerified === false) {
+      return router.createUrlTree([AUTH_ROUTES.VERIFY_EMAIL]);
+    }
+
     // Already completed onboarding - redirect to home
     if (state.user.hasCompletedOnboarding) {
       return router.createUrlTree([AUTH_REDIRECTS.DEFAULT]);
@@ -273,6 +279,46 @@ export const onboardingInProgressGuard: CanActivateFn = () => {
 
   // Wait for initialization
   return waitForAuthInitialization(authService).pipe(map(checkOnboardingAccess));
+};
+
+/**
+ * Guard for email verification page
+ * Requires: authenticated user with UNVERIFIED email
+ * Redirects: to onboarding if already verified, to login if not authenticated
+ *
+ * @example canActivate: [emailVerificationGuard]
+ */
+export const emailVerificationGuard: CanActivateFn = () => {
+  const authService = inject(AuthFlowService);
+  const router = inject(Router);
+
+  const checkEmailVerification = (state: AuthState) => {
+    // Not authenticated - redirect to login
+    if (!state.user) {
+      return router.createUrlTree([AUTH_ROUTES.ROOT]);
+    }
+
+    // OAuth users are pre-verified - skip to onboarding
+    if (state.user.provider !== 'email') {
+      return router.createUrlTree([AUTH_ROUTES.ONBOARDING]);
+    }
+
+    // Email already verified - redirect to onboarding
+    if (state.user.emailVerified !== false) {
+      return router.createUrlTree([AUTH_ROUTES.ONBOARDING]);
+    }
+
+    // Email not verified - allow access to verification page
+    return true;
+  };
+
+  // If already initialized, check immediately
+  if (authService.isInitialized()) {
+    return checkEmailVerification(getAuthState(authService));
+  }
+
+  // Wait for initialization
+  return waitForAuthInitialization(authService).pipe(map(checkEmailVerification));
 };
 
 // ============================================

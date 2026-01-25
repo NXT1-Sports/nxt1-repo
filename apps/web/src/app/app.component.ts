@@ -10,7 +10,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { Router, NavigationEnd } from '@angular/router';
 import { IonApp, IonRouterOutlet } from '@ionic/angular/standalone';
-import { NxtPlatformService, NxtLoggingService } from '@nxt1/ui';
+import { NxtPlatformService, NxtLoggingService, NxtBreadcrumbService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import { filter } from 'rxjs/operators';
 
@@ -40,6 +40,7 @@ export class AppComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly platform = inject(NxtPlatformService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('AppComponent');
+  private readonly breadcrumbs = inject(NxtBreadcrumbService);
 
   // ============================================
   // STATE SIGNALS
@@ -98,8 +99,11 @@ export class AppComponent implements OnInit {
   private initializeBrowserFeatures(): void {
     if (!this.platform.isBrowser()) return;
 
-    // Initialize any browser-specific features here
-    // e.g., analytics, service worker registration, etc.
+    // Initialize breadcrumb tracking for crashlytics context
+    this.breadcrumbs.initialize();
+
+    // Log app initialization
+    this.logger.info('Browser features initialized');
   }
 
   /**

@@ -21,9 +21,9 @@
       "presentationOptions": ["badge", "sound", "alert"]
     },
     "Keyboard": {
-      "resize": "body",
+      "resize": "ionic",
       "resizeOnFullScreen": true,
-      "style": "DARK"
+      "style": "DEFAULT"
     },
     "StatusBar": {
       "style": "LIGHT",

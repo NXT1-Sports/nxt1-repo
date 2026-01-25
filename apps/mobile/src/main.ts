@@ -3,6 +3,7 @@
  * @module @nxt1/mobile
  *
  * Bootstrap the Angular application for mobile.
+ * Initializes Crashlytics early to catch startup crashes.
  */
 
 import { bootstrapApplication } from '@angular/platform-browser';
@@ -12,12 +13,10 @@ import { Capacitor } from '@capacitor/core';
 import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
 import { environment } from './environments/environment';
-import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
+import { GoogleAuth } from '@southdevs/capacitor-google-auth';
 
-console.log('[Bootstrap] Starting app bootstrap...');
-console.log('[Bootstrap] Environment:', { production: environment.production });
-console.log('[Bootstrap] Platform:', Capacitor.getPlatform());
-console.log('[Bootstrap] Is native:', Capacitor.isNativePlatform());
+// Import Crashlytics for early initialization
+import { CrashlyticsService } from './app/services/crashlytics.service';
 
 // Fix document base URL for Capacitor
 if (Capacitor.isNativePlatform()) {
@@ -55,15 +54,10 @@ if (Capacitor.isNativePlatform()) {
 
   //   return originalFetch.apply(this, arguments as IArguments);
   // };
-
-  console.log('[Bootstrap] Base URL set to:', baseUrl);
-  console.log('[Bootstrap] Fetch interceptor installed');
-  console.log('[Bootstrap] URL constructor patched for native');
 }
 
 if (environment.production) {
   enableProdMode();
-  console.log('[Bootstrap] Production mode enabled');
 }
 
 // Note: Ionicons are bundled with @ionic/angular web components
@@ -72,19 +66,72 @@ if (environment.production) {
 // Initialize Google Auth plugin ONLY on native platforms
 if (Capacitor.isNativePlatform()) {
   try {
-    console.log('[Bootstrap] Initializing GoogleAuth...');
+    // Note: serverClientId is passed during signIn(), not initialize()
+    // The initialize() only takes clientId, scopes, and grantOfflineAccess
     GoogleAuth.initialize({
       clientId: environment.googleClientId,
       scopes: ['profile', 'email'],
       grantOfflineAccess: true,
     });
-    console.log('[Bootstrap] GoogleAuth initialized');
+    console.log('[Bootstrap] GoogleAuth initialized with clientId:', environment.googleClientId);
   } catch (error) {
     console.error('[Bootstrap] GoogleAuth initialization error:', error);
   }
 }
 
-console.log('[Bootstrap] Bootstrapping Angular application...');
-bootstrapApplication(AppComponent, appConfig)
-  .then(() => console.log('[Bootstrap] Application bootstrapped successfully'))
-  .catch((err) => console.error('[Bootstrap] Bootstrap error:', err));
+// ============================================
+// CRASHLYTICS - Initialize early to catch startup crashes
+// ============================================
+
+/**
+ * Initialize Crashlytics before Angular bootstrap to capture any early errors.
+ * This is critical for debugging startup issues on native platforms.
+ */
+async function initializeCrashlytics(): Promise<void> {
+  try {
+    const crashlytics = new CrashlyticsService();
+    await crashlytics.initialize({
+      enabled: environment.production,
+      debug: !environment.production,
+      collectNavigationBreadcrumbs: true,
+      collectHttpBreadcrumbs: true,
+      initialCustomKeys: {
+        app_version: environment.appVersion || '1.0.0',
+        environment: environment.production ? 'production' : 'development',
+        platform: Capacitor.getPlatform(),
+      },
+    });
+
+    // Check if we crashed on previous execution
+    const didCrash = await crashlytics.didCrashOnPreviousExecution();
+    if (didCrash) {
+      console.log('[Bootstrap] App crashed on previous execution - reports will be sent');
+    }
+
+    console.log('[Bootstrap] Crashlytics initialized successfully');
+  } catch (error) {
+    // Don't fail app startup if Crashlytics fails
+    console.error('[Bootstrap] Crashlytics initialization error:', error);
+  }
+}
+
+// Initialize Crashlytics, then bootstrap Angular
+initializeCrashlytics()
+  .then(() => bootstrapApplication(AppComponent, appConfig))
+  .catch((err) => {
+    console.error('[Bootstrap] Bootstrap error:', err);
+    // Try to record error if Crashlytics was initialized
+    try {
+      const crashlytics = new CrashlyticsService();
+      if (crashlytics.isReady()) {
+        crashlytics.recordException({
+          message: err.message || 'Bootstrap failed',
+          stacktrace: err.stack,
+          severity: 'fatal',
+          category: 'javascript',
+        });
+      }
+    } catch {
+      // Ignore - already logging to console
+    }
+  });

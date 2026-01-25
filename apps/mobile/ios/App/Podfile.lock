@@ -5,142 +5,227 @@ PODS:
   - AppAuth/Core (1.7.6)
   - AppAuth/ExternalUserAgent (1.7.6):
     - AppAuth/Core
-  - Capacitor (7.4.5):
+  - Capacitor (8.0.1):
     - CapacitorCordova
-  - CapacitorApp (7.1.1):
+  - CapacitorApp (8.0.0):
     - Capacitor
-  - CapacitorCamera (7.0.3):
+  - CapacitorCamera (8.0.0):
     - Capacitor
-  - CapacitorCordova (7.4.5)
-  - CapacitorDevice (7.0.3):
+  - CapacitorCordova (8.0.1)
+  - CapacitorDevice (8.0.0):
     - Capacitor
-  - CapacitorFilesystem (7.1.6):
+  - CapacitorFilesystem (8.0.0):
     - Capacitor
     - IONFilesystemLib (~> 1.0.1)
+  - CapacitorFirebaseCrashlytics (8.0.1):
+    - Capacitor
+    - FirebaseCrashlytics (~> 12.7.0)
   - CapacitorGeolocation (8.0.0):
     - Capacitor
     - IONGeolocationLib (= 2.0.0)
-  - CapacitorHaptics (7.0.3):
+  - CapacitorHaptics (8.0.0):
     - Capacitor
-  - CapacitorKeyboard (7.0.4):
+  - CapacitorKeyboard (8.0.0):
     - Capacitor
   - CapacitorNativeBiometric (0.0.1):
     - Capacitor
-  - CapacitorNetwork (7.0.3):
+  - CapacitorNetwork (8.0.0):
     - Capacitor
-  - CapacitorPreferences (7.0.3):
+  - CapacitorPreferences (8.0.0):
     - Capacitor
-  - CapacitorPushNotifications (7.0.4):
+  - CapacitorPushNotifications (8.0.0):
     - Capacitor
-  - CapacitorShare (7.0.3):
+  - CapacitorShare (8.0.0):
     - Capacitor
-  - CapacitorSplashScreen (7.0.4):
+  - CapacitorSplashScreen (8.0.0):
     - Capacitor
-  - CapacitorStatusBar (7.0.4):
+  - CapacitorStatusBar (8.0.0):
     - Capacitor
-  - CodetrixStudioCapacitorGoogleAuth (0.0.1):
-    - Capacitor
-    - GoogleSignIn (~> 6.2.4)
+  - FirebaseCore (12.7.0):
+    - FirebaseCoreInternal (~> 12.7.0)
+    - GoogleUtilities/Environment (~> 8.1)
+    - GoogleUtilities/Logger (~> 8.1)
+  - FirebaseCoreExtension (12.7.0):
+    - FirebaseCore (~> 12.7.0)
+  - FirebaseCoreInternal (12.7.0):
+    - "GoogleUtilities/NSData+zlib (~> 8.1)"
+  - FirebaseCrashlytics (12.7.0):
+    - FirebaseCore (~> 12.7.0)
+    - FirebaseInstallations (~> 12.7.0)
+    - FirebaseRemoteConfigInterop (~> 12.7.0)
+    - FirebaseSessions (~> 12.7.0)
+    - GoogleDataTransport (~> 10.1)
+    - GoogleUtilities/Environment (~> 8.1)
+    - nanopb (~> 3.30910.0)
+    - PromisesObjC (~> 2.4)
+  - FirebaseInstallations (12.7.0):
+    - FirebaseCore (~> 12.7.0)
+    - GoogleUtilities/Environment (~> 8.1)
+    - GoogleUtilities/UserDefaults (~> 8.1)
+    - PromisesObjC (~> 2.4)
+  - FirebaseRemoteConfigInterop (12.7.0)
+  - FirebaseSessions (12.7.0):
+    - FirebaseCore (~> 12.7.0)
+    - FirebaseCoreExtension (~> 12.7.0)
+    - FirebaseInstallations (~> 12.7.0)
+    - GoogleDataTransport (~> 10.1)
+    - GoogleUtilities/Environment (~> 8.1)
+    - GoogleUtilities/UserDefaults (~> 8.1)
+    - nanopb (~> 3.30910.0)
+    - PromisesSwift (~> 2.1)
+  - GoogleDataTransport (10.1.0):
+    - nanopb (~> 3.30910.0)
+    - PromisesObjC (~> 2.4)
   - GoogleSignIn (6.2.4):
     - AppAuth (~> 1.5)
     - GTMAppAuth (~> 1.3)
     - GTMSessionFetcher/Core (< 3.0, >= 1.1)
+  - GoogleUtilities/Environment (8.1.0):
+    - GoogleUtilities/Privacy
+  - GoogleUtilities/Logger (8.1.0):
+    - GoogleUtilities/Environment
+    - GoogleUtilities/Privacy
+  - "GoogleUtilities/NSData+zlib (8.1.0)":
+    - GoogleUtilities/Privacy
+  - GoogleUtilities/Privacy (8.1.0)
+  - GoogleUtilities/UserDefaults (8.1.0):
+    - GoogleUtilities/Logger
+    - GoogleUtilities/Privacy
   - GTMAppAuth (1.3.1):
     - AppAuth/Core (~> 1.6)
     - GTMSessionFetcher/Core (< 3.0, >= 1.5)
   - GTMSessionFetcher/Core (2.3.0)
   - IONFilesystemLib (1.0.1)
   - IONGeolocationLib (2.0.0)
+  - nanopb (3.30910.0):
+    - nanopb/decode (= 3.30910.0)
+    - nanopb/encode (= 3.30910.0)
+  - nanopb/decode (3.30910.0)
+  - nanopb/encode (3.30910.0)
+  - PromisesObjC (2.4.0)
+  - PromisesSwift (2.4.0):
+    - PromisesObjC (= 2.4.0)
+  - SouthdevsCapacitorGoogleAuth (0.0.1):
+    - Capacitor
+    - GoogleSignIn (~> 6.2.4)
 
 DEPENDENCIES:
-  - "Capacitor (from `../../../../node_modules/@capacitor/ios`)"
-  - "CapacitorApp (from `../../../../node_modules/@capacitor/app`)"
-  - "CapacitorCamera (from `../../../../node_modules/@capacitor/camera`)"
-  - "CapacitorCordova (from `../../../../node_modules/@capacitor/ios`)"
-  - "CapacitorDevice (from `../../../../node_modules/@capacitor/device`)"
-  - "CapacitorFilesystem (from `../../../../node_modules/@capacitor/filesystem`)"
+  - "Capacitor (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorApp (from `../../node_modules/@capacitor/app`)"
+  - "CapacitorCamera (from `../../node_modules/@capacitor/camera`)"
+  - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
+  - "CapacitorDevice (from `../../node_modules/@capacitor/device`)"
+  - "CapacitorFilesystem (from `../../node_modules/@capacitor/filesystem`)"
+  - "CapacitorFirebaseCrashlytics (from `../../../../node_modules/@capacitor-firebase/crashlytics`)"
   - "CapacitorGeolocation (from `../../node_modules/@capacitor/geolocation`)"
   - "CapacitorHaptics (from `../../../../node_modules/@capacitor/haptics`)"
-  - "CapacitorKeyboard (from `../../../../node_modules/@capacitor/keyboard`)"
+  - "CapacitorKeyboard (from `../../node_modules/@capacitor/keyboard`)"
   - CapacitorNativeBiometric (from `../../../../node_modules/capacitor-native-biometric`)
-  - "CapacitorNetwork (from `../../../../node_modules/@capacitor/network`)"
+  - "CapacitorNetwork (from `../../node_modules/@capacitor/network`)"
   - "CapacitorPreferences (from `../../../../node_modules/@capacitor/preferences`)"
-  - "CapacitorPushNotifications (from `../../../../node_modules/@capacitor/push-notifications`)"
-  - "CapacitorShare (from `../../../../node_modules/@capacitor/share`)"
-  - "CapacitorSplashScreen (from `../../../../node_modules/@capacitor/splash-screen`)"
-  - "CapacitorStatusBar (from `../../../../node_modules/@capacitor/status-bar`)"
-  - "CodetrixStudioCapacitorGoogleAuth (from `../../../../node_modules/@codetrix-studio/capacitor-google-auth`)"
+  - "CapacitorPushNotifications (from `../../node_modules/@capacitor/push-notifications`)"
+  - "CapacitorShare (from `../../node_modules/@capacitor/share`)"
+  - "CapacitorSplashScreen (from `../../node_modules/@capacitor/splash-screen`)"
+  - "CapacitorStatusBar (from `../../node_modules/@capacitor/status-bar`)"
+  - "SouthdevsCapacitorGoogleAuth (from `../../../../node_modules/@southdevs/capacitor-google-auth`)"
 
 SPEC REPOS:
   trunk:
     - AppAuth
+    - FirebaseCore
+    - FirebaseCoreExtension
+    - FirebaseCoreInternal
+    - FirebaseCrashlytics
+    - FirebaseInstallations
+    - FirebaseRemoteConfigInterop
+    - FirebaseSessions
+    - GoogleDataTransport
     - GoogleSignIn
+    - GoogleUtilities
     - GTMAppAuth
     - GTMSessionFetcher
     - IONFilesystemLib
     - IONGeolocationLib
+    - nanopb
+    - PromisesObjC
+    - PromisesSwift
 
 EXTERNAL SOURCES:
   Capacitor:
-    :path: "../../../../node_modules/@capacitor/ios"
+    :path: "../../node_modules/@capacitor/ios"
   CapacitorApp:
-    :path: "../../../../node_modules/@capacitor/app"
+    :path: "../../node_modules/@capacitor/app"
   CapacitorCamera:
-    :path: "../../../../node_modules/@capacitor/camera"
+    :path: "../../node_modules/@capacitor/camera"
   CapacitorCordova:
-    :path: "../../../../node_modules/@capacitor/ios"
+    :path: "../../node_modules/@capacitor/ios"
   CapacitorDevice:
-    :path: "../../../../node_modules/@capacitor/device"
+    :path: "../../node_modules/@capacitor/device"
   CapacitorFilesystem:
-    :path: "../../../../node_modules/@capacitor/filesystem"
+    :path: "../../node_modules/@capacitor/filesystem"
+  CapacitorFirebaseCrashlytics:
+    :path: "../../../../node_modules/@capacitor-firebase/crashlytics"
   CapacitorGeolocation:
     :path: "../../node_modules/@capacitor/geolocation"
   CapacitorHaptics:
     :path: "../../../../node_modules/@capacitor/haptics"
   CapacitorKeyboard:
-    :path: "../../../../node_modules/@capacitor/keyboard"
+    :path: "../../node_modules/@capacitor/keyboard"
   CapacitorNativeBiometric:
     :path: "../../../../node_modules/capacitor-native-biometric"
   CapacitorNetwork:
-    :path: "../../../../node_modules/@capacitor/network"
+    :path: "../../node_modules/@capacitor/network"
   CapacitorPreferences:
     :path: "../../../../node_modules/@capacitor/preferences"
   CapacitorPushNotifications:
-    :path: "../../../../node_modules/@capacitor/push-notifications"
+    :path: "../../node_modules/@capacitor/push-notifications"
   CapacitorShare:
-    :path: "../../../../node_modules/@capacitor/share"
+    :path: "../../node_modules/@capacitor/share"
   CapacitorSplashScreen:
-    :path: "../../../../node_modules/@capacitor/splash-screen"
+    :path: "../../node_modules/@capacitor/splash-screen"
   CapacitorStatusBar:
-    :path: "../../../../node_modules/@capacitor/status-bar"
-  CodetrixStudioCapacitorGoogleAuth:
-    :path: "../../../../node_modules/@codetrix-studio/capacitor-google-auth"
+    :path: "../../node_modules/@capacitor/status-bar"
+  SouthdevsCapacitorGoogleAuth:
+    :path: "../../../../node_modules/@southdevs/capacitor-google-auth"
 
 SPEC CHECKSUMS:
   AppAuth: d4f13a8fe0baf391b2108511793e4b479691fb73
-  Capacitor: 12914e6f1b7835e161a74ebd19cb361efa37a7dd
-  CapacitorApp: 63b237168fc869e758481dba283315a85743ee78
-  CapacitorCamera: 6746827d82376f31cea9224945c0458c9fd0b0b2
-  CapacitorCordova: 31bbe4466000c6b86d9b7f1181ee286cff0205aa
-  CapacitorDevice: b64654eb4d404373e733c01d835055ba59286e5c
-  CapacitorFilesystem: 66f05ee0d8b1ccdc00d509091273a9b3b57c4a0b
+  Capacitor: ff35b0f66370b84aa238251b35b91886a3207c16
+  CapacitorApp: 3963a84197280757b84f126afd1520a85ae3b092
+  CapacitorCamera: 592acb7ab9fb748e2d8571eb03af30ec4e1ace12
+  CapacitorCordova: 0d65b9bb74e995dcecb9463f34f1af2aba6f955c
+  CapacitorDevice: 9a16fb36a19ff391bf75afbe3cf16f883b3b3aa0
+  CapacitorFilesystem: 2cb7c29536024668f333266a2177f8c10bbd9c98
+  CapacitorFirebaseCrashlytics: 9498eaa61bdcc42971392747c221a407c38ddc5e
   CapacitorGeolocation: 8a405e707de9aff6ac9eca7f408966a370f7ca33
-  CapacitorHaptics: ce15be8f287fa2c61c7d2d9e958885b90cf0bebc
-  CapacitorKeyboard: 5660c760113bfa48962817a785879373cf5339c3
+  CapacitorHaptics: 2079d9fa04c5a71e18663b4722323c304c58245c
+  CapacitorKeyboard: d7868c079a4d5277a3deca27a10a488fcbbb8b69
   CapacitorNativeBiometric: 78cf21304251a512e4597437325b5e9b0cd9f7b3
-  CapacitorNetwork: 1a22460c6f900686f12ffa52f3074ee313821b08
-  CapacitorPreferences: 913eef88272c13eb6445b21e51fe8ef6635412cc
-  CapacitorPushNotifications: 7604512af53bbfdf1dd8fb2256b9ef1e8a69cdc2
-  CapacitorShare: a4f4f86eabd4b3ff52ba6a11b754713c6926a8d1
-  CapacitorSplashScreen: 000f7591d546907dda5cbb514bd6b6d9e6048cf8
-  CapacitorStatusBar: d0e0151c89c001a9c7125bac59ddedf76b664768
-  CodetrixStudioCapacitorGoogleAuth: 9dcfabfb7dd804ad6231a1513bc6e81e620cbec6
+  CapacitorNetwork: 156f8096cbbce5337eb1769fcc0d6adc4b85d3f3
+  CapacitorPreferences: 443fabe9670226200e595658a87ef0b1566716d4
+  CapacitorPushNotifications: 722c1528eabbefd355f47e373a4c6235d01e85e9
+  CapacitorShare: 12f1d192170cbcf9f108fd675ac8e343761a4638
+  CapacitorSplashScreen: 422880d7117605c30699eb4b21644b62db42e86c
+  CapacitorStatusBar: 312e2e67928dfe9514c4a8916a1fd610552f5f35
+  FirebaseCore: c7b57863ce0859281a66d16ca36d665c45d332b5
+  FirebaseCoreExtension: 731a5744970bcd73ad95ab2a2b8a1f46353e86dd
+  FirebaseCoreInternal: 571a2dd8c975410966199623351db3a3265c874d
+  FirebaseCrashlytics: 9ce9ce4bb179e31ab91a937d0a73d302a9752d1b
+  FirebaseInstallations: 6d05424a046b68ca146b4de4376f05b4e9262fc3
+  FirebaseRemoteConfigInterop: 0bae7d21510b3a0a79af727961c4973aac585add
+  FirebaseSessions: bc59e7d0ba90f96f40325fd1defbdec86ba26f20
+  GoogleDataTransport: aae35b7ea0c09004c3797d53c8c41f66f219d6a7
   GoogleSignIn: 5651ce3a61e56ca864160e79b484cd9ed3f49b7a
+  GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
   GTMAppAuth: 0ff230db599948a9ad7470ca667337803b3fc4dd
   GTMSessionFetcher: 3a63d75eecd6aa32c2fc79f578064e1214dfdec2
   IONFilesystemLib: 89258b8e3e85465da93127d25d7ce37f977e8a6f
   IONGeolocationLib: a5e40b54edc2ee9902036eda5aaa41ddf07bb68d
+  nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
+  PromisesObjC: f5707f49cb48b9636751c5b2e7d227e43fba9f47
+  PromisesSwift: 9d77319bbe72ebf6d872900551f7eeba9bce2851
+  SouthdevsCapacitorGoogleAuth: 6488c21faed47c2cf72404bfbfc0fe0e9af766bc
 
-PODFILE CHECKSUM: 129974f022b31ab49aa13b44a8c7e0f2a1a9f9eb
+PODFILE CHECKSUM: 29a812f25f3699158de01ed65f9234f9cdb09a43
 
 COCOAPODS: 1.16.2

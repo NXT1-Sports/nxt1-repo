@@ -228,7 +228,7 @@ export function createMockAuthStateManager(
     stateListeners.forEach((listener) => {
       try {
         listener(currentState);
-      } catch (_error) {
+      } catch {
         // Swallow errors in tests to prevent cascade failures
       }
     });
@@ -239,7 +239,7 @@ export function createMockAuthStateManager(
     eventListeners.forEach((listener) => {
       try {
         listener(event);
-      } catch (_error) {
+      } catch {
         // Swallow errors in tests
       }
     });
@@ -379,7 +379,7 @@ export function createMockAuthStateManager(
           const user: AuthUser = JSON.parse(userJson);
           updateState({ user });
         }
-      } catch (_error) {
+      } catch {
         updateState({ error: 'Failed to restore auth state' });
       } finally {
         updateState({ isLoading: false, isInitialized: true });

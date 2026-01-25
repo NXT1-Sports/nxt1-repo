@@ -85,6 +85,11 @@
       "types": "./dist/geolocation/index.d.ts",
       "import": "./dist/geolocation/index.mjs",
       "require": "./dist/geolocation/index.js"
+    },
+    "./crashlytics": {
+      "types": "./dist/crashlytics/index.d.ts",
+      "import": "./dist/crashlytics/index.mjs",
+      "require": "./dist/crashlytics/index.js"
     }
   },
   "files": [

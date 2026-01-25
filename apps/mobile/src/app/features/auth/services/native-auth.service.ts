@@ -2,7 +2,7 @@
  * Native Auth Service - Capacitor Plugin Integration
  *
  * Handles native OAuth authentication using Capacitor plugins:
- * - @codetrix-studio/capacitor-google-auth for Google Sign-In
+ * - @southdevs/capacitor-google-auth for Google Sign-In
  *
  * This service provides native system UI for OAuth sign-in,
  * returning tokens that can be used with Firebase Auth.
@@ -18,7 +18,7 @@
  * │             ⭐ NativeAuthService (THIS FILE) ⭐            │
  * │           Capacitor plugins for native OAuth               │
  * ├────────────────────────────────────────────────────────────┤
- * │        @codetrix-studio/capacitor-google-auth              │
+ * │            @southdevs/capacitor-google-auth                │
  * │                Native iOS/Android SDKs                     │
  * └────────────────────────────────────────────────────────────┘
  *
@@ -33,7 +33,7 @@
  */
 import { Injectable, inject } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
-import { GoogleAuth } from '@codetrix-studio/capacitor-google-auth';
+import { GoogleAuth } from '@southdevs/capacitor-google-auth';
 import { NxtPlatformService, HapticsService, NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
 import type { NativeAuthResult, NativeAuthProvider, NativeAuthAvailability } from '@nxt1/core';
@@ -89,10 +89,9 @@ export class NativeAuthService {
     }
 
     return {
-      // TODO: Set to true when @codetrix-studio/capacitor-google-auth is installed
-      google: false, // Requires @codetrix-studio/capacitor-google-auth
-      apple: false, // Not supported by current plugin
-      microsoft: false, // Not supported by current plugin
+      google: true, // @southdevs/capacitor-google-auth
+      apple: false, // Not yet implemented
+      microsoft: false, // Not yet implemented
     };
   }
 
@@ -118,22 +117,39 @@ export class NativeAuthService {
       this.logger.info('Starting Google Sign-In');
       await this.haptics.selection();
 
+      // Sign out first to ensure we get fresh credentials (not cached)
+      // This forces the Google account picker to show every time
+      try {
+        await GoogleAuth.signOut();
+        this.logger.debug('Cleared previous Google session');
+      } catch {
+        // Ignore - might not be signed in
+      }
+
       // Sign in with Google using native UI
-      const googleUser = await GoogleAuth.signIn();
+      // @southdevs/capacitor-google-auth requires scopes and serverClientId for backend validation
+      // serverClientId is the Web Client ID from Firebase/GCP Console
+      const googleUser = await GoogleAuth.signIn({
+        scopes: ['email', 'profile'],
+        serverClientId: '455734259010-d04kqk9g2kkfov38t0lrdqcrlujtrsom.apps.googleusercontent.com',
+        grantOfflineAccess: true,
+      });
 
       this.logger.info('Google Sign-In successful', {
         email: googleUser.email,
         name: googleUser.name,
         hasIdToken: !!googleUser.authentication?.idToken,
+        hasAccessToken: !!googleUser.authentication?.accessToken,
       });
 
       // Haptic feedback on success
       await this.haptics.notification('success');
 
-      // Return standardized result
+      // Return standardized result with both idToken and accessToken
       return {
         provider: 'google',
         idToken: googleUser.authentication.idToken,
+        accessToken: googleUser.authentication.accessToken,
         user: {
           id: googleUser.id,
           email: googleUser.email,
@@ -209,13 +225,32 @@ export class NativeAuthService {
   async signOut(): Promise<void> {
     if (!this.isNativeAvailable) return;
 
-    // TODO: Uncomment when @codetrix-studio/capacitor-google-auth is installed
-    // try {
-    //   await GoogleAuth.signOut();
-    // } catch (error) {
-    //   // Ignore sign-out errors - user is already signed out locally
-    //   console.warn('[NativeAuth] Sign out warning:', error);
-    // }
+    try {
+      this.logger.debug('Signing out from Google...');
+      await GoogleAuth.signOut();
+      this.logger.debug('Google sign out successful');
+    } catch (error: unknown) {
+      // Log but don't throw - user might already be signed out
+      this.logger.debug('Google sign out error (may be already signed out)', {
+        error: String(error),
+      });
+    }
+  }
+
+  /**
+   * Force refresh - sign out first to get fresh credentials
+   * Use this when cached credentials are causing issues
+   */
+  async forceSignOutGoogle(): Promise<void> {
+    if (!this.isNativeAvailable) return;
+
+    try {
+      this.logger.info('Force signing out from Google to clear cached credentials...');
+      await GoogleAuth.signOut();
+      this.logger.info('Google credentials cleared');
+    } catch (error: unknown) {
+      this.logger.warn('Could not clear Google credentials', { error: String(error) });
+    }
   }
 
   // ============================================
