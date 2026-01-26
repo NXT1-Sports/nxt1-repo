@@ -26,3 +26,5 @@ export {
   type TeamCodeValidationState,
   type ValidatedTeamInfo,
 } from './auth-team-code';
+export { AuthBiometricPromptComponent, type BiometryDisplayType } from './auth-biometric-prompt';
+export { AuthBiometricButtonComponent, type BiometryButtonType } from './auth-biometric-button';

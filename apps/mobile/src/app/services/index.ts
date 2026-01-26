@@ -17,3 +17,5 @@ export {
 export { BiometricService, type BiometricType } from '../features/auth/services/biometric.service';
 
 export { NetworkService } from './network.service';
+
+export { CrashlyticsService } from './crashlytics.service';

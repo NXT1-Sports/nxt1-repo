@@ -3,7 +3,13 @@
  * @module @nxt1/core/geolocation
  *
  * Browser-specific implementation of the GeolocationAdapter interface.
- * Uses the standard Web Geolocation API.
+ * Uses the standard Web Geolocation API with 2026 best practices.
+ *
+ * Features:
+ * - Secure context validation (HTTPS required)
+ * - Permissions API integration
+ * - Comprehensive error handling
+ * - SSR-safe implementation
  *
  * @example
  * ```typescript
@@ -32,17 +38,33 @@ import {
  *
  * Uses the standard Web Geolocation API available in modern browsers.
  * Handles permissions, position requests, and position watching.
+ *
+ * Note: Geolocation API requires HTTPS (secure context) in modern browsers.
  */
 export class BrowserGeolocationAdapter implements GeolocationAdapter {
   /**
-   * Check if the browser supports geolocation
+   * Check if the browser supports geolocation.
+   * Also validates secure context requirement.
    */
   isSupported(): boolean {
-    return (
-      typeof window !== 'undefined' &&
-      typeof navigator !== 'undefined' &&
-      'geolocation' in navigator
-    );
+    // SSR safety check
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+      return false;
+    }
+
+    // Check for geolocation API
+    if (!('geolocation' in navigator)) {
+      return false;
+    }
+
+    // Modern browsers require secure context (HTTPS) for geolocation
+    // isSecureContext is available in all modern browsers
+    if (typeof window.isSecureContext !== 'undefined' && !window.isSecureContext) {
+      console.warn('[Geolocation] Geolocation requires HTTPS (secure context)');
+      return false;
+    }
+
+    return true;
   }
 
   /**
@@ -50,6 +72,7 @@ export class BrowserGeolocationAdapter implements GeolocationAdapter {
    * Falls back to 'unknown' if Permissions API is not available.
    */
   async checkPermission(): Promise<GeolocationPermissionStatus> {
+    // SSR safety check
     if (typeof window === 'undefined' || typeof navigator === 'undefined') {
       return 'unknown';
     }
@@ -73,7 +96,7 @@ export class BrowserGeolocationAdapter implements GeolocationAdapter {
           return 'unknown';
       }
     } catch {
-      // Permissions API query failed
+      // Permissions API query failed (some browsers don't support geolocation query)
       return 'unknown';
     }
   }
@@ -81,6 +104,9 @@ export class BrowserGeolocationAdapter implements GeolocationAdapter {
   /**
    * Request geolocation permission by attempting to get position.
    * This will trigger the browser's permission prompt if needed.
+   *
+   * Note: Web doesn't have a separate requestPermissions API like mobile.
+   * Permission is requested when getCurrentPosition is called.
    */
   async requestPermission(): Promise<GeolocationPermissionStatus> {
     if (!this.isSupported()) {
@@ -112,7 +138,12 @@ export class BrowserGeolocationAdapter implements GeolocationAdapter {
       if (!this.isSupported()) {
         resolve({
           success: false,
-          error: createGeolocationError('NOT_SUPPORTED'),
+          error: createGeolocationError(
+            'NOT_SUPPORTED',
+            typeof window !== 'undefined' && !window.isSecureContext
+              ? 'Geolocation requires HTTPS. Please access the site via HTTPS.'
+              : 'Geolocation is not supported on this browser.'
+          ),
         });
         return;
       }
@@ -136,9 +167,27 @@ export class BrowserGeolocationAdapter implements GeolocationAdapter {
           });
         },
         (error) => {
+          // Map browser error codes to user-friendly messages
+          let message: string;
+          switch (error.code) {
+            case 1: // PERMISSION_DENIED
+              message =
+                'Location permission was denied. Please allow location access in your browser settings.';
+              break;
+            case 2: // POSITION_UNAVAILABLE
+              message =
+                'Location information is unavailable. Please check your network connection.';
+              break;
+            case 3: // TIMEOUT
+              message = 'Location request timed out. Please try again.';
+              break;
+            default:
+              message = error.message || 'An unknown error occurred while getting location.';
+          }
+
           resolve({
             success: false,
-            error: createGeolocationError(mapBrowserGeolocationError(error.code), error.message),
+            error: createGeolocationError(mapBrowserGeolocationError(error.code), message),
           });
         },
         {
@@ -164,7 +213,8 @@ export class BrowserGeolocationAdapter implements GeolocationAdapter {
         success: false,
         error: createGeolocationError('NOT_SUPPORTED'),
       });
-      // Return no-op cleanup
+      // Return no-op cleanup when geolocation is not supported
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
       return () => {};
     }
 

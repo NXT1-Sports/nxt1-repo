@@ -192,6 +192,32 @@ export class ThemeService {
     } catch (error) {
       console.warn('[ThemeService] Failed to sync status bar:', error);
     }
+
+    // Also sync keyboard style with theme (iOS only)
+    await this.syncKeyboardWithTheme(theme);
+  }
+
+  /**
+   * Sync keyboard style with current theme (iOS only).
+   * Dark theme = dark keyboard
+   * Light theme = light keyboard
+   */
+  private async syncKeyboardWithTheme(theme: Theme): Promise<void> {
+    if (!this.ionicPlatform.is('capacitor') || !this.ionicPlatform.is('ios')) {
+      return;
+    }
+
+    try {
+      const { Keyboard, KeyboardStyle } = await import('@capacitor/keyboard');
+
+      // Match keyboard to app theme
+      const style = theme === 'dark' ? KeyboardStyle.Dark : KeyboardStyle.Light;
+      await Keyboard.setStyle({ style });
+
+      console.debug(`[ThemeService] Keyboard synced to ${theme} theme`);
+    } catch (error) {
+      console.warn('[ThemeService] Failed to sync keyboard style:', error);
+    }
   }
 
   /**

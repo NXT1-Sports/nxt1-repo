@@ -271,8 +271,10 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       [isLastStep]="isLastStep()"
       [loading]="isLoading()"
       [disabled]="!isCurrentStepValid()"
+      [showSignOut]="true"
       (skipClick)="onSkip()"
       (continueClick)="onContinue()"
+      (signOutClick)="onSignOut()"
     />
   `,
   styles: [
@@ -576,6 +578,12 @@ export class OnboardingPage implements OnInit, OnDestroy {
   /**
    * Handle location detection request from profile step.
    * Uses native Capacitor Geolocation + Nominatim reverse geocoding.
+   *
+   * 2026 Best Practices:
+   * - Check permission status before requesting
+   * - Handle Android 12+ approximate vs precise location
+   * - Provide user-friendly error messages with Settings guidance
+   * - Use haptic feedback for all interactions
    */
   async onLocationRequest(): Promise<void> {
     console.info('[Onboarding] Location detection requested');
@@ -588,16 +596,32 @@ export class OnboardingPage implements OnInit, OnDestroy {
     }
 
     try {
-      // Request permission first on native
-      const permission = await this.geolocationService.requestPermission();
-      if (permission === 'denied') {
+      // Check current permission status first
+      const currentPermission = await this.geolocationService.checkPermission();
+      console.info('[Onboarding] Current location permission:', currentPermission);
+
+      // If permission is denied, guide user to Settings
+      if (currentPermission === 'denied') {
+        await this.haptics.notification('warning');
         this.profileStepRef?.setLocationError(
-          'Location permission denied. Please enable in Settings.'
+          'Location permission denied. Please enable in Settings → Privacy → Location Services.'
         );
         return;
       }
 
-      // Request location with quick settings (coarse location is sufficient)
+      // Request permission if not yet granted
+      if (currentPermission !== 'granted') {
+        const permission = await this.geolocationService.requestPermission();
+        if (permission === 'denied') {
+          await this.haptics.notification('warning');
+          this.profileStepRef?.setLocationError(
+            'Location permission denied. Please enable in Settings to auto-detect your location.'
+          );
+          return;
+        }
+      }
+
+      // Request location with quick settings (coarse location is sufficient for city/state)
       const result = await this.geolocationService.getCurrentLocation(GEOLOCATION_DEFAULTS.QUICK);
 
       if (result.success) {
@@ -632,19 +656,25 @@ export class OnboardingPage implements OnInit, OnDestroy {
           state: address?.state,
         });
       } else {
-        // Handle error with haptic
+        // Handle error with haptic and user-friendly message
         await this.haptics.notification('error');
-        let errorMessage = 'Unable to detect location';
+        let errorMessage = result.error.message || 'Unable to detect location';
 
+        // Provide specific guidance based on error code
         switch (result.error.code) {
           case 'PERMISSION_DENIED':
             errorMessage = 'Location permission denied. Please enable in Settings.';
             break;
           case 'POSITION_UNAVAILABLE':
-            errorMessage = 'Location unavailable. Please try again.';
+            errorMessage =
+              'Unable to determine your location. Please check that Location Services are enabled.';
             break;
           case 'TIMEOUT':
-            errorMessage = 'Location request timed out. Please try again.';
+            errorMessage =
+              'Location request timed out. Move to an area with better signal and try again.';
+            break;
+          case 'NOT_SUPPORTED':
+            errorMessage = 'Location services are disabled. Please enable in Settings.';
             break;
         }
 
@@ -653,7 +683,9 @@ export class OnboardingPage implements OnInit, OnDestroy {
       }
     } catch (err) {
       await this.haptics.notification('error');
-      this.profileStepRef?.setLocationError('An error occurred detecting location');
+      this.profileStepRef?.setLocationError(
+        'An unexpected error occurred. Please try again or enter your location manually.'
+      );
       console.error('[Onboarding] Location detection error', err);
     }
   }

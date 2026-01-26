@@ -398,7 +398,9 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
 
         console.log(`[AUTH API] ✅ createUser response:`, {
           success: response.success,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           credits: response.success ? (response as any).data?.user?.credits : 'N/A',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           featureCredits: response.success ? (response as any).data?.user?.featureCredits : 'N/A',
           url: fullUrl,
         });

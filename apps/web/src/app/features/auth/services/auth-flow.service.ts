@@ -75,6 +75,8 @@ import {
   createMemoryAnalyticsAdapter,
   APP_EVENTS,
 } from '@nxt1/core/analytics';
+import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
+import { GLOBAL_CRASHLYTICS } from '@nxt1/ui';
 import { environment } from '../../../../environments/environment';
 
 /**
@@ -146,6 +148,9 @@ export class AuthFlowService implements OnDestroy {
 
   /** Analytics adapter - web or memory based on platform */
   private readonly analytics: AnalyticsAdapter = this.createAnalyticsAdapter();
+
+  /** Crashlytics adapter for crash reporting with user context */
+  private readonly crashlytics: CrashlyticsAdapter = inject(GLOBAL_CRASHLYTICS);
 
   /**
    * Firebase Auth instance - lazy loaded, null on server (SSR)
@@ -502,6 +507,19 @@ export class AuthFlowService implements OnDestroy {
       this.analytics.setUserId(authUser.uid);
       this.analytics.setUserProperties({
         user_type: authUser.role,
+        is_premium: authUser.isPremium,
+        auth_provider: authUser.provider,
+      });
+
+      // Set crashlytics user context for crash attribution
+      const crashUser: CrashUser = {
+        userId: authUser.uid,
+        email: authUser.email,
+        displayName: authUser.displayName,
+      };
+      await this.crashlytics.setUser(crashUser);
+      await this.crashlytics.setCustomKeys({
+        user_role: authUser.role,
         is_premium: authUser.isPremium,
         auth_provider: authUser.provider,
       });
@@ -1114,8 +1132,20 @@ export class AuthFlowService implements OnDestroy {
         // Sync user state BEFORE navigating (required for onboarding page)
         await this.syncUserProfile(result.user);
 
-        // Navigate to onboarding
-        await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+        // Send verification email for email/password signups
+        // OAuth users (Google/Apple/Microsoft) are pre-verified
+        try {
+          await this.sendVerificationEmail();
+          this.logger.info('📧 Verification email sent after signup');
+        } catch (verifyError: unknown) {
+          this.logger.warn('Failed to send verification email', {
+            error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+          });
+          // Continue anyway - user can resend from verify page
+        }
+
+        // Navigate to email verification page (not onboarding yet)
+        await this.navigateForward(AUTH_ROUTES.VERIFY_EMAIL);
         return true;
       } finally {
         // Always clear flag to prevent state leaks (via core state manager)
@@ -1158,6 +1188,9 @@ export class AuthFlowService implements OnDestroy {
       // Track sign out before clearing user
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_OUT);
       this.analytics.clearUser();
+
+      // Clear crashlytics user context
+      await this.crashlytics.clearUser();
 
       await signOut(this.firebaseAuth);
       await this.authManager.reset();
@@ -1213,6 +1246,98 @@ export class AuthFlowService implements OnDestroy {
     } finally {
       this.authManager.setLoading(false);
     }
+  }
+
+  // ============================================
+  // EMAIL VERIFICATION
+  // ============================================
+
+  /**
+   * Send email verification to current user
+   *
+   * Called after email/password signup to verify the user's email address.
+   * Professional apps require email verification before accessing the app.
+   *
+   * @returns Promise<boolean> - true if email sent successfully
+   */
+  async sendVerificationEmail(): Promise<boolean> {
+    if (!this.firebaseAuth?.currentUser) {
+      this.logger.warn('Cannot send verification email - no current user');
+      return false;
+    }
+
+    try {
+      // Dynamic import for SSR safety
+      const { sendEmailVerification } = await import('firebase/auth');
+
+      await sendEmailVerification(this.firebaseAuth.currentUser);
+
+      this.analytics.trackEvent(APP_EVENTS.AUTH_VERIFICATION_EMAIL_SENT, {
+        userId: this.firebaseAuth.currentUser.uid,
+      });
+
+      this.logger.info('Verification email sent', {
+        email: this.firebaseAuth.currentUser.email,
+      });
+
+      return true;
+    } catch (err) {
+      this.logger.error('Failed to send verification email', err);
+      throw err;
+    }
+  }
+
+  /**
+   * Check if current user's email is verified
+   *
+   * Reloads the Firebase user to get fresh emailVerified status.
+   * Called periodically by the verify-email page to auto-detect verification.
+   *
+   * @returns Promise<boolean> - true if email is verified
+   */
+  async checkEmailVerified(): Promise<boolean> {
+    if (!this.firebaseAuth?.currentUser) {
+      return false;
+    }
+
+    try {
+      // Dynamic import for SSR safety
+      const { reload } = await import('firebase/auth');
+
+      // Reload user to get fresh data from Firebase
+      await reload(this.firebaseAuth.currentUser);
+
+      const isVerified = this.firebaseAuth.currentUser.emailVerified;
+
+      if (isVerified) {
+        // Update local state
+        const currentUser = this._state().user;
+        if (currentUser) {
+          await this.authManager.setUser({
+            ...currentUser,
+            emailVerified: true,
+          });
+        }
+
+        this.analytics.trackEvent(APP_EVENTS.AUTH_EMAIL_VERIFIED, {
+          userId: this.firebaseAuth.currentUser.uid,
+        });
+
+        this.logger.info('Email verified successfully');
+      }
+
+      return isVerified;
+    } catch (err) {
+      this.logger.error('Failed to check email verification', err);
+      return false;
+    }
+  }
+
+  /**
+   * Get current user's email address
+   */
+  getCurrentUserEmail(): string | null {
+    return this.firebaseAuth?.currentUser?.email ?? this._state().user?.email ?? null;
   }
 
   // ============================================

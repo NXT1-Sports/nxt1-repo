@@ -5,13 +5,30 @@
  * Tests the AnalyticsAdapter interface contract and default configuration.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   DEFAULT_ANALYTICS_CONFIG,
   isAnalyticsReady,
   type AnalyticsAdapter,
   type AnalyticsConfig,
 } from './analytics-adapter';
+
+/**
+ * Create a mock analytics adapter for testing
+ */
+function createMockAdapter(initialized: boolean): AnalyticsAdapter {
+  return {
+    trackEvent: vi.fn(),
+    trackPageView: vi.fn(),
+    setUserId: vi.fn(),
+    setUserProperties: vi.fn(),
+    clearUser: vi.fn(),
+    isInitialized: vi.fn(() => initialized),
+    getUserId: vi.fn(() => null),
+    setEnabled: vi.fn(),
+    setDefaultEventParams: vi.fn(),
+  };
+}
 
 describe('Analytics Adapter Interface', () => {
   describe('DEFAULT_ANALYTICS_CONFIG', () => {
@@ -38,34 +55,12 @@ describe('Analytics Adapter Interface', () => {
 
   describe('isAnalyticsReady', () => {
     it('should return true for initialized adapter', () => {
-      const mockAdapter: AnalyticsAdapter = {
-        trackEvent: () => {},
-        trackPageView: () => {},
-        setUserId: () => {},
-        setUserProperties: () => {},
-        clearUser: () => {},
-        isInitialized: () => true,
-        getUserId: () => null,
-        setEnabled: () => {},
-        setDefaultEventParams: () => {},
-      };
-
+      const mockAdapter = createMockAdapter(true);
       expect(isAnalyticsReady(mockAdapter)).toBe(true);
     });
 
     it('should return false for uninitialized adapter', () => {
-      const mockAdapter: AnalyticsAdapter = {
-        trackEvent: () => {},
-        trackPageView: () => {},
-        setUserId: () => {},
-        setUserProperties: () => {},
-        clearUser: () => {},
-        isInitialized: () => false,
-        getUserId: () => null,
-        setEnabled: () => {},
-        setDefaultEventParams: () => {},
-      };
-
+      const mockAdapter = createMockAdapter(false);
       expect(isAnalyticsReady(mockAdapter)).toBe(false);
     });
 

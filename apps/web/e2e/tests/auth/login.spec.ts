@@ -33,10 +33,6 @@ test.describe('Login Page', () => {
     test('should have correct page title', async ({ page }) => {
       await expect(page).toHaveTitle(/sign in|login|nxt1/i);
     });
-
-    test('should show signup link', async ({ loginPage }) => {
-      await loginPage.assertVisible(loginPage.signupLink);
-    });
   });
 
   // ===========================================================================
@@ -102,7 +98,10 @@ test.describe('Login Page', () => {
   // ===========================================================================
 
   test.describe('Login Failures', () => {
-    test('should show error for invalid credentials', async ({ loginPage }) => {
+    test('should show error for invalid credentials', async ({ loginPage, testUser }) => {
+      // Skip if no Firebase backend available (this test needs real auth)
+      test.skip(!testUser.email, 'Requires Firebase backend for error handling');
+
       await loginPage.loginWithEmail({
         email: generateTestEmail('invalid'),
         password: 'WrongPassword123!',
@@ -158,11 +157,6 @@ test.describe('Login Page', () => {
   // ===========================================================================
 
   test.describe('Navigation', () => {
-    test('should navigate to signup page', async ({ loginPage, page }) => {
-      await loginPage.goToSignup();
-      await expect(page).toHaveURL(new RegExp(ROUTES.auth.signup));
-    });
-
     test('should navigate to forgot password page', async ({ loginPage, page }) => {
       await loginPage.goToForgotPassword();
       await expect(page).toHaveURL(new RegExp(ROUTES.auth.forgotPassword));

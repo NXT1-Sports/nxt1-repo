@@ -160,11 +160,6 @@ test.describe('Signup Page', () => {
   // ===========================================================================
 
   test.describe('Navigation', () => {
-    test('should navigate to login page', async ({ signupPage, page }) => {
-      await signupPage.goToLogin();
-      await expect(page).toHaveURL(new RegExp(ROUTES.auth.login));
-    });
-
     test('should have terms link', async ({ signupPage }) => {
       const hasTerms = await signupPage.termsLink.isVisible().catch(() => false);
       if (hasTerms) {

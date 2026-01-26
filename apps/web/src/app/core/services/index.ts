@@ -30,3 +30,6 @@ export { SeoService } from './seo.service';
 
 // Network Service for connectivity monitoring
 export { NetworkService } from './network.service';
+
+// Crashlytics Service for crash reporting (web uses GA4 fallback)
+export { CrashlyticsService } from './crashlytics.service';

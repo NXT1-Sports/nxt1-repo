@@ -14,7 +14,10 @@
     "./styles/auth": "./src/styles/auth/auth.css",
     "./styles/components/ionic-select": "./src/styles/components/ionic-select.css",
     "./styles/components/ionic-toast": "./src/styles/components/ionic-toast.css",
-    "./styles/components/ionic-modal": "./src/styles/components/ionic-modal.css"
+    "./styles/components/ionic-modal": "./src/styles/components/ionic-modal.css",
+    "./styles/components/ionic-biometric-modal": "./src/styles/components/ionic-biometric-modal.css",
+    "./styles/components/biometric-modal": "./src/styles/components/biometric-modal.css",
+    "./styles/components/bottom-sheet": "./src/styles/components/bottom-sheet.css"
   },
   "scripts": {
     "build": "ng-packagr -p ng-package.json",
@@ -34,9 +37,9 @@
     "@angular/core": "^21.0.0",
     "@angular/forms": "^21.0.0",
     "@angular/router": "^21.0.0",
-    "@capacitor/core": "^6.0.0 || ^7.0.0",
+    "@capacitor/core": "^6.0.0 || ^7.0.0 || ^8.0.0",
     "@ionic/angular": "^8.0.0",
-    "ionicons": "^7.0.0",
+    "ionicons": "^7.0.0 || ^8.0.0",
     "rxjs": "^7.0.0"
   },
   "peerDependenciesMeta": {

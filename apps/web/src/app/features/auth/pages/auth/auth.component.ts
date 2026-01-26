@@ -44,6 +44,7 @@ import {
   type TeamCodeValidationState,
 } from '@nxt1/ui';
 import { AuthFlowService, AuthApiService } from '../../services';
+import { AuthNavigationService } from '@nxt1/ui/services';
 import { SeoService } from '../../../../core/services';
 import { NxtToastService } from '@nxt1/ui/services';
 import { isValidTeamCode } from '@nxt1/core';
@@ -187,6 +188,7 @@ export class AuthComponent implements OnInit {
   protected readonly authFlow = inject(AuthFlowService);
   private readonly authApi = inject(AuthApiService);
   private readonly router = inject(Router);
+  private readonly nav = inject(AuthNavigationService);
   private readonly route = inject(ActivatedRoute);
   private readonly seo = inject(SeoService);
   private readonly toast = inject(NxtToastService);
@@ -507,9 +509,9 @@ export class AuthComponent implements OnInit {
   }
 
   /**
-   * Navigate to forgot password page
+   * Navigate to forgot password page with Ionic slide animation
    */
   onForgotPassword(): void {
-    this.router.navigate(['/auth/forgot-password']);
+    this.nav.navigateForward('/auth/forgot-password');
   }
 }

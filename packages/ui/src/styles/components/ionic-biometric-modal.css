@@ -1,0 +1,43 @@
+/**
+ * @fileoverview Biometric Prompt Modal Styles
+ * @module @nxt1/ui/styles
+ *
+ * Global styles for the biometric enrollment prompt modal.
+ * Applied via Ionic modal cssClass for proper theming.
+ */
+
+/* ============================================
+ * Biometric Prompt Modal
+ * ============================================ */
+
+ion-modal.nxt1-biometric-prompt-modal {
+  --background: var(--nxt1-color-background-primary, #0a0a0a);
+  --border-radius: 24px 24px 0 0;
+  --box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.4);
+}
+
+ion-modal.nxt1-biometric-prompt-modal::part(backdrop) {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+ion-modal.nxt1-biometric-prompt-modal::part(handle) {
+  background: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.15));
+  width: 36px;
+  height: 4px;
+  margin-top: 12px;
+}
+
+ion-modal.nxt1-biometric-prompt-modal ion-content {
+  --background: transparent;
+}
+
+/* Light theme overrides */
+html[data-theme='light'] ion-modal.nxt1-biometric-prompt-modal {
+  --background: var(--nxt1-color-background-primary, #ffffff);
+}
+
+html[data-theme='light'] ion-modal.nxt1-biometric-prompt-modal::part(handle) {
+  background: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.15));
+}

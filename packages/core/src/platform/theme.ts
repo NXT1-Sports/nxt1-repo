@@ -198,6 +198,8 @@ export function watchSystemTheme(
   config: Partial<ThemeConfig> = {}
 ): () => void {
   if (!isBrowser() || typeof window.matchMedia !== 'function') {
+    // Return no-op cleanup when matchMedia is not available
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
     return () => {};
   }
 

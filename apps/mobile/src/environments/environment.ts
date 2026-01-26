@@ -18,5 +18,8 @@ export const environment = {
     appId: '1:455734259010:web:34d2571568094bb75a6cdb',
     measurementId: 'G-TH51Q9XZNB',
   },
-  googleClientId: '455734259010-d04kqk9g2kkfov38t0lrdqcrlujtrsom.apps.googleusercontent.com',
+
+  googleClientId: '455734259010-qagtsakkvchuf3tnbgjgitjj80e740ib.apps.googleusercontent.com',
+
+  googleServerClientId: '455734259010-d04kqk9g2kkfov38t0lrdqcrlujtrsom.apps.googleusercontent.com',
 };

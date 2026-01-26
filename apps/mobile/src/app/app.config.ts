@@ -29,8 +29,16 @@ import {
 import { Capacitor } from '@capacitor/core';
 
 // Shared Angular infrastructure from @nxt1/ui
-import { GlobalErrorHandler, GLOBAL_ERROR_LOGGER, httpErrorInterceptor } from '@nxt1/ui';
+import {
+  GlobalErrorHandler,
+  GLOBAL_ERROR_LOGGER,
+  GLOBAL_CRASHLYTICS,
+  httpErrorInterceptor,
+} from '@nxt1/ui';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
+
+// Local services
+import { CrashlyticsService } from './services/crashlytics.service';
 
 import { routes } from './app.routes';
 import { environment } from '../environments/environment';
@@ -101,6 +109,9 @@ export const appConfig: ApplicationConfig = {
 
     // Provide shared logging service to GlobalErrorHandler
     { provide: GLOBAL_ERROR_LOGGER, useExisting: NxtLoggingService },
+
+    // Provide Crashlytics service for crash reporting
+    { provide: GLOBAL_CRASHLYTICS, useExisting: CrashlyticsService },
 
     // Global error handler (shared with web)
     { provide: ErrorHandler, useClass: GlobalErrorHandler },

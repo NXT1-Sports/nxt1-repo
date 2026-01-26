@@ -1,5 +1,9 @@
 import { Routes } from '@angular/router';
-import { guestGuard, onboardingInProgressGuard } from './guards/auth.guards';
+import {
+  guestGuard,
+  onboardingInProgressGuard,
+  emailVerificationGuard,
+} from './guards/auth.guards';
 
 /**
  * Auth Feature Routes
@@ -7,7 +11,8 @@ import { guestGuard, onboardingInProgressGuard } from './guards/auth.guards';
  * Handles all authentication flows:
  * - /auth - Main unified auth page (login/signup) - requires guest (not logged in)
  * - /auth/forgot-password - Password reset flow - requires guest
- * - /auth/onboarding - Profile setup flow - requires auth but NOT completed onboarding
+ * - /auth/verify-email - Email verification flow - requires auth with unverified email
+ * - /auth/onboarding - Profile setup flow - requires auth with verified email
  *
  * ⭐ 2026 BEST PRACTICES ⭐
  * - Uses async guards that wait for auth initialization
@@ -32,6 +37,15 @@ export const AUTH_ROUTES: Routes = [
       ),
     canActivate: [guestGuard],
     title: 'Reset Password | NXT1 Sports',
+  },
+
+  // Email verification flow - requires auth but email NOT verified
+  {
+    path: 'verify-email',
+    loadComponent: () =>
+      import('./pages/verify-email/verify-email.component').then((m) => m.VerifyEmailComponent),
+    canActivate: [emailVerificationGuard],
+    title: 'Verify Email | NXT1 Sports',
   },
 
   // Onboarding flow - requires auth but must NOT have completed onboarding
