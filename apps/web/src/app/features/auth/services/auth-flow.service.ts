@@ -398,22 +398,27 @@ export class AuthFlowService implements OnDestroy {
             });
 
             // Navigate based on onboarding status
-            // IMPORTANT: If user hasn't completed onboarding, ALWAYS redirect to onboarding
-            // (except if already on onboarding page)
+            // IMPORTANT: Only redirect if on auth pages or root, don't interrupt user on other pages
             const currentUrl = this.router.url;
             const isOnAuthPage = currentUrl.includes(AUTH_ROUTES.ROOT);
-            const isOnHomepage = currentUrl === '/' || currentUrl === '/home';
+            const isOnRootPage = currentUrl === '/';
             const isOnOnboardingPage = currentUrl.includes('/onboarding');
 
-            // If not completed onboarding and not already on onboarding page → force redirect
-            if (!completedOnboarding && !isOnOnboardingPage) {
+            // Only redirect to onboarding if:
+            // 1. User hasn't completed onboarding AND
+            // 2. User is on auth pages or root (not already navigating somewhere else)
+            if (!completedOnboarding && !isOnOnboardingPage && (isOnAuthPage || isOnRootPage)) {
               this.logger.info('⚠️ Onboarding not complete, redirecting to onboarding');
               await this.navigateForward(AUTH_ROUTES.ONBOARDING);
             }
-            // If completed and on auth/home page → redirect to home
-            else if (completedOnboarding && (isOnAuthPage || isOnHomepage)) {
+            // If completed and on auth/root page → redirect to home
+            else if (completedOnboarding && (isOnAuthPage || isOnRootPage)) {
               this.logger.info('✅ Onboarding complete, redirecting to home');
               await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
+            }
+            // Otherwise: stay on current page (e.g., /home, /profile, etc.)
+            else {
+              this.logger.info('ℹ️ Staying on current page', { currentUrl, completedOnboarding });
             }
           } else {
             // User is signed out - reset state
@@ -461,7 +466,7 @@ export class AuthFlowService implements OnDestroy {
         backendProfile = await this.authApi.getUserProfile(firebaseUser.uid);
         this.logger.debug('Backend profile fetched', {
           uid: firebaseUser.uid,
-          completeSignUp: backendProfile?.completeSignUp,
+          onboardingCompleted: backendProfile?.onboardingCompleted,
         });
       } catch (err) {
         this.logger.warn('Failed to fetch backend profile', { error: err });
@@ -473,9 +478,8 @@ export class AuthFlowService implements OnDestroy {
         // Otherwise continue with null profile - use Firebase data with defaults
       }
 
-      // V2: Prefer onboardingCompleted, fallback to legacy completeSignUp
-      const hasCompletedOnboarding =
-        backendProfile?.onboardingCompleted === true || backendProfile?.completeSignUp === true;
+      // V2: Use onboardingCompleted field only (no legacy fallback)
+      const hasCompletedOnboarding = backendProfile?.onboardingCompleted === true;
 
       this.logger.debug('Onboarding status determined', { hasCompletedOnboarding });
 
