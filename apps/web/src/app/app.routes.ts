@@ -5,27 +5,46 @@ import { authGuard } from './features/auth/guards/auth.guards';
  * @fileoverview Web App Routes
  * @module @nxt1/web
  *
- * Application routing with auth guards.
- * - / (root) → /home (protected)
- * - /auth → Authentication flows (login, register, onboarding)
+ * Application routing with auth guards and layout wrappers.
+ *
+ * Architecture:
+ * - MainLayoutComponent wraps authenticated routes (provides top nav)
+ * - Auth routes are standalone (no layout wrapper)
+ * - Uses lazy loading for optimal performance
+ *
+ * Route Structure:
+ * - / (root) → /home (protected, with layout)
+ * - /auth → Authentication flows (no layout)
  */
 
 export const routes: Routes = [
-  // Root redirects to home (protected by auth guard)
+  // Root redirects to home
   {
     path: '',
     pathMatch: 'full',
     redirectTo: 'home',
   },
 
-  // Home Page (Protected - requires authentication)
+  // Authenticated Routes with Main Layout (Desktop Nav)
   {
-    path: 'home',
+    path: '',
+    loadComponent: () =>
+      import('./core/layout/main-layout.component').then((m) => m.MainLayoutComponent),
     canActivate: [authGuard],
-    loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
+    children: [
+      // Home Page
+      {
+        path: 'home',
+        loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
+      },
+      // Future authenticated routes go here:
+      // { path: 'profile', loadComponent: ... },
+      // { path: 'explore', loadComponent: ... },
+      // { path: 'settings', loadComponent: ... },
+    ],
   },
 
-  // Authentication Routes (Public - handles redirects if already logged in)
+  // Authentication Routes (Public - no layout wrapper)
   {
     path: 'auth',
     loadChildren: () => import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),

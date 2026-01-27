@@ -154,3 +154,8 @@ export { OnboardingCelebrationComponent } from './onboarding-celebration';
 // COMPLETE PAGE (2026 Best Practice - Dedicated Route)
 // ============================================
 export { OnboardingCompleteComponent } from './onboarding-complete';
+
+// ============================================
+// WELCOME SLIDES PAGE (Role-Specific Feature Highlights)
+// ============================================
+export { OnboardingWelcomeComponent } from './onboarding-welcome';

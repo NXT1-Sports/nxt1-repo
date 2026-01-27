@@ -16,7 +16,7 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
-import { Router } from '@angular/router';
+import { NavController } from '@ionic/angular/standalone';
 import {
   Auth,
   User as FirebaseUser,
@@ -55,7 +55,7 @@ import type { ILogger } from '@nxt1/core/logging';
  */
 @Injectable()
 export class BrowserAuthService implements IAuthService {
-  private readonly router = inject(Router);
+  private readonly navController = inject(NavController);
   private readonly firebaseAuth = inject(Auth);
   private readonly authApi = inject(AuthApiService);
   private readonly authCookie = inject(AuthCookieService);
@@ -192,7 +192,10 @@ export class BrowserAuthService implements IAuthService {
 
       const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
 
-      await this.router.navigate([redirectPath]);
+      await this.navController.navigateRoot(redirectPath, {
+        animated: true,
+        animationDirection: 'forward',
+      });
       return true;
     } catch (err) {
       const message = getAuthErrorMessage(err);
@@ -220,10 +223,16 @@ export class BrowserAuthService implements IAuthService {
           uid: result.user.uid,
           email: result.user.email!,
         });
-        await this.router.navigate(['/auth/onboarding']);
+        await this.navController.navigateForward('/auth/onboarding', {
+          animated: true,
+          animationDirection: 'forward',
+        });
       } else {
         const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
-        await this.router.navigate([redirectPath]);
+        await this.navController.navigateRoot(redirectPath, {
+          animated: true,
+          animationDirection: 'forward',
+        });
       }
 
       return true;
@@ -264,7 +273,10 @@ export class BrowserAuthService implements IAuthService {
         );
       }
 
-      await this.router.navigate(['/auth/onboarding']);
+      await this.navController.navigateForward('/auth/onboarding', {
+        animated: true,
+        animationDirection: 'forward',
+      });
       return true;
     } catch (err) {
       const message = getAuthErrorMessage(err);
@@ -290,7 +302,10 @@ export class BrowserAuthService implements IAuthService {
       await signOut(this.firebaseAuth);
       this._user.set(null);
       this._firebaseUser.set(null);
-      await this.router.navigate(['/explore']);
+      await this.navController.navigateRoot('/explore', {
+        animated: true,
+        animationDirection: 'forward',
+      });
     } catch (err) {
       this.logger.error('Sign out failed', err);
       this._error.set('Failed to sign out');

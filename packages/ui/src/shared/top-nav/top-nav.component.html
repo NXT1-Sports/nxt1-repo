@@ -1,0 +1,278 @@
+<!-- 
+  NxtDesktopNavComponent Template
+  Professional 2026 Desktop Navigation with Design Token Integration
+  
+  Structure:
+  1. Logo Section (left)
+  2. Primary Navigation (center-left)
+  3. Actions Section (right): Search, Notifications, User Menu
+-->
+
+<header
+  class="nxt1-desktop-nav"
+  [class.blur]="config.variant === 'blur'"
+  [class.transparent]="config.variant === 'transparent'"
+  [class.elevated]="config.variant === 'elevated'"
+  [class.minimal]="config.variant === 'minimal'"
+  [class.bordered]="config.bordered !== false"
+  [class.hidden]="isHidden()"
+  role="banner"
+>
+  <div class="nav-container" [class.max-width-full]="config.maxWidth === 'full'">
+    <!-- ============================================
+         LOGO SECTION
+         ============================================ -->
+    @if (config.showLogo !== false) {
+      <div class="nav-logo">
+        <button type="button" class="logo-btn" [attr.aria-label]="'Go to home'" (click)="onLogoClick($event)">
+          <nxt1-logo [size]="config.logoSize || 'md'" variant="header" />
+        </button>
+      </div>
+    }
+
+    <!-- ============================================
+         PRIMARY NAVIGATION
+         ============================================ -->
+    <nav class="nav-primary" role="navigation" aria-label="Main navigation">
+      <ul class="nav-list" role="menubar">
+        @for (item of items; track item.id; let i = $index) {
+          @if (item.showOnMobile !== false) {
+            <li
+              class="nav-item"
+              [class.active]="isActiveItem(item)"
+              [class.featured]="item.featured"
+              [class.has-dropdown]="item.children && item.children.length > 0"
+              [class.dropdown-open]="activeDropdown() === item.id"
+              role="none"
+            >
+              <!-- Nav Item Button -->
+              <button
+                type="button"
+                class="nav-item-btn"
+                [class.active]="isActiveItem(item)"
+                [class.featured]="item.featured"
+                [attr.aria-expanded]="item.children ? activeDropdown() === item.id : null"
+                [attr.aria-haspopup]="item.children ? 'menu' : null"
+                [attr.aria-current]="isActiveItem(item) ? 'page' : null"
+                [attr.aria-label]="item.ariaLabel || item.label"
+                [attr.tabindex]="getTabIndex(item, i)"
+                [disabled]="item.disabled"
+                role="menuitem"
+                (click)="onItemClick(item, $event)"
+                (keydown)="onItemKeydown($event, i)"
+              >
+                <!-- Icon (optional) -->
+                @if (item.icon) {
+                  <nxt1-icon
+                    [name]="isActiveItem(item) ? item.icon + 'Filled' : item.icon"
+                    class="nav-item-icon"
+                    [class.active]="isActiveItem(item)"
+                    size="20"
+                  />
+                }
+
+                <!-- Label -->
+                <span class="nav-item-label">{{ item.label }}</span>
+
+                <!-- Badge -->
+                @if (item.badge && item.badge > 0) {
+                  <span class="nav-item-badge" [attr.aria-label]="item.badge + ' notifications'">
+                    {{ item.badge > 99 ? "99+" : item.badge }}
+                  </span>
+                }
+
+                <!-- Dropdown Indicator -->
+                @if (item.children && item.children.length > 0) {
+                  <nxt1-icon
+                    name="chevronDown"
+                    class="nav-item-chevron"
+                    [class.open]="activeDropdown() === item.id"
+                    size="16"
+                  />
+                }
+              </button>
+
+              <!-- Dropdown Menu -->
+              @if (item.children && item.children.length > 0) {
+                <div
+                  class="nav-dropdown"
+                  [class.open]="activeDropdown() === item.id"
+                  role="menu"
+                  [attr.aria-label]="item.label + ' submenu'"
+                >
+                  <ul class="dropdown-list">
+                    @for (child of item.children; track child.id) {
+                      @if (child.divider) {
+                        <li class="dropdown-divider" role="separator"></li>
+                      }
+                      <li role="none">
+                        <button
+                          type="button"
+                          class="dropdown-item"
+                          [class.disabled]="child.disabled"
+                          [disabled]="child.disabled"
+                          role="menuitem"
+                          (click)="onDropdownItemClick(item, child, $event)"
+                        >
+                          @if (child.icon) {
+                            <nxt1-icon [name]="child.icon" class="dropdown-icon" size="18" />
+                          }
+                          <div class="dropdown-content">
+                            <span class="dropdown-label">{{ child.label }}</span>
+                            @if (child.description) {
+                              <span class="dropdown-description">{{ child.description }}</span>
+                            }
+                          </div>
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                </div>
+              }
+
+              <!-- Active Indicator -->
+              @if (isActiveItem(item) && !item.featured) {
+                <span class="nav-active-indicator" aria-hidden="true"></span>
+              }
+            </li>
+          }
+        }
+      </ul>
+    </nav>
+
+    <!-- ============================================
+         ACTIONS SECTION
+         ============================================ -->
+    <div class="nav-actions">
+      <!-- Search Bar -->
+      @if (showSearch()) {
+        <div class="nav-search" [class.expanded]="searchExpanded()">
+          <form class="search-form" (submit)="onSearchSubmit($event)">
+            <nxt1-icon name="search" class="search-icon" size="18" />
+            <input
+              type="search"
+              class="search-input"
+              [placeholder]="config.searchPlaceholder || 'Search...'"
+              [value]="searchQuery()"
+              autocomplete="off"
+              spellcheck="false"
+              (input)="onSearchInput($event)"
+              (focus)="onSearchFocus()"
+              (blur)="onSearchBlur()"
+            />
+            @if (searchQuery()) {
+              <button type="button" class="search-clear" aria-label="Clear search" (click)="clearSearch()">
+                <nxt1-icon name="close" size="16" />
+              </button>
+            }
+          </form>
+        </div>
+      }
+
+      <!-- Notifications -->
+      @if (showNotifications()) {
+        <button
+          type="button"
+          class="nav-action-btn notifications-btn"
+          [attr.aria-label]="
+            'Notifications' + (config.notificationCount ? ', ' + config.notificationCount + ' unread' : '')
+          "
+          (click)="onNotificationsClick($event)"
+        >
+          <nxt1-icon name="bell" size="22" />
+          @if (config.notificationCount && config.notificationCount > 0) {
+            <span class="notification-badge">
+              {{ config.notificationCount > 99 ? "99+" : config.notificationCount }}
+            </span>
+          }
+        </button>
+      }
+
+      <!-- User Menu -->
+      @if (showUserMenu()) {
+        <div class="nav-user" [class.open]="userMenuOpen()">
+          <button
+            type="button"
+            class="user-btn"
+            [attr.aria-expanded]="userMenuOpen()"
+            aria-haspopup="menu"
+            [attr.aria-label]="'User menu for ' + user?.name"
+            (click)="toggleUserMenu()"
+          >
+            <!-- Avatar -->
+            <div class="user-avatar">
+              @if (user?.avatarUrl) {
+                <img [src]="user!.avatarUrl" [alt]="user?.name || 'User avatar'" class="avatar-img" loading="lazy" />
+              } @else {
+                <span class="avatar-initials">{{ userInitials() }}</span>
+              }
+              @if (user?.verified) {
+                <span class="avatar-verified" aria-label="Verified">
+                  <nxt1-icon name="checkmarkCircle" size="12" />
+                </span>
+              }
+            </div>
+
+            <!-- User Name (desktop only) -->
+            <span class="user-name">{{ user?.name }}</span>
+
+            <nxt1-icon name="chevronDown" class="user-chevron" [class.open]="userMenuOpen()" size="16" />
+          </button>
+
+          <!-- User Dropdown Menu -->
+          <div class="user-dropdown" [class.open]="userMenuOpen()" role="menu" aria-label="User menu">
+            <!-- User Info Header -->
+            <div class="user-info">
+              <div class="user-info-avatar">
+                @if (user?.avatarUrl) {
+                  <img [src]="user!.avatarUrl" [alt]="user?.name || 'User avatar'" class="avatar-img-lg" />
+                } @else {
+                  <span class="avatar-initials-lg">{{ userInitials() }}</span>
+                }
+              </div>
+              <div class="user-info-text">
+                <span class="user-info-name">{{ user?.name }}</span>
+                @if (user?.email) {
+                  <span class="user-info-email">{{ user?.email }}</span>
+                }
+                @if (user?.roleBadge) {
+                  <span class="user-info-role">{{ user?.roleBadge }}</span>
+                }
+              </div>
+              @if (user?.isPremium) {
+                <span class="premium-badge">PRO</span>
+              }
+            </div>
+
+            <div class="user-menu-divider"></div>
+
+            <!-- Menu Items -->
+            <ul class="user-menu-list">
+              @for (menuItem of userMenuItems; track menuItem.id) {
+                @if (menuItem.divider) {
+                  <li class="user-menu-divider" role="separator"></li>
+                }
+                <li role="none">
+                  <button
+                    type="button"
+                    class="user-menu-item"
+                    [class.danger]="menuItem.variant === 'danger'"
+                    [class.disabled]="menuItem.disabled"
+                    [disabled]="menuItem.disabled"
+                    role="menuitem"
+                    (click)="onUserMenuItemClick(menuItem, $event)"
+                  >
+                    @if (menuItem.icon) {
+                      <nxt1-icon [name]="menuItem.icon" class="menu-item-icon" size="18" />
+                    }
+                    <span class="menu-item-label">{{ menuItem.label }}</span>
+                  </button>
+                </li>
+              }
+            </ul>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+</header>

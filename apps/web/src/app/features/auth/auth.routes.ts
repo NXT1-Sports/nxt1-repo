@@ -3,6 +3,7 @@ import {
   guestGuard,
   onboardingInProgressGuard,
   emailVerificationGuard,
+  authGuard,
 } from './guards/auth.guards';
 
 /**
@@ -13,6 +14,7 @@ import {
  * - /auth/forgot-password - Password reset flow - requires guest
  * - /auth/verify-email - Email verification flow - requires auth with unverified email
  * - /auth/onboarding - Profile setup flow - requires auth with verified email
+ * - /auth/onboarding/congratulations - Success page after onboarding
  *
  * ⭐ 2026 BEST PRACTICES ⭐
  * - Uses async guards that wait for auth initialization
@@ -55,5 +57,16 @@ export const AUTH_ROUTES: Routes = [
       import('./pages/onboarding/onboarding.component').then((m) => m.OnboardingComponent),
     canActivate: [onboardingInProgressGuard],
     title: 'Complete Your Profile | NXT1 Sports',
+  },
+
+  // Congratulations page - shown after onboarding completion
+  {
+    path: 'onboarding/congratulations',
+    loadComponent: () =>
+      import('./pages/onboarding-congratulations/onboarding-congratulations.component').then(
+        (m) => m.OnboardingCongratulationsComponent
+      ),
+    canActivate: [authGuard],
+    title: 'Welcome to NXT1! | NXT1 Sports',
   },
 ];

@@ -117,7 +117,7 @@ export class BiometricPromptService {
 
     await modal.present();
 
-    const { data, role } = await modal.onDidDismiss<BiometricPromptResult>();
+    const { data } = await modal.onDidDismiss<BiometricPromptResult>();
 
     // Haptic feedback based on result
     if (data?.enabled) {

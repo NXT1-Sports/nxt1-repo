@@ -35,3 +35,26 @@ export {
   type BottomSheetResult,
   type BottomSheetVariant,
 } from './bottom-sheet';
+
+export {
+  // Component
+  NxtMobileFooterComponent,
+  // Types (from @nxt1/core)
+  type NavIconName,
+  type FooterTabItem,
+  type FooterConfig,
+  type FooterVariant,
+  type FooterIndicatorStyle,
+  type FooterTabSelectEvent,
+  type FooterTabSelectEventBase,
+  // Constants (from @nxt1/core)
+  DEFAULT_FOOTER_TABS,
+  FOOTER_HEIGHTS,
+  FOOTER_ANIMATION,
+  // Helper functions (from @nxt1/core)
+  findTabById,
+  findTabByRoute,
+  createFooterConfig,
+  updateTabBadge,
+  setTabDisabled,
+} from './footer';

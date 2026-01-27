@@ -88,3 +88,48 @@ export {
   isNetworkError,
   requiresRecentLogin,
 } from './auth-errors';
+
+// Auth Flow Interface (Platform-agnostic contract)
+export {
+  type IAuthFlowService,
+  type SignInCredentials as FlowSignInCredentials,
+  type SignUpCredentials as FlowSignUpCredentials,
+  type OAuthOptions,
+  type ReadonlySignal,
+  type AuthFlowEvent,
+  type AuthFlowEventPayload,
+  AUTH_FLOW_EVENTS,
+  isAuthFlowService,
+  createAuthFlowEvent,
+} from './auth-flow.interface';
+
+// Auth User Cache (Performance optimization)
+export {
+  type CachedUserProfile,
+  type CachedSportData,
+  type AuthUserCacheOptions,
+  type AuthUserCache,
+  createAuthUserCache,
+  globalAuthUserCache,
+} from './auth-user-cache';
+
+// Biometric Configuration
+export {
+  type BiometricMethod,
+  type BiometricAvailability,
+  type BiometricConfig,
+  type BiometricEnrollmentState,
+  type BiometricSessionState,
+  BIOMETRIC_METHODS,
+  BIOMETRIC_AVAILABILITY,
+  DEFAULT_BIOMETRIC_CONFIG,
+  INITIAL_BIOMETRIC_ENROLLMENT,
+  INITIAL_BIOMETRIC_SESSION,
+  BIOMETRIC_STORAGE_PREFIX,
+  getBiometricEnrollmentKey,
+  getBiometricSettingsKey,
+  shouldShowBiometricPrompt,
+  hasExceededDismissals,
+  getBiometricDisplayName,
+  mergeBiometricConfig,
+} from './biometric-config';

@@ -47,10 +47,14 @@ export const AUTH_ROUTES: Routes = [
     title: 'Complete Profile | NXT1 Sports',
   },
 
-  // Onboarding complete - dedicated success page (2026 best practice)
+  // Onboarding congratulations - shared welcome slides (2026 best practice)
+  // Uses thin wrapper page with shared OnboardingWelcomeComponent from @nxt1/ui
   {
-    path: 'onboarding/complete',
-    loadComponent: () => import('@nxt1/ui').then((m) => m.OnboardingCompleteComponent),
+    path: 'onboarding/congratulations',
+    loadComponent: () =>
+      import('./pages/onboarding-congratulations/onboarding-congratulations.page').then(
+        (m) => m.OnboardingCongratulationsPage
+      ),
     canActivate: [authGuard],
     title: 'Welcome to NXT1!',
   },

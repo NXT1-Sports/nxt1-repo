@@ -26,13 +26,8 @@ import {
 import { isPlatformBrowser } from '@angular/common';
 import { parseApiError, isNxtApiError, API_ERROR_CODES } from '@nxt1/core/errors';
 import type { ILogger } from '@nxt1/core/logging';
-import type {
-  CrashlyticsAdapter,
-  CrashSeverity,
-  CrashCategory,
-  AppError,
-} from '@nxt1/core/crashlytics';
-import { createAppError, scrubString, scrubStackTrace } from '@nxt1/core/crashlytics';
+import type { CrashlyticsAdapter, CrashSeverity, CrashCategory } from '@nxt1/core/crashlytics';
+import { scrubString, scrubStackTrace } from '@nxt1/core/crashlytics';
 import { NxtToastService } from '../../services/toast';
 
 // ============================================

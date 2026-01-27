@@ -104,8 +104,8 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtIconComponent {
-  /** Icon name from the design tokens registry */
-  @Input({ required: true }) name!: IconName;
+  /** Icon name from the design tokens registry (or any string for dynamic usage) */
+  @Input({ required: true }) name!: IconName | string;
 
   /** Icon size in pixels (width and height) */
   @Input() size: number | string = 20;
@@ -121,7 +121,7 @@ export class NxtIconComponent {
 
   /** Get icon definition from registry (null if not found) */
   get iconDef(): IconDefinition | null {
-    const icon = ICONS[this.name];
+    const icon = ICONS[this.name as IconName];
     if (!icon) {
       console.warn(`[NxtIconComponent] Icon "${this.name}" not found in registry`);
       return null;
@@ -132,6 +132,6 @@ export class NxtIconComponent {
   /** Check if icon should use stroke rendering */
   get isStroke(): boolean {
     if (!this.iconDef) return false;
-    return isStrokeIcon(this.name);
+    return isStrokeIcon(this.name as IconName);
   }
 }

@@ -5,4 +5,9 @@
  */
 
 export { NxtIconComponent } from './icon.component';
-export type { IconName, UIIconName, BrandIconName } from '@nxt1/design-tokens/assets/icons';
+export type {
+  IconName,
+  UIIconName,
+  BrandIconName,
+  NavIconName,
+} from '@nxt1/design-tokens/assets/icons';

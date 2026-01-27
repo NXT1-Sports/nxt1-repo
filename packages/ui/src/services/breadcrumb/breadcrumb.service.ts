@@ -36,7 +36,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs/operators';
 
 import { GLOBAL_CRASHLYTICS } from '../../infrastructure/error-handling';
-import type { CrashlyticsAdapter, CrashBreadcrumb } from '@nxt1/core/crashlytics';
+import type { CrashBreadcrumb } from '@nxt1/core/crashlytics';
 
 // ============================================
 // BREADCRUMB SERVICE

@@ -11,7 +11,9 @@
 // Flow orchestration services
 export { AuthApiService } from './auth-api.service';
 export { AuthFlowService } from './auth-flow.service';
-export type { SignInCredentials, SignUpCredentials } from './auth-flow.service';
+
+// Re-export credential types from shared package for backwards compatibility
+export type { SignInCredentials, SignUpCredentials, OAuthOptions } from '@nxt1/core/auth';
 
 // Auth Error Handler - re-export from shared @nxt1/ui package
 export { AuthErrorHandler, type AuthError, type AuthRecoveryAction } from '@nxt1/ui';

@@ -12,5 +12,8 @@
 // Infrastructure
 export * from './infrastructure';
 
+// Layout
+export * from './layout';
+
 // Services
 export * from './services';

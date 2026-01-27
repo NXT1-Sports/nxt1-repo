@@ -477,7 +477,7 @@ export class AuthComponent implements OnInit {
   async onGoogleAuth(): Promise<void> {
     try {
       const teamCode = this.validatedTeam()?.code;
-      await this.authFlow.signInWithGoogle(teamCode);
+      await this.authFlow.signInWithGoogle(teamCode ? { teamCode } : undefined);
     } catch {
       // Error handled by service
     }
@@ -490,7 +490,7 @@ export class AuthComponent implements OnInit {
     this.authFlow.clearError();
 
     const teamCode = this.validatedTeam()?.code;
-    await this.authFlow.signInWithApple(teamCode);
+    await this.authFlow.signInWithApple(teamCode ? { teamCode } : undefined);
 
     // Success/error handling and navigation managed by AuthFlowService
     // Analytics tracking is handled within AuthFlowService
@@ -502,7 +502,7 @@ export class AuthComponent implements OnInit {
   async onMicrosoftAuth(): Promise<void> {
     try {
       const teamCode = this.validatedTeam()?.code;
-      await this.authFlow.signInWithMicrosoft(teamCode);
+      await this.authFlow.signInWithMicrosoft(teamCode ? { teamCode } : undefined);
     } catch {
       // Error handled by service
     }

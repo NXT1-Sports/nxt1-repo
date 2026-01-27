@@ -239,3 +239,44 @@ export {
 
 // NOTE: App analytics (event tracking) moved to @nxt1/core/analytics
 // Import from: import { APP_EVENTS, ... } from '@nxt1/core/analytics'
+
+// Navigation model (footer, tabs, navigation)
+export {
+  // Mobile Footer Types
+  type NavIconName,
+  type FooterTabItem,
+  type FooterVariant,
+  type FooterIndicatorStyle,
+  type FooterConfig,
+  type FooterTabSelectEvent,
+  // Mobile Footer Constants
+  DEFAULT_FOOTER_TABS,
+  FOOTER_HEIGHTS,
+  FOOTER_ANIMATION,
+  // Mobile Footer Helper functions
+  findTabById,
+  findTabByRoute,
+  createFooterConfig,
+  updateTabBadge,
+  setTabDisabled,
+  // Desktop Top Nav Types
+  type TopNavIconName,
+  type TopNavItem,
+  type TopNavDropdownItem,
+  type TopNavUserMenuItem,
+  type TopNavUserData,
+  type TopNavVariant,
+  type TopNavConfig,
+  type TopNavActionEvent,
+  type TopNavSearchEvent,
+  // Desktop Top Nav Constants
+  DEFAULT_TOP_NAV_ITEMS,
+  DEFAULT_USER_MENU_ITEMS,
+  TOP_NAV_HEIGHTS,
+  TOP_NAV_ANIMATION,
+  // Desktop Top Nav Helper functions
+  createTopNavConfig,
+  findTopNavItemById,
+  findTopNavItemByRoute,
+  updateTopNavBadge,
+} from './navigation.model';

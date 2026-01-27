@@ -44,6 +44,12 @@ import { serverRoutes } from './app.routes.server';
 // @ionic/angular-server is installed for its server-safe component implementations
 import { provideIonicAngular } from '@ionic/angular/standalone';
 
+// Shared infrastructure from @nxt1/ui
+import { GLOBAL_CRASHLYTICS } from '@nxt1/ui';
+
+// Crashlytics service (web uses GA4 fallback, SSR-safe)
+import { CrashlyticsService } from './core/services/crashlytics.service';
+
 // Auth service with injection token pattern
 // IMPORTANT: Import directly from files, NOT from barrel export
 // Barrel exports would pull in BrowserAuthService which imports Firebase Auth
@@ -147,6 +153,14 @@ export const config: ApplicationConfig = {
     // Provide ServerAuthService for AUTH_SERVICE token
     // This implementation uses FirebaseServerApp for authenticated SSR
     { provide: AUTH_SERVICE, useClass: ServerAuthService },
+
+    // ============================================
+    // CRASHLYTICS (SSR-Safe)
+    // ============================================
+
+    // Provide CrashlyticsService for GLOBAL_CRASHLYTICS token
+    // CrashlyticsService is SSR-safe and uses no-op adapter on server
+    { provide: GLOBAL_CRASHLYTICS, useExisting: CrashlyticsService },
 
     // Initialize auth BEFORE rendering starts
     // This ensures auth state is populated for all components

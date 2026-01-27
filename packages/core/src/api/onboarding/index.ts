@@ -185,3 +185,47 @@ export {
   loadValidSession,
   saveOrCreateSession,
 } from './onboarding-session.api';
+
+// ============================================
+// STATE MACHINE (Portable onboarding logic)
+// ============================================
+export {
+  // Factory
+  createOnboardingStateMachine,
+  type OnboardingStateMachine,
+
+  // Types
+  type OnboardingMachineState,
+  type StepAnimationDirection,
+  type PartialOnboardingFormData,
+  type OnboardingStateSnapshot,
+  type OnboardingMachineEvent,
+  type OnboardingEventListener,
+  type OnboardingStateMachineConfig,
+  type OnboardingMachineSession,
+
+  // Utility functions
+  isValidSession,
+  serializeSession,
+  deserializeSession,
+} from './onboarding-state-machine';
+
+// ============================================
+// WELCOME SLIDES CONFIG (Role-based content)
+// ============================================
+export {
+  // Types
+  type WelcomeSlide,
+  type WelcomeSlidesConfig,
+
+  // Config map
+  WELCOME_SLIDES_BY_ROLE,
+
+  // Helper functions
+  getWelcomeSlidesForRole,
+  getPersonalizedGreeting,
+
+  // Constants
+  DEFAULT_WELCOME_SLIDES,
+  WELCOME_SLIDES_COUNT,
+} from './onboarding-welcome-slides.config';

@@ -50,6 +50,14 @@ import {
   isAndroid,
   INITIAL_AUTH_STATE,
 } from '@nxt1/core';
+import {
+  type IAuthFlowService,
+  type FlowSignInCredentials as SignInCredentials,
+  type FlowSignUpCredentials as SignUpCredentials,
+  type OAuthOptions,
+  globalAuthUserCache,
+  type CachedUserProfile,
+} from '@nxt1/core/auth';
 import { createNativeStorageAdapter } from '../../../core/infrastructure/native-storage.adapter';
 import { AUTH_ROUTES, AUTH_REDIRECTS, AUTH_METHODS } from '@nxt1/core/constants';
 import {
@@ -66,26 +74,9 @@ import { FirebaseAuthService } from './firebase-auth.service';
 import { environment } from '../../../../environments/environment';
 
 // ============================================
-// TYPES (Matching web's auth-flow.service.ts)
+// TYPES (Imported from @nxt1/core/auth)
+// SignInCredentials, SignUpCredentials, OAuthOptions are now shared
 // ============================================
-
-export interface SignInCredentials {
-  email: string;
-  password: string;
-  /** Skip auto-navigation after success (for biometric enrollment flow) */
-  skipNavigation?: boolean;
-}
-
-export interface SignUpCredentials {
-  email: string;
-  password: string;
-  firstName?: string;
-  lastName?: string;
-  teamCode?: string;
-  referralId?: string;
-  /** Skip auto-navigation after success (for biometric enrollment flow) */
-  skipNavigation?: boolean;
-}
 
 /**
  * Auth Flow Service - Mobile
@@ -111,7 +102,7 @@ export interface SignUpCredentials {
  * ```
  */
 @Injectable({ providedIn: 'root' })
-export class AuthFlowService implements OnDestroy {
+export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly navController = inject(NavController);
   private readonly platform = inject(NxtPlatformService);
   private readonly haptics = inject(HapticsService);
@@ -365,7 +356,7 @@ export class AuthFlowService implements OnDestroy {
   }
 
   /**
-   * Sync user profile from backend
+   * Sync user profile from backend (with caching)
    */
   private async syncUserProfile(_uid: string): Promise<void> {
     try {
@@ -376,13 +367,38 @@ export class AuthFlowService implements OnDestroy {
       const rawProvider = this.firebaseAuth.getProviderFromUser(firebaseUser);
       const provider = rawProvider === 'microsoft' ? 'email' : rawProvider;
 
-      // Fetch full profile data from backend
-      let backendProfile: UserProfileResponse | null = null;
+      // Fetch full profile data from backend (with caching)
+      let backendProfile: CachedUserProfile | null = null;
       try {
-        backendProfile = await this.authApi.getUserProfile(firebaseUser.uid);
-        this.logger.debug('Backend profile fetched', {
+        // Use globalAuthUserCache for efficient caching
+        // Map UserProfileResponse to CachedUserProfile (id -> uid)
+        backendProfile = await globalAuthUserCache.getOrFetch(firebaseUser.uid, async () => {
+          const response = await this.authApi.getUserProfile(firebaseUser.uid);
+          return {
+            uid: response.id,
+            email: response.email,
+            firstName: response.firstName,
+            lastName: response.lastName,
+            profileImg: response.profileImg,
+            displayName: `${response.firstName} ${response.lastName}`.trim(),
+            role: response.role ?? null,
+            planTier: response.planTier ?? null,
+            onboardingCompleted: response.onboardingCompleted,
+            completeSignUp: response.completeSignUp,
+            isCollegeCoach: response.isCollegeCoach,
+            isRecruit: response.isRecruit,
+            primarySport: response.sports?.find((s) => s.isPrimary)?.sport,
+            sports: response.sports?.map((s) => ({
+              sport: s.sport,
+              positions: s.positions,
+              isPrimary: s.isPrimary,
+            })),
+          };
+        });
+        this.logger.debug('Backend profile fetched (cached)', {
           uid: firebaseUser.uid,
-          completeSignUp: backendProfile.completeSignUp,
+          completeSignUp: backendProfile?.completeSignUp,
+          cacheStats: globalAuthUserCache.getStats(),
         });
       } catch (err) {
         this.logger.warn('Failed to fetch backend profile, using defaults', { error: err });
@@ -405,7 +421,15 @@ export class AuthFlowService implements OnDestroy {
             ? `${backendProfile.firstName} ${backendProfile.lastName}`
             : 'User'),
         photoURL: firebaseUser.photoURL ?? backendProfile?.profileImg ?? undefined,
-        role: this.getUserRole(backendProfile),
+        role: this.getUserRole(
+          backendProfile
+            ? {
+                role: backendProfile.role as UserRole | null | undefined,
+                isCollegeCoach: backendProfile.isCollegeCoach,
+                isRecruit: backendProfile.isRecruit,
+              }
+            : null
+        ),
         isPremium: !!backendProfile?.planTier && backendProfile.planTier !== 'free',
         hasCompletedOnboarding,
         provider,
@@ -904,6 +928,9 @@ export class AuthFlowService implements OnDestroy {
       // Clear crashlytics user context
       await this.crashlytics.clearUser();
 
+      // Clear user profile cache
+      await globalAuthUserCache.clear();
+
       await this.firebaseAuth.signOut();
       this.httpAdapter.setAuthToken(null);
       await this.authManager.reset();
@@ -936,12 +963,19 @@ export class AuthFlowService implements OnDestroy {
   }
 
   /**
-   * Refresh user profile from Firebase
+   * Refresh user profile from backend (bypasses cache)
    * Call after completing onboarding to update hasCompletedOnboarding flag
+   *
+   * ⚠️ IMPORTANT: This invalidates the cache first to ensure fresh data
    */
   async refreshUserProfile(): Promise<void> {
     const firebaseUser = this.firebaseAuth.getCurrentUser();
     if (!firebaseUser) return;
+
+    // Invalidate cache to force fresh fetch from backend
+    // This is critical after onboarding completion
+    await globalAuthUserCache.invalidate(firebaseUser.uid);
+    this.logger.debug('Cache invalidated for user', { uid: firebaseUser.uid });
 
     await this.syncUserProfile(firebaseUser.uid);
   }

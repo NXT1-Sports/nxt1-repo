@@ -26,7 +26,7 @@ import {
   computed,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
+import { NavController } from '@ionic/angular/standalone';
 import { AuthShellComponent } from '@nxt1/ui';
 import { interval, Subscription, takeWhile } from 'rxjs';
 import { AuthFlowService } from '../../services';
@@ -491,7 +491,7 @@ export class VerifyEmailComponent implements OnInit, OnDestroy {
   // DEPENDENCIES
   // ============================================
   private readonly authFlow = inject(AuthFlowService);
-  private readonly router = inject(Router);
+  private readonly navController = inject(NavController);
 
   // ============================================
   // STATE
@@ -602,7 +602,10 @@ export class VerifyEmailComponent implements OnInit, OnDestroy {
   goToSignIn(): void {
     // Sign out first to allow signing in with different account
     this.authFlow.signOut();
-    this.router.navigate([AUTH_ROUTES.ROOT]);
+    this.navController.navigateBack(AUTH_ROUTES.ROOT, {
+      animated: true,
+      animationDirection: 'back',
+    });
   }
 
   /**
@@ -611,14 +614,20 @@ export class VerifyEmailComponent implements OnInit, OnDestroy {
   changeEmail(): void {
     // Sign out and go to signup
     this.authFlow.signOut();
-    this.router.navigate([AUTH_ROUTES.ROOT], { queryParams: { mode: 'signup' } });
+    this.navController.navigateBack(`${AUTH_ROUTES.ROOT}?mode=signup`, {
+      animated: true,
+      animationDirection: 'back',
+    });
   }
 
   /**
    * Continue to onboarding after verification
    */
   continueToOnboarding(): void {
-    this.router.navigate([AUTH_ROUTES.ONBOARDING]);
+    this.navController.navigateForward(AUTH_ROUTES.ONBOARDING, {
+      animated: true,
+      animationDirection: 'forward',
+    });
   }
 
   // ============================================

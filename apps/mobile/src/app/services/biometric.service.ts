@@ -48,18 +48,26 @@ import { Injectable, inject, PLATFORM_ID, signal, computed } from '@angular/core
 import { isPlatformBrowser } from '@angular/common';
 import { Platform } from '@ionic/angular/standalone';
 import { Preferences } from '@capacitor/preferences';
+import {
+  BIOMETRIC_METHODS,
+  type BiometricMethod,
+  type BiometricConfig,
+  DEFAULT_BIOMETRIC_CONFIG,
+  BIOMETRIC_STORAGE_PREFIX,
+  getBiometricDisplayName,
+} from '@nxt1/core/auth';
 
 /** Server identifier for credential storage */
 const BIOMETRIC_CREDENTIAL_SERVER = 'nxt1-auth';
 
-/** Storage key for biometric enrollment preference */
-const BIOMETRIC_ENROLLED_KEY = 'nxt1_biometric_enrolled';
+/** Storage key for biometric enrollment preference (uses shared prefix) */
+const BIOMETRIC_ENROLLED_KEY = `${BIOMETRIC_STORAGE_PREFIX}enrolled`;
 
-/** Storage key for last authenticated email */
-const BIOMETRIC_LAST_EMAIL_KEY = 'nxt1_biometric_last_email';
+/** Storage key for last authenticated email (uses shared prefix) */
+const BIOMETRIC_LAST_EMAIL_KEY = `${BIOMETRIC_STORAGE_PREFIX}last_email`;
 
-/** Biometric types available on device */
-export type BiometricType = 'face' | 'fingerprint' | 'iris' | 'none';
+/** Biometric types available on device (extends shared BiometricMethod with 'none') */
+export type BiometricType = BiometricMethod | 'none';
 
 /** Biometric availability info */
 export interface BiometricAvailability {
@@ -146,16 +154,9 @@ export class BiometricService {
   /** Human-readable name for the biometric type */
   readonly biometryName = computed(() => {
     const type = this._biometryType();
-    switch (type) {
-      case 'face':
-        return this.ionicPlatform.is('ios') ? 'Face ID' : 'Face Recognition';
-      case 'fingerprint':
-        return this.ionicPlatform.is('ios') ? 'Touch ID' : 'Fingerprint';
-      case 'iris':
-        return 'Iris Scanner';
-      default:
-        return 'Biometric';
-    }
+    if (type === 'none') return 'Biometric';
+    const platform = this.ionicPlatform.is('ios') ? 'ios' : 'android';
+    return getBiometricDisplayName(type, platform);
   });
 
   // ============================================

@@ -16,6 +16,9 @@ export { FirebaseAuthService } from './firebase-auth.service';
 export { MobileAuthService } from './mobile-auth.service';
 export { NativeAuthService } from './native-auth.service';
 
+// Re-export credential types from shared package for backwards compatibility
+export type { SignInCredentials, SignUpCredentials, OAuthOptions } from '@nxt1/core/auth';
+
 // Auth Error Handler (shared with web via re-export)
 export { AuthErrorHandler, type AuthError, type AuthRecoveryAction } from './auth-error.handler';
 

@@ -1,31 +1,34 @@
 /**
- * @fileoverview Onboarding Component - State Machine-Based Profile Setup
+ * @fileoverview Onboarding Component - UI Layer Only
  * @module @nxt1/web/features/auth
  *
- * Enterprise-grade onboarding wizard using shared components from @nxt1/ui/onboarding.
- * Implements a clean state machine pattern with minimal UI code.
+ * Enterprise-grade onboarding wizard using:
+ * - Shared state machine from @nxt1/core/api/onboarding (ALL business logic)
+ * - Shared UI components from @nxt1/ui/onboarding
  *
- * Architecture:
+ * Architecture (2026 Best Practice):
  * ┌────────────────────────────────────────────────────────────┐
  * │                   @nxt1/ui/onboarding                      │
  * │    OnboardingRoleSelection, ProgressBar, StepCard, etc.    │
  * ├────────────────────────────────────────────────────────────┤
- * │                 OnboardingComponent (UI)                   │
- * │         Orchestrates state, uses shared components         │
+ * │              OnboardingComponent (THIS FILE)               │
+ * │     UI ONLY: Renders state, handles platform concerns      │
+ * ├────────────────────────────────────────────────────────────┤
+ * │        ⭐ createOnboardingStateMachine() from @nxt1/core ⭐ │
+ * │     ALL LOGIC: State transitions, validation, navigation   │
  * ├────────────────────────────────────────────────────────────┤
  * │                  @nxt1/core/api/onboarding                 │
  * │         Pure functions, types, step configurations         │
  * └────────────────────────────────────────────────────────────┘
  *
- * Features:
- * - Session persistence (localStorage) for resume capability
- * - Step transition animations (fade + slide)
- * - Unified flow (role = last optional step)
- * - Mobile-ready architecture
+ * This component is THIN (~800 lines) because:
+ * - State machine logic lives in @nxt1/core (portable to mobile)
+ * - UI components live in @nxt1/ui (shared with mobile)
+ * - Only platform-specific code remains here (geolocation, file upload, SEO)
  *
  * Route: /auth/onboarding
  *
- * ⭐ MATCHES MOBILE'S onboarding.page.ts INTERFACE ⭐
+ * ⭐ SHARES STATE MACHINE WITH mobile/onboarding.page.ts ⭐
  */
 
 import {
@@ -42,6 +45,7 @@ import {
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
+import { NavController } from '@ionic/angular/standalone';
 
 // Shared UI Components
 import { AuthShellComponent, AuthTitleComponent, AuthSubtitleComponent } from '@nxt1/ui';
@@ -57,12 +61,11 @@ import {
   OnboardingNavigationButtonsComponent,
   OnboardingButtonMobileComponent,
   OnboardingStepCardComponent,
-  OnboardingCelebrationComponent,
   type AnimationDirection,
 } from '@nxt1/ui';
 import { NxtToastService, NxtPlatformService } from '@nxt1/ui';
 
-// Core API - Types & Constants
+// Core API - Types, State Machine & Constants
 import {
   type OnboardingUserType,
   type OnboardingStepId,
@@ -76,11 +79,21 @@ import {
   type ContactFormData,
   type ReferralSourceData,
   ONBOARDING_STEPS,
-  ROLE_SELECTION_STEP,
-  validateStep,
+  // ⭐ SHARED STATE MACHINE - Single source of truth
+  createOnboardingStateMachine,
+  type OnboardingStateMachine,
+  type OnboardingStateSnapshot,
+  type OnboardingMachineEvent,
+  type OnboardingMachineSession,
   // Session persistence
   createOnboardingSessionApi,
   type OnboardingSession,
+  // State machine types (shared with mobile)
+  type OnboardingMachineState,
+  type StepAnimationDirection,
+  type PartialOnboardingFormData,
+  serializeSession,
+  deserializeSession,
 } from '@nxt1/core/api';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { createBrowserStorageAdapter, STORAGE_KEYS } from '@nxt1/core/storage';
@@ -106,35 +119,14 @@ import { SeoService } from '../../../../core/services';
 import { NxtLoggingService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 
-// ============================================
-// TYPES
-// ============================================
-
-/** State machine states - matches step IDs plus workflow states */
-type OnboardingState =
-  | 'idle'
-  | 'profile'
-  | 'school'
-  | 'organization'
-  | 'sport'
-  | 'positions'
-  | 'contact'
-  | 'referral'
-  | 'role' // Optional last step
-  | 'completing'
-  | 'complete';
-
-/** Partial form data with nullable userType for initial state */
-interface PartialOnboardingFormData extends Omit<Partial<OnboardingFormData>, 'userType'> {
-  userType: OnboardingUserType | null;
-}
+// Types are imported directly from @nxt1/core/api - no local aliases needed
 
 // ============================================
 // CONSTANTS
 // ============================================
 
-/** Initial steps - Profile → Sports → Referral → Role (optional last) */
-const DEFAULT_STEPS: OnboardingStep[] = ONBOARDING_STEPS.athlete;
+/** Session storage key for machine session */
+const MACHINE_SESSION_KEY = 'nxt1_onboarding_machine_session';
 
 /** Session expiry time (24 hours in milliseconds) */
 const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
@@ -163,7 +155,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     OnboardingNavigationButtonsComponent,
     OnboardingButtonMobileComponent,
     OnboardingStepCardComponent,
-    OnboardingCelebrationComponent,
   ],
   template: `
     <nxt1-auth-shell
@@ -340,13 +331,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         (continueClick)="onContinue()"
       />
     }
-
-    <!-- Celebration Overlay -->
-    <nxt1-onboarding-celebration
-      [show]="showCelebration()"
-      message="Welcome to NXT1!"
-      (complete)="onCelebrationComplete()"
-    />
   `,
   styles: [
     `
@@ -428,6 +412,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 export class OnboardingComponent implements OnInit, OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
+  private readonly navController = inject(NavController);
   private readonly authFlow = inject(AuthFlowService);
   private readonly authApi = inject(AuthApiService);
   private readonly errorHandler = inject(AuthErrorHandler);
@@ -441,7 +426,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   readonly isMobile = computed(() => this.platform.isMobile());
 
   // ============================================
-  // GEOLOCATION SERVICE (2026 Best Practice)
+  // GEOLOCATION SERVICE (Platform-specific)
   // ============================================
 
   /** Cross-platform geolocation service with cached reverse geocoding */
@@ -454,21 +439,30 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   @ViewChild('profileStep') profileStepRef?: OnboardingProfileStepComponent;
 
   // ============================================
-  // SESSION PERSISTENCE
+  // SESSION PERSISTENCE (Platform-specific)
   // ============================================
 
   /** Browser storage adapter for session persistence */
   private readonly storage = createBrowserStorageAdapter('local');
 
-  /** Session API for save/load operations */
-  private readonly sessionApi = createOnboardingSessionApi(this.storage);
+  // ============================================
+  // ⭐ SHARED STATE MACHINE (from @nxt1/core) ⭐
+  // All business logic is delegated to this machine
+  // ============================================
+
+  /** The portable state machine instance - single source of truth */
+  private machine!: OnboardingStateMachine;
+
+  /** Cleanup function for state machine event listener */
+  private machineUnsubscribe?: () => void;
 
   // ============================================
-  // STATE SIGNALS
+  // UI SIGNALS (Mirror state machine for Angular reactivity)
+  // These are kept in sync via machine.addEventListener()
   // ============================================
 
   /** Current state machine state */
-  private readonly _state = signal<OnboardingState>('idle');
+  private readonly _state = signal<OnboardingMachineState>('idle');
 
   /** Current step index */
   private readonly _currentStepIndex = signal(0);
@@ -477,7 +471,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   readonly selectedRole = signal<OnboardingUserType | null>(null);
 
   /** Configured steps based on selected role */
-  private readonly _steps = signal<OnboardingStep[]>(DEFAULT_STEPS);
+  private readonly _steps = signal<OnboardingStep[]>(ONBOARDING_STEPS.athlete);
 
   /** Completed step IDs */
   private readonly _completedSteps = signal<Set<OnboardingStepId>>(new Set());
@@ -494,11 +488,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   /** Animation direction for step transitions */
   readonly animationDirection = signal<AnimationDirection>('none');
 
-  /** Show celebration overlay when onboarding completes */
-  readonly showCelebration = signal(false);
-
   // ============================================
-  // COMPUTED SIGNALS
+  // COMPUTED SIGNALS (Derived from state)
   // ============================================
 
   /** Profile form data computed from _formData */
@@ -541,11 +532,14 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   /** Completed step IDs set */
   readonly completedStepIds = computed(() => this._completedSteps());
 
-  /** Current step object - always returns a valid step (defaults to first step) */
+  /** Current step object - always returns a valid step */
   readonly currentStep = computed(() => {
     const steps = this._steps();
     const index = this._currentStepIndex();
-    return steps[index] ?? steps[0] ?? ROLE_SELECTION_STEP;
+    return (
+      steps[index] ??
+      steps[0] ?? { id: 'profile', title: 'Loading...', subtitle: '', required: true }
+    );
   });
 
   /** Whether user can go back */
@@ -553,33 +547,19 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   /** Whether current step is the last step */
   readonly isLastStep = computed(() => {
-    // Role step is now the LAST step (optional) in the flow
     return this._currentStepIndex() === this._steps().length - 1;
   });
 
-  /** Whether current step is optional (but NOT the last step - last step shows Complete, not Skip) */
+  /** Whether current step is optional (but NOT the last step) */
   readonly isCurrentStepOptional = computed(() => {
-    // Don't show skip on the last step - user should complete or go back
     if (this.isLastStep()) return false;
     return !this.currentStep().required;
   });
 
-  /** Whether current step is valid (can proceed) - uses shared validation from @nxt1/core */
+  /** Whether current step is valid (delegated to state machine) */
   readonly isCurrentStepValid = computed(() => {
-    const step = this.currentStep();
-    const formData = this._formData();
-
-    // Role selection step
-    if (step.id === 'role') {
-      return this.selectedRole() !== null;
-    }
-
-    // Use shared validation from @nxt1/core for all other steps
-    if (formData.userType) {
-      return validateStep(step.id, formData as OnboardingFormData);
-    }
-
-    return true;
+    // Machine handles validation - we just mirror the snapshot
+    return this.machine?.getState()?.isCurrentStepValid ?? true;
   });
 
   // ============================================
@@ -591,8 +571,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   constructor() {
     // Use effect to initialize the onboarding flow once auth is ready
-    // Note: Route guard (onboardingInProgressGuard) handles auth checks and redirects
-    // This effect just initializes the state machine when user data is available
     effect(() => {
       const isInitialized = this.authFlow.isInitialized();
       const user = this.authFlow.user();
@@ -603,7 +581,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       }
 
       // Wait for auth to be initialized and user to be available
-      // Guard ensures we only get here with valid auth state
       if (!isInitialized || !user) {
         return;
       }
@@ -611,21 +588,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       // Mark as initialized to prevent re-running
       this.hasInitialized = true;
 
-      // Try to restore session from localStorage
-      this.restoreSession(user.uid).then((restored) => {
-        if (!restored) {
-          // No valid session - start fresh with Profile step
-          this._state.set('profile');
-          this._currentStepIndex.set(0);
-          // Track onboarding started event
-          this.trackStarted();
-          // Track initial step view (profile)
-          this.trackStepViewed();
-        } else {
-          // Restored session - track the resumed step view
-          this.trackStepViewed();
-        }
-      });
+      // Initialize the shared state machine
+      this.initializeStateMachine(user.uid);
     });
   }
 
@@ -646,97 +610,150 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    // End analytics session - this will track abandonment if onboarding wasn't completed
+    // Cleanup state machine event listener
+    this.machineUnsubscribe?.();
+    // End analytics session
     this.onboardingAnalytics.endSession();
   }
 
   // ============================================
-  // STATE MACHINE METHODS
+  // STATE MACHINE INITIALIZATION
   // ============================================
 
   /**
-   * Check if step is completed
+   * Initialize the shared state machine from @nxt1/core
+   * This is the SINGLE SOURCE OF TRUTH for all onboarding logic
    */
-  isStepCompleted(stepId: OnboardingStepId): boolean {
-    return this._completedSteps().has(stepId);
+  private initializeStateMachine(userId: string): void {
+    this.logger.info('Initializing shared state machine', { userId });
+
+    // Create the portable state machine
+    this.machine = createOnboardingStateMachine({
+      userId,
+      initialSteps: ONBOARDING_STEPS.athlete,
+      debug: false, // Set to true for debugging
+      onComplete: async (formData) => {
+        // This is called when the machine completes
+        // We handle the actual backend save here (platform-specific)
+        await this.handleCompletion(formData);
+      },
+    });
+
+    // Subscribe to state machine events and sync Angular signals
+    this.machineUnsubscribe = this.machine.addEventListener((event) => {
+      this.handleMachineEvent(event);
+    });
+
+    // Try to restore session from localStorage
+    const restored = this.tryRestoreSession(userId);
+
+    if (!restored) {
+      // No valid session - start fresh
+      this.machine.start();
+      // Track onboarding started event
+      this.trackStarted();
+    } else {
+      // Session restored - toast shown in tryRestoreSession
+    }
   }
 
   /**
-   * Check if can navigate to a specific step
+   * Handle events from the state machine and sync Angular signals
    */
-  canNavigateToStep(index: number): boolean {
-    if (index < 0 || index >= this._steps().length) return false;
-    if (index === this._currentStepIndex()) return true;
+  private handleMachineEvent(event: OnboardingMachineEvent): void {
+    switch (event.type) {
+      case 'STATE_CHANGE':
+        // Sync all Angular signals from the state snapshot
+        this.syncSignalsFromSnapshot(event.state);
+        // Save session after any state change
+        this.saveSession();
+        break;
 
-    // Can only navigate to completed steps or next step
-    const targetStep = this._steps()[index];
-    if (!targetStep) return false;
+      case 'STEP_VIEWED':
+        this.trackStepViewed();
+        break;
 
-    // Can always go back to completed steps
-    if (this.isStepCompleted(targetStep.id)) return true;
+      case 'STEP_COMPLETED':
+        this.trackStepCompleted();
+        break;
 
-    // Can go to next step if current is completed
-    if (index === this._currentStepIndex() + 1) {
-      const currentStep = this.currentStep();
-      return currentStep
-        ? this.isStepCompleted(currentStep.id) || this.isCurrentStepValid()
-        : false;
+      case 'STEP_SKIPPED':
+        this.trackStepSkipped();
+        break;
+
+      case 'ROLE_SELECTED':
+        this.trackRoleSelected(event.role);
+        break;
+
+      case 'STARTED':
+        this.logger.debug('Onboarding started', { totalSteps: event.totalSteps });
+        break;
+
+      case 'COMPLETED':
+        this.logger.info('Onboarding completed');
+        break;
+
+      case 'ERROR':
+        this.logger.error('Onboarding error', { message: event.message });
+        this.trackError(event.message);
+        break;
+
+      case 'SESSION_RESTORED':
+        this.trackStepViewed();
+        this.toast.info('Welcome back! Resuming where you left off.');
+        break;
     }
-
-    return false;
   }
+
+  /**
+   * Sync Angular signals from state machine snapshot
+   */
+  private syncSignalsFromSnapshot(state: OnboardingStateSnapshot): void {
+    this._state.set(state.machineState);
+    this._currentStepIndex.set(state.currentStepIndex);
+    this._steps.set([...state.steps]);
+    this._completedSteps.set(new Set(state.completedStepIds));
+    this._formData.set({ ...state.formData });
+    this.selectedRole.set(state.selectedRole);
+    this.isLoading.set(state.isLoading);
+    this.error.set(state.error);
+    this.animationDirection.set(state.animationDirection as AnimationDirection);
+  }
+
+  // ============================================
+  // NAVIGATION (Delegates to state machine)
+  // ============================================
 
   /**
    * Navigate to specific step
    */
   goToStep(index: number): void {
-    if (this.canNavigateToStep(index)) {
-      const currentIndex = this._currentStepIndex();
-      // Set animation direction based on navigation direction
-      this.animationDirection.set(index > currentIndex ? 'forward' : 'backward');
-      this._currentStepIndex.set(index);
-      // Track step view for analytics funnel
-      this.trackStepViewed();
-      // Save session after navigation
-      void this.saveSession();
-    }
+    this.machine.goToStep(index);
   }
 
   // ============================================
-  // USER ACTIONS
+  // USER ACTIONS (Delegates form updates to machine)
   // ============================================
 
   /**
    * Handle role selection (optional last step)
-   * User taps on a role card - just save the selection
    */
   onRoleSelect(type: OnboardingUserType): void {
-    this.selectedRole.set(type);
-    this._formData.update((data) => ({ ...data, userType: type }));
-
-    // Role is the last step - just save the selection
-    // User will click Continue to complete onboarding
-    console.info(`[Onboarding] Role selected: ${type}`);
+    this.machine.selectRole(type);
+    this.logger.info('Role selected', { role: type });
   }
 
   /**
    * Handle profile data change (Step 1)
    */
   onProfileChange(profileData: ProfileFormData): void {
-    this._formData.update((data) => ({
-      ...data,
-      profile: profileData,
-    }));
+    this.machine.updateProfile(profileData);
   }
 
   /**
    * Handle location detection request from profile step.
    * Uses browser geolocation + Nominatim reverse geocoding.
-   *
-   * 2026 Best Practices:
-   * - Check permission status before requesting
-   * - Provide user-friendly error messages
-   * - Handle secure context (HTTPS) requirement
+   * (Platform-specific - stays in component)
    */
   async onLocationRequest(): Promise<void> {
     this.logger.info('Location detection requested');
@@ -765,7 +782,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         return;
       }
 
-      // Request location with quick settings (coarse location is sufficient for city/state)
+      // Request location with quick settings
       const result = await this.geolocationService.getCurrentLocation(GEOLOCATION_DEFAULTS.QUICK);
 
       if (result.success) {
@@ -783,16 +800,14 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         // Update profile step
         this.profileStepRef?.setLocation(locationData);
 
-        // Update form data
-        this._formData.update((data) => ({
-          ...data,
-          profile: {
-            ...data.profile,
-            firstName: data.profile?.firstName || '',
-            lastName: data.profile?.lastName || '',
-            location: locationData,
-          },
-        }));
+        // Update form data via machine
+        const currentProfile = this._formData().profile;
+        this.machine.updateProfile({
+          ...currentProfile,
+          firstName: currentProfile?.firstName || '',
+          lastName: currentProfile?.lastName || '',
+          location: locationData,
+        });
 
         this.logger.info('Location detected', {
           city: address?.city,
@@ -802,7 +817,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         // Handle error with user-friendly messages
         let errorMessage = result.error.message || 'Unable to detect location';
 
-        // Provide specific guidance based on error code
         switch (result.error.code) {
           case 'PERMISSION_DENIED':
             errorMessage =
@@ -836,65 +850,46 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    * Handle team data change (Step 2)
    */
   onTeamChange(teamData: TeamFormData): void {
-    this._formData.update((data) => ({
-      ...data,
-      team: teamData,
-    }));
+    this.machine.updateTeam(teamData);
   }
 
   /**
    * Handle sport data change (Step 4)
    */
   onSportChange(sportData: SportFormData): void {
-    this._formData.update((data) => ({
-      ...data,
-      sport: sportData,
-      // Clear positions when sport changes (positions are sport-specific)
-      positions: undefined,
-    }));
+    this.machine.updateSport(sportData);
   }
 
   /**
    * Handle position data change (Step 5)
    */
   onPositionChange(positionData: PositionsFormData): void {
-    this._formData.update((data) => ({
-      ...data,
-      positions: positionData,
-    }));
+    this.machine.updatePositions(positionData);
   }
 
   /**
    * Handle contact data change (Step 6)
    */
   onContactChange(contactData: ContactFormData): void {
-    this._formData.update((data) => ({
-      ...data,
-      contact: contactData,
-    }));
+    this.machine.updateContact(contactData);
   }
 
   /**
    * Handle referral source data change (Step 7 - Final)
    */
   onReferralChange(referralData: ReferralSourceData): void {
-    this._formData.update((data) => ({
-      ...data,
-      referralSource: referralData,
-    }));
+    this.machine.updateReferral(referralData);
   }
 
   /**
-   * Handle photo select button click
-   * On web, the file input handles this automatically
+   * Handle photo select button click (Platform-specific)
    */
   onPhotoSelect(): void {
-    // File input click is triggered by the component
     this.logger.debug('Photo select triggered');
   }
 
   /**
-   * Handle file selected from file picker
+   * Handle file selected from file picker (Platform-specific)
    */
   async onFileSelected(file: File): Promise<void> {
     this.logger.debug('File selected', { name: file.name, size: file.size });
@@ -911,16 +906,14 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       // Upload to Firebase Storage
       const photoURL = await this.authFlow.uploadProfilePhoto(file, user.uid);
 
-      // Update profile form data with new photo URL
-      this._formData.update((data) => ({
-        ...data,
-        profile: {
-          firstName: data.profile?.firstName || '',
-          lastName: data.profile?.lastName || '',
-          ...(data.profile || {}),
-          profileImg: photoURL,
-        },
-      }));
+      // Update profile form data via machine
+      const currentProfile = this._formData().profile;
+      this.machine.updateProfile({
+        firstName: currentProfile?.firstName || '',
+        lastName: currentProfile?.lastName || '',
+        ...(currentProfile || {}),
+        profileImg: photoURL,
+      });
 
       this.toast.success('Photo uploaded successfully!');
     } catch (err) {
@@ -932,89 +925,28 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle continue button click
+   * Handle continue button click (Delegates to machine)
    */
   onContinue(): void {
-    if (!this.isCurrentStepValid()) return;
-
-    const step = this.currentStep();
-    if (!step) return;
-
-    // Track step completion for analytics funnel
-    this.trackStepCompleted();
-
-    // Mark current step as completed
-    this._completedSteps.update((set) => {
-      const newSet = new Set(set);
-      newSet.add(step.id);
-      return newSet;
-    });
-
-    // Set animation direction for forward navigation
-    this.animationDirection.set('forward');
-
-    // Navigate to next step or complete
-    if (this.isLastStep()) {
-      this.completeOnboarding();
-    } else {
-      this._currentStepIndex.update((i) => i + 1);
-      // Track new step view for analytics funnel
-      this.trackStepViewed();
-      // Save session after step completion
-      void this.saveSession();
-    }
+    this.machine.continue();
   }
 
   /**
-   * Handle skip button click
+   * Handle skip button click (Delegates to machine)
    */
   onSkip(): void {
-    const step = this.currentStep();
-    if (!step || step.required) return;
-
-    // Track step skipped for analytics funnel
-    this.trackStepSkipped();
-
-    // Mark as completed without data
-    this._completedSteps.update((set) => {
-      const newSet = new Set(set);
-      newSet.add(step.id);
-      return newSet;
-    });
-
-    // Set animation direction for forward navigation
-    this.animationDirection.set('forward');
-
-    // Navigate to next step or complete
-    if (this.isLastStep()) {
-      this.completeOnboarding();
-    } else {
-      this._currentStepIndex.update((i) => i + 1);
-      // Track new step view for analytics funnel
-      this.trackStepViewed();
-      // Save session after step skip
-      void this.saveSession();
-    }
+    this.machine.skip();
   }
 
   /**
-   * Handle back button click
+   * Handle back button click (Delegates to machine)
    */
   onBack(): void {
-    if (this._currentStepIndex() > 0) {
-      // Set animation direction for backward navigation
-      this.animationDirection.set('backward');
-      this._currentStepIndex.update((i) => i - 1);
-      // Track step view when going back
-      this.trackStepViewed();
-      // Save session after back navigation
-      void this.saveSession();
-    }
+    this.machine.back();
   }
 
   /**
    * Handle sign out button click
-   * Signs out and redirects to auth page for testing
    */
   async onSignOut(): Promise<void> {
     // Blur to prevent aria-hidden focus warning during navigation
@@ -1024,153 +956,171 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
     try {
       await this.authFlow.signOut();
-      void this.router.navigate([AUTH_ROUTES.ROOT]);
+      await this.navController.navigateRoot(AUTH_ROUTES.ROOT, {
+        animated: true,
+        animationDirection: 'back',
+      });
     } catch (err) {
       this.logger.error('Sign out failed', err);
       this.toast.error('Failed to sign out');
     }
   }
 
+  // ============================================
+  // COMPLETION HANDLER (Platform-specific backend logic)
+  // ============================================
+
   /**
-   * Handle celebration animation completion
-   * Shows success toast and navigates to home
+   * Handle completion - save to backend and navigate
+   * Called by state machine's onComplete callback
    */
-  async onCelebrationComplete(): Promise<void> {
-    this.showCelebration.set(false);
-    this.toast.success('Profile setup complete! Welcome to NXT1.');
-    await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
+  private async handleCompletion(formData: OnboardingFormData): Promise<void> {
+    const user = this.authFlow.user();
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    this.logger.info('Completing onboarding for user', { userId: user.uid });
+    this.logger.debug('Form data', { formData });
+
+    // Save all onboarding data to backend
+    try {
+      // Flatten nested form data to match OnboardingProfileData structure
+      const sportEntries = formData.sport?.sports || [];
+      const primarySport = sportEntries.find((e) => e.isPrimary) || sportEntries[0];
+      const secondarySport = sportEntries.find((e) => !e.isPrimary);
+
+      const profileData = {
+        userType: formData.userType,
+        firstName: formData.profile?.firstName || '',
+        lastName: formData.profile?.lastName || '',
+        profileImg: formData.profile?.profileImg || undefined,
+        bio: formData.profile?.bio,
+        sport: primarySport?.sport,
+        secondarySport: secondarySport?.sport,
+        positions: primarySport?.positions,
+        highSchool: primarySport?.team?.name || formData.school?.schoolName,
+        highSchoolSuffix: primarySport?.team?.type || formData.school?.schoolType,
+        classOf: formData.profile?.classYear ?? formData.school?.classYear ?? undefined,
+        state: primarySport?.team?.state || formData.school?.state,
+        city: primarySport?.team?.city || formData.school?.city,
+        teamLogo: primarySport?.team?.logo,
+        teamColors: primarySport?.team?.colors,
+        club: formData.school?.club,
+        organization: formData.organization?.organizationName,
+        coachTitle: formData.organization?.title,
+      };
+
+      await this.authApi.saveOnboardingProfile(user.uid, profileData);
+      this.logger.info('Profile data saved successfully');
+    } catch (saveError) {
+      this.logger.warn('Failed to save profile data, continuing', { error: saveError });
+    }
+
+    // Save referral source
+    if (formData.referralSource?.source) {
+      try {
+        await this.authApi.saveReferralSource(user.uid, {
+          source: formData.referralSource.source,
+          details: formData.referralSource.details,
+          clubName: formData.referralSource.clubName,
+          otherSpecify: formData.referralSource.otherSpecify,
+        });
+
+        this.onboardingAnalytics.trackReferralSourceSubmitted({
+          source: formData.referralSource.source,
+          details: formData.referralSource.details,
+          clubName: formData.referralSource.clubName,
+          otherSpecify: formData.referralSource.otherSpecify,
+        });
+
+        this.logger.info('Referral source saved successfully');
+      } catch (referralError) {
+        this.logger.warn('Failed to save referral source, continuing', { error: referralError });
+      }
+    }
+
+    // Mark onboarding complete
+    await this.authApi.completeOnboarding(user.uid);
+
+    // Refresh user profile
+    await this.authFlow.refreshUserProfile();
+
+    // Clear session from localStorage
+    this.clearSession();
+
+    // Track completion
+    this.trackCompleted();
+
+    // Blur any focused element
+    if (typeof document !== 'undefined') {
+      (document.activeElement as HTMLElement)?.blur?.();
+    }
+
+    // Navigate to congratulations page with Ionic animation
+    await this.navController.navigateForward('/auth/onboarding/congratulations', {
+      animated: true,
+      animationDirection: 'forward',
+    });
   }
 
   // ============================================
-  // PRIVATE METHODS
+  // SESSION PERSISTENCE (Platform-specific: localStorage)
   // ============================================
 
   /**
-   * Complete onboarding and redirect
+   * Try to restore session from localStorage
    */
-  private async completeOnboarding(): Promise<void> {
-    this.isLoading.set(true);
-    this.error.set(null);
-    this._state.set('completing');
-
-    const user = this.authFlow.user();
-    if (!user) {
-      this.error.set('User not authenticated');
-      this.isLoading.set(false);
-      void this.router.navigate([AUTH_ROUTES.ROOT]);
-      return;
-    }
+  private tryRestoreSession(userId: string): boolean {
+    if (!isPlatformBrowser(this.platformId)) return false;
 
     try {
-      // Save complete profile to backend
-      const formData = this._formData() as OnboardingFormData;
-      this.logger.info('Completing onboarding for user', { userId: user.uid });
-      this.logger.debug('Form data', { formData });
+      const sessionJson = localStorage.getItem(MACHINE_SESSION_KEY);
+      if (!sessionJson) return false;
 
-      // First, save all onboarding data to backend
-      try {
-        // Flatten nested form data to match OnboardingProfileData structure
-        // v3.0: Extract sport data from SportEntry[] model
-        const sportEntries = formData.sport?.sports || [];
-        const primarySport = sportEntries.find((e) => e.isPrimary) || sportEntries[0];
-        const secondarySport = sportEntries.find((e) => !e.isPrimary);
+      const session = deserializeSession(sessionJson);
+      if (!session || session.userId !== userId) return false;
 
-        const profileData = {
-          userType: formData.userType,
-          firstName: formData.profile?.firstName || '',
-          lastName: formData.profile?.lastName || '',
-          profileImg: formData.profile?.profileImg || undefined,
-          bio: formData.profile?.bio,
-          // v3.0: Sport data from SportEntry
-          sport: primarySport?.sport,
-          secondarySport: secondarySport?.sport,
-          // v3.0: Positions from primary sport entry
-          positions: primarySport?.positions,
-          // v3.0: Team data from primary sport entry
-          highSchool: primarySport?.team?.name || formData.school?.schoolName,
-          highSchoolSuffix: primarySport?.team?.type || formData.school?.schoolType,
-          classOf: formData.profile?.classYear ?? formData.school?.classYear ?? undefined,
-          state: primarySport?.team?.state || formData.school?.state,
-          city: primarySport?.team?.city || formData.school?.city,
-          // v3.0: Team logo and colors
-          teamLogo: primarySport?.team?.logo,
-          teamColors: primarySport?.team?.colors,
-          // Legacy fields
-          club: formData.school?.club,
-          organization: formData.organization?.organizationName,
-          coachTitle: formData.organization?.title,
-        };
-
-        await this.authApi.saveOnboardingProfile(user.uid, profileData);
-        this.logger.info('Profile data saved successfully');
-      } catch (saveError) {
-        this.logger.warn('Failed to save profile data, continuing', { error: saveError });
-        // Don't fail the entire onboarding if profile save fails
+      // Check expiry
+      if (Date.now() - session.timestamp > SESSION_EXPIRY_MS) {
+        localStorage.removeItem(MACHINE_SESSION_KEY);
+        return false;
       }
 
-      // Save referral source to user document + track via GA4
-      if (formData.referralSource?.source) {
-        try {
-          // Save to user document (single source of truth)
-          await this.authApi.saveReferralSource(user.uid, {
-            source: formData.referralSource.source,
-            details: formData.referralSource.details,
-            clubName: formData.referralSource.clubName,
-            otherSpecify: formData.referralSource.otherSpecify,
-          });
-
-          // Track to GA4 for analytics (replaces HearAbout collection)
-          this.onboardingAnalytics.trackReferralSourceSubmitted({
-            source: formData.referralSource.source,
-            details: formData.referralSource.details,
-            clubName: formData.referralSource.clubName,
-            otherSpecify: formData.referralSource.otherSpecify,
-          });
-
-          this.logger.info('Referral source saved successfully');
-        } catch (referralError) {
-          this.logger.warn('Failed to save referral source, continuing', { error: referralError });
-          // Don't fail the entire onboarding if referral save fails
-        }
-      }
-
-      // Then call backend to mark onboarding complete
-      await this.authApi.completeOnboarding(user.uid);
-
-      // Refresh user profile to update hasCompletedOnboarding flag
-      await this.authFlow.refreshUserProfile();
-
-      // Clear session from localStorage - onboarding complete!
-      await this.clearSession();
-
-      // Mark state as complete
-      this._state.set('complete');
-
-      // Track completion
-      this.trackCompleted();
-
-      // Blur any focused element to prevent aria-hidden focus warning
-      if (typeof document !== 'undefined') {
-        (document.activeElement as HTMLElement)?.blur?.();
-      }
-
-      // Show celebration overlay (navigation happens in onCelebrationComplete)
-      this.showCelebration.set(true);
+      // Restore to machine
+      return this.machine.restoreSession(session);
     } catch (err) {
-      this.logger.error('Failed to complete', err);
+      this.logger.warn('Failed to restore session', { error: err });
+      return false;
+    }
+  }
 
-      // Use shared error handler for consistent messaging
-      const handledError = this.errorHandler.handle(err);
-      this.error.set(handledError.message);
-      this._state.set('profile');
+  /**
+   * Save session to localStorage
+   */
+  private saveSession(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
 
-      // Show error toast
-      this.toast.error(handledError.message);
+    try {
+      const session = this.machine.getSession();
+      localStorage.setItem(MACHINE_SESSION_KEY, serializeSession(session));
+      this.logger.debug('Session saved', { step: this.currentStep().id });
+    } catch (err) {
+      this.logger.warn('Failed to save session', { error: err });
+    }
+  }
 
-      // Track error
-      this.trackError(handledError.message);
-    } finally {
-      this.isLoading.set(false);
+  /**
+   * Clear session from localStorage
+   */
+  private clearSession(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    try {
+      localStorage.removeItem(MACHINE_SESSION_KEY);
+      this.logger.debug('Session cleared');
+    } catch (err) {
+      this.logger.warn('Failed to clear session', { error: err });
     }
   }
 
@@ -1179,8 +1129,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   // ============================================
 
   /**
-   * Track onboarding started event.
-   * Called when user first enters the onboarding flow.
+   * Track onboarding started event
    */
   private trackStarted(): void {
     const user = this.authFlow.user();
@@ -1195,57 +1144,50 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Track role selected.
-   * Called when user picks their role (athlete, coach, etc.)
+   * Track role selected
    */
   private trackRoleSelected(role: OnboardingUserType): void {
     this.onboardingAnalytics.trackRoleSelected(role, this._steps().length);
   }
 
   /**
-   * Track step viewed.
-   * Called when a step becomes visible.
+   * Track step viewed
    */
   private trackStepViewed(): void {
     const step = this.currentStep();
     if (!step) return;
-
     this.onboardingAnalytics.trackStepViewed(step, this._steps(), this._currentStepIndex());
   }
 
   /**
-   * Track step completed.
-   * Called when user successfully completes a step.
+   * Track step completed
    */
   private trackStepCompleted(): void {
     const step = this.currentStep();
     if (!step) return;
-
     this.onboardingAnalytics.trackStepCompleted(step, this._steps(), this._currentStepIndex());
   }
 
   /**
-   * Track step skipped.
-   * Called when user skips an optional step.
+   * Track step skipped
    */
   private trackStepSkipped(): void {
     const step = this.currentStep();
     if (!step) return;
-
     this.onboardingAnalytics.trackStepSkipped(step, this._steps(), this._currentStepIndex());
   }
 
   /**
-   * Track onboarding completed successfully.
+   * Track onboarding completed
    */
   private trackCompleted(): void {
     const role = this.selectedRole();
     if (!role) return;
 
     const formData = this._formData();
-    // v3.0: Get sport from SportEntry[] model
     const primarySport =
       formData.sport?.sports?.find((e) => e.isPrimary) || formData.sport?.sports?.[0];
+
     this.onboardingAnalytics.trackCompleted({
       userType: role,
       totalSteps: this._steps().length,
@@ -1254,130 +1196,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Track onboarding error.
+   * Track onboarding error
    */
   private trackError(errorMessage: string): void {
     this.onboardingAnalytics.trackError(errorMessage, this.currentStep().id);
-  }
-
-  // ============================================
-  // SESSION PERSISTENCE
-  // ============================================
-
-  /**
-   * Save current session state to localStorage.
-   * Called after each step navigation/completion.
-   */
-  private async saveSession(): Promise<void> {
-    if (!isPlatformBrowser(this.platformId)) return;
-
-    const user = this.authFlow.user();
-    if (!user) return;
-
-    try {
-      const session: OnboardingSession = this.sessionApi.updateSession(
-        this.sessionApi.createSession(user.uid),
-        {
-          stepIndex: this._currentStepIndex(),
-          selectedRole: this.selectedRole(),
-          completedSteps: Array.from(this._completedSteps()) as OnboardingStepId[],
-          formData: this._formData() as OnboardingFormData,
-        }
-      );
-
-      await this.sessionApi.saveSession(session);
-      this.logger.debug('Session saved', {
-        step: this.currentStep().id,
-        index: session.stepIndex,
-      });
-    } catch (err) {
-      // Non-critical - log but don't interrupt flow
-      this.logger.warn('Failed to save session', { error: err });
-    }
-  }
-
-  /**
-   * Restore session from localStorage.
-   * Called during initialization to resume previous progress.
-   *
-   * @param userId - Current user's ID to verify session belongs to them
-   * @returns True if session was restored, false if starting fresh
-   */
-  private async restoreSession(userId: string): Promise<boolean> {
-    if (!isPlatformBrowser(this.platformId)) return false;
-
-    try {
-      const session = await this.sessionApi.loadValidSession(userId, {
-        expiryMs: SESSION_EXPIRY_MS,
-      });
-
-      // No valid session found
-      if (!session) {
-        this.logger.debug('No valid session found, starting fresh');
-        return false;
-      }
-
-      // Restore state from session
-      this.logger.info('Restoring session', {
-        index: session.stepIndex,
-        role: session.selectedRole,
-        completedSteps: session.completedSteps,
-      });
-
-      // Restore role if previously selected
-      if (session.selectedRole) {
-        this.selectedRole.set(session.selectedRole);
-
-        // Reconfigure steps for the role (role is at the end in ONBOARDING_STEPS)
-        const roleSteps = ONBOARDING_STEPS[session.selectedRole] ?? ONBOARDING_STEPS.athlete;
-        this._steps.set(roleSteps);
-      }
-
-      // Restore completed steps
-      if (session.completedSteps?.length) {
-        this._completedSteps.set(new Set(session.completedSteps));
-      }
-
-      // Restore form data
-      if (session.formData) {
-        this._formData.set(session.formData as PartialOnboardingFormData);
-      }
-
-      // Restore step index (with validation)
-      const maxIndex = this._steps().length - 1;
-      const restoredIndex = Math.min(session.stepIndex, maxIndex);
-      this._currentStepIndex.set(restoredIndex);
-
-      // Set initial state based on restored step
-      const restoredStep = this._steps()[restoredIndex];
-      this._state.set((restoredStep?.id ?? 'profile') as OnboardingState);
-
-      // No animation on restore
-      this.animationDirection.set('none');
-
-      // Show toast notifying user of resumed session
-      this.toast.info('Welcome back! Resuming where you left off.');
-
-      return true;
-    } catch (err) {
-      this.logger.warn('Failed to restore session', { error: err });
-      return false;
-    }
-  }
-
-  /**
-   * Clear session from localStorage.
-   * Called on successful completion or explicit reset.
-   */
-  private async clearSession(): Promise<void> {
-    if (!isPlatformBrowser(this.platformId)) return;
-
-    try {
-      await this.sessionApi.deleteSession(STORAGE_KEYS.ONBOARDING_SESSION);
-      this.logger.debug('Session cleared');
-    } catch (err) {
-      // Non-critical - log but don't interrupt flow
-      this.logger.warn('Failed to clear session', { error: err });
-    }
   }
 }

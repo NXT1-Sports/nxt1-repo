@@ -4,85 +4,38 @@
  *
  * Main landing page after successful authentication.
  * Protected by auth guard - requires user to be logged in.
+ *
+ * Note: Header/navigation is provided by MainLayoutComponent.
+ * This component only renders the page content.
  */
 
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { AuthFlowService } from '../auth/services';
-import { AUTH_ROUTES } from '@nxt1/core/constants';
 
 @Component({
   selector: 'app-home',
   standalone: true,
   imports: [CommonModule, RouterModule],
   template: `
-    <div
-      class="min-h-screen overflow-y-auto bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800"
-    >
-      <!-- Header -->
-      <header class="bg-white shadow-sm dark:bg-gray-800">
-        <div class="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-3">
-              <!-- Logo -->
-              <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600">
-                <span class="text-xl font-bold text-white">N1</span>
-              </div>
-              <h1 class="text-2xl font-bold text-gray-900 dark:text-white">NXT1 Sports</h1>
-            </div>
-
-            <!-- User Info & Sign Out -->
-            <div class="flex items-center gap-4">
-              @if (user(); as currentUser) {
-                <div class="text-right">
-                  <p class="text-sm font-medium text-gray-900 dark:text-white">
-                    {{ currentUser.displayName || currentUser.email }}
-                  </p>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ currentUser.email }}
-                  </p>
-                </div>
-              }
-              <button
-                type="button"
-                (click)="onSignOut()"
-                class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:outline-none"
-              >
-                Sign Out
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-
+    <div class="home-page">
       <!-- Main Content -->
-      <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div class="home-content">
         <!-- Welcome Section -->
-        <div class="mb-8 rounded-2xl bg-white p-8 shadow-lg dark:bg-gray-800">
-          <h2 class="mb-2 text-3xl font-bold text-gray-900 dark:text-white">
-            Welcome to NXT1 Sports! 🎉
-          </h2>
-          <p class="text-lg text-gray-600 dark:text-gray-300">
+        <section class="welcome-section">
+          <h1 class="welcome-title">Welcome to NXT1 Sports! 🎉</h1>
+          <p class="welcome-subtitle">
             Your recruiting journey starts here. This is a placeholder home page.
           </p>
-        </div>
+        </section>
 
-        <!-- Feature Cards -->
-        <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <!-- Feature Cards Grid -->
+        <section class="feature-grid">
           <!-- Card 1: Profile -->
-          <div
-            class="rounded-xl bg-white p-6 shadow-md transition-shadow hover:shadow-xl dark:bg-gray-800"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900"
-            >
-              <svg
-                class="h-6 w-6 text-blue-600 dark:text-blue-300"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+          <article class="feature-card">
+            <div class="card-icon card-icon--blue">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
@@ -91,25 +44,16 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
                 />
               </svg>
             </div>
-            <h3 class="mb-2 text-xl font-semibold text-gray-900 dark:text-white">Your Profile</h3>
-            <p class="text-gray-600 dark:text-gray-300">
+            <h3 class="card-title">Your Profile</h3>
+            <p class="card-description">
               View and edit your athletic profile, stats, and achievements.
             </p>
-          </div>
+          </article>
 
           <!-- Card 2: Explore -->
-          <div
-            class="rounded-xl bg-white p-6 shadow-md transition-shadow hover:shadow-xl dark:bg-gray-800"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-green-100 dark:bg-green-900"
-            >
-              <svg
-                class="h-6 w-6 text-green-600 dark:text-green-300"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+          <article class="feature-card">
+            <div class="card-icon card-icon--green">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
@@ -118,25 +62,16 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
                 />
               </svg>
             </div>
-            <h3 class="mb-2 text-xl font-semibold text-gray-900 dark:text-white">Explore</h3>
-            <p class="text-gray-600 dark:text-gray-300">
+            <h3 class="card-title">Explore</h3>
+            <p class="card-description">
               Discover colleges, coaches, and opportunities that match your goals.
             </p>
-          </div>
+          </article>
 
           <!-- Card 3: Messages -->
-          <div
-            class="rounded-xl bg-white p-6 shadow-md transition-shadow hover:shadow-xl dark:bg-gray-800"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900"
-            >
-              <svg
-                class="h-6 w-6 text-purple-600 dark:text-purple-300"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+          <article class="feature-card">
+            <div class="card-icon card-icon--purple">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
@@ -145,25 +80,16 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
                 />
               </svg>
             </div>
-            <h3 class="mb-2 text-xl font-semibold text-gray-900 dark:text-white">Messages</h3>
-            <p class="text-gray-600 dark:text-gray-300">
+            <h3 class="card-title">Messages</h3>
+            <p class="card-description">
               Connect with coaches and teammates through secure messaging.
             </p>
-          </div>
+          </article>
 
           <!-- Card 4: Stats -->
-          <div
-            class="rounded-xl bg-white p-6 shadow-md transition-shadow hover:shadow-xl dark:bg-gray-800"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-orange-100 dark:bg-orange-900"
-            >
-              <svg
-                class="h-6 w-6 text-orange-600 dark:text-orange-300"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+          <article class="feature-card">
+            <div class="card-icon card-icon--orange">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
@@ -172,25 +98,16 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
                 />
               </svg>
             </div>
-            <h3 class="mb-2 text-xl font-semibold text-gray-900 dark:text-white">Performance</h3>
-            <p class="text-gray-600 dark:text-gray-300">
+            <h3 class="card-title">Performance</h3>
+            <p class="card-description">
               Track your athletic performance and improvement over time.
             </p>
-          </div>
+          </article>
 
           <!-- Card 5: Videos -->
-          <div
-            class="rounded-xl bg-white p-6 shadow-md transition-shadow hover:shadow-xl dark:bg-gray-800"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-red-100 dark:bg-red-900"
-            >
-              <svg
-                class="h-6 w-6 text-red-600 dark:text-red-300"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+          <article class="feature-card">
+            <div class="card-icon card-icon--red">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
@@ -199,25 +116,16 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
                 />
               </svg>
             </div>
-            <h3 class="mb-2 text-xl font-semibold text-gray-900 dark:text-white">Highlight Reel</h3>
-            <p class="text-gray-600 dark:text-gray-300">
+            <h3 class="card-title">Highlight Reel</h3>
+            <p class="card-description">
               Upload and share your best game highlights and skills videos.
             </p>
-          </div>
+          </article>
 
           <!-- Card 6: Rankings -->
-          <div
-            class="rounded-xl bg-white p-6 shadow-md transition-shadow hover:shadow-xl dark:bg-gray-800"
-          >
-            <div
-              class="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-yellow-100 dark:bg-yellow-900"
-            >
-              <svg
-                class="h-6 w-6 text-yellow-600 dark:text-yellow-300"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
+          <article class="feature-card">
+            <div class="card-icon card-icon--yellow">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
@@ -226,19 +134,17 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
                 />
               </svg>
             </div>
-            <h3 class="mb-2 text-xl font-semibold text-gray-900 dark:text-white">Rankings</h3>
-            <p class="text-gray-600 dark:text-gray-300">
+            <h3 class="card-title">Rankings</h3>
+            <p class="card-description">
               See where you stand among recruits in your class and position.
             </p>
-          </div>
-        </div>
+          </article>
+        </section>
 
-        <!-- Auth Status Card -->
-        <div class="mt-8 rounded-xl bg-blue-50 p-6 dark:bg-blue-900/20">
-          <h3 class="mb-3 text-lg font-semibold text-blue-900 dark:text-blue-100">
-            Authentication Status
-          </h3>
-          <div class="space-y-2 text-sm text-blue-800 dark:text-blue-200">
+        <!-- Auth Status Card (Development) -->
+        <section class="auth-status">
+          <h3 class="auth-status-title">Authentication Status</h3>
+          <div class="auth-status-content">
             <p>✅ You are successfully signed in</p>
             <p>✅ Auth guard is working - protected route</p>
             <p>✅ Session persistence active</p>
@@ -249,28 +155,225 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
               }
             }
           </div>
-        </div>
-      </main>
+        </section>
+      </div>
     </div>
   `,
+  styles: [
+    `
+      /* ============================================
+       HOME PAGE STYLES - Using Design Tokens
+       ============================================ */
+
+      :host {
+        display: block;
+        min-height: 100%;
+      }
+
+      .home-page {
+        min-height: 100%;
+        background: var(--nxt1-color-background-primary, #0a0a0a);
+      }
+
+      .home-content {
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: var(--nxt1-spacing-8, 32px) var(--nxt1-spacing-4, 16px);
+      }
+
+      @media (min-width: 640px) {
+        .home-content {
+          padding: var(--nxt1-spacing-8, 32px) var(--nxt1-spacing-6, 24px);
+        }
+      }
+
+      @media (min-width: 1024px) {
+        .home-content {
+          padding: var(--nxt1-spacing-8, 32px);
+        }
+      }
+
+      /* Welcome Section */
+      .welcome-section {
+        margin-bottom: var(--nxt1-spacing-8, 32px);
+        padding: var(--nxt1-spacing-8, 32px);
+        background: var(--nxt1-color-surface-100, #141414);
+        border-radius: var(--nxt1-radius-2xl, 16px);
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
+      }
+
+      .welcome-title {
+        margin: 0 0 var(--nxt1-spacing-2, 8px);
+        font-family: var(--nxt1-font-family-brand, 'Barlow', sans-serif);
+        font-size: var(--nxt1-font-size-3xl, 30px);
+        font-weight: var(--nxt1-font-weight-bold, 700);
+        color: var(--nxt1-color-text-primary, #ffffff);
+        line-height: var(--nxt1-line-height-tight, 1.25);
+      }
+
+      .welcome-subtitle {
+        margin: 0;
+        font-size: var(--nxt1-font-size-lg, 18px);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        line-height: var(--nxt1-line-height-relaxed, 1.625);
+      }
+
+      /* Feature Cards Grid */
+      .feature-grid {
+        display: grid;
+        gap: var(--nxt1-spacing-6, 24px);
+        grid-template-columns: 1fr;
+      }
+
+      @media (min-width: 640px) {
+        .feature-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+      }
+
+      @media (min-width: 1024px) {
+        .feature-grid {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+
+      .feature-card {
+        padding: var(--nxt1-spacing-6, 24px);
+        background: var(--nxt1-color-surface-100, #141414);
+        border-radius: var(--nxt1-radius-xl, 12px);
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
+        transition: all var(--nxt1-transition-normal, 200ms) ease;
+      }
+
+      .feature-card:hover {
+        background: var(--nxt1-color-surface-200, #1a1a1a);
+        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        transform: translateY(-2px);
+      }
+
+      .card-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 48px;
+        height: 48px;
+        margin-bottom: var(--nxt1-spacing-4, 16px);
+        border-radius: var(--nxt1-radius-lg, 8px);
+      }
+
+      .card-icon svg {
+        width: 24px;
+        height: 24px;
+      }
+
+      .card-icon--blue {
+        background: rgba(59, 130, 246, 0.15);
+        color: #60a5fa;
+      }
+
+      .card-icon--green {
+        background: rgba(34, 197, 94, 0.15);
+        color: #4ade80;
+      }
+
+      .card-icon--purple {
+        background: rgba(168, 85, 247, 0.15);
+        color: #c084fc;
+      }
+
+      .card-icon--orange {
+        background: rgba(249, 115, 22, 0.15);
+        color: #fb923c;
+      }
+
+      .card-icon--red {
+        background: rgba(239, 68, 68, 0.15);
+        color: #f87171;
+      }
+
+      .card-icon--yellow {
+        background: rgba(234, 179, 8, 0.15);
+        color: #facc15;
+      }
+
+      .card-title {
+        margin: 0 0 var(--nxt1-spacing-2, 8px);
+        font-family: var(--nxt1-font-family-brand, 'Barlow', sans-serif);
+        font-size: var(--nxt1-font-size-xl, 20px);
+        font-weight: var(--nxt1-font-weight-semibold, 600);
+        color: var(--nxt1-color-text-primary, #ffffff);
+      }
+
+      .card-description {
+        margin: 0;
+        font-size: var(--nxt1-font-size-sm, 14px);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        line-height: var(--nxt1-line-height-relaxed, 1.625);
+      }
+
+      /* Auth Status Section */
+      .auth-status {
+        margin-top: var(--nxt1-spacing-8, 32px);
+        padding: var(--nxt1-spacing-6, 24px);
+        background: rgba(var(--nxt1-color-primary-rgb, 163, 230, 53), 0.1);
+        border-radius: var(--nxt1-radius-xl, 12px);
+        border: 1px solid rgba(var(--nxt1-color-primary-rgb, 163, 230, 53), 0.2);
+      }
+
+      .auth-status-title {
+        margin: 0 0 var(--nxt1-spacing-3, 12px);
+        font-size: var(--nxt1-font-size-lg, 18px);
+        font-weight: var(--nxt1-font-weight-semibold, 600);
+        color: var(--nxt1-color-primary, #a3e635);
+      }
+
+      .auth-status-content {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .auth-status-content p {
+        margin: 0;
+        font-size: var(--nxt1-font-size-sm, 14px);
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+      }
+
+      /* Light theme overrides */
+      :host-context([data-theme='light']) {
+        .home-page {
+          background: var(--nxt1-color-background-primary, #ffffff);
+        }
+
+        .welcome-section,
+        .feature-card {
+          background: var(--nxt1-color-surface-100, #f5f5f5);
+          border-color: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.06));
+        }
+
+        .feature-card:hover {
+          background: var(--nxt1-color-surface-200, #ebebeb);
+          border-color: var(--nxt1-color-border-default, rgba(0, 0, 0, 0.1));
+        }
+
+        .welcome-title,
+        .card-title {
+          color: var(--nxt1-color-text-primary, #212121);
+        }
+
+        .welcome-subtitle,
+        .card-description,
+        .auth-status-content p {
+          color: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
+        }
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HomeComponent {
   private readonly authFlow = inject(AuthFlowService);
-  private readonly router = inject(Router);
 
   /** Current authenticated user */
   readonly user = computed(() => this.authFlow.user());
-
-  /**
-   * Handle sign out
-   */
-  async onSignOut(): Promise<void> {
-    try {
-      await this.authFlow.signOut();
-      await this.router.navigate([AUTH_ROUTES.ROOT]);
-    } catch (error) {
-      console.error('[Home] Sign out failed:', error);
-    }
-  }
 }

@@ -125,6 +125,65 @@ export {
 } from './shared/bottom-sheet';
 
 // ============================================
+// MOBILE FOOTER / TAB BAR (2026 Native-Style Navigation)
+// ============================================
+export {
+  // Component
+  NxtMobileFooterComponent,
+  // Types (from @nxt1/core)
+  type NavIconName,
+  type FooterTabItem,
+  type FooterConfig,
+  type FooterVariant,
+  type FooterIndicatorStyle,
+  type FooterTabSelectEvent,
+  type FooterTabSelectEventBase,
+  // Constants (from @nxt1/core)
+  DEFAULT_FOOTER_TABS,
+  FOOTER_HEIGHTS,
+  FOOTER_ANIMATION,
+  // Helper functions (from @nxt1/core)
+  findTabById,
+  findTabByRoute,
+  createFooterConfig,
+  updateTabBadge,
+  setTabDisabled,
+} from './shared/footer';
+
+// ============================================
+// DESKTOP TOP NAVIGATION (2026 Native-Style Navigation)
+// ============================================
+export {
+  // Component
+  NxtDesktopNavComponent,
+  // Angular-specific Types
+  type TopNavSelectEvent,
+  type TopNavUserMenuEvent,
+  type TopNavSearchSubmitEvent,
+} from './shared/top-nav';
+
+// Re-export core types for convenience
+export {
+  type TopNavIconName,
+  type TopNavItem,
+  type TopNavDropdownItem,
+  type TopNavUserMenuItem,
+  type TopNavUserData,
+  type TopNavVariant,
+  type TopNavConfig,
+  type TopNavActionEvent,
+  type TopNavSearchEvent,
+  DEFAULT_TOP_NAV_ITEMS,
+  DEFAULT_USER_MENU_ITEMS,
+  TOP_NAV_HEIGHTS,
+  TOP_NAV_ANIMATION,
+  createTopNavConfig,
+  findTopNavItemById,
+  findTopNavItemByRoute,
+  updateTopNavBadge,
+} from '@nxt1/core';
+
+// ============================================
 // UNIFIED PICKER SYSTEM
 // ============================================
 export {
@@ -271,6 +330,8 @@ export {
 export { OnboardingCelebrationComponent } from './onboarding/onboarding-celebration';
 
 export { OnboardingCompleteComponent } from './onboarding/onboarding-complete';
+
+export { OnboardingWelcomeComponent } from './onboarding/onboarding-welcome';
 
 // ============================================
 // GENERAL COMPONENTS

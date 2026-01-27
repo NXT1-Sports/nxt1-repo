@@ -1,0 +1,401 @@
+/**
+ * @fileoverview NxtMobileFooter Styles - Slack-Style Pill Tab Bar
+ * @module @nxt1/ui/shared/footer
+ *
+ * Professional mobile footer with floating pill container layout.
+ * Inspired by Slack's iOS tab bar design.
+ *
+ * Uses NXT1 Design Token System for 100% theme compatibility.
+ */
+
+// ============================================
+// CSS CUSTOM PROPERTIES - DESIGN TOKENS
+// ============================================
+
+:host {
+  // Layout
+  --footer-height: 56px;
+  --footer-safe-area: env(safe-area-inset-bottom, 0px);
+  --footer-padding: var(--nxt1-spacing-3, 12px);
+
+  // Pill container (from design tokens)
+  --pill-bg: var(--nxt1-color-surface-200, #1a1a1a);
+  --pill-border: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+  --pill-radius: var(--nxt1-borderRadius-2xl, 24px);
+  --pill-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+
+  // Tab colors (from design tokens)
+  --tab-inactive: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+  --tab-active: var(--nxt1-color-text-primary, #ffffff);
+  --tab-active-bg: var(--nxt1-color-surface-400, #2a2a2a);
+
+  // Action button (center - uses primary brand color)
+  --action-bg: var(--nxt1-color-primary, #ccff00);
+  --action-color: var(--nxt1-color-text-onPrimary, #000000);
+  --action-size: 44px;
+  --action-glow: rgba(204, 255, 0, 0.25);
+
+  // Typography (from design tokens)
+  --label-size: var(--nxt1-fontSize-2xs, 10px);
+  --label-weight: var(--nxt1-fontWeight-medium, 500);
+
+  // Animation (from design tokens)
+  --ease-out: var(--nxt1-easing-out, cubic-bezier(0, 0, 0.2, 1));
+  --duration: var(--nxt1-duration-fast, 100ms);
+
+  display: block;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--nxt1-zIndex-sticky, 1020);
+  pointer-events: none;
+}
+
+// ============================================
+// MAIN FOOTER CONTAINER
+// ============================================
+
+.nxt1-footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  padding: var(--footer-padding);
+  padding-bottom: calc(var(--footer-padding) + var(--footer-safe-area));
+  pointer-events: none;
+
+  // Hidden state
+  &.hidden {
+    transform: translateY(100%);
+    transition: transform var(--nxt1-duration-slow, 300ms) var(--ease-out);
+  }
+}
+
+// ============================================
+// FOOTER CONTAINER - SLACK PILL STYLE
+// ============================================
+
+.footer-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-2, 8px);
+  width: 100%;
+  max-width: 400px;
+  pointer-events: auto;
+}
+
+// ============================================
+// TABS LIST - PILL CONTAINER
+// ============================================
+
+.footer-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-1, 4px);
+  flex: 1;
+  margin: 0;
+  padding: var(--nxt1-spacing-1_5, 6px);
+  list-style: none;
+
+  // PILL CONTAINER STYLING (like Slack)
+  background: var(--pill-bg);
+  border: 1px solid var(--pill-border);
+  border-radius: var(--pill-radius);
+  box-shadow: var(--pill-shadow);
+
+  // Subtle glass effect
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+// ============================================
+// INDIVIDUAL TAB ITEM
+// ============================================
+
+.footer-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+
+  &.disabled {
+    opacity: 0.35;
+    pointer-events: none;
+  }
+
+  // Center action button floats separately
+  &.action-button {
+    flex: 0 0 auto;
+  }
+}
+
+// ============================================
+// TAB BUTTON - PILL STYLE ACTIVE STATE
+// ============================================
+
+.tab-button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-0_5, 2px);
+  width: 100%;
+  min-width: 52px;
+  height: 44px;
+  padding: var(--nxt1-spacing-1, 4px) var(--nxt1-spacing-2, 8px);
+  background: transparent;
+  border: none;
+  border-radius: var(--nxt1-borderRadius-xl, 16px);
+  cursor: pointer;
+  color: var(--tab-inactive);
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color var(--duration) var(--ease-out),
+    background-color var(--duration) var(--ease-out);
+
+  // ============================================
+  // ACTIVE STATE - DARKER PILL (like Slack Home tab)
+  // ============================================
+  &.active {
+    color: var(--tab-active);
+    background: var(--tab-active-bg);
+  }
+
+  // Hover state
+  &:hover:not(:disabled):not(.active) {
+    color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+    background: var(--nxt1-color-surface-300, #222222);
+  }
+
+  // Press feedback
+  &:active:not(:disabled) {
+    transform: scale(0.96);
+    transition: transform 50ms var(--ease-out);
+  }
+
+  // Focus visible for accessibility
+  &:focus-visible {
+    outline: 2px solid var(--nxt1-color-primary, #ccff00);
+    outline-offset: 2px;
+  }
+}
+
+// ============================================
+// ICON WRAPPER
+// ============================================
+
+.tab-icon-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+// ============================================
+// TAB ICON
+// ============================================
+
+.tab-icon {
+  color: inherit;
+  transition: color var(--duration) var(--ease-out);
+
+  // Action button icon
+  .footer-tab.action-button & {
+    color: var(--action-color);
+    position: relative;
+    z-index: 1;
+  }
+}
+
+// ============================================
+// TAB LABEL
+// ============================================
+
+.tab-label {
+  font-size: var(--label-size);
+  font-weight: var(--label-weight);
+  font-family: var(--nxt1-fontFamily-system, -apple-system, BlinkMacSystemFont, sans-serif);
+  letter-spacing: var(--nxt1-letterSpacing-normal, 0);
+  line-height: var(--nxt1-lineHeight-none, 1);
+  white-space: nowrap;
+  color: inherit;
+}
+
+// ============================================
+// ACTION BUTTON (CENTER) - FLOATING FAB STYLE
+// ============================================
+
+.footer-tab.action-button {
+  // Sits outside the pill, floats on the right
+  order: 10; // Push to end
+
+  .tab-button {
+    width: var(--action-size);
+    height: var(--action-size);
+    min-width: var(--action-size);
+    padding: 0;
+    background: transparent;
+    border-radius: var(--nxt1-borderRadius-xl, 16px);
+
+    &.active,
+    &:hover {
+      background: transparent;
+    }
+  }
+
+  .tab-icon-wrapper {
+    width: var(--action-size);
+    height: var(--action-size);
+  }
+
+  // Floating action button background
+  .action-button-bg {
+    position: absolute;
+    inset: 0;
+    background: var(--action-bg);
+    border-radius: var(--nxt1-borderRadius-xl, 16px);
+    box-shadow:
+      0 4px 16px var(--action-glow),
+      0 2px 6px rgba(0, 0, 0, 0.2);
+    transition:
+      transform var(--duration) var(--nxt1-easing-spring, cubic-bezier(0.34, 1.56, 0.64, 1)),
+      box-shadow var(--duration) var(--ease-out);
+  }
+
+  .tab-button:hover .action-button-bg {
+    transform: scale(1.05);
+    box-shadow:
+      0 6px 20px var(--action-glow),
+      0 3px 8px rgba(0, 0, 0, 0.25);
+  }
+
+  .tab-button:active .action-button-bg {
+    transform: scale(0.95);
+  }
+
+  // Hide label for action button
+  .tab-label {
+    display: none;
+  }
+}
+
+// ============================================
+// BADGE (NOTIFICATION)
+// ============================================
+
+.tab-badge {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--nxt1-color-error, #ef4444);
+  color: var(--nxt1-color-text-primary, #ffffff);
+  font-size: 9px;
+  font-weight: var(--nxt1-fontWeight-bold, 700);
+  line-height: 1;
+  border-radius: var(--nxt1-borderRadius-full, 9999px);
+  border: 2px solid var(--pill-bg);
+  animation: badge-pop 200ms var(--nxt1-easing-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
+
+  &.large {
+    min-width: 20px;
+    font-size: 8px;
+  }
+}
+
+@keyframes badge-pop {
+  0% {
+    transform: scale(0);
+  }
+  60% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+// ============================================
+// UNUSED INDICATORS (HIDE)
+// ============================================
+
+.tab-indicator-pill,
+.tab-indicator-line {
+  display: none;
+}
+
+// ============================================
+// HIDE LABELS VARIANT
+// ============================================
+
+.nxt1-footer.hide-labels {
+  .tab-label {
+    display: none;
+  }
+
+  .tab-button {
+    height: 40px;
+    gap: 0;
+  }
+
+  .footer-tabs {
+    padding: var(--nxt1-spacing-1, 4px);
+  }
+}
+
+// ============================================
+// PLATFORM ADJUSTMENTS
+// ============================================
+
+.nxt1-footer.ios {
+  .tab-label {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    font-weight: 510;
+  }
+}
+
+.nxt1-footer.android {
+  .tab-label {
+    font-family: "Roboto", "Google Sans", system-ui, sans-serif;
+  }
+}
+
+// ============================================
+// LIGHT THEME SUPPORT (via design tokens)
+// ============================================
+
+:host-context([data-theme="light"]),
+:host-context(.light-theme) {
+  --pill-bg: var(--nxt1-color-surface-100, #f5f5f5);
+  --pill-border: var(--nxt1-color-border-default, rgba(0, 0, 0, 0.12));
+  --pill-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.05);
+  --tab-inactive: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  --tab-active: var(--nxt1-color-text-primary, #1a1a1a);
+  --tab-active-bg: var(--nxt1-color-surface-300, #e0e0e0);
+}
+
+// ============================================
+// REDUCED MOTION
+// ============================================
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-button,
+  .action-button-bg,
+  .tab-badge {
+    transition: none;
+    animation: none;
+  }
+}

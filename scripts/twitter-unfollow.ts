@@ -129,52 +129,49 @@ async function autoUnfollow() {
     // Wait for UI to settle
     await page.waitForTimeout(2000);
 
-    // Find all "Following" buttons
-    console.log('🔍 Finding users to unfollow...');
-    const followingButtons = await page.$$('[data-testid$="-unfollow"]');
-    const totalFound = followingButtons.length;
-    const toUnfollow = Math.min(totalFound, CONFIG.maxUnfollows);
+    console.log('🔄 Starting unfollow process (Bottom-Up Strategy)...');
+    console.log('   We will unfollow visible users, then scroll UP to find more.');
 
-    console.log(`   Found ${totalFound} users`);
-    console.log(`   Will unfollow ${toUnfollow} users this run\n`);
-
-    if (totalFound === 0) {
-      console.log(
-        '⚠️  No users found. You may have already unfollowed everyone or need to scroll more.'
-      );
-      await browser.close();
-      return;
-    }
-
-    // Unfollow with natural delays
-    console.log('🔄 Starting unfollow process...\n');
     let successCount = 0;
     let failCount = 0;
+    let consecutiveEmptyScrolls = 0;
 
-    for (let i = 0; i < toUnfollow; i++) {
+    while (successCount < CONFIG.maxUnfollows && consecutiveEmptyScrolls < 10) {
+      // Find visible buttons (re-query every time to handle DOM updates)
+      const buttons = await page.$$('[data-testid$="-unfollow"]');
+
+      if (buttons.length === 0) {
+        console.log('   ⬆️  No buttons visible, scrolling up to find more...');
+        await page.evaluate(() => window.scrollBy(0, -600));
+        await page.waitForTimeout(2000);
+        consecutiveEmptyScrolls++;
+        continue;
+      }
+
+      // Reset empty scroll counter since we found buttons
+      consecutiveEmptyScrolls = 0;
+
+      // Select the LAST button (Bottom-most = Oldest)
+      // This ensures we peel away the oldest followers first
+      const targetButton = buttons[buttons.length - 1];
+
       try {
-        // Refetch buttons each time (in case DOM refreshes)
-        const currentButtons = await page.$$('[data-testid$="-unfollow"]');
-
-        if (!currentButtons[i]) {
-          console.log(`   ⚠️  User ${i + 1} button not found (page refreshed)`);
-          failCount++;
-          continue;
-        }
-
-        // Click "Following" button
-        await currentButtons[i].click();
-        await page.waitForTimeout(400);
+        await targetButton.scrollIntoViewIfNeeded(); // Ensure it's clickable
+        await targetButton.click();
+        await page.waitForTimeout(500);
 
         // Confirm unfollow in popup modal
         const confirmBtn = await page.waitForSelector('[data-testid="confirmationSheetConfirm"]', {
-          timeout: 2000,
+          timeout: 3000,
         });
 
         if (confirmBtn) {
           await confirmBtn.click();
           successCount++;
-          console.log(`   ✓ Unfollowed user ${successCount}/${toUnfollow}`);
+          console.log(`   ✓ Unfollowed user ${successCount}/${CONFIG.maxUnfollows}`);
+        } else {
+          console.log('   ⚠️  Confirmation modal did not appear');
+          failCount++;
         }
 
         // Random delay to look natural (1-3 seconds)
@@ -182,15 +179,17 @@ async function autoUnfollow() {
         await page.waitForTimeout(delay);
 
         // Take a break every N unfollows
-        if (successCount % CONFIG.breakInterval === 0 && successCount < toUnfollow) {
+        if (successCount % CONFIG.breakInterval === 0 && successCount < CONFIG.maxUnfollows) {
           console.log(`\n   ⏸️  Taking ${CONFIG.breakDuration / 1000}s break...\n`);
           await page.waitForTimeout(CONFIG.breakDuration);
         }
       } catch (e) {
         failCount++;
         console.log(
-          `   ⚠️  Skipped user ${i + 1} (${e instanceof Error ? e.message.split('\n')[0] : 'Unknown error'})`
+          `   ⚠️  Error processing user: ${e instanceof Error ? e.message.split('\n')[0] : 'Unknown error'}`
         );
+        // If we fail on a button, scrolling up might help clear the view
+        await page.evaluate(() => window.scrollBy(0, -100));
       }
     }
 
