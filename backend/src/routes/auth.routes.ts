@@ -123,20 +123,18 @@ interface UserV2Document {
  * @returns UserRole - The mapped V2 role
  */
 function mapUserTypeToRole(userType: string): UserRole {
-  const roleMap = {
+  const roleMap: Record<string, UserRole> = {
     athlete: 'athlete',
     coach: 'coach',
-    'college-coach': 'college-coach',
-    director: 'director',
-    'recruiting-service': 'recruiting-service',
+    'college-coach': 'college-coach' as UserRole,
+    director: 'director' as UserRole,
+    'recruiting-service': 'recruiting-service' as UserRole,
     scout: 'scout',
     media: 'media',
     parent: 'parent',
     fan: 'fan',
-    // Legacy mappings
-    service: 'recruiting-service',
-  } as const satisfies Record<string, UserRole>;
-
+    service: 'recruiting-service' as UserRole,
+  };
   return roleMap[userType as keyof typeof roleMap] ?? 'fan';
 }
 
@@ -180,23 +178,19 @@ function createSportProfile(
     sport,
     order,
     accountType: 'athlete',
+    positions: options?.positions ?? [],
+    metrics: {},
+    seasonStats: [],
+    team: { type: 'club', name: '', logo: '', colors: [] },
   };
-
-  // Only add positions if provided
-  if (options?.positions?.length) {
-    profile.positions = options.positions;
+  if (options?.teamName || options?.teamLogo || options?.teamColors?.length || options?.teamType) {
+    profile.team = {
+      type: teamType,
+      name: options?.teamName || '',
+      logo: options?.teamLogo,
+      colors: options?.teamColors,
+    };
   }
-
-  // Only add team if it has meaningful data
-  const hasTeamData = options?.teamName || options?.teamLogo || options?.teamColors?.length;
-  if (hasTeamData || options?.teamType) {
-    const team: SportProfile['team'] = { type: teamType };
-    if (options?.teamName) team.name = options.teamName;
-    if (options?.teamLogo) team.logo = options.teamLogo;
-    if (options?.teamColors?.length) team.colors = options.teamColors;
-    profile.team = team;
-  }
-
   return profile;
 }
 
@@ -796,10 +790,12 @@ router.post(
     }
 
     // V2: Coach-specific data
-    if (
-      (updateData.role === 'coach' || updateData.role === 'college-coach') &&
-      (profileData['coachTitle'] || profileData['organization'])
-    ) {
+    const isCoachRole =
+      (updateData.role as UserRole) === ('coach' as UserRole) ||
+      (updateData.role as UserRole) === ('college-coach' as UserRole) ||
+      (updateData.role as UserRole) === ('director' as UserRole) ||
+      (updateData.role as UserRole) === ('recruiting-service' as UserRole);
+    if (isCoachRole && (profileData['coachTitle'] || profileData['organization'])) {
       updateData.coach = {
         ...currentUser?.coach,
         title: profileData['coachTitle'] as string | undefined,
