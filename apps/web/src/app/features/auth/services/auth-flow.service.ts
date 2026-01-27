@@ -803,6 +803,14 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       // Request email scope explicitly
       provider.addScope('email');
       provider.addScope('profile');
+      provider.addScope('https://www.googleapis.com/auth/gmail.send');
+      provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+
+      // CRITICAL: Request offline access to get refresh token
+      provider.setCustomParameters({
+        access_type: 'offline',
+        prompt: 'consent', // Force consent screen to ensure refresh token
+      });
 
       const result = await signInWithPopup(this.firebaseAuth, provider);
 
@@ -941,13 +949,14 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       const provider = new OAuthProvider('microsoft.com');
 
       provider.setCustomParameters({
-        prompt: 'select_account',
+        prompt: 'consent', // Changed from 'select_account' to 'consent' to get refresh token
         // tenant: 'common',
       });
-      // Request common scopes
-      // provider.addScope('email');
-      // provider.addScope('profile');
-      // provider.addScope('openid');
+
+      // CRITICAL: Request offline access and mail scopes to get refresh token
+      provider.addScope('offline_access'); // Required for refresh token
+      provider.addScope('Mail.Send'); // Required for sending emails
+      provider.addScope('Mail.Read'); // Required for reading emails
 
       this.logger.info('🚀 Starting Microsoft OAuth (popup)');
       const result = await signInWithPopup(this.firebaseAuth, provider);
