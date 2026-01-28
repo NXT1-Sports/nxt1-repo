@@ -7,6 +7,7 @@
  * Each page uses this component to configure its own contextual header.
  *
  * Features:
+ * - Logo icon display for home page (Twitter/X style)
  * - Profile avatar on left side (Twitter/X style) with tap to open profile
  * - Center-aligned title with proper design system typography
  * - Contextual back navigation with haptic feedback
@@ -19,6 +20,14 @@
  *
  * @example
  * ```html
+ * <!-- Home page with logo (Twitter/X style) -->
+ * <nxt1-page-header
+ *   [showLogo]="true"
+ *   [avatarSrc]="user.photoUrl"
+ *   [avatarName]="user.displayName"
+ *   (avatarClick)="openProfile()"
+ * />
+ *
  * <!-- Simple page header with avatar -->
  * <nxt1-page-header
  *   title="Home"
@@ -165,8 +174,19 @@ addIcons({
           <ng-content select="[slot=start]" />
         </ion-buttons>
 
-        <!-- Center: Title (properly centered) -->
-        @if (title()) {
+        <!-- Center: Logo or Title (properly centered) -->
+        @if (showLogo()) {
+          <!-- Twitter/X style: Logo icon centered in header for home page -->
+          <div class="header-logo-container">
+            <img
+              src="assets/shared/logo/nxt1_icon.png"
+              alt="NXT1"
+              class="header-logo-icon"
+              width="28"
+              height="28"
+            />
+          </div>
+        } @else if (title()) {
           <ion-title [size]="titleSize()" class="header-title">{{ title() }}</ion-title>
         } @else {
           <!-- Custom title slot for complex titles (avatar + name, etc.) -->
@@ -218,19 +238,29 @@ addIcons({
   styles: [
     `
       /* ============================================
-         PAGE HEADER - Using Design System Tokens
+         PAGE HEADER - Using Glass Design Tokens
+         Consistent with footer component
          ============================================ */
 
-      /* Base Header Styles */
+      :host {
+        /* Map to glass tokens for consistency with footer */
+        --header-glass-bg: var(--nxt1-glass-bg);
+        --header-glass-bgSolid: var(--nxt1-glass-bgSolid);
+        --header-glass-border: var(--nxt1-glass-border);
+        --header-glass-shadow: var(--nxt1-glass-shadow);
+        --header-glass-backdrop: var(--nxt1-glass-backdrop);
+      }
+
+      /* Base Header Styles - Glass effect by default */
       ion-header {
-        --background: var(--nxt1-color-surface-primary, var(--ion-toolbar-background));
+        --background: var(--header-glass-bg);
         --color: var(--nxt1-color-text-primary, var(--ion-text-color));
       }
 
       /* Bordered variant */
       .header--bordered ion-toolbar:last-of-type {
         --border-width: 0 0 0.55px 0;
-        --border-color: var(--nxt1-color-border-secondary, rgba(255, 255, 255, 0.1));
+        --border-color: var(--header-glass-border);
       }
 
       /* Transparent variant */
@@ -240,11 +270,11 @@ addIcons({
         --ion-toolbar-background: transparent;
       }
 
-      /* Blur variant (iOS style) */
+      /* Blur variant (iOS style) - Uses glass tokens */
       .header--blur {
-        --background: rgba(var(--nxt1-color-surface-primary-rgb, 10, 10, 10), 0.72);
-        backdrop-filter: saturate(180%) blur(20px);
-        -webkit-backdrop-filter: saturate(180%) blur(20px);
+        --background: var(--header-glass-bg);
+        backdrop-filter: var(--header-glass-backdrop);
+        -webkit-backdrop-filter: var(--header-glass-backdrop);
       }
 
       /* Toolbar base */
@@ -252,6 +282,7 @@ addIcons({
         --padding-start: var(--nxt1-spacing-2, 8px);
         --padding-end: var(--nxt1-spacing-2, 8px);
         --min-height: 44px;
+        --background: var(--header-glass-bg);
       }
 
       /* ============================================
@@ -283,6 +314,31 @@ addIcons({
         font-weight: var(--nxt1-font-weight-bold, 700);
         letter-spacing: var(--nxt1-letter-spacing-tighter, -0.02em);
         padding-inline: var(--nxt1-spacing-4, 16px);
+      }
+
+      /* ============================================
+         LOGO - Twitter/X Style Home Header
+         ============================================ */
+
+      .header-logo-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      }
+
+      .header-logo-icon {
+        height: 28px;
+        width: auto;
+        object-fit: contain;
+        user-select: none;
+        -webkit-user-drag: none;
+        pointer-events: auto;
       }
 
       /* ============================================
@@ -387,16 +443,6 @@ addIcons({
       ion-button:active {
         opacity: 0.7;
       }
-
-      /* ============================================
-         DARK MODE
-         ============================================ */
-
-      @media (prefers-color-scheme: dark) {
-        .header--blur {
-          --background: rgba(var(--nxt1-color-surface-primary-rgb, 10, 10, 10), 0.85);
-        }
-      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -411,6 +457,9 @@ export class NxtPageHeaderComponent {
 
   /** Page title text */
   readonly title = input<string>();
+
+  /** Show logo icon instead of title (Twitter/X home style) */
+  readonly showLogo = input(false);
 
   /** Title size variant */
   readonly titleSize = input<'small' | 'large'>('small');

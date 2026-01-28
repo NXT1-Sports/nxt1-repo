@@ -34,36 +34,44 @@
   /* ============================================
      GLOBAL GLASS/BLUR TOKENS
      Use these across footer, header, nav, modals
+     Premium frosted glass effect inspired by iOS 18 / macOS Sonoma
+     100% THEME AWARE - Uses design token system
      ============================================ */
 
-  /* Glass effect - consistent blur across all nav elements */
-  --nxt1-glass-blur: 24px;
-  --nxt1-glass-bg: rgba(26, 26, 26, 0.88);
-  --nxt1-glass-bg-light: rgba(26, 26, 26, 0.72);
-  --nxt1-glass-border: rgba(255, 255, 255, 0.08);
-  --nxt1-glass-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  /* NOTE: Glass effect tokens are now defined in design-tokens package
+     and automatically switch between light/dark themes:
+     - Dark: rgba(22, 22, 22, 0.88) with dark shadows
+     - Light: rgba(255, 255, 255, 0.88) with light shadows
+  */
 
-  /* Compact pill dimensions */
+  /* Compact pill dimensions - Layout only (no colors) */
   --nxt1-pill-height: 52px;
   --nxt1-pill-radius: 28px;
   --nxt1-pill-padding: 2px;
   --nxt1-pill-gap: 8px;
 
-  /* Tab button dimensions */
-  --nxt1-tab-radius: 24px;
-  --nxt1-tab-padding-y: 6px;
-  --nxt1-tab-icon-size: 22px;
+  /* Tab button dimensions - Layout only (no colors) */
   --nxt1-tab-label-size: 10px;
   --nxt1-tab-label-gap: 4px;
 
-  /* Icon colors */
-  --nxt1-icon-inactive: #666666;
-  --nxt1-icon-active: #ffffff;
-  --nxt1-tab-active-bg: rgba(255, 255, 255, 0.12);
+  /* NOTE: Icon colors and active states now come from design tokens:
+     --nxt1-icon-active (dark: #ffffff, light: #000000)
+     --nxt1-icon-inactive (dark: #666666, light: #9e9e9e)
+     --nxt1-tab-activeBg (dark: rgba(255,255,255,0.12), light: rgba(0,0,0,0.08))
+     --nxt1-tab-radius (24px)
+     --nxt1-tab-paddingY (6px)
+     --nxt1-tab-iconSize (26px)
+  */
 
   /* FAB dimensions */
   --nxt1-fab-size: 48px;
   --nxt1-fab-radius: 50%;
+  /* NOTE: FAB shadows and gradients now come from design tokens:
+     --nxt1-fab-shadow
+     --nxt1-fab-shadowActive
+     --nxt1-fab-gradientActive
+     --nxt1-fab-glowActive
+  */
 
   /* Layout */
   --nxt1-nav-height: 64px;
@@ -78,26 +86,26 @@
   --nxt1-nav-z-mobile-overlay: var(--nxt1-ui-z-modal-backdrop, 400);
   --nxt1-nav-z-mobile-menu: var(--nxt1-ui-z-modal, 500);
 
-  /* Shared colors */
-  --nxt1-nav-bg: var(--nxt1-ui-bg-page, #0a0a0a);
-  --nxt1-nav-bg-blur: rgba(10, 10, 10, 0.72);
-  --nxt1-nav-bg-elevated: var(--nxt1-ui-bg-elevated, #121212);
-  --nxt1-nav-border: var(--nxt1-ui-border-subtle, rgba(255, 255, 255, 0.08));
+  /* Shared colors - 100% THEME AWARE (from design tokens) */
+  --nxt1-nav-bg: var(--nxt1-color-bg-primary);
+  --nxt1-nav-bg-blur: var(--nxt1-glass-bg);
+  --nxt1-nav-bg-elevated: var(--nxt1-color-bg-elevated);
+  --nxt1-nav-border: var(--nxt1-color-border-subtle);
 
-  /* Text colors */
-  --nxt1-nav-text: var(--nxt1-ui-text-primary, #ffffff);
-  --nxt1-nav-text-secondary: var(--nxt1-ui-text-secondary, rgba(255, 255, 255, 0.7));
-  --nxt1-nav-text-muted: var(--nxt1-ui-text-muted, rgba(255, 255, 255, 0.5));
-  --nxt1-nav-text-active: var(--nxt1-ui-primary, #ccff00);
+  /* Text colors - 100% THEME AWARE */
+  --nxt1-nav-text: var(--nxt1-color-text-primary);
+  --nxt1-nav-text-secondary: var(--nxt1-color-text-secondary);
+  --nxt1-nav-text-muted: var(--nxt1-color-text-tertiary);
+  --nxt1-nav-text-active: var(--nxt1-color-primary);
 
-  /* Interactive states */
-  --nxt1-nav-hover-bg: var(--nxt1-ui-bg-input, rgba(255, 255, 255, 0.08));
-  --nxt1-nav-active-bg: var(--nxt1-ui-bg-input-hover, rgba(255, 255, 255, 0.12));
-  --nxt1-nav-focus-ring: var(--nxt1-ui-primary, #ccff00);
+  /* Interactive states - 100% THEME AWARE */
+  --nxt1-nav-hover-bg: var(--nxt1-color-state-hover);
+  --nxt1-nav-active-bg: var(--nxt1-color-state-pressed);
+  --nxt1-nav-focus-ring: var(--nxt1-color-focus-ring);
 
-  /* Badge */
-  --nxt1-nav-badge-bg: var(--nxt1-ui-error, #ef4444);
-  --nxt1-nav-badge-text: #ffffff;
+  /* Badge - 100% THEME AWARE */
+  --nxt1-nav-badge-bg: var(--nxt1-color-error);
+  --nxt1-nav-badge-text: var(--nxt1-color-text-inverse);
 
   /* Transitions */
   --nxt1-nav-transition-fast: var(--nxt1-ui-transition-fast, 150ms ease-out);
@@ -120,23 +128,23 @@
   left: 0;
   right: 0;
   z-index: var(--nxt1-nav-z-footer);
-  pointer-events: none;
+  pointer-events: auto;
 }
 
-/* Footer variables (scoped) */
+/* Footer variables (scoped) - 100% THEME AWARE */
 .nxt1-footer {
   --footer-safe-area: env(safe-area-inset-bottom, 0px);
-  --pill-bg: var(--nxt1-color-surface-200, #1a1a1a);
-  --pill-border: var(--nxt1-nav-border);
+  --pill-bg: var(--nxt1-color-surface-200);
+  --pill-border: var(--nxt1-glass-borderSubtle);
   --pill-radius: var(--nxt1-ui-radius-2xl, 24px);
-  --pill-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
-  --tab-inactive: var(--nxt1-nav-text-muted);
-  --tab-active: var(--nxt1-nav-text);
-  --tab-active-bg: var(--nxt1-color-surface-400, #2a2a2a);
-  --action-bg: var(--nxt1-ui-primary);
-  --action-text: var(--nxt1-ui-text-inverse, #000000);
+  --pill-shadow: var(--nxt1-glass-shadow);
+  --tab-inactive: var(--nxt1-icon-inactive);
+  --tab-active: var(--nxt1-icon-active);
+  --tab-active-bg: var(--nxt1-tab-activeBg);
+  --action-bg: var(--nxt1-color-primary);
+  --action-text: var(--nxt1-color-text-on-Primary);
   --action-size: 44px;
-  --action-glow: rgba(204, 255, 0, 0.25);
+  --action-glow: var(--nxt1-glow-sm);
 }
 
 /* Hidden state (scroll-to-hide) */
@@ -145,14 +153,14 @@
   transition: transform var(--nxt1-nav-transition-normal);
 }
 
-/* Tabs pill container */
+/* Tabs pill container - 100% THEME AWARE */
 .nxt1-footer .footer-tabs {
   background: var(--pill-bg);
   border: 1px solid var(--pill-border);
   border-radius: var(--pill-radius);
   box-shadow: var(--pill-shadow);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: var(--nxt1-glass-backdrop);
+  -webkit-backdrop-filter: var(--nxt1-glass-backdrop);
   pointer-events: auto;
 }
 
@@ -177,10 +185,10 @@
   background: var(--tab-active-bg);
 }
 
-/* Hover state */
+/* Hover state - 100% THEME AWARE */
 .nxt1-footer .tab-button:hover:not(:disabled):not(.active) {
   color: var(--nxt1-nav-text-secondary);
-  background: var(--nxt1-color-surface-300, #222222);
+  background: var(--nxt1-color-surface-300);
 }
 
 /* Press feedback */
@@ -201,15 +209,13 @@
   pointer-events: none;
 }
 
-/* Action button background (floating FAB) */
+/* Action button background (floating FAB) - 100% THEME AWARE */
 .nxt1-footer .action-button-bg {
   position: absolute;
   inset: 0;
   background: var(--action-bg);
   border-radius: var(--nxt1-ui-radius-xl, 16px);
-  box-shadow:
-    0 4px 16px var(--action-glow),
-    0 2px 6px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--nxt1-fab-shadow);
   transition:
     transform var(--nxt1-nav-transition-fast),
     box-shadow var(--nxt1-nav-transition-fast);
@@ -217,9 +223,7 @@
 
 .nxt1-footer .action-button .tab-button:hover .action-button-bg {
   transform: scale(1.05);
-  box-shadow:
-    0 6px 20px var(--action-glow),
-    0 3px 8px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--nxt1-fab-shadow), var(--action-glow);
 }
 
 .nxt1-footer .action-button .tab-button:active .action-button-bg {
@@ -318,11 +322,12 @@
   border-bottom: 1px solid var(--nxt1-nav-border);
 }
 
-/* Blur variant (macOS Sonoma style) */
+/* Blur variant (macOS Sonoma style) - 100% THEME AWARE */
 .nxt1-desktop-nav.blur {
-  background: var(--nxt1-nav-bg-blur);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  background: var(--nxt1-glass-bg);
+  backdrop-filter: var(--nxt1-glass-backdrop);
+  -webkit-backdrop-filter: var(--nxt1-glass-backdrop);
+  border-bottom-color: var(--nxt1-glass-border);
 }
 
 @supports not (backdrop-filter: blur(20px)) {
@@ -331,24 +336,23 @@
   }
 }
 
-/* Transparent variant */
+/* Transparent variant - 100% THEME AWARE */
 .nxt1-desktop-nav.transparent {
   background: transparent;
   border-bottom-color: transparent;
 }
 
 .nxt1-desktop-nav.transparent:hover {
-  background: var(--nxt1-nav-bg-blur);
-  backdrop-filter: saturate(180%) blur(20px);
+  background: var(--nxt1-glass-bg);
+  backdrop-filter: var(--nxt1-glass-backdrop);
+  -webkit-backdrop-filter: var(--nxt1-glass-backdrop);
 }
 
-/* Elevated variant (Windows 11 Mica style) */
+/* Elevated variant (Windows 11 Mica style) - 100% THEME AWARE */
 .nxt1-desktop-nav.elevated {
   background: var(--nxt1-nav-bg-elevated);
   border-bottom-color: transparent;
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.12),
-    0 1px 2px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--nxt1-navigation-elevated);
 }
 
 /* Minimal variant */
@@ -438,17 +442,17 @@
   background: var(--nxt1-nav-hover-bg);
 }
 
-/* Featured button (CTA) */
+/* Featured button (CTA) - 100% THEME AWARE */
 .nxt1-desktop-nav .nav-item-btn.featured {
-  background: var(--nxt1-ui-primary);
-  color: var(--nxt1-ui-text-inverse);
+  background: var(--nxt1-color-primary);
+  color: var(--nxt1-color-text-on-Primary);
   font-weight: 600;
   padding: 0 var(--nxt1-spacing-4, 16px);
 }
 
 .nxt1-desktop-nav .nav-item-btn.featured:hover:not(:disabled) {
-  background: var(--nxt1-ui-primary-dark);
-  color: var(--nxt1-ui-text-inverse);
+  background: var(--nxt1-color-primaryDark);
+  color: var(--nxt1-color-text-on-Primary);
 }
 
 /* Nav item badge */
@@ -491,18 +495,16 @@
   border-radius: var(--nxt1-ui-radius-full, 9999px);
 }
 
-/* Dropdown menu */
+/* Dropdown menu - 100% THEME AWARE */
 .nxt1-desktop-nav .nav-dropdown,
 .nxt1-desktop-nav .user-dropdown {
   position: absolute;
   top: calc(100% + var(--nxt1-spacing-2, 8px));
   min-width: 200px;
-  background: var(--nxt1-color-surface-100, #1a1a1a);
-  border: 1px solid var(--nxt1-ui-border-default, rgba(255, 255, 255, 0.12));
+  background: var(--nxt1-color-surface-100);
+  border: 1px solid var(--nxt1-color-border-default);
   border-radius: var(--nxt1-ui-radius-lg, 12px);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.32),
-    0 2px 8px rgba(0, 0, 0, 0.24);
+  box-shadow: var(--nxt1-navigation-dropdown);
   opacity: 0;
   visibility: hidden;
   transform: translateY(-8px) scale(0.96);
@@ -569,14 +571,14 @@
 }
 
 .nxt1-desktop-nav .user-menu-item.danger {
-  color: var(--nxt1-ui-error);
+  color: var(--nxt1-color-error);
 }
 
 .nxt1-desktop-nav .dropdown-divider,
 .nxt1-desktop-nav .user-menu-divider {
   height: 1px;
   margin: var(--nxt1-spacing-1, 4px) 0;
-  background: var(--nxt1-ui-border-default, rgba(255, 255, 255, 0.12));
+  background: var(--nxt1-color-border-default);
 }
 
 /* Search bar */
@@ -607,7 +609,7 @@
 .nxt1-desktop-nav .search-input:focus {
   background: var(--nxt1-nav-active-bg);
   border-color: var(--nxt1-nav-focus-ring);
-  box-shadow: 0 0 0 3px rgba(204, 255, 0, 0.15);
+  box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary15);
 }
 
 .nxt1-desktop-nav .search-input::-webkit-search-cancel-button,
@@ -1140,30 +1142,19 @@
 }
 
 /* ============================================
-   LIGHT THEME OVERRIDES
+   THEME OVERRIDES (Auto-Updated from tokens.json)
+   ✅ 100% THEME-AWARE - Works with all themes
+   
+   These variables are set by @nxt1/design-tokens
+   for each theme (dark, light, sport-*, team, etc).
+   
+   NO HARDCODED OVERRIDES NEEDED - Tokens handle it!
    ============================================ */
 
-:root[data-theme='light'],
-.light-theme {
-  --nxt1-nav-bg: var(--nxt1-color-background-primary, #ffffff);
-  --nxt1-nav-bg-blur: rgba(255, 255, 255, 0.85);
-  --nxt1-nav-bg-elevated: var(--nxt1-color-surface-100, #f5f5f5);
-  --nxt1-nav-border: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.08));
-  --nxt1-nav-text: var(--nxt1-color-text-primary, #212121);
-  --nxt1-nav-text-secondary: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.6));
-  --nxt1-nav-text-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.4));
-  --nxt1-nav-text-active: var(--nxt1-color-primary-dark, #8fcc00);
-  --nxt1-nav-hover-bg: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.06));
-  --nxt1-nav-active-bg: var(--nxt1-color-surface-300, rgba(0, 0, 0, 0.1));
-}
-
-/* Footer light theme */
-:root[data-theme='light'] .nxt1-footer,
-.light-theme .nxt1-footer {
-  --pill-bg: var(--nxt1-color-surface-100, #f5f5f5);
-  --pill-border: var(--nxt1-color-border-default, rgba(0, 0, 0, 0.12));
-  --pill-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.05);
-  --tab-inactive: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.45));
-  --tab-active: var(--nxt1-color-text-primary, #1a1a1a);
-  --tab-active-bg: var(--nxt1-color-surface-300, #e0e0e0);
-}
+/* Navigation variables automatically update when:
+   - data-theme attribute changes
+   - Each theme file defines: --nxt1-nav-bg, --nxt1-nav-text, etc.
+   
+   This is why sports/team themes work seamlessly.
+   See: @nxt1/design-tokens/dist/css/themes/
+*/

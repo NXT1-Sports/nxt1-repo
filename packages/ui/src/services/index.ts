@@ -42,3 +42,36 @@ export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './logging
 export { AuthNavigationService, type NavAnimation, type NavOptions } from './auth-navigation';
 
 export { AuthErrorHandler, type AuthError, type AuthRecoveryAction } from './auth-error';
+
+// Theme service (2026 Professional Theme Management)
+export {
+  NxtThemeService,
+  THEME_OPTIONS,
+  SPORT_THEME_OPTIONS,
+  type ThemePreference,
+  type EffectiveTheme,
+  type SportTheme,
+  type ThemeChangeEvent,
+  type ThemeOption,
+  type SportThemeOption,
+} from './theme';
+
+// Gesture services
+export {
+  // Generic swipe gesture handler (framework-agnostic)
+  createSwipeGestureHandler,
+  createGestureConfig,
+  DEFAULT_GESTURE_CONFIG,
+  // Sidenav-specific gesture service
+  NxtSidenavGestureService,
+  // Types
+  type SwipeDirection,
+  type GesturePhase,
+  type SwipeGestureConfig,
+  type GestureStartState,
+  type GestureState,
+  type GestureResult,
+  type GestureCallbacks,
+  type GestureHandler,
+  type SidenavGestureConfig,
+} from './gesture';

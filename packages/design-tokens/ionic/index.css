@@ -7,6 +7,18 @@
  *
  * Usage:
  *   @import '@nxt1/design-tokens/ionic';
+ *
+ * Architecture:
+ *   tokens.json → build.mjs → dist/ionic/ionic-generated.css (auto-mapped)
+ *   ionic-theme.css contains additional platform-specific overrides
+ *
+ * The ionic-generated.css is auto-generated from tokens.json to ensure
+ * Ionic variables stay in sync with the design system. Additional
+ * platform-specific styles (iOS blur, Android ripple) are in ionic-theme.css.
  */
 
+/* Auto-generated Ionic variable mappings from tokens.json */
+@import '../dist/ionic/ionic-generated.css';
+
+/* Platform-specific Ionic overrides (iOS blur, Android ripple, etc.) */
 @import 'ionic-theme.css';

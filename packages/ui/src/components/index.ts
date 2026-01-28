@@ -125,6 +125,43 @@ export {
 } from './top-nav';
 
 // ============================================
+// SIDENAV / DRAWER NAVIGATION
+// ============================================
+export {
+  // Component
+  NxtSidenavComponent,
+  // Service
+  NxtSidenavService,
+  // Types (from @nxt1/core)
+  type SidenavIconName,
+  type SocialLink,
+  type SidenavItem,
+  type SidenavSection,
+  type SidenavUserData,
+  type SidenavVariant,
+  type SidenavPosition,
+  type SidenavMode,
+  type SidenavConfig,
+  type SidenavSelectEvent,
+  type SidenavToggleEvent,
+  type SidenavSectionToggleEvent,
+  // Constants (from @nxt1/core)
+  DEFAULT_SOCIAL_LINKS,
+  DEFAULT_SIDENAV_ITEMS,
+  SIDENAV_WIDTHS,
+  SIDENAV_Z_INDEX,
+  SIDENAV_ANIMATION,
+  SIDENAV_GESTURE,
+  // Helper functions (from @nxt1/core)
+  createSidenavConfig,
+  findSidenavItemById,
+  findSidenavItemByRoute,
+  updateSidenavBadge,
+  toggleSidenavSection,
+  filterSidenavByRoles,
+} from './sidenav';
+
+// ============================================
 // UNIFIED PICKER SYSTEM
 // ============================================
 export {

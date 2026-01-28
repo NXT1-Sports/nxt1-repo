@@ -53,7 +53,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser } from '@angular/common';
 import { Router, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
-import { IonTabBar, IonTabButton, IonLabel, IonBadge } from '@ionic/angular/standalone';
+import { IonTabBar, IonTabButton, IonBadge } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../icon';
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
@@ -63,7 +63,7 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
 @Component({
   selector: 'nxt1-mobile-footer',
   standalone: true,
-  imports: [IonTabBar, IonTabButton, IonLabel, IonBadge, NxtIconComponent],
+  imports: [IonTabBar, IonTabButton, IonBadge, NxtIconComponent],
   template: `
     <!-- Footer wrapper for pill + FAB layout -->
     <div class="footer-container">
@@ -84,13 +84,8 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
           >
             <!-- Custom NXT1 SVG Icon (same icon, color changes on select) -->
             <div class="tab-icon-wrapper">
-              <nxt1-icon [name]="tab.icon" [size]="22" class="tab-icon" />
+              <nxt1-icon [name]="tab.icon" [size]="26" class="tab-icon" />
             </div>
-
-            <!-- Label -->
-            @if (shouldShowLabels()) {
-              <ion-label>{{ tab.label }}</ion-label>
-            }
 
             <!-- Badge -->
             @if (tab.badge && tab.badge > 0) {
@@ -106,10 +101,11 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
       @if (actionTab(); as actionButton) {
         <button
           class="fab-button"
+          [class.fab-button--active]="isActiveTab(actionButton)"
           (click)="onTabClick(actionButton, $event)"
           [attr.aria-label]="actionButton.ariaLabel ?? actionButton.label"
         >
-          <nxt1-icon [name]="actionButton.icon" [size]="22" />
+          <nxt1-icon [name]="actionButton.icon" [size]="26" />
         </button>
       }
     </div>
@@ -119,27 +115,44 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
       :host {
         display: block;
         background: transparent;
+
+        /* iOS 26 Liquid Glass Design Tokens - 100% Theme Aware */
+        --footer-glass-bg: var(--nxt1-glass-bg);
+        --footer-glass-border: var(--nxt1-glass-border);
+        --footer-glass-shadow: var(--nxt1-glass-shadow);
+        --footer-glass-backdrop: var(--nxt1-glass-backdrop);
+        --footer-icon-active: var(--nxt1-icon-active);
+        --footer-icon-inactive: var(--nxt1-icon-inactive);
+        --footer-tab-active-bg: var(--nxt1-tab-activeBg);
+        --footer-fab-shadow: var(--nxt1-fab-shadow);
+        --footer-fab-shadow-active: var(--nxt1-fab-shadowActive);
+        --footer-fab-gradient-active: var(--nxt1-fab-gradientActive);
+        --footer-fab-glow-active: var(--nxt1-fab-glowActive);
       }
 
-      /* Container for pill + FAB side by side - using global tokens */
+      /* Container for pill + FAB side by side */
       .footer-container {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-pill-gap, 8px);
-        padding: 0 var(--nxt1-pill-gap, 8px);
+        gap: var(--nxt1-pill-gap);
+        padding: 0 4px;
+        background: transparent;
       }
 
-      /* Floating Pill Tab Bar - Sleeker, more compact design */
+      /* Floating Pill Tab Bar - iOS 26 Liquid Glass Effect */
       ion-tab-bar {
-        --background: #1a1a1a;
-        --color: var(--nxt1-icon-inactive, #666666);
-        --color-selected: var(--nxt1-icon-active, #ffffff);
+        --background: var(--footer-glass-bg) !important;
+        --color: var(--footer-icon-inactive);
+        --color-selected: var(--footer-icon-active);
         flex: 1;
-        border: 1px solid var(--nxt1-glass-border, rgba(255, 255, 255, 0.08));
-        border-radius: var(--nxt1-pill-radius, 28px);
-        padding: var(--nxt1-pill-padding, 2px);
-        height: var(--nxt1-pill-height, 52px);
-        box-shadow: var(--nxt1-glass-shadow, 0 2px 12px rgba(0, 0, 0, 0.5));
+        border: 1px solid var(--footer-glass-border) !important;
+        border-radius: var(--nxt1-pill-radius);
+        padding: var(--nxt1-pill-padding);
+        height: var(--nxt1-pill-height);
+        box-shadow: var(--footer-glass-shadow), var(--nxt1-glass-shadowInner);
+        background: var(--footer-glass-bg) !important;
+        -webkit-backdrop-filter: var(--footer-glass-backdrop) !important;
+        backdrop-filter: var(--footer-glass-backdrop) !important;
       }
 
       /* Hidden state */
@@ -147,25 +160,25 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         display: none;
       }
 
-      /* Tab Button Styling - More rounded containers */
+      /* Tab Button Styling - Rounded containers */
       ion-tab-button {
-        --color: var(--nxt1-icon-inactive, #666666);
-        --color-selected: var(--nxt1-icon-active, #ffffff);
-        --padding-top: var(--nxt1-tab-padding-y, 6px);
-        --padding-bottom: var(--nxt1-tab-padding-y, 6px);
+        --color: var(--footer-icon-inactive);
+        --color-selected: var(--footer-icon-active);
+        --padding-top: var(--nxt1-tab-paddingY);
+        --padding-bottom: var(--nxt1-tab-paddingY);
         --background: transparent;
         --background-focused: transparent;
         max-width: none;
         flex: 1;
-        border-radius: var(--nxt1-tab-radius, 24px);
-        margin: 2px;
+        border-radius: var(--nxt1-tab-radius);
+        margin: 1px;
         transition: background 0.2s ease;
       }
 
-      /* Active tab background highlight - subtle */
+      /* Active tab background highlight */
       ion-tab-button.tab-button--active {
-        --background: var(--nxt1-tab-active-bg, rgba(255, 255, 255, 0.12));
-        background: var(--nxt1-tab-active-bg, rgba(255, 255, 255, 0.12));
+        --background: var(--footer-tab-active-bg);
+        background: var(--footer-tab-active-bg);
       }
 
       /* Icon wrapper */
@@ -173,30 +186,30 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         display: flex;
         align-items: center;
         justify-content: center;
-        height: var(--nxt1-tab-icon-size, 22px);
+        height: var(--nxt1-tab-iconSize);
       }
 
-      /* Icon colors */
+      /* Icon colors - theme aware */
       .tab-icon {
-        color: var(--nxt1-icon-inactive, #666666);
+        color: var(--footer-icon-inactive);
         transition: color 0.2s ease;
       }
 
       .tab-button--active .tab-icon {
-        color: var(--nxt1-icon-active, #ffffff);
+        color: var(--footer-icon-active);
       }
 
-      /* Label styling - more space between icon and text */
+      /* Label styling */
       ion-tab-button ion-label {
-        font-size: var(--nxt1-tab-label-size, 10px);
+        font-size: var(--nxt1-tab-labelSize);
         font-weight: 500;
         letter-spacing: 0.02em;
-        margin-top: var(--nxt1-tab-label-gap, 4px);
+        margin-top: var(--nxt1-tab-labelGap);
         color: inherit;
       }
 
       .tab-button--active ion-label {
-        color: var(--nxt1-icon-active, #ffffff);
+        color: var(--footer-icon-active);
       }
 
       /* Badge positioning */
@@ -216,39 +229,89 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         --padding-bottom: 10px;
       }
 
-      /* FAB Button - Using global tokens */
+      /* FAB Button - Theme-aware with semantic tokens */
       .fab-button {
         display: flex;
         align-items: center;
         justify-content: center;
-        width: var(--nxt1-fab-size, 48px);
-        height: var(--nxt1-fab-size, 48px);
-        border-radius: var(--nxt1-fab-radius, 50%);
+        width: var(--nxt1-fab-size);
+        height: var(--nxt1-fab-size);
+        border-radius: var(--nxt1-fab-radius);
         border: none;
-        background: #ccff00;
-        color: #000000;
-        box-shadow: 0 2px 12px rgba(204, 255, 0, 0.35);
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
+        box-shadow: var(--footer-fab-shadow);
         cursor: pointer;
         flex-shrink: 0;
         transition:
-          transform 0.15s ease,
-          box-shadow 0.15s ease;
+          transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+          box-shadow 0.3s ease,
+          background 0.3s ease;
+        position: relative;
+        overflow: visible;
+      }
+
+      /* FAB Glow ring (pseudo element) */
+      .fab-button::before {
+        content: '';
+        position: absolute;
+        inset: -3px;
+        border-radius: 50%;
+        background: var(--nxt1-glow-md);
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        z-index: -1;
       }
 
       .fab-button:active {
         transform: scale(0.92);
       }
 
-      /* iOS-specific - translucent blur using global token */
+      /* FAB Active State - Gemini AI-style gradient (theme-aware) */
+      .fab-button.fab-button--active {
+        background: var(
+          --footer-fab-gradient-active,
+          linear-gradient(135deg, #00ff88, #00ccff, #8855ff, #ff0088, #ff6600)
+        );
+        background-size: 200% 200%;
+        animation: gemini-gradient 3s ease infinite;
+        box-shadow: var(--footer-fab-shadow-active);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .fab-button.fab-button--active::before {
+        opacity: 1;
+        background: var(
+          --footer-fab-glow-active,
+          linear-gradient(135deg, rgba(0, 255, 136, 0.4), rgba(204, 255, 0, 0.4))
+        );
+        filter: blur(12px);
+        inset: -8px;
+        animation: gemini-gradient 3s ease infinite;
+        background-size: 200% 200%;
+      }
+
+      @keyframes gemini-gradient {
+        0%,
+        100% {
+          background-position: 0% 50%;
+        }
+        50% {
+          background-position: 100% 50%;
+        }
+      }
+
+      /* iOS-specific - Ensure liquid glass effect */
       :host-context(.ios) ion-tab-bar {
-        --background: var(--nxt1-glass-bg, rgba(26, 26, 26, 0.88));
-        -webkit-backdrop-filter: blur(var(--nxt1-glass-blur, 24px));
-        backdrop-filter: blur(var(--nxt1-glass-blur, 24px));
+        --background: var(--footer-glass-bg) !important;
+        background: var(--footer-glass-bg) !important;
+        -webkit-backdrop-filter: var(--footer-glass-backdrop) !important;
+        backdrop-filter: var(--footer-glass-backdrop) !important;
       }
 
       /* Android/MD-specific */
       :host-context(.md) ion-tab-button {
-        --ripple-color: rgba(255, 255, 255, 0.08);
+        --ripple-color: var(--nxt1-ripple-color);
       }
     `,
   ],

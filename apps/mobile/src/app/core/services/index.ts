@@ -22,8 +22,8 @@ export { AnalyticsService } from './analytics.service';
 // Two-tier caching (memory + persistent)
 export { MobileCacheService } from './cache.service';
 
-// Theme management
-export { ThemeService, type SportTheme } from './theme.service';
+// Theme management - use NxtThemeService from @nxt1/ui instead
+// (Theme service was consolidated to shared package)
 
 // Share service for native social sharing
 export { ShareService, type ShareResultData, type ShareContentOptions } from './share.service';

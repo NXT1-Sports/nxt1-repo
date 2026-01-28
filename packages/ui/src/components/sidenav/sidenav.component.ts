@@ -1,0 +1,1240 @@
+/**
+ * @fileoverview NxtSidenavComponent - Ionic-Based Sidenav/Drawer Navigation
+ * @module @nxt1/ui/components/sidenav
+ * @version 2.0.0
+ *
+ * Professional sidenav/drawer component built on Ionic's ion-menu with
+ * Twitter/X-inspired design. Uses Ionic's native menu infrastructure
+ * while maintaining our custom styling, gestures, and design tokens.
+ *
+ * Design Philosophy:
+ * - Built on Ionic's `ion-menu` for native platform feel
+ * - Twitter/X-inspired smooth slide animations
+ * - Glassmorphism backdrop blur effects
+ * - Platform-adaptive styling (iOS/Android)
+ * - Full design token + Tailwind theme awareness
+ * - Social links footer section
+ * - Expandable section groups
+ * - Full haptic feedback support
+ *
+ * Features:
+ * - Ionic's native gesture handling (with custom override option)
+ * - Backdrop overlay with dismiss
+ * - User profile header section
+ * - Collapsible menu sections
+ * - Social media links footer
+ * - Badge support on menu items
+ * - Route-based active detection
+ * - Full accessibility (ARIA)
+ * - SSR-safe implementation
+ * - 100% theme-aware (Tailwind + CSS variables)
+ *
+ * Usage:
+ * ```html
+ * <nxt1-sidenav
+ *   [sections]="menuSections"
+ *   [user]="currentUser"
+ *   [config]="sidenavConfig"
+ *   (itemSelect)="onItemSelect($event)"
+ *   (toggle)="onToggle($event)"
+ * />
+ * ```
+ *
+ * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
+ */
+
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  signal,
+  computed,
+  input,
+  output,
+  HostBinding,
+  HostListener,
+  PLATFORM_ID,
+  afterNextRender,
+  DestroyRef,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { isPlatformBrowser } from '@angular/common';
+import { Router, NavigationEnd } from '@angular/router';
+import { filter } from 'rxjs/operators';
+import {
+  IonMenu,
+  IonHeader,
+  IonToolbar,
+  IonContent,
+  IonFooter,
+  IonMenuToggle,
+  MenuController,
+} from '@ionic/angular/standalone';
+import { NxtIconComponent } from '../icon';
+import { NxtAvatarComponent, type AvatarClickEvent } from '../avatar';
+import { NxtThemeSelectorComponent } from '../theme-selector';
+import { NxtPlatformService } from '../../services/platform';
+import { HapticsService } from '../../services/haptics';
+import { NxtSidenavService } from './sidenav.service';
+import type {
+  SidenavSection,
+  SidenavItem,
+  SidenavUserData,
+  SidenavConfig,
+  SocialLink,
+  SidenavToggleEvent,
+} from './sidenav.types';
+import { DEFAULT_SOCIAL_LINKS, DEFAULT_SIDENAV_ITEMS, createSidenavConfig } from './sidenav.types';
+import type { SidenavItemSelectEvent } from './sidenav.types';
+
+@Component({
+  selector: 'nxt1-sidenav',
+  standalone: true,
+  imports: [
+    // Ionic Components
+    IonMenu,
+    IonHeader,
+    IonToolbar,
+    IonContent,
+    IonFooter,
+    IonMenuToggle,
+    // Custom Components
+    NxtIconComponent,
+    NxtAvatarComponent,
+    NxtThemeSelectorComponent,
+  ],
+  template: `
+    <!-- Ionic Menu Component - provides native gestures and animations -->
+    <ion-menu
+      #ionMenu
+      [contentId]="contentId()"
+      [side]="config().position === 'right' ? 'end' : 'start'"
+      [type]="config().mode === 'push' ? 'push' : 'overlay'"
+      [swipeGesture]="config().swipeGesture !== false"
+      [maxEdgeStart]="60"
+      class="nxt1-sidenav-menu"
+      [class.nxt1-sidenav-menu--blur]="config().variant === 'blur'"
+      (ionWillOpen)="onMenuWillOpen()"
+      (ionDidOpen)="onMenuDidOpen()"
+      (ionWillClose)="onMenuWillClose()"
+      (ionDidClose)="onMenuDidClose()"
+    >
+      <!-- Header Section -->
+      @if (config().showUserHeader && user()) {
+        <ion-header class="nxt1-sidenav-header ion-no-border">
+          <ion-toolbar class="nxt1-sidenav-toolbar">
+            <div class="nxt1-sidenav-user">
+              <nxt1-avatar
+                [src]="user()!.avatarUrl"
+                [name]="user()!.name"
+                [initials]="user()!.initials"
+                size="lg"
+                [badge]="user()!.verified ? 'verified' : undefined"
+                [clickable]="true"
+                class="nxt1-sidenav-user__avatar"
+                (avatarClick)="onProfileClick($event)"
+              />
+              <div class="nxt1-sidenav-user__info">
+                <div class="nxt1-sidenav-user__name">
+                  {{ user()!.name }}
+                  @if (user()!.verified) {
+                    <nxt1-icon name="verified" [size]="16" class="nxt1-sidenav-user__verified" />
+                  }
+                </div>
+                @if (user()!.subtitle) {
+                  <div class="nxt1-sidenav-user__subtitle">{{ user()!.subtitle }}</div>
+                }
+              </div>
+            </div>
+
+            @if (config().showCloseButton) {
+              <ion-menu-toggle slot="end">
+                <button class="nxt1-sidenav-close" aria-label="Close navigation menu">
+                  <nxt1-icon name="x" [size]="24" />
+                </button>
+              </ion-menu-toggle>
+            }
+          </ion-toolbar>
+        </ion-header>
+      } @else if (config().showCloseButton) {
+        <ion-header class="nxt1-sidenav-header nxt1-sidenav-header--minimal ion-no-border">
+          <ion-toolbar class="nxt1-sidenav-toolbar nxt1-sidenav-toolbar--minimal">
+            <ion-menu-toggle slot="end">
+              <button class="nxt1-sidenav-close" aria-label="Close navigation menu">
+                <nxt1-icon name="x" [size]="24" />
+              </button>
+            </ion-menu-toggle>
+          </ion-toolbar>
+        </ion-header>
+      }
+
+      <!-- Navigation Content -->
+      <ion-content class="nxt1-sidenav-content">
+        <nav class="nxt1-sidenav-nav">
+          @for (section of sections(); track section.id) {
+            <div
+              class="nxt1-sidenav-section"
+              [class.nxt1-sidenav-section--collapsible]="section.collapsible"
+            >
+              <!-- Section Header -->
+              @if (section.label) {
+                @if (section.collapsible) {
+                  <button
+                    class="nxt1-sidenav-section__header nxt1-sidenav-section__header--clickable"
+                    (click)="toggleSection(section, $event)"
+                    [attr.aria-expanded]="isSectionExpanded(section)"
+                    [attr.aria-controls]="'section-' + section.id"
+                  >
+                    @if (section.icon) {
+                      <nxt1-icon
+                        [name]="section.icon"
+                        [size]="18"
+                        class="nxt1-sidenav-section__icon"
+                      />
+                    }
+                    <span class="nxt1-sidenav-section__label">{{ section.label }}</span>
+                    <nxt1-icon
+                      name="chevronDown"
+                      [size]="16"
+                      class="nxt1-sidenav-section__chevron"
+                      [class.nxt1-sidenav-section__chevron--expanded]="isSectionExpanded(section)"
+                    />
+                  </button>
+                } @else {
+                  <div class="nxt1-sidenav-section__header">
+                    @if (section.icon) {
+                      <nxt1-icon
+                        [name]="section.icon"
+                        [size]="18"
+                        class="nxt1-sidenav-section__icon"
+                      />
+                    }
+                    <span class="nxt1-sidenav-section__label">{{ section.label }}</span>
+                  </div>
+                }
+              }
+
+              <!-- Section Items -->
+              <div
+                class="nxt1-sidenav-section__items"
+                [id]="'section-' + section.id"
+                [class.nxt1-sidenav-section__items--collapsed]="
+                  section.collapsible && !isSectionExpanded(section)
+                "
+              >
+                @for (item of section.items; track item.id) {
+                  @if (!item.hidden) {
+                    <!-- Divider -->
+                    @if (item.divider) {
+                      <div class="nxt1-sidenav-divider"></div>
+                    }
+
+                    <!-- Section Header Item -->
+                    @if (item.isSection) {
+                      <div class="nxt1-sidenav-item nxt1-sidenav-item--section">
+                        <span>{{ item.label }}</span>
+                      </div>
+                    } @else {
+                      <!-- Regular Menu Item - wrapped in IonMenuToggle for auto-close -->
+                      <ion-menu-toggle [autoHide]="false">
+                        <button
+                          class="nxt1-sidenav-item"
+                          [class.nxt1-sidenav-item--active]="isItemActive(item)"
+                          [class.nxt1-sidenav-item--disabled]="item.disabled"
+                          [class.nxt1-sidenav-item--danger]="item.variant === 'danger'"
+                          [class.nxt1-sidenav-item--premium]="item.variant === 'premium'"
+                          [class.nxt1-sidenav-item--has-children]="
+                            item.children && item.children.length > 0
+                          "
+                          [disabled]="item.disabled"
+                          (click)="onItemClick(item, section.id, $event)"
+                          [attr.aria-current]="isItemActive(item) ? 'page' : null"
+                        >
+                          @if (item.icon) {
+                            <div class="nxt1-sidenav-item__icon">
+                              <nxt1-icon [name]="item.icon" [size]="22" />
+                            </div>
+                          }
+
+                          <div class="nxt1-sidenav-item__content">
+                            <span class="nxt1-sidenav-item__label">{{ item.label }}</span>
+                            @if (item.description) {
+                              <span class="nxt1-sidenav-item__description">{{
+                                item.description
+                              }}</span>
+                            }
+                          </div>
+
+                          @if (item.badge && item.badge > 0) {
+                            <span
+                              class="nxt1-sidenav-item__badge"
+                              [class.nxt1-sidenav-item__badge--danger]="
+                                item.badgeVariant === 'danger'
+                              "
+                              [class.nxt1-sidenav-item__badge--warning]="
+                                item.badgeVariant === 'warning'
+                              "
+                              [class.nxt1-sidenav-item__badge--primary]="
+                                item.badgeVariant === 'primary'
+                              "
+                            >
+                              {{ item.badge > 99 ? '99+' : item.badge }}
+                            </span>
+                          }
+
+                          @if (item.children && item.children.length > 0) {
+                            <nxt1-icon
+                              name="chevronRight"
+                              [size]="16"
+                              class="nxt1-sidenav-item__arrow"
+                            />
+                          }
+                        </button>
+                      </ion-menu-toggle>
+
+                      <!-- Child Items -->
+                      @if (item.children && item.children.length > 0 && item.expanded) {
+                        <div class="nxt1-sidenav-children">
+                          @for (child of item.children; track child.id) {
+                            @if (!child.hidden) {
+                              <ion-menu-toggle [autoHide]="false">
+                                <button
+                                  class="nxt1-sidenav-item nxt1-sidenav-item--child"
+                                  [class.nxt1-sidenav-item--active]="isItemActive(child)"
+                                  [class.nxt1-sidenav-item--disabled]="child.disabled"
+                                  [disabled]="child.disabled"
+                                  (click)="onItemClick(child, section.id, $event, item.id)"
+                                >
+                                  @if (child.icon) {
+                                    <div class="nxt1-sidenav-item__icon">
+                                      <nxt1-icon [name]="child.icon" [size]="18" />
+                                    </div>
+                                  }
+                                  <span class="nxt1-sidenav-item__label">{{ child.label }}</span>
+                                  @if (child.badge && child.badge > 0) {
+                                    <span class="nxt1-sidenav-item__badge">
+                                      {{ child.badge > 99 ? '99+' : child.badge }}
+                                    </span>
+                                  }
+                                </button>
+                              </ion-menu-toggle>
+                            }
+                          }
+                        </div>
+                      }
+                    }
+                  }
+                }
+              </div>
+            </div>
+          }
+        </nav>
+      </ion-content>
+
+      <!-- Footer Section with Theme & Social Links -->
+      @if (config().showSocialLinks && socialLinks().length > 0) {
+        <ion-footer class="nxt1-sidenav-footer ion-no-border">
+          <!-- Theme Selector -->
+          @if (config().showThemeSelector !== false) {
+            <div class="nxt1-sidenav-theme">
+              <nxt1-theme-selector variant="compact" [showLabels]="true" [showSportThemes]="true" />
+            </div>
+          }
+
+          <div class="nxt1-sidenav-social">
+            <span class="nxt1-sidenav-social__label">Follow Us</span>
+            <div class="nxt1-sidenav-social__links">
+              @for (social of socialLinks(); track social.id) {
+                <a
+                  [href]="social.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="nxt1-sidenav-social__link"
+                  [attr.aria-label]="social.ariaLabel ?? 'Follow us on ' + social.label"
+                  (click)="onSocialClick(social, $event)"
+                >
+                  <nxt1-icon [name]="social.icon" [size]="20" />
+                </a>
+              }
+            </div>
+          </div>
+
+          <div class="nxt1-sidenav-footer__meta">
+            <span class="nxt1-sidenav-footer__copyright">© 2026 NXT1 Sports</span>
+          </div>
+        </ion-footer>
+      }
+    </ion-menu>
+  `,
+  styles: [
+    `
+      /* ============================================
+         CSS CUSTOM PROPERTIES (Design Tokens)
+         ============================================ */
+      :host {
+        --nxt1-sidenav-width: 280px;
+        --nxt1-sidenav-bg: var(--nxt1-color-surface-secondary, var(--ion-background-color));
+        --nxt1-sidenav-bg-blur: var(--nxt1-glass-bg, rgba(0, 0, 0, 0.8));
+        --nxt1-sidenav-border: var(--nxt1-color-border-default, var(--ion-border-color));
+        --nxt1-sidenav-shadow: var(--nxt1-glass-shadow, 0 8px 32px rgba(0, 0, 0, 0.3));
+
+        --nxt1-sidenav-header-bg: var(
+          --nxt1-color-background-primary,
+          var(--ion-toolbar-background)
+        );
+        --nxt1-sidenav-header-border: var(--nxt1-color-border-default, var(--ion-border-color));
+
+        --nxt1-sidenav-text-primary: var(--nxt1-color-text-primary, var(--ion-text-color));
+        --nxt1-sidenav-text-secondary: var(
+          --nxt1-color-text-secondary,
+          var(--ion-text-color-step-400)
+        );
+        --nxt1-sidenav-text-tertiary: var(
+          --nxt1-color-text-tertiary,
+          var(--ion-text-color-step-600)
+        );
+
+        --nxt1-sidenav-item-hover: var(--nxt1-color-surface-200, var(--ion-color-step-100));
+        --nxt1-sidenav-item-active: var(--nxt1-color-surface-300, var(--ion-color-step-150));
+        --nxt1-sidenav-item-radius: var(--nxt1-radius-lg, 12px);
+
+        --nxt1-sidenav-accent: var(--nxt1-color-primary, var(--ion-color-primary));
+        --nxt1-sidenav-danger: var(--nxt1-color-feedback-error, var(--ion-color-danger));
+        --nxt1-sidenav-warning: var(--nxt1-color-feedback-warning, var(--ion-color-warning));
+
+        display: block;
+      }
+
+      /* ============================================
+         ION-MENU OVERRIDES (Design Token Integration)
+         ============================================ */
+      ion-menu.nxt1-sidenav-menu {
+        --width: var(--nxt1-sidenav-width);
+        --max-width: calc(100vw - 56px);
+        --background: var(--nxt1-sidenav-bg);
+        --ion-background-color: var(--nxt1-sidenav-bg);
+      }
+
+      ion-menu.nxt1-sidenav-menu--blur {
+        --background: var(--nxt1-sidenav-bg-blur);
+      }
+
+      ion-menu.nxt1-sidenav-menu--blur::part(container) {
+        backdrop-filter: blur(24px) saturate(180%);
+        -webkit-backdrop-filter: blur(24px) saturate(180%);
+      }
+
+      /* ============================================
+         HEADER SECTION
+         ============================================ */
+      .nxt1-sidenav-header {
+        --background: var(--nxt1-sidenav-header-bg);
+        border-bottom: 1px solid var(--nxt1-sidenav-header-border);
+      }
+
+      .nxt1-sidenav-header--minimal {
+        --background: transparent;
+        border-bottom: none;
+      }
+
+      .nxt1-sidenav-toolbar {
+        --background: transparent;
+        --border-width: 0;
+        --padding-start: 16px;
+        --padding-end: 16px;
+        --padding-top: 20px;
+        --padding-bottom: 16px;
+        --min-height: auto;
+      }
+
+      .nxt1-sidenav-toolbar--minimal {
+        --padding-top: 12px;
+        --padding-bottom: 12px;
+        justify-content: flex-end;
+      }
+
+      .nxt1-sidenav-user {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .nxt1-sidenav-user__avatar {
+        flex-shrink: 0;
+        cursor: pointer;
+        transition: transform 0.15s ease;
+      }
+
+      .nxt1-sidenav-user__avatar:active {
+        transform: scale(0.95);
+      }
+
+      .nxt1-sidenav-user__info {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .nxt1-sidenav-user__name {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--nxt1-sidenav-text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .nxt1-sidenav-user__verified {
+        color: var(--nxt1-sidenav-accent);
+        flex-shrink: 0;
+      }
+
+      .nxt1-sidenav-user__subtitle {
+        font-size: 13px;
+        color: var(--nxt1-sidenav-text-secondary);
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .nxt1-sidenav-close {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border: none;
+        background: transparent;
+        border-radius: 50%;
+        color: var(--nxt1-sidenav-text-secondary);
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease;
+        -webkit-tap-highlight-color: transparent;
+        flex-shrink: 0;
+      }
+
+      .nxt1-sidenav-close:hover {
+        background: var(--nxt1-sidenav-item-hover);
+        color: var(--nxt1-sidenav-text-primary);
+      }
+
+      .nxt1-sidenav-close:active {
+        background: var(--nxt1-sidenav-item-active);
+      }
+
+      /* ============================================
+         CONTENT AREA
+         ============================================ */
+      .nxt1-sidenav-content {
+        --background: transparent;
+        --padding-start: 8px;
+        --padding-end: 8px;
+        --padding-top: 8px;
+        --padding-bottom: 16px;
+      }
+
+      .nxt1-sidenav-nav {
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* ============================================
+         SECTION STYLES
+         ============================================ */
+      .nxt1-sidenav-section {
+        margin-bottom: 8px;
+      }
+
+      .nxt1-sidenav-section:last-child {
+        margin-bottom: 0;
+      }
+
+      .nxt1-sidenav-section__header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--nxt1-sidenav-text-tertiary);
+        border: none;
+        background: transparent;
+        width: 100%;
+        text-align: left;
+      }
+
+      .nxt1-sidenav-section__header--clickable {
+        cursor: pointer;
+        transition: color 0.15s ease;
+      }
+
+      .nxt1-sidenav-section__header--clickable:hover {
+        color: var(--nxt1-sidenav-text-secondary);
+      }
+
+      .nxt1-sidenav-section__icon {
+        color: var(--nxt1-sidenav-text-tertiary);
+      }
+
+      .nxt1-sidenav-section__label {
+        flex: 1;
+      }
+
+      .nxt1-sidenav-section__chevron {
+        color: var(--nxt1-sidenav-text-tertiary);
+        transition: transform 0.2s ease;
+      }
+
+      .nxt1-sidenav-section__chevron--expanded {
+        transform: rotate(180deg);
+      }
+
+      .nxt1-sidenav-section__items {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        overflow: hidden;
+        transition:
+          max-height 0.2s ease,
+          opacity 0.2s ease;
+      }
+
+      .nxt1-sidenav-section__items--collapsed {
+        max-height: 0;
+        opacity: 0;
+      }
+
+      /* ============================================
+         MENU ITEM STYLES
+         ============================================ */
+      .nxt1-sidenav-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 12px 12px;
+        border: none;
+        background: transparent;
+        border-radius: var(--nxt1-sidenav-item-radius);
+        color: var(--nxt1-sidenav-text-secondary);
+        font-size: 15px;
+        font-weight: 500;
+        text-align: left;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease,
+          transform 0.1s ease;
+        -webkit-tap-highlight-color: transparent;
+        position: relative;
+      }
+
+      .nxt1-sidenav-item:hover:not(.nxt1-sidenav-item--disabled) {
+        background: var(--nxt1-sidenav-item-hover);
+        color: var(--nxt1-sidenav-text-primary);
+      }
+
+      .nxt1-sidenav-item:active:not(.nxt1-sidenav-item--disabled) {
+        background: var(--nxt1-sidenav-item-active);
+        transform: scale(0.98);
+      }
+
+      .nxt1-sidenav-item--active {
+        background: var(--nxt1-sidenav-item-active);
+        color: var(--nxt1-sidenav-text-primary);
+      }
+
+      .nxt1-sidenav-item--active .nxt1-sidenav-item__icon {
+        color: var(--nxt1-sidenav-accent);
+      }
+
+      .nxt1-sidenav-item--disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .nxt1-sidenav-item--danger {
+        color: var(--nxt1-sidenav-danger);
+      }
+
+      .nxt1-sidenav-item--danger:hover {
+        background: var(--nxt1-color-feedback-errorBg, rgba(239, 68, 68, 0.1));
+        color: var(--nxt1-sidenav-danger);
+      }
+
+      .nxt1-sidenav-item--premium {
+        color: var(--nxt1-sidenav-accent);
+      }
+
+      .nxt1-sidenav-item--section {
+        font-size: 12px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--nxt1-sidenav-text-tertiary);
+        cursor: default;
+        padding: 16px 12px 8px;
+      }
+
+      .nxt1-sidenav-item--section:hover {
+        background: transparent;
+        color: var(--nxt1-sidenav-text-tertiary);
+      }
+
+      .nxt1-sidenav-item--child {
+        padding: 10px 12px 10px 48px;
+        font-size: 14px;
+      }
+
+      .nxt1-sidenav-item__icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        flex-shrink: 0;
+        color: inherit;
+        transition: color 0.15s ease;
+      }
+
+      .nxt1-sidenav-item__content {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .nxt1-sidenav-item__label {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .nxt1-sidenav-item__description {
+        font-size: 12px;
+        color: var(--nxt1-sidenav-text-tertiary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .nxt1-sidenav-item__badge {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: 10px;
+        background: var(--nxt1-sidenav-text-tertiary);
+        color: var(--nxt1-sidenav-bg);
+        font-size: 11px;
+        font-weight: 600;
+        flex-shrink: 0;
+      }
+
+      .nxt1-sidenav-item__badge--primary {
+        background: var(--nxt1-sidenav-accent);
+        color: var(--nxt1-color-text-onPrimary, #ffffff);
+      }
+
+      .nxt1-sidenav-item__badge--danger {
+        background: var(--nxt1-sidenav-danger);
+        color: var(--nxt1-color-text-onPrimary, #ffffff);
+      }
+
+      .nxt1-sidenav-item__badge--warning {
+        background: var(--nxt1-sidenav-warning);
+        color: var(--nxt1-color-text-onPrimary, #ffffff);
+      }
+
+      .nxt1-sidenav-item__arrow {
+        color: var(--nxt1-sidenav-text-tertiary);
+        flex-shrink: 0;
+        transition: transform 0.2s ease;
+      }
+
+      .nxt1-sidenav-item--has-children[aria-expanded='true'] .nxt1-sidenav-item__arrow {
+        transform: rotate(90deg);
+      }
+
+      /* ============================================
+         CHILDREN / NESTED ITEMS
+         ============================================ */
+      .nxt1-sidenav-children {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-top: 2px;
+      }
+
+      /* ============================================
+         DIVIDER
+         ============================================ */
+      .nxt1-sidenav-divider {
+        height: 1px;
+        background: var(--nxt1-sidenav-border);
+        margin: 8px 12px;
+      }
+
+      /* ============================================
+         FOOTER SECTION
+         ============================================ */
+      .nxt1-sidenav-footer {
+        --background: var(--nxt1-sidenav-header-bg);
+        border-top: 1px solid var(--nxt1-sidenav-border);
+        padding: 16px;
+      }
+
+      /* Theme Selector Section */
+      .nxt1-sidenav-theme {
+        margin-bottom: 20px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--nxt1-sidenav-border);
+      }
+
+      .nxt1-sidenav-social {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .nxt1-sidenav-social__label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--nxt1-sidenav-text-tertiary);
+      }
+
+      .nxt1-sidenav-social__links {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .nxt1-sidenav-social__link {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        color: var(--nxt1-sidenav-text-secondary);
+        background: transparent;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease,
+          transform 0.1s ease;
+        -webkit-tap-highlight-color: transparent;
+        text-decoration: none;
+      }
+
+      .nxt1-sidenav-social__link:hover {
+        background: var(--nxt1-sidenav-item-hover);
+        color: var(--nxt1-sidenav-text-primary);
+      }
+
+      .nxt1-sidenav-social__link:active {
+        transform: scale(0.92);
+      }
+
+      .nxt1-sidenav-footer__meta {
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px solid var(--nxt1-sidenav-border);
+      }
+
+      .nxt1-sidenav-footer__copyright {
+        font-size: 11px;
+        color: var(--nxt1-sidenav-text-tertiary);
+      }
+
+      /* ============================================
+         PLATFORM-SPECIFIC STYLES
+         ============================================ */
+      /* iOS-specific styling */
+      :host-context(.ios) ion-menu.nxt1-sidenav-menu--blur::part(container) {
+        background: var(--nxt1-glass-bg, rgba(0, 0, 0, 0.8));
+      }
+
+      /* Android/Material Design */
+      :host-context(.md) .nxt1-sidenav-item {
+        overflow: hidden;
+      }
+
+      /* ============================================
+         RESPONSIVE / MOBILE OPTIMIZATIONS
+         ============================================ */
+      @media (max-width: 480px) {
+        .nxt1-sidenav-toolbar {
+          --padding-start: 12px;
+          --padding-end: 12px;
+          --padding-top: 16px;
+          --padding-bottom: 12px;
+        }
+
+        .nxt1-sidenav-content {
+          --padding-start: 4px;
+          --padding-end: 4px;
+        }
+
+        .nxt1-sidenav-item {
+          padding: 10px 10px;
+        }
+      }
+
+      /* ============================================
+         REDUCED MOTION
+         ============================================ */
+      @media (prefers-reduced-motion: reduce) {
+        .nxt1-sidenav-item,
+        .nxt1-sidenav-section__items,
+        .nxt1-sidenav-section__chevron {
+          transition: none;
+        }
+      }
+    `,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class NxtSidenavComponent {
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly router = inject(Router);
+  private readonly platform = inject(NxtPlatformService);
+  private readonly haptics = inject(HapticsService);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly menuController = inject(MenuController);
+  readonly sidenavService = inject(NxtSidenavService);
+
+  // ============================================
+  // INPUTS (Signal-based - 2026 Best Practice)
+  // ============================================
+
+  /** The content ID that this menu is attached to (required by ion-menu) */
+  readonly contentId = input<string>('main-content');
+
+  /** Menu sections to display */
+  readonly sections = input<SidenavSection[]>(DEFAULT_SIDENAV_ITEMS);
+
+  /** User data for header display */
+  readonly user = input<SidenavUserData | undefined>(undefined);
+
+  /** Social links for footer */
+  readonly socialLinks = input<SocialLink[]>(DEFAULT_SOCIAL_LINKS);
+
+  /** Sidenav configuration */
+  readonly config = input<SidenavConfig>(createSidenavConfig());
+
+  // ============================================
+  // OUTPUTS (Signal-based - 2026 Best Practice)
+  // ============================================
+
+  /** Emits when a menu item is selected */
+  readonly itemSelect = output<SidenavItemSelectEvent>();
+
+  /** Emits when sidenav is toggled */
+  readonly toggle = output<SidenavToggleEvent>();
+
+  /** Emits when user profile is clicked */
+  readonly profileClick = output<AvatarClickEvent>();
+
+  /** Emits when a social link is clicked */
+  readonly socialClick = output<{ social: SocialLink; event: Event }>();
+
+  // ============================================
+  // INTERNAL STATE
+  // ============================================
+
+  /** Track expanded sections */
+  private readonly expandedSections = signal<Set<string>>(new Set());
+
+  /** Active route for highlighting */
+  private readonly activeRoute = signal<string>('');
+
+  /** Whether component is in browser */
+  private readonly isBrowser = isPlatformBrowser(this.platformId);
+
+  // ============================================
+  // COMPUTED SIGNALS
+  // ============================================
+
+  /** Platform detection */
+  readonly isIos = computed(() => this.platform.isIOS());
+
+  // ============================================
+  // HOST BINDINGS
+  // ============================================
+
+  @HostBinding('class.nxt1-sidenav-host')
+  readonly hostClass = true;
+
+  @HostBinding('attr.data-platform')
+  get hostPlatform(): 'ios' | 'android' {
+    return this.isIos() ? 'ios' : 'android';
+  }
+
+  // ============================================
+  // LIFECYCLE
+  // ============================================
+
+  constructor() {
+    // Initialize expanded sections from config
+    afterNextRender(() => {
+      this.initExpandedSections();
+      this.initRouteListener();
+      this.detectInitialRoute();
+    });
+  }
+
+  // ============================================
+  // IONIC MENU EVENT HANDLERS
+  // ============================================
+
+  /**
+   * Called when menu is about to open
+   */
+  onMenuWillOpen(): void {
+    this.sidenavService.setAnimating(true);
+  }
+
+  /**
+   * Called when menu has fully opened
+   */
+  onMenuDidOpen(): void {
+    this.sidenavService.setAnimating(false);
+    this.sidenavService.setState(true);
+
+    const event: SidenavToggleEvent = {
+      isOpen: true,
+      trigger: 'swipe',
+      timestamp: Date.now(),
+    };
+    this.toggle.emit(event);
+  }
+
+  /**
+   * Called when menu is about to close
+   */
+  onMenuWillClose(): void {
+    this.sidenavService.setAnimating(true);
+  }
+
+  /**
+   * Called when menu has fully closed
+   */
+  onMenuDidClose(): void {
+    this.sidenavService.setAnimating(false);
+    this.sidenavService.setState(false);
+
+    const event: SidenavToggleEvent = {
+      isOpen: false,
+      trigger: 'backdrop',
+      timestamp: Date.now(),
+    };
+    this.toggle.emit(event);
+  }
+
+  // ============================================
+  // KEYBOARD HANDLING
+  // ============================================
+
+  @HostListener('document:keydown.escape')
+  async onEscapeKey(): Promise<void> {
+    if (this.sidenavService.isOpen()) {
+      await this.close();
+    }
+  }
+
+  // ============================================
+  // PRIVATE METHODS
+  // ============================================
+
+  /**
+   * Initialize expanded sections from configuration.
+   */
+  private initExpandedSections(): void {
+    const expanded = new Set<string>();
+    this.sections().forEach((section) => {
+      if (section.expanded !== false && (section.expanded || !section.collapsible)) {
+        expanded.add(section.id);
+      }
+    });
+    this.expandedSections.set(expanded);
+  }
+
+  /**
+   * Initialize router event listener for active detection.
+   */
+  private initRouteListener(): void {
+    if (!this.isBrowser) return;
+
+    this.router.events
+      .pipe(
+        filter((event): event is NavigationEnd => event instanceof NavigationEnd),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((event) => {
+        this.activeRoute.set(event.urlAfterRedirects);
+      });
+  }
+
+  /**
+   * Detect initial route on component init.
+   */
+  private detectInitialRoute(): void {
+    if (!this.isBrowser) return;
+    this.activeRoute.set(this.router.url);
+  }
+
+  /**
+   * Trigger haptic feedback.
+   */
+  private async triggerHaptic(type: 'light' | 'medium' = 'light'): Promise<void> {
+    if (!this.config().enableHaptics) return;
+    await this.haptics.impact(type);
+  }
+
+  // ============================================
+  // PUBLIC METHODS
+  // ============================================
+
+  /**
+   * Open the sidenav programmatically
+   */
+  async open(): Promise<void> {
+    await this.menuController.open();
+  }
+
+  /**
+   * Close the sidenav programmatically
+   */
+  async close(_event?: Event): Promise<void> {
+    await this.triggerHaptic('light');
+    await this.menuController.close();
+  }
+
+  /**
+   * Toggle the sidenav
+   */
+  async toggleMenu(): Promise<void> {
+    await this.menuController.toggle();
+  }
+
+  /**
+   * Get the sidenav width as CSS value.
+   */
+  getWidth(): string {
+    const width = this.config().width;
+    if (typeof width === 'number') {
+      return `${width}px`;
+    }
+    return width ?? '280px';
+  }
+
+  /**
+   * Check if a section is expanded.
+   */
+  isSectionExpanded(section: SidenavSection): boolean {
+    if (!section.collapsible) return true;
+    return this.expandedSections().has(section.id);
+  }
+
+  /**
+   * Check if a menu item is active.
+   */
+  isItemActive(item: SidenavItem): boolean {
+    if (!item.route) return false;
+    const currentRoute = this.activeRoute();
+
+    if (item.routeExact) {
+      return currentRoute === item.route;
+    }
+
+    return currentRoute.startsWith(item.route);
+  }
+
+  /**
+   * Toggle a section's expanded state.
+   */
+  async toggleSection(section: SidenavSection, event: Event): Promise<void> {
+    event.preventDefault();
+    await this.triggerHaptic('light');
+
+    const expanded = new Set(this.expandedSections());
+    if (expanded.has(section.id)) {
+      expanded.delete(section.id);
+    } else {
+      expanded.add(section.id);
+    }
+    this.expandedSections.set(expanded);
+  }
+
+  /**
+   * Handle menu item click.
+   */
+  async onItemClick(
+    item: SidenavItem,
+    _sectionId: string,
+    event: Event,
+    parentId?: string
+  ): Promise<void> {
+    if (item.disabled) return;
+
+    await this.triggerHaptic('medium');
+
+    // Emit selection event
+    this.itemSelect.emit({
+      item,
+      parentId,
+      isChild: !!parentId,
+      event,
+      timestamp: Date.now(),
+    });
+
+    // Handle navigation
+    if (item.route) {
+      this.router.navigate([item.route]);
+      // Menu will auto-close via ion-menu-toggle
+    } else if (item.href) {
+      // External link - let the browser handle it
+    } else if (item.action) {
+      // Custom action
+    } else if (item.children && item.children.length > 0) {
+      // Toggle children visibility
+    }
+  }
+
+  /**
+   * Handle profile click.
+   */
+  async onProfileClick(event: AvatarClickEvent): Promise<void> {
+    await this.triggerHaptic('light');
+    this.profileClick.emit(event);
+
+    // Navigate to profile if user ID is available
+    const currentUser = this.user();
+    if (currentUser?.userId) {
+      this.router.navigate(['/profile', currentUser.userId]);
+      await this.close();
+    }
+  }
+
+  /**
+   * Handle social link click.
+   */
+  async onSocialClick(social: SocialLink, event: Event): Promise<void> {
+    await this.triggerHaptic('light');
+    this.socialClick.emit({ social, event });
+  }
+}

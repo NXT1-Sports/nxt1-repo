@@ -174,12 +174,12 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Search athletes and teams',
   },
   {
-    id: 'profile',
-    label: 'Profile',
-    icon: 'user',
-    iconActive: 'userFilled',
-    route: '/tabs/profile',
-    ariaLabel: 'View your profile',
+    id: 'notifications',
+    label: 'Notifications',
+    icon: 'bell',
+    iconActive: 'bellFilled',
+    route: '/tabs/notifications',
+    ariaLabel: 'View your notifications',
   },
 ];
 
@@ -688,4 +688,613 @@ export function updateTopNavBadge(
   badge: number | undefined
 ): TopNavItem[] {
   return items.map((item) => (item.id === itemId ? { ...item, badge } : item));
+}
+
+// ============================================
+// SIDENAV / DRAWER TYPES (2026)
+// ============================================
+
+/**
+ * Sidenav icon names available in the design token system.
+ * Extends navigation icons with additional sidenav-specific options.
+ */
+export type SidenavIconName =
+  | NavIconName
+  | TopNavIconName
+  | 'team'
+  | 'analytics'
+  | 'media'
+  | 'video'
+  | 'image'
+  | 'graphic'
+  | 'college'
+  | 'email'
+  | 'template'
+  | 'guidance'
+  | 'camp'
+  | 'calendar'
+  | 'trophy'
+  | 'star'
+  | 'heart'
+  | 'bookmark'
+  | 'share'
+  | 'link'
+  | 'download'
+  | 'upload'
+  | 'edit'
+  | 'trash'
+  | 'archive'
+  | 'folder'
+  | 'document'
+  | 'creditCard'
+  | 'gift'
+  | 'support'
+  | 'info'
+  | 'warning'
+  | 'x'
+  | 'twitter'
+  | 'facebook'
+  | 'instagram'
+  | 'youtube'
+  | 'tiktok'
+  | 'linkedin';
+
+/**
+ * Social link configuration for sidenav footer.
+ */
+export interface SocialLink {
+  /** Unique identifier */
+  id: string;
+
+  /** Platform name */
+  platform: 'twitter' | 'facebook' | 'instagram' | 'youtube' | 'tiktok' | 'linkedin';
+
+  /** Display label */
+  label: string;
+
+  /** URL to navigate to */
+  url: string;
+
+  /** Icon name */
+  icon: SidenavIconName | string;
+
+  /** Accessibility label */
+  ariaLabel?: string;
+}
+
+/**
+ * Individual sidenav menu item configuration.
+ */
+export interface SidenavItem {
+  /** Unique identifier for the item */
+  id: string;
+
+  /** Display label */
+  label: string;
+
+  /** Icon name from registry */
+  icon?: SidenavIconName | string;
+
+  /** Route path for navigation (mutually exclusive with action) */
+  route?: string;
+
+  /** Whether to use exact route matching */
+  routeExact?: boolean;
+
+  /** External URL (opens in new tab) */
+  href?: string;
+
+  /** Action identifier for custom handlers */
+  action?: string;
+
+  /** Badge count to display (0 or undefined = no badge) */
+  badge?: number;
+
+  /** Badge variant */
+  badgeVariant?: 'default' | 'primary' | 'danger' | 'warning';
+
+  /** Accessibility label override */
+  ariaLabel?: string;
+
+  /** Whether item is disabled */
+  disabled?: boolean;
+
+  /** Whether item is hidden */
+  hidden?: boolean;
+
+  /** Sub-items for expandable sections */
+  children?: SidenavItem[];
+
+  /** Whether section is initially expanded (for items with children) */
+  expanded?: boolean;
+
+  /** Visual divider before this item */
+  divider?: boolean;
+
+  /** Item variant for special styling */
+  variant?: 'default' | 'danger' | 'premium';
+
+  /** Description text shown below label */
+  description?: string;
+
+  /** Required roles to show this item */
+  roles?: string[];
+
+  /** Whether this is a section header (non-clickable) */
+  isSection?: boolean;
+}
+
+/**
+ * Sidenav section group configuration.
+ */
+export interface SidenavSection {
+  /** Unique identifier */
+  id: string;
+
+  /** Section header label */
+  label?: string;
+
+  /** Items in this section */
+  items: SidenavItem[];
+
+  /** Whether section is collapsible */
+  collapsible?: boolean;
+
+  /** Whether section is initially expanded */
+  expanded?: boolean;
+
+  /** Section icon */
+  icon?: SidenavIconName | string;
+}
+
+/**
+ * User data for sidenav header display.
+ */
+export interface SidenavUserData {
+  /** User display name */
+  name: string;
+
+  /** User subtitle (position, role, etc.) */
+  subtitle?: string;
+
+  /** Avatar URL */
+  avatarUrl?: string;
+
+  /** User initials (fallback when no avatar) */
+  initials?: string;
+
+  /** Whether user is verified */
+  verified?: boolean;
+
+  /** Whether user has premium subscription */
+  isPremium?: boolean;
+
+  /** User ID for navigation */
+  userId?: string;
+}
+
+/**
+ * Sidenav visual variants.
+ */
+export type SidenavVariant = 'default' | 'blur' | 'elevated' | 'minimal' | 'overlay';
+
+/**
+ * Sidenav position.
+ */
+export type SidenavPosition = 'left' | 'right';
+
+/**
+ * Sidenav mode for responsive behavior.
+ */
+export type SidenavMode = 'over' | 'push' | 'side';
+
+/**
+ * Sidenav component configuration.
+ */
+export interface SidenavConfig {
+  /** Visual variant */
+  variant?: SidenavVariant;
+
+  /** Position on screen */
+  position?: SidenavPosition;
+
+  /** Behavior mode */
+  mode?: SidenavMode;
+
+  /** Width of sidenav */
+  width?: number | string;
+
+  /** Whether to show user header */
+  showUserHeader?: boolean;
+
+  /** Whether to show social links footer */
+  showSocialLinks?: boolean;
+
+  /** Whether to show theme selector in footer (default: true) */
+  showThemeSelector?: boolean;
+
+  /** Whether to enable haptic feedback */
+  enableHaptics?: boolean;
+
+  /** Whether backdrop is dismissable */
+  backdropDismiss?: boolean;
+
+  /** Whether to show close button */
+  showCloseButton?: boolean;
+
+  /** Custom background color override */
+  backgroundColor?: string;
+
+  /** Whether sidenav has border */
+  bordered?: boolean;
+
+  /** Animation duration in ms */
+  animationDuration?: number;
+
+  /** Whether to push page content when open (push mode) */
+  pushContent?: boolean;
+
+  /** Whether to enable swipe gesture to open/close (default: true) */
+  swipeGesture?: boolean;
+}
+
+/**
+ * Sidenav item selection event payload.
+ */
+export interface SidenavSelectEvent {
+  /** Selected item */
+  item: SidenavItem;
+
+  /** Parent item ID (if nested) */
+  parentId?: string;
+
+  /** Whether item is a child */
+  isChild?: boolean;
+
+  /** Event timestamp */
+  timestamp: number;
+}
+
+/**
+ * Sidenav toggle event payload.
+ */
+export interface SidenavToggleEvent {
+  /** Whether sidenav is now open */
+  isOpen: boolean;
+
+  /** What triggered the toggle */
+  trigger: 'button' | 'backdrop' | 'swipe' | 'programmatic';
+
+  /** Event timestamp */
+  timestamp: number;
+}
+
+/**
+ * Sidenav section toggle event payload.
+ */
+export interface SidenavSectionToggleEvent {
+  /** Section ID */
+  sectionId: string;
+
+  /** Whether section is now expanded */
+  isExpanded: boolean;
+
+  /** Event timestamp */
+  timestamp: number;
+}
+
+// ============================================
+// DEFAULT SIDENAV CONFIGURATIONS
+// ============================================
+
+/**
+ * Default social links for NXT1 sidenav.
+ */
+export const DEFAULT_SOCIAL_LINKS: SocialLink[] = [
+  {
+    id: 'twitter',
+    platform: 'twitter',
+    label: 'X (Twitter)',
+    url: 'https://twitter.com/nxt1sports',
+    icon: 'twitter',
+    ariaLabel: 'Follow NXT1 on X (Twitter)',
+  },
+  {
+    id: 'instagram',
+    platform: 'instagram',
+    label: 'Instagram',
+    url: 'https://www.instagram.com/nxt1sports',
+    icon: 'instagram',
+    ariaLabel: 'Follow NXT1 on Instagram',
+  },
+  {
+    id: 'facebook',
+    platform: 'facebook',
+    label: 'Facebook',
+    url: 'https://www.facebook.com/NXT1sports',
+    icon: 'facebook',
+    ariaLabel: 'Follow NXT1 on Facebook',
+  },
+  {
+    id: 'youtube',
+    platform: 'youtube',
+    label: 'YouTube',
+    url: 'https://www.youtube.com/@nxt1sports',
+    icon: 'youtube',
+    ariaLabel: 'Subscribe to NXT1 on YouTube',
+  },
+  {
+    id: 'tiktok',
+    platform: 'tiktok',
+    label: 'TikTok',
+    url: 'https://www.tiktok.com/@nxt1sports',
+    icon: 'tiktok',
+    ariaLabel: 'Follow NXT1 on TikTok',
+  },
+];
+
+/**
+ * Default sidenav items for NXT1 application.
+ * Can be used directly or as a template for customization.
+ */
+export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
+  {
+    id: 'main',
+    items: [
+      {
+        id: 'home',
+        label: 'Home',
+        icon: 'home',
+        route: '/tabs/home',
+      },
+      {
+        id: 'profile',
+        label: 'My Profile',
+        icon: 'user',
+        route: '/tabs/profile',
+      },
+      {
+        id: 'discover',
+        label: 'Discover',
+        icon: 'compass',
+        route: '/tabs/discover',
+      },
+      {
+        id: 'search',
+        label: 'Search',
+        icon: 'search',
+        route: '/tabs/search',
+      },
+    ],
+  },
+  {
+    id: 'actions',
+    label: 'Actions',
+    collapsible: true,
+    expanded: true,
+    items: [
+      {
+        id: 'settings',
+        label: 'Settings',
+        icon: 'settings',
+        route: '/settings',
+      },
+      {
+        id: 'support',
+        label: 'Support',
+        icon: 'support',
+        route: '/support',
+      },
+      {
+        id: 'contact',
+        label: 'Contact Us',
+        icon: 'email',
+        action: 'contact',
+      },
+    ],
+  },
+];
+
+/**
+ * Sidenav width values (matches design tokens).
+ */
+export const SIDENAV_WIDTHS = {
+  /** Standard width */
+  default: 280,
+  /** Compact width */
+  compact: 240,
+  /** Wide width */
+  wide: 320,
+  /** Full width (mobile) */
+  full: '100%',
+} as const;
+
+/**
+ * Sidenav z-index values.
+ */
+export const SIDENAV_Z_INDEX = {
+  /** Sidenav panel */
+  sidenav: 150,
+  /** Backdrop overlay */
+  backdrop: 140,
+} as const;
+
+/**
+ * Animation durations for sidenav transitions (milliseconds).
+ */
+export const SIDENAV_ANIMATION = {
+  /** Open/close animation duration */
+  toggle: 280,
+  /** Section expand/collapse */
+  expand: 200,
+  /** Item hover transitions */
+  hover: 150,
+  /** Backdrop fade */
+  backdrop: 200,
+} as const;
+
+/**
+ * Gesture thresholds for sidenav swipe interactions.
+ * These values are tuned for native iOS/Android feel.
+ */
+export const SIDENAV_GESTURE = {
+  /** Minimum movement (px) to commit to a drag vs tap */
+  dragCommitThreshold: 10,
+  /** Minimum distance (px) to trigger sidenav open */
+  minSwipeDistance: 50,
+  /** Velocity threshold (px/ms) for quick flick gestures */
+  velocityThreshold: 0.3,
+  /** Edge zone width (px) for swipe-to-open - 9999 = anywhere on screen */
+  edgeThreshold: 9999,
+  /** Footer slide distance (px) when sidenav opens */
+  footerSlideDistance: 140,
+} as const;
+
+// ============================================
+// SIDENAV HELPER FUNCTIONS
+// ============================================
+
+/**
+ * Create a custom sidenav configuration with defaults.
+ * @param config Partial configuration to merge with defaults
+ * @returns Complete sidenav configuration
+ */
+export function createSidenavConfig(config: Partial<SidenavConfig> = {}): SidenavConfig {
+  return {
+    variant: 'default',
+    position: 'left',
+    mode: 'over',
+    width: SIDENAV_WIDTHS.default,
+    showUserHeader: true,
+    showSocialLinks: true,
+    showThemeSelector: true,
+    enableHaptics: true,
+    backdropDismiss: true,
+    showCloseButton: true,
+    bordered: false,
+    animationDuration: SIDENAV_ANIMATION.toggle,
+    pushContent: false,
+    ...config,
+  };
+}
+
+/**
+ * Find a sidenav item by its ID (deep search).
+ * @param sections Array of sidenav sections
+ * @param id Item ID to find
+ * @returns The matching item or undefined
+ */
+export function findSidenavItemById(
+  sections: SidenavSection[],
+  id: string
+): SidenavItem | undefined {
+  for (const section of sections) {
+    for (const item of section.items) {
+      if (item.id === id) return item;
+      if (item.children) {
+        const child = item.children.find((c) => c.id === id);
+        if (child) return child;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Find a sidenav item by its route (deep search).
+ * @param sections Array of sidenav sections
+ * @param route Route path to match
+ * @param exact Whether to use exact matching
+ * @returns The matching item or undefined
+ */
+export function findSidenavItemByRoute(
+  sections: SidenavSection[],
+  route: string,
+  exact = false
+): SidenavItem | undefined {
+  for (const section of sections) {
+    for (const item of section.items) {
+      if (item.route) {
+        if (exact || item.routeExact) {
+          if (route === item.route) return item;
+        } else {
+          if (route.startsWith(item.route)) return item;
+        }
+      }
+      if (item.children) {
+        const child = item.children.find((c) => {
+          if (!c.route) return false;
+          if (exact || c.routeExact) return route === c.route;
+          return route.startsWith(c.route);
+        });
+        if (child) return child;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Update a sidenav item's badge count immutably.
+ * @param sections Array of sidenav sections
+ * @param itemId Item ID to update
+ * @param badge New badge count
+ * @returns New array with updated item
+ */
+export function updateSidenavBadge(
+  sections: SidenavSection[],
+  itemId: string,
+  badge: number | undefined
+): SidenavSection[] {
+  return sections.map((section) => ({
+    ...section,
+    items: section.items.map((item) => {
+      if (item.id === itemId) return { ...item, badge };
+      if (item.children) {
+        return {
+          ...item,
+          children: item.children.map((child) =>
+            child.id === itemId ? { ...child, badge } : child
+          ),
+        };
+      }
+      return item;
+    }),
+  }));
+}
+
+/**
+ * Toggle a sidenav section's expanded state immutably.
+ * @param sections Array of sidenav sections
+ * @param sectionId Section ID to toggle
+ * @returns New array with toggled section
+ */
+export function toggleSidenavSection(
+  sections: SidenavSection[],
+  sectionId: string
+): SidenavSection[] {
+  return sections.map((section) =>
+    section.id === sectionId ? { ...section, expanded: !section.expanded } : section
+  );
+}
+
+/**
+ * Filter sidenav items by user roles.
+ * @param sections Array of sidenav sections
+ * @param userRoles User's current roles
+ * @returns Filtered sections with only authorized items
+ */
+export function filterSidenavByRoles(
+  sections: SidenavSection[],
+  userRoles: string[]
+): SidenavSection[] {
+  return sections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => {
+        if (!item.roles || item.roles.length === 0) return true;
+        return item.roles.some((role) => userRoles.includes(role));
+      }),
+    }))
+    .filter((section) => section.items.length > 0);
 }

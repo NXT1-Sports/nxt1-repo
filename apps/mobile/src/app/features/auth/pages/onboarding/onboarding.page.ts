@@ -105,7 +105,7 @@ import {
   AuthApiService,
   OnboardingAnalyticsService,
 } from '../../services';
-import { ThemeService } from '../../../../core/services/theme.service';
+import { NxtThemeService } from '@nxt1/ui';
 import { HapticsService, NxtToastService, NxtLoggingService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 
@@ -284,7 +284,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly analytics = inject(OnboardingAnalyticsService);
-  private readonly themeService = inject(ThemeService);
+  private readonly themeService = inject(NxtThemeService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('Onboarding');
 
   // ============================================

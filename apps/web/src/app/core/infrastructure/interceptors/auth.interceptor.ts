@@ -20,6 +20,7 @@ import { isPlatformBrowser } from '@angular/common';
 import { HttpInterceptorFn, HttpRequest, HttpHandlerFn, HttpEvent } from '@angular/common/http';
 import { Observable, from, switchMap } from 'rxjs';
 import { Auth } from '@angular/fire/auth';
+import { NxtLoggingService } from '@nxt1/ui';
 import { environment } from '../../../../environments/environment';
 
 /**
@@ -71,6 +72,7 @@ export const authInterceptor: HttpInterceptorFn = (
 ): Observable<HttpEvent<unknown>> => {
   const platformId = inject(PLATFORM_ID);
   const auth = inject(Auth, { optional: true });
+  const logger = inject(NxtLoggingService).child('AuthInterceptor');
 
   // SSR: Pass through without modification
   if (!isPlatformBrowser(platformId)) {
@@ -94,7 +96,7 @@ export const authInterceptor: HttpInterceptorFn = (
 
   // No auth instance - pass through
   if (!auth) {
-    console.warn('[AuthInterceptor] Firebase Auth not available');
+    logger.warn('Firebase Auth not available');
     return next(req);
   }
 
@@ -103,7 +105,7 @@ export const authInterceptor: HttpInterceptorFn = (
 
   // No user - pass through (will likely fail with 401 on backend)
   if (!currentUser) {
-    console.debug('[AuthInterceptor] No user signed in, request may fail');
+    logger.debug('No user signed in, request may fail');
     return next(req);
   }
 
@@ -111,7 +113,7 @@ export const authInterceptor: HttpInterceptorFn = (
   return from(currentUser.getIdToken()).pipe(
     switchMap((token) => {
       if (!token) {
-        console.warn('[AuthInterceptor] Could not get ID token');
+        logger.warn('Could not get ID token');
         return next(req);
       }
 

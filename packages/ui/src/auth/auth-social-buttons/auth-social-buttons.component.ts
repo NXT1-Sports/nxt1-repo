@@ -168,14 +168,15 @@ export interface SocialProvidersConfig {
         flex-shrink: 0;
       }
 
-      /* Apple button - solid black (brand requirement) */
+      /* Apple button - solid black/white per Apple brand guidelines */
+      /* Note: Apple Sign In requires specific colors per branding rules */
       .nxt1-auth-btn--apple {
-        --background: #000000;
+        --background: var(--nxt1-color-text-inverse);
         --background-hover: var(--nxt1-color-surface-200);
         --background-activated: var(--nxt1-color-surface-200);
         --background-focused: var(--nxt1-color-surface-200);
         --border-color: var(--nxt1-color-border-strong);
-        --color: #ffffff;
+        --color: var(--nxt1-color-bg-primary);
       }
 
       /* Google hover effect */

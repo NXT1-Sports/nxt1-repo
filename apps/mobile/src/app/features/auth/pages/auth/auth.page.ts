@@ -46,6 +46,7 @@ import {
   AuthTermsDisclaimerComponent,
   AuthTeamCodeComponent,
   AuthTeamCodeBannerComponent,
+  NxtLoggingService,
   type AuthEmailFormData,
   type AuthMode,
   type TeamCodeValidationState,
@@ -213,6 +214,7 @@ export class AuthPage implements OnInit {
   private readonly nav = inject(AuthNavigationService);
   private readonly route = inject(ActivatedRoute);
   readonly biometricService = inject(BiometricService);
+  private readonly logger = inject(NxtLoggingService).child('AuthPage');
 
   // ============================================
   // AUTH STATE
@@ -320,7 +322,7 @@ export class AuthPage implements OnInit {
       const availability = await this.biometricService.initialize();
       await this.biometricService.loadEnrollmentStatus();
 
-      console.log('[AuthPage] Biometric initialized:', {
+      this.logger.debug('Biometric initialized', {
         available: this.biometricService.isAvailable(),
         enrolled: this.biometricService.isEnrolled(),
         type: this.biometricService.biometryType(),
@@ -329,7 +331,7 @@ export class AuthPage implements OnInit {
 
       // AUTO-TRIGGER: If enrolled, immediately attempt biometric login
       if (this.biometricService.isReadyForLogin() && this.mode() === 'login') {
-        console.log('[AuthPage] Auto-triggering biometric authentication...');
+        this.logger.debug('Auto-triggering biometric authentication');
 
         // Small delay for page to render first
         await new Promise((resolve) => setTimeout(resolve, 300));
@@ -338,7 +340,7 @@ export class AuthPage implements OnInit {
         await this.performBiometricLogin();
       }
     } catch (error) {
-      console.error('[AuthPage] Biometric initialization failed:', error);
+      this.logger.error('Biometric initialization failed', error);
     }
   }
 
@@ -363,15 +365,15 @@ export class AuthPage implements OnInit {
 
         if (!success) {
           // Credentials might be outdated
-          console.warn('[AuthPage] Biometric login failed - credentials may be outdated');
+          this.logger.warn('Biometric login failed - credentials may be outdated');
           await this.haptics.notification('error');
         }
       } else {
         // User cancelled - that's fine, they can use other methods
-        console.debug('[AuthPage] Biometric cancelled, showing normal auth options');
+        this.logger.debug('Biometric cancelled, showing normal auth options');
       }
     } catch (error) {
-      console.error('[AuthPage] Biometric login error:', error);
+      this.logger.error('Biometric login error', error);
     } finally {
       this.biometricAuthenticating.set(false);
     }
@@ -595,7 +597,7 @@ export class AuthPage implements OnInit {
     const availability = await this.biometricService.initialize();
     await this.biometricService.loadEnrollmentStatus();
 
-    console.log('[AuthPage] Post-auth biometric check:', {
+    this.logger.debug('Post-auth biometric check', {
       available: availability.available,
       enrolled: this.biometricService.isEnrolled(),
       biometryType: availability.biometryType,
@@ -612,16 +614,16 @@ export class AuthPage implements OnInit {
       // No custom modal - shows the real system dialog
       const result = await this.biometricService.promptNativeEnrollment(email, password);
 
-      console.log('[AuthPage] Native biometric enrollment result:', result);
+      this.logger.debug('Native biometric enrollment result', result);
 
       if (result.enrolled) {
         await this.haptics.notification('success');
-        console.debug('[AuthPage] Biometric enrollment successful');
+        this.logger.debug('Biometric enrollment successful');
       } else if (result.reason === 'cancelled') {
         // User tapped "Not Now" - that's fine, continue
-        console.debug('[AuthPage] User skipped biometric enrollment');
+        this.logger.debug('User skipped biometric enrollment');
       } else {
-        console.warn('[AuthPage] Biometric enrollment failed');
+        this.logger.warn('Biometric enrollment failed');
       }
     }
 
@@ -708,7 +710,7 @@ export class AuthPage implements OnInit {
 
     await this.biometricService.clearEnrollment();
     await this.haptics.notification('success');
-    console.log('[DEV] Biometric enrollment cleared! Sign in again to see the prompt.');
+    this.logger.debug('[DEV] Biometric enrollment cleared! Sign in again to see the prompt.');
   }
 
   /**
@@ -770,12 +772,12 @@ export class AuthPage implements OnInit {
 
       await this.haptics.notification('success');
 
-      console.log('[DEV] Auth, onboarding & biometric state cleared!');
+      this.logger.debug('[DEV] Auth, onboarding & biometric state cleared!');
 
       // Force reload the app
       window.location.reload();
     } catch (error) {
-      console.error('[DEV] Reset failed:', error);
+      this.logger.error('[DEV] Reset failed', error);
       await this.haptics.notification('error');
     }
   }

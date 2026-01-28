@@ -83,9 +83,12 @@ export const appConfig: ApplicationConfig = {
     // Ionic Configuration
     // - iOS mode for consistent horizontal slide animations across all platforms
     // - Dark mode controlled via NXT1 design tokens
+    // - swipeBackEnabled: false = disable iOS back gesture (use sidenav instead)
+    // - gestureEnablers: use custom swipe handling in shell component
     provideIonicAngular({
       mode: 'ios', // iOS mode = horizontal slide animations (like Instagram/TikTok)
       innerHTMLTemplatesEnabled: true,
+      swipeBackEnabled: false, // Disable iOS back gesture - we use sidenav instead (Twitter/X pattern)
     }),
 
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },

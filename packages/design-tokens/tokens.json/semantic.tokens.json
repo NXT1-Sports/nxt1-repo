@@ -225,11 +225,23 @@
         },
 
         "alpha": {
+          "primary4": { "$value": "rgba(204, 255, 0, 0.04)", "$type": "color" },
           "primary5": { "$value": "rgba(204, 255, 0, 0.05)", "$type": "color" },
+          "primary6": { "$value": "rgba(204, 255, 0, 0.06)", "$type": "color" },
           "primary10": { "$value": "rgba(204, 255, 0, 0.1)", "$type": "color" },
+          "primary12": {
+            "$value": "rgba(204, 255, 0, 0.12)",
+            "$type": "color"
+          },
+          "primary15": {
+            "$value": "rgba(204, 255, 0, 0.15)",
+            "$type": "color"
+          },
           "primary20": { "$value": "rgba(204, 255, 0, 0.2)", "$type": "color" },
           "primary30": { "$value": "rgba(204, 255, 0, 0.3)", "$type": "color" },
-          "primary50": { "$value": "rgba(204, 255, 0, 0.5)", "$type": "color" }
+          "primary50": { "$value": "rgba(204, 255, 0, 0.5)", "$type": "color" },
+          "black20": { "$value": "rgba(0, 0, 0, 0.2)", "$type": "color" },
+          "black30": { "$value": "rgba(0, 0, 0, 0.3)", "$type": "color" }
         },
 
         "focus": {
@@ -310,6 +322,114 @@
           "$value": "0 0 16px rgba(99, 102, 241, 0.4)",
           "$type": "shadow"
         }
+      },
+
+      "glass": {
+        "$description": "iOS 26 Liquid Glass tokens - Premium frosted UI",
+        "bg": {
+          "$value": "rgba(22, 22, 22, 0.88)",
+          "$type": "color",
+          "$description": "Liquid glass background - slightly more opaque for better contrast"
+        },
+        "bgSolid": {
+          "$value": "rgba(22, 22, 22, 0.95)",
+          "$type": "color",
+          "$description": "Solid glass variant for better readability"
+        },
+        "border": {
+          "$value": "rgba(255, 255, 255, 0.12)",
+          "$type": "color"
+        },
+        "borderSubtle": {
+          "$value": "rgba(255, 255, 255, 0.08)",
+          "$type": "color"
+        },
+        "shadow": {
+          "$value": "0 8px 32px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.25)",
+          "$type": "shadow"
+        },
+        "shadowInner": {
+          "$value": "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
+          "$type": "shadow"
+        },
+        "backdrop": {
+          "$value": "saturate(180%) blur(20px)",
+          "$type": "string"
+        },
+        "backdropStrong": {
+          "$value": "saturate(200%) blur(30px)",
+          "$type": "string",
+          "$description": "Stronger blur for iOS 26 liquid glass effect"
+        }
+      },
+
+      "fab": {
+        "$description": "Floating Action Button tokens",
+        "size": { "$value": "48px", "$type": "dimension" },
+        "radius": { "$value": "50%", "$type": "dimension" },
+        "shadow": {
+          "$value": "0 4px 16px rgba(204, 255, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.2)",
+          "$type": "shadow"
+        },
+        "shadowActive": {
+          "$value": "0 0 30px rgba(0, 255, 136, 0.5), 0 0 60px rgba(0, 204, 255, 0.3), 0 4px 20px rgba(0, 0, 0, 0.4)",
+          "$type": "shadow",
+          "$description": "Gemini AI-style multi-color glow"
+        },
+        "gradientActive": {
+          "$value": "linear-gradient(135deg, #00ff88 0%, #00ccff 25%, #8855ff 50%, #ff0088 75%, #ff6600 100%)",
+          "$type": "string",
+          "$description": "Gemini AI-style animated gradient"
+        },
+        "glowActive": {
+          "$value": "linear-gradient(135deg, rgba(0, 255, 136, 0.4) 0%, rgba(0, 204, 255, 0.3) 50%, rgba(136, 85, 255, 0.4) 100%)",
+          "$type": "string",
+          "$description": "Outer glow gradient for active state"
+        }
+      },
+
+      "navigation": {
+        "$description": "Navigation component shadow tokens",
+        "dropdown": {
+          "$value": "0 8px 32px rgba(0, 0, 0, 0.32), 0 2px 8px rgba(0, 0, 0, 0.24)",
+          "$type": "shadow"
+        },
+        "elevated": {
+          "$value": "0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08)",
+          "$type": "shadow"
+        }
+      },
+
+      "tab": {
+        "$description": "Tab bar component tokens",
+        "activeBg": {
+          "$value": "rgba(255, 255, 255, 0.12)",
+          "$type": "color"
+        },
+        "iconSize": { "$value": "26px", "$type": "dimension" },
+        "labelSize": { "$value": "10px", "$type": "dimension" },
+        "labelGap": { "$value": "4px", "$type": "dimension" },
+        "paddingY": { "$value": "6px", "$type": "dimension" },
+        "radius": { "$value": "24px", "$type": "dimension" }
+      },
+
+      "icon": {
+        "$description": "Icon color tokens",
+        "active": { "$value": "#ffffff", "$type": "color" },
+        "inactive": { "$value": "#666666", "$type": "color" }
+      },
+
+      "pill": {
+        "$description": "Pill tab bar tokens",
+        "height": { "$value": "48px", "$type": "dimension" },
+        "radius": { "$value": "28px", "$type": "dimension" },
+        "padding": { "$value": "2px", "$type": "dimension" },
+        "gap": { "$value": "4px", "$type": "dimension" }
+      },
+
+      "ripple": {
+        "$description": "Touch ripple effect color",
+        "color": { "$value": "rgba(255, 255, 255, 0.08)", "$type": "color" }
       }
     },
 
@@ -519,11 +639,23 @@
         },
 
         "alpha": {
+          "primary4": { "$value": "rgba(163, 204, 0, 0.04)", "$type": "color" },
           "primary5": { "$value": "rgba(163, 204, 0, 0.05)", "$type": "color" },
+          "primary6": { "$value": "rgba(163, 204, 0, 0.06)", "$type": "color" },
           "primary10": { "$value": "rgba(163, 204, 0, 0.1)", "$type": "color" },
+          "primary12": {
+            "$value": "rgba(163, 204, 0, 0.12)",
+            "$type": "color"
+          },
+          "primary15": {
+            "$value": "rgba(163, 204, 0, 0.15)",
+            "$type": "color"
+          },
           "primary20": { "$value": "rgba(163, 204, 0, 0.2)", "$type": "color" },
           "primary30": { "$value": "rgba(163, 204, 0, 0.3)", "$type": "color" },
-          "primary50": { "$value": "rgba(163, 204, 0, 0.5)", "$type": "color" }
+          "primary50": { "$value": "rgba(163, 204, 0, 0.5)", "$type": "color" },
+          "black20": { "$value": "rgba(0, 0, 0, 0.2)", "$type": "color" },
+          "black30": { "$value": "rgba(0, 0, 0, 0.3)", "$type": "color" }
         },
 
         "focus": {
@@ -581,6 +713,111 @@
           "$type": "shadow"
         },
         "lg": { "$value": "0 0 24px rgba(163, 204, 0, 0.4)", "$type": "shadow" }
+      },
+
+      "glass": {
+        "$description": "iOS 26 Liquid Glass tokens for light theme",
+        "bg": {
+          "$value": "rgba(255, 255, 255, 0.88)",
+          "$type": "color",
+          "$description": "Liquid glass background for light theme"
+        },
+        "bgSolid": {
+          "$value": "rgba(255, 255, 255, 0.95)",
+          "$type": "color",
+          "$description": "Solid glass variant for light theme"
+        },
+        "border": {
+          "$value": "rgba(0, 0, 0, 0.12)",
+          "$type": "color"
+        },
+        "borderSubtle": {
+          "$value": "rgba(0, 0, 0, 0.08)",
+          "$type": "color"
+        },
+        "shadow": {
+          "$value": "0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)",
+          "$type": "shadow"
+        },
+        "shadowInner": {
+          "$value": "inset 0 1px 0 rgba(255, 255, 255, 0.5)",
+          "$type": "shadow"
+        },
+        "backdrop": {
+          "$value": "saturate(180%) blur(20px)",
+          "$type": "string"
+        },
+        "backdropStrong": {
+          "$value": "saturate(200%) blur(30px)",
+          "$type": "string",
+          "$description": "Stronger blur for iOS 26 liquid glass effect"
+        }
+      },
+
+      "fab": {
+        "$description": "Floating Action Button tokens for light theme",
+        "size": { "$value": "48px", "$type": "dimension" },
+        "radius": { "$value": "50%", "$type": "dimension" },
+        "shadow": {
+          "$value": "0 4px 16px rgba(163, 204, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.1)",
+          "$type": "shadow"
+        },
+        "shadowActive": {
+          "$value": "0 0 30px rgba(0, 200, 100, 0.4), 0 0 60px rgba(0, 180, 220, 0.25), 0 4px 20px rgba(0, 0, 0, 0.2)",
+          "$type": "shadow"
+        },
+        "gradientActive": {
+          "$value": "linear-gradient(135deg, #00ff88 0%, #00ccff 25%, #8855ff 50%, #ff0088 75%, #ff6600 100%)",
+          "$type": "string"
+        },
+        "glowActive": {
+          "$value": "linear-gradient(135deg, rgba(0, 255, 136, 0.3) 0%, rgba(0, 204, 255, 0.25) 50%, rgba(136, 85, 255, 0.3) 100%)",
+          "$type": "string"
+        }
+      },
+
+      "navigation": {
+        "$description": "Navigation component shadow tokens for light theme",
+        "dropdown": {
+          "$value": "0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)",
+          "$type": "shadow"
+        },
+        "elevated": {
+          "$value": "0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04)",
+          "$type": "shadow"
+        }
+      },
+
+      "tab": {
+        "$description": "Tab bar component tokens for light theme",
+        "activeBg": {
+          "$value": "rgba(0, 0, 0, 0.08)",
+          "$type": "color"
+        },
+        "iconSize": { "$value": "26px", "$type": "dimension" },
+        "labelSize": { "$value": "10px", "$type": "dimension" },
+        "labelGap": { "$value": "4px", "$type": "dimension" },
+        "paddingY": { "$value": "6px", "$type": "dimension" },
+        "radius": { "$value": "24px", "$type": "dimension" }
+      },
+
+      "icon": {
+        "$description": "Icon color tokens for light theme",
+        "active": { "$value": "#000000", "$type": "color" },
+        "inactive": { "$value": "#9e9e9e", "$type": "color" }
+      },
+
+      "pill": {
+        "$description": "Pill tab bar tokens for light theme",
+        "height": { "$value": "48px", "$type": "dimension" },
+        "radius": { "$value": "28px", "$type": "dimension" },
+        "padding": { "$value": "2px", "$type": "dimension" },
+        "gap": { "$value": "4px", "$type": "dimension" }
+      },
+
+      "ripple": {
+        "$description": "Touch ripple effect color for light theme",
+        "color": { "$value": "rgba(0, 0, 0, 0.08)", "$type": "color" }
       }
     },
 

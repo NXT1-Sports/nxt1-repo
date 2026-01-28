@@ -336,13 +336,9 @@ import {
 
       .avatar-ring.gradient {
         border: none;
-        background: linear-gradient(
-          45deg,
-          #f09433 0%,
-          #e6683c 25%,
-          #dc2743 50%,
-          #cc2366 75%,
-          #bc1888 100%
+        background: var(
+          --nxt1-avatar-ring-gradient,
+          linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)
         );
         -webkit-mask:
           linear-gradient(#fff 0 0) content-box,
@@ -543,22 +539,22 @@ import {
       }
 
       .badge-verified {
-        background-color: #1d9bf0;
-        color: white;
+        background-color: var(--nxt1-color-info, #1d9bf0);
+        color: var(--nxt1-color-text-onPrimary);
         padding: 2px;
         border-radius: 50%;
       }
 
       .badge-premium {
-        background: linear-gradient(135deg, #ffd700 0%, #ff8c00 100%);
-        color: white;
+        background: var(--nxt1-color-secondary, linear-gradient(135deg, #ffd700 0%, #ff8c00 100%));
+        color: var(--nxt1-color-text-onPrimary);
         padding: 2px;
         border-radius: 50%;
       }
 
       .badge-pro {
-        background-color: var(--nxt1-ui-primary, #ccff00);
-        color: var(--nxt1-ui-text-inverse, #000000);
+        background-color: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
         padding: 2px 6px;
         font-size: calc(var(--badge-size) * 0.45);
         text-transform: uppercase;
@@ -566,36 +562,36 @@ import {
       }
 
       .badge-coach {
-        background-color: #8b5cf6;
-        color: white;
+        background-color: var(--nxt1-color-accent, #8b5cf6);
+        color: var(--nxt1-color-text-onPrimary);
         padding: 2px;
         border-radius: 50%;
       }
 
       .badge-athlete {
-        background-color: #22c55e;
-        color: white;
+        background-color: var(--nxt1-color-feedback-success, #22c55e);
+        color: var(--nxt1-color-text-onPrimary);
         padding: 2px;
         border-radius: 50%;
       }
 
       .badge-team {
-        background-color: #f59e0b;
-        color: white;
+        background-color: var(--nxt1-color-feedback-warning, #f59e0b);
+        color: var(--nxt1-color-text-onPrimary);
         padding: 2px;
         border-radius: 50%;
       }
 
       .badge-count {
-        background-color: var(--nxt1-ui-error, #ef4444);
-        color: white;
+        background-color: var(--nxt1-color-feedback-error);
+        color: var(--nxt1-color-text-onPrimary);
         min-width: var(--badge-size);
         padding: 0 4px;
       }
 
       .badge-custom {
-        background-color: var(--nxt1-ui-primary, #ccff00);
-        color: var(--nxt1-ui-text-inverse, #000000);
+        background-color: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
         padding: 2px;
         border-radius: 50%;
       }

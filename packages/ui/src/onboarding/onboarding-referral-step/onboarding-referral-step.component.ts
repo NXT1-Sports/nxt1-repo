@@ -456,7 +456,7 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       }
 
       .nxt1-referral-card-selected .nxt1-card-icon {
-        background: rgba(0, 0, 0, 0.15);
+        background: var(--nxt1-color-alpha-black20);
         color: var(--nxt1-color-text-onPrimary, #0a0a0a);
       }
 
@@ -531,12 +531,12 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
 
       /* Input inside selected card - needs dark text on light background */
       .nxt1-referral-card-selected .nxt1-card-input .nxt1-input {
-        --background: rgba(255, 255, 255, 0.95);
-        --border-color: rgba(0, 0, 0, 0.15);
-        --color: #0a0a0a;
-        --placeholder-color: rgba(0, 0, 0, 0.5);
-        --highlight-color-focused: rgba(0, 0, 0, 0.3);
-        --highlight-color-valid: rgba(0, 0, 0, 0.3);
+        --background: var(--nxt1-color-bg-secondary);
+        --border-color: var(--nxt1-color-border-subtle);
+        --color: var(--nxt1-color-text-onPrimary);
+        --placeholder-color: var(--nxt1-color-text-secondary);
+        --highlight-color-focused: var(--nxt1-color-border-strong);
+        --highlight-color-valid: var(--nxt1-color-border-strong);
       }
 
       .nxt1-card-input .nxt1-input:hover:not(:disabled) {

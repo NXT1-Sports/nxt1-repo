@@ -12,19 +12,40 @@ import { Component, ChangeDetectionStrategy, inject, computed, signal } from '@a
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { IonContent } from '@ionic/angular/standalone';
-import { NxtPageHeaderComponent, type PageHeaderAction } from '@nxt1/ui';
+import {
+  NxtPageHeaderComponent,
+  NxtOptionScrollerComponent,
+  NxtLoggingService,
+  type PageHeaderAction,
+  type OptionScrollerItem,
+  type OptionScrollerChangeEvent,
+} from '@nxt1/ui';
 import { AuthFlowService } from '../auth/services';
 
 @Component({
   selector: 'app-home',
   standalone: true,
-  imports: [CommonModule, RouterModule, IonContent, NxtPageHeaderComponent],
+  imports: [
+    CommonModule,
+    RouterModule,
+    IonContent,
+    NxtPageHeaderComponent,
+    NxtOptionScrollerComponent,
+  ],
   template: `
-    <!-- Page Header -->
+    <!-- Page Header with Logo (Twitter/X style) -->
     <nxt1-page-header
-      title="Home"
+      [showLogo]="true"
       [actions]="headerActions()"
       (actionClick)="onHeaderAction($event)"
+    />
+
+    <!-- Twitter/TikTok Style Feed Selector -->
+    <nxt1-option-scroller
+      [options]="feedOptions()"
+      [selectedId]="selectedFeed()"
+      [config]="{ scrollable: true, stretchToFill: false }"
+      (selectionChange)="onFeedChange($event)"
     />
 
     <ion-content>
@@ -383,9 +404,23 @@ import { AuthFlowService } from '../auth/services';
 })
 export class HomeComponent {
   private readonly authFlow = inject(AuthFlowService);
+  private readonly logger = inject(NxtLoggingService).child('HomeComponent');
 
   /** Current authenticated user */
   readonly user = computed(() => this.authFlow.user());
+
+  /** Feed navigation options (Twitter/TikTok style) */
+  readonly feedOptions = signal<OptionScrollerItem[]>([
+    { id: 'explore', label: 'Explore' },
+    { id: 'following', label: 'Following' },
+    { id: 'news', label: 'News' },
+    { id: 'scout-reports', label: 'Scout Reports' },
+    { id: 'athletes', label: 'Athletes' },
+    { id: 'teams', label: 'Teams' },
+  ]);
+
+  /** Currently selected feed */
+  readonly selectedFeed = signal<string>('explore');
 
   /** Header action buttons */
   readonly headerActions = signal<PageHeaderAction[]>([
@@ -403,17 +438,31 @@ export class HomeComponent {
   ]);
 
   /**
+   * Handle feed tab change (For You / Following)
+   */
+  onFeedChange(event: OptionScrollerChangeEvent): void {
+    this.selectedFeed.set(event.option.id);
+    this.logger.debug('Feed changed', {
+      feed: event.option.label,
+      via: event.fromSwipe ? 'swipe' : 'tap',
+    });
+
+    // In production: trigger data reload for the selected feed
+    // this.loadFeedData(event.option.id);
+  }
+
+  /**
    * Handle header action button clicks
    */
   onHeaderAction(action: PageHeaderAction): void {
     switch (action.id) {
       case 'notifications':
         // TODO: Navigate to notifications or show notification panel
-        console.log('Notifications clicked');
+        this.logger.debug('Action clicked', { actionId: action.id });
         break;
       case 'search':
         // TODO: Navigate to search or show search modal
-        console.log('Search clicked');
+        this.logger.debug('Action clicked', { actionId: action.id });
         break;
     }
   }

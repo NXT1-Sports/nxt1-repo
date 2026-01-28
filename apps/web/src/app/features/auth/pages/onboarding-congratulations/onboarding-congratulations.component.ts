@@ -30,7 +30,7 @@ import { CommonModule } from '@angular/common';
 import { NavController } from '@ionic/angular/standalone';
 
 // Shared UI Components
-import { AuthShellComponent, OnboardingWelcomeComponent } from '@nxt1/ui';
+import { AuthShellComponent, OnboardingWelcomeComponent, NxtLoggingService } from '@nxt1/ui';
 
 // Core Constants
 import { AUTH_REDIRECTS } from '@nxt1/core/constants';
@@ -68,6 +68,7 @@ export class OnboardingCongratulationsComponent implements OnInit {
   private readonly navController = inject(NavController);
   private readonly authFlow = inject(AuthFlowService);
   private readonly seo = inject(SeoService);
+  private readonly logger = inject(NxtLoggingService).child('OnboardingCongratulations');
 
   // ============================================
   // COMPUTED (from AuthFlowService)
@@ -117,7 +118,7 @@ export class OnboardingCongratulationsComponent implements OnInit {
   /** Handle slide viewed (for analytics) */
   onSlideViewed(event: { index: number; slideId: string }): void {
     // TODO: Track with analytics service
-    console.debug('[Congratulations] Slide viewed:', event);
+    this.logger.debug('Slide viewed', event);
   }
 
   // ============================================

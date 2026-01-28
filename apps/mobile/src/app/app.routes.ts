@@ -65,9 +65,16 @@ export const routes: Routes = [
         loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
       },
 
-      // Agent X Tab (placeholder for now)
+      // Agent X Tab - AI Assistant
       {
         path: 'agent',
+        loadChildren: () =>
+          import('./features/agent-x/agent-x.routes').then((m) => m.AGENT_X_ROUTES),
+      },
+
+      // Notifications Tab (placeholder for now)
+      {
+        path: 'notifications',
         loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
       },
     ],

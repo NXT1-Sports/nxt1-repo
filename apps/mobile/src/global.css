@@ -57,6 +57,9 @@
 /* Feature-specific styles */
 @import '@nxt1/ui/styles/auth';
 
+/* Navigation styles (header/footer) - 100% theme aware */
+@import '@nxt1/ui/styles/components/navigation';
+
 /* Ionic component overrides */
 @import '@nxt1/ui/styles/components/ionic-select';
 @import '@nxt1/ui/styles/components/ionic-toast';

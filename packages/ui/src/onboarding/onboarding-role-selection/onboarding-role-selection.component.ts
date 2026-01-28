@@ -215,7 +215,7 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
       }
 
       .nxt1-role-card.selected .nxt1-role-icon {
-        background: rgba(0, 0, 0, 0.15);
+        background: var(--nxt1-color-alpha-black20);
         border-color: transparent;
         color: var(--nxt1-color-text-onPrimary, #0a0a0a);
       }

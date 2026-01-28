@@ -314,7 +314,8 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
 
       /* Logo drop shadow for depth */
       .auth-logo-wrapper {
-        filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.3)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+        filter: drop-shadow(0 4px 12px var(--nxt1-color-alpha-black30))
+          drop-shadow(0 2px 4px var(--nxt1-color-alpha-black20));
       }
 
       /* Mobile footer padding - adds space at bottom for fixed footer */
@@ -360,27 +361,27 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
             /* Top-left corner - primary accent fade */
             radial-gradient(
               ellipse 70% 50% at 0% 0%,
-              rgba(204, 255, 0, 0.12) 0%,
-              rgba(204, 255, 0, 0.05) 30%,
+              var(--nxt1-color-alpha-primary12) 0%,
+              var(--nxt1-color-alpha-primary5) 30%,
               transparent 60%
             ),
             /* Top-right corner - subtle accent */
               radial-gradient(
                 ellipse 50% 40% at 100% 0%,
-                rgba(204, 255, 0, 0.06) 0%,
+                var(--nxt1-color-alpha-primary6) 0%,
                 transparent 50%
               ),
             /* Bottom-right corner - primary accent fade */
               radial-gradient(
                 ellipse 60% 50% at 100% 100%,
-                rgba(204, 255, 0, 0.1) 0%,
-                rgba(204, 255, 0, 0.04) 35%,
+                var(--nxt1-color-alpha-primary10) 0%,
+                var(--nxt1-color-alpha-primary4) 35%,
                 transparent 60%
               ),
             /* Bottom-left corner - subtle accent */
               radial-gradient(
                 ellipse 45% 35% at 0% 100%,
-                rgba(204, 255, 0, 0.05) 0%,
+                var(--nxt1-color-alpha-primary5) 0%,
                 transparent 45%
               );
         }
