@@ -159,8 +159,8 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
   {
     id: 'ai',
     label: 'Agent X',
-    icon: 'sparkles',
-    iconActive: 'sparklesFilled',
+    icon: 'bolt',
+    iconActive: 'boltFilled',
     route: '/tabs/agent',
     isActionButton: true,
     ariaLabel: 'Open AI Agent X',

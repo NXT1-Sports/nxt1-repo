@@ -47,8 +47,8 @@ import { US_STATES, type USState } from '@nxt1/core/constants';
 import { isValidEmail, isValidPhone } from '@nxt1/core/helpers';
 import type { ILogger } from '@nxt1/core/logging';
 import { NxtLoggingService } from '../../services/logging';
-import { NxtValidationSummaryComponent } from '../../shared/validation-summary';
-import { NxtFormFieldComponent } from '../../shared/form-field';
+import { NxtValidationSummaryComponent } from '../../components/validation-summary';
+import { NxtFormFieldComponent } from '../../components/form-field';
 
 // ============================================
 // CONSTANTS

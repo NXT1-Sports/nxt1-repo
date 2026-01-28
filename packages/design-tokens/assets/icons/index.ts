@@ -238,6 +238,27 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Trophy icon (outline) - for rankings/awards */
+  trophy: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M7 8h10M6 2h12v6a6 6 0 0 1-12 0V2z' },
+      { d: 'M6 8H4a2 2 0 0 0 0 4h2' },
+      { d: 'M18 8h2a2 2 0 0 1 0 4h-2' },
+      { d: 'M12 14v4m0 0H9l-1 4h8l-1-4h-3z' },
+    ],
+  },
+
+  /** Graduation cap icon - for recruiting/colleges */
+  graduationCap: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M22 10l-10-5-10 5 10 5 10-5z' }, { d: 'M6 12v5c0 1.1 2.7 2 6 2s6-.9 6-2v-5' }],
+  },
+
   /** Search icon (outline) - for search functionality */
   search: {
     viewBox: '0 0 24 24',
@@ -303,6 +324,21 @@ export const UI_ICONS = {
         d: 'M12 7a1 1 0 0 1 .894.553l1.382 2.764 2.764 1.382a1 1 0 0 1 0 1.79l-2.764 1.382-1.382 2.764a1 1 0 0 1-1.789 0l-1.382-2.765-2.764-1.382a1 1 0 0 1 0-1.789l2.764-1.382 1.382-2.764A1 1 0 0 1 12 7z',
       },
     ],
+  },
+
+  /** Lightning bolt icon (outline) - for AI/energy features */
+  bolt: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M13 2L3 14h9l-1 8 10-12h-9l1-8z' }],
+  },
+
+  /** Lightning bolt filled icon - for active AI state */
+  boltFilled: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [{ d: 'M13 2L3 14h9l-1 8 10-12h-9l1-8z' }],
   },
 
   /** Plus icon (outline) */
@@ -703,6 +739,8 @@ export type NavIconName =
   | 'userFilled'
   | 'sparkles'
   | 'sparklesFilled'
+  | 'bolt'
+  | 'boltFilled'
   | 'bell'
   | 'bellFilled'
   | 'plusCircle'

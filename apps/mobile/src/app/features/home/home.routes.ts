@@ -9,13 +9,14 @@
  */
 
 import { Routes } from '@angular/router';
-import { onboardingCompleteGuard } from '../auth/guards/auth.guards';
+// Temporarily disabled for testing - uncomment when onboarding is complete
+// import { onboardingCompleteGuard } from '../auth/guards/auth.guards';
 
 export const HOME_ROUTES: Routes = [
   {
     path: '',
     loadComponent: () => import('./home.component').then((m) => m.HomeComponent),
-    canActivate: [onboardingCompleteGuard],
+    // canActivate: [onboardingCompleteGuard], // Temporarily disabled for testing
     title: 'Home | NXT1 Sports',
   },
 ];

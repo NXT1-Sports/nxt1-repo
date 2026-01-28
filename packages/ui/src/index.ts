@@ -87,30 +87,69 @@ export {
 } from './auth/biometric-prompt';
 
 // ============================================
-// SHARED COMPONENTS
+// CORE UI COMPONENTS
 // ============================================
-export { NxtLogoComponent, type LogoSize, type LogoVariant } from './shared/logo';
+export { NxtLogoComponent, type LogoSize, type LogoVariant } from './components/logo';
 export {
   NxtImageComponent,
   type ImageFit,
   type ImageLoading,
   type ImageVariant,
   type ImageState,
-} from './shared/image';
+} from './components/image';
 export {
   NxtIconComponent,
   type IconName,
   type UIIconName,
   type BrandIconName,
-} from './shared/icon';
-export { NxtChipComponent, type ChipSize, type ChipVariant } from './shared/chip';
+} from './components/icon';
+
+// ============================================
+// AVATAR COMPONENT (Professional Avatar with Status/Badges)
+// ============================================
+export {
+  // Components
+  NxtAvatarComponent,
+  NxtAvatarGroupComponent,
+  // Size types
+  type AvatarSize,
+  AVATAR_SIZES,
+  AVATAR_FONT_SIZES,
+  AVATAR_STATUS_SIZES,
+  AVATAR_BADGE_SIZES,
+  // Shape types
+  type AvatarShape,
+  // Status types
+  type AvatarStatus,
+  AVATAR_STATUS_COLORS,
+  // Badge types
+  type AvatarBadgeType,
+  type AvatarBadgePosition,
+  type AvatarBadgeConfig,
+  // Config types
+  type AvatarLoadState,
+  type AvatarConfig,
+  type AvatarClickEvent,
+  // Group types
+  type AvatarGroupUser,
+  type AvatarGroupOverflowEvent,
+  // Colors
+  AVATAR_INITIALS_COLORS,
+  // Utilities (pure functions - portable)
+  extractInitials,
+  getInitialsColor,
+  getContrastingTextColor,
+  formatBadgeCount,
+  sanitizeImageUrl,
+} from './components/avatar';
+export { NxtChipComponent, type ChipSize, type ChipVariant } from './components/chip';
 export {
   NxtValidationSummaryComponent,
   type ValidationSummaryVariant,
-} from './shared/validation-summary';
-export { NxtFormFieldComponent } from './shared/form-field';
-export { NxtTeamLogoPickerComponent } from './shared/team-logo-picker';
-export { NxtColorPickerComponent } from './shared/color-picker';
+} from './components/validation-summary';
+export { NxtFormFieldComponent } from './components/form-field';
+export { NxtTeamLogoPickerComponent } from './components/team-logo-picker';
+export { NxtColorPickerComponent } from './components/color-picker';
 
 // ============================================
 // BOTTOM SHEET (2026 Native-Style Modal)
@@ -122,7 +161,7 @@ export {
   type BottomSheetConfig,
   type BottomSheetResult,
   type BottomSheetVariant,
-} from './shared/bottom-sheet';
+} from './components/bottom-sheet';
 
 // ============================================
 // MOBILE FOOTER / TAB BAR (2026 Native-Style Navigation)
@@ -148,19 +187,29 @@ export {
   createFooterConfig,
   updateTabBadge,
   setTabDisabled,
-} from './shared/footer';
+} from './components/footer';
 
 // ============================================
-// DESKTOP TOP NAVIGATION (2026 Native-Style Navigation)
+// PAGE HEADER (Professional Contextual Headers)
+// ============================================
+export {
+  NxtPageHeaderComponent,
+  type PageHeaderVariant,
+  type PageHeaderConfig,
+  type PageHeaderAction,
+} from './components/page-header';
+
+// ============================================
+// RESPONSIVE HEADER NAVIGATION (2026 Native-Style)
 // ============================================
 export {
   // Component
-  NxtDesktopNavComponent,
+  NxtHeaderComponent,
   // Angular-specific Types
   type TopNavSelectEvent,
   type TopNavUserMenuEvent,
   type TopNavSearchSubmitEvent,
-} from './shared/top-nav';
+} from './components/top-nav';
 
 // Re-export core types for convenience
 export {
@@ -210,7 +259,7 @@ export {
   NxtPickerComponent,
   NxtSportPickerContentComponent,
   NxtPositionPickerContentComponent,
-} from './shared/picker';
+} from './components/picker';
 
 // ============================================
 // SERVICES
@@ -275,13 +324,9 @@ export {
 } from './infrastructure/interceptors';
 
 // ============================================
-// AUTH SERVICES
+// AUTH ERROR HANDLING (in services/)
 // ============================================
-export {
-  AuthErrorHandler,
-  type AuthError,
-  type AuthRecoveryAction,
-} from './auth-services/auth-error.handler';
+export { AuthErrorHandler, type AuthError, type AuthRecoveryAction } from './services/auth-error';
 
 // ============================================
 // ONBOARDING COMPONENTS

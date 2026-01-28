@@ -1,0 +1,405 @@
+/**
+ * @fileoverview NXT1 Global Form Styles
+ * @module @nxt1/ui/styles/base/forms
+ * @version 1.0.0
+ *
+ * Professional form styles for the NXT1 design system.
+ * Provides consistent form field appearance across all features.
+ *
+ * Components:
+ * - .nxt1-form           - Form container
+ * - .nxt1-form-field     - Field wrapper (label + input + error)
+ * - .nxt1-form-label     - Field label
+ * - .nxt1-input          - Text input styling
+ * - .nxt1-input-wrapper  - Input with icon support
+ * - .nxt1-form-error     - Error message
+ * - .nxt1-form-hint      - Helper text
+ *
+ * Prerequisites:
+ *   @import '@nxt1/ui/styles/base/variables';
+ *
+ * Usage:
+ *   @import '@nxt1/ui/styles/base/forms';
+ */
+
+/* ============================================
+   FORM CONTAINER
+   ============================================ */
+
+.nxt1-form,
+.nxt1-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nxt1-spacing-4, 1rem);
+  width: 100%;
+}
+
+/* ============================================
+   FORM FIELD (Wrapper)
+   ============================================ */
+
+.nxt1-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nxt1-spacing-2, 0.5rem);
+}
+
+/* ============================================
+   FORM LABEL
+   ============================================ */
+
+.nxt1-form-label {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: var(--nxt1-font-weight-medium, 500);
+  color: var(--nxt1-ui-text-secondary);
+}
+
+/* Required indicator */
+.nxt1-form-label--required::after {
+  content: ' *';
+  color: var(--nxt1-ui-error);
+}
+
+/* ============================================
+   INPUT WRAPPER (with icons)
+   ============================================ */
+
+.nxt1-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.nxt1-input-icon {
+  position: absolute;
+  left: var(--nxt1-spacing-4, 1rem);
+  width: 20px;
+  height: 20px;
+  color: var(--nxt1-ui-text-muted);
+  pointer-events: none;
+  transition: color var(--nxt1-ui-transition-fast);
+  z-index: 1;
+}
+
+.nxt1-input-icon--end {
+  left: auto;
+  right: var(--nxt1-spacing-4, 1rem);
+}
+
+/* Icon color on focus */
+.nxt1-input-wrapper:focus-within .nxt1-input-icon {
+  color: var(--nxt1-ui-text-secondary);
+}
+
+/* ============================================
+   TEXT INPUT (Native)
+   ============================================ */
+
+.nxt1-input,
+.nxt1-auth-input {
+  width: 100%;
+  height: 52px;
+  padding: 0 var(--nxt1-spacing-4, 1rem);
+  background: var(--nxt1-ui-bg-input);
+  border: 1px solid var(--nxt1-ui-border-default);
+  border-radius: var(--nxt1-ui-radius-lg);
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-font-weight-medium, 500);
+  color: var(--nxt1-ui-text-primary);
+  transition: all var(--nxt1-ui-transition-fast);
+}
+
+/* With left icon */
+.nxt1-input-icon ~ .nxt1-input,
+.nxt1-input-icon ~ .nxt1-auth-input {
+  padding-left: 48px;
+}
+
+/* With right icon */
+.nxt1-input--has-end-icon {
+  padding-right: 48px;
+}
+
+.nxt1-input::placeholder,
+.nxt1-auth-input::placeholder {
+  color: var(--nxt1-ui-text-placeholder);
+  font-weight: var(--nxt1-font-weight-regular, 400);
+}
+
+.nxt1-input:hover:not(:focus):not(:disabled),
+.nxt1-auth-input:hover:not(:focus):not(:disabled) {
+  background: var(--nxt1-ui-bg-input-hover);
+  border-color: var(--nxt1-ui-border-hover);
+}
+
+.nxt1-input:focus,
+.nxt1-auth-input:focus {
+  background: var(--nxt1-ui-bg-input-focus);
+  border-color: var(--nxt1-ui-border-focus);
+  outline: none;
+}
+
+.nxt1-input:disabled,
+.nxt1-auth-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Error state */
+.nxt1-input--error,
+.nxt1-input.is-error,
+.nxt1-auth-input.is-error,
+.nxt1-auth-input--error {
+  border-color: var(--nxt1-ui-error);
+  background: var(--nxt1-ui-error-bg);
+}
+
+/* Success state */
+.nxt1-input--success,
+.nxt1-input.is-success,
+.nxt1-auth-input.is-success,
+.nxt1-auth-input--success {
+  border-color: var(--nxt1-ui-success);
+}
+
+/* ============================================
+   IONIC INPUT STYLING
+   Professional rounded inputs using fill="outline"
+   ============================================ */
+
+.nxt1-ionic-input,
+.auth-input,
+nxt1-auth-email-form ion-input[fill='outline'],
+.nxt1-auth-form ion-input[fill='outline'],
+.nxt1-form ion-input[fill='outline'] {
+  --background: var(--nxt1-color-surface-200, #1a1a1a);
+  --border-color: var(--nxt1-ui-border-default);
+  --border-radius: var(--nxt1-ui-radius-lg);
+  --border-width: 1px;
+  --padding-start: 16px;
+  --padding-end: 16px;
+  --color: var(--nxt1-ui-text-primary);
+  --placeholder-color: var(--nxt1-ui-text-muted);
+  /* Subtle highlight - reduced from bright primary color */
+  --highlight-color-focused: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+  --highlight-color-valid: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+  --highlight-color-invalid: var(--nxt1-ui-error);
+  /* Reduce highlight thickness for subtlety */
+  --highlight-height: 1px;
+  font-size: 1rem;
+  min-height: 52px;
+  transition:
+    border-color 200ms ease-out,
+    background 200ms ease-out;
+}
+
+/**
+ * CRITICAL: Remove native browser focus outline from inputs inside ion-input.
+ * Ionic handles focus indication via --highlight-color-focused CSS variable.
+ * This prevents the blue box/square outline appearing when input is focused.
+ */
+.nxt1-ionic-input input,
+.nxt1-ionic-input input:focus,
+.nxt1-ionic-input input:focus-visible,
+.auth-input input,
+.auth-input input:focus,
+.auth-input input:focus-visible,
+nxt1-auth-email-form ion-input input,
+nxt1-auth-email-form ion-input input:focus,
+nxt1-auth-email-form ion-input input:focus-visible,
+.nxt1-auth-form ion-input input,
+.nxt1-auth-form ion-input input:focus,
+.nxt1-auth-form ion-input input:focus-visible,
+.nxt1-form ion-input input,
+.nxt1-form ion-input input:focus,
+.nxt1-form ion-input input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Subtle hover state */
+.nxt1-ionic-input:hover,
+.auth-input:hover,
+nxt1-auth-email-form ion-input[fill='outline']:hover,
+.nxt1-auth-form ion-input[fill='outline']:hover,
+.nxt1-form ion-input[fill='outline']:hover {
+  --border-color: var(--nxt1-ui-border-hover);
+}
+
+/* Focus state - slightly more visible but still subtle */
+.nxt1-ionic-input:focus-within,
+.auth-input:focus-within,
+nxt1-auth-email-form ion-input[fill='outline'].has-focus,
+.nxt1-auth-form ion-input[fill='outline'].has-focus,
+.nxt1-form ion-input[fill='outline'].has-focus {
+  --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.25));
+}
+
+/* Input icons */
+.nxt1-ionic-input ion-icon[slot='start'],
+.auth-input ion-icon[slot='start'],
+nxt1-auth-email-form ion-input ion-icon[slot='start'],
+.nxt1-auth-form ion-input ion-icon[slot='start'],
+.nxt1-form ion-input ion-icon[slot='start'] {
+  color: var(--nxt1-ui-text-muted);
+  font-size: 1.25rem;
+}
+
+/* Error state */
+.nxt1-ionic-input--error,
+.auth-input-error,
+nxt1-auth-email-form ion-input.auth-input-error,
+.nxt1-auth-form ion-input.auth-input-error,
+.nxt1-form ion-input.nxt1-input--error {
+  --border-color: var(--nxt1-ui-error);
+  --highlight-color-focused: var(--nxt1-ui-error);
+}
+
+/* iOS specific - ensure consistent appearance */
+.ios .nxt1-ionic-input,
+.ios .auth-input,
+.ios nxt1-auth-email-form ion-input[fill='outline'],
+.ios .nxt1-auth-form ion-input[fill='outline'],
+.ios .nxt1-form ion-input[fill='outline'] {
+  --border-radius: var(--nxt1-ui-radius-lg);
+}
+
+/* Android (MD) specific - ensure consistent appearance */
+.md .nxt1-ionic-input,
+.md .auth-input,
+.md nxt1-auth-email-form ion-input[fill='outline'],
+.md .nxt1-auth-form ion-input[fill='outline'],
+.md .nxt1-form ion-input[fill='outline'] {
+  --border-radius: var(--nxt1-ui-radius-lg);
+}
+
+/* Platform adjustments for native inputs */
+.ios .nxt1-input,
+.ios .nxt1-auth-input {
+  border-radius: var(--nxt1-ui-radius-lg);
+}
+
+.md .nxt1-input,
+.md .nxt1-auth-input {
+  border-radius: var(--nxt1-ui-radius-default);
+}
+
+/* ============================================
+   ERROR MESSAGE
+   ============================================ */
+
+.nxt1-form-error {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-2, 0.5rem);
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  color: var(--nxt1-ui-error);
+}
+
+.nxt1-form-error svg,
+.nxt1-form-error ion-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* ============================================
+   HINT / HELPER TEXT
+   ============================================ */
+
+.nxt1-form-hint {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  color: var(--nxt1-ui-text-muted);
+  margin-top: var(--nxt1-spacing-1, 0.25rem);
+}
+
+/* ============================================
+   SUCCESS MESSAGE
+   ============================================ */
+
+.nxt1-form-success {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-2, 0.5rem);
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  color: var(--nxt1-ui-success);
+}
+
+.nxt1-form-success svg,
+.nxt1-form-success ion-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* ============================================
+   TEXTAREA
+   ============================================ */
+
+.nxt1-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: var(--nxt1-spacing-3, 0.75rem) var(--nxt1-spacing-4, 1rem);
+  background: var(--nxt1-ui-bg-input);
+  border: 1px solid var(--nxt1-ui-border-default);
+  border-radius: var(--nxt1-ui-radius-lg);
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-font-weight-medium, 500);
+  color: var(--nxt1-ui-text-primary);
+  resize: vertical;
+  transition: all var(--nxt1-ui-transition-fast);
+}
+
+.nxt1-textarea::placeholder {
+  color: var(--nxt1-ui-text-placeholder);
+}
+
+.nxt1-textarea:hover:not(:focus):not(:disabled) {
+  background: var(--nxt1-ui-bg-input-hover);
+  border-color: var(--nxt1-ui-border-hover);
+}
+
+.nxt1-textarea:focus {
+  background: var(--nxt1-ui-bg-input-focus);
+  border-color: var(--nxt1-ui-border-focus);
+  outline: none;
+}
+
+.nxt1-textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  resize: none;
+}
+
+/* ============================================
+   CHECKBOX & RADIO (Custom)
+   ============================================ */
+
+.nxt1-checkbox-wrapper,
+.nxt1-radio-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-3, 0.75rem);
+  cursor: pointer;
+}
+
+.nxt1-checkbox,
+.nxt1-radio {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--nxt1-ui-primary);
+  cursor: pointer;
+}
+
+.nxt1-checkbox-label,
+.nxt1-radio-label {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  color: var(--nxt1-ui-text-primary);
+}

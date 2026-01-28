@@ -1,0 +1,47 @@
+/**
+ * @fileoverview NXT1 Base Styles Entry Point
+ * @module @nxt1/ui/styles/base
+ * @version 2.0.0
+ *
+ * Aggregates all base/global styles for the NXT1 design system.
+ * Import this file to get all foundational styles.
+ *
+ * Architecture (2026 Best Practices):
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │  CSS LAYERS (Specificity Management)                                   │
+ * │  @layer base < components < utilities                                   │
+ * │                                                                         │
+ * │  MODERN FEATURES USED:                                                 │
+ * │  • CSS Custom Properties with fallbacks                                │
+ * │  • :focus-visible for keyboard-only focus                              │
+ * │  • prefers-reduced-motion for accessibility                            │
+ * │  • prefers-color-scheme ready (tokens handle themes)                   │
+ * │  • forced-colors for Windows High Contrast Mode                        │
+ * │  • Logical properties (inline/block) where appropriate                 │
+ * │  • Container queries ready (via component styles)                      │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * Includes:
+ * - CSS Custom Properties (variables)
+ * - Button styles
+ * - Form/input styles
+ * - Link/typography styles
+ * - Accessibility utilities
+ *
+ * Prerequisites:
+ *   @import '@nxt1/design-tokens/css'; (tokens should be loaded first)
+ *
+ * Usage:
+ *   @import '@nxt1/ui/styles/base';
+ */
+
+/* CSS Custom Properties - Always available (not layered) */
+@import './variables.css';
+
+/* Base component styles */
+@import './buttons.css';
+@import './forms.css';
+@import './links.css';
+
+/* Accessibility utilities */
+@import './accessibility.css';

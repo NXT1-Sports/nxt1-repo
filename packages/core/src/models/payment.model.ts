@@ -30,9 +30,12 @@ import type {
   TransactionStatus,
   TransactionType,
   RefundReason,
+  RefundStatus,
   DiscountType,
   EntitlementStatus,
   InvoiceStatus,
+  WebhookStatus,
+  DisputeStatus,
 } from '../constants/payment.constants';
 
 // ============================================
@@ -243,7 +246,7 @@ export interface Transaction {
 
   /** Refund details (if applicable) */
   refund?: {
-    status: 'pending' | 'succeeded' | 'failed';
+    status: RefundStatus;
     amount: number; // In cents
     reason: RefundReason;
     reasonDetails?: string;
@@ -253,14 +256,7 @@ export interface Transaction {
 
   /** Dispute details (if applicable) */
   dispute?: {
-    status:
-      | 'warning_needs_response'
-      | 'warning_under_review'
-      | 'warning_closed'
-      | 'needs_response'
-      | 'under_review'
-      | 'won'
-      | 'lost';
+    status: DisputeStatus;
     reason: string;
     amount: number;
     createdAt: Date | string;
@@ -552,7 +548,7 @@ export interface WebhookEvent {
   providerEventId: string;
 
   /** Processing status */
-  status: 'pending' | 'processed' | 'failed';
+  status: WebhookStatus;
   processedAt?: Date | string;
   error?: string;
   retryCount: number;

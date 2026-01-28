@@ -17,19 +17,20 @@
  */
 
 import type { PlanTier } from '../constants/payment.constants';
-import type {
-  UserRole,
-  AccountStatus,
-  Gender,
-  TeamType,
-  Theme,
-  ParentRelationship,
-  ScholarshipType,
-  CommitmentStatus,
-  VisitType,
-  AccountType,
-  DismissablePrompt,
-  ReferralStatus,
+import {
+  USER_ROLES,
+  type UserRole,
+  type AccountStatus,
+  type Gender,
+  type TeamType,
+  type Theme,
+  type ParentRelationship,
+  type ScholarshipType,
+  type CommitmentStatus,
+  type VisitType,
+  type AccountType,
+  type DismissablePrompt,
+  type ReferralStatus,
 } from '../constants/user.constants';
 
 // ============================================
@@ -1285,17 +1286,17 @@ export interface User {
 
 /** Check if user is an athlete */
 export function isAthlete(user: User): user is User & { athlete: AthleteData } {
-  return user.role === 'athlete' && !!user.athlete;
+  return user.role === USER_ROLES.ATHLETE && !!user.athlete;
 }
 
 /** Check if user is a coach */
 export function isCoach(user: User): user is User & { coach: CoachData } {
-  return user.role === 'coach' && !!user.coach;
+  return user.role === USER_ROLES.COACH && !!user.coach;
 }
 
 /** Check if user is a college coach */
 export function isCollegeCoach(user: User): user is User & { collegeCoach: CollegeCoachData } {
-  return user.role === 'college-coach' && !!user.collegeCoach;
+  return user.role === USER_ROLES.COLLEGE_COACH && !!user.collegeCoach;
 }
 
 /** Check if user has completed onboarding */

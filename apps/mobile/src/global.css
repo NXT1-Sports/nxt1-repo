@@ -47,8 +47,17 @@
 /* Ionic Theme (CSS-only) - Maps NXT1 tokens to Ionic vars */
 @import '@nxt1/design-tokens/ionic';
 
-/* UI Component Styles - Styles for @nxt1/ui components */
+/* ============================================
+   NXT1 UI COMPONENT STYLES
+   Base styles (buttons, forms, links) + Feature styles
+   ============================================ */
+/* Base styles (global buttons, forms, links, variables) */
+@import '@nxt1/ui/styles/base';
+
+/* Feature-specific styles */
 @import '@nxt1/ui/styles/auth';
+
+/* Ionic component overrides */
 @import '@nxt1/ui/styles/components/ionic-select';
 @import '@nxt1/ui/styles/components/ionic-toast';
 @import '@nxt1/ui/styles/components/ionic-modal';
@@ -85,6 +94,8 @@
 @layer base {
   * {
     box-sizing: border-box;
+    /* Prevent double-tap zoom on all elements */
+    touch-action: manipulation;
   }
 
   html {
@@ -94,6 +105,9 @@
     background-color: var(--nxt1-color-bg-primary);
     /* Full height on iOS */
     height: 100%;
+    /* Prevent double-tap zoom */
+    touch-action: manipulation;
+    -ms-touch-action: manipulation;
   }
 
   body {
@@ -152,22 +166,11 @@
   /* Ion Content - Full screen, no extra padding (content handles safe areas) */
   ion-content {
     --background: var(--nxt1-color-bg-primary);
-    --keyboard-offset: 0px;
     --padding-top: 0px;
     --padding-bottom: 0px;
     --padding-start: 0px;
     --padding-end: 0px;
   }
-
-  /* ============================================
-     KEYBOARD HANDLING - 2026 Professional Best Practices
-     
-     Using KeyboardResize.Body mode which resizes the <body> element.
-     This allows ion-content to naturally resize and scroll the 
-     focused input into view.
-     
-     Reference: @capacitor/keyboard v7.x with Angular 21 + Ionic
-     ============================================ */
 
   /* Ion Content scroll container */
   ion-content::part(scroll) {
@@ -182,12 +185,6 @@
   textarea {
     /* CRITICAL: 16px prevents iOS auto-zoom on focus */
     font-size: 16px !important;
-  }
-
-  /* Keyboard handling - body class added by NativeAppService */
-  body.keyboard-is-open {
-    /* Prevent body scroll bounce on iOS */
-    overflow: hidden;
   }
 
   /* Safe area utility classes */

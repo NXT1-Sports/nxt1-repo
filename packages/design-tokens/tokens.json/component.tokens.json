@@ -197,6 +197,90 @@
       "heightMobile": { "$value": "56px", "$type": "dimension" }
     },
 
+    "navigation": {
+      "$description": "Top navigation bar component tokens",
+      "height": { "$value": "64px", "$type": "dimension" },
+      "heightCompact": { "$value": "56px", "$type": "dimension" },
+      "paddingX": { "$value": "{spacing.6}", "$type": "dimension" },
+      "paddingXMobile": { "$value": "{spacing.3}", "$type": "dimension" },
+      "gap": { "$value": "{spacing.6}", "$type": "dimension" },
+      "maxWidth": { "$value": "1536px", "$type": "dimension" },
+
+      "logo": {
+        "height": { "$value": "32px", "$type": "dimension" },
+        "heightLarge": { "$value": "40px", "$type": "dimension" }
+      },
+
+      "item": {
+        "height": { "$value": "36px", "$type": "dimension" },
+        "paddingX": { "$value": "{spacing.3}", "$type": "dimension" },
+        "gap": { "$value": "{spacing.1}", "$type": "dimension" },
+        "borderRadius": { "$value": "{borderRadius.md}", "$type": "dimension" },
+        "fontSize": { "$value": "{fontSize.sm}", "$type": "dimension" },
+        "fontWeight": {
+          "$value": "{fontWeight.medium}",
+          "$type": "fontWeight"
+        },
+        "letterSpacing": { "$value": "0.01em", "$type": "dimension" },
+        "iconSize": { "$value": "20px", "$type": "dimension" }
+      },
+
+      "badge": {
+        "size": { "$value": "18px", "$type": "dimension" },
+        "minWidth": { "$value": "18px", "$type": "dimension" },
+        "fontSize": { "$value": "11px", "$type": "dimension" },
+        "fontWeight": {
+          "$value": "{fontWeight.semibold}",
+          "$type": "fontWeight"
+        },
+        "borderRadius": {
+          "$value": "{borderRadius.full}",
+          "$type": "dimension"
+        }
+      },
+
+      "search": {
+        "width": { "$value": "200px", "$type": "dimension" },
+        "widthExpanded": { "$value": "320px", "$type": "dimension" },
+        "height": { "$value": "36px", "$type": "dimension" },
+        "borderRadius": { "$value": "{borderRadius.lg}", "$type": "dimension" },
+        "iconSize": { "$value": "18px", "$type": "dimension" }
+      },
+
+      "dropdown": {
+        "minWidth": { "$value": "200px", "$type": "dimension" },
+        "borderRadius": { "$value": "{borderRadius.lg}", "$type": "dimension" },
+        "padding": { "$value": "{spacing.1}", "$type": "dimension" },
+        "itemBorderRadius": {
+          "$value": "{borderRadius.md}",
+          "$type": "dimension"
+        }
+      },
+
+      "avatar": {
+        "size": { "$value": "32px", "$type": "dimension" },
+        "sizeLarge": { "$value": "40px", "$type": "dimension" }
+      },
+
+      "indicator": {
+        "height": { "$value": "2px", "$type": "dimension" },
+        "width": { "$value": "100%", "$type": "dimension" }
+      },
+
+      "hamburger": {
+        "size": { "$value": "40px", "$type": "dimension" },
+        "lineWidth": { "$value": "20px", "$type": "dimension" },
+        "lineHeight": { "$value": "2px", "$type": "dimension" },
+        "gap": { "$value": "5px", "$type": "dimension" }
+      },
+
+      "mobileMenu": {
+        "width": { "$value": "280px", "$type": "dimension" },
+        "maxWidth": { "$value": "85vw", "$type": "dimension" },
+        "padding": { "$value": "{spacing.4}", "$type": "dimension" }
+      }
+    },
+
     "sidebar": {
       "width": { "$value": "280px", "$type": "dimension" },
       "widthCollapsed": { "$value": "72px", "$type": "dimension" }

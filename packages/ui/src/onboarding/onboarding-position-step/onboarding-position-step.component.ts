@@ -48,7 +48,7 @@ import {
 } from '@nxt1/core/constants';
 import type { ILogger } from '@nxt1/core/logging';
 import { NxtLoggingService } from '../../services/logging';
-import { NxtChipComponent } from '../../shared/chip';
+import { NxtChipComponent } from '../../components/chip';
 
 // ============================================
 // CONSTANTS

@@ -5,5 +5,5 @@
  * Layout components for the mobile app shell architecture.
  */
 
-// Tabs Layout (main authenticated shell)
-export { TabsLayoutComponent } from './tabs-layout';
+// Mobile Shell (main authenticated shell with bottom tabs)
+export { MobileShellComponent, TabsLayoutComponent } from './shell';

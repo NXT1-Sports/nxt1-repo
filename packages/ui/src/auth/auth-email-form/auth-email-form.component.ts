@@ -43,7 +43,7 @@ import {
   type PasswordValidationResult,
 } from '@nxt1/core/helpers';
 import { AUTH_VALIDATION } from '@nxt1/core/constants';
-import { NxtIconComponent } from '../../shared/icon';
+import { NxtIconComponent } from '../../components/icon';
 
 /** Form submission data */
 export interface AuthEmailFormData {

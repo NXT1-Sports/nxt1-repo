@@ -1,0 +1,188 @@
+/**
+ * @fileoverview NXT1 Global CSS Variables
+ * @module @nxt1/ui/styles/base/variables
+ * @version 2.0.0
+ *
+ * Global CSS custom properties for the NXT1 design system.
+ * These variables map to design tokens and provide consistent
+ * theming across all components.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │  TOKEN HIERARCHY                                                        │
+ * │                                                                         │
+ * │  @nxt1/design-tokens     →    @nxt1/ui/styles/base     →    Components │
+ * │  (--nxt1-color-*)             (--nxt1-ui-*)                 (usage)    │
+ * │                                                                         │
+ * │  This file creates a UI-specific abstraction layer that:               │
+ * │  1. Maps design tokens to semantic UI properties                       │
+ * │  2. Provides sensible fallbacks if tokens aren't loaded                │
+ * │  3. Maintains backward compatibility with --auth-* variables           │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * Prerequisites:
+ *   @import '@nxt1/design-tokens/css'; (tokens should be loaded first)
+ *
+ * Usage:
+ *   @import '@nxt1/ui/styles/base/variables';
+ *   // Or via the main entry point:
+ *   @import '@nxt1/ui/styles';
+ */
+
+:root {
+  /* ============================================
+     PRIMARY COLORS
+     ============================================ */
+  --nxt1-ui-primary: var(--nxt1-color-primary, #ccff00);
+  --nxt1-ui-primary-dark: var(--nxt1-color-primaryDark, #a3cc00);
+  --nxt1-ui-primary-light: var(--nxt1-color-primaryLight, #e6ff80);
+  --nxt1-ui-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+  --nxt1-ui-primary-border: var(--nxt1-color-alpha-primary30, rgba(204, 255, 0, 0.3));
+
+  /* ============================================
+     BACKGROUNDS
+     ============================================ */
+  --nxt1-ui-bg-page: var(--nxt1-color-bg-primary, #0a0a0a);
+  --nxt1-ui-bg-elevated: var(--nxt1-color-bg-elevated, #121212);
+  --nxt1-ui-bg-card: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
+  --nxt1-ui-bg-card-hover: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+  --nxt1-ui-bg-card-border: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+  --nxt1-ui-bg-input: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+  --nxt1-ui-bg-input-hover: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
+  --nxt1-ui-bg-input-focus: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.08));
+  --nxt1-ui-bg-overlay: var(--nxt1-color-bg-overlay, rgba(0, 0, 0, 0.6));
+
+  /* ============================================
+     TEXT COLORS
+     ============================================ */
+  --nxt1-ui-text-primary: var(--nxt1-color-text-primary, #ffffff);
+  --nxt1-ui-text-secondary: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+  --nxt1-ui-text-muted: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+  --nxt1-ui-text-placeholder: var(--nxt1-color-text-disabled, rgba(255, 255, 255, 0.3));
+  --nxt1-ui-text-inverse: #0a0a0a;
+
+  /* ============================================
+     BORDERS
+     ============================================ */
+  --nxt1-ui-border-subtle: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
+  --nxt1-ui-border-default: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+  --nxt1-ui-border-hover: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+  --nxt1-ui-border-focus: var(--nxt1-color-alpha-primary50, rgba(204, 255, 0, 0.5));
+
+  /* ============================================
+     SEMANTIC COLORS
+     ============================================ */
+  --nxt1-ui-error: var(--nxt1-color-error, #ef4444);
+  --nxt1-ui-error-bg: rgba(239, 68, 68, 0.1);
+  --nxt1-ui-error-border: rgba(239, 68, 68, 0.3);
+  --nxt1-ui-success: var(--nxt1-color-success, #22c55e);
+  --nxt1-ui-success-bg: rgba(34, 197, 94, 0.1);
+  --nxt1-ui-success-border: rgba(34, 197, 94, 0.3);
+  --nxt1-ui-warning: var(--nxt1-color-warning, #f59e0b);
+  --nxt1-ui-warning-bg: rgba(245, 158, 11, 0.1);
+  --nxt1-ui-warning-border: rgba(245, 158, 11, 0.3);
+  --nxt1-ui-info: var(--nxt1-color-info, #3b82f6);
+  --nxt1-ui-info-bg: rgba(59, 130, 246, 0.1);
+  --nxt1-ui-info-border: rgba(59, 130, 246, 0.3);
+
+  /* ============================================
+     TYPOGRAPHY
+     ============================================ */
+  --nxt1-ui-font: var(
+    --nxt1-fontFamily-brand,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    Roboto,
+    sans-serif
+  );
+  --nxt1-ui-font-mono: var(--nxt1-fontFamily-mono, 'SF Mono', Monaco, 'Cascadia Code', monospace);
+
+  /* ============================================
+     SIZING / RADIUS
+     ============================================ */
+  --nxt1-ui-radius-xs: var(--nxt1-borderRadius-xs, 2px);
+  --nxt1-ui-radius-sm: var(--nxt1-borderRadius-sm, 4px);
+  --nxt1-ui-radius-default: var(--nxt1-borderRadius-md, 8px);
+  --nxt1-ui-radius-lg: var(--nxt1-borderRadius-lg, 12px);
+  --nxt1-ui-radius-xl: var(--nxt1-borderRadius-xl, 16px);
+  --nxt1-ui-radius-2xl: var(--nxt1-radius-2xl, 24px);
+  --nxt1-ui-radius-full: 9999px;
+
+  /* ============================================
+     SHADOWS
+     ============================================ */
+  --nxt1-ui-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --nxt1-ui-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
+  --nxt1-ui-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.4);
+  --nxt1-ui-shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.5);
+  --nxt1-ui-shadow-glow: 0 0 20px var(--nxt1-ui-primary-glow);
+
+  /* ============================================
+     TRANSITIONS
+     ============================================ */
+  --nxt1-ui-transition-fast: 150ms ease-out;
+  --nxt1-ui-transition-normal: 200ms ease-out;
+  --nxt1-ui-transition-slow: 300ms ease-out;
+  --nxt1-ui-transition-spring: 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ============================================
+     Z-INDEX SCALE
+     ============================================ */
+  --nxt1-ui-z-dropdown: 100;
+  --nxt1-ui-z-sticky: 200;
+  --nxt1-ui-z-fixed: 300;
+  --nxt1-ui-z-modal-backdrop: 400;
+  --nxt1-ui-z-modal: 500;
+  --nxt1-ui-z-popover: 600;
+  --nxt1-ui-z-tooltip: 700;
+  --nxt1-ui-z-toast: 800;
+  --nxt1-ui-z-max: 9999;
+
+  /* ============================================
+     COMPONENT SIZING
+     ============================================ */
+  --nxt1-ui-btn-height-sm: 36px;
+  --nxt1-ui-btn-height-md: 44px;
+  --nxt1-ui-btn-height-lg: 52px;
+  --nxt1-ui-input-height: 52px;
+  --nxt1-ui-touch-target: 44px;
+
+  /* ============================================
+     LEGACY ALIASES (Backward Compatibility)
+     Maps old --auth-* variables to new --nxt1-ui-* 
+     ============================================ */
+  --auth-primary: var(--nxt1-ui-primary);
+  --auth-primary-dark: var(--nxt1-ui-primary-dark);
+  --auth-primary-glow: var(--nxt1-ui-primary-glow);
+  --auth-primary-border: var(--nxt1-ui-primary-border);
+  --auth-bg-page: var(--nxt1-ui-bg-page);
+  --auth-bg-card: var(--nxt1-ui-bg-card);
+  --auth-bg-card-border: var(--nxt1-ui-bg-card-border);
+  --auth-bg-input: var(--nxt1-ui-bg-input);
+  --auth-bg-input-hover: var(--nxt1-ui-bg-input-hover);
+  --auth-bg-input-focus: var(--nxt1-ui-bg-input-focus);
+  --auth-text-primary: var(--nxt1-ui-text-primary);
+  --auth-text-secondary: var(--nxt1-ui-text-secondary);
+  --auth-text-muted: var(--nxt1-ui-text-muted);
+  --auth-text-placeholder: var(--nxt1-ui-text-placeholder);
+  --auth-border-subtle: var(--nxt1-ui-border-subtle);
+  --auth-border-default: var(--nxt1-ui-border-default);
+  --auth-border-hover: var(--nxt1-ui-border-hover);
+  --auth-border-focus: var(--nxt1-ui-border-focus);
+  --auth-error: var(--nxt1-ui-error);
+  --auth-error-bg: var(--nxt1-ui-error-bg);
+  --auth-success: var(--nxt1-ui-success);
+  --auth-success-bg: var(--nxt1-ui-success-bg);
+  --auth-font: var(--nxt1-ui-font);
+  --auth-radius-sm: var(--nxt1-ui-radius-sm);
+  --auth-radius-default: var(--nxt1-ui-radius-default);
+  --auth-radius-lg: var(--nxt1-ui-radius-lg);
+  --auth-radius-xl: var(--nxt1-ui-radius-xl);
+  --auth-transition-fast: var(--nxt1-ui-transition-fast);
+  --auth-transition-normal: var(--nxt1-ui-transition-normal);
+
+  /* Auth-specific layout (kept for auth components) */
+  --auth-content-max-width: 840px;
+  --auth-card-max-width: 480px;
+}

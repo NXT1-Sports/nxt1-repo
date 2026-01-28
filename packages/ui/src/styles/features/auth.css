@@ -1,0 +1,575 @@
+/**
+ * @fileoverview Auth Feature Styles - NXT1 UI
+ * @module @nxt1/ui/styles/features/auth
+ * @version 2.0.0
+ *
+ * Auth-specific layout and component styles.
+ * Global button/form/link styles are in @nxt1/ui/styles/base.
+ *
+ * Components styled:
+ * - AuthShellComponent layout
+ * - Auth page structure (wrapper, card, header, footer)
+ * - Auth-specific slots (authTitle, authSubtitle, etc.)
+ * - App store buttons & QR codes
+ *
+ * Prerequisites:
+ *   @import '@nxt1/ui/styles/base'; (base styles must be loaded first)
+ *
+ * Usage:
+ *   @import '@nxt1/ui/styles/features/auth';
+ *   // Or via alias:
+ *   @import '@nxt1/ui/styles/auth';
+ */
+
+/* ============================================
+   AUTH PAGE CONTAINER
+   ============================================ */
+
+/* Enable scrolling on auth pages for content overflow */
+.nxt1-auth-content {
+  --overflow: auto;
+}
+
+.nxt1-auth-content::part(scroll) {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.nxt1-auth-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: var(--nxt1-spacing-6, 1.5rem);
+  background: var(--nxt1-ui-bg-page);
+  background-image: radial-gradient(
+    ellipse at 50% 0%,
+    var(--nxt1-color-alpha-primary5, rgba(204, 255, 0, 0.03)) 0%,
+    transparent 50%
+  );
+  overflow: hidden;
+
+  /* Safe area support */
+  padding-top: max(var(--nxt1-spacing-6, 1.5rem), env(safe-area-inset-top));
+  padding-bottom: max(var(--nxt1-spacing-6, 1.5rem), env(safe-area-inset-bottom));
+}
+
+/* Ionic compatibility */
+ion-content.nxt1-auth-page {
+  --background: var(--nxt1-ui-bg-page);
+  --padding-start: var(--nxt1-spacing-6, 1.5rem);
+  --padding-end: var(--nxt1-spacing-6, 1.5rem);
+  --padding-top: var(--nxt1-spacing-6, 1.5rem);
+  --padding-bottom: var(--nxt1-spacing-6, 1.5rem);
+}
+
+/* ============================================
+   AUTH SHELL LAYOUT STABILITY (CLS Prevention)
+   
+   Critical: These styles prevent Cumulative Layout Shift (CLS) 
+   during SSR hydration. Ionic web components (ion-content, etc.)
+   are Custom Elements that aren't defined until hydration.
+   
+   SOLUTION:
+   1. Use :not(:defined) to style pre-hydration state
+   2. Give components explicit dimensions BEFORE Ionic loads
+   3. Use min-height: 100vh on wrapper for centering
+   ============================================ */
+
+/* Ensure the auth shell component takes full width and allows scroll */
+nxt1-auth-shell {
+  display: block;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: var(--nxt1-color-bg-primary, #0a0a0a);
+  position: static;
+  overflow: visible;
+}
+
+/* Pre-hydration: Give ion-content dimensions before Ionic defines it */
+nxt1-auth-shell ion-content:not(:defined) {
+  display: block;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* Post-hydration: Style ion-content after Ionic defines it */
+nxt1-auth-shell ion-content,
+ion-content.nxt1-auth-content {
+  --background: transparent;
+}
+
+/* The wrapper inside ion-content handles centering */
+.nxt1-auth-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-top: 60px;
+  padding-bottom: 40px;
+  background-color: transparent;
+}
+
+/* ============================================
+   LOGO
+   ============================================ */
+
+.nxt1-auth-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--nxt1-spacing-8, 2rem);
+}
+
+.nxt1-auth-logo img,
+.nxt1-auth-logo svg {
+  height: 40px;
+  width: auto;
+}
+
+/* ============================================
+   AUTH CARD (Main Container)
+   ============================================ */
+
+.nxt1-auth-card {
+  width: 100%;
+  background: var(--nxt1-ui-bg-card);
+  border: 1px solid var(--nxt1-ui-bg-card-border);
+  border-radius: var(--nxt1-ui-radius-xl);
+  padding: var(--nxt1-spacing-10, 2.5rem);
+}
+
+/* Mobile: Reduce padding */
+@media (max-width: 767px) {
+  .nxt1-auth-card {
+    padding: var(--nxt1-spacing-6, 1.5rem) var(--nxt1-spacing-5, 1.25rem);
+  }
+}
+
+/* ============================================
+   AUTH MAIN SECTION
+   ============================================ */
+
+.nxt1-auth-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+/* ============================================
+   AUTH SIDEBAR (Desktop - App Download)
+   ============================================ */
+
+.nxt1-auth-sidebar {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .nxt1-auth-sidebar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-left: var(--nxt1-spacing-4, 1rem);
+    text-align: center;
+  }
+}
+
+.nxt1-auth-app-promo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--nxt1-spacing-4, 1rem);
+}
+
+.nxt1-auth-app-promo .phone-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--nxt1-ui-primary);
+  stroke-width: 1.5;
+}
+
+.nxt1-auth-app-promo h3 {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-lg, 1.25rem);
+  font-weight: var(--nxt1-font-weight-bold, 700);
+  color: var(--nxt1-ui-text-primary);
+  margin: 0;
+}
+
+.nxt1-auth-app-promo p {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  color: var(--nxt1-ui-text-muted);
+  margin: 0;
+}
+
+/* ============================================
+   QR CODES
+   ============================================ */
+
+.nxt1-auth-qr-codes {
+  display: flex;
+  gap: var(--nxt1-spacing-4, 1rem);
+  margin-top: var(--nxt1-spacing-4, 1rem);
+}
+
+.nxt1-auth-qr-code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--nxt1-spacing-2, 0.5rem);
+}
+
+.nxt1-auth-qr-code img {
+  width: 100px;
+  height: 100px;
+  border-radius: var(--nxt1-ui-radius-default);
+  background: white;
+  padding: 4px;
+}
+
+.nxt1-auth-qr-code span {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-1, 0.25rem);
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  color: var(--nxt1-ui-text-muted);
+}
+
+.nxt1-auth-qr-code span svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ============================================
+   MOBILE APP BUTTONS (Mobile Only)
+   ============================================ */
+
+.nxt1-auth-app-buttons {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .nxt1-auth-app-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: var(--nxt1-spacing-4, 1rem);
+    margin-top: var(--nxt1-spacing-6, 1.5rem);
+    padding-top: var(--nxt1-spacing-6, 1.5rem);
+    border-top: 1px solid var(--nxt1-ui-border-subtle);
+  }
+}
+
+.nxt1-auth-app-buttons .app-buttons-label {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  font-weight: var(--nxt1-font-weight-semibold, 600);
+  color: var(--nxt1-ui-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  text-align: center;
+}
+
+.nxt1-auth-app-buttons .app-buttons-row {
+  display: flex;
+  gap: var(--nxt1-spacing-3, 0.75rem);
+  justify-content: center;
+}
+
+/* ============================================
+   STORE BUTTONS
+   ============================================ */
+
+.nxt1-auth-store-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-2, 0.5rem);
+  padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-4, 1rem);
+  background: var(--nxt1-ui-bg-input);
+  border: 1px solid var(--nxt1-ui-border-default);
+  border-radius: var(--nxt1-ui-radius-default);
+  text-decoration: none;
+  transition: all var(--nxt1-ui-transition-normal);
+}
+
+.nxt1-auth-store-btn:hover {
+  background: var(--nxt1-ui-bg-input-hover);
+  border-color: var(--nxt1-ui-border-hover);
+}
+
+.nxt1-auth-store-btn svg {
+  width: 24px;
+  height: 24px;
+  color: var(--nxt1-ui-text-primary);
+}
+
+.nxt1-auth-store-btn .store-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.nxt1-auth-store-btn .store-label {
+  font-family: var(--nxt1-ui-font);
+  font-size: 10px;
+  color: var(--nxt1-ui-text-muted);
+  line-height: 1;
+}
+
+.nxt1-auth-store-btn .store-name {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: var(--nxt1-font-weight-semibold, 600);
+  color: var(--nxt1-ui-text-primary);
+  line-height: 1.2;
+}
+
+/* ============================================
+   HEADER (Title + Subtitle)
+   ============================================ */
+
+.nxt1-auth-header {
+  text-align: center;
+  margin-bottom: var(--nxt1-spacing-6, 1.5rem);
+  padding-bottom: var(--nxt1-spacing-6, 1.5rem);
+  border-bottom: 1px solid var(--nxt1-ui-border-subtle);
+}
+
+.nxt1-auth-header h1 {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-2xl, 1.875rem);
+  font-weight: var(--nxt1-font-weight-bold, 700);
+  color: var(--nxt1-ui-text-primary);
+  margin: 0 0 var(--nxt1-spacing-2, 0.5rem);
+  letter-spacing: -0.02em;
+}
+
+.nxt1-auth-header p {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-font-weight-medium, 500);
+  color: var(--nxt1-ui-text-secondary);
+  margin: 0;
+}
+
+/* ============================================
+   CONTENT PROJECTION SLOTS
+   [authTitle], [authSubtitle], [authFooter]
+   ============================================ */
+
+/* Title Slot */
+[authTitle],
+h1[authTitle] {
+  font-family: var(--nxt1-ui-font);
+  font-size: clamp(1.75rem, 5vw, 2.25rem);
+  font-weight: var(--nxt1-font-weight-bold, 700);
+  color: var(--nxt1-ui-text-primary);
+  margin: 0;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+/* Subtitle Slot */
+[authSubtitle],
+p[authSubtitle] {
+  font-family: var(--nxt1-ui-font);
+  font-size: clamp(0.9375rem, 2.5vw, 1rem);
+  font-weight: var(--nxt1-font-weight-medium, 500);
+  color: var(--nxt1-ui-text-secondary);
+  margin: var(--nxt1-spacing-2, 0.5rem) 0 0;
+  line-height: 1.5;
+}
+
+/* Footer Slot */
+[authFooter],
+p[authFooter] {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  color: var(--nxt1-ui-text-secondary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-1, 0.25rem);
+  flex-wrap: wrap;
+}
+
+[authFooter] a,
+p[authFooter] a {
+  font-weight: var(--nxt1-font-weight-bold, 700);
+  color: var(--nxt1-ui-primary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity var(--nxt1-ui-transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+[authFooter] a:hover,
+p[authFooter] a:hover {
+  opacity: 0.8;
+}
+
+/* ============================================
+   FOOTER (Create Account Link area)
+   ============================================ */
+
+.nxt1-auth-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-1, 0.25rem);
+  margin-top: var(--nxt1-spacing-6, 1.5rem);
+  padding-top: var(--nxt1-spacing-6, 1.5rem);
+  border-top: 1px solid var(--nxt1-ui-border-subtle);
+}
+
+.nxt1-auth-footer span {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  color: var(--nxt1-ui-text-secondary);
+}
+
+.nxt1-auth-footer a {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-font-weight-bold, 700);
+  color: var(--nxt1-ui-primary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity var(--nxt1-ui-transition-fast);
+}
+
+.nxt1-auth-footer a:hover {
+  opacity: 0.8;
+}
+
+/* ============================================
+   TERMS FOOTER
+   ============================================ */
+
+.nxt1-auth-terms {
+  text-align: center;
+  margin-top: var(--nxt1-spacing-8, 2rem);
+}
+
+.nxt1-auth-terms p {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  color: var(--nxt1-ui-text-muted);
+  margin: 0;
+}
+
+.nxt1-auth-terms a {
+  color: var(--nxt1-ui-text-secondary);
+  text-decoration: underline;
+  transition: color var(--nxt1-ui-transition-fast);
+}
+
+.nxt1-auth-terms a:hover {
+  color: var(--nxt1-ui-text-primary);
+}
+
+/* ============================================
+   PLATFORM: iOS
+   ============================================ */
+
+.ios .nxt1-auth-card {
+  border-radius: var(--nxt1-ui-radius-2xl);
+}
+
+.ios .nxt1-auth-page {
+  padding-top: max(var(--nxt1-spacing-6, 1.5rem), env(safe-area-inset-top));
+  padding-bottom: max(var(--nxt1-spacing-6, 1.5rem), env(safe-area-inset-bottom));
+}
+
+/* ============================================
+   PLATFORM: Material Design (Android)
+   ============================================ */
+
+.md .nxt1-auth-card {
+  border-radius: var(--nxt1-ui-radius-xl);
+}
+
+/* ============================================
+   RESPONSIVE: Tablet (768px - 1023px)
+   ============================================ */
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .nxt1-auth-wrapper {
+    padding: var(--nxt1-spacing-8, 2rem);
+  }
+
+  .nxt1-auth-card {
+    padding: var(--nxt1-spacing-8, 2rem);
+  }
+
+  [authTitle],
+  h1[authTitle] {
+    font-size: 2rem;
+  }
+}
+
+/* ============================================
+   RESPONSIVE: Desktop (1024px+)
+   ============================================ */
+
+@media (min-width: 1024px) {
+  .nxt1-auth-wrapper {
+    padding: var(--nxt1-spacing-10, 2.5rem);
+  }
+
+  .nxt1-auth-card {
+    padding: var(--nxt1-spacing-10, 2.5rem);
+    max-width: 480px;
+  }
+
+  [authTitle],
+  h1[authTitle] {
+    font-size: 2.25rem;
+  }
+
+  [authSubtitle],
+  p[authSubtitle] {
+    font-size: 1.0625rem;
+  }
+}
+
+/* ============================================
+   RESPONSIVE: Mobile adjustments
+   ============================================ */
+
+@media (max-width: 767px) {
+  .nxt1-auth-page {
+    padding: var(--nxt1-spacing-4, 1rem);
+    padding-top: max(var(--nxt1-spacing-4, 1rem), env(safe-area-inset-top, 20px));
+    padding-bottom: max(var(--nxt1-spacing-4, 1rem), env(safe-area-inset-bottom, 20px));
+  }
+
+  .nxt1-auth-wrapper {
+    padding: var(--nxt1-spacing-4, 1rem);
+  }
+
+  .nxt1-auth-card {
+    padding: var(--nxt1-spacing-5, 1.25rem);
+  }
+
+  [authTitle],
+  h1[authTitle] {
+    font-size: 1.75rem;
+  }
+
+  [authSubtitle],
+  p[authSubtitle] {
+    font-size: 0.9375rem;
+  }
+}

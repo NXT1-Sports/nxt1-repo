@@ -6,6 +6,7 @@
  * - HTTP caching
  * - HTTP error handling (from @nxt1/ui)
  * - Global error handling (from @nxt1/ui)
+ * - Auth interceptor
  *
  * @module @nxt1/web/core/infrastructure
  */
@@ -21,6 +22,9 @@ export {
   preloadHttpCache,
   type HttpCacheInterceptorOptions,
 } from './http/cache.interceptor';
+
+// Auth Interceptor - adds Firebase token to API requests
+export { authInterceptor } from './interceptors/auth.interceptor';
 
 // HTTP Error Interceptor - re-export from @nxt1/ui
 export { httpErrorInterceptor, type HttpErrorInterceptorOptions } from '@nxt1/ui';

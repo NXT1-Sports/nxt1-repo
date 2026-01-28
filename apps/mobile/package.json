@@ -22,8 +22,8 @@
     "android": "npm run build && npx cap sync android && npx cap open android",
     "ios:dev": "npm run build:dev && npx cap sync ios && npx cap run ios",
     "android:dev": "npm run build:dev && npx cap sync android && npx cap run android",
-    "ios:live": "npx cap sync ios && npx cap run ios --live-reload",
-    "android:live": "npx cap sync android && npx cap run android --live-reload",
+    "ios:live": "npx cap sync ios && npx cap run ios --livereload-url=http://$(ipconfig getifaddr en0):4300 --external",
+    "android:live": "npx cap sync android && npx cap run android --livereload-url=http://$(ipconfig getifaddr en0):4300 --external",
     "resources": "npx @capacitor/assets generate"
   },
   "dependencies": {

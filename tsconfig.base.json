@@ -42,6 +42,8 @@
         "packages/core/src/*/index.ts",
         "packages/core/dist/*/index.d.ts"
       ],
+      "@nxt1/design-tokens": ["packages/design-tokens/dist/js/tokens.mjs"],
+      "@nxt1/design-tokens/*": ["packages/design-tokens/*"],
       "@nxt1/ui": ["packages/ui/src/index.ts", "packages/ui/dist"],
       "@nxt1/ui/auth": [
         "packages/ui/src/auth/index.ts",

@@ -8,13 +8,13 @@ import { authGuard } from './features/auth/guards/auth.guards';
  * Application routing with auth guards and layout wrappers.
  *
  * Architecture:
- * - MainLayoutComponent wraps authenticated routes (provides top nav)
- * - Auth routes are standalone (no layout wrapper)
+ * - WebShellComponent wraps authenticated routes (provides top nav)
+ * - Auth routes are standalone (no shell wrapper)
  * - Uses lazy loading for optimal performance
  *
  * Route Structure:
- * - / (root) → /home (protected, with layout)
- * - /auth → Authentication flows (no layout)
+ * - / (root) → /home (protected, with shell)
+ * - /auth → Authentication flows (no shell)
  */
 
 export const routes: Routes = [
@@ -25,11 +25,11 @@ export const routes: Routes = [
     redirectTo: 'home',
   },
 
-  // Authenticated Routes with Main Layout (Desktop Nav)
+  // Authenticated Routes with Web Shell (Desktop Nav)
   {
     path: '',
     loadComponent: () =>
-      import('./core/layout/main-layout.component').then((m) => m.MainLayoutComponent),
+      import('./core/layout/shell/web-shell.component').then((m) => m.WebShellComponent),
     canActivate: [authGuard],
     children: [
       // Home Page

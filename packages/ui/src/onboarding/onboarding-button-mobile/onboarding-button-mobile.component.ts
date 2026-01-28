@@ -43,7 +43,7 @@
 
 import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NxtIconComponent } from '../../shared/icon';
+import { NxtIconComponent } from '../../components/icon';
 import { HapticButtonDirective } from '../../services/haptics';
 import { OnboardingProgressPillsComponent } from '../onboarding-progress-pills';
 

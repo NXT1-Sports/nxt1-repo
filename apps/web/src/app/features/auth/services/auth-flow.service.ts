@@ -492,8 +492,45 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       } catch (err) {
         this.logger.warn('Failed to fetch backend profile', { error: err });
 
+        // CRITICAL FIX: Try to get cached profile even on error
+        // This prevents redirecting to onboarding when backend is temporarily unavailable
+        const cachedProfile = await globalAuthUserCache.get(firebaseUser.uid);
+        if (cachedProfile) {
+          this.logger.info('Using cached profile after backend failure', {
+            uid: firebaseUser.uid,
+            onboardingCompleted: cachedProfile.onboardingCompleted,
+          });
+          backendProfile = cachedProfile;
+        } else {
+          // Also check if current user state already has onboarding completed
+          // This preserves state across page reloads when backend is down
+          const currentUser = this.user();
+          if (currentUser?.hasCompletedOnboarding) {
+            this.logger.info('Preserving existing onboarding status from state', {
+              uid: firebaseUser.uid,
+              hasCompletedOnboarding: currentUser.hasCompletedOnboarding,
+            });
+            // Create minimal profile to preserve onboarding status
+            backendProfile = {
+              uid: firebaseUser.uid,
+              email: firebaseUser.email ?? '',
+              firstName: currentUser.displayName?.split(' ')[0] ?? '',
+              lastName: currentUser.displayName?.split(' ').slice(1).join(' ') ?? '',
+              displayName: currentUser.displayName ?? 'User',
+              role: currentUser.role ?? null,
+              planTier: currentUser.isPremium ? 'premium' : null,
+              onboardingCompleted: true, // Preserve the completed status
+              completeSignUp: true,
+              isCollegeCoach: currentUser.role === 'college-coach',
+              isRecruit: currentUser.role === 'athlete',
+              profileImg: currentUser.photoURL ?? null,
+              sports: [],
+            };
+          }
+        }
+
         // If caller needs to know about missing profile (OAuth new user detection), throw
-        if (throwOnNotFound) {
+        if (throwOnNotFound && !backendProfile) {
           throw new Error(`Backend user not found for uid: ${firebaseUser.uid}`);
         }
         // Otherwise continue with null profile - use Firebase data with defaults

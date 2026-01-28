@@ -7,7 +7,11 @@
       "@nxt1/core": ["../../packages/core/src/index.ts"],
       "@nxt1/core/*": ["../../packages/core/src/*/index.ts"],
       "@nxt1/ui": ["../../packages/ui/src/index.ts"],
-      "@nxt1/ui/*": ["../../packages/ui/src/*"]
+      "@nxt1/ui/*": ["../../packages/ui/src/*"],
+      "@nxt1/design-tokens": [
+        "../../packages/design-tokens/dist/js/tokens.mjs"
+      ],
+      "@nxt1/design-tokens/*": ["../../packages/design-tokens/*"]
     },
     "outDir": "./dist/out-tsc",
     "forceConsistentCasingInFileNames": true,

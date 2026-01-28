@@ -45,7 +45,7 @@ import { IonInput } from '@ionic/angular/standalone';
 import type { ReferralSourceData } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
 import { NxtLoggingService } from '../../services/logging';
-import { NxtValidationSummaryComponent } from '../../shared/validation-summary';
+import { NxtValidationSummaryComponent } from '../../components/validation-summary';
 import { HapticButtonDirective } from '../../services/haptics';
 
 // ============================================

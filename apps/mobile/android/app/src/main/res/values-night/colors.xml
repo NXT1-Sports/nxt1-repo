@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NXT1 Android Night Mode Colors
+  
+  Used when system is in dark mode.
+  For NXT1, dark mode IS our default, so these match the regular values.
+-->
+<resources>
+    <!-- NXT1 Brand Colors (same as day - we're dark-first) -->
+    <color name="colorPrimary">#CCFF00</color>
+    <color name="colorPrimaryDark">#0A0A0A</color>
+    <color name="colorAccent">#CCFF00</color>
+    
+    <!-- Background Colors -->
+    <color name="backgroundColor">#0A0A0A</color>
+    <color name="splashBackgroundColor">#0A0A0A</color>
+    <color name="navigationBarColor">#0A0A0A</color>
+    
+    <!-- Text Colors -->
+    <color name="textColorPrimary">#FFFFFF</color>
+    <color name="textColorSecondary">#A3A3A3</color>
+    
+    <!-- Surface Colors -->
+    <color name="cardBackgroundColor">#121212</color>
+    <color name="dividerColor">#262626</color>
+</resources>

@@ -56,10 +56,19 @@
 @import '@ionic/angular/css/display.css';
 
 /* ============================================
-   LAYER 6: UI COMPONENT STYLES
-   Styles for @nxt1/ui components
+   LAYER 6: NXT1 UI COMPONENT STYLES
+   Base styles (buttons, forms, links) + Feature styles
    ============================================ */
+/* Base styles (global buttons, forms, links, variables) */
+@import '@nxt1/ui/styles/base';
+
+/* Feature-specific styles */
 @import '@nxt1/ui/styles/auth';
+
+/* Navigation components (header, footer, mobile menu) */
+@import '@nxt1/ui/styles/components/navigation';
+
+/* Ionic component overrides */
 @import '@nxt1/ui/styles/components/ionic-select';
 @import '@nxt1/ui/styles/components/ionic-toast';
 @import '@nxt1/ui/styles/components/ionic-modal';
@@ -175,6 +184,19 @@ ion-button::part(native) {
   letter-spacing: var(--nxt1-letterSpacing-tight);
   border-radius: var(--nxt1-radius-md);
   transition: all var(--nxt1-duration-normal) var(--nxt1-easing-out);
+}
+
+/* ============================================
+   PREVENT DOUBLE-TAP ZOOM (Global)
+   
+   touch-action: manipulation allows scrolling
+   and pinch-zoom but disables double-tap zoom.
+   This prevents accidental zoom on fast taps.
+   ============================================ */
+*,
+*::before,
+*::after {
+  touch-action: manipulation;
 }
 
 /* ----------------------------------------

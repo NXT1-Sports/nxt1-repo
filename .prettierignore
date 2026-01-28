@@ -7,3 +7,7 @@ www
 .angular
 .next
 *.log
+ios
+android
+*.min.js
+*.min.css

@@ -3,4 +3,5 @@
  * @module @nxt1/web/core/layout
  */
 
-export { MainLayoutComponent } from './main-layout.component';
+// Web Shell (main authenticated shell with top nav + mobile footer)
+export { WebShellComponent, MainLayoutComponent } from './shell';

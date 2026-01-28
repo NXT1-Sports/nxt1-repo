@@ -3,12 +3,13 @@
  * @module @nxt1/mobile
  *
  * Main application routes following professional mobile app patterns.
- * Uses TabsLayoutComponent as shell for all authenticated content.
+ * Uses MobileShellComponent as shell for all authenticated content.
  *
  * Architecture (like Instagram, TikTok, Twitter):
- * - Auth routes are standalone (no footer)
- * - All authenticated routes are children of TabsLayoutComponent
+ * - Auth routes are standalone (no shell/footer)
+ * - All authenticated routes are children of MobileShellComponent
  * - Footer persists across tab navigation (no re-render)
+ * - Each page owns its header via NxtPageHeaderComponent
  */
 
 import { Routes } from '@angular/router';
@@ -21,17 +22,17 @@ export const routes: Routes = [
     redirectTo: 'tabs',
   },
 
-  // Authentication Routes (no footer - standalone flow)
+  // Authentication Routes (no shell - standalone flow)
   {
     path: 'auth',
     loadChildren: () => import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),
   },
 
-  // Tabs Shell - All authenticated content lives here
+  // Mobile Shell - All authenticated content lives here
   {
     path: 'tabs',
     loadComponent: () =>
-      import('./core/layout/tabs-layout/tabs-layout.component').then((m) => m.TabsLayoutComponent),
+      import('./core/layout/shell/mobile-shell.component').then((m) => m.MobileShellComponent),
     children: [
       // Default tab redirect
       {

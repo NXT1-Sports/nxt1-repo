@@ -1,0 +1,60 @@
+/**
+ * @fileoverview Page Header Types
+ * @module @nxt1/ui/components/page-header
+ *
+ * Type definitions for the professional page header component.
+ */
+
+/**
+ * Header visual style variants
+ */
+export type PageHeaderVariant = 'default' | 'transparent' | 'blur' | 'solid';
+
+/**
+ * Header action button configuration
+ */
+export interface PageHeaderAction {
+  /** Unique identifier for the action */
+  readonly id: string;
+  /** Ionicon name for the button */
+  readonly icon: string;
+  /** Accessible label */
+  readonly label?: string;
+  /** Optional badge count (notifications, messages, etc.) */
+  readonly badge?: number;
+  /** Whether the action is disabled */
+  readonly disabled?: boolean;
+  /** Danger styling (for destructive actions) */
+  readonly danger?: boolean;
+}
+
+/**
+ * Full header configuration
+ */
+export interface PageHeaderConfig {
+  /** Visual style variant */
+  readonly variant?: PageHeaderVariant;
+  /** Enable iOS-style large title collapse on scroll */
+  readonly collapsible?: boolean;
+  /** Enable translucent blur effect (iOS style) */
+  readonly translucent?: boolean;
+  /** Show border at bottom */
+  readonly bordered?: boolean;
+  /** Custom background color */
+  readonly backgroundColor?: string;
+  /** Custom text color */
+  readonly textColor?: string;
+  /** Safe area handling mode */
+  readonly safeArea?: 'auto' | 'always' | 'never';
+}
+
+/**
+ * Default header configuration
+ */
+export const DEFAULT_PAGE_HEADER_CONFIG: PageHeaderConfig = {
+  variant: 'default',
+  collapsible: false,
+  translucent: true,
+  bordered: true,
+  safeArea: 'auto',
+};

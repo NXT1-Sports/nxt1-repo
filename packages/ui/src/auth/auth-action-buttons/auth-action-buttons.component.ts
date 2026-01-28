@@ -27,7 +27,7 @@
 import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonButton } from '@ionic/angular/standalone';
-import { NxtIconComponent } from '../../shared/icon';
+import { NxtIconComponent } from '../../components/icon';
 
 @Component({
   selector: 'nxt1-auth-action-buttons',

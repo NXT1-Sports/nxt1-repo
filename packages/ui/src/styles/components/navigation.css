@@ -1,0 +1,1169 @@
+/**
+ * @fileoverview NXT1 Navigation Component Styles
+ * @module @nxt1/ui/styles/components/navigation
+ * @version 2.0.0
+ *
+ * Professional navigation styles for mobile footer, desktop header, and page headers.
+ * Uses CSS custom properties for theming with sensible fallbacks.
+ *
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │  LAYER 1: CSS Variables (this file)                                    │
+ * │           - Shared navigation tokens                                    │
+ * │           - Component-specific tokens                                   │
+ * │                                                                         │
+ * │  LAYER 2: Tailwind Classes (in templates)                              │
+ * │           - Layout: flex, grid, gap, p-*, m-*                          │
+ * │           - Positioning: fixed, absolute, relative                      │
+ * │                                                                         │
+ * │  LAYER 3: Component CSS (below)                                        │
+ * │           - States: :hover, :active, :focus-visible                    │
+ * │           - Animations: keyframes, transitions                          │
+ * │           - Pseudo-elements                                             │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * Usage:
+ *   @import '@nxt1/ui/styles/components/navigation';
+ */
+
+/* ============================================
+   SHARED NAVIGATION VARIABLES
+   ============================================ */
+
+:root {
+  /* ============================================
+     GLOBAL GLASS/BLUR TOKENS
+     Use these across footer, header, nav, modals
+     ============================================ */
+
+  /* Glass effect - consistent blur across all nav elements */
+  --nxt1-glass-blur: 24px;
+  --nxt1-glass-bg: rgba(26, 26, 26, 0.88);
+  --nxt1-glass-bg-light: rgba(26, 26, 26, 0.72);
+  --nxt1-glass-border: rgba(255, 255, 255, 0.08);
+  --nxt1-glass-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+
+  /* Compact pill dimensions */
+  --nxt1-pill-height: 52px;
+  --nxt1-pill-radius: 28px;
+  --nxt1-pill-padding: 2px;
+  --nxt1-pill-gap: 8px;
+
+  /* Tab button dimensions */
+  --nxt1-tab-radius: 24px;
+  --nxt1-tab-padding-y: 6px;
+  --nxt1-tab-icon-size: 22px;
+  --nxt1-tab-label-size: 10px;
+  --nxt1-tab-label-gap: 4px;
+
+  /* Icon colors */
+  --nxt1-icon-inactive: #666666;
+  --nxt1-icon-active: #ffffff;
+  --nxt1-tab-active-bg: rgba(255, 255, 255, 0.12);
+
+  /* FAB dimensions */
+  --nxt1-fab-size: 48px;
+  --nxt1-fab-radius: 50%;
+
+  /* Layout */
+  --nxt1-nav-height: 64px;
+  --nxt1-nav-height-mobile: 56px;
+  --nxt1-nav-padding-x: var(--nxt1-spacing-6, 24px);
+  --nxt1-nav-max-width: 1536px;
+
+  /* Z-index scale for navigation */
+  --nxt1-nav-z-header: var(--nxt1-ui-z-sticky, 200);
+  --nxt1-nav-z-footer: var(--nxt1-ui-z-fixed, 300);
+  --nxt1-nav-z-dropdown: var(--nxt1-ui-z-dropdown, 100);
+  --nxt1-nav-z-mobile-overlay: var(--nxt1-ui-z-modal-backdrop, 400);
+  --nxt1-nav-z-mobile-menu: var(--nxt1-ui-z-modal, 500);
+
+  /* Shared colors */
+  --nxt1-nav-bg: var(--nxt1-ui-bg-page, #0a0a0a);
+  --nxt1-nav-bg-blur: rgba(10, 10, 10, 0.72);
+  --nxt1-nav-bg-elevated: var(--nxt1-ui-bg-elevated, #121212);
+  --nxt1-nav-border: var(--nxt1-ui-border-subtle, rgba(255, 255, 255, 0.08));
+
+  /* Text colors */
+  --nxt1-nav-text: var(--nxt1-ui-text-primary, #ffffff);
+  --nxt1-nav-text-secondary: var(--nxt1-ui-text-secondary, rgba(255, 255, 255, 0.7));
+  --nxt1-nav-text-muted: var(--nxt1-ui-text-muted, rgba(255, 255, 255, 0.5));
+  --nxt1-nav-text-active: var(--nxt1-ui-primary, #ccff00);
+
+  /* Interactive states */
+  --nxt1-nav-hover-bg: var(--nxt1-ui-bg-input, rgba(255, 255, 255, 0.08));
+  --nxt1-nav-active-bg: var(--nxt1-ui-bg-input-hover, rgba(255, 255, 255, 0.12));
+  --nxt1-nav-focus-ring: var(--nxt1-ui-primary, #ccff00);
+
+  /* Badge */
+  --nxt1-nav-badge-bg: var(--nxt1-ui-error, #ef4444);
+  --nxt1-nav-badge-text: #ffffff;
+
+  /* Transitions */
+  --nxt1-nav-transition-fast: var(--nxt1-ui-transition-fast, 150ms ease-out);
+  --nxt1-nav-transition-normal: var(--nxt1-ui-transition-normal, 200ms ease-out);
+  --nxt1-nav-transition-spring: var(
+    --nxt1-ui-transition-spring,
+    300ms cubic-bezier(0.34, 1.56, 0.64, 1)
+  );
+}
+
+/* ============================================
+   MOBILE FOOTER - Slack-Style Pill Tab Bar
+   ============================================ */
+
+/* Host element */
+.nxt1-mobile-footer-host {
+  display: block;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--nxt1-nav-z-footer);
+  pointer-events: none;
+}
+
+/* Footer variables (scoped) */
+.nxt1-footer {
+  --footer-safe-area: env(safe-area-inset-bottom, 0px);
+  --pill-bg: var(--nxt1-color-surface-200, #1a1a1a);
+  --pill-border: var(--nxt1-nav-border);
+  --pill-radius: var(--nxt1-ui-radius-2xl, 24px);
+  --pill-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+  --tab-inactive: var(--nxt1-nav-text-muted);
+  --tab-active: var(--nxt1-nav-text);
+  --tab-active-bg: var(--nxt1-color-surface-400, #2a2a2a);
+  --action-bg: var(--nxt1-ui-primary);
+  --action-text: var(--nxt1-ui-text-inverse, #000000);
+  --action-size: 44px;
+  --action-glow: rgba(204, 255, 0, 0.25);
+}
+
+/* Hidden state (scroll-to-hide) */
+.nxt1-footer.hidden {
+  transform: translateY(100%);
+  transition: transform var(--nxt1-nav-transition-normal);
+}
+
+/* Tabs pill container */
+.nxt1-footer .footer-tabs {
+  background: var(--pill-bg);
+  border: 1px solid var(--pill-border);
+  border-radius: var(--pill-radius);
+  box-shadow: var(--pill-shadow);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: auto;
+}
+
+/* Individual tab button */
+.nxt1-footer .tab-button {
+  position: relative;
+  background: transparent;
+  border: none;
+  border-radius: var(--nxt1-ui-radius-xl, 16px);
+  color: var(--tab-inactive);
+  cursor: pointer;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color var(--nxt1-nav-transition-fast),
+    background-color var(--nxt1-nav-transition-fast);
+}
+
+/* Active tab */
+.nxt1-footer .tab-button.active {
+  color: var(--tab-active);
+  background: var(--tab-active-bg);
+}
+
+/* Hover state */
+.nxt1-footer .tab-button:hover:not(:disabled):not(.active) {
+  color: var(--nxt1-nav-text-secondary);
+  background: var(--nxt1-color-surface-300, #222222);
+}
+
+/* Press feedback */
+.nxt1-footer .tab-button:active:not(:disabled) {
+  transform: scale(0.96);
+  transition: transform 50ms ease-out;
+}
+
+/* Focus visible */
+.nxt1-footer .tab-button:focus-visible {
+  outline: 2px solid var(--nxt1-nav-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Disabled tab */
+.nxt1-footer .footer-tab.disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* Action button background (floating FAB) */
+.nxt1-footer .action-button-bg {
+  position: absolute;
+  inset: 0;
+  background: var(--action-bg);
+  border-radius: var(--nxt1-ui-radius-xl, 16px);
+  box-shadow:
+    0 4px 16px var(--action-glow),
+    0 2px 6px rgba(0, 0, 0, 0.2);
+  transition:
+    transform var(--nxt1-nav-transition-fast),
+    box-shadow var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-footer .action-button .tab-button:hover .action-button-bg {
+  transform: scale(1.05);
+  box-shadow:
+    0 6px 20px var(--action-glow),
+    0 3px 8px rgba(0, 0, 0, 0.25);
+}
+
+.nxt1-footer .action-button .tab-button:active .action-button-bg {
+  transform: scale(0.95);
+}
+
+.nxt1-footer .action-button .tab-icon {
+  color: var(--action-text);
+  position: relative;
+  z-index: 1;
+}
+
+/* Tab badge */
+.nxt1-footer .tab-badge {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--nxt1-nav-badge-bg);
+  color: var(--nxt1-nav-badge-text);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  border: 2px solid var(--pill-bg);
+  animation: nxt1-badge-pop 200ms var(--nxt1-ui-transition-spring);
+}
+
+.nxt1-footer .tab-badge.large {
+  min-width: 20px;
+  font-size: 8px;
+}
+
+/* Platform adjustments */
+.nxt1-footer.ios .tab-label {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  font-weight: 510;
+}
+
+.nxt1-footer.android .tab-label {
+  font-family: 'Roboto', 'Google Sans', system-ui, sans-serif;
+}
+
+/* Hide labels variant */
+.nxt1-footer.hide-labels .tab-label {
+  display: none;
+}
+
+.nxt1-footer.hide-labels .tab-button {
+  height: 40px;
+  gap: 0;
+}
+
+/* ============================================
+   DESKTOP HEADER - 2026 Professional Nav
+   ============================================ */
+
+/* Host element */
+.nxt1-desktop-nav-host {
+  display: block;
+  position: relative;
+  z-index: var(--nxt1-nav-z-header);
+}
+
+.nxt1-desktop-nav-host.sticky {
+  position: sticky;
+  top: 0;
+}
+
+.nxt1-desktop-nav-host.hidden .nxt1-desktop-nav {
+  transform: translateY(-100%);
+  pointer-events: none;
+}
+
+/* Main nav container */
+.nxt1-desktop-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: var(--nxt1-nav-height);
+  background: var(--nxt1-nav-bg);
+  transition:
+    transform var(--nxt1-nav-transition-normal),
+    background-color var(--nxt1-nav-transition-fast);
+  will-change: transform;
+}
+
+/* Bordered variant */
+.nxt1-desktop-nav.bordered {
+  border-bottom: 1px solid var(--nxt1-nav-border);
+}
+
+/* Blur variant (macOS Sonoma style) */
+.nxt1-desktop-nav.blur {
+  background: var(--nxt1-nav-bg-blur);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+@supports not (backdrop-filter: blur(20px)) {
+  .nxt1-desktop-nav.blur {
+    background: var(--nxt1-nav-bg);
+  }
+}
+
+/* Transparent variant */
+.nxt1-desktop-nav.transparent {
+  background: transparent;
+  border-bottom-color: transparent;
+}
+
+.nxt1-desktop-nav.transparent:hover {
+  background: var(--nxt1-nav-bg-blur);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+/* Elevated variant (Windows 11 Mica style) */
+.nxt1-desktop-nav.elevated {
+  background: var(--nxt1-nav-bg-elevated);
+  border-bottom-color: transparent;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.12),
+    0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Minimal variant */
+.nxt1-desktop-nav.minimal {
+  background: transparent;
+  border-bottom: none;
+}
+
+.nxt1-desktop-nav.minimal .nav-item-btn:not(.featured):not(.active) {
+  color: var(--nxt1-nav-text-secondary);
+}
+
+/* Logo button */
+.nxt1-desktop-nav .logo-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--nxt1-spacing-1, 4px);
+  margin: calc(-1 * var(--nxt1-spacing-1, 4px));
+  background: transparent;
+  border: none;
+  border-radius: var(--nxt1-ui-radius-default, 8px);
+  cursor: pointer;
+  transition:
+    transform var(--nxt1-nav-transition-fast),
+    opacity var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-desktop-nav .logo-btn:hover {
+  opacity: 0.9;
+}
+
+.nxt1-desktop-nav .logo-btn:active {
+  transform: scale(0.97);
+}
+
+.nxt1-desktop-nav .logo-btn:focus-visible {
+  outline: 2px solid var(--nxt1-nav-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Nav item button */
+.nxt1-desktop-nav .nav-item-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-1, 4px);
+  height: 36px;
+  padding: 0 var(--nxt1-spacing-3, 12px);
+  background: transparent;
+  border: none;
+  border-radius: var(--nxt1-ui-radius-default, 8px);
+  color: var(--nxt1-nav-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color var(--nxt1-nav-transition-fast),
+    color var(--nxt1-nav-transition-fast),
+    transform var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-desktop-nav .nav-item-btn:hover:not(:disabled) {
+  background: var(--nxt1-nav-hover-bg);
+  color: var(--nxt1-nav-text);
+}
+
+.nxt1-desktop-nav .nav-item-btn:active:not(:disabled) {
+  background: var(--nxt1-nav-active-bg);
+  transform: scale(0.98);
+}
+
+.nxt1-desktop-nav .nav-item-btn:focus-visible {
+  outline: 2px solid var(--nxt1-nav-focus-ring);
+  outline-offset: 2px;
+}
+
+.nxt1-desktop-nav .nav-item-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Active nav item */
+.nxt1-desktop-nav .nav-item-btn.active:not(.featured) {
+  color: var(--nxt1-nav-text-active);
+  background: var(--nxt1-nav-hover-bg);
+}
+
+/* Featured button (CTA) */
+.nxt1-desktop-nav .nav-item-btn.featured {
+  background: var(--nxt1-ui-primary);
+  color: var(--nxt1-ui-text-inverse);
+  font-weight: 600;
+  padding: 0 var(--nxt1-spacing-4, 16px);
+}
+
+.nxt1-desktop-nav .nav-item-btn.featured:hover:not(:disabled) {
+  background: var(--nxt1-ui-primary-dark);
+  color: var(--nxt1-ui-text-inverse);
+}
+
+/* Nav item badge */
+.nxt1-desktop-nav .nav-item-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: var(--nxt1-nav-badge-bg);
+  color: var(--nxt1-nav-badge-text);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  margin-left: var(--nxt1-spacing-1, 4px);
+}
+
+/* Chevron rotation */
+.nxt1-desktop-nav .nav-item-chevron {
+  flex-shrink: 0;
+  margin-left: var(--nxt1-spacing-1, 4px);
+  transition: transform var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-desktop-nav .nav-item-chevron.open {
+  transform: rotate(180deg);
+}
+
+/* Active indicator line */
+.nxt1-desktop-nav .nav-active-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - var(--nxt1-spacing-4, 16px));
+  height: 2px;
+  background: var(--nxt1-nav-text-active);
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+}
+
+/* Dropdown menu */
+.nxt1-desktop-nav .nav-dropdown,
+.nxt1-desktop-nav .user-dropdown {
+  position: absolute;
+  top: calc(100% + var(--nxt1-spacing-2, 8px));
+  min-width: 200px;
+  background: var(--nxt1-color-surface-100, #1a1a1a);
+  border: 1px solid var(--nxt1-ui-border-default, rgba(255, 255, 255, 0.12));
+  border-radius: var(--nxt1-ui-radius-lg, 12px);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.32),
+    0 2px 8px rgba(0, 0, 0, 0.24);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-8px) scale(0.96);
+  transform-origin: top left;
+  transition:
+    opacity var(--nxt1-nav-transition-normal),
+    visibility var(--nxt1-nav-transition-normal),
+    transform var(--nxt1-nav-transition-normal);
+  z-index: var(--nxt1-nav-z-dropdown);
+  overflow: hidden;
+}
+
+.nxt1-desktop-nav .nav-dropdown {
+  left: 0;
+}
+
+.nxt1-desktop-nav .user-dropdown {
+  right: 0;
+  min-width: 240px;
+  transform-origin: top right;
+}
+
+.nxt1-desktop-nav .nav-dropdown.open,
+.nxt1-desktop-nav .user-dropdown.open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+
+/* Dropdown item */
+.nxt1-desktop-nav .dropdown-item,
+.nxt1-desktop-nav .user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-3, 12px);
+  width: 100%;
+  padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-3, 12px);
+  background: transparent;
+  border: none;
+  border-radius: var(--nxt1-ui-radius-default, 8px);
+  color: var(--nxt1-nav-text);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-desktop-nav .dropdown-item:hover:not(:disabled),
+.nxt1-desktop-nav .user-menu-item:hover:not(:disabled) {
+  background: var(--nxt1-nav-hover-bg);
+}
+
+.nxt1-desktop-nav .dropdown-item:focus-visible,
+.nxt1-desktop-nav .user-menu-item:focus-visible {
+  outline: 2px solid var(--nxt1-nav-focus-ring);
+  outline-offset: -2px;
+}
+
+.nxt1-desktop-nav .dropdown-item:disabled,
+.nxt1-desktop-nav .user-menu-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.nxt1-desktop-nav .user-menu-item.danger {
+  color: var(--nxt1-ui-error);
+}
+
+.nxt1-desktop-nav .dropdown-divider,
+.nxt1-desktop-nav .user-menu-divider {
+  height: 1px;
+  margin: var(--nxt1-spacing-1, 4px) 0;
+  background: var(--nxt1-ui-border-default, rgba(255, 255, 255, 0.12));
+}
+
+/* Search bar */
+.nxt1-desktop-nav .search-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 var(--nxt1-spacing-10, 40px);
+  background: var(--nxt1-nav-hover-bg);
+  border: 1px solid transparent;
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  color: var(--nxt1-nav-text);
+  font-size: 14px;
+  outline: none;
+  transition:
+    background-color var(--nxt1-nav-transition-fast),
+    border-color var(--nxt1-nav-transition-fast),
+    box-shadow var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-desktop-nav .search-input::placeholder {
+  color: var(--nxt1-nav-text-muted);
+}
+
+.nxt1-desktop-nav .search-input:hover {
+  background: var(--nxt1-nav-hover-bg);
+}
+
+.nxt1-desktop-nav .search-input:focus {
+  background: var(--nxt1-nav-active-bg);
+  border-color: var(--nxt1-nav-focus-ring);
+  box-shadow: 0 0 0 3px rgba(204, 255, 0, 0.15);
+}
+
+.nxt1-desktop-nav .search-input::-webkit-search-cancel-button,
+.nxt1-desktop-nav .search-input::-webkit-search-decoration {
+  display: none;
+}
+
+/* Action button (notifications) */
+.nxt1-desktop-nav .nav-action-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  color: var(--nxt1-nav-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color var(--nxt1-nav-transition-fast),
+    color var(--nxt1-nav-transition-fast),
+    transform var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-desktop-nav .nav-action-btn:hover {
+  background: var(--nxt1-nav-hover-bg);
+  color: var(--nxt1-nav-text);
+}
+
+.nxt1-desktop-nav .nav-action-btn:active {
+  transform: scale(0.95);
+}
+
+.nxt1-desktop-nav .nav-action-btn:focus-visible {
+  outline: 2px solid var(--nxt1-nav-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Notification badge */
+.nxt1-desktop-nav .notification-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background: var(--nxt1-nav-badge-bg);
+  color: var(--nxt1-nav-badge-text);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  border: 2px solid var(--nxt1-nav-bg);
+  animation: nxt1-badge-pop 300ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* User button */
+.nxt1-desktop-nav .user-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-2, 8px);
+  height: 40px;
+  padding: var(--nxt1-spacing-1, 4px) var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-1, 4px)
+    var(--nxt1-spacing-1, 4px);
+  background: transparent;
+  border: none;
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  color: var(--nxt1-nav-text);
+  cursor: pointer;
+  transition:
+    background-color var(--nxt1-nav-transition-fast),
+    transform var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-desktop-nav .user-btn:hover {
+  background: var(--nxt1-nav-hover-bg);
+}
+
+.nxt1-desktop-nav .user-btn:active {
+  transform: scale(0.98);
+}
+
+.nxt1-desktop-nav .user-btn:focus-visible {
+  outline: 2px solid var(--nxt1-nav-focus-ring);
+  outline-offset: 2px;
+}
+
+/* User avatar */
+.nxt1-desktop-nav .user-avatar,
+.nxt1-desktop-nav .user-info-avatar,
+.nxt1-desktop-nav .mobile-user-avatar {
+  position: relative;
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  overflow: hidden;
+  background: var(--nxt1-nav-active-bg);
+  flex-shrink: 0;
+}
+
+.nxt1-desktop-nav .user-avatar {
+  width: 32px;
+  height: 32px;
+}
+
+.nxt1-desktop-nav .user-info-avatar {
+  width: 40px;
+  height: 40px;
+}
+
+.nxt1-desktop-nav .avatar-img,
+.nxt1-desktop-nav .avatar-img-lg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.nxt1-desktop-nav .avatar-initials,
+.nxt1-desktop-nav .avatar-initials-lg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  font-weight: 600;
+  color: var(--nxt1-nav-text);
+  text-transform: uppercase;
+}
+
+.nxt1-desktop-nav .avatar-initials {
+  font-size: 12px;
+}
+
+.nxt1-desktop-nav .avatar-initials-lg {
+  font-size: 16px;
+}
+
+.nxt1-desktop-nav .avatar-verified {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  background: var(--nxt1-ui-primary);
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  color: var(--nxt1-ui-text-inverse);
+  border: 2px solid var(--nxt1-nav-bg);
+}
+
+/* User info in dropdown */
+.nxt1-desktop-nav .user-info {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--nxt1-spacing-3, 12px);
+  padding: var(--nxt1-spacing-4, 16px);
+  position: relative;
+}
+
+.nxt1-desktop-nav .user-info-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.nxt1-desktop-nav .user-info-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--nxt1-nav-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nxt1-desktop-nav .user-info-email {
+  font-size: 12px;
+  color: var(--nxt1-nav-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nxt1-desktop-nav .user-info-role {
+  display: inline-flex;
+  align-items: center;
+  margin-top: var(--nxt1-spacing-1, 4px);
+  padding: 2px var(--nxt1-spacing-2, 8px);
+  background: var(--nxt1-nav-hover-bg);
+  border-radius: var(--nxt1-ui-radius-sm, 4px);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--nxt1-nav-text-secondary);
+  width: fit-content;
+}
+
+.nxt1-desktop-nav .premium-badge {
+  position: absolute;
+  top: var(--nxt1-spacing-3, 12px);
+  right: var(--nxt1-spacing-3, 12px);
+  padding: 2px var(--nxt1-spacing-2, 8px);
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  border-radius: var(--nxt1-ui-radius-sm, 4px);
+  font-size: 10px;
+  font-weight: 700;
+  color: #000000;
+  letter-spacing: 0.05em;
+}
+
+/* Mobile menu overlay */
+.nxt1-desktop-nav-host .mobile-menu-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  visibility: hidden;
+  transition: all var(--nxt1-nav-transition-normal);
+  z-index: var(--nxt1-nav-z-mobile-overlay);
+}
+
+.nxt1-desktop-nav-host .mobile-menu-overlay.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Mobile menu panel */
+.nxt1-desktop-nav-host .mobile-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 280px;
+  max-width: 85vw;
+  background: var(--nxt1-nav-bg);
+  border-right: 1px solid var(--nxt1-nav-border);
+  transform: translateX(-100%);
+  transition: transform var(--nxt1-nav-transition-normal);
+  z-index: var(--nxt1-nav-z-mobile-menu);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.nxt1-desktop-nav-host .mobile-menu.open {
+  transform: translateX(0);
+}
+
+/* Mobile nav button */
+.nxt1-desktop-nav .mobile-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-3, 12px);
+  width: 100%;
+  padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+  background: transparent;
+  border: none;
+  border-radius: var(--nxt1-ui-radius-default, 8px);
+  color: var(--nxt1-nav-text-secondary);
+  font-size: 16px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-desktop-nav .mobile-nav-btn:hover {
+  background: var(--nxt1-nav-hover-bg);
+  color: var(--nxt1-nav-text);
+}
+
+.nxt1-desktop-nav .mobile-nav-btn.active {
+  background: var(--nxt1-nav-active-bg);
+  color: var(--nxt1-nav-text-active);
+}
+
+/* Mobile hamburger button */
+.nxt1-desktop-nav .mobile-menu-btn {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  width: 40px;
+  height: 40px;
+  padding: 8px;
+  background: transparent;
+  border: none;
+  border-radius: var(--nxt1-ui-radius-default, 8px);
+  cursor: pointer;
+  transition: background var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-desktop-nav .mobile-menu-btn:hover {
+  background: var(--nxt1-nav-hover-bg);
+}
+
+.nxt1-desktop-nav .hamburger-line {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: var(--nxt1-nav-text);
+  border-radius: 1px;
+  transition: all var(--nxt1-nav-transition-normal);
+}
+
+.nxt1-desktop-nav .mobile-menu-btn.open .hamburger-line:nth-child(1) {
+  transform: translateY(7px) rotate(45deg);
+}
+
+.nxt1-desktop-nav .mobile-menu-btn.open .hamburger-line:nth-child(2) {
+  opacity: 0;
+}
+
+.nxt1-desktop-nav .mobile-menu-btn.open .hamburger-line:nth-child(3) {
+  transform: translateY(-7px) rotate(-45deg);
+}
+
+/* Mobile auth buttons */
+.nxt1-desktop-nav .mobile-auth-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+  border-radius: var(--nxt1-ui-radius-default, 8px);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-desktop-nav .mobile-auth-btn--primary {
+  background: var(--nxt1-ui-primary);
+  border: none;
+  color: var(--nxt1-ui-text-inverse);
+}
+
+.nxt1-desktop-nav .mobile-auth-btn--primary:hover {
+  background: var(--nxt1-ui-primary-dark);
+}
+
+.nxt1-desktop-nav .mobile-auth-btn--secondary {
+  background: transparent;
+  border: 1px solid var(--nxt1-nav-border);
+  color: var(--nxt1-nav-text);
+}
+
+.nxt1-desktop-nav .mobile-auth-btn--secondary:hover {
+  background: var(--nxt1-nav-hover-bg);
+  border-color: var(--nxt1-nav-text-secondary);
+}
+
+/* ============================================
+   PAGE HEADER - Ionic-Based Mobile Headers
+   ============================================ */
+
+/* Base header styles */
+.nxt1-page-header ion-header {
+  --background: var(--nxt1-color-surface-primary, var(--ion-toolbar-background));
+  --color: var(--nxt1-nav-text);
+}
+
+.nxt1-page-header .header--bordered ion-toolbar:last-of-type {
+  --border-width: 0 0 0.55px 0;
+  --border-color: var(--nxt1-color-border-secondary, rgba(255, 255, 255, 0.1));
+}
+
+.nxt1-page-header .header--transparent,
+.nxt1-page-header .header--transparent ion-toolbar {
+  --background: transparent;
+  --ion-toolbar-background: transparent;
+}
+
+.nxt1-page-header .header--blur {
+  --background: rgba(var(--nxt1-color-surface-primary-rgb, 10, 10, 10), 0.72);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+.nxt1-page-header ion-toolbar {
+  --padding-start: 8px;
+  --padding-end: 8px;
+  --min-height: 44px;
+}
+
+.nxt1-page-header ion-back-button {
+  --color: var(--nxt1-ui-primary, #007aff);
+  --icon-font-size: 24px;
+  --icon-margin-end: 4px;
+  --padding-start: 0;
+  --margin-start: 0;
+}
+
+:host-context(.ios) .nxt1-page-header ion-back-button {
+  --icon-font-size: 28px;
+}
+
+.nxt1-page-header ion-title {
+  font-family: var(--nxt1-fontFamily-heading, var(--ion-font-family));
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
+  font-size: var(--nxt1-fontSize-lg, 17px);
+  letter-spacing: -0.01em;
+  padding-inline: 8px;
+}
+
+.nxt1-page-header .large-title-toolbar ion-title {
+  font-size: var(--nxt1-fontSize-3xl, 34px);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
+  letter-spacing: -0.02em;
+}
+
+.nxt1-page-header ion-buttons ion-button {
+  --color: var(--nxt1-ui-primary, #007aff);
+  --padding-start: 8px;
+  --padding-end: 8px;
+  position: relative;
+}
+
+.nxt1-page-header ion-buttons ion-button ion-icon {
+  font-size: 24px;
+}
+
+.nxt1-page-header .action--danger {
+  --color: var(--nxt1-ui-error, #ff3b30);
+}
+
+.nxt1-page-header .action-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: 10px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  --background: var(--nxt1-ui-error, #ff3b30);
+  --color: white;
+}
+
+.nxt1-page-header .search-toolbar {
+  --padding-top: 0;
+  --padding-bottom: 8px;
+}
+
+.nxt1-page-header ion-button:active {
+  opacity: 0.7;
+}
+
+/* ============================================
+   SHARED KEYFRAMES
+   ============================================ */
+
+@keyframes nxt1-badge-pop {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ============================================
+   RESPONSIVE BREAKPOINTS
+   ============================================ */
+
+@media (max-width: 1280px) {
+  .nxt1-desktop-nav-host {
+    --nxt1-nav-padding-x: var(--nxt1-spacing-4, 16px);
+  }
+}
+
+@media (max-width: 768px) {
+  .nxt1-desktop-nav .nav-primary {
+    display: none;
+  }
+
+  .nxt1-desktop-nav .nav-search {
+    display: none;
+  }
+
+  .nxt1-desktop-nav .user-name,
+  .nxt1-desktop-nav .user-chevron {
+    display: none;
+  }
+
+  .nxt1-desktop-nav .mobile-menu-btn {
+    display: flex;
+  }
+
+  .nxt1-desktop-nav .logo-btn nxt1-logo {
+    transform: scale(0.75);
+    transform-origin: left center;
+  }
+}
+
+/* ============================================
+   REDUCED MOTION
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .nxt1-footer .tab-button,
+  .nxt1-footer .action-button-bg,
+  .nxt1-footer .tab-badge,
+  .nxt1-desktop-nav,
+  .nxt1-desktop-nav .nav-item-btn,
+  .nxt1-desktop-nav .nav-dropdown,
+  .nxt1-desktop-nav .user-dropdown,
+  .nxt1-desktop-nav .search-input,
+  .nxt1-desktop-nav .nav-action-btn,
+  .nxt1-desktop-nav .user-btn {
+    transition: none;
+  }
+
+  .nxt1-footer .tab-badge,
+  .nxt1-desktop-nav .notification-badge {
+    animation: none;
+  }
+}
+
+/* ============================================
+   LIGHT THEME OVERRIDES
+   ============================================ */
+
+:root[data-theme='light'],
+.light-theme {
+  --nxt1-nav-bg: var(--nxt1-color-background-primary, #ffffff);
+  --nxt1-nav-bg-blur: rgba(255, 255, 255, 0.85);
+  --nxt1-nav-bg-elevated: var(--nxt1-color-surface-100, #f5f5f5);
+  --nxt1-nav-border: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.08));
+  --nxt1-nav-text: var(--nxt1-color-text-primary, #212121);
+  --nxt1-nav-text-secondary: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.6));
+  --nxt1-nav-text-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.4));
+  --nxt1-nav-text-active: var(--nxt1-color-primary-dark, #8fcc00);
+  --nxt1-nav-hover-bg: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.06));
+  --nxt1-nav-active-bg: var(--nxt1-color-surface-300, rgba(0, 0, 0, 0.1));
+}
+
+/* Footer light theme */
+:root[data-theme='light'] .nxt1-footer,
+.light-theme .nxt1-footer {
+  --pill-bg: var(--nxt1-color-surface-100, #f5f5f5);
+  --pill-border: var(--nxt1-color-border-default, rgba(0, 0, 0, 0.12));
+  --pill-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.05);
+  --tab-inactive: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.45));
+  --tab-active: var(--nxt1-color-text-primary, #1a1a1a);
+  --tab-active-bg: var(--nxt1-color-surface-300, #e0e0e0);
+}

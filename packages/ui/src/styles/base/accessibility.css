@@ -1,0 +1,286 @@
+/**
+ * @fileoverview NXT1 Accessibility Utilities
+ * @module @nxt1/ui/styles/base/accessibility
+ * @version 1.0.0
+ *
+ * Accessibility-focused utility classes and global accessibility styles.
+ * Follows WCAG 2.2 AA guidelines and modern accessibility best practices.
+ *
+ * Features:
+ * - Screen reader utilities
+ * - Reduced motion support
+ * - High contrast mode support (Windows)
+ * - Focus management
+ * - Skip links
+ *
+ * Usage:
+ *   @import '@nxt1/ui/styles/base/accessibility';
+ */
+
+/* ============================================
+   SCREEN READER UTILITIES
+   ============================================ */
+
+/**
+ * Visually hidden but accessible to screen readers.
+ * Use for labels, skip links, and other SR-only content.
+ */
+.nxt1-sr-only,
+.sr-only,
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/**
+ * Becomes visible on focus (for skip links).
+ */
+.nxt1-sr-only-focusable:focus,
+.nxt1-sr-only-focusable:active,
+.sr-only-focusable:focus,
+.sr-only-focusable:active {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: inherit;
+  margin: inherit;
+  overflow: visible;
+  clip: auto;
+  white-space: inherit;
+}
+
+/* ============================================
+   SKIP LINK
+   Allows keyboard users to skip to main content
+   ============================================ */
+
+.nxt1-skip-link {
+  position: absolute;
+  top: -100%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  padding: var(--nxt1-spacing-3, 0.75rem) var(--nxt1-spacing-6, 1.5rem);
+  background: var(--nxt1-ui-primary);
+  color: #0a0a0a;
+  font-family: var(--nxt1-ui-font);
+  font-weight: var(--nxt1-font-weight-bold, 700);
+  text-decoration: none;
+  border-radius: var(--nxt1-ui-radius-default);
+  transition: top 0.2s ease;
+}
+
+.nxt1-skip-link:focus {
+  top: var(--nxt1-spacing-4, 1rem);
+  outline: 2px solid var(--nxt1-ui-primary);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   REDUCED MOTION
+   Respects user's motion preferences
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Allow essential animations to remain slightly visible */
+  .nxt1-animation-essential {
+    animation-duration: 0.3s !important;
+    transition-duration: 0.3s !important;
+  }
+}
+
+/* ============================================
+   HIGH CONTRAST MODE (Windows)
+   Ensures visibility in forced-colors mode
+   ============================================ */
+
+@media (forced-colors: active) {
+  /* Ensure buttons have visible borders */
+  .nxt1-btn-primary,
+  .nxt1-submit-btn,
+  .nxt1-btn-secondary,
+  .nxt1-btn-action,
+  .action-btn,
+  .nxt1-btn-social,
+  .nxt1-social-btn {
+    border: 2px solid currentColor !important;
+  }
+
+  /* Ensure inputs have visible borders */
+  .nxt1-input,
+  .nxt1-auth-input,
+  .nxt1-textarea {
+    border: 2px solid currentColor !important;
+  }
+
+  /* Ensure focus indicators are visible */
+  :focus-visible {
+    outline: 3px solid currentColor !important;
+    outline-offset: 2px !important;
+  }
+
+  /* Ensure links are distinguishable */
+  .nxt1-link,
+  .nxt1-auth-link {
+    text-decoration: underline !important;
+  }
+
+  /* Ensure disabled states are distinguishable */
+  [disabled],
+  .disabled {
+    opacity: 0.5 !important;
+    border-style: dashed !important;
+  }
+}
+
+/* ============================================
+   FOCUS MANAGEMENT
+   ============================================ */
+
+/**
+ * Remove default focus outline (we use :focus-visible instead)
+ * Only applies when mouse/touch is used
+ */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/**
+ * Custom focus ring for all interactive elements
+ */
+:focus-visible {
+  outline: 2px solid var(--nxt1-ui-primary);
+  outline-offset: 2px;
+}
+
+/**
+ * Dark/inverted focus ring for use on primary-colored backgrounds
+ */
+.nxt1-focus-dark:focus-visible {
+  outline-color: #0a0a0a;
+}
+
+/* ============================================
+   TOUCH TARGET SIZES
+   Ensures minimum 44x44px touch targets (WCAG 2.5.5)
+   ============================================ */
+
+.nxt1-touch-target {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Larger touch targets for important actions */
+.nxt1-touch-target-lg {
+  min-width: 48px;
+  min-height: 48px;
+}
+
+/* ============================================
+   TEXT UTILITIES
+   ============================================ */
+
+/**
+ * Prevent text selection (for UI elements)
+ */
+.nxt1-no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/**
+ * Allow text selection (override)
+ */
+.nxt1-select-text {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/**
+ * Ensure text remains readable at any zoom level
+ */
+.nxt1-fluid-text {
+  font-size: clamp(1rem, 2.5vw, 1.25rem);
+  line-height: 1.5;
+}
+
+/* ============================================
+   COLOR CONTRAST HELPERS
+   ============================================ */
+
+/**
+ * Ensure sufficient contrast for text on primary background
+ */
+.nxt1-on-primary {
+  color: #0a0a0a;
+}
+
+/**
+ * Ensure sufficient contrast for text on dark background
+ */
+.nxt1-on-dark {
+  color: var(--nxt1-ui-text-primary);
+}
+
+/* ============================================
+   LOADING/BUSY STATES
+   ============================================ */
+
+/**
+ * Indicate loading state to assistive technology
+ */
+[aria-busy='true'] {
+  cursor: wait;
+}
+
+/**
+ * Indicate disabled state
+ */
+[aria-disabled='true'],
+[disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ============================================
+   PRINT STYLES
+   ============================================ */
+
+@media print {
+  /* Hide interactive elements */
+  .nxt1-btn-primary,
+  .nxt1-btn-secondary,
+  .nxt1-btn-social,
+  .nxt1-skip-link {
+    display: none !important;
+  }
+
+  /* Ensure text is readable */
+  body {
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  /* Show URLs for links */
+  a[href^='http']::after {
+    content: ' (' attr(href) ')';
+    font-size: 0.875em;
+    color: #666;
+  }
+}

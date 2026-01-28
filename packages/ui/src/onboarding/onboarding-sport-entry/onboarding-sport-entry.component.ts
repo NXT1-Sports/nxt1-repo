@@ -68,9 +68,9 @@ import {
 import type { ILogger } from '@nxt1/core/logging';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
-import { NxtTeamLogoPickerComponent } from '../../shared/team-logo-picker';
-import { NxtColorPickerComponent } from '../../shared/color-picker';
-import { NxtPickerService } from '../../shared/picker';
+import { NxtTeamLogoPickerComponent } from '../../components/team-logo-picker';
+import { NxtColorPickerComponent } from '../../components/color-picker';
+import { NxtPickerService } from '../../components/picker';
 
 // ============================================
 // CONSTANTS
