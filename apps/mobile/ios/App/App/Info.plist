@@ -81,15 +81,32 @@
 			<key>CFBundleURLName</key>
 			<string>Google Sign-In</string>
 		</dict>
+		<!-- Microsoft MSAL URL Scheme -->
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>msauth.$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+				<string>msalaaceb7d3-bc1d-4c44-a871-cb96826558de</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>Microsoft Auth</string>
+		</dict>
 		<!-- App Deep Link Scheme -->
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>nxt1</string>
+				<string>nxt1app</string>
 			</array>
 			<key>CFBundleURLName</key>
 			<string>NXT1 Deep Links</string>
 		</dict>
+	</array>
+	<!-- Microsoft Auth Query Schemes -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>msauthv2</string>
+		<string>msauthv3</string>
 	</array>
 </dict>
 </plist>

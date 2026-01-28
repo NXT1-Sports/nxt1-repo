@@ -13,7 +13,6 @@ import { Capacitor } from '@capacitor/core';
 import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
 import { environment } from './environments/environment';
-import { GoogleAuth } from '@southdevs/capacitor-google-auth';
 
 // Import Crashlytics for early initialization
 import { CrashlyticsService } from './app/services/crashlytics.service';
@@ -62,22 +61,6 @@ if (environment.production) {
 
 // Note: Ionicons are bundled with @ionic/angular web components
 // No need to configure SVG paths for Capacitor
-
-// Initialize Google Auth plugin ONLY on native platforms
-if (Capacitor.isNativePlatform()) {
-  try {
-    // Note: serverClientId is passed during signIn(), not initialize()
-    // The initialize() only takes clientId, scopes, and grantOfflineAccess
-    GoogleAuth.initialize({
-      clientId: environment.googleClientId,
-      scopes: ['profile', 'email'],
-      grantOfflineAccess: true,
-    });
-    console.log('[Bootstrap] GoogleAuth initialized with clientId:', environment.googleClientId);
-  } catch (error) {
-    console.error('[Bootstrap] GoogleAuth initialization error:', error);
-  }
-}
 
 // ============================================
 // CRASHLYTICS - Initialize early to catch startup crashes

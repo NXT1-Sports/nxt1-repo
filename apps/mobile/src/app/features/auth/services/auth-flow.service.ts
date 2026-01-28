@@ -397,6 +397,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         });
         this.logger.debug('Backend profile fetched (cached)', {
           uid: firebaseUser.uid,
+          onboardingCompleted: backendProfile?.onboardingCompleted,
           completeSignUp: backendProfile?.completeSignUp,
           cacheStats: globalAuthUserCache.getStats(),
         });
@@ -409,7 +410,11 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       const hasCompletedOnboarding =
         backendProfile?.onboardingCompleted === true || backendProfile?.completeSignUp === true;
 
-      this.logger.debug('Onboarding status determined', { hasCompletedOnboarding });
+      this.logger.debug('Onboarding status determined', {
+        onboardingCompleted: backendProfile?.onboardingCompleted,
+        completeSignUp: backendProfile?.completeSignUp,
+        hasCompletedOnboarding,
+      });
 
       // Create AuthUser from Firebase + backend data
       const authUser: AuthUser = {
@@ -531,13 +536,13 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       // Navigate to appropriate screen (unless skipNavigation is set)
       if (!credentials.skipNavigation) {
-        const redirectPath = this.hasCompletedOnboarding()
-          ? AUTH_REDIRECTS.DEFAULT
-          : AUTH_REDIRECTS.ONBOARDING;
+        // Check if user completed onboarding
         if (this.hasCompletedOnboarding()) {
-          await this.navigateRoot(redirectPath);
+          // User đã complete onboarding → về home
+          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
         } else {
-          await this.navigateForward(redirectPath);
+          // User chưa complete onboarding → đi onboarding
+          await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
         }
       }
 
@@ -573,9 +578,24 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         email: result.user.email,
       });
 
-      // Check if new user
-      // @ts-expect-error additionalUserInfo is on the result
-      const isNewUser = result._tokenResponse?.isNewUser ?? false;
+      // Check if new user by trying to fetch profile from backend
+      // @capacitor-firebase/authentication doesn't provide _tokenResponse.isNewUser reliably
+      let isNewUser = false;
+      try {
+        await this.authApi.getUserProfile(result.user.uid);
+        isNewUser = false; // User exists in backend
+        console.debug('[AuthFlowService] Existing user detected from backend');
+      } catch (error: any) {
+        if (error?.status === 404 || error?.message?.includes('not found')) {
+          isNewUser = true; // User not found in backend = new user
+          console.debug('[AuthFlowService] New user detected - not found in backend');
+        } else {
+          console.warn('[AuthFlowService] Error checking user existence:', error);
+          // Fallback to checking _tokenResponse if available
+          // @ts-expect-error additionalUserInfo is on the result
+          isNewUser = result._tokenResponse?.isNewUser ?? false;
+        }
+      }
       console.debug('[AuthFlowService] isNewUser:', isNewUser);
 
       // Track analytics
@@ -604,11 +624,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         });
         // Set user state BEFORE navigating (required for onboarding page)
         await this.syncUserProfile(result.user.uid);
-        console.debug('[AuthFlowService] Navigating to onboarding...');
+        console.debug('[AuthFlowService] New user - navigating to onboarding...');
         await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
       } else {
         console.debug('[AuthFlowService] Existing user - syncing profile...');
         await this.syncUserProfile(result.user.uid);
+
         // Set user properties after sync
         const user = this.user();
         if (user) {
@@ -618,19 +639,23 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             auth_provider: AUTH_METHODS.GOOGLE,
           });
         }
-        const redirectPath = this.hasCompletedOnboarding()
-          ? AUTH_REDIRECTS.DEFAULT
-          : AUTH_REDIRECTS.ONBOARDING;
-        console.debug(
-          '[AuthFlowService] Navigating to:',
-          redirectPath,
-          'hasCompletedOnboarding:',
-          this.hasCompletedOnboarding()
-        );
-        if (this.hasCompletedOnboarding()) {
-          await this.navigateRoot(redirectPath);
+
+        // Check if user completed onboarding
+        const completed = this.hasCompletedOnboarding();
+        console.debug('[AuthFlowService] Navigation check:', {
+          hasCompletedOnboarding: completed,
+          user: user,
+          willNavigateTo: completed ? 'HOME' : 'ONBOARDING',
+        });
+
+        if (completed) {
+          // User đã complete onboarding → về home
+          console.debug('[AuthFlowService] ✅ Onboarding completed - navigating to HOME');
+          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
         } else {
-          await this.navigateForward(redirectPath);
+          // User chưa complete onboarding → đi onboarding
+          console.debug('[AuthFlowService] ⚠️ Onboarding NOT completed - navigating to ONBOARDING');
+          await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
         }
       }
 
@@ -660,8 +685,21 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     try {
       const result = await this.firebaseAuth.signInWithApple();
 
-      // @ts-expect-error additionalUserInfo is on the result
-      const isNewUser = result._tokenResponse?.isNewUser ?? false;
+      let isNewUser = false;
+      try {
+        await this.authApi.getUserProfile(result.user.uid);
+        isNewUser = false; // User exists in backend
+        console.debug('[AuthFlowService] Apple - Existing user detected from backend');
+      } catch (error: any) {
+        if (error?.status === 404 || error?.message?.includes('not found')) {
+          isNewUser = true; // User not found in backend = new user
+          console.debug('[AuthFlowService] Apple - New user detected - not found in backend');
+        } else {
+          console.warn('[AuthFlowService] Apple - Error checking user existence:', error);
+          // @ts-expect-error additionalUserInfo is on the result
+          isNewUser = result._tokenResponse?.isNewUser ?? false;
+        }
+      }
 
       // Track analytics
       this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
@@ -695,13 +733,22 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             auth_provider: AUTH_METHODS.APPLE,
           });
         }
-        const redirectPath = this.hasCompletedOnboarding()
-          ? AUTH_REDIRECTS.DEFAULT
-          : AUTH_REDIRECTS.ONBOARDING;
-        if (this.hasCompletedOnboarding()) {
-          await this.navigateRoot(redirectPath);
+
+        const completed = this.hasCompletedOnboarding();
+        console.debug('[AuthFlowService] Apple - Navigation check:', {
+          hasCompletedOnboarding: completed,
+          user: user,
+          willNavigateTo: completed ? 'HOME' : 'ONBOARDING',
+        });
+
+        if (completed) {
+          console.debug('[AuthFlowService] ✅ Apple - Onboarding completed - navigating to HOME');
+          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
         } else {
-          await this.navigateForward(redirectPath);
+          console.debug(
+            '[AuthFlowService] ⚠️ Apple - Onboarding NOT completed - navigating to ONBOARDING'
+          );
+          await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
         }
       }
 
@@ -729,8 +776,28 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     try {
       const result = await this.firebaseAuth.signInWithMicrosoft();
 
-      // @ts-expect-error additionalUserInfo is on the result
-      const isNewUser = result._tokenResponse?.isNewUser ?? false;
+      // User cancelled
+      if (!result) {
+        this.authManager.setLoading(false);
+        return false;
+      }
+
+      // @capacitor-firebase/authentication doesn't provide _tokenResponse.isNewUser reliably
+      let isNewUser = false;
+      try {
+        await this.authApi.getUserProfile(result.user.uid);
+        isNewUser = false; // User exists in backend
+        console.debug('[AuthFlowService] Microsoft - Existing user detected from backend');
+      } catch (error: any) {
+        if (error?.status === 404 || error?.message?.includes('not found')) {
+          isNewUser = true; // User not found in backend = new user
+          console.debug('[AuthFlowService] Microsoft - New user detected - not found in backend');
+        } else {
+          console.warn('[AuthFlowService] Microsoft - Error checking user existence:', error);
+          // @ts-expect-error additionalUserInfo is on the result
+          isNewUser = result._tokenResponse?.isNewUser ?? false;
+        }
+      }
 
       // Track analytics
       this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
@@ -756,6 +823,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
       } else {
         await this.syncUserProfile(result.user.uid);
+
+        // Set user properties after sync
         const user = this.user();
         if (user) {
           this.analytics.setUserProperties({
@@ -764,18 +833,39 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             auth_provider: AUTH_METHODS.MICROSOFT,
           });
         }
-        const redirectPath = this.hasCompletedOnboarding()
-          ? AUTH_REDIRECTS.DEFAULT
-          : AUTH_REDIRECTS.ONBOARDING;
-        if (this.hasCompletedOnboarding()) {
-          await this.navigateRoot(redirectPath);
+
+        // Check if user completed onboarding
+        const completed = this.hasCompletedOnboarding();
+        console.debug('[AuthFlowService] Microsoft - Navigation check:', {
+          hasCompletedOnboarding: completed,
+          user: user,
+          willNavigateTo: completed ? 'HOME' : 'ONBOARDING',
+        });
+
+        if (completed) {
+          console.debug(
+            '[AuthFlowService] ✅ Microsoft - Onboarding completed - navigating to HOME'
+          );
+          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
         } else {
-          await this.navigateForward(redirectPath);
+          console.debug(
+            '[AuthFlowService] ⚠️ Microsoft - Onboarding NOT completed - navigating to ONBOARDING'
+          );
+          await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
         }
       }
 
       return true;
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.message === 'REDIRECT_IN_PROGRESS') {
+        console.log('[AuthFlowService] Microsoft OAuth redirect in progress...');
+        return true;
+      }
+      if (err?.message?.includes('currently being implemented')) {
+        this.authManager.setError(err.message);
+        return false;
+      }
+
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
         method: AUTH_METHODS.MICROSOFT,
         error_code: getAuthErrorCode(err) ?? 'unknown',

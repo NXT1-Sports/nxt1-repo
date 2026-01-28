@@ -7,6 +7,10 @@
     "androidScheme": "https"
   },
   "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": false,
+      "providers": ["apple.com", "google.com", "microsoft.com"]
+    },
     "SplashScreen": {
       "launchShowDuration": 2000,
       "launchAutoHide": true,

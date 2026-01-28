@@ -33,7 +33,12 @@
  */
 import { Injectable, inject } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
-import { GoogleAuth } from '@southdevs/capacitor-google-auth';
+import {
+  SignInWithApple,
+  SignInWithAppleOptions,
+  SignInWithAppleResponse,
+} from '@capacitor-community/apple-sign-in';
+import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 import { NxtPlatformService, HapticsService, NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
 import type { NativeAuthResult, NativeAuthProvider, NativeAuthAvailability } from '@nxt1/core';
@@ -89,9 +94,9 @@ export class NativeAuthService {
     }
 
     return {
-      google: true, // @southdevs/capacitor-google-auth
-      apple: false, // Not yet implemented
-      microsoft: false, // Not yet implemented
+      google: true,
+      apple: this.currentPlatform === 'ios',
+      microsoft: true,
     };
   }
 
@@ -114,60 +119,49 @@ export class NativeAuthService {
     }
 
     try {
-      this.logger.info('Starting Google Sign-In');
+      this.logger.info('Starting Google Sign-In via @capacitor-firebase/authentication');
       await this.haptics.selection();
 
-      // Sign out first to ensure we get fresh credentials (not cached)
-      // This forces the Google account picker to show every time
-      try {
-        await GoogleAuth.signOut();
-        this.logger.debug('Cleared previous Google session');
-      } catch {
-        // Ignore - might not be signed in
-      }
-
-      // Sign in with Google using native UI
-      // @southdevs/capacitor-google-auth requires scopes and serverClientId for backend validation
-      // serverClientId is the Web Client ID from Firebase/GCP Console
-      const googleUser = await GoogleAuth.signIn({
+      // Sign in with Google using Firebase plugin
+      const result = await FirebaseAuthentication.signInWithGoogle({
         scopes: ['email', 'profile'],
-        serverClientId: '455734259010-d04kqk9g2kkfov38t0lrdqcrlujtrsom.apps.googleusercontent.com',
-        grantOfflineAccess: true,
       });
 
       this.logger.info('Google Sign-In successful', {
-        email: googleUser.email,
-        name: googleUser.name,
-        hasIdToken: !!googleUser.authentication?.idToken,
-        hasAccessToken: !!googleUser.authentication?.accessToken,
+        hasIdToken: !!result.credential?.idToken,
+        hasAccessToken: !!result.credential?.accessToken,
+        providerId: result.credential?.providerId,
       });
 
-      // Haptic feedback on success
       await this.haptics.notification('success');
 
-      // Return standardized result with both idToken and accessToken
+      // Validate we have required tokens
+      if (!result.credential?.idToken) {
+        throw new Error('Google Sign-In did not return ID token');
+      }
+
+      // Return standardized result for Firebase
       return {
         provider: 'google',
-        idToken: googleUser.authentication.idToken,
-        accessToken: googleUser.authentication.accessToken,
+        idToken: result.credential.idToken,
+        accessToken: result.credential.accessToken,
         user: {
-          id: googleUser.id,
-          email: googleUser.email,
-          displayName: googleUser.name,
-          photoUrl: googleUser.imageUrl ?? null,
+          id: result.user?.uid || '',
+          email: result.user?.email || null,
+          displayName: result.user?.displayName || null,
+          photoUrl: result.user?.photoUrl || null,
         },
       };
     } catch (error: unknown) {
       // User canceled
-      if (error && typeof error === 'object' && 'error' in error) {
-        const err = error as { error: string };
-        if (err.error === 'popup_closed_by_user' || err.error === 'cancelled') {
+      if (error && typeof error === 'object' && 'message' in error) {
+        const err = error as { message: string };
+        if (err.message.includes('cancel') || err.message.includes('abort')) {
           this.logger.debug('Google Sign-In canceled by user');
           return null;
         }
       }
 
-      // Error haptic feedback
       await this.haptics.notification('error');
       this.logger.error('Google Sign-In error', error);
       throw error;
@@ -175,43 +169,192 @@ export class NativeAuthService {
   }
 
   // ============================================
-  // APPLE SIGN-IN (Not supported - requires additional plugin)
+  // APPLE SIGN-IN
   // ============================================
 
   /**
-   * Sign in with Apple - NOT SUPPORTED in current implementation
+   * Sign in with Apple using native ASAuthorizationController
    *
-   * To enable Apple Sign-In, install:
-   * npm install @capacitor-community/apple-sign-in
+   * iOS only: Uses Apple's native Sign in with Apple SDK
+   * Required by App Store if app offers any social login
+   *
+   * @returns NativeAuthResult with idToken and rawNonce for Firebase, or null on cancel
+   * @throws Error on failure or if not on iOS
    */
   async signInWithApple(): Promise<NativeAuthResult | null> {
-    throw new Error(
-      'Apple Sign-In requires additional plugin. Install @capacitor-community/apple-sign-in'
-    );
+    if (!this.isNativeAvailable) {
+      throw new Error('Native Apple Sign-In is only available on iOS/Android');
+    }
+
+    if (this.currentPlatform !== 'ios') {
+      throw new Error('Apple Sign-In is only supported on iOS');
+    }
+
+    try {
+      this.logger.info('Starting Apple Sign-In');
+      await this.haptics.selection();
+      const rawNonce = this.generateNonce();
+      // Hash nonce with SHA-256 for Apple (required by Apple Sign-In)
+      const hashedNonce = await this.sha256(rawNonce);
+      // Configure Apple Sign-In options
+      const options: SignInWithAppleOptions = {
+        clientId: 'com.nxt1.sports', // Your app bundle ID
+        redirectURI: 'https://nxt1.app/__/auth/handler', // Firebase auth handler
+        scopes: 'email name', // Request email and name
+        state: Math.random().toString(36).substring(2, 15), // Random state for security
+        nonce: hashedNonce, // Send SHA-256 hashed nonce to Apple
+      };
+
+      this.logger.debug('Apple Sign-In options', {
+        clientId: options.clientId,
+        hasRawNonce: !!rawNonce,
+        hasHashedNonce: !!hashedNonce,
+      });
+
+      // Show native Apple Sign-In sheet
+      const result: SignInWithAppleResponse = await SignInWithApple.authorize(options);
+
+      this.logger.info('Apple Sign-In successful', {
+        email: result.response.email,
+        hasIdToken: !!result.response.identityToken,
+        hasAuthCode: !!result.response.authorizationCode,
+      });
+
+      // Haptic feedback on success
+      await this.haptics.notification('success');
+
+      // Apple user ID should always be present, but handle null case defensively
+      if (!result.response.user) {
+        throw new Error('Apple Sign-In did not return user ID');
+      }
+
+      // Return standardized result for Firebase
+      return {
+        provider: 'apple',
+        idToken: result.response.identityToken,
+        rawNonce: rawNonce, // Pass raw (unhashed) nonce to Firebase
+        user: {
+          id: result.response.user,
+          email: result.response.email ?? null,
+          displayName:
+            result.response.givenName && result.response.familyName
+              ? `${result.response.givenName} ${result.response.familyName}`
+              : null,
+          givenName: result.response.givenName ?? null,
+          familyName: result.response.familyName ?? null,
+          photoUrl: null, // Apple doesn't provide photo
+        },
+      };
+    } catch (error: unknown) {
+      // User canceled
+      if (error && typeof error === 'object' && 'message' in error) {
+        const err = error as { message: string };
+        if (err.message.includes('1001') || err.message.toLowerCase().includes('cancel')) {
+          this.logger.debug('Apple Sign-In canceled by user');
+          return null;
+        }
+      }
+
+      // Error haptic feedback
+      await this.haptics.notification('error');
+      this.logger.error('Apple Sign-In error', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a random nonce for Apple Sign-In
+   * Used to prevent replay attacks
+   */
+  private generateNonce(length = 32): string {
+    const charset = '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';
+    let result = '';
+    const randomValues = new Uint8Array(length);
+    crypto.getRandomValues(randomValues);
+
+    for (let i = 0; i < length; i++) {
+      result += charset[randomValues[i] % charset.length];
+    }
+
+    return result;
+  }
+
+  /**
+   * Hash a string with SHA-256
+   * Required for Apple Sign-In nonce
+   */
+  private async sha256(str: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(str);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    return hashHex;
   }
 
   // ============================================
-  // MICROSOFT SIGN-IN (Native in-app browser via Firebase)
+  // MICROSOFT SIGN-IN (@capacitor-firebase/authentication)
   // ============================================
 
   /**
-   * Sign in with Microsoft - Uses Firebase signInWithPopup
+   * Sign in with Microsoft using @capacitor-firebase/authentication
    *
-   * Microsoft doesn't provide a native SDK for Capacitor like Google does.
-   * Firebase's signInWithPopup uses an IN-APP BROWSER (not external browser),
-   * providing a native-like experience with:
-   * - In-app Safari View Controller (iOS) / Chrome Custom Tabs (Android)
-   * - Automatic token handling and security (PKCE)
-   * - Seamless return to app after auth
+   * Uses Firebase's official plugin which supports Microsoft OAuth natively.
+   * This creates proper Firebase users with Microsoft provider (icon appears in Console).
    *
-   * Alternative: Implement custom OAuth flow with deep links, but Firebase
-   * solution is simpler, more secure, and provides equivalent UX.
-   *
-   * @returns null to indicate Firebase should use in-app browser popup
+   * @returns NativeAuthResult with Microsoft OAuth credential, or null if cancelled
    */
   async signInWithMicrosoft(): Promise<NativeAuthResult | null> {
-    this.logger.debug('Microsoft Sign-In using Firebase in-app browser');
-    return null; // Triggers Firebase signInWithPopup with in-app browser
+    if (!this.isNativeAvailable) {
+      this.logger.debug('Microsoft Sign-In - not on native platform');
+      return null;
+    }
+
+    try {
+      this.logger.info('Starting Microsoft Sign-In via @capacitor-firebase/authentication');
+      await this.haptics.selection();
+      const result = await FirebaseAuthentication.signInWithMicrosoft({
+        scopes: ['User.Read', 'Mail.Send', 'Mail.Read', 'email', 'profile', 'openid'],
+      });
+
+      this.logger.info('Microsoft Sign-In successful', {
+        hasIdToken: !!result.credential?.idToken,
+        hasAccessToken: !!result.credential?.accessToken,
+        providerId: result.credential?.providerId,
+      });
+
+      await this.haptics.notification('success');
+
+      // Validate we have required tokens
+      if (!result.credential?.idToken) {
+        throw new Error('Microsoft Sign-In did not return ID token');
+      }
+
+      // Return standardized result for Firebase
+      return {
+        provider: 'microsoft',
+        idToken: result.credential.idToken,
+        accessToken: result.credential.accessToken,
+        user: {
+          id: result.user?.uid || '',
+          email: result.user?.email || null,
+          displayName: result.user?.displayName || null,
+          photoUrl: result.user?.photoUrl || null,
+        },
+      };
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'message' in error) {
+        const err = error as { message: string };
+        if (err.message.includes('cancel') || err.message.includes('abort')) {
+          this.logger.debug('Microsoft Sign-In canceled by user');
+          return null;
+        }
+      }
+
+      await this.haptics.notification('error');
+      this.logger.error('Microsoft Sign-In error', error);
+      throw error;
+    }
   }
 
   // ============================================
@@ -226,30 +369,14 @@ export class NativeAuthService {
     if (!this.isNativeAvailable) return;
 
     try {
-      this.logger.debug('Signing out from Google...');
-      await GoogleAuth.signOut();
-      this.logger.debug('Google sign out successful');
+      this.logger.debug('Signing out from Firebase Authentication...');
+      await FirebaseAuthentication.signOut();
+      this.logger.debug('Sign out successful');
     } catch (error: unknown) {
       // Log but don't throw - user might already be signed out
-      this.logger.debug('Google sign out error (may be already signed out)', {
+      this.logger.debug('Sign out error (may be already signed out)', {
         error: String(error),
       });
-    }
-  }
-
-  /**
-   * Force refresh - sign out first to get fresh credentials
-   * Use this when cached credentials are causing issues
-   */
-  async forceSignOutGoogle(): Promise<void> {
-    if (!this.isNativeAvailable) return;
-
-    try {
-      this.logger.info('Force signing out from Google to clear cached credentials...');
-      await GoogleAuth.signOut();
-      this.logger.info('Google credentials cleared');
-    } catch (error: unknown) {
-      this.logger.warn('Could not clear Google credentials', { error: String(error) });
     }
   }
 

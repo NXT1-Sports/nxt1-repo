@@ -48,15 +48,16 @@ import {
   authState,
   GoogleAuthProvider,
   signInWithPopup,
-  signInWithCredential,
   OAuthProvider,
   OAuthCredential,
+  signInWithCredential,
+  getRedirectResult,
 } from '@angular/fire/auth';
-import { Capacitor } from '@capacitor/core';
+import { environment } from '../../../../environments/environment';
 import { Subscription } from 'rxjs';
 import { NxtPlatformService } from '@nxt1/ui';
-import type { FirebaseUserInfo, NativeAuthResult } from '@nxt1/core';
 import { NativeAuthService } from './native-auth.service';
+import { FirebaseUserInfo, NativeAuthResult } from '@nxt1/core';
 
 /**
  * Firebase Auth Service
@@ -107,6 +108,36 @@ export class FirebaseAuthService implements OnDestroy {
     this.authStateSubscription = this.authState$.subscribe((user) => {
       this._firebaseUser.set(user);
     });
+
+    this.checkRedirectResult();
+  }
+
+  /**
+   * Check for OAuth redirect result (Microsoft, Apple web fallback)
+   * Called on app startup to handle returning from OAuth redirect
+   */
+  private async checkRedirectResult(): Promise<void> {
+    try {
+      console.debug('[FirebaseAuthService] Checking for OAuth redirect result...');
+      const result = await runInInjectionContext(this.injector, () => getRedirectResult(this.auth));
+
+      if (result) {
+        console.debug('[FirebaseAuthService] OAuth redirect success:', {
+          uid: result.user.uid,
+          email: result.user.email,
+          providerId: result.providerId,
+        });
+      } else {
+        console.debug('[FirebaseAuthService] No pending OAuth redirect result');
+      }
+    } catch (error: any) {
+      if (error?.code !== 'auth/no-auth-event') {
+        console.error('[FirebaseAuthService] OAuth redirect error:', {
+          code: error?.code,
+          message: error?.message,
+        });
+      }
+    }
   }
 
   /**
@@ -219,17 +250,12 @@ export class FirebaseAuthService implements OnDestroy {
   async signInWithGoogle(): Promise<UserCredential> {
     // Use native auth on iOS/Android
     if (this.nativeAuth.isNativeAvailable) {
-      console.debug('[FirebaseAuthService] Using native Google Sign-In');
+      console.debug(
+        '[FirebaseAuthService] Using native Google Sign-In via @capacitor-firebase/authentication'
+      );
 
       try {
         const nativeResult = await this.nativeAuth.signInWithGoogle();
-        console.debug('[FirebaseAuthService] Native Google result:', {
-          hasResult: !!nativeResult,
-          provider: nativeResult?.provider,
-          hasIdToken: !!nativeResult?.idToken,
-          idTokenLength: nativeResult?.idToken?.length,
-          userEmail: nativeResult?.user?.email,
-        });
 
         // User cancelled
         if (!nativeResult) {
@@ -237,14 +263,21 @@ export class FirebaseAuthService implements OnDestroy {
           throw new Error('Sign-in was cancelled');
         }
 
-        // Convert native result to Firebase credential
-        console.debug('[FirebaseAuthService] Converting to Firebase credential...');
-        const firebaseResult = await this.signInWithNativeCredential(nativeResult);
+        const currentUser = this.auth.currentUser;
+        if (!currentUser) {
+          throw new Error('Google Sign-In succeeded but no Firebase user found');
+        }
+
         console.debug('[FirebaseAuthService] Firebase sign-in successful:', {
-          uid: firebaseResult.user.uid,
-          email: firebaseResult.user.email,
+          uid: currentUser.uid,
+          email: currentUser.email,
         });
-        return firebaseResult;
+
+        return {
+          user: currentUser,
+          providerId: 'google.com',
+          operationType: 'signIn',
+        } as UserCredential;
       } catch (error) {
         console.error('[FirebaseAuthService] Google Sign-In error:', error);
         throw error;
@@ -302,38 +335,60 @@ export class FirebaseAuthService implements OnDestroy {
   /**
    * Sign in with Microsoft
    *
-   * - Native (iOS/Android): Uses OAuth flow via Capacitor
-   * - Web fallback: Uses Firebase signInWithPopup
+   * IMPORTANT: Microsoft OAuth only works on web platform.
+   * Firebase does not support Microsoft on native (no native credential like Google/Apple).
    *
-   * Uses runInInjectionContext to ensure Firebase APIs
-   * are called within Angular's injection context.
+   * Native: Returns null (disabled) - user should use Google or Apple instead
+   * Web: Uses Firebase signInWithPopup (works, has icon in Console)
    *
-   * @returns UserCredential from Firebase Auth
+   * @returns UserCredential from Firebase Auth or null if not available
    * @throws Error on failure
    */
-  async signInWithMicrosoft(): Promise<UserCredential> {
-    // Check native auth first
+  async signInWithMicrosoft(): Promise<UserCredential | null> {
+    console.debug('[FirebaseAuthService] Starting Microsoft Sign-In');
+
     if (this.nativeAuth.isNativeAvailable) {
-      console.debug('[FirebaseAuthService] Checking native Microsoft Sign-In');
-      const nativeResult = await this.nativeAuth.signInWithMicrosoft();
+      console.debug(
+        '[FirebaseAuthService] Using native Microsoft OAuth via @capacitor-firebase/authentication'
+      );
+      try {
+        const result = await this.nativeAuth.signInWithMicrosoft();
 
-      // If nativeResult exists, use native credential
-      if (nativeResult) {
-        return this.signInWithNativeCredential(nativeResult);
+        // User cancelled
+        if (!result) {
+          console.debug('[FirebaseAuthService] User cancelled Microsoft Sign-In');
+          return null;
+        }
+
+        // @capacitor-firebase/authentication already signs in to Firebase
+        const currentUser = this.auth.currentUser;
+        if (!currentUser) {
+          throw new Error('Microsoft Sign-In succeeded but no Firebase user found');
+        }
+
+        // Return as UserCredential for consistency
+        return {
+          user: currentUser,
+          providerId: 'microsoft.com',
+          operationType: 'signIn',
+        } as UserCredential;
+      } catch (error) {
+        console.error('[FirebaseAuthService] Native Microsoft sign-in failed:', error);
+        throw error;
       }
-
-      // If null, fall through to Firebase popup (native auth unavailable for Microsoft)
-      console.debug('[FirebaseAuthService] Native Microsoft unavailable, using Firebase popup');
     }
 
-    // Use Firebase popup flow (works on both web and mobile)
-    // On mobile, Firebase automatically opens in-app browser for OAuth
-    console.debug('[FirebaseAuthService] Using Firebase popup for Microsoft Sign-In');
+    console.debug('[FirebaseAuthService] Using Firebase OAuth popup (web)');
     return runInInjectionContext(this.injector, () => {
       const provider = new OAuthProvider('microsoft.com');
-      provider.addScope('user.read');
-      provider.addScope('email');
+      provider.setCustomParameters({ prompt: 'select_account' });
+      provider.addScope('openid');
       provider.addScope('profile');
+      provider.addScope('email');
+      provider.addScope('offline_access');
+      provider.addScope('Mail.Send');
+      provider.addScope('Mail.Read');
+      provider.addScope('User.Read');
       return signInWithPopup(this.auth, provider);
     });
   }
@@ -387,12 +442,29 @@ export class FirebaseAuthService implements OnDestroy {
         }
 
         case 'microsoft': {
-          const msProvider = new OAuthProvider('microsoft.com');
-          credential = msProvider.credential({
-            idToken: nativeResult.idToken,
-            accessToken: nativeResult.accessToken,
+          console.debug(
+            '[FirebaseAuthService] Exchanging Microsoft token for Firebase custom token'
+          );
+
+          const response = await fetch(`${environment.apiUrl}/auth/microsoft/custom-token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              idToken: nativeResult.idToken,
+              accessToken: nativeResult.accessToken,
+            }),
           });
-          break;
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Backend token exchange failed: ${errorText}`);
+          }
+
+          const { firebaseToken } = await response.json();
+
+          // Sign in with custom token
+          const { signInWithCustomToken } = await import('@angular/fire/auth');
+          return await signInWithCustomToken(this.auth, firebaseToken);
         }
 
         default:

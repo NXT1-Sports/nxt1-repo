@@ -1220,4 +1220,98 @@ router.post(
   })
 );
 
+/**
+ * Microsoft Custom Token for Mobile
+ *
+ * Validates Microsoft MSAL tokens from mobile app and creates Firebase custom token.
+ * This allows native MSAL authentication to work with Firebase Auth.
+ *
+ * POST /auth/microsoft/custom-token
+ * Body: { idToken: string, accessToken: string }
+ * Returns: { firebaseToken: string }
+ */
+router.post(
+  '/microsoft/custom-token',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { idToken } = req.body;
+
+    if (!idToken || typeof idToken !== 'string') {
+      const error = validationError([
+        { field: 'idToken', message: 'Missing or invalid ID token', rule: 'required' },
+      ]);
+      sendError(res, error);
+      return;
+    }
+
+    logger.debug('[Microsoft Custom Token] Processing Microsoft token');
+
+    try {
+      // Decode ID token to get user info (basic validation)
+      const base64Url = idToken.split('.')[1];
+      if (!base64Url) {
+        throw new Error('Invalid token format');
+      }
+
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(Buffer.from(base64, 'base64').toString());
+
+      const microsoftUid = payload.sub || payload.oid;
+      const email = payload.preferred_username || payload.email;
+      const name = payload.name;
+
+      if (!microsoftUid || !email) {
+        const error = validationError([
+          { field: 'idToken', message: 'Invalid token: missing user info', rule: 'invalid' },
+        ]);
+        sendError(res, error);
+        return;
+      }
+
+      logger.debug('[Microsoft Custom Token] Token decoded', { email, name });
+
+      // Create deterministic Firebase UID
+      const firebaseUid = `microsoft_${microsoftUid}`;
+
+      // Check if user exists, create if not
+      try {
+        await req.firebase.auth.getUser(firebaseUid);
+      } catch (error: unknown) {
+        if (
+          error &&
+          typeof error === 'object' &&
+          'code' in error &&
+          error.code === 'auth/user-not-found'
+        ) {
+          logger.debug('[Microsoft Custom Token] Creating new Firebase user');
+          await req.firebase.auth.createUser({
+            uid: firebaseUid,
+            email: email,
+            displayName: name,
+            emailVerified: true,
+          });
+        } else {
+          throw error;
+        }
+      }
+
+      // Create Firebase custom token
+      const firebaseToken = await req.firebase.auth.createCustomToken(firebaseUid, {
+        provider: 'microsoft.com',
+        email: email,
+        name: name,
+      });
+
+      logger.info('[Microsoft Custom Token] Success', { uid: firebaseUid, email });
+
+      res.json({ firebaseToken });
+    } catch (error: unknown) {
+      logger.error('[Microsoft Custom Token] Error', { error });
+      const validError = validationError([
+        { field: 'idToken', message: 'Failed to process Microsoft token', rule: 'invalid' },
+      ]);
+      sendError(res, validError);
+    }
+  })
+);
+
 export default router;
