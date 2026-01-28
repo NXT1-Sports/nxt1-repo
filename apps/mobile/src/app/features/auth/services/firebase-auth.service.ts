@@ -290,6 +290,8 @@ export class FirebaseAuthService implements OnDestroy {
       const provider = new GoogleAuthProvider();
       provider.addScope('profile');
       provider.addScope('email');
+      provider.addScope('https://www.googleapis.com/auth/gmail.send');
+      provider.addScope('https://www.googleapis.com/auth/gmail.readonly');
       return signInWithPopup(this.auth, provider);
     });
   }

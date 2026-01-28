@@ -124,7 +124,12 @@ export class NativeAuthService {
 
       // Sign in with Google using Firebase plugin
       const result = await FirebaseAuthentication.signInWithGoogle({
-        scopes: ['email', 'profile'],
+        scopes: [
+          'email',
+          'profile',
+          'https://www.googleapis.com/auth/gmail.send',
+          'https://www.googleapis.com/auth/gmail.readonly',
+        ],
       });
 
       this.logger.info('Google Sign-In successful', {
