@@ -1,0 +1,481 @@
+/**
+ * @fileoverview NXT1 Global Button Styles
+ * @module @nxt1/ui/styles/base/buttons
+ * @version 1.0.0
+ *
+ * Professional button styles for the NXT1 design system.
+ * Provides consistent button appearance across all features.
+ *
+ * Button Types:
+ * - .nxt1-btn-primary     - Main CTA buttons (lime green)
+ * - .nxt1-btn-secondary   - Secondary actions (outline)
+ * - .nxt1-btn-action      - Action buttons (social login style)
+ * - .nxt1-btn-outline     - Dashed outline buttons
+ * - .nxt1-btn-back        - Back/navigation buttons
+ * - .nxt1-btn-social      - Social login base style
+ *
+ * Prerequisites:
+ *   @import '@nxt1/ui/styles/base/variables';
+ *
+ * Usage:
+ *   @import '@nxt1/ui/styles/base/buttons';
+ */
+
+/* ============================================
+   BASE BUTTON RESET
+   ============================================ */
+
+.nxt1-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-2, 0.5rem);
+  font-family: var(--nxt1-ui-font);
+  font-weight: var(--nxt1-font-weight-semibold, 600);
+  cursor: pointer;
+  border: none;
+  text-decoration: none;
+  transition: all var(--nxt1-ui-transition-normal);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.nxt1-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nxt1-btn:focus-visible {
+  outline: 2px solid var(--nxt1-ui-primary);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   PRIMARY BUTTON
+   Main call-to-action button (lime green)
+   ============================================ */
+
+.nxt1-btn-primary,
+.nxt1-submit-btn {
+  width: 100%;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-2, 0.5rem);
+  background: var(--nxt1-ui-primary);
+  border: none;
+  border-radius: var(--nxt1-ui-radius-default);
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-font-weight-bold, 700);
+  color: #0a0a0a;
+  cursor: pointer;
+  transition: all var(--nxt1-ui-transition-normal);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nxt1-btn-primary:hover:not(:disabled),
+.nxt1-submit-btn:hover:not(:disabled) {
+  background: var(--nxt1-ui-primary-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px var(--nxt1-color-alpha-primary30, rgba(204, 255, 0, 0.3));
+}
+
+.nxt1-btn-primary:active:not(:disabled),
+.nxt1-submit-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.2));
+}
+
+.nxt1-btn-primary:disabled,
+.nxt1-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nxt1-btn-primary:focus-visible,
+.nxt1-submit-btn:focus-visible {
+  outline: 2px solid var(--nxt1-ui-primary);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   SECONDARY BUTTON
+   Outline style for secondary actions
+   ============================================ */
+
+.nxt1-btn-secondary,
+.nxt1-submit-btn--secondary {
+  width: 100%;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-2, 0.5rem);
+  background: transparent;
+  border: 1px solid var(--nxt1-ui-border-default);
+  border-radius: var(--nxt1-ui-radius-default);
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-font-weight-semibold, 600);
+  color: var(--nxt1-ui-text-primary);
+  cursor: pointer;
+  transition: all var(--nxt1-ui-transition-normal);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nxt1-btn-secondary:hover:not(:disabled),
+.nxt1-submit-btn--secondary:hover:not(:disabled) {
+  background: var(--nxt1-ui-bg-input);
+  border-color: var(--nxt1-ui-border-hover);
+  box-shadow: none;
+}
+
+.nxt1-btn-secondary:disabled,
+.nxt1-submit-btn--secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nxt1-btn-secondary:focus-visible,
+.nxt1-submit-btn--secondary:focus-visible {
+  outline: 2px solid var(--nxt1-ui-primary);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   ACTION BUTTON
+   Used for email login, team code, etc.
+   ============================================ */
+
+.nxt1-btn-action,
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  height: 52px;
+  padding: 0 1.25rem;
+  border: 1px solid var(--nxt1-ui-border-default);
+  border-radius: var(--nxt1-ui-radius-lg);
+  background-color: var(--nxt1-ui-bg-input);
+  color: var(--nxt1-ui-text-primary);
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-font-weight-semibold, 600);
+  cursor: pointer;
+  transition: all var(--nxt1-ui-transition-normal);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.nxt1-btn-action ion-icon,
+.action-btn ion-icon {
+  font-size: 1.375rem;
+  color: var(--nxt1-ui-text-secondary);
+  flex-shrink: 0;
+}
+
+.nxt1-btn-action:active:not(:disabled),
+.action-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.nxt1-btn-action:disabled,
+.action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nxt1-btn-action:focus-visible,
+.action-btn:focus-visible {
+  outline: 2px solid var(--nxt1-ui-primary);
+  outline-offset: 2px;
+}
+
+/* Hover states (desktop only - pointer devices) */
+@media (hover: hover) and (pointer: fine) {
+  .nxt1-btn-action:hover:not(:disabled),
+  .action-btn:hover:not(:disabled) {
+    background-color: var(--nxt1-ui-bg-input-hover);
+    border-color: var(--nxt1-ui-border-hover);
+    transform: translateY(-1px);
+  }
+}
+
+/* ============================================
+   OUTLINE BUTTON (Dashed)
+   For secondary actions like "Join with Team Code"
+   ============================================ */
+
+.nxt1-btn-outline,
+.action-btn--outline {
+  background-color: transparent;
+  border: 1px dashed var(--nxt1-ui-border-hover);
+  color: var(--nxt1-ui-text-secondary);
+  height: 48px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .nxt1-btn-outline:hover:not(:disabled),
+  .action-btn--outline:hover:not(:disabled) {
+    background-color: var(--nxt1-ui-bg-input);
+    border-style: solid;
+    color: var(--nxt1-ui-primary);
+  }
+}
+
+/* ============================================
+   BACK BUTTON
+   Navigation/back button style
+   ============================================ */
+
+.nxt1-btn-back,
+.nxt1-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-2, 0.5rem);
+  padding: var(--nxt1-spacing-2, 0.5rem);
+  margin-bottom: var(--nxt1-spacing-4, 1rem);
+  background: transparent;
+  border: none;
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: var(--nxt1-font-weight-medium, 500);
+  color: var(--nxt1-ui-text-muted);
+  cursor: pointer;
+  transition: color var(--nxt1-ui-transition-fast);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nxt1-btn-back:hover,
+.nxt1-back-btn:hover {
+  color: var(--nxt1-ui-text-primary);
+}
+
+.nxt1-btn-back svg,
+.nxt1-back-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============================================
+   SOCIAL LOGIN BUTTON (Base)
+   Base style for social authentication buttons
+   ============================================ */
+
+.nxt1-btn-social,
+.nxt1-social-btn {
+  width: 100%;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-3, 0.75rem);
+  background: var(--nxt1-ui-bg-input);
+  border: 1px solid var(--nxt1-ui-border-default);
+  border-radius: var(--nxt1-ui-radius-default);
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-font-weight-semibold, 600);
+  color: var(--nxt1-ui-text-primary);
+  cursor: pointer;
+  transition: all var(--nxt1-ui-transition-normal);
+  text-decoration: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nxt1-btn-social .icon,
+.nxt1-social-btn .icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.nxt1-btn-social:hover:not(:disabled),
+.nxt1-social-btn:hover:not(:disabled) {
+  background: var(--nxt1-ui-bg-input-hover);
+  border-color: var(--nxt1-ui-border-hover);
+  transform: translateY(-1px);
+}
+
+.nxt1-btn-social:active:not(:disabled),
+.nxt1-social-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.nxt1-btn-social:disabled,
+.nxt1-social-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nxt1-btn-social:focus-visible,
+.nxt1-social-btn:focus-visible {
+  outline: 2px solid var(--nxt1-ui-primary);
+  outline-offset: 2px;
+}
+
+/* Social buttons container */
+.nxt1-social-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nxt1-spacing-3, 0.75rem);
+  width: 100%;
+}
+
+/* ============================================
+   PROVIDER-SPECIFIC SOCIAL BUTTONS
+   ============================================ */
+
+/* Apple button - solid black background */
+.nxt1-btn-social--apple,
+.nxt1-social-btn--apple {
+  background: #000000;
+  border-color: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+.nxt1-btn-social--apple:hover:not(:disabled),
+.nxt1-social-btn--apple:hover:not(:disabled) {
+  background: #1a1a1a;
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+/* Google button hover effect */
+.nxt1-btn-social--google:hover:not(:disabled),
+.nxt1-social-btn--google:hover:not(:disabled) {
+  border-color: rgba(66, 133, 244, 0.4);
+  box-shadow: 0 0 0 1px rgba(66, 133, 244, 0.1);
+}
+
+/* Microsoft button hover effect */
+.nxt1-btn-social--microsoft:hover:not(:disabled),
+.nxt1-social-btn--microsoft:hover:not(:disabled) {
+  border-color: rgba(0, 164, 239, 0.4);
+  box-shadow: 0 0 0 1px rgba(0, 164, 239, 0.1);
+}
+
+/* Email button hover effect */
+.nxt1-btn-social--email:hover:not(:disabled),
+.nxt1-social-btn--email:hover:not(:disabled) {
+  border-color: var(--nxt1-ui-border-focus);
+  box-shadow: 0 0 0 1px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+}
+
+/* Team code button (dashed outline style) */
+.nxt1-btn-social--team-code,
+.nxt1-social-btn--team-code {
+  background: transparent;
+  border: 1px dashed var(--nxt1-ui-border-hover);
+  color: var(--nxt1-ui-text-secondary);
+  height: 48px;
+}
+
+.nxt1-btn-social--team-code:hover:not(:disabled),
+.nxt1-social-btn--team-code:hover:not(:disabled) {
+  background: var(--nxt1-ui-bg-input);
+  border-style: solid;
+  color: var(--nxt1-ui-primary);
+}
+
+/* ============================================
+   PLATFORM: iOS
+   ============================================ */
+
+.ios .nxt1-btn-primary,
+.ios .nxt1-submit-btn,
+.ios .nxt1-btn-secondary,
+.ios .nxt1-btn-social,
+.ios .nxt1-social-btn {
+  border-radius: var(--nxt1-ui-radius-lg);
+}
+
+/* ============================================
+   PLATFORM: Material Design (Android)
+   ============================================ */
+
+.md .nxt1-btn-primary,
+.md .nxt1-submit-btn,
+.md .nxt1-btn-secondary,
+.md .nxt1-btn-social,
+.md .nxt1-social-btn {
+  border-radius: var(--nxt1-ui-radius-default);
+}
+
+/* Ripple effect for Material Design */
+.md .nxt1-btn-primary,
+.md .nxt1-submit-btn,
+.md .nxt1-btn-social,
+.md .nxt1-social-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.md .nxt1-btn-primary::after,
+.md .nxt1-submit-btn::after,
+.md .nxt1-btn-social::after,
+.md .nxt1-social-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.3) 10%, transparent 10.01%);
+  transform: scale(10);
+  opacity: 0;
+  transition:
+    transform 0.5s,
+    opacity 0.5s;
+}
+
+.md .nxt1-btn-primary:active::after,
+.md .nxt1-submit-btn:active::after,
+.md .nxt1-btn-social:active::after,
+.md .nxt1-social-btn:active::after {
+  transform: scale(0);
+  opacity: 0.3;
+  transition: 0s;
+}
+
+/* ============================================
+   RESPONSIVE: Desktop hover enhancements
+   ============================================ */
+
+@media (hover: hover) and (pointer: fine) {
+  .nxt1-btn-primary:hover:not(:disabled),
+  .nxt1-submit-btn:hover:not(:disabled),
+  .nxt1-btn-social:hover:not(:disabled),
+  .nxt1-social-btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+  }
+}
+
+/* ============================================
+   RESPONSIVE: Mobile adjustments
+   ============================================ */
+
+@media (max-width: 767px) {
+  .nxt1-btn-primary,
+  .nxt1-submit-btn,
+  .nxt1-btn-social,
+  .nxt1-social-btn {
+    height: 48px;
+  }
+
+  .nxt1-btn-action,
+  .action-btn {
+    height: 48px;
+  }
+}

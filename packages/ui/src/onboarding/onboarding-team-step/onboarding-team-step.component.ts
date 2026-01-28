@@ -47,10 +47,10 @@ import { IonInput, IonSelect, IonSelectOption } from '@ionic/angular/standalone'
 import type { TeamFormData, OnboardingTeamType } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
 import { NxtLoggingService } from '../../services/logging';
-import { NxtValidationSummaryComponent } from '../../shared/validation-summary';
-import { NxtFormFieldComponent } from '../../shared/form-field';
-import { NxtTeamLogoPickerComponent } from '../../shared/team-logo-picker';
-import { NxtColorPickerComponent } from '../../shared/color-picker';
+import { NxtValidationSummaryComponent } from '../../components/validation-summary';
+import { NxtFormFieldComponent } from '../../components/form-field';
+import { NxtTeamLogoPickerComponent } from '../../components/team-logo-picker';
+import { NxtColorPickerComponent } from '../../components/color-picker';
 
 // ============================================
 // CONSTANTS

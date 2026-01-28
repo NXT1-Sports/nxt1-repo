@@ -62,8 +62,8 @@ import type { ILogger } from '@nxt1/core/logging';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtToastService } from '../../services/toast';
-import { NxtChipComponent } from '../../shared/chip';
-import { NxtFormFieldComponent } from '../../shared/form-field';
+import { NxtChipComponent } from '../../components/chip';
+import { NxtFormFieldComponent } from '../../components/form-field';
 
 // ============================================
 // CONSTANTS

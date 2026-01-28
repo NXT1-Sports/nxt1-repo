@@ -61,7 +61,7 @@ import {
 import type { ILogger } from '@nxt1/core/logging';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
-import { NxtValidationSummaryComponent } from '../../shared/validation-summary';
+import { NxtValidationSummaryComponent } from '../../components/validation-summary';
 
 // ============================================
 // CONSTANTS

@@ -1,22 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  NXT1 Android Theme Configuration
+  
+  Controls native Android UI elements that can't be styled via CSS:
+  - Status bar color
+  - Navigation bar color (bottom system bar)
+  - Selection/cursor accent colors
+  - Splash screen
+  
+  KEEP IN SYNC with @nxt1/design-tokens!
+-->
 <resources>
 
-    <!-- Base application theme. -->
-    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
-        <!-- Customize your theme here. -->
+    <!-- Base application theme (dark-first for NXT1 brand) -->
+    <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <!-- NXT1 Brand Colors -->
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorPrimaryDark">@color/colorPrimaryDark</item>
         <item name="colorAccent">@color/colorAccent</item>
+        
+        <!-- System Navigation Bar (bottom bar with back/home/recent) -->
+        <item name="android:navigationBarColor">@color/navigationBarColor</item>
+        
+        <!-- Make navigation bar icons light (for dark nav bar) -->
+        <item name="android:windowLightNavigationBar">false</item>
+        
+        <!-- Status bar configuration -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        
+        <!-- Background -->
+        <item name="android:windowBackground">@color/backgroundColor</item>
     </style>
 
+    <!-- Theme for Capacitor WebView (main app) -->
     <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        
+        <!-- System bars match NXT1 dark theme -->
+        <item name="android:navigationBarColor">@color/navigationBarColor</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 
-
+    <!-- Splash screen theme -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <item name="android:navigationBarColor">@color/splashBackgroundColor</item>
+        <item name="android:statusBarColor">@color/splashBackgroundColor</item>
     </style>
 </resources>

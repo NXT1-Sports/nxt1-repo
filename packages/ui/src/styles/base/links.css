@@ -1,0 +1,212 @@
+/**
+ * @fileoverview NXT1 Global Link & Typography Styles
+ * @module @nxt1/ui/styles/base/links
+ * @version 1.0.0
+ *
+ * Professional link and text styles for the NXT1 design system.
+ *
+ * Components:
+ * - .nxt1-link           - Primary link style
+ * - .nxt1-link--secondary - Muted link style
+ * - .nxt1-link--subtle    - Very subtle link
+ * - .nxt1-divider        - Horizontal divider with optional text
+ *
+ * Prerequisites:
+ *   @import '@nxt1/ui/styles/base/variables';
+ *
+ * Usage:
+ *   @import '@nxt1/ui/styles/base/links';
+ */
+
+/* ============================================
+   PRIMARY LINK
+   ============================================ */
+
+.nxt1-link,
+.nxt1-auth-link {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-font-weight-bold, 700);
+  color: var(--nxt1-ui-primary);
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity var(--nxt1-ui-transition-fast);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.nxt1-link:focus-visible,
+.nxt1-auth-link:focus-visible {
+  outline: 2px solid var(--nxt1-ui-primary);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   SECONDARY LINK
+   ============================================ */
+
+.nxt1-link--secondary,
+.nxt1-auth-link--secondary {
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: var(--nxt1-font-weight-medium, 500);
+  color: var(--nxt1-ui-text-muted);
+}
+
+/* ============================================
+   SUBTLE LINK (e.g., Forgot Password)
+   ============================================ */
+
+.nxt1-link--subtle,
+.nxt1-forgot-link {
+  display: inline-block;
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: var(--nxt1-font-weight-medium, 500);
+  color: var(--nxt1-ui-text-muted);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color var(--nxt1-ui-transition-fast);
+  text-align: center;
+  margin-top: var(--nxt1-spacing-2, 0.5rem);
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* ============================================
+   LINK HOVER STATES (Desktop)
+   ============================================ */
+
+@media (hover: hover) and (pointer: fine) {
+  .nxt1-link:hover,
+  .nxt1-auth-link:hover {
+    opacity: 0.8;
+    text-decoration: underline;
+  }
+
+  .nxt1-link--secondary:hover,
+  .nxt1-auth-link--secondary:hover {
+    color: var(--nxt1-ui-primary);
+    opacity: 1;
+    text-decoration: none;
+  }
+
+  .nxt1-link--subtle:hover,
+  .nxt1-forgot-link:hover {
+    color: var(--nxt1-ui-primary);
+  }
+}
+
+/* ============================================
+   HORIZONTAL DIVIDER
+   ============================================ */
+
+.nxt1-divider,
+.nxt1-auth-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-4, 1rem);
+  margin: var(--nxt1-spacing-4, 1rem) 0;
+  width: 100%;
+}
+
+.nxt1-divider::before,
+.nxt1-divider::after,
+.nxt1-auth-divider::before,
+.nxt1-auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--nxt1-ui-border-default);
+}
+
+.nxt1-divider span,
+.nxt1-auth-divider span {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  font-weight: var(--nxt1-font-weight-medium, 500);
+  color: var(--nxt1-ui-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Simple divider (no text) */
+.nxt1-divider--simple {
+  gap: 0;
+}
+
+.nxt1-divider--simple::after {
+  display: none;
+}
+
+/* ============================================
+   VERTICAL DIVIDER (Desktop sidebars)
+   ============================================ */
+
+.nxt1-divider-vertical,
+.nxt1-auth-divider-vertical {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .nxt1-divider-vertical,
+  .nxt1-auth-divider-vertical {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--nxt1-spacing-3, 0.75rem);
+  }
+
+  .nxt1-divider-vertical::before,
+  .nxt1-divider-vertical::after,
+  .nxt1-auth-divider-vertical::before,
+  .nxt1-auth-divider-vertical::after {
+    content: '';
+    width: 1px;
+    flex: 1;
+    background: var(--nxt1-ui-border-default);
+  }
+
+  .nxt1-divider-vertical span,
+  .nxt1-auth-divider-vertical span {
+    font-family: var(--nxt1-ui-font);
+    font-size: var(--nxt1-fontSize-xs, 0.75rem);
+    font-weight: var(--nxt1-font-weight-semibold, 600);
+    color: var(--nxt1-ui-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: var(--nxt1-spacing-2, 0.5rem) 0;
+  }
+}
+
+/* ============================================
+   TERMS / LEGAL TEXT
+   ============================================ */
+
+.nxt1-terms-text,
+[authTerms],
+p[authTerms] {
+  font-family: var(--nxt1-ui-font);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  color: var(--nxt1-ui-text-muted);
+  margin: 0;
+  line-height: 1.6;
+}
+
+.nxt1-terms-text a,
+[authTerms] a,
+p[authTerms] a {
+  color: var(--nxt1-ui-text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color var(--nxt1-ui-transition-fast);
+}
+
+.nxt1-terms-text a:hover,
+[authTerms] a:hover,
+p[authTerms] a:hover {
+  color: var(--nxt1-ui-text-primary);
+}

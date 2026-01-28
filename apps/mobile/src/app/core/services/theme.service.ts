@@ -188,13 +188,36 @@ export class ThemeService {
       const style = theme === 'dark' ? Style.Dark : Style.Light;
       await StatusBar.setStyle({ style });
 
+      // Set status bar background color (Android only)
+      if (this.ionicPlatform.is('android')) {
+        const bgColor = theme === 'dark' ? '#0a0a0a' : '#ffffff';
+        await StatusBar.setBackgroundColor({ color: bgColor });
+      }
+
       console.debug(`[ThemeService] Status bar synced to ${theme} theme (${style})`);
     } catch (error) {
       console.warn('[ThemeService] Failed to sync status bar:', error);
     }
 
-    // Also sync keyboard style with theme (iOS only)
+    // Sync keyboard style with theme (iOS only)
     await this.syncKeyboardWithTheme(theme);
+
+    // Sync navigation bar with theme (Android only)
+    await this.syncNavigationBarWithTheme(theme);
+  }
+
+  /**
+   * Sync Android navigation bar (bottom system bar) with current theme.
+   * This controls the back/home/recent buttons bar color.
+   *
+   * Note: Navigation bar theming is handled by Android system styles (edge-to-edge mode).
+   * The navigation bar inherits the system theme automatically.
+   */
+  private async syncNavigationBarWithTheme(_theme: Theme): Promise<void> {
+    // Navigation bar theming is handled by Android system styles in styles.xml
+    // No plugin needed - edge-to-edge mode with transparent navigation bar
+    // is configured at the native Android level
+    return;
   }
 
   /**

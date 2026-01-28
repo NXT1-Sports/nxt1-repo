@@ -7,8 +7,6 @@ export {
   NativeAppService,
   type StatusBarStyle,
   type StatusBarConfig,
-  type KeyboardConfig,
-  type KeyboardResizeMode,
   type NativeAppConfig,
   type AppLifecycleEvent,
   type AppLifecycleHandler,

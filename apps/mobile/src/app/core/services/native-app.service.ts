@@ -3,15 +3,17 @@
  * @module @nxt1/ui/services
  *
  * Centralized service for native app initialization and configuration.
- * Handles status bar, splash screen, keyboard, and app lifecycle.
+ * Handles status bar, splash screen, and app lifecycle.
  *
  * Features:
  * - Status bar styling (dark/light mode)
  * - Splash screen management
- * - Keyboard handling for better input UX
  * - App lifecycle events (pause, resume, backButton)
  * - Deep linking preparation
  * - SSR-safe (no-ops on web)
+ *
+ * Note: Keyboard handling is intentionally disabled.
+ * Ionic and the native system handle keyboard behavior automatically.
  *
  * Usage:
  * ```typescript
@@ -41,9 +43,6 @@ export type StatusBarStyle = 'dark' | 'light' | 'default';
 /** App lifecycle events */
 export type AppLifecycleEvent = 'pause' | 'resume' | 'backButton';
 
-/** Keyboard resize modes */
-export type KeyboardResizeMode = 'body' | 'ionic' | 'native' | 'none';
-
 /** Lifecycle handler type */
 export interface AppLifecycleHandler {
   onPause?: () => void;
@@ -57,15 +56,9 @@ export interface StatusBarConfig {
   color: string;
 }
 
-/** Keyboard configuration */
-export interface KeyboardConfig {
-  resize: KeyboardResizeMode;
-  accessoryBarHidden: boolean;
-}
-
 /** Configuration options for native initialization */
 export interface NativeAppConfig {
-  /** Status bar style - 'dark' for dark backgrounds, 'light' for light backgrounds */
+  /** Status bar style - 'dark' (light content) or 'light' (dark content) */
   statusBarStyle?: StatusBarStyle;
   /** Status bar background color (hex) */
   statusBarColor?: string;
@@ -73,10 +66,6 @@ export interface NativeAppConfig {
   autoHideSplash?: boolean;
   /** Delay before hiding splash screen (ms) */
   splashDelay?: number;
-  /** Keyboard resize mode */
-  keyboardResize?: KeyboardResizeMode;
-  /** Whether keyboard accessory bar is hidden */
-  keyboardAccessoryBarHidden?: boolean;
   /** App lifecycle callbacks */
   onPause?: () => void;
   onResume?: () => void;
@@ -89,8 +78,6 @@ const DEFAULT_CONFIG: Required<Omit<NativeAppConfig, 'onPause' | 'onResume' | 'o
   statusBarColor: '#0a0a0a', // NXT1 dark background
   autoHideSplash: true,
   splashDelay: 500,
-  keyboardResize: 'body',
-  keyboardAccessoryBarHidden: false,
 };
 
 @Injectable({ providedIn: 'root' })
@@ -107,8 +94,6 @@ export class NativeAppService {
   private _isInitialized = signal(false);
   private _isNative = signal(false);
   private _statusBarVisible = signal(true);
-  private _keyboardVisible = signal(false);
-  private _keyboardHeight = signal(0);
   private _config: Required<Omit<NativeAppConfig, 'onPause' | 'onResume' | 'onBackButton'>> &
     Pick<NativeAppConfig, 'onPause' | 'onResume' | 'onBackButton'> = DEFAULT_CONFIG;
 
@@ -127,12 +112,6 @@ export class NativeAppService {
 
   /** Whether status bar is visible */
   readonly statusBarVisible = computed(() => this._statusBarVisible());
-
-  /** Whether keyboard is currently visible */
-  readonly keyboardVisible = computed(() => this._keyboardVisible());
-
-  /** Current keyboard height in pixels */
-  readonly keyboardHeight = computed(() => this._keyboardHeight());
 
   /** Lifecycle events observable */
   readonly lifecycleEvents$ = this._lifecycleEvents.asObservable();
@@ -176,11 +155,7 @@ export class NativeAppService {
   }
 
   private async initializeNativeFeatures(): Promise<void> {
-    await Promise.all([
-      this.configureStatusBar(),
-      this.configureKeyboard(),
-      this.setupLifecycleListeners(),
-    ]);
+    await Promise.all([this.configureStatusBar(), this.setupLifecycleListeners()]);
 
     // Hide splash screen after configured delay
     if (this._config.autoHideSplash) {
@@ -298,107 +273,6 @@ export class NativeAppService {
   // ============================================
   // KEYBOARD
   // ============================================
-
-  private async configureKeyboard(): Promise<void> {
-    try {
-      const { Keyboard, KeyboardResize } = await import('@capacitor/keyboard');
-
-      // Configure keyboard behavior - 2026 Professional Setup
-      // Hide accessory bar for clean pro look (configurable)
-      await Keyboard.setAccessoryBarVisible({
-        isVisible: !this._config.keyboardAccessoryBarHidden,
-      });
-
-      // Set resize mode (iOS only) - Body is best for Angular/Ionic
-      if (this.ionicPlatform.is('ios')) {
-        // Map string config to enum
-        const resizeMode =
-          this._config.keyboardResize === 'body'
-            ? KeyboardResize.Body
-            : this._config.keyboardResize === 'native'
-              ? KeyboardResize.Native
-              : this._config.keyboardResize === 'none'
-                ? KeyboardResize.None
-                : KeyboardResize.Body; // Default to Body (2026 best practice)
-
-        await Keyboard.setResizeMode({ mode: resizeMode });
-      }
-
-      // Listen for keyboard events - update signals and CSS custom properties
-      Keyboard.addListener('keyboardWillShow', (info) => {
-        this.ngZone.run(() => {
-          this._keyboardVisible.set(true);
-          this._keyboardHeight.set(info.keyboardHeight);
-          // Add class to body for CSS targeting
-          document.body.classList.add('keyboard-is-open');
-          document.body.style.setProperty('--keyboard-height', `${info.keyboardHeight}px`);
-          this.logger.debug('Keyboard will show', { height: info.keyboardHeight });
-        });
-      });
-
-      Keyboard.addListener('keyboardDidShow', (info) => {
-        this.ngZone.run(() => {
-          // Scroll focused element into view if needed
-          const activeElement = document.activeElement as HTMLElement;
-          if (
-            activeElement &&
-            (activeElement.tagName === 'INPUT' ||
-              activeElement.tagName === 'TEXTAREA' ||
-              activeElement.tagName === 'ION-INPUT' ||
-              activeElement.tagName === 'ION-TEXTAREA')
-          ) {
-            // Small delay to let resize complete
-            setTimeout(() => {
-              activeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }, 100);
-          }
-        });
-      });
-
-      Keyboard.addListener('keyboardWillHide', () => {
-        this.ngZone.run(() => {
-          this._keyboardVisible.set(false);
-          this._keyboardHeight.set(0);
-          // Remove class from body
-          document.body.classList.remove('keyboard-is-open');
-          document.body.style.removeProperty('--keyboard-height');
-          this.logger.debug('Keyboard will hide');
-        });
-      });
-
-      this.logger.debug('Keyboard configured', { resizeMode: this._config.keyboardResize });
-    } catch (error) {
-      this.logger.warn('Keyboard configuration failed', { error });
-    }
-  }
-
-  /**
-   * Programmatically show the keyboard
-   */
-  async showKeyboard(): Promise<void> {
-    if (!this._isNative()) return;
-
-    try {
-      const { Keyboard } = await import('@capacitor/keyboard');
-      await Keyboard.show();
-    } catch (error) {
-      this.logger.warn('Failed to show keyboard', { error });
-    }
-  }
-
-  /**
-   * Programmatically hide the keyboard
-   */
-  async hideKeyboard(): Promise<void> {
-    if (!this._isNative()) return;
-
-    try {
-      const { Keyboard } = await import('@capacitor/keyboard');
-      await Keyboard.hide();
-    } catch (error) {
-      this.logger.warn('Failed to hide keyboard', { error });
-    }
-  }
 
   // ============================================
   // APP LIFECYCLE

@@ -33,7 +33,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonButton } from '@ionic/angular/standalone';
-import { NxtIconComponent } from '../../shared/icon';
+import { NxtIconComponent } from '../../components/icon';
 
 // Forward declare to avoid build-time dependency
 export abstract class HapticsService {

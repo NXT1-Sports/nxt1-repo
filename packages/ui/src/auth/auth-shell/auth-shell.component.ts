@@ -54,7 +54,7 @@ import {
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { arrowBack, chevronBack } from 'ionicons/icons';
-import { NxtLogoComponent } from '../../shared/logo';
+import { NxtLogoComponent } from '../../components/logo';
 
 /** Shell layout variants */
 export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'fullscreen';

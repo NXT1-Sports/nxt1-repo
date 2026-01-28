@@ -37,7 +37,7 @@ import {
   inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NxtIconComponent } from '../../shared/icon';
+import { NxtIconComponent } from '../../components/icon';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtPlatformService } from '../../services/platform';
 

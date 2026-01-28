@@ -126,14 +126,12 @@ export class AppComponent {
       await this.ionicPlatform.ready();
       this.logger.debug('Platform ready');
 
-      // Initialize native app features (StatusBar, SplashScreen, Keyboard, lifecycle)
+      // Initialize native app features (StatusBar, SplashScreen, lifecycle)
+      // Keyboard handling is disabled - letting Ionic/system handle it natively
       await this.nativeApp.initialize({
         // Dark theme status bar
         statusBarColor: '#0a0a0a',
         statusBarStyle: 'light',
-        // Keyboard behavior - 'ionic' lets Ionic handle scrolling with ion-content
-        keyboardResize: 'ionic',
-        keyboardAccessoryBarHidden: true, // Hide accessory bar for clean look
         // Lifecycle handlers
         onPause: () => this.logger.debug('Backgrounded'),
         onResume: () => {

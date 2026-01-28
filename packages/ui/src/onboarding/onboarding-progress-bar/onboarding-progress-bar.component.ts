@@ -30,7 +30,7 @@
 
 import { Component, input, output, computed, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NxtIconComponent } from '../../shared/icon';
+import { NxtIconComponent } from '../../components/icon';
 import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
 
 @Component({

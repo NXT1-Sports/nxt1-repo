@@ -1,7 +1,7 @@
 /**
  * @fileoverview NXT1 UI Component Styles
  * @module @nxt1/ui/styles
- * @version 1.2.0
+ * @version 2.0.0
  *
  * ╔══════════════════════════════════════════════════════════════════════════╗
  * ║                    STYLING STRATEGY - OFFICIAL GUIDE                      ║
@@ -60,22 +60,48 @@
  * ║                                                                          ║
  * ╚══════════════════════════════════════════════════════════════════════════╝
  *
+ * STRUCTURE (v2.0):
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │  @nxt1/ui/styles/                                                       │
+ * │  ├── base/              # Global styles (buttons, forms, links, vars)   │
+ * │  │   ├── variables.css  # CSS custom properties                         │
+ * │  │   ├── buttons.css    # All button styles                            │
+ * │  │   ├── forms.css      # Form inputs, labels, errors                  │
+ * │  │   └── links.css      # Links, dividers, typography                  │
+ * │  ├── components/        # Ionic component overrides                     │
+ * │  │   ├── ionic-select.css                                              │
+ * │  │   ├── ionic-modal.css                                               │
+ * │  │   ├── ionic-toast.css                                               │
+ * │  │   ├── bottom-sheet.css                                              │
+ * │  │   └── biometric-modal.css                                           │
+ * │  └── features/          # Feature-specific layouts                      │
+ * │      └── auth.css       # Auth page layout only                        │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
  * Usage in apps:
+ *   // Full bundle (recommended):
  *   @import "@nxt1/ui/styles";
+ *
  *   // Or individual modules:
- *   @import "@nxt1/ui/styles/auth";
- *   @import "@nxt1/ui/styles/onboarding";
+ *   @import "@nxt1/ui/styles/base";           // Global styles
+ *   @import "@nxt1/ui/styles/auth";           // Auth feature
+ *   @import "@nxt1/ui/styles/components/ionic-toast";
  */
 
 /* ============================================
-   SHARED IONIC COMPONENT OVERRIDES
+   BASE STYLES (Global)
+   CSS Variables, Buttons, Forms, Links
+   ============================================ */
+@import './base/index.css';
+
+/* ============================================
+   IONIC COMPONENT OVERRIDES
    ============================================ */
 @import './components/ionic-select.css';
 @import './components/ionic-modal.css';
+@import './components/navigation.css';
 
 /* ============================================
-   FEATURE COMPONENT STYLES
+   FEATURE-SPECIFIC STYLES
    ============================================ */
-
-/* Auth Component Styles */
-@import './auth/auth.css';
+@import './features/auth.css';

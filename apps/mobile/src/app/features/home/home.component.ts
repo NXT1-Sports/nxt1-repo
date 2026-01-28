@@ -5,27 +5,30 @@
  * Main home page shown after successful authentication and onboarding completion.
  * Protected by onboardingCompleteGuard.
  *
+ * Uses NxtPageHeaderComponent for professional contextual header.
  * ⭐ IDENTICAL STRUCTURE TO WEB ⭐
  */
 
-import { Component, computed, inject, ChangeDetectionStrategy } from '@angular/core';
+import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import {
   IonContent,
-  IonHeader,
-  IonToolbar,
-  IonTitle,
-  IonButton,
-  IonIcon,
   IonCard,
   IonCardHeader,
   IonCardTitle,
   IonCardContent,
   IonAvatar,
+  IonIcon,
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { logOutOutline, personCircleOutline } from 'ionicons/icons';
+import {
+  logOutOutline,
+  personCircleOutline,
+  notificationsOutline,
+  searchOutline,
+} from 'ionicons/icons';
+import { NxtPageHeaderComponent, type PageHeaderAction } from '@nxt1/ui';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { AUTH_ROUTES } from '@nxt1/core/constants';
 
@@ -35,26 +38,24 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
   imports: [
     CommonModule,
     IonContent,
-    IonHeader,
-    IonToolbar,
-    IonTitle,
-    IonButton,
-    IonIcon,
     IonCard,
     IonCardHeader,
     IonCardTitle,
     IonCardContent,
     IonAvatar,
+    IonIcon,
+    NxtPageHeaderComponent,
   ],
   template: `
-    <ion-header>
-      <ion-toolbar>
-        <ion-title>NXT1 Sports</ion-title>
-        <ion-button slot="end" fill="clear" (click)="onSignOut()">
-          <ion-icon slot="icon-only" name="log-out-outline"></ion-icon>
-        </ion-button>
-      </ion-toolbar>
-    </ion-header>
+    <!-- Professional Page Header with Avatar (Twitter/X style) -->
+    <nxt1-page-header
+      title="Home"
+      [avatarSrc]="user()?.photoURL"
+      [avatarName]="displayName()"
+      [actions]="headerActions()"
+      (avatarClick)="onAvatarClick()"
+      (actionClick)="onHeaderAction($event)"
+    />
 
     <ion-content class="ion-padding">
       <div class="home-container">
@@ -254,9 +255,48 @@ export class HomeComponent {
   readonly user = this.authFlow.user;
   readonly displayName = computed(() => this.user()?.displayName ?? 'User');
 
+  /** Header action buttons */
+  readonly headerActions = signal<PageHeaderAction[]>([
+    {
+      id: 'notifications',
+      icon: 'notifications-outline',
+      label: 'Notifications',
+      badge: 0,
+    },
+    {
+      id: 'signout',
+      icon: 'log-out-outline',
+      label: 'Sign Out',
+      danger: true,
+    },
+  ]);
+
   constructor() {
     // Register icons
-    addIcons({ logOutOutline, personCircleOutline });
+    addIcons({ logOutOutline, personCircleOutline, notificationsOutline, searchOutline });
+  }
+
+  /**
+   * Handle avatar click - navigate to profile
+   */
+  onAvatarClick(): void {
+    // TODO: Navigate to profile page
+    console.log('Avatar clicked - navigate to profile');
+    void this.router.navigate(['/tabs/profile']);
+  }
+
+  /**
+   * Handle header action button clicks
+   */
+  onHeaderAction(action: PageHeaderAction): void {
+    switch (action.id) {
+      case 'notifications':
+        console.log('Notifications clicked');
+        break;
+      case 'signout':
+        this.onSignOut();
+        break;
+    }
   }
 
   async onSignOut(): Promise<void> {

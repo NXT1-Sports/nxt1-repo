@@ -57,7 +57,7 @@ import {
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 // Core infrastructure (app-specific)
-import { httpCacheInterceptor } from './core/infrastructure';
+import { httpCacheInterceptor, authInterceptor } from './core/infrastructure';
 
 // Crashlytics service (web uses GA4 fallback)
 import { CrashlyticsService } from './core/services/crashlytics.service';
@@ -109,8 +109,11 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(
       withFetch(),
       withInterceptors([
+        // Auth interceptor - adds Firebase ID token to API requests
+        // MUST run FIRST before error/cache interceptors
+        authInterceptor,
         // Global HTTP error handling (401 redirect, rate limiting, network errors)
-        // Order matters: error interceptor runs first to catch all errors
+        // Order matters: error interceptor runs after auth to catch all errors
         httpErrorInterceptor({
           redirectOnUnauthorized: true,
           unauthorizedRedirectPath: '/auth',

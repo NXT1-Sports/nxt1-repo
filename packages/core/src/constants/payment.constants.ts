@@ -535,6 +535,46 @@ export const INVOICE_STATUSES = {
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[keyof typeof INVOICE_STATUSES];
 
 // ============================================
+// REFUND STATUS
+// ============================================
+
+export const REFUND_STATUSES = {
+  PENDING: 'pending',
+  SUCCEEDED: 'succeeded',
+  FAILED: 'failed',
+} as const;
+
+export type RefundStatus = (typeof REFUND_STATUSES)[keyof typeof REFUND_STATUSES];
+
+// ============================================
+// WEBHOOK STATUS
+// ============================================
+
+export const WEBHOOK_STATUSES = {
+  PENDING: 'pending',
+  PROCESSED: 'processed',
+  FAILED: 'failed',
+} as const;
+
+export type WebhookStatus = (typeof WEBHOOK_STATUSES)[keyof typeof WEBHOOK_STATUSES];
+
+// ============================================
+// DISPUTE STATUS
+// ============================================
+
+export const DISPUTE_STATUSES = {
+  WARNING_NEEDS_RESPONSE: 'warning_needs_response',
+  WARNING_UNDER_REVIEW: 'warning_under_review',
+  WARNING_CLOSED: 'warning_closed',
+  NEEDS_RESPONSE: 'needs_response',
+  UNDER_REVIEW: 'under_review',
+  WON: 'won',
+  LOST: 'lost',
+} as const;
+
+export type DisputeStatus = (typeof DISPUTE_STATUSES)[keyof typeof DISPUTE_STATUSES];
+
+// ============================================
 // PRICE HELPERS
 // ============================================
 

@@ -51,7 +51,7 @@ import {
   OnDestroy,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
-import { NxtIconComponent } from '../../shared/icon';
+import { NxtIconComponent } from '../../components/icon';
 
 /** Step card visual variants */
 export type StepCardVariant = 'card' | 'seamless';

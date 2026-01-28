@@ -11,13 +11,21 @@
   ],
   "exports": {
     "./styles": "./src/styles/index.css",
-    "./styles/auth": "./src/styles/auth/auth.css",
+    "./styles/base": "./src/styles/base/index.css",
+    "./styles/base/variables": "./src/styles/base/variables.css",
+    "./styles/base/buttons": "./src/styles/base/buttons.css",
+    "./styles/base/forms": "./src/styles/base/forms.css",
+    "./styles/base/links": "./src/styles/base/links.css",
+    "./styles/base/accessibility": "./src/styles/base/accessibility.css",
+    "./styles/auth": "./src/styles/features/auth.css",
+    "./styles/features/auth": "./src/styles/features/auth.css",
     "./styles/components/ionic-select": "./src/styles/components/ionic-select.css",
     "./styles/components/ionic-toast": "./src/styles/components/ionic-toast.css",
     "./styles/components/ionic-modal": "./src/styles/components/ionic-modal.css",
     "./styles/components/ionic-biometric-modal": "./src/styles/components/ionic-biometric-modal.css",
     "./styles/components/biometric-modal": "./src/styles/components/biometric-modal.css",
-    "./styles/components/bottom-sheet": "./src/styles/components/bottom-sheet.css"
+    "./styles/components/bottom-sheet": "./src/styles/components/bottom-sheet.css",
+    "./styles/components/navigation": "./src/styles/components/navigation.css"
   },
   "scripts": {
     "build": "ng-packagr -p ng-package.json",

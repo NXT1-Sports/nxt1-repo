@@ -26,7 +26,7 @@
 
 import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NxtIconComponent } from '../../shared/icon';
+import { NxtIconComponent } from '../../components/icon';
 import { HapticButtonDirective } from '../../services/haptics';
 import type { OnboardingUserType } from '@nxt1/core/api';
 import type { RoleIconName } from '@nxt1/design-tokens/assets/icons';
