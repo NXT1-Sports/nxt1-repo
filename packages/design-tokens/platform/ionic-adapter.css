@@ -154,10 +154,12 @@
   --ion-toolbar-color: var(--nxt1-color-text-primary, #ffffff);
   --ion-toolbar-border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
 
-  /* Tab bar */
-  --ion-tab-bar-background: var(--nxt1-color-background-secondary, #121212);
-  --ion-tab-bar-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
-  --ion-tab-bar-color-selected: var(--nxt1-color-primary, #ccff00);
+  /* Tab bar - iOS 26 Liquid Glass Effect */
+  --ion-tab-bar-background: var(--nxt1-glass-bg, rgba(22, 22, 22, 0.88));
+  --ion-tab-bar-background-focused: var(--nxt1-glass-bgSolid, rgba(22, 22, 22, 0.95));
+  --ion-tab-bar-color: var(--nxt1-icon-inactive, rgba(255, 255, 255, 0.5));
+  --ion-tab-bar-color-selected: var(--nxt1-icon-active, #ffffff);
+  --ion-tab-bar-border-color: var(--nxt1-glass-border, rgba(255, 255, 255, 0.12));
 
   /* Segment */
   --ion-segment-background: var(--nxt1-color-surface-200, #1a1a1a);
@@ -204,6 +206,32 @@
 }
 
 /* ============================================
+   iOS 26 LIQUID GLASS TAB BAR
+   Apply backdrop-filter for frosted glass effect
+   ============================================ */
+
+ion-tab-bar {
+  /* Ensure translucent background */
+  --background: var(--nxt1-glass-bg, rgba(22, 22, 22, 0.88));
+  --border: 1px solid var(--nxt1-glass-border, rgba(255, 255, 255, 0.12));
+
+  /* Frosted glass blur effect */
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+
+  /* Subtle inner glow for depth */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 -1px 20px rgba(0, 0, 0, 0.2);
+}
+
+/* Stronger blur on iOS for better glass effect */
+.ios ion-tab-bar {
+  -webkit-backdrop-filter: saturate(200%) blur(25px);
+  backdrop-filter: saturate(200%) blur(25px);
+}
+
+/* ============================================
    IONIC PLATFORM OVERRIDES (Android/Material)
    ============================================ */
 
@@ -242,5 +270,11 @@
   --ion-card-background: var(--nxt1-color-surface-100, #f5f5f5);
   --ion-item-background: var(--nxt1-color-background-primary, #ffffff);
   --ion-toolbar-background: var(--nxt1-color-background-primary, #ffffff);
-  --ion-tab-bar-background: var(--nxt1-color-background-primary, #ffffff);
+
+  /* Tab bar - iOS 26 Liquid Glass Effect for light theme */
+  --ion-tab-bar-background: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.88));
+  --ion-tab-bar-background-focused: var(--nxt1-glass-bgSolid, rgba(255, 255, 255, 0.95));
+  --ion-tab-bar-color: var(--nxt1-icon-inactive, rgba(0, 0, 0, 0.5));
+  --ion-tab-bar-color-selected: var(--nxt1-icon-active, #000000);
+  --ion-tab-bar-border-color: var(--nxt1-glass-border, rgba(0, 0, 0, 0.12));
 }

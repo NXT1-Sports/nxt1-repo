@@ -118,7 +118,7 @@ const CELEBRATION_CONFIG = {
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(0, 0, 0, 0.4);
+        background: var(--nxt1-glass-bg);
         backdrop-filter: blur(4px);
         -webkit-backdrop-filter: blur(4px);
         opacity: 0;

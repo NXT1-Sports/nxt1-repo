@@ -26,6 +26,8 @@ import {
   HttpHandlerFn,
 } from '@angular/common/http';
 import { catchError, throwError } from 'rxjs';
+import { NxtLoggingService } from '@nxt1/ui';
+import type { ILogger } from '@nxt1/core/logging';
 import {
   parseApiError,
   API_ERROR_CODES,
@@ -80,6 +82,7 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
   return (req: HttpRequest<unknown>, next: HttpHandlerFn) => {
     const router = inject(Router);
     const platformId = inject(PLATFORM_ID);
+    const logger = inject(NxtLoggingService).child('HttpErrorInterceptor');
 
     // Check if request should be skipped
     const shouldSkip = config.skipPatterns.some((pattern) => pattern.test(req.url));
@@ -93,7 +96,7 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
         const apiError = parseApiError(error);
 
         // Log error for debugging
-        logHttpError(req, error, apiError);
+        logHttpError(req, error, apiError, logger);
 
         // Handle 401 Unauthorized
         if (error.status === 401 && config.redirectOnUnauthorized) {
@@ -102,17 +105,17 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
 
         // Handle 429 Rate Limit
         if (error.status === 429) {
-          handleRateLimit(error, apiError);
+          handleRateLimit(error, apiError, logger);
         }
 
         // Handle network errors
         if (error.status === 0) {
-          handleNetworkError(platformId);
+          handleNetworkError(platformId, logger);
         }
 
         // Show notification if enabled
         if (config.showNotifications && isPlatformBrowser(platformId)) {
-          showErrorNotification(apiError, error.status);
+          showErrorNotification(apiError, error.status, logger);
         }
 
         // Re-throw as parsed error for consumers
@@ -122,22 +125,19 @@ export function httpErrorInterceptor(options: HttpErrorInterceptorOptions = {}):
   };
 }
 
-/**
- * Log HTTP error with structured format
- */
 function logHttpError(
   req: HttpRequest<unknown>,
   error: HttpErrorResponse,
-  apiError: ApiErrorDetail
+  apiError: ApiErrorDetail,
+  logger: ILogger
 ): void {
-  console.error('[HTTP Error]', {
+  logger.error('HTTP error', error, {
     url: req.url,
     method: req.method,
     status: error.status,
     statusText: error.statusText,
     code: apiError.code,
     message: apiError.message,
-    timestamp: new Date().toISOString(),
   });
 }
 
@@ -162,28 +162,28 @@ function handleUnauthorized(router: Router, platformId: object, redirectPath: st
 /**
  * Handle 429 Rate Limit - log retry-after if available
  */
-function handleRateLimit(error: HttpErrorResponse, apiError: ApiErrorDetail): void {
+function handleRateLimit(
+  error: HttpErrorResponse,
+  apiError: ApiErrorDetail,
+  logger: ILogger
+): void {
   const retryAfter = error.headers.get('Retry-After');
   const retryDelay = getRetryDelay(apiError);
 
-  console.warn('[HTTP Error] Rate limited', {
-    retryAfter,
-    retryDelay,
-    shouldRetry: shouldRetry(apiError),
-  });
+  logger.warn('Rate limited', { retryAfter, retryDelay, shouldRetry: shouldRetry(apiError) });
 }
 
 /**
  * Handle network errors (status 0)
  */
-function handleNetworkError(platformId: object): void {
+function handleNetworkError(platformId: object, logger: ILogger): void {
   if (!isPlatformBrowser(platformId)) return;
 
   // Check if actually offline
   if (!navigator.onLine) {
-    console.warn('[HTTP Error] Device is offline');
+    logger.warn('Device is offline');
   } else {
-    console.error('[HTTP Error] Network error - server may be unreachable');
+    logger.error('Network error - server may be unreachable');
   }
 }
 
@@ -191,7 +191,7 @@ function handleNetworkError(platformId: object): void {
  * Show error notification to user
  * TODO: Integrate with toast service
  */
-function showErrorNotification(apiError: ApiErrorDetail, status: number): void {
+function showErrorNotification(apiError: ApiErrorDetail, status: number, logger: ILogger): void {
   // Skip showing notifications for expected auth errors
   if (
     apiError.code === API_ERROR_CODES.AUTH_INVALID_CREDENTIALS ||
@@ -210,7 +210,7 @@ function showErrorNotification(apiError: ApiErrorDetail, status: number): void {
 
   // TODO: Use toast service
   // toastService.error(message);
-  console.info('[HTTP Error] Would show notification:', message);
+  logger.info('Would show notification', { message });
 }
 
 /**

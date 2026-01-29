@@ -200,6 +200,30 @@ export {
 } from './components/page-header';
 
 // ============================================
+// OPTION SCROLLER (Twitter/TikTok Style Tab Selector)
+// ============================================
+export {
+  NxtOptionScrollerComponent,
+  type OptionScrollerItem,
+  type OptionScrollerVariant,
+  type OptionScrollerIndicatorStyle,
+  type OptionScrollerSize,
+  type OptionScrollerConfig,
+  type OptionScrollerChangeEvent,
+  DEFAULT_OPTION_SCROLLER_CONFIG,
+  OPTION_SCROLLER_SIZES,
+} from './components/option-scroller';
+
+// ============================================
+// THEME SELECTOR (2026 Professional Theme Picker)
+// ============================================
+export {
+  NxtThemeSelectorComponent,
+  type ThemeSelectorVariant,
+  type ThemeSelectEvent,
+} from './components/theme-selector';
+
+// ============================================
 // RESPONSIVE HEADER NAVIGATION (2026 Native-Style)
 // ============================================
 export {
@@ -231,6 +255,46 @@ export {
   findTopNavItemByRoute,
   updateTopNavBadge,
 } from '@nxt1/core';
+
+// ============================================
+// SIDENAV / DRAWER NAVIGATION (2026 Twitter/X-Style)
+// ============================================
+export {
+  // Component
+  NxtSidenavComponent,
+  // Service
+  NxtSidenavService,
+  // Types (from @nxt1/core)
+  type SidenavIconName,
+  type SocialLink,
+  type SidenavItem,
+  type SidenavSection,
+  type SidenavUserData,
+  type SidenavVariant,
+  type SidenavPosition,
+  type SidenavMode,
+  type SidenavConfig,
+  type SidenavSelectEvent,
+  type SidenavToggleEvent,
+  type SidenavSectionToggleEvent,
+  // Angular-specific types
+  type SidenavItemSelectEvent,
+  type SidenavToggleEventAngular,
+  // Constants (from @nxt1/core)
+  DEFAULT_SOCIAL_LINKS,
+  DEFAULT_SIDENAV_ITEMS,
+  SIDENAV_WIDTHS,
+  SIDENAV_Z_INDEX,
+  SIDENAV_ANIMATION,
+  SIDENAV_GESTURE,
+  // Helper functions (from @nxt1/core)
+  createSidenavConfig,
+  findSidenavItemById,
+  findSidenavItemByRoute,
+  updateSidenavBadge,
+  toggleSidenavSection,
+  filterSidenavByRoles,
+} from './components/sidenav';
 
 // ============================================
 // UNIFIED PICKER SYSTEM
@@ -295,6 +359,28 @@ export {
 export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './services/logging';
 
 // ============================================
+// GESTURE SERVICES (Native-feel touch handling)
+// ============================================
+export {
+  // Generic swipe gesture handler (framework-agnostic)
+  createSwipeGestureHandler,
+  createGestureConfig,
+  DEFAULT_GESTURE_CONFIG,
+  // Sidenav-specific gesture service
+  NxtSidenavGestureService,
+  // Types
+  type SwipeDirection,
+  type GesturePhase,
+  type SwipeGestureConfig,
+  type GestureStartState,
+  type GestureState,
+  type GestureResult,
+  type GestureCallbacks,
+  type GestureHandler,
+  type SidenavGestureConfig,
+} from './services/gesture';
+
+// ============================================
 // BREADCRUMB TRACKING (Crashlytics Integration)
 // ============================================
 export {
@@ -327,6 +413,21 @@ export {
 // AUTH ERROR HANDLING (in services/)
 // ============================================
 export { AuthErrorHandler, type AuthError, type AuthRecoveryAction } from './services/auth-error';
+
+// ============================================
+// THEME SERVICE (2026 Professional Theme Management)
+// ============================================
+export {
+  NxtThemeService,
+  THEME_OPTIONS,
+  SPORT_THEME_OPTIONS,
+  type ThemePreference,
+  type EffectiveTheme,
+  type SportTheme,
+  type ThemeChangeEvent,
+  type ThemeOption,
+  type SportThemeOption,
+} from './services/theme';
 
 // ============================================
 // ONBOARDING COMPONENTS
@@ -379,6 +480,17 @@ export { OnboardingCompleteComponent } from './onboarding/onboarding-complete';
 export { OnboardingWelcomeComponent } from './onboarding/onboarding-welcome';
 
 // ============================================
-// GENERAL COMPONENTS
+// PULL-TO-REFRESH (2026 Native-Style)
 // ============================================
-export { NxtRefreshContainerComponent, type RefreshEvent } from './components/refresh-container';
+export {
+  // Components
+  NxtRefresherComponent,
+  NxtRefreshContainerComponent,
+  // Types
+  type RefreshEvent,
+  type RefreshPullEvent,
+  type RefresherSpinner,
+  type RefreshContainerConfig,
+  // Constants
+  DEFAULT_REFRESH_CONFIG,
+} from './components/refresh-container';

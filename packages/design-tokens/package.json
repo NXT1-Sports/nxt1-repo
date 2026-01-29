@@ -35,6 +35,7 @@
     "./platform/ionic": "./platform/ionic-adapter.css",
     "./ionic": "./ionic/index.css",
     "./ionic/theme": "./ionic/ionic-theme.css",
+    "./ionic/generated": "./dist/ionic/ionic-generated.css",
     "./assets": "./assets/index.ts",
     "./assets/icons": "./assets/icons/index.ts"
   },

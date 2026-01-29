@@ -36,6 +36,7 @@
 import { Injectable, PLATFORM_ID, inject, signal, computed, OnDestroy } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Subject } from 'rxjs';
+import { NxtLoggingService } from '@nxt1/ui';
 import type { NetworkStatus, NetworkChangeEvent, ConnectionType } from '@nxt1/core';
 
 @Injectable({
@@ -43,6 +44,7 @@ import type { NetworkStatus, NetworkChangeEvent, ConnectionType } from '@nxt1/co
 })
 export class NetworkService implements OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly logger = inject(NxtLoggingService).child('NetworkService');
 
   // Private state
   private _isInitialized = false;
@@ -129,7 +131,7 @@ export class NetworkService implements OnDestroy {
 
     this._isInitialized = true;
 
-    console.debug('[NetworkService] Initialized', {
+    this.logger.debug('Initialized', {
       isOnline: this._isOnline(),
       platform: 'web',
     });
@@ -155,7 +157,7 @@ export class NetworkService implements OnDestroy {
       timestamp: Date.now(),
     });
 
-    console.debug('[NetworkService] Connection restored');
+    this.logger.debug('Connection restored');
   }
 
   private handleOffline(): void {
@@ -174,7 +176,7 @@ export class NetworkService implements OnDestroy {
       timestamp: Date.now(),
     });
 
-    console.debug('[NetworkService] Connection lost');
+    this.logger.debug('Connection lost');
   }
 
   // ============================================

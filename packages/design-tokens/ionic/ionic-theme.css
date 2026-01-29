@@ -1,37 +1,31 @@
 /**
- * @fileoverview NXT1 Ionic Theme Integration (CSS-only)
+ * @fileoverview NXT1 Ionic Platform Overrides
  * @module @nxt1/design-tokens/ionic
  *
- * Maps NXT1 design tokens to Ionic CSS custom properties.
- * This enables NXT1 branding while maintaining Ionic's platform-adaptive behavior.
+ * ⚠️  IMPORTANT: Theme colors (primary, backgrounds, sport themes) are now
+ * AUTO-GENERATED in dist/ionic/ionic-generated.css from tokens.json.
+ * DO NOT add theme colors here - they will be overwritten!
  *
- * NO SCSS REQUIRED - Pure CSS using CSS custom property references.
+ * This file contains ONLY platform-specific overrides that cannot be
+ * auto-generated from tokens:
+ * - Secondary/Tertiary/Status color palettes (RGB values)
+ * - iOS platform overrides (blur, safe areas, translucent toolbar)
+ * - Android platform overrides (ripple, Material Design)
+ * - Step colors for Ionic gradients
+ * - Typography mappings
+ * - Component-specific styling
  *
- * Usage:
- *   @import '@nxt1/design-tokens/ionic/ionic-theme.css';
- *
- * Prerequisites:
- *   Import design tokens CSS first:
- *   @import '@nxt1/design-tokens/css';
+ * Architecture (2026 Best Practices):
+ *   tokens.json → build.mjs → dist/ionic/ionic-generated.css (auto)
+ *   This file → Platform overrides only (manual, rarely changes)
  */
 
 /* ============================================
-   IONIC CORE THEME VARIABLES
+   SECONDARY COLOR PALETTES (Not theme-specific)
+   These rarely change and aren't in tokens.json yet
    ============================================ */
 
 :root {
-  /* ============================================
-     COLOR TOKENS (Ionic Primary, Secondary, Tertiary)
-     ============================================ */
-
-  /* Primary - NXT1 Neon Green */
-  --ion-color-primary: var(--nxt1-color-primary-400, #ccff00);
-  --ion-color-primary-rgb: 204, 255, 0;
-  --ion-color-primary-contrast: #0a0a0a;
-  --ion-color-primary-contrast-rgb: 10, 10, 10;
-  --ion-color-primary-shade: var(--nxt1-color-primary-500, #b8e600);
-  --ion-color-primary-tint: var(--nxt1-color-primary-300, #d4ff4d);
-
   /* Secondary - Warm Neon */
   --ion-color-secondary: var(--nxt1-color-secondary-400, #ffed00);
   --ion-color-secondary-rgb: 255, 237, 0;
@@ -98,133 +92,11 @@
 }
 
 /* ============================================
-   THEME-SPECIFIC IONIC COLOR OVERRIDES
-   Required because theme tokens cascade but Ionic
-   colors need explicit RGB values
-   ============================================ */
-
-/* Sport-Basketball Theme */
-[data-theme='sport-basketball'] {
-  --ion-color-primary: #ff6d00;
-  --ion-color-primary-rgb: 255, 109, 0;
-  --ion-color-primary-contrast: #000000;
-  --ion-color-primary-contrast-rgb: 0, 0, 0;
-  --ion-color-primary-shade: #e06000;
-  --ion-color-primary-tint: #ff7e1a;
-}
-
-/* Sport-Football Theme */
-[data-theme='sport-football'] {
-  --ion-color-primary: #4ade80;
-  --ion-color-primary-rgb: 74, 222, 128;
-  --ion-color-primary-contrast: #000000;
-  --ion-color-primary-contrast-rgb: 0, 0, 0;
-  --ion-color-primary-shade: #22c55e;
-  --ion-color-primary-tint: #86efac;
-}
-
-/* Sport-Baseball Theme */
-[data-theme='sport-baseball'] {
-  --ion-color-primary: #d84315;
-  --ion-color-primary-rgb: 216, 67, 21;
-  --ion-color-primary-contrast: #ffffff;
-  --ion-color-primary-contrast-rgb: 255, 255, 255;
-  --ion-color-primary-shade: #bf360c;
-  --ion-color-primary-tint: #ff5722;
-}
-
-/* Sport-Softball Theme */
-[data-theme='sport-softball'] {
-  --ion-color-primary: #ffed4e;
-  --ion-color-primary-rgb: 255, 237, 78;
-  --ion-color-primary-contrast: #000000;
-  --ion-color-primary-contrast-rgb: 0, 0, 0;
-  --ion-color-primary-shade: #ffc400;
-  --ion-color-primary-tint: #ffff80;
-}
-
-/* Light Theme */
-[data-theme='light'] {
-  --ion-color-primary: #ccff00;
-  --ion-color-primary-rgb: 204, 255, 0;
-  --ion-color-primary-contrast: #0a0a0a;
-  --ion-color-primary-contrast-rgb: 10, 10, 10;
-  --ion-color-primary-shade: #b8e600;
-  --ion-color-primary-tint: #d4ff4d;
-}
-
-/* Dark Theme (default) */
-[data-theme='dark'] {
-  --ion-color-primary: #ccff00;
-  --ion-color-primary-rgb: 204, 255, 0;
-  --ion-color-primary-contrast: #0a0a0a;
-  --ion-color-primary-contrast-rgb: 10, 10, 10;
-  --ion-color-primary-shade: #b8e600;
-  --ion-color-primary-tint: #d4ff4d;
-}
-
-/* Team Theme (Dynamic team branding via CSS custom properties) */
-[data-theme='team'] {
-  /* Primary color from team branding - uses CSS custom properties with fallbacks */
-  --ion-color-primary: var(--team-primary, #ccff00);
-  --ion-color-primary-rgb: var(--team-primary-rgb, 204, 255, 0);
-  --ion-color-primary-contrast: var(--team-text-on-primary, #0a0a0a);
-  --ion-color-primary-contrast-rgb: var(--team-text-on-primary-rgb, 10, 10, 10);
-  --ion-color-primary-shade: var(--team-primary-dark, #b8e600);
-  --ion-color-primary-tint: var(--team-primary-light, #d4ff4d);
-
-  /* Secondary uses team secondary with fallbacks */
-  --ion-color-secondary: var(--team-secondary, #ffffff);
-  --ion-color-secondary-rgb: var(--team-secondary-rgb, 255, 255, 255);
-  --ion-color-secondary-contrast: var(--team-text-on-secondary, #0a0a0a);
-  --ion-color-secondary-contrast-rgb: var(--team-text-on-secondary-rgb, 10, 10, 10);
-  --ion-color-secondary-shade: var(--team-secondary-dark, #e0e0e0);
-  --ion-color-secondary-tint: var(--team-secondary-light, #ffffff);
-}
-
-/* ============================================
-   DARK THEME (Default for NXT1)
+   STEP COLORS (for Ionic gradients/transitions)
    ============================================ */
 
 :root,
-[data-theme='dark'],
-.ion-palette-dark {
-  /* Color scheme hint */
-  color-scheme: dark;
-
-  /* Background colors */
-  --ion-background-color: var(--nxt1-color-dark-50, #0a0a0a);
-  --ion-background-color-rgb: 10, 10, 10;
-
-  /* Text colors */
-  --ion-text-color: #ffffff;
-  --ion-text-color-rgb: 255, 255, 255;
-
-  /* Item backgrounds */
-  --ion-item-background: var(--nxt1-color-dark-150, #161616);
-
-  /* Card backgrounds */
-  --ion-card-background: var(--nxt1-color-dark-150, #161616);
-
-  /* Toolbar */
-  --ion-toolbar-background: var(--nxt1-color-dark-100, #121212);
-  --ion-toolbar-color: #ffffff;
-
-  /* Tab bar */
-  --ion-tab-bar-background: var(--nxt1-color-dark-100, #121212);
-  --ion-tab-bar-color: rgba(255, 255, 255, 0.5);
-  --ion-tab-bar-color-selected: var(--nxt1-color-primary-400, #ccff00);
-
-  /* Borders */
-  --ion-border-color: rgba(255, 255, 255, 0.08);
-
-  /* Placeholder */
-  --ion-placeholder-color: rgba(255, 255, 255, 0.5);
-
-  /* ============================================
-     STEP COLORS (for gradients and transitions)
-     ============================================ */
-
+[data-theme='dark'] {
   --ion-color-step-50: var(--nxt1-color-dark-100, #121212);
   --ion-color-step-100: var(--nxt1-color-dark-150, #161616);
   --ion-color-step-150: var(--nxt1-color-dark-200, #1a1a1a);
@@ -244,55 +116,9 @@
   --ion-color-step-850: #e0e0e0;
   --ion-color-step-900: var(--nxt1-color-dark-900, #e5e5e5);
   --ion-color-step-950: var(--nxt1-color-dark-950, #f5f5f5);
-
-  /* ============================================
-     DEFAULT BUTTON STYLES
-     These CSS custom properties pierce Shadow DOM
-     and are available immediately before JS hydration
-     ============================================ */
-
-  /* Auth button defaults - glass morphism style */
-  --nxt1-auth-btn-background: rgba(255, 255, 255, 0.04);
-  --nxt1-auth-btn-background-hover: rgba(255, 255, 255, 0.08);
-  --nxt1-auth-btn-background-active: rgba(255, 255, 255, 0.12);
-  --nxt1-auth-btn-border-color: rgba(255, 255, 255, 0.1);
-  --nxt1-auth-btn-color: #ffffff;
-  --nxt1-auth-btn-border-radius: 12px;
 }
 
-/* ============================================
-   LIGHT THEME
-   ============================================ */
-
-[data-theme='light'],
-.ion-palette-light {
-  color-scheme: light;
-
-  --ion-background-color: var(--nxt1-color-light-50, #fafafa);
-  --ion-background-color-rgb: 250, 250, 250;
-
-  --ion-text-color: var(--nxt1-color-light-900, #212121);
-  --ion-text-color-rgb: 33, 33, 33;
-
-  --ion-item-background: #ffffff;
-  --ion-card-background: #ffffff;
-
-  --ion-toolbar-background: #ffffff;
-  --ion-toolbar-color: var(--nxt1-color-light-900, #212121);
-
-  --ion-tab-bar-background: #ffffff;
-  --ion-tab-bar-color: rgba(0, 0, 0, 0.5);
-  --ion-tab-bar-color-selected: var(--nxt1-color-primary-600, #a3cc00);
-
-  --ion-border-color: rgba(0, 0, 0, 0.08);
-  --ion-placeholder-color: rgba(0, 0, 0, 0.5);
-
-  /* Primary needs darker shade for light mode contrast */
-  --ion-color-primary: var(--nxt1-color-primary-600, #a3cc00);
-  --ion-color-primary-shade: var(--nxt1-color-primary-700, #8fb300);
-  --ion-color-primary-tint: var(--nxt1-color-primary-500, #b8e600);
-
-  /* Step colors for light theme */
+[data-theme='light'] {
   --ion-color-step-50: var(--nxt1-color-light-100, #f5f5f5);
   --ion-color-step-100: var(--nxt1-color-light-150, #f0f0f0);
   --ion-color-step-150: var(--nxt1-color-light-200, #eeeeee);
@@ -319,16 +145,11 @@
    ============================================ */
 
 .ios {
-  /* iOS-specific safe areas */
   --ion-safe-area-top: env(safe-area-inset-top);
   --ion-safe-area-bottom: env(safe-area-inset-bottom);
   --ion-safe-area-left: env(safe-area-inset-left);
   --ion-safe-area-right: env(safe-area-inset-right);
-
-  /* iOS navigation bar - transparent for glass effect */
   --ion-toolbar-background: transparent;
-
-  /* iOS default font */
   --ion-default-font: var(
     --nxt1-fontFamily-brand,
     -apple-system,
@@ -338,14 +159,13 @@
   );
 }
 
-/* iOS translucent toolbar */
+/* iOS translucent toolbar with blur */
 .ios ion-toolbar {
   --background: rgba(20, 20, 20, 0.8);
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
 }
 
-/* iOS has larger default touch targets */
 .ios ion-button {
   --padding-top: 12px;
   --padding-bottom: 12px;
@@ -356,25 +176,20 @@
    ============================================ */
 
 .md {
-  /* Material Design default font */
   --ion-default-font: var(--nxt1-fontFamily-brand, Roboto, 'Helvetica Neue', sans-serif);
-
-  /* Material Design ripple effect uses primary color */
   --ion-ripple-color: var(--nxt1-color-primary-400, #ccff00);
 }
 
-/* Android FAB uses primary */
 .md ion-fab-button {
   --background: var(--ion-color-primary);
   --color: var(--ion-color-primary-contrast);
 }
 
 /* ============================================
-   NXT1 TYPOGRAPHY FOR IONIC
+   TYPOGRAPHY
    ============================================ */
 
 :root {
-  /* Font families */
   --ion-font-family: var(
     --nxt1-fontFamily-brand,
     -apple-system,
@@ -383,25 +198,18 @@
     Roboto,
     sans-serif
   );
-
-  /* Font sizes mapped from NXT1 tokens */
   --ion-font-size: var(--nxt1-fontSize-base, 1rem);
   --ion-font-size-sm: var(--nxt1-fontSize-sm, 0.875rem);
   --ion-font-size-lg: var(--nxt1-fontSize-lg, 1.25rem);
 }
 
 /* ============================================
-   IONIC COMPONENT STYLING
+   COMPONENT STYLING
    ============================================ */
 
 :root {
-  /* Modal backdrop */
   --ion-backdrop-color: var(--nxt1-color-background-overlay, rgba(0, 0, 0, 0.8));
   --ion-backdrop-opacity: 1;
-
-  /* Border radius */
   --ion-border-radius: var(--nxt1-border-radius-md, 8px);
-
-  /* Segment */
   --ion-segment-background: var(--nxt1-color-surface-200, #1a1a1a);
 }

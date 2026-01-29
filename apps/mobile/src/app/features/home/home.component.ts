@@ -6,6 +6,8 @@
  * Protected by onboardingCompleteGuard.
  *
  * Uses NxtPageHeaderComponent for professional contextual header.
+ * Avatar click opens the sidenav (Twitter/X pattern).
+ * ⭐ PULL-TO-REFRESH enabled using NxtRefresherComponent ⭐
  * ⭐ IDENTICAL STRUCTURE TO WEB ⭐
  */
 
@@ -28,7 +30,19 @@ import {
   notificationsOutline,
   searchOutline,
 } from 'ionicons/icons';
-import { NxtPageHeaderComponent, type PageHeaderAction } from '@nxt1/ui';
+import {
+  NxtPageHeaderComponent,
+  NxtSidenavService,
+  NxtRefresherComponent,
+  NxtToastService,
+  NxtLoggingService,
+  HapticsService,
+  NxtOptionScrollerComponent,
+  type PageHeaderAction,
+  type RefreshEvent,
+  type OptionScrollerItem,
+  type OptionScrollerChangeEvent,
+} from '@nxt1/ui';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { AUTH_ROUTES } from '@nxt1/core/constants';
 
@@ -45,11 +59,13 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
     IonAvatar,
     IonIcon,
     NxtPageHeaderComponent,
+    NxtRefresherComponent,
+    NxtOptionScrollerComponent,
   ],
   template: `
-    <!-- Professional Page Header with Avatar (Twitter/X style) -->
+    <!-- Professional Page Header with Logo (Twitter/X style) -->
     <nxt1-page-header
-      title="Home"
+      [showLogo]="true"
       [avatarSrc]="user()?.photoURL"
       [avatarName]="displayName()"
       [actions]="headerActions()"
@@ -57,7 +73,18 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
       (actionClick)="onHeaderAction($event)"
     />
 
+    <!-- Twitter/TikTok Style Feed Selector -->
+    <nxt1-option-scroller
+      [options]="feedOptions()"
+      [selectedId]="selectedFeed()"
+      [config]="{ scrollable: true, stretchToFill: false }"
+      (selectionChange)="onFeedChange($event)"
+    />
+
     <ion-content class="ion-padding">
+      <!-- 🔄 Pull-to-Refresh (2026 Native-Style) -->
+      <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
+
       <div class="home-container">
         <!-- Welcome Card -->
         <ion-card>
@@ -95,6 +122,10 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
                   <span class="value premium">⭐ Premium</span>
                 </div>
               }
+              <div class="info-item">
+                <span class="label">Last Refresh:</span>
+                <span class="value">{{ lastRefreshDisplay() }}</span>
+              </div>
             </div>
           </ion-card-content>
         </ion-card>
@@ -149,6 +180,8 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
         max-width: 800px;
         margin: 0 auto;
         padding: 1rem 0;
+        /* Add top padding to prevent refresher from touching content */
+        padding-top: 1.5rem;
       }
 
       .profile-section {
@@ -251,9 +284,36 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
 export class HomeComponent {
   private readonly authFlow = inject(AuthFlowService);
   private readonly router = inject(Router);
+  private readonly sidenavService = inject(NxtSidenavService);
+  private readonly toast = inject(NxtToastService);
+  private readonly haptics = inject(HapticsService);
+  private readonly logger = inject(NxtLoggingService).child('HomeComponent');
 
   readonly user = this.authFlow.user;
   readonly displayName = computed(() => this.user()?.displayName ?? 'User');
+
+  /** Loading state for skeleton UI (future enhancement) */
+  readonly isLoading = signal(false);
+
+  /** Track last refresh time for display */
+  private readonly _lastRefreshTime = signal<Date | null>(null);
+  readonly lastRefreshDisplay = computed(() => {
+    const time = this._lastRefreshTime();
+    return time ? time.toLocaleTimeString() : 'Never';
+  });
+
+  /** Feed navigation options (Twitter/TikTok style) */
+  readonly feedOptions = signal<OptionScrollerItem[]>([
+    { id: 'explore', label: 'Explore' },
+    { id: 'following', label: 'Following' },
+    { id: 'news', label: 'News' },
+    { id: 'scout-reports', label: 'Scout Reports' },
+    { id: 'athletes', label: 'Athletes' },
+    { id: 'teams', label: 'Teams' },
+  ]);
+
+  /** Currently selected feed */
+  readonly selectedFeed = signal<string>('explore');
 
   /** Header action buttons */
   readonly headerActions = signal<PageHeaderAction[]>([
@@ -277,12 +337,89 @@ export class HomeComponent {
   }
 
   /**
-   * Handle avatar click - navigate to profile
+   * Handle pull-to-refresh
+   * Called when user pulls down to refresh the page
+   */
+  async handleRefresh(event: RefreshEvent): Promise<void> {
+    this.logger.debug('Refresh triggered', { timestamp: new Date(event.timestamp).toISOString() });
+    this.isLoading.set(true);
+
+    try {
+      // Refresh data from API
+      await this.refreshHomeData();
+
+      // Update last refresh time
+      this._lastRefreshTime.set(new Date());
+
+      // Complete the refresh successfully
+      event.complete();
+
+      // Success feedback
+      this.toast.success('Content refreshed');
+    } catch (error) {
+      this.logger.error('Refresh error', error);
+
+      // Haptic error feedback
+      await this.haptics.notification('error');
+
+      // Show error toast
+      this.toast.error('Failed to refresh. Try again.');
+
+      // Cancel/fail the refresh
+      event.cancel();
+    } finally {
+      this.isLoading.set(false);
+    }
+  }
+
+  /**
+   * Handle refresh timeout (default 30s)
+   */
+  async handleRefreshTimeout(): Promise<void> {
+    this.logger.warn('Refresh timed out');
+    this.isLoading.set(false);
+
+    // Haptic warning feedback
+    await this.haptics.notification('warning');
+
+    // Show timeout toast
+    this.toast.warning('Refresh timed out. Check your connection.');
+  }
+
+  /**
+   * Simulate refreshing home data from API
+   */
+  private async refreshHomeData(): Promise<void> {
+    // Simulate network delay
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // In a real app, you would:
+    // - Reload user profile
+    // - Fetch latest notifications
+    // - Update feed/posts
+    // - Refresh any cached data
+    this.logger.debug('Data refreshed successfully');
+  }
+
+  /**
+   * Handle avatar click - open sidenav (Twitter/X pattern)
    */
   onAvatarClick(): void {
-    // TODO: Navigate to profile page
-    console.log('Avatar clicked - navigate to profile');
-    void this.router.navigate(['/tabs/profile']);
+    this.sidenavService.open();
+  }
+
+  /**
+   * Handle feed tab change (For You / Following)
+   */
+  onFeedChange(event: OptionScrollerChangeEvent): void {
+    this.selectedFeed.set(event.option.id);
+    this.logger.debug('Feed changed', {
+      feed: event.option.label,
+      via: event.fromSwipe ? 'swipe' : 'tap',
+    });
+
+    // In production: trigger data reload for the selected feed
+    // this.loadFeedData(event.option.id);
   }
 
   /**
@@ -291,7 +428,7 @@ export class HomeComponent {
   onHeaderAction(action: PageHeaderAction): void {
     switch (action.id) {
       case 'notifications':
-        console.log('Notifications clicked');
+        this.logger.debug('Action clicked', { actionId: action.id });
         break;
       case 'signout':
         this.onSignOut();
@@ -304,7 +441,7 @@ export class HomeComponent {
       await this.authFlow.signOut();
       await this.router.navigate([AUTH_ROUTES.ROOT]);
     } catch (error) {
-      console.error('[HomeComponent] Sign out error:', error);
+      this.logger.error('Sign out failed', error);
     }
   }
 }

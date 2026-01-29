@@ -305,7 +305,7 @@ const CONFIG = {
       }
 
       .nxt1-success-circle-bg {
-        stroke: rgba(255, 255, 255, 0.2);
+        stroke: var(--nxt1-color-border-subtle);
         stroke-width: 2;
       }
 

@@ -209,7 +209,7 @@ addIcons({
         display: flex;
         flex-direction: column;
         min-height: 100%;
-        background: var(--nxt1-biometric-bg, #1c1c1e);
+        background: var(--nxt1-biometric-bg, var(--nxt1-color-surface-100));
         padding: 0 24px;
       }
 
@@ -217,39 +217,39 @@ addIcons({
      * Platform-Specific Base Styles
      * ============================================ */
       .biometric-sheet.ios {
-        --nxt1-biometric-bg: rgba(28, 28, 30, 0.98);
-        --nxt1-biometric-text: #ffffff;
-        --nxt1-biometric-text-secondary: rgba(255, 255, 255, 0.6);
-        --nxt1-biometric-accent: #34c759;
-        --nxt1-biometric-btn-bg: #34c759;
-        --nxt1-biometric-btn-text: #ffffff;
-        --nxt1-biometric-icon-color: #34c759;
+        --nxt1-biometric-bg: var(--nxt1-color-glass-bg);
+        --nxt1-biometric-text: var(--nxt1-color-text-primary);
+        --nxt1-biometric-text-secondary: var(--nxt1-color-text-secondary);
+        --nxt1-biometric-accent: var(--nxt1-color-success);
+        --nxt1-biometric-btn-bg: var(--nxt1-color-success);
+        --nxt1-biometric-btn-text: var(--nxt1-color-text-primary);
+        --nxt1-biometric-icon-color: var(--nxt1-color-success);
         font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', sans-serif;
       }
 
       .biometric-sheet.android {
-        --nxt1-biometric-bg: #1e1e1e;
-        --nxt1-biometric-text: #e3e3e3;
-        --nxt1-biometric-text-secondary: rgba(255, 255, 255, 0.6);
-        --nxt1-biometric-accent: #4caf50;
-        --nxt1-biometric-btn-bg: #4caf50;
-        --nxt1-biometric-btn-text: #000000;
-        --nxt1-biometric-icon-color: #4caf50;
+        --nxt1-biometric-bg: var(--nxt1-color-surface-100);
+        --nxt1-biometric-text: var(--nxt1-color-text-primary);
+        --nxt1-biometric-text-secondary: var(--nxt1-color-text-secondary);
+        --nxt1-biometric-accent: var(--nxt1-color-success);
+        --nxt1-biometric-btn-bg: var(--nxt1-color-success);
+        --nxt1-biometric-btn-text: var(--nxt1-color-text-inverse);
+        --nxt1-biometric-icon-color: var(--nxt1-color-success);
         font-family: 'Roboto', 'Google Sans', sans-serif;
       }
 
       /* Light theme overrides */
       :host-context(html[data-theme='light']) .biometric-sheet.ios {
-        --nxt1-biometric-bg: rgba(255, 255, 255, 0.98);
-        --nxt1-biometric-text: #000000;
-        --nxt1-biometric-text-secondary: rgba(0, 0, 0, 0.6);
-        --nxt1-biometric-btn-text: #ffffff;
+        --nxt1-biometric-bg: var(--nxt1-color-glass-bg);
+        --nxt1-biometric-text: var(--nxt1-color-text-primary);
+        --nxt1-biometric-text-secondary: var(--nxt1-color-text-secondary);
+        --nxt1-biometric-btn-text: var(--nxt1-color-text-primary);
       }
 
       :host-context(html[data-theme='light']) .biometric-sheet.android {
-        --nxt1-biometric-bg: #ffffff;
-        --nxt1-biometric-text: #1e1e1e;
-        --nxt1-biometric-text-secondary: rgba(0, 0, 0, 0.6);
+        --nxt1-biometric-bg: var(--nxt1-color-bg-primary);
+        --nxt1-biometric-text: var(--nxt1-color-text-primary);
+        --nxt1-biometric-text-secondary: var(--nxt1-color-text-secondary);
       }
 
       /* ============================================
@@ -398,7 +398,7 @@ addIcons({
         align-items: center;
         gap: 6px;
         padding: 8px 14px;
-        background: rgba(52, 199, 89, 0.12);
+        background: color-mix(in srgb, var(--nxt1-color-success) 12%, transparent);
         border-radius: 20px;
         margin-bottom: 32px;
 
@@ -415,7 +415,7 @@ addIcons({
       }
 
       .android .security-badge {
-        background: rgba(76, 175, 80, 0.12);
+        background: color-mix(in srgb, var(--nxt1-color-success) 12%, transparent);
       }
 
       /* ============================================
@@ -517,7 +517,7 @@ addIcons({
 
       .ios .skip-btn {
         font-size: 17px;
-        color: #007aff;
+        color: var(--nxt1-color-info);
       }
 
       .android .skip-btn {

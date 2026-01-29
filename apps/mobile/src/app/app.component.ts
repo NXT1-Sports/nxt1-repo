@@ -9,9 +9,14 @@
 import { Component, afterNextRender, inject, effect } from '@angular/core';
 import { Router, NavigationEnd } from '@angular/router';
 import { IonApp, IonRouterOutlet, Platform } from '@ionic/angular/standalone';
-import { NxtPlatformService, NxtLoggingService, NxtBreadcrumbService } from '@nxt1/ui';
+import {
+  NxtPlatformService,
+  NxtLoggingService,
+  NxtBreadcrumbService,
+  NxtThemeService,
+} from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
-import { NativeAppService, ThemeService } from './core/services';
+import { NativeAppService } from './core/services';
 import { BiometricService, AuthFlowService } from './features/auth/services';
 import { NetworkService } from './services/network.service';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
@@ -34,7 +39,7 @@ export class AppComponent {
   private readonly network = inject(NetworkService);
   private readonly biometric = inject(BiometricService);
   private readonly platform = inject(NxtPlatformService);
-  private readonly theme = inject(ThemeService);
+  private readonly theme = inject(NxtThemeService);
   private readonly authFlow = inject(AuthFlowService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('AppComponent');
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
@@ -148,10 +153,16 @@ export class AppComponent {
 
       this.logger.info('Native app initialized');
 
-      // Enable status bar sync with theme (2026 professional best practice)
-      // This auto-updates status bar icons when theme changes
+      // Theme service auto-initializes and manages theme switching
+      // (NxtThemeService from @nxt1/ui handles DOM updates automatically)
+      this.logger.debug('Theme service active', {
+        preference: this.theme.preference(),
+        effectiveTheme: this.theme.effectiveTheme(),
+      });
+
+      // Enable automatic status bar sync with theme changes
+      // This ensures status bar icons (light/dark) match the current theme on native
       this.theme.enableStatusBarSync();
-      this.logger.debug('Status bar theme sync enabled');
 
       // Services auto-initialize in their constructors
       // Just injecting them is enough to start monitoring

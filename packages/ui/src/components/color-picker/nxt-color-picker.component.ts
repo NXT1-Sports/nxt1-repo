@@ -298,7 +298,7 @@ const DEFAULT_MAX_COLORS = 4;
       .nxt1-color-swatch:hover:not(:disabled) {
         border-color: var(--nxt1-color-border-strong);
         filter: brightness(1.1);
-        box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+        box-shadow: var(--nxt1-glow-sm);
       }
 
       .nxt1-color-swatch:focus-visible {
@@ -314,28 +314,24 @@ const DEFAULT_MAX_COLORS = 4;
       /* Selected color swatch */
       .nxt1-color-swatch--selected {
         border-color: transparent;
-        box-shadow:
-          0 2px 4px rgba(0, 0, 0, 0.2),
-          inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+        box-shadow: var(--nxt1-shadow-sm);
       }
 
       .nxt1-color-swatch--selected.is-light {
-        box-shadow:
-          0 2px 4px rgba(0, 0, 0, 0.1),
-          inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+        box-shadow: var(--nxt1-shadow-sm);
       }
 
       /* Remove icon (hidden by default, shown on hover) */
       .nxt1-remove-icon {
         width: 16px;
         height: 16px;
-        color: white;
+        color: var(--nxt1-color-text-onPrimary);
         opacity: 0;
         transition: opacity var(--nxt1-duration-fast) ease;
       }
 
       .nxt1-color-swatch--selected.is-light .nxt1-remove-icon {
-        color: rgba(0, 0, 0, 0.8);
+        color: var(--nxt1-color-text-inverse);
       }
 
       .nxt1-color-swatch--selected:hover .nxt1-remove-icon,
@@ -417,7 +413,7 @@ const DEFAULT_MAX_COLORS = 4;
 
       .nxt1-palette-swatch:hover:not(:disabled) {
         filter: brightness(1.15);
-        box-shadow: 0 0 12px rgba(255, 255, 255, 0.25);
+        box-shadow: var(--nxt1-glow-sm);
         z-index: 1;
       }
 
@@ -439,11 +435,11 @@ const DEFAULT_MAX_COLORS = 4;
       .nxt1-check-icon {
         width: 18px;
         height: 18px;
-        color: white;
+        color: var(--nxt1-color-text-onPrimary);
       }
 
       .nxt1-palette-swatch.is-light .nxt1-check-icon {
-        color: rgba(0, 0, 0, 0.8);
+        color: var(--nxt1-color-text-inverse);
       }
 
       /* Custom color button */

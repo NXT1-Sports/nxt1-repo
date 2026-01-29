@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="utf-8" />
     <title>NXT1 Sports</title>
@@ -7,31 +7,60 @@
     <base href="./" />
 
     <!-- 
-      CRITICAL: Theme initialization script
+      CRITICAL: Theme initialization script (2026 Professional Pattern)
       This MUST run before any CSS/JS to prevent flash of wrong theme.
       Sets data-theme attribute and color-scheme before first paint.
+      
+      Storage Keys:
+      - nxt1-theme-preference: 'light' | 'dark' | 'system' (user's choice)
+      - nxt1-sport-theme: 'football' | 'basketball' | 'baseball' | 'softball' | null (optional sport accent)
     -->
     <script>
       (function () {
-        // Get stored preference, default to 'dark' for NXT1 brand
-        var stored = localStorage.getItem("nxt1-theme");
-        var theme = stored || "dark";
+        var STORAGE_KEY = "nxt1-theme-preference";
+        var SPORT_KEY = "nxt1-sport-theme";
 
-        // Persist dark as default if not set
-        if (!stored) {
-          localStorage.setItem("nxt1-theme", "dark");
+        // Get stored preference, default to 'system'
+        var preference = localStorage.getItem(STORAGE_KEY) || "system";
+        var sportTheme = localStorage.getItem(SPORT_KEY);
+
+        // Resolve 'system' to actual theme
+        var effectiveTheme = preference;
+        if (preference === "system") {
+          // Check system preference
+          var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+          effectiveTheme = prefersDark ? "dark" : "light";
         }
 
-        // Apply immediately to prevent flash
-        document.documentElement.setAttribute("data-theme", theme);
-        document.documentElement.style.colorScheme = theme;
+        // Determine final data-theme value
+        // If sport theme is set, use sport-specific theme (they're based on dark mode)
+        var dataTheme = sportTheme ? "sport-" + sportTheme : effectiveTheme;
 
-        // Set background color inline to prevent white flash
-        document.documentElement.style.backgroundColor = theme === "dark" ? "#0a0a0a" : "#ffffff";
+        // Apply immediately to prevent flash
+        document.documentElement.setAttribute("data-theme", dataTheme);
+
+        // Also store base theme for components that need it
+        document.documentElement.setAttribute("data-base-theme", effectiveTheme);
+
+        // Set color-scheme for browser UI (scrollbars, form controls)
+        // Sport themes are dark-based
+        var colorScheme = sportTheme ? "dark" : effectiveTheme;
+        document.documentElement.style.colorScheme = colorScheme;
+
+        // Set background color inline to prevent flash
+        var bgColors = {
+          light: "#ffffff",
+          dark: "#0a0a0a",
+          "sport-football": "#0d1a0f",
+          "sport-basketball": "#3d2000",
+          "sport-baseball": "#1a1424",
+          "sport-softball": "#1a1818",
+        };
+        document.documentElement.style.backgroundColor = bgColors[dataTheme] || bgColors[effectiveTheme] || "#0a0a0a";
       })();
     </script>
 
-    <meta name="color-scheme" content="dark light" />
+    <meta name="color-scheme" content="light dark" />
     <meta
       name="viewport"
       content="viewport-fit=cover, width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
@@ -45,7 +74,7 @@
     <meta name="apple-mobile-web-app-title" content="NXT1 Sports" />
 
     <!-- Native theme color (updated dynamically by ThemeService) -->
-    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="theme-color" content="#ffffff" />
 
     <!-- App icons -->
     <link rel="icon" type="image/png" href="assets/icon/favicon.png" />

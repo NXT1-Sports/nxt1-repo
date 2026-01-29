@@ -62,6 +62,7 @@ import {
   findTabByRoute,
   // Platform
   NxtPlatformService,
+  NxtLoggingService,
 } from '@nxt1/ui';
 import { AuthFlowService } from '../../../features/auth/services';
 
@@ -184,6 +185,7 @@ export class WebShellComponent {
   private readonly router = inject(Router);
   private readonly platform = inject(NxtPlatformService);
   private readonly authFlow = inject(AuthFlowService);
+  private readonly logger = inject(NxtLoggingService).child('WebShellComponent');
   private readonly destroyRef = inject(DestroyRef);
 
   // ============================================
@@ -198,7 +200,7 @@ export class WebShellComponent {
 
   /** Desktop navigation configuration */
   readonly navConfig: TopNavConfig = createTopNavConfig({
-    variant: 'default',
+    variant: 'blur',
     showSearch: true,
     showNotifications: true,
     sticky: true,
@@ -365,7 +367,7 @@ export class WebShellComponent {
       await this.authFlow.signOut();
       void this.router.navigate(['/auth/login']);
     } catch (err) {
-      console.error('Sign out failed:', err instanceof Error ? err.message : err);
+      this.logger.error('Sign out failed', err);
     }
   }
 }

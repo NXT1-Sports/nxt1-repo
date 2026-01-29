@@ -48,6 +48,7 @@ import { Injectable, inject, PLATFORM_ID, signal, computed } from '@angular/core
 import { isPlatformBrowser } from '@angular/common';
 import { Platform } from '@ionic/angular/standalone';
 import { Preferences } from '@capacitor/preferences';
+import { NxtLoggingService } from '@nxt1/ui';
 import {
   BIOMETRIC_METHODS,
   type BiometricMethod,
@@ -121,6 +122,7 @@ export const BIOMETRIC_ERROR_CODES = {
 export class BiometricService {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly ionicPlatform = inject(Platform);
+  private readonly logger = inject(NxtLoggingService).child('BiometricService');
 
   // ============================================
   // PRIVATE STATE
@@ -170,7 +172,7 @@ export class BiometricService {
    * early to pre-check availability.
    */
   async initialize(): Promise<BiometricAvailability> {
-    console.log('[BiometricService] initialize() called, isInitialized:', this._isInitialized);
+    this.logger.debug('Initializing', { isInitialized: this._isInitialized });
 
     if (this._isInitialized) {
       return {
@@ -180,31 +182,34 @@ export class BiometricService {
     }
 
     if (!isPlatformBrowser(this.platformId)) {
-      console.log('[BiometricService] Not browser platform');
+      this.logger.debug('SSR mode - biometric not available');
       return { available: false, biometryType: 'none', reason: 'Server-side rendering' };
     }
 
     const isCapacitor = this.ionicPlatform.is('capacitor');
-    console.log('[BiometricService] Is Capacitor:', isCapacitor);
+    this.logger.debug('Platform check', { isCapacitor });
 
     if (!isCapacitor) {
       return { available: false, biometryType: 'none', reason: 'Not running in native app' };
     }
 
     try {
-      console.log('[BiometricService] Importing NativeBiometric plugin...');
+      this.logger.debug('Importing NativeBiometric plugin');
       const { NativeBiometric } = await import('capacitor-native-biometric');
 
-      console.log('[BiometricService] Checking availability...');
+      this.logger.debug('Checking availability');
       const result = await NativeBiometric.isAvailable();
-      console.log('[BiometricService] isAvailable result:', result);
+      this.logger.debug('Availability result', {
+        isAvailable: result.isAvailable,
+        biometryType: result.biometryType,
+      });
 
       const biometryType = this.mapBiometryType(result.biometryType);
       this._isAvailable.set(result.isAvailable);
       this._biometryType.set(biometryType);
       this._isInitialized = true;
 
-      console.log('[BiometricService] Initialized successfully:', {
+      this.logger.debug('Initialized successfully', {
         available: result.isAvailable,
         type: biometryType,
         rawType: result.biometryType,
@@ -216,7 +221,7 @@ export class BiometricService {
         reason: result.errorCode ? this.getErrorMessage(String(result.errorCode)) : undefined,
       };
     } catch (error) {
-      console.error('[BiometricService] Plugin error:', error);
+      this.logger.error('Plugin initialization failed', error);
       this._isInitialized = true;
       return {
         available: false,
@@ -260,13 +265,13 @@ export class BiometricService {
         maxAttempts: options.maxAttempts ?? 3,
       });
 
-      console.debug('[BiometricService] Authentication successful');
+      this.logger.debug('Authentication successful');
       return { success: true };
     } catch (error: unknown) {
       const errorCode = this.parseErrorCode(error);
       const errorMessage = this.getErrorMessage(errorCode);
 
-      console.debug('[BiometricService] Authentication failed:', errorCode, errorMessage);
+      this.logger.debug('Authentication failed', { errorCode, errorMessage });
 
       return {
         success: false,
@@ -302,7 +307,7 @@ export class BiometricService {
    */
   async setCredentials(server: string, username: string, password: string): Promise<boolean> {
     if (!this._isAvailable()) {
-      console.warn('[BiometricService] Cannot store credentials - biometric not available');
+      this.logger.warn('Cannot store credentials - biometric not available');
       return false;
     }
 
@@ -315,10 +320,10 @@ export class BiometricService {
         password,
       });
 
-      console.debug('[BiometricService] Credentials stored for:', server);
+      this.logger.debug('Credentials stored', { server });
       return true;
     } catch (error) {
-      console.error('[BiometricService] Failed to store credentials:', error);
+      this.logger.error('Failed to store credentials', error);
       return false;
     }
   }
@@ -344,10 +349,10 @@ export class BiometricService {
 
       const credentials = await NativeBiometric.getCredentials({ server });
 
-      console.debug('[BiometricService] Credentials retrieved for:', server);
+      this.logger.debug('Credentials retrieved', { server });
       return credentials;
     } catch {
-      console.debug('[BiometricService] No credentials found for:', server);
+      this.logger.debug('No credentials found', { server });
       return null;
     }
   }
@@ -362,10 +367,10 @@ export class BiometricService {
       const { NativeBiometric } = await import('capacitor-native-biometric');
 
       await NativeBiometric.deleteCredentials({ server });
-      console.debug('[BiometricService] Credentials deleted for:', server);
+      this.logger.debug('Credentials deleted', { server });
       return true;
     } catch (error) {
-      console.debug('[BiometricService] Failed to delete credentials:', error);
+      this.logger.debug('Failed to delete credentials', { server, error });
       return false;
     }
   }
@@ -388,12 +393,12 @@ export class BiometricService {
       this._isEnrolled.set(enrolledResult.value === 'true');
       this._lastEmail.set(emailResult.value || null);
 
-      console.debug('[BiometricService] Enrollment status loaded', {
+      this.logger.debug('Enrollment status loaded', {
         enrolled: this._isEnrolled(),
         email: this._lastEmail(),
       });
     } catch (error) {
-      console.error('[BiometricService] Failed to load enrollment status:', error);
+      this.logger.error('Failed to load enrollment status', error);
     }
   }
 
@@ -409,7 +414,7 @@ export class BiometricService {
     const availability = await this.initialize();
 
     if (!availability.available) {
-      console.warn('[BiometricService] Cannot enroll - biometric not available');
+      this.logger.warn('Cannot enroll - biometric not available');
       return false;
     }
 
@@ -430,10 +435,10 @@ export class BiometricService {
       this._isEnrolled.set(true);
       this._lastEmail.set(email);
 
-      console.debug('[BiometricService] User enrolled for biometric login:', email);
+      this.logger.debug('User enrolled for biometric login', { email });
       return true;
     } catch (error) {
-      console.error('[BiometricService] Enrollment failed:', error);
+      this.logger.error('Enrollment failed', error);
       return false;
     }
   }
@@ -446,7 +451,7 @@ export class BiometricService {
    */
   async authenticateAndGetCredentials(): Promise<BiometricCredentials | null> {
     if (!this._isEnrolled()) {
-      console.debug('[BiometricService] Not enrolled, cannot authenticate');
+      this.logger.debug('Not enrolled, cannot authenticate');
       return null;
     }
 
@@ -495,9 +500,9 @@ export class BiometricService {
       this._isEnrolled.set(false);
       this._lastEmail.set(null);
 
-      console.debug('[BiometricService] Enrollment cleared');
+      this.logger.debug('Enrollment cleared');
     } catch (error) {
-      console.error('[BiometricService] Failed to clear enrollment:', error);
+      this.logger.error('Failed to clear enrollment', error);
     }
   }
 
@@ -537,13 +542,13 @@ export class BiometricService {
     const availability = await this.initialize();
 
     if (!availability.available) {
-      console.debug('[BiometricService] Native enrollment skipped - not available');
+      this.logger.debug('Native enrollment skipped - not available');
       return { enrolled: false, reason: 'failed' };
     }
 
     // Already enrolled? Skip
     if (this._isEnrolled()) {
-      console.debug('[BiometricService] Already enrolled, skipping prompt');
+      this.logger.debug('Already enrolled, skipping prompt');
       return { enrolled: true, reason: 'success' };
     }
 
@@ -566,21 +571,21 @@ export class BiometricService {
       const enrolled = await this.enrollBiometric(email, password);
 
       if (enrolled) {
-        console.debug('[BiometricService] Native enrollment successful');
+        this.logger.debug('Native enrollment successful');
         return { enrolled: true, reason: 'success' };
       } else {
-        console.warn('[BiometricService] Native enrollment - credential storage failed');
+        this.logger.warn('Native enrollment - credential storage failed');
         return { enrolled: false, reason: 'failed' };
       }
     } catch (error: unknown) {
       const errorCode = this.parseErrorCode(error);
 
       if (errorCode === 'USER_CANCELLED' || errorCode === BIOMETRIC_ERROR_CODES.USER_CANCELLED) {
-        console.debug('[BiometricService] User declined biometric enrollment');
+        this.logger.debug('User declined biometric enrollment');
         return { enrolled: false, reason: 'cancelled' };
       }
 
-      console.debug('[BiometricService] Native enrollment failed:', errorCode);
+      this.logger.debug('Native enrollment failed', { errorCode });
       return { enrolled: false, reason: 'failed' };
     }
   }

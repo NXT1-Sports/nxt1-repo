@@ -14,9 +14,10 @@
  * @version 1.0.0
  */
 
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseCrashlytics, type StackFrame } from '@capacitor-firebase/crashlytics';
+import { NxtLoggingService } from '@nxt1/ui';
 
 import type {
   CrashlyticsAdapter,
@@ -56,6 +57,7 @@ import {
  */
 @Injectable({ providedIn: 'root' })
 export class CrashlyticsService implements CrashlyticsAdapter {
+  private readonly logger = inject(NxtLoggingService).child('CrashlyticsService');
   private _config: Required<CrashlyticsConfig> = { ...DEFAULT_CRASHLYTICS_CONFIG };
   private _ready = false;
   private _isNative = false;
@@ -456,7 +458,7 @@ export class CrashlyticsService implements CrashlyticsAdapter {
       await FirebaseCrashlytics.sendUnsentReports();
       this.logDebug('Unsent reports sent');
     } catch (error) {
-      console.error('[Crashlytics] sendUnsentReports failed:', error);
+      this.logger.error('sendUnsentReports failed', error);
     }
   }
 
@@ -472,7 +474,7 @@ export class CrashlyticsService implements CrashlyticsAdapter {
       await FirebaseCrashlytics.deleteUnsentReports();
       this.logDebug('Unsent reports deleted');
     } catch (error) {
-      console.error('[Crashlytics] deleteUnsentReports failed:', error);
+      this.logger.error('deleteUnsentReports failed', error);
     }
   }
 
@@ -559,7 +561,7 @@ export class CrashlyticsService implements CrashlyticsAdapter {
 
   private logDebug(...args: unknown[]): void {
     if (this._config.debug) {
-      console.debug('[Crashlytics]', ...args);
+      this.logger.debug('Crashlytics', { details: args });
     }
   }
 
