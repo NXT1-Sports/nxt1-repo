@@ -35,6 +35,12 @@
 import { Injectable, inject, PLATFORM_ID, signal, computed } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Platform } from '@ionic/angular/standalone';
+import { Preferences } from '@capacitor/preferences';
+
+/** Storage key for biometric enrollment status */
+const BIOMETRIC_ENROLLMENT_KEY = 'nxt1_biometric_enrolled';
+/** Server identifier for credential storage */
+const CREDENTIALS_SERVER = 'nxt1-auth';
 
 /** Biometric types available on device */
 export type BiometricType = 'face' | 'fingerprint' | 'iris' | 'none';
@@ -91,6 +97,7 @@ export class BiometricService {
 
   private _isAvailable = signal(false);
   private _biometryType = signal<BiometricType>('none');
+  private _isEnrolled = signal(false);
   private _isInitialized = false;
 
   // ============================================
@@ -102,6 +109,12 @@ export class BiometricService {
 
   /** Type of biometric available (face, fingerprint, etc.) */
   readonly biometryType = computed(() => this._biometryType());
+
+  /** Whether user has enrolled for biometric login */
+  readonly isEnrolled = computed(() => this._isEnrolled());
+
+  /** Whether biometric is ready for login (available AND enrolled) */
+  readonly isReadyForLogin = computed(() => this._isAvailable() && this._isEnrolled());
 
   /** Human-readable name for the biometric type */
   readonly biometryName = computed(() => {
@@ -316,6 +329,118 @@ export class BiometricService {
     } catch (error) {
       console.debug('[BiometricService] Failed to delete credentials:', error);
       return false;
+    }
+  }
+
+  // ============================================
+  // ENROLLMENT MANAGEMENT
+  // ============================================
+
+  /**
+   * Load biometric enrollment status from persistent storage
+   *
+   * Should be called during app initialization to restore enrollment state.
+   */
+  async loadEnrollmentStatus(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    try {
+      const { value } = await Preferences.get({ key: BIOMETRIC_ENROLLMENT_KEY });
+      this._isEnrolled.set(value === 'true');
+      console.debug('[BiometricService] Enrollment status loaded:', value === 'true');
+    } catch (error) {
+      console.debug('[BiometricService] Failed to load enrollment status:', error);
+      this._isEnrolled.set(false);
+    }
+  }
+
+  /**
+   * Prompt user to enable biometric login
+   *
+   * Stores credentials and sets enrollment flag on success.
+   *
+   * @param email - User's email for credential storage
+   * @param password - User's password for credential storage
+   * @returns Promise with enrollment result
+   */
+  async promptNativeEnrollment(
+    email: string,
+    password: string
+  ): Promise<{ enrolled: boolean; reason?: string }> {
+    // First verify biometric works
+    const authResult = await this.authenticate({
+      reason: 'Verify your identity to enable biometric login',
+      title: 'Enable Biometric Login',
+    });
+
+    if (!authResult.success) {
+      const reason =
+        authResult.errorCode === BIOMETRIC_ERROR_CODES.USER_CANCELLED ? 'cancelled' : 'failed';
+      return { enrolled: false, reason };
+    }
+
+    // Store credentials
+    const stored = await this.setCredentials(CREDENTIALS_SERVER, email, password);
+    if (!stored) {
+      return { enrolled: false, reason: 'storage_failed' };
+    }
+
+    // Save enrollment status
+    try {
+      await Preferences.set({ key: BIOMETRIC_ENROLLMENT_KEY, value: 'true' });
+      this._isEnrolled.set(true);
+      console.debug('[BiometricService] User enrolled for biometric login');
+      return { enrolled: true };
+    } catch (error) {
+      console.error('[BiometricService] Failed to save enrollment status:', error);
+      return { enrolled: false, reason: 'storage_failed' };
+    }
+  }
+
+  /**
+   * Authenticate and retrieve stored credentials for login
+   *
+   * Used for biometric-based automatic login.
+   *
+   * @returns Credentials if successful, null otherwise
+   */
+  async authenticateAndGetCredentials(): Promise<{ email: string; password: string } | null> {
+    if (!this.isReadyForLogin()) {
+      console.debug(
+        '[BiometricService] Not ready for login - available:',
+        this._isAvailable(),
+        'enrolled:',
+        this._isEnrolled()
+      );
+      return null;
+    }
+
+    const credentials = await this.getCredentials(CREDENTIALS_SERVER, 'Sign in with biometric');
+    if (!credentials) return null;
+
+    // Map username to email for auth flow compatibility
+    return { email: credentials.username, password: credentials.password };
+  }
+
+  /**
+   * Clear biometric enrollment
+   *
+   * Removes stored credentials and enrollment flag.
+   */
+  async clearEnrollment(): Promise<void> {
+    try {
+      // Delete stored credentials
+      await this.deleteCredentials(CREDENTIALS_SERVER);
+
+      // Remove enrollment flag
+      await Preferences.remove({ key: BIOMETRIC_ENROLLMENT_KEY });
+      this._isEnrolled.set(false);
+
+      console.debug('[BiometricService] Enrollment cleared');
+    } catch (error) {
+      console.error('[BiometricService] Failed to clear enrollment:', error);
+      // Still update local state
+      this._isEnrolled.set(false);
     }
   }
 

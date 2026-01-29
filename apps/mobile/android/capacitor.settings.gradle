@@ -2,11 +2,20 @@
 include ':capacitor-android'
 project(':capacitor-android').projectDir = new File('../node_modules/@capacitor/android/capacitor')
 
+include ':capacitor-community-apple-sign-in'
+project(':capacitor-community-apple-sign-in').projectDir = new File('../../../node_modules/@capacitor-community/apple-sign-in/android')
+
+include ':capacitor-firebase-authentication'
+project(':capacitor-firebase-authentication').projectDir = new File('../../../node_modules/@capacitor-firebase/authentication/android')
+
 include ':capacitor-firebase-crashlytics'
 project(':capacitor-firebase-crashlytics').projectDir = new File('../../../node_modules/@capacitor-firebase/crashlytics/android')
 
 include ':capacitor-app'
 project(':capacitor-app').projectDir = new File('../node_modules/@capacitor/app/android')
+
+include ':capacitor-browser'
+project(':capacitor-browser').projectDir = new File('../../../node_modules/@capacitor/browser/android')
 
 include ':capacitor-camera'
 project(':capacitor-camera').projectDir = new File('../node_modules/@capacitor/camera/android')
@@ -42,10 +51,10 @@ include ':capacitor-splash-screen'
 project(':capacitor-splash-screen').projectDir = new File('../node_modules/@capacitor/splash-screen/android')
 
 include ':capacitor-status-bar'
-project(':capacitor-status-bar').projectDir = new File('../node_modules/@capacitor/status-bar/android')
+project(':capacitor-status-bar').projectDir = new File('../../../node_modules/@capacitor/status-bar/android')
 
-include ':southdevs-capacitor-google-auth'
-project(':southdevs-capacitor-google-auth').projectDir = new File('../../../node_modules/@southdevs/capacitor-google-auth/android')
+include ':recognizebv-capacitor-plugin-msauth'
+project(':recognizebv-capacitor-plugin-msauth').projectDir = new File('../../../node_modules/@recognizebv/capacitor-plugin-msauth/android')
 
 include ':capacitor-native-biometric'
 project(':capacitor-native-biometric').projectDir = new File('../../../node_modules/capacitor-native-biometric/android')

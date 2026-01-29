@@ -22,8 +22,11 @@ export { AnalyticsService } from './analytics.service';
 // Two-tier caching (memory + persistent)
 export { MobileCacheService } from './cache.service';
 
-// Theme management - use NxtThemeService from @nxt1/ui instead
-// (Theme service was consolidated to shared package)
+// Network connectivity monitoring (Capacitor Network plugin)
+export { NetworkService } from './network.service';
+
+// Crashlytics for native crash reporting (Capacitor Firebase)
+export { CrashlyticsService } from './crashlytics.service';
 
 // Share service for native social sharing
 export { ShareService, type ShareResultData, type ShareContentOptions } from './share.service';

@@ -1,8 +1,16 @@
 /**
  * Mobile app services barrel export
  * @module @nxt1/mobile/services
+ *
+ * @deprecated This folder is deprecated. Import from core/services instead.
+ * Re-exports from core/services for backwards compatibility.
+ *
+ * Will be removed in v3.0.0 - update imports to:
+ * - Core services: import from '../core/services'
+ * - Auth services: import from '../features/auth/services'
  */
 
+// Core services - re-export for backwards compatibility
 export {
   NativeAppService,
   type StatusBarStyle,
@@ -10,10 +18,9 @@ export {
   type NativeAppConfig,
   type AppLifecycleEvent,
   type AppLifecycleHandler,
-} from '../core/services/native-app.service';
+  NetworkService,
+  CrashlyticsService,
+} from '../core/services';
 
-export { BiometricService, type BiometricType } from '../features/auth/services/biometric.service';
-
-export { NetworkService } from './network.service';
-
-export { CrashlyticsService } from './crashlytics.service';
+// Auth services - re-export for backwards compatibility
+export { BiometricService, type BiometricType } from '../features/auth/services';

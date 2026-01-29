@@ -53,7 +53,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser } from '@angular/common';
 import { Router, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
-import { IonTabBar, IonTabButton, IonBadge } from '@ionic/angular/standalone';
+import { IonTabBar, IonTabButton } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../icon';
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
@@ -63,7 +63,7 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
 @Component({
   selector: 'nxt1-mobile-footer',
   standalone: true,
-  imports: [IonTabBar, IonTabButton, IonBadge, NxtIconComponent],
+  imports: [IonTabBar, IonTabButton, NxtIconComponent],
   template: `
     <!-- Footer wrapper for pill + FAB layout -->
     <div class="footer-container">
@@ -82,19 +82,18 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
             [tab]="tab.id"
             [disabled]="tab.disabled"
             [class.tab-button--active]="isActiveTab(tab)"
+            [class.has-badge]="tab.badge && tab.badge > 0"
             (click)="onTabClick(tab, $event)"
           >
             <!-- Custom NXT1 SVG Icon (same icon, color changes on select) -->
             <div class="tab-icon-wrapper">
               <nxt1-icon [name]="tab.icon" [size]="26" class="tab-icon" />
-            </div>
 
-            <!-- Badge -->
-            @if (tab.badge && tab.badge > 0) {
-              <ion-badge color="danger">
-                {{ tab.badge > 99 ? '99+' : tab.badge }}
-              </ion-badge>
-            }
+              <!-- Professional Red Dot Badge (Instagram/Twitter style) -->
+              @if (tab.badge && tab.badge > 0) {
+                <span class="badge-dot" aria-label="Unread notifications"></span>
+              }
+            </div>
           </ion-tab-button>
         }
       </ion-tab-bar>
@@ -242,15 +241,45 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         color: var(--footer-icon-active);
       }
 
-      /* Badge positioning */
-      ion-tab-button ion-badge {
+      /* Badge positioning - Professional Red Dot (Instagram/Twitter style) */
+      .tab-icon-wrapper {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Professional notification dot - positioned top-right of icon */
+      .badge-dot {
         position: absolute;
-        top: 0px;
-        right: calc(50% - 18px);
-        font-size: 9px;
-        min-width: 14px;
-        height: 14px;
-        padding: 0 3px;
+        top: -2px;
+        right: -6px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        /* Design token: badge background from design system */
+        background: var(--nxt1-color-badge-background, var(--nxt1-color-error, #ef4444));
+        /* Design token: badge shadow for subtle glow */
+        box-shadow: 0 0 4px var(--nxt1-color-badge-shadow, rgba(239, 68, 68, 0.5));
+        /* Subtle border for visibility on any background */
+        border: 1.5px solid var(--nxt1-color-background-primary, #0a0a0a);
+        /* Pop-in animation */
+        animation: badge-dot-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        z-index: 10;
+      }
+
+      @keyframes badge-dot-pop {
+        0% {
+          transform: scale(0);
+          opacity: 0;
+        }
+        50% {
+          transform: scale(1.3);
+        }
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
       }
 
       /* Hide labels mode - even more compact */

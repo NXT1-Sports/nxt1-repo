@@ -197,3 +197,64 @@ export function isValidLength(value: string, field: keyof typeof FIELD_LENGTHS):
   const constraints = FIELD_LENGTHS[field];
   return value.length >= constraints.min && value.length <= constraints.max;
 }
+// ============================================
+// EMAIL DOMAIN VALIDATION
+// ============================================
+
+/**
+ * Disposable/temporary email domains to block
+ * Add new domains as discovered
+ */
+export const DISPOSABLE_EMAIL_DOMAINS = [
+  'tempmail.com',
+  'throwaway.com',
+  'mailinator.com',
+  '10minutemail.com',
+  'guerrillamail.com',
+  'yopmail.com',
+  'trashmail.com',
+  'fakeinbox.com',
+  'tempail.com',
+  'dispostable.com',
+] as const;
+
+/**
+ * Reserved usernames that cannot be registered
+ */
+export const RESERVED_USERNAMES = [
+  'admin',
+  'administrator',
+  'nxt1',
+  'nxt1sports',
+  'support',
+  'help',
+  'api',
+  'www',
+  'app',
+  'mail',
+  'email',
+  'root',
+  'system',
+  'test',
+  'info',
+  'contact',
+  'sales',
+  'billing',
+] as const;
+
+/**
+ * Check if email domain is disposable
+ */
+export function isDisposableEmail(email: string): boolean {
+  const domain = email.split('@')[1]?.toLowerCase();
+  return domain
+    ? DISPOSABLE_EMAIL_DOMAINS.includes(domain as (typeof DISPOSABLE_EMAIL_DOMAINS)[number])
+    : false;
+}
+
+/**
+ * Check if username is reserved
+ */
+export function isReservedUsername(username: string): boolean {
+  return RESERVED_USERNAMES.includes(username.toLowerCase() as (typeof RESERVED_USERNAMES)[number]);
+}

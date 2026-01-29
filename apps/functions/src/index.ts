@@ -1,75 +1,55 @@
 /**
  * @fileoverview Firebase Cloud Functions Entry Point
  * @module @nxt1/functions
+ * @version 2.0.0
  *
  * Cloud Functions for NXT1 platform - triggers, scheduled tasks, and webhooks.
  * Uses shared @nxt1/core types for type safety across the platform.
  *
- * NOTE: This is a minimal skeleton for infrastructure setup.
- * Add function implementations as features are developed.
+ * Architecture (2026 Best Practices):
+ * ├── auth/         - Authentication triggers (user lifecycle)
+ * ├── user/         - User data triggers (profile updates)
+ * ├── notification/ - Notification triggers (push, email)
+ * ├── scheduled/    - Cron/scheduled tasks
+ * └── util/         - Utility/callable functions
+ *
+ * @see https://firebase.google.com/docs/functions/typescript
  */
 
 import * as admin from 'firebase-admin';
 import { setGlobalOptions } from 'firebase-functions/v2';
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
 
-// Initialize Firebase Admin
+// Initialize Firebase Admin (must be done before importing triggers)
 admin.initializeApp();
 
-const db = admin.firestore();
+// Export Firestore reference for use in triggers
+export const db = admin.firestore();
+export const auth = admin.auth();
+export const storage = admin.storage();
 
 // Set default options for all functions
 setGlobalOptions({
   region: 'us-central1',
   maxInstances: 10,
+  timeoutSeconds: 60,
+  memory: '256MiB',
 });
 
-// ============================================================================
-// HEALTH CHECK - Verify functions are deployed and working
-// ============================================================================
+// ============================================
+// EXPORT ALL FUNCTION MODULES
+// ============================================
 
-/**
- * Simple health check callable function
- * Use to verify Cloud Functions deployment is working
- */
-export const healthCheck = onCall(async () => {
-  return {
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0',
-  };
-});
+// Auth triggers (user lifecycle events)
+export * from './auth';
 
-/**
- * Generate unique profile slug for a user
- * This is a real utility function that will be used
- */
-export const generateProfileSlug = onCall(async (request) => {
-  const { firstName, lastName } = request.data;
+// User triggers (profile/data changes)
+export * from './user';
 
-  if (!firstName || !lastName) {
-    throw new HttpsError('invalid-argument', 'First and last name required');
-  }
+// Notification triggers (push, email)
+export * from './notification';
 
-  const baseSlug = `${firstName}-${lastName}`
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-');
+// Scheduled/cron tasks
+export * from './scheduled';
 
-  // Check for uniqueness
-  let slug = baseSlug;
-  let counter = 0;
-
-  while (true) {
-    const existing = await db.collection('Users').where('slug', '==', slug).limit(1).get();
-
-    if (existing.empty) {
-      break;
-    }
-
-    counter++;
-    slug = `${baseSlug}-${counter}`;
-  }
-
-  return { slug };
-});
+// Utility/callable functions
+export * from './util';

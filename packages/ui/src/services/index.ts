@@ -75,3 +75,6 @@ export {
   type GestureHandler,
   type SidenavGestureConfig,
 } from './gesture';
+
+// Global Badge Service (2026 Professional Badge Management)
+export { GlobalBadgeService, type BadgeType } from './badge';

@@ -1,6 +1,6 @@
 /**
  * @fileoverview NetworkService - Mobile Native Implementation
- * @module @nxt1/mobile/services
+ * @module @nxt1/mobile/core/services
  *
  * Professional-grade network connectivity monitoring for native mobile apps.
  * Uses Capacitor Network plugin for detailed connection information.

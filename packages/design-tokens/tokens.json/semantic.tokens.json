@@ -205,6 +205,25 @@
           }
         },
 
+        "badge": {
+          "$description": "Notification badge colors - used for unread indicators",
+          "background": {
+            "$value": "{color.semantic.error.500}",
+            "$type": "color",
+            "$description": "Badge dot background color (red)"
+          },
+          "text": {
+            "$value": "#ffffff",
+            "$type": "color",
+            "$description": "Badge text color (white)"
+          },
+          "shadow": {
+            "$value": "rgba(239, 68, 68, 0.4)",
+            "$type": "color",
+            "$description": "Badge shadow/glow color"
+          }
+        },
+
         "state": {
           "hover": {
             "$value": "rgba(255, 255, 255, 0.04)",

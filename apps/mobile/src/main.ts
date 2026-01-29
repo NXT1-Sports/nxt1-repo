@@ -15,7 +15,7 @@ import { appConfig } from './app/app.config';
 import { environment } from './environments/environment';
 
 // Import Crashlytics for early initialization
-import { CrashlyticsService } from './app/services/crashlytics.service';
+import { CrashlyticsService } from './app/core/services/crashlytics.service';
 
 // Fix document base URL for Capacitor
 if (Capacitor.isNativePlatform()) {

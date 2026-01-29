@@ -38,7 +38,7 @@ import {
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 // Local services
-import { CrashlyticsService } from './services/crashlytics.service';
+import { CrashlyticsService } from './core/services/crashlytics.service';
 
 import { routes } from './app.routes';
 import { environment } from '../environments/environment';

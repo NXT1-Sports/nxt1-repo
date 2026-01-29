@@ -1,13 +1,19 @@
 /**
  * @fileoverview Ionic Toast Styling - Theme Integration
  * @module @nxt1/ui/styles/components/ionic-toast
- * @version 1.1.0
+ * @version 2.1.0
  *
  * Applies NXT1 design tokens to ion-toast components.
  * Ensures toasts match the active theme (sport-basketball, dark, light, etc.)
  *
  * ALL colors use CSS custom properties from @nxt1/design-tokens for
  * automatic theme adaptation. No hardcoded hex values.
+ *
+ * Features:
+ * - Theme-aware colors using design tokens
+ * - Swipe-to-dismiss with Ionic GestureController (2026 best practice)
+ * - Visual swipe indicator for discoverability
+ * - Smooth spring animations
  */
 
 /* ============================================
@@ -16,48 +22,248 @@
 
 ion-toast.nxt-toast {
   font-family: var(--nxt1-fontFamily-brand);
+
+  /* Enable smooth transitions for swipe */
+  --toast-transition:
+    transform var(--nxt1-duration-normal) var(--nxt1-easing-out),
+    opacity var(--nxt1-duration-normal) var(--nxt1-easing-out);
 }
 
 /* Toast wrapper (shadow host) */
 ion-toast.nxt-toast::part(container) {
   border-radius: var(--nxt1-borderRadius-lg);
+  box-shadow: var(--nxt1-shadow-lg);
+
+  /* Enable gestures - allow vertical panning */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+
+  /* Smooth transforms during gesture */
+  will-change: transform, opacity;
 }
 
 /* Toast content */
 ion-toast.nxt-toast::part(message) {
   font-size: var(--nxt1-fontSize-sm);
   font-weight: var(--nxt1-fontWeight-medium);
+  line-height: var(--nxt1-lineHeight-normal);
+}
+
+/* Toast header if present */
+ion-toast.nxt-toast::part(header) {
+  font-size: var(--nxt1-fontSize-base);
+  font-weight: var(--nxt1-fontWeight-semibold);
+}
+
+/* Icon styling */
+ion-toast.nxt-toast::part(icon) {
+  font-size: 20px;
+  margin-inline-end: var(--nxt1-spacing-3);
+}
+
+/* Button styling */
+ion-toast.nxt-toast::part(button) {
+  font-family: var(--nxt1-fontFamily-brand);
+  font-weight: var(--nxt1-fontWeight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--nxt1-letterSpacing-wide);
+  font-size: var(--nxt1-fontSize-xs);
+  padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+  border-radius: var(--nxt1-borderRadius-md);
+  transition: opacity var(--nxt1-duration-fast) var(--nxt1-easing-inOut);
+}
+
+ion-toast.nxt-toast::part(button):hover {
+  opacity: 0.8;
 }
 
 /* ============================================
-   TOAST TYPE COLORS - Use NXT1 Theme Colors
-   All colors use token references for theme support
+   SWIPE INDICATOR - Shows toast is swipeable
+   Small pill at top/bottom of toast
    ============================================ */
 
-/* Success Toast */
+/* Bottom toast - indicator at top */
+ion-toast.nxt-toast[position='bottom']::part(container)::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 4px;
+  background: currentColor;
+  opacity: 0.3;
+  border-radius: 2px;
+}
+
+/* Top toast - indicator at bottom */
+ion-toast.nxt-toast[position='top']::part(container)::before {
+  content: '';
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 4px;
+  background: currentColor;
+  opacity: 0.3;
+  border-radius: 2px;
+}
+
+/* ============================================
+   SWIPE-TO-DISMISS VISUAL STATES
+   ============================================ */
+
+/* Swiping class applied during gesture - disable transitions for 60fps */
+ion-toast.nxt-toast.nxt-toast-swiping {
+  transition: none !important;
+}
+
+ion-toast.nxt-toast.nxt-toast-swiping::part(container) {
+  transition: none !important;
+  cursor: grabbing;
+}
+
+/* Active state while swiping - subtle scale feedback */
+ion-toast.nxt-toast.nxt-toast-swiping::part(container)::before {
+  opacity: 0.5;
+}
+
+/* Dismiss animation when swiped away */
+ion-toast.nxt-toast.nxt-toast-dismissing {
+  pointer-events: none;
+}
+
+ion-toast.nxt-toast.nxt-toast-dismissing::part(container) {
+  transition:
+    transform var(--nxt1-duration-slow) var(--nxt1-easing-out),
+    opacity var(--nxt1-duration-slow) var(--nxt1-easing-out);
+}
+
+/* ============================================
+   TOAST TYPE COLORS - NXT1 Design Tokens
+   All colors adapt to theme automatically
+   ============================================ */
+
+/* Success Toast - Uses semantic success color from tokens */
 ion-toast.nxt-toast-success {
   --background: var(--nxt1-color-success);
   --color: var(--nxt1-color-neutral-dark-1000);
   --button-color: var(--nxt1-color-neutral-dark-1000);
 }
 
-/* Error Toast */
+ion-toast.nxt-toast-success::part(container) {
+  border: 1px solid var(--nxt1-color-successDark);
+}
+
+/* Error Toast - Uses semantic error color from tokens */
 ion-toast.nxt-toast-error {
   --background: var(--nxt1-color-error);
   --color: var(--nxt1-color-neutral-dark-1000);
   --button-color: var(--nxt1-color-neutral-dark-1000);
 }
 
-/* Warning Toast */
+ion-toast.nxt-toast-error::part(container) {
+  border: 1px solid var(--nxt1-color-errorDark);
+}
+
+/* Warning Toast - Uses semantic warning color from tokens */
 ion-toast.nxt-toast-warning {
   --background: var(--nxt1-color-warning);
   --color: var(--nxt1-color-neutral-dark-0);
   --button-color: var(--nxt1-color-neutral-dark-0);
 }
 
-/* Info Toast - Uses theme primary color */
+ion-toast.nxt-toast-warning::part(container) {
+  border: 1px solid var(--nxt1-color-warningDark);
+}
+
+/* Info Toast - Uses semantic info color from tokens */
 ion-toast.nxt-toast-info {
-  --background: var(--nxt1-color-primary);
-  --color: var(--nxt1-color-text-onPrimary);
-  --button-color: var(--nxt1-color-text-onPrimary);
+  --background: var(--nxt1-color-info);
+  --color: var(--nxt1-color-neutral-dark-1000);
+  --button-color: var(--nxt1-color-neutral-dark-1000);
+}
+
+ion-toast.nxt-toast-info::part(container) {
+  border: 1px solid var(--nxt1-color-infoDark);
+}
+
+/* ============================================
+   ALTERNATIVE: SUBTLE/SOFT TOAST VARIANTS
+   Use with cssClass: 'nxt-toast-soft'
+   ============================================ */
+
+/* Soft Success */
+ion-toast.nxt-toast-success.nxt-toast-soft {
+  --background: var(--nxt1-color-successBg);
+  --color: var(--nxt1-color-success);
+  --button-color: var(--nxt1-color-success);
+}
+
+ion-toast.nxt-toast-success.nxt-toast-soft::part(container) {
+  border: 1px solid var(--nxt1-color-success);
+}
+
+/* Soft Error */
+ion-toast.nxt-toast-error.nxt-toast-soft {
+  --background: var(--nxt1-color-errorBg);
+  --color: var(--nxt1-color-error);
+  --button-color: var(--nxt1-color-error);
+}
+
+ion-toast.nxt-toast-error.nxt-toast-soft::part(container) {
+  border: 1px solid var(--nxt1-color-error);
+}
+
+/* Soft Warning */
+ion-toast.nxt-toast-warning.nxt-toast-soft {
+  --background: var(--nxt1-color-warningBg);
+  --color: var(--nxt1-color-warning);
+  --button-color: var(--nxt1-color-warning);
+}
+
+ion-toast.nxt-toast-warning.nxt-toast-soft::part(container) {
+  border: 1px solid var(--nxt1-color-warning);
+}
+
+/* Soft Info */
+ion-toast.nxt-toast-info.nxt-toast-soft {
+  --background: var(--nxt1-color-infoBg);
+  --color: var(--nxt1-color-info);
+  --button-color: var(--nxt1-color-info);
+}
+
+ion-toast.nxt-toast-info.nxt-toast-soft::part(container) {
+  border: 1px solid var(--nxt1-color-info);
+}
+
+/* ============================================
+   POSITION ADJUSTMENTS
+   Account for safe areas on mobile
+   ============================================ */
+
+/* Bottom toast - add safe area padding */
+ion-toast.nxt-toast[position='bottom'] {
+  --bottom: calc(var(--ion-safe-area-bottom, 0px) + var(--nxt1-spacing-4));
+}
+
+/* Top toast - add safe area padding */
+ion-toast.nxt-toast[position='top'] {
+  --top: calc(var(--ion-safe-area-top, 0px) + var(--nxt1-spacing-4));
+}
+
+/* ============================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================ */
+
+@media (min-width: 768px) {
+  ion-toast.nxt-toast {
+    --max-width: 400px;
+  }
+
+  ion-toast.nxt-toast::part(container) {
+    border-radius: var(--nxt1-borderRadius-xl);
+  }
 }

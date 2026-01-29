@@ -168,15 +168,16 @@ export interface SocialProvidersConfig {
         flex-shrink: 0;
       }
 
-      /* Apple button - solid black/white per Apple brand guidelines */
+      /* Apple button - solid black with white text per Apple brand guidelines */
       /* Note: Apple Sign In requires specific colors per branding rules */
+      /* Apple mandates: black (#000) background, white (#fff) text */
       .nxt1-auth-btn--apple {
-        --background: var(--nxt1-color-text-inverse);
-        --background-hover: var(--nxt1-color-surface-200);
-        --background-activated: var(--nxt1-color-surface-200);
-        --background-focused: var(--nxt1-color-surface-200);
-        --border-color: var(--nxt1-color-border-strong);
-        --color: var(--nxt1-color-bg-primary);
+        --background: #000000;
+        --background-hover: #1a1a1a;
+        --background-activated: #333333;
+        --background-focused: #1a1a1a;
+        --border-color: #000000;
+        --color: #ffffff;
       }
 
       /* Google hover effect */
@@ -189,9 +190,9 @@ export interface SocialProvidersConfig {
         --border-color: var(--nxt1-color-info);
       }
 
-      /* Apple hover effect */
+      /* Apple hover effect - subtle lightening */
       .nxt1-auth-btn--apple:hover {
-        --border-color: var(--nxt1-color-border-strong);
+        --border-color: #333333;
       }
     `,
   ],

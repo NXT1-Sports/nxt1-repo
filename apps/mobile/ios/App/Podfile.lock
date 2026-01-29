@@ -166,8 +166,8 @@ DEPENDENCIES:
   - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
   - "CapacitorDevice (from `../../node_modules/@capacitor/device`)"
   - "CapacitorFilesystem (from `../../node_modules/@capacitor/filesystem`)"
-  - "CapacitorFirebaseAuthentication (from `../../node_modules/@capacitor-firebase/authentication`)"
-  - "CapacitorFirebaseAuthentication/Google (from `../../node_modules/@capacitor-firebase/authentication`)"
+  - "CapacitorFirebaseAuthentication (from `../../../../node_modules/@capacitor-firebase/authentication`)"
+  - "CapacitorFirebaseAuthentication/Google (from `../../../../node_modules/@capacitor-firebase/authentication`)"
   - "CapacitorFirebaseCrashlytics (from `../../../../node_modules/@capacitor-firebase/crashlytics`)"
   - "CapacitorGeolocation (from `../../node_modules/@capacitor/geolocation`)"
   - "CapacitorHaptics (from `../../../../node_modules/@capacitor/haptics`)"
@@ -226,7 +226,7 @@ EXTERNAL SOURCES:
   CapacitorFilesystem:
     :path: "../../node_modules/@capacitor/filesystem"
   CapacitorFirebaseAuthentication:
-    :path: "../../node_modules/@capacitor-firebase/authentication"
+    :path: "../../../../node_modules/@capacitor-firebase/authentication"
   CapacitorFirebaseCrashlytics:
     :path: "../../../../node_modules/@capacitor-firebase/crashlytics"
   CapacitorGeolocation:
@@ -299,6 +299,6 @@ SPEC CHECKSUMS:
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   RecognizebvCapacitorPluginMsauth: c108ed22d9d2329bc729661356f9fce24354e2c2
 
-PODFILE CHECKSUM: 2671127b24557d4a559448b562ccad2f200f7311
+PODFILE CHECKSUM: 799139ef25f1dfae5fd4f3153605b7a6e92a9265
 
 COCOAPODS: 1.16.2
