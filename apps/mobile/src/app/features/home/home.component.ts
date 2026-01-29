@@ -11,7 +11,14 @@
  * ⭐ IDENTICAL STRUCTURE TO WEB ⭐
  */
 
-import { Component, computed, inject, signal, ChangeDetectionStrategy } from '@angular/core';
+import {
+  Component,
+  computed,
+  inject,
+  signal,
+  ChangeDetectionStrategy,
+  HostBinding,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import {
@@ -24,12 +31,7 @@ import {
   IonIcon,
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import {
-  logOutOutline,
-  personCircleOutline,
-  notificationsOutline,
-  searchOutline,
-} from 'ionicons/icons';
+import { personCircleOutline, searchOutline } from 'ionicons/icons';
 import {
   NxtPageHeaderComponent,
   NxtSidenavService,
@@ -307,6 +309,7 @@ export class HomeComponent {
     { id: 'explore', label: 'Explore' },
     { id: 'following', label: 'Following' },
     { id: 'news', label: 'News' },
+    { id: 'leaderboards', label: 'Leaderboards' },
     { id: 'scout-reports', label: 'Scout Reports' },
     { id: 'athletes', label: 'Athletes' },
     { id: 'teams', label: 'Teams' },
@@ -315,25 +318,21 @@ export class HomeComponent {
   /** Currently selected feed */
   readonly selectedFeed = signal<string>('explore');
 
-  /** Header action buttons */
+  /** Header action buttons - Create Post button using design token icon */
   readonly headerActions = signal<PageHeaderAction[]>([
     {
-      id: 'notifications',
-      icon: 'notifications-outline',
-      label: 'Notifications',
-      badge: 0,
-    },
-    {
-      id: 'signout',
-      icon: 'log-out-outline',
-      label: 'Sign Out',
-      danger: true,
+      id: 'create-post',
+      icon: 'plus',
+      label: 'Create Post',
     },
   ]);
 
+  /** Required for Ionic page transitions - marks this as an ion-page */
+  @HostBinding('class.ion-page') readonly ionPage = true;
+
   constructor() {
     // Register icons
-    addIcons({ logOutOutline, personCircleOutline, notificationsOutline, searchOutline });
+    addIcons({ personCircleOutline, searchOutline });
   }
 
   /**
@@ -425,15 +424,31 @@ export class HomeComponent {
   /**
    * Handle header action button clicks
    */
-  onHeaderAction(action: PageHeaderAction): void {
+  async onHeaderAction(action: PageHeaderAction): Promise<void> {
+    this.logger.debug('Action clicked', { actionId: action.id });
+
     switch (action.id) {
-      case 'notifications':
-        this.logger.debug('Action clicked', { actionId: action.id });
-        break;
-      case 'signout':
-        this.onSignOut();
+      case 'create-post':
+        await this.onCreatePost();
         break;
     }
+  }
+
+  /**
+   * Handle create post action
+   * Opens the post creation flow
+   */
+  async onCreatePost(): Promise<void> {
+    // Haptic feedback for premium action
+    await this.haptics.impact('medium');
+
+    this.logger.debug('Create post initiated');
+
+    // TODO: Navigate to post creation page or open modal
+    // await this.router.navigate(['/create-post']);
+    // OR: await this.modalService.openPostComposer();
+
+    this.toast.info('Post creation coming soon!');
   }
 
   async onSignOut(): Promise<void> {

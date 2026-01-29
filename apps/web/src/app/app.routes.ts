@@ -37,6 +37,11 @@ export const routes: Routes = [
         path: 'home',
         loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
       },
+      // Agent X - AI Assistant
+      {
+        path: 'agent-x',
+        loadChildren: () => import('./features/agent-x/agent-x.routes'),
+      },
       // Future authenticated routes go here:
       // { path: 'profile', loadComponent: ... },
       // { path: 'explore', loadComponent: ... },

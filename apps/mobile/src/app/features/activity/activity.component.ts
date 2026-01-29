@@ -1,9 +1,9 @@
 /**
- * @fileoverview Agent X Page - Mobile App Wrapper
- * @module @nxt1/mobile/features/agent-x
- * @version 2.0.0
+ * @fileoverview Activity Page - Mobile App Wrapper
+ * @module @nxt1/mobile/features/activity
+ * @version 1.0.0
  *
- * Thin wrapper component that imports the shared Agent X shell
+ * Thin wrapper component that imports the shared Activity shell
  * from @nxt1/ui and wires up platform-specific concerns.
  *
  * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
@@ -15,48 +15,48 @@
  * - User context from AuthFlowService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, HostBinding } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { Router } from '@angular/router';
+import { NavController } from '@ionic/angular/standalone';
 import {
-  AgentXShellComponent,
+  ActivityShellComponent,
   NxtSidenavService,
   NxtLoggingService,
-  type AgentXUser,
+  type ActivityUser,
 } from '@nxt1/ui';
-import type { AgentXMode } from '@nxt1/core';
+import type { ActivityTabId } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 
 @Component({
-  selector: 'app-agent-x',
+  selector: 'app-activity',
   standalone: true,
-  imports: [AgentXShellComponent],
+  imports: [ActivityShellComponent],
   template: `
-    <nxt1-agent-x-shell
+    <nxt1-activity-shell
       [user]="userInfo()"
       (avatarClick)="onAvatarClick()"
-      (modeChange)="onModeChange($event)"
+      (tabChange)="onTabChange($event)"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXComponent {
-  /** Required for Ionic page transitions - marks this as an ion-page */
-  @HostBinding('class.ion-page') readonly ionPage = true;
-
+export class ActivityComponent {
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
-  private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
+  private readonly navController = inject(NavController);
+  private readonly router = inject(Router);
+  private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
 
   /**
-   * Transform auth user to AgentXUser interface.
+   * Transform auth user to ActivityUser interface.
    */
-  protected readonly userInfo = computed<AgentXUser | null>(() => {
+  protected readonly userInfo = computed<ActivityUser | null>(() => {
     const user = this.authFlow.user();
     if (!user) return null;
 
     return {
       photoURL: user.photoURL,
       displayName: user.displayName,
-      role: user.role,
     };
   });
 
@@ -68,11 +68,11 @@ export class AgentXComponent {
   }
 
   /**
-   * Handle mode changes for analytics/logging.
+   * Handle tab changes for analytics/logging.
    */
-  protected onModeChange(mode: AgentXMode): void {
-    this.logger.debug('Agent X mode changed', { mode });
+  protected onTabChange(tab: ActivityTabId): void {
+    this.logger.debug('Activity tab changed', { tab });
     // In production: track analytics event
-    // this.analytics.track('agent_x_mode_change', { mode });
+    // this.analytics.track('activity_tab_change', { tab });
   }
 }

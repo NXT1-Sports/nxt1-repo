@@ -71,6 +71,8 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
       <ion-tab-bar
         [translucent]="config.translucent"
         [class.footer--hidden]="config.hidden"
+        [class.footer--solid]="!config.glass"
+        [class.footer--glass]="config.glass"
         [class.footer--show-labels]="shouldShowLabels()"
         [class.footer--hide-labels]="!shouldShowLabels()"
         [selectedTab]="activeTabId ?? _activeTabId()"
@@ -128,29 +130,57 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         --footer-fab-shadow-active: var(--nxt1-fab-shadowActive);
         --footer-fab-gradient-active: var(--nxt1-fab-gradientActive);
         --footer-fab-glow-active: var(--nxt1-fab-glowActive);
+
+        /* Solid navigation tokens (from design tokens) */
+        --footer-solid-bg: var(--nxt1-nav-bgSolid);
+        --footer-solid-border: var(--nxt1-nav-borderSolid);
+        --footer-solid-shadow: var(--nxt1-nav-shadowSolid);
       }
 
       /* Container for pill + FAB side by side */
       .footer-container {
         display: flex;
         align-items: center;
+        justify-content: center;
         gap: var(--nxt1-pill-gap);
-        padding: 0 4px;
+        padding: 0 16px;
         background: transparent;
+        max-width: 360px;
+        margin: 0 auto;
       }
 
-      /* Floating Pill Tab Bar - iOS 26 Liquid Glass Effect */
+      /* Floating Pill Tab Bar - Base styles */
       ion-tab-bar {
-        --background: var(--footer-glass-bg) !important;
+        --background: var(--footer-solid-bg) !important;
         --color: var(--footer-icon-inactive);
         --color-selected: var(--footer-icon-active);
         flex: 1;
-        border: 1px solid var(--footer-glass-border) !important;
+        border: 1px solid var(--footer-solid-border) !important;
         border-radius: var(--nxt1-pill-radius);
         padding: var(--nxt1-pill-padding);
         height: var(--nxt1-pill-height);
-        box-shadow: var(--footer-glass-shadow), var(--nxt1-glass-shadowInner);
+        box-shadow: var(--footer-solid-shadow);
+        background: var(--footer-solid-bg) !important;
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
+      }
+
+      /* Solid mode (default) - Opaque background from design tokens */
+      ion-tab-bar.footer--solid {
+        --background: var(--footer-solid-bg) !important;
+        background: var(--footer-solid-bg) !important;
+        border-color: var(--footer-solid-border) !important;
+        box-shadow: var(--footer-solid-shadow);
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
+      }
+
+      /* Glass mode (opt-in) - iOS 26 Liquid Glass Effect */
+      ion-tab-bar.footer--glass {
+        --background: var(--footer-glass-bg) !important;
         background: var(--footer-glass-bg) !important;
+        border-color: var(--footer-glass-border) !important;
+        box-shadow: var(--footer-glass-shadow), var(--nxt1-glass-shadowInner);
         -webkit-backdrop-filter: var(--footer-glass-backdrop) !important;
         backdrop-filter: var(--footer-glass-backdrop) !important;
       }
@@ -301,8 +331,8 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         }
       }
 
-      /* iOS-specific - Ensure liquid glass effect */
-      :host-context(.ios) ion-tab-bar {
+      /* iOS-specific - Ensure liquid glass effect only when glass mode enabled */
+      :host-context(.ios) ion-tab-bar.footer--glass {
         --background: var(--footer-glass-bg) !important;
         background: var(--footer-glass-bg) !important;
         -webkit-backdrop-filter: var(--footer-glass-backdrop) !important;
@@ -341,6 +371,7 @@ export class NxtMobileFooterComponent {
     variant: 'default',
     hidden: false,
     translucent: true,
+    glass: false, // Solid background by default
     indicatorStyle: 'none',
   };
 

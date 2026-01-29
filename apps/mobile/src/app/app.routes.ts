@@ -72,10 +72,11 @@ export const routes: Routes = [
           import('./features/agent-x/agent-x.routes').then((m) => m.AGENT_X_ROUTES),
       },
 
-      // Notifications Tab (placeholder for now)
+      // Activity Tab - Notifications & Activity Feed
       {
-        path: 'notifications',
-        loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
+        path: 'activity',
+        loadChildren: () =>
+          import('./features/activity/activity.routes').then((m) => m.ACTIVITY_ROUTES),
       },
     ],
   },

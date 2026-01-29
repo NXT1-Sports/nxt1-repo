@@ -33,6 +33,12 @@
 export * from './constants';
 
 // ============================================
+// AI (Agent X)
+// ============================================
+
+export * from './ai';
+
+// ============================================
 // MODELS
 // ============================================
 
@@ -539,3 +545,39 @@ export {
   isRetryable,
   generateTraceId,
 } from './errors';
+
+// ============================================
+// ACTIVITY (Notifications & Activity Feed)
+// ============================================
+
+export {
+  // Types
+  type ActivityTabId,
+  type ActivityTab,
+  type ActivityType,
+  type ActivityPriority,
+  type ActivitySource,
+  type ActivityAction,
+  type ActivityItem,
+  type ActivityFilter,
+  type ActivityPagination,
+  type ActivityFeedResponse,
+  type ActivityMarkReadResponse,
+  type ActivitySummary,
+  type ActivityState,
+  // Constants
+  ACTIVITY_TABS,
+  ACTIVITY_DEFAULT_TAB,
+  ACTIVITY_TYPE_ICONS,
+  ACTIVITY_TYPE_COLORS,
+  ACTIVITY_PRIORITY_WEIGHTS,
+  ACTIVITY_PAGINATION_DEFAULTS,
+  ACTIVITY_CACHE_KEYS,
+  ACTIVITY_CACHE_TTL,
+  ACTIVITY_EMPTY_STATES,
+  ACTIVITY_API_ENDPOINTS,
+  ACTIVITY_UI_CONFIG,
+  // API Factory
+  createActivityApi,
+  type ActivityApi,
+} from './activity';

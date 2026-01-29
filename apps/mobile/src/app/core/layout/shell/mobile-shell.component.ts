@@ -77,6 +77,7 @@ import {
   NxtSidenavComponent,
   NxtSidenavService,
   HapticsService,
+  NxtLoggingService,
   type FooterTabItem,
   type FooterTabSelectEvent,
   type FooterConfig,
@@ -95,6 +96,8 @@ import {
   SIDENAV_WIDTHS,
   SIDENAV_ANIMATION,
 } from '@nxt1/ui';
+import { AUTH_ROUTES } from '@nxt1/core/constants';
+import { AuthFlowService } from '../../../features/auth/services/auth-flow.service';
 
 /**
  * MobileShellComponent
@@ -216,6 +219,8 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   private readonly elementRef = inject(ElementRef);
   private readonly haptics = inject(HapticsService);
   private readonly ngZone = inject(NgZone);
+  private readonly authFlow = inject(AuthFlowService);
+  private readonly logger = inject(NxtLoggingService).child('MobileShell');
 
   /** Public sidenav service for programmatic control */
   readonly sidenavService = inject(NxtSidenavService);
@@ -493,23 +498,32 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   /**
    * Handle special sidenav actions
    */
-  private handleSidenavAction(action: string): void {
+  private async handleSidenavAction(action: string): Promise<void> {
     switch (action) {
       case 'signout':
-        // TODO: Implement sign out flow
-        // await this.authFlow.signOut();
-        // await this.router.navigate(['/auth']);
+        await this.handleSignOut();
         break;
       case 'settings':
         void this.router.navigate(['/tabs/settings']);
         break;
       case 'help':
         // TODO: Open help/support modal or page
-        // await this.modalService.openHelpSupport();
         break;
       default:
-        // Unknown action - silently ignore (no console.log in production)
+        // Unknown action - silently ignore
         break;
+    }
+  }
+
+  /**
+   * Handle sign out action from sidenav
+   */
+  private async handleSignOut(): Promise<void> {
+    try {
+      await this.authFlow.signOut();
+      await this.navController.navigateRoot(AUTH_ROUTES.ROOT);
+    } catch (error) {
+      this.logger.error('Sign out failed', error);
     }
   }
 

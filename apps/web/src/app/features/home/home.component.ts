@@ -414,6 +414,7 @@ export class HomeComponent {
     { id: 'explore', label: 'Explore' },
     { id: 'following', label: 'Following' },
     { id: 'news', label: 'News' },
+    { id: 'leaderboards', label: 'Leaderboards' },
     { id: 'scout-reports', label: 'Scout Reports' },
     { id: 'athletes', label: 'Athletes' },
     { id: 'teams', label: 'Teams' },

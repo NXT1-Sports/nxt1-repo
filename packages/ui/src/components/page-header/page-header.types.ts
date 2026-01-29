@@ -40,6 +40,12 @@ export interface PageHeaderConfig {
   readonly translucent?: boolean;
   /** Show border at bottom */
   readonly bordered?: boolean;
+  /**
+   * Whether to use glass (translucent) or solid background.
+   * - true: Translucent "Liquid Glass" effect with backdrop blur (iOS 26 style)
+   * - false: Solid opaque background (default)
+   */
+  readonly glass?: boolean;
   /** Custom background color */
   readonly backgroundColor?: string;
   /** Custom text color */
@@ -56,5 +62,6 @@ export const DEFAULT_PAGE_HEADER_CONFIG: PageHeaderConfig = {
   collapsible: false,
   translucent: true,
   bordered: true,
+  glass: false, // Solid background by default
   safeArea: 'auto',
 };

@@ -215,6 +215,38 @@ export {
 } from './components/option-scroller';
 
 // ============================================
+// AGENT X (AI Assistant - Shared Web & Mobile)
+// ============================================
+export {
+  // Service
+  AgentXService,
+  // Components
+  AgentXShellComponent,
+  AgentXWelcomeComponent,
+  AgentXChatComponent,
+  AgentXInputComponent,
+  // Types
+  type AgentXUser,
+} from './agent-x';
+
+// ============================================
+// ACTIVITY (Notifications - Shared Web & Mobile)
+// ============================================
+export {
+  // Service
+  ActivityService,
+  ActivityApiService,
+  ACTIVITY_API_BASE_URL,
+  // Components
+  ActivityShellComponent,
+  ActivityListComponent,
+  ActivityItemComponent,
+  ActivitySkeletonComponent,
+  // Types
+  type ActivityUser,
+} from './activity';
+
+// ============================================
 // THEME SELECTOR (2026 Professional Theme Picker)
 // ============================================
 export {
