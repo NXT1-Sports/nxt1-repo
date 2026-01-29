@@ -17,7 +17,7 @@
     "watch": "ng build --watch --configuration development",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run -- -- -- --coverage",
+    "test:coverage": "vitest run --coverage",
     "lint": "ng lint",
     "lint:fix": "ng lint --fix",
     "typecheck": "tsc --noEmit",
