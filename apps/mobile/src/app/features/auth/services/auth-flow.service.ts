@@ -573,6 +573,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     try {
       console.debug('[AuthFlowService] Calling firebaseAuth.signInWithGoogle()...');
       const result = await this.firebaseAuth.signInWithGoogle();
+      console.debug(
+        '[AuthFlowService][DEBUG] Full Google sign-in result:',
+        JSON.stringify(result, null, 2)
+      );
       console.debug('[AuthFlowService] Firebase sign-in result:', {
         uid: result.user.uid,
         email: result.user.email,
@@ -684,6 +688,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       const result = await this.firebaseAuth.signInWithApple();
+      console.debug(
+        '[AuthFlowService][DEBUG] Full Apple sign-in result:',
+        JSON.stringify(result, null, 2)
+      );
 
       let isNewUser = false;
       try {
@@ -775,6 +783,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       const result = await this.firebaseAuth.signInWithMicrosoft();
+      console.debug(
+        '[AuthFlowService][DEBUG] Full Microsoft sign-in result:',
+        JSON.stringify(result, null, 2)
+      );
 
       // User cancelled
       if (!result) {

@@ -178,7 +178,7 @@ DEPENDENCIES:
   - "CapacitorPushNotifications (from `../../node_modules/@capacitor/push-notifications`)"
   - "CapacitorShare (from `../../node_modules/@capacitor/share`)"
   - "CapacitorSplashScreen (from `../../node_modules/@capacitor/splash-screen`)"
-  - "CapacitorStatusBar (from `../../node_modules/@capacitor/status-bar`)"
+  - "CapacitorStatusBar (from `../../../../node_modules/@capacitor/status-bar`)"
   - "RecognizebvCapacitorPluginMsauth (from `../../../../node_modules/@recognizebv/capacitor-plugin-msauth`)"
 
 SPEC REPOS:
@@ -248,7 +248,7 @@ EXTERNAL SOURCES:
   CapacitorSplashScreen:
     :path: "../../node_modules/@capacitor/splash-screen"
   CapacitorStatusBar:
-    :path: "../../node_modules/@capacitor/status-bar"
+    :path: "../../../../node_modules/@capacitor/status-bar"
   RecognizebvCapacitorPluginMsauth:
     :path: "../../../../node_modules/@recognizebv/capacitor-plugin-msauth"
 
@@ -299,6 +299,6 @@ SPEC CHECKSUMS:
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   RecognizebvCapacitorPluginMsauth: c108ed22d9d2329bc729661356f9fce24354e2c2
 
-PODFILE CHECKSUM: 34d8a9aa685c1b756c48379e9c526afd2be2ae7a
+PODFILE CHECKSUM: 2671127b24557d4a559448b562ccad2f200f7311
 
 COCOAPODS: 1.16.2

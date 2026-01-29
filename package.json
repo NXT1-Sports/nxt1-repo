@@ -46,7 +46,7 @@
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean && rm -rf node_modules .turbo",
     "clean:cache": "turbo daemon clean",
-    "prepare": "husky install",
+    "prepare": "if [ \"$NODE_ENV\" != \"production\" ]; then husky install; fi",
     "twitter:unfollow": "tsx scripts/twitter-unfollow.ts",
     "deploy:staging": "turbo run deploy:staging",
     "deploy:prod": "turbo run deploy:prod",
