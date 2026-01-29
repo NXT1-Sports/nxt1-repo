@@ -27,3 +27,6 @@ export { MobileCacheService } from './cache.service';
 
 // Share service for native social sharing
 export { ShareService, type ShareResultData, type ShareContentOptions } from './share.service';
+
+// Keyboard management for iOS/Android
+export { KeyboardService } from './keyboard.service';

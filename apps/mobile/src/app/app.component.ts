@@ -16,7 +16,7 @@ import {
   NxtThemeService,
 } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
-import { NativeAppService } from './core/services';
+import { NativeAppService, KeyboardService } from './core/services';
 import { BiometricService, AuthFlowService } from './features/auth/services';
 import { NetworkService } from './services/network.service';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
@@ -36,6 +36,7 @@ export class AppComponent {
   private readonly router = inject(Router);
   private readonly ionicPlatform = inject(Platform);
   private readonly nativeApp = inject(NativeAppService);
+  private readonly keyboard = inject(KeyboardService);
   private readonly network = inject(NetworkService);
   private readonly biometric = inject(BiometricService);
   private readonly platform = inject(NxtPlatformService);
@@ -152,6 +153,10 @@ export class AppComponent {
       });
 
       this.logger.info('Native app initialized');
+
+      // Initialize keyboard behavior for iOS/Android
+      await this.keyboard.initialize();
+      this.logger.debug('Keyboard service initialized');
 
       // Theme service auto-initializes and manages theme switching
       // (NxtThemeService from @nxt1/ui handles DOM updates automatically)

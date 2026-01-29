@@ -189,10 +189,13 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
 
       /* ============================================ */
       /* ION-CONTENT FIX FOR WEB SSR                 */
-      /* Use static positioning to bypass Ionic's    */
-      /* internal scroll mechanism entirely          */
+      /* Apply only when the IonContent web component  */
+      /* is not yet defined (server / SSR fallback).  */
+      /* This prevents disabling native scrolling on  */
+      /* mobile (Capacitor) where ion-content must     */
+      /* remain interactive and scrollable.           */
       /* ============================================ */
-      ion-content.nxt1-auth-content {
+      ion-content.nxt1-auth-content:not(:defined) {
         --background: transparent;
         display: block !important;
         position: static !important;
@@ -202,12 +205,12 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         contain: none !important;
       }
 
-      ion-content.nxt1-auth-content::part(background) {
+      ion-content.nxt1-auth-content:not(:defined)::part(background) {
         position: static !important;
         background: transparent !important;
       }
 
-      ion-content.nxt1-auth-content::part(scroll) {
+      ion-content.nxt1-auth-content:not(:defined)::part(scroll) {
         display: block !important;
         position: static !important;
         height: auto !important;
