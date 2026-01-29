@@ -107,6 +107,13 @@ export interface FooterConfig {
   /** Whether footer has a translucent/blur effect */
   translucent?: boolean;
 
+  /**
+   * Whether to use glass (translucent) or solid background.
+   * - true: Translucent "Liquid Glass" effect with backdrop blur (iOS 26 style)
+   * - false: Solid opaque background (default)
+   */
+  glass?: boolean;
+
   /** Custom background color override */
   backgroundColor?: string;
 
@@ -149,14 +156,6 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Go to Home',
   },
   {
-    id: 'discover',
-    label: 'Discover',
-    icon: 'compass',
-    iconActive: 'compassFilled',
-    route: '/tabs/discover',
-    ariaLabel: 'Discover athletes and content',
-  },
-  {
     id: 'ai',
     label: 'Agent X',
     icon: 'bolt',
@@ -174,12 +173,12 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Search athletes and teams',
   },
   {
-    id: 'notifications',
-    label: 'Notifications',
+    id: 'activity',
+    label: 'Activity',
     icon: 'bell',
     iconActive: 'bellFilled',
-    route: '/tabs/notifications',
-    ariaLabel: 'View your notifications',
+    route: '/tabs/activity',
+    ariaLabel: 'View your activity and notifications',
   },
 ];
 
@@ -255,6 +254,7 @@ export function createFooterConfig(config: Partial<FooterConfig> = {}): FooterCo
     variant: 'default',
     hidden: false,
     translucent: true,
+    glass: false, // Solid background by default
     indicatorStyle: 'none',
     ...config,
   };
@@ -732,6 +732,8 @@ export type SidenavIconName =
   | 'info'
   | 'warning'
   | 'x'
+  | 'logout'
+  | 'logoutFilled'
   | 'twitter'
   | 'facebook'
   | 'instagram'
@@ -1090,6 +1092,18 @@ export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
         label: 'Contact Us',
         icon: 'email',
         action: 'contact',
+      },
+    ],
+  },
+  {
+    id: 'account',
+    items: [
+      {
+        id: 'signout',
+        label: 'Sign Out',
+        icon: 'logout',
+        action: 'signout',
+        variant: 'danger',
       },
     ],
   },

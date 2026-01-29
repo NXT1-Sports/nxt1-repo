@@ -1,7 +1,7 @@
 /**
- * @fileoverview Agent X Page - Mobile App Wrapper
- * @module @nxt1/mobile/features/agent-x
- * @version 2.0.0
+ * @fileoverview Agent X Page - Web App Wrapper
+ * @module @nxt1/web/features/agent-x
+ * @version 1.0.0
  *
  * Thin wrapper component that imports the shared Agent X shell
  * from @nxt1/ui and wires up platform-specific concerns.
@@ -15,7 +15,7 @@
  * - User context from AuthFlowService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, HostBinding } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import {
   AgentXShellComponent,
   NxtSidenavService,
@@ -36,12 +36,17 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
       (modeChange)="onModeChange($event)"
     />
   `,
+  styles: [
+    `
+      :host {
+        display: block;
+        height: 100%;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXComponent {
-  /** Required for Ionic page transitions - marks this as an ion-page */
-  @HostBinding('class.ion-page') readonly ionPage = true;
-
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');

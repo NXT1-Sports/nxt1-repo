@@ -18,8 +18,6 @@
     },
     "./css": "./dist/css/tokens.css",
     "./css/tokens": "./dist/css/tokens.css",
-    "./css/themes/dark": "./dist/css/themes/dark.css",
-    "./css/themes/light": "./dist/css/themes/light.css",
     "./js": {
       "types": "./dist/js/tokens.d.ts",
       "import": "./dist/js/tokens.mjs"

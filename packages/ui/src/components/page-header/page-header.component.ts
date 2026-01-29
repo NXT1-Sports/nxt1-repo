@@ -81,10 +81,7 @@ import {
   chevronBack,
   ellipsisHorizontal,
   ellipsisVertical,
-  notificationsOutline,
   searchOutline,
-  settingsOutline,
-  shareOutline,
   closeOutline,
   menuOutline,
   personCircleOutline,
@@ -93,19 +90,17 @@ import {
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
 import { NxtAvatarComponent } from '../avatar';
+import { NxtIconComponent } from '../icon';
 import type { PageHeaderAction, PageHeaderConfig, PageHeaderVariant } from './page-header.types';
 import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
 
-// Register icons used in this component
+// Register Ionicons used for back button and menu
 addIcons({
   arrowBack,
   chevronBack,
   ellipsisHorizontal,
   ellipsisVertical,
-  notificationsOutline,
   searchOutline,
-  settingsOutline,
-  shareOutline,
   closeOutline,
   menuOutline,
   personCircleOutline,
@@ -125,11 +120,14 @@ addIcons({
     IonBackButton,
     IonBadge,
     NxtAvatarComponent,
+    NxtIconComponent,
   ],
   template: `
     <ion-header
       [class.header--transparent]="variant() === 'transparent'"
       [class.header--blur]="variant() === 'blur'"
+      [class.header--solid]="!config().glass"
+      [class.header--glass]="config().glass"
       [class.header--bordered]="config().bordered !== false"
       [translucent]="isTranslucent()"
     >
@@ -176,15 +174,17 @@ addIcons({
 
         <!-- Center: Logo or Title (properly centered) -->
         @if (showLogo()) {
-          <!-- Twitter/X style: Logo icon centered in header for home page -->
+          <!-- Twitter/X style: Logo centered in header for home page -->
           <div class="header-logo-container">
-            <img
-              src="assets/shared/logo/nxt1_icon.png"
-              alt="NXT1"
-              class="header-logo-icon"
-              width="28"
-              height="28"
-            />
+            <picture>
+              <source srcset="assets/shared/logo/nxt1_logo.avif" type="image/avif" />
+              <img
+                src="assets/shared/logo/nxt1_logo.avif"
+                alt="NXT1"
+                class="header-logo-image"
+                height="24"
+              />
+            </picture>
           </div>
         } @else if (title()) {
           <ion-title [size]="titleSize()" class="header-title">{{ title() }}</ion-title>
@@ -197,22 +197,24 @@ addIcons({
 
         <!-- Right Side: Action Buttons -->
         <ion-buttons slot="end" class="end-buttons">
-          <!-- Configured actions -->
+          <!-- Configured actions using NXT1 design token icons -->
           @for (action of actions(); track action.id) {
-            <ion-button
-              fill="clear"
+            <button
+              type="button"
+              class="action-button"
+              [class.action-button--danger]="action.danger"
+              [class.action-button--disabled]="action.disabled"
               [disabled]="action.disabled"
-              [class.action--danger]="action.danger"
               (click)="onActionClick(action)"
               [attr.aria-label]="action.label || action.id"
             >
-              <ion-icon slot="icon-only" [name]="action.icon" />
+              <nxt1-icon [name]="action.icon" [size]="24" class="action-icon" />
               @if (action.badge && action.badge > 0) {
                 <ion-badge color="danger" class="action-badge">
                   {{ action.badge > 99 ? '99+' : action.badge }}
                 </ion-badge>
               }
-            </ion-button>
+            </button>
           }
 
           <!-- Custom end slot content -->
@@ -249,17 +251,40 @@ addIcons({
         --header-glass-border: var(--nxt1-glass-border);
         --header-glass-shadow: var(--nxt1-glass-shadow);
         --header-glass-backdrop: var(--nxt1-glass-backdrop);
+
+        /* Solid navigation tokens (from design tokens) */
+        --header-solid-bg: var(--nxt1-nav-bgSolid);
+        --header-solid-border: var(--nxt1-nav-borderSolid);
+        --header-solid-shadow: var(--nxt1-nav-shadowSolid);
       }
 
-      /* Base Header Styles - Glass effect by default */
+      /* Base Header Styles - Solid by default */
       ion-header {
-        --background: var(--header-glass-bg);
+        --background: var(--header-solid-bg);
         --color: var(--nxt1-color-text-primary, var(--ion-text-color));
+      }
+
+      /* Solid mode (default) - Opaque background from design tokens */
+      ion-header.header--solid {
+        --background: var(--header-solid-bg);
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+      }
+
+      /* Glass mode (opt-in) - iOS 26 Liquid Glass Effect */
+      ion-header.header--glass {
+        --background: var(--header-glass-bg);
+        backdrop-filter: var(--header-glass-backdrop);
+        -webkit-backdrop-filter: var(--header-glass-backdrop);
       }
 
       /* Bordered variant */
       .header--bordered ion-toolbar:last-of-type {
         --border-width: 0 0 0.55px 0;
+        --border-color: var(--header-solid-border);
+      }
+
+      .header--glass.header--bordered ion-toolbar:last-of-type {
         --border-color: var(--header-glass-border);
       }
 
@@ -277,11 +302,19 @@ addIcons({
         -webkit-backdrop-filter: var(--header-glass-backdrop);
       }
 
-      /* Toolbar base */
+      /* Toolbar base - Inherits from header */
       ion-toolbar {
         --padding-start: var(--nxt1-spacing-2, 8px);
         --padding-end: var(--nxt1-spacing-2, 8px);
         --min-height: 44px;
+        --background: inherit;
+      }
+
+      .header--solid ion-toolbar {
+        --background: var(--header-solid-bg);
+      }
+
+      .header--glass ion-toolbar {
         --background: var(--header-glass-bg);
       }
 
@@ -332,8 +365,8 @@ addIcons({
         pointer-events: none;
       }
 
-      .header-logo-icon {
-        height: 28px;
+      .header-logo-image {
+        height: 24px;
         width: auto;
         object-fit: contain;
         user-select: none;
@@ -399,13 +432,56 @@ addIcons({
         position: relative;
       }
 
-      .end-buttons ion-button ion-icon {
-        font-size: 24px;
+      /* ============================================
+         ACTION BUTTON - Professional Design Token Icons
+         ============================================ */
+
+      .action-button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        margin: 0 2px;
+        border: none;
+        background: transparent;
+        border-radius: var(--nxt1-radius-full, 50%);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition:
+          background-color 0.15s ease,
+          transform 0.1s ease,
+          opacity 0.15s ease;
+      }
+
+      .action-button:hover:not(.action-button--disabled) {
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+      }
+
+      .action-button:active:not(.action-button--disabled) {
+        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.12));
+        transform: scale(0.92);
+      }
+
+      .action-button--disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .action-icon {
+        color: var(--nxt1-color-text-primary, var(--ion-text-color));
+        transition: color 0.15s ease;
+      }
+
+      .action-button:hover:not(.action-button--disabled) .action-icon {
+        color: var(--nxt1-color-text-primary, var(--ion-text-color));
       }
 
       /* Danger action styling */
-      .action--danger {
-        --color: var(--nxt1-color-error, #ff3b30);
+      .action-button--danger .action-icon {
+        color: var(--nxt1-color-error, #ff3b30);
       }
 
       /* Action badge */

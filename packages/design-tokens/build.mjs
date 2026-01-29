@@ -215,13 +215,41 @@ function generateThemeCss(themeTokens, themeName, allTokens) {
   }
 
   // ============================================
-  // AUTO-GENERATE COMPONENT TOKENS FOR SPORT/TEAM THEMES
-  // These themes inherit component styles from dark theme but use their PRIMARY color
+  // AUTO-GENERATE COMPONENT TOKENS
+  // All themes get navigation and glass tokens based on their surface color
   // ============================================
-  if (isSportOrTeamTheme) {
-    const primaryColor = flattened['color-primary']?.value;
-    const surfaceColor = flattened['color-surface-100']?.value || 'rgba(22, 22, 22, 0.88)';
+  const primaryColor = flattened['color-primary']?.value;
+  const surfaceColor = flattened['color-surface-100']?.value;
 
+  // Get the surface RGB for navigation tokens
+  const resolvedSurface = surfaceColor
+    ? resolveReference(surfaceColor, allTokens)
+    : themeName === 'light'
+      ? '#ffffff'
+      : '#161616';
+  const surfaceRgb =
+    hexToRgb(resolvedSurface) ||
+    (themeName === 'light' ? { r: 255, g: 255, b: 255 } : { r: 22, g: 22, b: 22 });
+
+  // Navigation solid background tokens (fully opaque for non-glass mode)
+  // These are generated for ALL themes so the footer/header work correctly
+  lines.push('');
+  lines.push('  /* Navigation solid background tokens (from design tokens) */');
+  lines.push(`  --nxt1-nav-bgSolid: rgb(${surfaceRgb.r}, ${surfaceRgb.g}, ${surfaceRgb.b});`);
+  if (themeName === 'light') {
+    lines.push('  --nxt1-nav-borderSolid: rgba(0, 0, 0, 0.12);');
+    lines.push(
+      '  --nxt1-nav-shadowSolid: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);'
+    );
+  } else {
+    lines.push('  --nxt1-nav-borderSolid: rgba(255, 255, 255, 0.12);');
+    lines.push(
+      '  --nxt1-nav-shadowSolid: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);'
+    );
+  }
+
+  // Sport/Team themes get additional component tokens with primary color variations
+  if (isSportOrTeamTheme) {
     if (primaryColor) {
       const resolvedPrimary = resolveReference(primaryColor, allTokens);
       const primaryRgb = hexToRgb(resolvedPrimary);
@@ -232,9 +260,7 @@ function generateThemeCss(themeTokens, themeName, allTokens) {
         lines.push('');
         lines.push('  /* Auto-generated component tokens (based on primary color) */');
 
-        // Glass tokens
-        const resolvedSurface = resolveReference(surfaceColor, allTokens);
-        const surfaceRgb = hexToRgb(resolvedSurface) || { r: 22, g: 22, b: 22 };
+        // Glass tokens (use the already-computed surfaceRgb)
         lines.push(
           `  --nxt1-glass-bg: rgba(${surfaceRgb.r}, ${surfaceRgb.g}, ${surfaceRgb.b}, 0.88);`
         );
@@ -374,6 +400,16 @@ function generateCombinedCss(primitiveTokens, semanticTokens, allTokens) {
       const resolved = resolveReference(token.value, allTokens);
       lines.push(`  --nxt1-${cssKey}: ${resolved};`);
     }
+
+    // Navigation solid background tokens for dark theme
+    lines.push('');
+    lines.push('  /* Navigation solid background tokens (from design tokens) */');
+    lines.push('  --nxt1-nav-bgSolid: rgb(22, 22, 22);');
+    lines.push('  --nxt1-nav-borderSolid: rgba(255, 255, 255, 0.12);');
+    lines.push(
+      '  --nxt1-nav-shadowSolid: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);'
+    );
+
     lines.push('}');
   }
 
@@ -400,6 +436,16 @@ function generateCombinedCss(primitiveTokens, semanticTokens, allTokens) {
       const resolved = resolveReference(token.value, allTokens);
       lines.push(`  --nxt1-${cssKey}: ${resolved};`);
     }
+
+    // Navigation solid background tokens for light theme
+    lines.push('');
+    lines.push('  /* Navigation solid background tokens (from design tokens) */');
+    lines.push('  --nxt1-nav-bgSolid: rgb(250, 250, 250);');
+    lines.push('  --nxt1-nav-borderSolid: rgba(0, 0, 0, 0.12);');
+    lines.push(
+      '  --nxt1-nav-shadowSolid: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);'
+    );
+
     lines.push('}');
   }
 
@@ -465,6 +511,13 @@ function generateCombinedCss(primitiveTokens, semanticTokens, allTokens) {
         lines.push('  --nxt1-glass-shadowInner: inset 0 1px 0 rgba(255, 255, 255, 0.06);');
         lines.push('  --nxt1-glass-backdrop: saturate(180%) blur(20px);');
         lines.push('  --nxt1-glass-backdropStrong: saturate(200%) blur(30px);');
+
+        // Navigation solid background tokens (fully opaque for non-glass mode)
+        lines.push(`  --nxt1-nav-bgSolid: rgb(${surfaceRgb.r}, ${surfaceRgb.g}, ${surfaceRgb.b});`);
+        lines.push('  --nxt1-nav-borderSolid: rgba(255, 255, 255, 0.12);');
+        lines.push(
+          '  --nxt1-nav-shadowSolid: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);'
+        );
 
         // FAB tokens (use theme primary color for glow)
         lines.push('  --nxt1-fab-size: 48px;');
@@ -1244,10 +1297,11 @@ function build() {
   writeFileSync(join(DIST_DIR, 'css/tokens.css'), combinedCss);
   console.log('   ✓ dist/css/tokens.css');
 
-  // Generate individual theme files dynamically for ALL themes
+  // Generate individual theme files for sport/team themes only (dark/light are in tokens.css)
   if (semanticTokens.theme) {
     for (const [themeName, themeTokens] of Object.entries(semanticTokens.theme)) {
       if (themeName.startsWith('$')) continue; // Skip metadata like $description
+      if (themeName === 'dark' || themeName === 'light') continue; // Skip dark/light - they're in tokens.css
       const themeCss = generateThemeCss(themeTokens, themeName, allTokens);
       writeFileSync(join(DIST_DIR, `css/themes/${themeName}.css`), themeCss);
       console.log(`   ✓ dist/css/themes/${themeName}.css`);
