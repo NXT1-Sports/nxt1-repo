@@ -177,6 +177,7 @@ export {
   type FooterIndicatorStyle,
   type FooterTabSelectEvent,
   type FooterTabSelectEventBase,
+  type FooterScrollToTopEvent,
   // Constants (from @nxt1/core)
   DEFAULT_FOOTER_TABS,
   FOOTER_HEIGHTS,
@@ -262,6 +263,34 @@ export {
 } from './explore';
 
 // ============================================
+// PROFILE (User Profile - Shared Web & Mobile)
+// ============================================
+export {
+  // Service
+  ProfileService,
+  // Components
+  ProfileShellComponent,
+  ProfileHeaderComponent,
+  ProfileStatsBarComponent,
+  ProfileTimelineComponent,
+  ProfileOffersComponent,
+  ProfileSkeletonComponent,
+  // Types
+  type ProfileShellUser,
+  type ProfileSkeletonVariant,
+  // Mock Data (Development)
+  MOCK_PROFILE_USER,
+  MOCK_FOLLOW_STATS,
+  MOCK_QUICK_STATS,
+  MOCK_PINNED_VIDEO,
+  MOCK_POSTS,
+  MOCK_OFFERS,
+  MOCK_ATHLETIC_STATS,
+  MOCK_EVENTS,
+  MOCK_PROFILE_PAGE_DATA,
+} from './profile';
+
+// ============================================
 // THEME SELECTOR (2026 Professional Theme Picker)
 // ============================================
 export {
@@ -316,6 +345,7 @@ export {
   type SocialLink,
   type SidenavItem,
   type SidenavSection,
+  type SidenavSportProfile,
   type SidenavUserData,
   type SidenavVariant,
   type SidenavPosition,
@@ -404,6 +434,17 @@ export {
 } from './services/haptics';
 
 export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './services/logging';
+
+// ============================================
+// SCROLL SERVICE (Cross-Platform Scroll Management)
+// ============================================
+export {
+  NxtScrollService,
+  type ScrollBehavior,
+  type ScrollTarget,
+  type ScrollToTopOptions,
+  DEFAULT_SCROLL_OPTIONS,
+} from './services/scroll';
 
 // ============================================
 // GESTURE SERVICES (Native-feel touch handling)

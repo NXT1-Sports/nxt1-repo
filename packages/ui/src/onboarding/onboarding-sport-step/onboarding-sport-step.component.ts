@@ -166,8 +166,8 @@ const DEFAULT_MAX_SPORTS = 3;
       }
 
       /* ============================================
-         SPORT CHIP - Base State
-         Matches referral card styling pattern
+         SPORT CHIP - Base State (White with gray hover)
+         Matches footer/input pattern
          ============================================ */
       .nxt1-sport-chip {
         display: flex;
@@ -181,7 +181,7 @@ const DEFAULT_MAX_SPORTS = 3;
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 500;
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         border-radius: var(--nxt1-borderRadius-lg, 12px);
         cursor: pointer;
@@ -190,9 +190,9 @@ const DEFAULT_MAX_SPORTS = 3;
         -webkit-tap-highlight-color: transparent;
       }
 
-      /* Hover State */
+      /* Hover State - Lighter surface background */
       .nxt1-sport-chip:hover:not(:disabled) {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-200);
         border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
         transform: translateY(-2px);
       }

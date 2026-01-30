@@ -143,6 +143,7 @@ export {
   type FooterIndicatorStyle,
   type FooterConfig,
   type FooterTabSelectEvent,
+  type FooterScrollToTopEvent,
   DEFAULT_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
@@ -174,6 +175,7 @@ export {
   type SocialLink,
   type SidenavItem,
   type SidenavSection,
+  type SidenavSportProfile,
   type SidenavUserData,
   type SidenavVariant,
   type SidenavPosition,
@@ -621,3 +623,171 @@ export {
   createExploreApi,
   type ExploreApi,
 } from './explore';
+
+// ============================================
+// PROFILE (User Profile Management)
+// ============================================
+
+export {
+  // Factory
+  createProfileApi,
+  type ProfileApi,
+  // Types (avoid conflicts with ApiResponse from errors)
+  type ApiResponse as ProfileApiResponse,
+  type PaginatedResponse,
+  type UpdateProfileRequest,
+  type UpdateSportProfileRequest,
+  type ProfileSearchParams,
+  type FollowResponse,
+  type ProfileAnalytics,
+} from './profile';
+
+// ============================================
+// ONBOARDING (User Onboarding Flow)
+// ============================================
+
+// NOTE: ReferralSourceData is already exported from auth/auth.api.
+// Onboarding's ReferralSourceData is aliased to avoid conflict.
+export {
+  // Persistence API
+  createOnboardingPersistenceApi,
+  type OnboardingPersistenceApi,
+  type FirestoreAdapter,
+  type RetryConfig,
+  type OperationResult,
+  type RetryErrorType,
+  type OnboardingPersistenceState,
+  type PersistenceTeamCodePrefillData,
+  type PersistenceReferralSourceData,
+  type PersistenceProfileFormData,
+  type PersistenceSchoolFormData,
+  type PersistenceOrganizationFormData,
+  type PersistenceSportFormData,
+  type PersistencePositionsFormData,
+  type PersistenceContactFormData,
+  type PersistenceFormData,
+  type PersistenceUserType,
+  DEFAULT_RETRY_CONFIG,
+  categorizeError,
+  calculateBackoffDelay,
+  delay,
+  withRetry,
+  buildUserUpdatePayload,
+  buildReferralSourcePayload,
+  // Analytics API (onboarding-specific)
+  createOnboardingAnalyticsApi,
+  type OnboardingAnalyticsApi,
+  type OnboardingAnalyticsEvent,
+  type StepTrackingPayload,
+  type CompletionTrackingPayload,
+  type StartedTrackingParams,
+  type StepTrackingParams,
+  type CompletionTrackingParams,
+  type AnalyticsOnboardingStep,
+  type AnalyticsOnboardingStepId,
+  type AnalyticsUserTypeBase,
+  toAnalyticsUserType,
+  buildStepPayload,
+  buildCompletionPayload,
+  buildUserProperties,
+  // Navigation API
+  createOnboardingNavigationApi,
+  type OnboardingNavigationApi,
+  type OnboardingUserType,
+  type OnboardingStepId,
+  type OnboardingStep,
+  type TeamCodePrefillData,
+  type ProfileFormData as OnboardingProfileFormData,
+  type OnboardingTeamType,
+  type GenderOption,
+  GENDER_OPTIONS,
+  type ProfileLocationData,
+  toUserLocation,
+  // Sport-centric types (v3.0)
+  type SportTeamInfo,
+  type SportEntry,
+  type SportFormData,
+  createEmptySportEntry,
+  validateSportEntry,
+  // Legacy types (deprecated)
+  type TeamFormData,
+  type SchoolFormData,
+  type PositionsFormData,
+  type OrganizationFormData,
+  type ContactFormData,
+  // ReferralSourceData aliased to avoid conflict with auth export
+  type ReferralSourceData as OnboardingReferralSourceData,
+  type OnboardingFormData,
+  type NavigationState,
+  type InitialStateOptions,
+  type UserDataForDetection,
+  ROLE_SELECTION_STEP,
+  ONBOARDING_STEPS,
+  validateStep,
+  validateProfile,
+  validateTeam,
+  validateSchool,
+  validateOrganization,
+  validateSport,
+  validatePositions,
+  validateContact,
+  canNavigateNext,
+  canNavigatePrevious,
+  canNavigateToStep,
+  getNextStepIndex,
+  getPreviousStepIndex,
+  isLastStep,
+  isFirstStep,
+  calculateProgress,
+  mapTeamCodeRole,
+  detectUserTypeFromTeamCode,
+  detectUserTypeFromUserData,
+  mapTeamType,
+  getStepsForUserType,
+  configureStepsForUserType,
+  buildInitialFormDataFromTeamCode,
+  buildInitialFormDataFromUser,
+  getRedirectPath,
+  // Session API
+  createOnboardingSessionApi,
+  type OnboardingSessionApi,
+  type OnboardingSession,
+  type SessionOptions,
+  createSession,
+  updateSession,
+  isSessionValid,
+  isSessionExpired,
+  saveSession,
+  loadSession,
+  deleteSession,
+  loadValidSession,
+  saveOrCreateSession,
+  // State Machine
+  createOnboardingStateMachine,
+  type OnboardingStateMachine,
+  type OnboardingMachineState,
+  type StepAnimationDirection,
+  type PartialOnboardingFormData,
+  type OnboardingStateSnapshot,
+  type OnboardingMachineEvent,
+  type OnboardingEventListener,
+  type OnboardingStateMachineConfig,
+  type OnboardingMachineSession,
+  isValidSession as isValidMachineSession,
+  serializeSession,
+  deserializeSession,
+  // Welcome Slides Config
+  type WelcomeSlide,
+  type WelcomeSlidesConfig,
+  WELCOME_SLIDES_BY_ROLE,
+  getWelcomeSlidesForRole,
+  getPersonalizedGreeting,
+  DEFAULT_WELCOME_SLIDES,
+  WELCOME_SLIDES_COUNT,
+} from './onboarding';
+
+// ============================================
+// PROFILE
+// ============================================
+
+export * from './profile';

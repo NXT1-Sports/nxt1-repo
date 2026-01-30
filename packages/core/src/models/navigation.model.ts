@@ -119,6 +119,13 @@ export interface FooterConfig {
 
   /** Active tab indicator style */
   indicatorStyle?: FooterIndicatorStyle;
+
+  /**
+   * Whether tapping the currently active tab triggers scroll-to-top.
+   * Following Instagram, Twitter, TikTok patterns for native mobile UX.
+   * Default: true
+   */
+  scrollToTopOnSameTap?: boolean;
 }
 
 /**
@@ -133,6 +140,27 @@ export interface FooterTabSelectEvent {
 
   /** Event timestamp */
   timestamp?: number;
+}
+
+/**
+ * Scroll-to-top event payload emitted when tapping same tab.
+ * Platform-agnostic definition for cross-platform handling.
+ *
+ * Emitted when:
+ * - User taps the currently active tab
+ * - config.scrollToTopOnSameTap is enabled (default: true)
+ *
+ * Shell components should handle this by scrolling content to top.
+ */
+export interface FooterScrollToTopEvent {
+  /** The tab that was tapped */
+  tab: FooterTabItem;
+
+  /** Event timestamp */
+  timestamp: number;
+
+  /** Source of the event */
+  source: 'same-tab-tap';
 }
 
 // ============================================
@@ -256,6 +284,7 @@ export function createFooterConfig(config: Partial<FooterConfig> = {}): FooterCo
     translucent: true,
     glass: false, // Solid background by default
     indicatorStyle: 'none',
+    scrollToTopOnSameTap: true, // Enable scroll-to-top on same tab tap by default
     ...config,
   };
 }
@@ -850,6 +879,36 @@ export interface SidenavSection {
 }
 
 /**
+ * Sport profile data for multi-sport users.
+ * Allows users to switch between different sport profiles in the sidenav.
+ *
+ * NOTE: This is a simplified type for UI display only. It differs from the full
+ * SportProfile type in user.model.ts which contains complete backend data.
+ */
+export interface SidenavSportProfile {
+  /** Unique profile ID */
+  id: string;
+
+  /** Sport name (e.g., 'Football', 'Basketball') */
+  sport: string;
+
+  /** Sport icon name (e.g., 'football', 'basketball') */
+  sportIcon?: string;
+
+  /** Primary position in this sport */
+  position?: string;
+
+  /** Whether this is the currently active profile */
+  isActive?: boolean;
+
+  /** Profile-specific avatar URL (if different from main) */
+  avatarUrl?: string;
+
+  /** Class year for this sport (e.g., '2026') */
+  classYear?: string;
+}
+
+/**
  * User data for sidenav header display.
  */
 export interface SidenavUserData {
@@ -873,6 +932,12 @@ export interface SidenavUserData {
 
   /** User ID for navigation */
   userId?: string;
+
+  /** Available sport profiles for multi-sport athletes */
+  sportProfiles?: SidenavSportProfile[];
+
+  /** Currently active sport profile ID */
+  activeSportProfileId?: string;
 }
 
 /**
@@ -1038,42 +1103,28 @@ export const DEFAULT_SOCIAL_LINKS: SocialLink[] = [
 /**
  * Default sidenav items for NXT1 application.
  * Can be used directly or as a template for customization.
+ * Structure: Profile, Analytics, Settings, Help Center, Contact, Sign Out
  */
 export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
   {
     id: 'main',
     items: [
       {
-        id: 'home',
-        label: 'Home',
-        icon: 'home',
-        route: '/tabs/home',
-      },
-      {
         id: 'profile',
-        label: 'My Profile',
+        label: 'Profile',
         icon: 'user',
-        route: '/tabs/profile',
+        route: '/profile',
       },
       {
-        id: 'discover',
-        label: 'Discover',
-        icon: 'compass',
-        route: '/tabs/discover',
-      },
-      {
-        id: 'search',
-        label: 'Search',
-        icon: 'search',
-        route: '/tabs/search',
+        id: 'analytics',
+        label: 'Analytics',
+        icon: 'barChart',
+        route: '/tabs/analytics',
       },
     ],
   },
   {
-    id: 'actions',
-    label: 'Actions',
-    collapsible: true,
-    expanded: true,
+    id: 'support',
     items: [
       {
         id: 'settings',
@@ -1082,15 +1133,15 @@ export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
         route: '/settings',
       },
       {
-        id: 'support',
-        label: 'Support',
-        icon: 'support',
-        route: '/support',
+        id: 'help-center',
+        label: 'Help Center',
+        icon: 'help',
+        action: 'help',
       },
       {
         id: 'contact',
-        label: 'Contact Us',
-        icon: 'email',
+        label: 'Contact',
+        icon: 'mail',
         action: 'contact',
       },
     ],

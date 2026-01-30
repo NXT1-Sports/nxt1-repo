@@ -28,6 +28,10 @@
 // Interface and constants
 export { type StorageAdapter, STORAGE_KEYS, type StorageKey } from './storage-adapter';
 
+// Firebase Storage service (with Resize Images extension support)
+// TODO: Create storage.service.ts
+// export * from './storage.service';
+
 // Browser implementation
 export {
   createBrowserStorageAdapter,

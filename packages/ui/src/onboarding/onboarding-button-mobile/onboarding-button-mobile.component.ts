@@ -173,7 +173,7 @@ import { OnboardingProgressPillsComponent } from '../onboarding-progress-pills';
 
       .nxt1-skip-btn:hover:not(:disabled) {
         border-color: var(--nxt1-color-border-strong);
-        background: var(--nxt1-color-state-hover);
+        background: var(--nxt1-color-surface-200);
       }
 
       .nxt1-skip-btn:active:not(:disabled) {

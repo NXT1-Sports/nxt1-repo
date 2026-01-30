@@ -21,12 +21,12 @@
  * │    Platform-specific: gtag.js (web), Firebase (mobile)    │
  * └────────────────────────────────────────────────────────────┘
  *
- * @module @nxt1/core/api/onboarding
+ * @module @nxt1/core/onboarding
  * @version 3.0.0
  */
 
-import type { AnalyticsAdapter, UserProperties } from '../../analytics/analytics-adapter';
-import { APP_EVENTS, type ViewerType } from '../../analytics/events';
+import type { AnalyticsAdapter, UserProperties } from '../analytics/analytics-adapter';
+import { APP_EVENTS, type ViewerType } from '../analytics/events';
 
 // ============================================
 // TYPES
@@ -395,4 +395,4 @@ export function createOnboardingAnalyticsApi(adapter: AnalyticsAdapter) {
 export type OnboardingAnalyticsApi = ReturnType<typeof createOnboardingAnalyticsApi>;
 
 // Re-export types from analytics for convenience
-export type { AnalyticsAdapter, UserProperties } from '../../analytics/analytics-adapter';
+export type { AnalyticsAdapter, UserProperties } from '../analytics/analytics-adapter';

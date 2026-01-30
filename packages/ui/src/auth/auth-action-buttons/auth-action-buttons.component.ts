@@ -84,7 +84,7 @@ import { NxtIconComponent } from '../../components/icon';
 
       /* Base auth button - uses design system tokens */
       .nxt1-auth-btn {
-        --background: var(--nxt1-color-state-hover);
+        --background: var(--nxt1-color-surface-100);
         --background-hover: var(--nxt1-color-state-pressed);
         --background-activated: var(--nxt1-color-state-pressed);
         --background-focused: var(--nxt1-color-state-pressed);

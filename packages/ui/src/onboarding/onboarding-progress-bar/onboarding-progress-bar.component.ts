@@ -157,7 +157,7 @@ import type { OnboardingStep, OnboardingStepId } from '@nxt1/core/api';
 
       .nxt1-step-indicator.clickable:hover:not(.active) {
         border-color: var(--nxt1-color-border-default);
-        background: var(--nxt1-color-state-hover);
+        background: var(--nxt1-color-surface-200);
       }
 
       .nxt1-step-indicator.active {

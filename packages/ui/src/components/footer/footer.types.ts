@@ -17,6 +17,7 @@ export {
   type FooterVariant,
   type FooterIndicatorStyle,
   type FooterConfig,
+  type FooterScrollToTopEvent,
   DEFAULT_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,

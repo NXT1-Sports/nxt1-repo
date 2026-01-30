@@ -57,12 +57,15 @@ import {
   NxtMobileFooterComponent,
   type FooterTabItem,
   type FooterTabSelectEvent,
+  type FooterScrollToTopEvent,
   type FooterConfig,
   DEFAULT_FOOTER_TABS,
   findTabByRoute,
   // Platform
   NxtPlatformService,
   NxtLoggingService,
+  // Scroll
+  NxtScrollService,
 } from '@nxt1/ui';
 import { AuthFlowService } from '../../../features/auth/services';
 
@@ -140,6 +143,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
         [activeTabId]="activeTabId()"
         [config]="footerConfig()"
         (tabSelect)="onTabSelect($event)"
+        (scrollToTop)="onScrollToTop($event)"
       />
     }
   `,
@@ -187,6 +191,7 @@ export class WebShellComponent {
   private readonly authFlow = inject(AuthFlowService);
   private readonly logger = inject(NxtLoggingService).child('WebShellComponent');
   private readonly destroyRef = inject(DestroyRef);
+  private readonly scrollService = inject(NxtScrollService);
 
   // ============================================
   // DESKTOP NAVIGATION CONFIG
@@ -223,6 +228,7 @@ export class WebShellComponent {
     hidden: false,
     translucent: false,
     indicatorStyle: 'none',
+    scrollToTopOnSameTap: true, // Enable Instagram/Twitter-style scroll-to-top
   }));
 
   // ============================================
@@ -287,6 +293,23 @@ export class WebShellComponent {
     if (tab.route) {
       this.router.navigate([tab.route]);
     }
+  }
+
+  /**
+   * Handle scroll-to-top event when user taps currently active tab.
+   * Following Instagram, Twitter, TikTok patterns for native mobile UX.
+   * Scrolls the page to top with smooth animation.
+   */
+  async onScrollToTop(event: FooterScrollToTopEvent): Promise<void> {
+    this.logger.debug('Scroll to top triggered', { tabId: event.tab.id, source: event.source });
+
+    // Use the scroll service to scroll to top
+    // On web, we use window scroll (no IonContent)
+    await this.scrollService.scrollToTop({
+      target: 'window',
+      behavior: 'smooth',
+      enableHaptics: false, // Web doesn't have haptics
+    });
   }
 
   /**

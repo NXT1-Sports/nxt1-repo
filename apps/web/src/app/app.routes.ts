@@ -52,8 +52,12 @@ export const routes: Routes = [
         path: 'activity',
         loadChildren: () => import('./features/activity/activity.routes'),
       },
+      // Profile - User Profile Page
+      {
+        path: 'profile',
+        loadChildren: () => import('./features/profile/profile.routes'),
+      },
       // Future authenticated routes go here:
-      // { path: 'profile', loadComponent: ... },
       // { path: 'settings', loadComponent: ... },
     ],
   },

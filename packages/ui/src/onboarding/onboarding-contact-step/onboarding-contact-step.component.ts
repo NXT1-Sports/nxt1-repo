@@ -358,10 +358,10 @@ const MAX_CITY_LENGTH = 100;
       }
 
       /* ============================================
-       INPUT STYLING - Matches auth-email-form design tokens
+       INPUT STYLING - Theme-aware with hover
        ============================================ */
       .nxt1-input {
-        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --background: var(--nxt1-color-surface-100);
         --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
@@ -377,9 +377,11 @@ const MAX_CITY_LENGTH = 100;
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-base, 1rem);
         min-height: 52px;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
       }
 
       .nxt1-input:hover:not(.nxt1-input-error) {
+        --background: var(--nxt1-color-surface-200);
         --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 
@@ -389,10 +391,10 @@ const MAX_CITY_LENGTH = 100;
       }
 
       /* ============================================
-       SELECT STYLING - Matches input design
+       SELECT STYLING - Theme-aware with hover
        ============================================ */
       .nxt1-select {
-        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --background: var(--nxt1-color-surface-100);
         --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
@@ -407,10 +409,12 @@ const MAX_CITY_LENGTH = 100;
         min-height: 52px;
         border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         border-radius: var(--nxt1-borderRadius-lg, 12px);
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-100);
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
       }
 
       .nxt1-select:hover:not(:disabled) {
+        background: var(--nxt1-color-surface-200);
         border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 

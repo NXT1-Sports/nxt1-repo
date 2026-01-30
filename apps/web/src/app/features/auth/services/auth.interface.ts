@@ -36,6 +36,8 @@ export interface AppUser {
   hasCompletedOnboarding: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Unique profile identifier for profile URLs (e.g., /profile/abc123) */
+  unicode?: string | null;
 }
 
 /**

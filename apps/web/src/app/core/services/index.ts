@@ -31,5 +31,8 @@ export { SeoService } from './seo.service';
 // Network Service for connectivity monitoring
 export { NetworkService } from './network.service';
 
+// File Upload Service (backend-first pattern via @nxt1/core API)
+export { FileUploadService, type UploadStatus, type UploadState } from './file-upload.service';
+
 // Crashlytics Service for crash reporting (web uses GA4 fallback)
 export { CrashlyticsService } from './crashlytics.service';

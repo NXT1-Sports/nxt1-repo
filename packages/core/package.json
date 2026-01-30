@@ -90,6 +90,11 @@
       "types": "./dist/crashlytics/index.d.ts",
       "import": "./dist/crashlytics/index.mjs",
       "require": "./dist/crashlytics/index.js"
+    },
+    "./performance": {
+      "types": "./dist/performance/index.d.ts",
+      "import": "./dist/performance/index.mjs",
+      "require": "./dist/performance/index.js"
     }
   },
   "files": [

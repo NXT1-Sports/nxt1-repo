@@ -29,7 +29,7 @@
  * remain in the infrastructure layer as they use the Firebase SDK.
  * This API layer handles backend HTTP calls that complement Firebase.
  *
- * @module @nxt1/core/api
+ * @module @nxt1/core/auth
  * @version 2.0.0
  *
  * @example
@@ -43,7 +43,7 @@
  * ```
  */
 
-import type { HttpAdapter } from './http-adapter';
+import type { HttpAdapter } from '../api/http-adapter';
 import type { TeamTypeApi } from '../models/team-code.model';
 import type { UserRole } from '../constants/user.constants';
 import type { PlanTier } from '../constants/payment.constants';

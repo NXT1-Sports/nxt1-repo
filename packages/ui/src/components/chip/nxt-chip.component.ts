@@ -104,7 +104,7 @@ export type ChipVariant = 'default' | 'filled';
       }
 
       /* ============================================
-       BASE CHIP STYLES
+       BASE CHIP STYLES - White base with gray hover
        Unified with sport/referral selection patterns
        ============================================ */
       .nxt1-chip {
@@ -115,7 +115,7 @@ export type ChipVariant = 'default' | 'filled';
         padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-5, 20px);
         min-width: 80px;
         min-height: 44px;
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         border-radius: var(--nxt1-borderRadius-full, 9999px);
         cursor: pointer;
@@ -160,11 +160,15 @@ export type ChipVariant = 'default' | 'filled';
       }
 
       /* ============================================
-       FILLED VARIANT
+       FILLED VARIANT - Slightly lighter surface
        ============================================ */
       .nxt1-chip--filled {
-        background: var(--nxt1-color-state-focus, rgba(204, 255, 0, 0.08));
-        border-color: transparent;
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.08));
+        border-color: var(--nxt1-color-border-default);
+      }
+
+      .nxt1-chip--filled:hover:not(:disabled):not(.selected) {
+        background: var(--nxt1-color-surface-200);
       }
 
       .nxt1-chip--filled .nxt1-chip__content {
@@ -172,10 +176,10 @@ export type ChipVariant = 'default' | 'filled';
       }
 
       /* ============================================
-       INTERACTIVE STATES - Hover
+       INTERACTIVE STATES - Hover (lighter surface)
        ============================================ */
       .nxt1-chip:hover:not(:disabled):not(.selected) {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-200);
         border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
         transform: translateY(-1px);
       }

@@ -1,29 +1,26 @@
 /**
  * Auth Flow Service - Business Logic Orchestrator (Mobile)
  *
- * Orchestrates authentication flows by coordinating between:
- * - FirebaseAuthService (SDK operations)
- * - AuthApiService (Backend HTTP calls)
- * - NavController (Ionic navigation with animations)
- * - State management (via @nxt1/core AuthStateManager)
- * - Analytics (via @nxt1/core/analytics)
+ * ⭐ 2026 PROFESSIONAL PATTERN: Separation of Concerns ⭐
  *
- * This is the DOMAIN layer - it knows about business rules but not UI.
- * Components should use this service, not call Firebase/API directly.
+ * AuthFlowService handles AUTHENTICATION:
+ * - Firebase sign in/out/up operations
+ * - Token management
+ * - Auth state (isAuthenticated, uid)
  *
- * ⭐ IDENTICAL INTERFACE TO WEB'S AuthFlowService ⭐
+ * ProfileService handles USER DATA:
+ * - User profile (uses User type from @nxt1/core/models)
+ * - Profile caching
+ * - Profile updates
  *
  * Architecture:
  * ┌────────────────────────────────────────────────────────────┐
  * │                   Components (UI Layer)                    │
- * │              LoginPage, SignupPage, etc.                   │
- * ├────────────────────────────────────────────────────────────┤
- * │              ⭐ AuthFlowService (THIS FILE) ⭐              │
- * │           Orchestrates business logic & state              │
- * ├────────────────────────────────────────────────────────────┤
- * │             createAuthStateManager (@nxt1/core)            │
- * │         Pure TypeScript state - same as web app            │
- * ├────────────────────────────────────────────────────────────┤
+ * │              LoginPage, SignupPage, HomePage               │
+ * ├─────────────────────────┬──────────────────────────────────┤
+ * │   AuthFlowService       │     ProfileService               │
+ * │   (Auth operations)     │     (User data - User model)     │
+ * ├─────────────────────────┴──────────────────────────────────┤
  * │        AuthApiService          FirebaseAuthService         │
  * │        (Backend API)           (Firebase SDK)              │
  * └────────────────────────────────────────────────────────────┘
@@ -39,7 +36,6 @@ import {
   type AuthState as CoreAuthState,
   type AuthStateManager,
   type AuthUser,
-  type UserProfileResponse,
   createAuthStateManager,
   createBrowserStorageAdapter,
   createMemoryStorageAdapter,
@@ -55,8 +51,6 @@ import {
   type FlowSignInCredentials as SignInCredentials,
   type FlowSignUpCredentials as SignUpCredentials,
   type OAuthOptions,
-  globalAuthUserCache,
-  type CachedUserProfile,
 } from '@nxt1/core/auth';
 import { createNativeStorageAdapter } from '../../../core/infrastructure/native-storage.adapter';
 import { AUTH_ROUTES, AUTH_REDIRECTS, AUTH_METHODS } from '@nxt1/core/constants';
@@ -69,6 +63,7 @@ import {
 import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
 import { GLOBAL_CRASHLYTICS } from '@nxt1/ui';
 import { CapacitorHttpAdapter } from '../../../core/infrastructure';
+import { ProfileService } from '../../../core/services/profile.service';
 import { AuthApiService } from './auth-api.service';
 import { FirebaseAuthService } from './firebase-auth.service';
 import { environment } from '../../../../environments/environment';
@@ -110,6 +105,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly authApi = inject(AuthApiService);
   private readonly firebaseAuth = inject(FirebaseAuthService);
 
+  /**
+   * ⭐ ProfileService - Manages User data (Single Source of Truth) ⭐
+   * Use profileService.user() for user data, not auth signals.
+   */
+  readonly profileService = inject(ProfileService);
+
   /** Structured logger for auth operations */
   private readonly logger: ILogger = inject(NxtLoggingService).child('AuthFlowService');
 
@@ -132,7 +133,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS (Read-only)
-  // Same interface as web's AuthFlowService
+  // Auth state only - use ProfileService for user data
   // ============================================
   readonly user = computed(() => this._state().user);
   readonly firebaseUser = computed(() => this._state().firebaseUser);
@@ -150,6 +151,28 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   // Additional mobile-specific computed
   readonly displayName = computed(() => this.user()?.displayName ?? 'User');
   readonly photoURL = computed(() => this.user()?.photoURL);
+
+  /**
+   * ⭐ USER PROFILE (delegated to ProfileService) ⭐
+   *
+   * Professional 2026 pattern: ProfileService is the single source of truth
+   * for user data using the `User` type from @nxt1/core/models.
+   *
+   * @deprecated Use profileService.user() directly in components
+   * @example
+   * ```typescript
+   * // In component - inject ProfileService directly
+   * private readonly profile = inject(ProfileService);
+   * readonly user = this.profile.user;
+   *
+   * // In template
+   * @if (user(); as u) {
+   *   <span>{{ u.displayName }}</span>
+   *   <span>{{ u.sports[0]?.sport }}</span>
+   * }
+   * ```
+   */
+  readonly profile = this.profileService.user;
 
   constructor() {
     // Initialize auth manager immediately and start listening to Firebase
@@ -357,8 +380,11 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
   /**
    * Sync user profile from backend (with caching)
+   *
+   * ⭐ Delegates to ProfileService for user data management.
+   * AuthFlowService handles auth state (AuthUser), ProfileService handles User data.
    */
-  private async syncUserProfile(_uid: string): Promise<void> {
+  private async syncUserProfile(uid: string): Promise<void> {
     try {
       const firebaseUser = this.firebaseAuth.getCurrentUser();
       if (!firebaseUser) return;
@@ -367,75 +393,33 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       const rawProvider = this.firebaseAuth.getProviderFromUser(firebaseUser);
       const provider = rawProvider === 'microsoft' ? 'email' : rawProvider;
 
-      // Fetch full profile data from backend (with caching)
-      let backendProfile: CachedUserProfile | null = null;
-      try {
-        // Use globalAuthUserCache for efficient caching
-        // Map UserProfileResponse to CachedUserProfile (id -> uid)
-        backendProfile = await globalAuthUserCache.getOrFetch(firebaseUser.uid, async () => {
-          const response = await this.authApi.getUserProfile(firebaseUser.uid);
-          return {
-            uid: response.id,
-            email: response.email,
-            firstName: response.firstName,
-            lastName: response.lastName,
-            profileImg: response.profileImg,
-            displayName: `${response.firstName} ${response.lastName}`.trim(),
-            role: response.role ?? null,
-            planTier: response.planTier ?? null,
-            onboardingCompleted: response.onboardingCompleted,
-            completeSignUp: response.completeSignUp,
-            isCollegeCoach: response.isCollegeCoach,
-            isRecruit: response.isRecruit,
-            primarySport: response.sports?.find((s) => s.isPrimary)?.sport,
-            sports: response.sports?.map((s) => ({
-              sport: s.sport,
-              positions: s.positions,
-              isPrimary: s.isPrimary,
-            })),
-          };
-        });
-        this.logger.debug('Backend profile fetched (cached)', {
-          uid: firebaseUser.uid,
-          onboardingCompleted: backendProfile?.onboardingCompleted,
-          completeSignUp: backendProfile?.completeSignUp,
-          cacheStats: globalAuthUserCache.getStats(),
-        });
-      } catch (err) {
-        this.logger.warn('Failed to fetch backend profile, using defaults', { error: err });
-      }
+      // ⭐ Load user profile via ProfileService (single source of truth)
+      await this.profileService.load(uid);
 
-      // Map backend completeSignUp -> frontend hasCompletedOnboarding
-      // V2: Prefer onboardingCompleted, fallback to legacy completeSignUp
-      const hasCompletedOnboarding =
-        backendProfile?.onboardingCompleted === true || backendProfile?.completeSignUp === true;
+      // Get the loaded profile to derive auth state fields
+      const userProfile = this.profileService.user();
+
+      // Map backend onboardingCompleted -> frontend hasCompletedOnboarding
+      const hasCompletedOnboarding = userProfile?.onboardingCompleted === true;
 
       this.logger.debug('Onboarding status determined', {
-        onboardingCompleted: backendProfile?.onboardingCompleted,
-        completeSignUp: backendProfile?.completeSignUp,
+        onboardingCompleted: userProfile?.onboardingCompleted,
         hasCompletedOnboarding,
       });
 
-      // Create AuthUser from Firebase + backend data
+      // Derive displayName from User model (firstName + lastName)
+      const userDisplayName = userProfile
+        ? `${userProfile.firstName} ${userProfile.lastName}`.trim()
+        : undefined;
+
+      // Create AuthUser from Firebase + backend data (minimal auth state)
       const authUser: AuthUser = {
         uid: firebaseUser.uid,
         email: firebaseUser.email ?? '',
-        displayName:
-          firebaseUser.displayName ??
-          (backendProfile?.firstName && backendProfile?.lastName
-            ? `${backendProfile.firstName} ${backendProfile.lastName}`
-            : 'User'),
-        photoURL: firebaseUser.photoURL ?? backendProfile?.profileImg ?? undefined,
-        role: this.getUserRole(
-          backendProfile
-            ? {
-                role: backendProfile.role as UserRole | null | undefined,
-                isCollegeCoach: backendProfile.isCollegeCoach,
-                isRecruit: backendProfile.isRecruit,
-              }
-            : null
-        ),
-        isPremium: !!backendProfile?.planTier && backendProfile.planTier !== 'free',
+        displayName: firebaseUser.displayName ?? userDisplayName ?? 'User',
+        photoURL: firebaseUser.photoURL ?? userProfile?.profileImg ?? undefined,
+        role: this.profileService.role() ?? 'athlete',
+        isPremium: this.profileService.isPremium(),
         hasCompletedOnboarding,
         provider,
         emailVerified: firebaseUser.emailVerified,
@@ -1030,8 +1014,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       // Clear crashlytics user context
       await this.crashlytics.clearUser();
 
-      // Clear user profile cache
-      await globalAuthUserCache.clear();
+      // ⭐ Clear profile via ProfileService (single source of truth)
+      await this.profileService.clear();
 
       await this.firebaseAuth.signOut();
       this.httpAdapter.setAuthToken(null);
@@ -1069,16 +1053,18 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    * Call after completing onboarding to update hasCompletedOnboarding flag
    *
    * ⚠️ IMPORTANT: This invalidates the cache first to ensure fresh data
+   *
+   * ⭐ Delegates to ProfileService.refresh() for user data management.
    */
   async refreshUserProfile(): Promise<void> {
     const firebaseUser = this.firebaseAuth.getCurrentUser();
     if (!firebaseUser) return;
 
-    // Invalidate cache to force fresh fetch from backend
-    // This is critical after onboarding completion
-    await globalAuthUserCache.invalidate(firebaseUser.uid);
-    this.logger.debug('Cache invalidated for user', { uid: firebaseUser.uid });
+    // ⭐ Use ProfileService.refresh() to invalidate and re-fetch
+    await this.profileService.refresh();
+    this.logger.debug('Profile refreshed via ProfileService', { uid: firebaseUser.uid });
 
+    // Re-sync auth state with new profile data
     await this.syncUserProfile(firebaseUser.uid);
   }
 }

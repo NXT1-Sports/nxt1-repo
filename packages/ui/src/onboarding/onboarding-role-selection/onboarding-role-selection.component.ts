@@ -175,7 +175,7 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
       }
 
       /* ============================================
-       ROLE CARD - Matches auth page glassmorphic style
+       ROLE CARD - White base with gray hover
        ============================================ */
       .nxt1-role-card {
         display: flex;
@@ -183,7 +183,7 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
         gap: var(--nxt1-spacing-4, 16px);
         width: 100%;
         padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-5, 20px);
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         border-radius: var(--nxt1-borderRadius-lg, 12px);
         cursor: pointer;
@@ -194,7 +194,7 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
 
       .nxt1-role-card:hover:not(.selected):not(:disabled) {
         border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-200);
         transform: translateY(-2px);
       }
 
@@ -230,13 +230,13 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
       }
 
       /* ============================================
-       ROLE ICON
+       ROLE ICON - White base with gray hover
        ============================================ */
       .nxt1-role-icon {
         width: var(--nxt1-spacing-12, 48px);
         height: var(--nxt1-spacing-12, 48px);
         border-radius: var(--nxt1-borderRadius-lg, 12px);
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.08));
         border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         display: flex;
         align-items: center;

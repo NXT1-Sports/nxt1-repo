@@ -68,6 +68,7 @@ import { provideAuth, getAuth } from '@angular/fire/auth';
 import { provideFirestore, getFirestore } from '@angular/fire/firestore';
 import { provideAnalytics, getAnalytics } from '@angular/fire/analytics';
 import { provideStorage, getStorage } from '@angular/fire/storage';
+import { providePerformance, getPerformance } from '@angular/fire/performance';
 
 // Auth service with injection token pattern
 import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
@@ -174,6 +175,7 @@ export const appConfig: ApplicationConfig = {
     provideFirestore(() => getFirestore()),
     provideStorage(() => getStorage()),
     provideAnalytics(() => getAnalytics()), // GA4 - Auto-tracks performance & page views
+    providePerformance(() => getPerformance()), // Firebase Performance Monitoring (2026)
 
     // ============================================
     // AUTH SERVICE (Injection Token Pattern)

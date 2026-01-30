@@ -6,6 +6,16 @@
  * @module @nxt1/mobile/core/services
  */
 
+// ============================================
+// PROFILE SERVICE (User data - Single Source of Truth)
+// ============================================
+export { ProfileService, type IProfileService, type ProfileLoadingState } from './profile.service';
+export { ProfileApiService } from './profile-api.service';
+
+// ============================================
+// NATIVE SERVICES
+// ============================================
+
 // Native app initialization & lifecycle
 export {
   NativeAppService,

@@ -14,6 +14,7 @@ def capacitor_pods
   pod 'CapacitorCommunityAppleSignIn', :path => '../../../../node_modules/@capacitor-community/apple-sign-in'
   pod 'CapacitorFirebaseAuthentication', :path => '../../../../node_modules/@capacitor-firebase/authentication'
   pod 'CapacitorFirebaseCrashlytics', :path => '../../../../node_modules/@capacitor-firebase/crashlytics'
+  pod 'CapacitorFirebasePerformance', :path => '../../../../node_modules/@capacitor-firebase/performance'
   pod 'CapacitorApp', :path => '../../node_modules/@capacitor/app'
   pod 'CapacitorBrowser', :path => '../../../../node_modules/@capacitor/browser'
   pod 'CapacitorCamera', :path => '../../node_modules/@capacitor/camera'

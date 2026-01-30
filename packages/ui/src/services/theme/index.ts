@@ -127,6 +127,9 @@ const THEME_STORAGE_KEY = 'nxt1-theme-preference';
 /** Storage key for sport theme */
 const SPORT_STORAGE_KEY = 'nxt1-sport-theme';
 
+/** Storage key for temporary theme override (e.g., during onboarding) */
+const TEMPORARY_OVERRIDE_KEY = 'nxt1-theme-override';
+
 /** HTML attribute for theme */
 const THEME_ATTRIBUTE = 'data-theme';
 
@@ -229,6 +232,13 @@ export class NxtThemeService {
   /** System's preferred color scheme */
   private readonly _systemPrefersDark = signal<boolean>(false);
 
+  /**
+   * Temporary theme override (e.g., for onboarding flow).
+   * When set, this takes precedence over user preference.
+   * Does NOT persist to storage - resets on page reload.
+   */
+  private readonly _temporaryOverride = signal<EffectiveTheme | null>(null);
+
   /** Whether service has initialized */
   private readonly _initialized = signal<boolean>(false);
 
@@ -248,11 +258,21 @@ export class NxtThemeService {
   /** Whether service has initialized */
   readonly initialized = computed(() => this._initialized());
 
+  /** Whether a temporary theme override is active */
+  readonly hasTemporaryOverride = computed(() => this._temporaryOverride() !== null);
+
   /**
    * The actual base theme being displayed (light/dark).
+   * Priority: temporaryOverride > preference > system
    * Resolves 'system' preference to actual light/dark based on OS settings.
    */
   readonly effectiveTheme = computed<EffectiveTheme>(() => {
+    // Temporary override takes precedence (e.g., during onboarding)
+    const override = this._temporaryOverride();
+    if (override !== null) {
+      return override;
+    }
+
     const pref = this._preference();
     if (pref === 'system') {
       return this._systemPrefersDark() ? 'dark' : 'light';
@@ -335,6 +355,56 @@ export class NxtThemeService {
   getCurrentOption(): ThemeOption {
     const pref = this._preference();
     return THEME_OPTIONS.find((opt) => opt.id === pref) ?? THEME_OPTIONS[0];
+  }
+
+  // ============================================
+  // PUBLIC API - Temporary Theme Override
+  // ============================================
+
+  /**
+   * Set a temporary theme override that takes precedence over user preference.
+   * Used for controlled experiences like onboarding flows.
+   *
+   * This does NOT modify the user's saved preference - it's purely visual.
+   * Call `clearTemporaryOverride()` to restore normal theme behavior.
+   *
+   * @param theme - The theme to force ('light' or 'dark')
+   *
+   * @example
+   * ```typescript
+   * // During onboarding, force light theme
+   * theme.setTemporaryOverride('light');
+   *
+   * // On completion, transition to dark, then clear
+   * theme.setTemporaryOverride('dark');
+   * await delay(300); // Allow smooth transition
+   * theme.clearTemporaryOverride();
+   * ```
+   */
+  setTemporaryOverride(theme: EffectiveTheme): void {
+    this._temporaryOverride.set(theme);
+    this.applyTheme('user');
+
+    if (this.statusBarSyncEnabled) {
+      void this.syncStatusBar();
+    }
+
+    this.logChange('Temporary override set', { theme });
+  }
+
+  /**
+   * Clear the temporary theme override, restoring normal theme behavior.
+   * The theme will return to the user's saved preference.
+   */
+  clearTemporaryOverride(): void {
+    this._temporaryOverride.set(null);
+    this.applyTheme('user');
+
+    if (this.statusBarSyncEnabled) {
+      void this.syncStatusBar();
+    }
+
+    this.logChange('Temporary override cleared', { restoredTo: this.effectiveTheme() });
   }
 
   // ============================================

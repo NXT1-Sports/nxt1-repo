@@ -7,6 +7,7 @@
  * - Refreshing user profile data
  * - Navigation with NavController (native-feel transitions)
  * - Mobile-specific analytics
+ * - Theme restoration after onboarding (clears temporary dark override)
  *
  * Route: /auth/onboarding/congratulations
  *
@@ -22,6 +23,12 @@
  * │     SHARED DATA: Role-specific messaging, CTA text          │
  * └─────────────────────────────────────────────────────────────┘
  *
+ * Theme Flow:
+ * 1. Onboarding page forces LIGHT theme (better for form readability)
+ * 2. On completion, transitions to DARK theme (dramatic reveal)
+ * 3. This page displays in DARK theme with confetti celebration
+ * 4. On navigation to home, clears override → user's preference restored
+ *
  * ⭐ FOLLOWS MONOREPO SHARED INFRASTRUCTURE PATTERNS ⭐
  * ⭐ IDENTICAL PATTERN TO WEB'S OnboardingCongratulationsComponent ⭐
  */
@@ -31,7 +38,12 @@ import { CommonModule } from '@angular/common';
 import { NavController } from '@ionic/angular/standalone';
 
 // Shared UI Components
-import { AuthShellComponent, OnboardingWelcomeComponent, NxtLoggingService } from '@nxt1/ui';
+import {
+  AuthShellComponent,
+  OnboardingWelcomeComponent,
+  NxtLoggingService,
+  NxtThemeService,
+} from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 
 // Core Constants
@@ -68,6 +80,7 @@ import { AuthFlowService } from '../../services';
 export class OnboardingCongratulationsPage implements OnInit {
   private readonly navController = inject(NavController);
   private readonly authFlow = inject(AuthFlowService);
+  private readonly themeService = inject(NxtThemeService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('CongratulationsPage');
 
   // ============================================
@@ -128,9 +141,17 @@ export class OnboardingCongratulationsPage implements OnInit {
   /**
    * Navigate to home/feed using NavController
    * Uses navigateRoot to replace the navigation stack (no back to onboarding)
+   *
+   * Also clears the temporary theme override, restoring user's saved preference.
    */
   private async navigateToHome(): Promise<void> {
     this.logger.info('Navigating to home', { target: AUTH_REDIRECTS.DEFAULT });
+
+    // ⭐ THEME RESTORATION: Clear temporary override, restore user's preference
+    // This ensures the app respects user's original theme choice going forward
+    this.themeService.clearTemporaryOverride();
+    this.logger.debug('Cleared temporary theme override, restored user preference');
+
     await this.navController.navigateRoot(AUTH_REDIRECTS.DEFAULT, {
       animated: true,
       animationDirection: 'forward',

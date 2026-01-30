@@ -291,9 +291,9 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
   `,
   styles: [
     `
-      /* Auth Input - Glassmorphic styling matching social buttons */
+      /* Auth Input - White base with gray hover to match footer */
       .auth-input {
-        --background: var(--nxt1-color-state-hover);
+        --background: var(--nxt1-color-surface-100);
         --border-color: var(--nxt1-color-border-default);
         --border-radius: var(--nxt1-borderRadius-lg);
         --border-width: 1px;
@@ -319,8 +319,9 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
         transition: all var(--nxt1-duration-fast) ease-out;
       }
 
-      /* Subtle hover - just a slight border brighten like social buttons */
+      /* Hover - subtle surface change for feedback */
       .auth-input:hover {
+        --background: var(--nxt1-color-surface-200);
         --border-color: var(--nxt1-color-border-strong);
       }
 
@@ -357,7 +358,7 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
 
       .password-toggle:hover {
         color: var(--nxt1-color-primary);
-        background: var(--nxt1-color-state-hover);
+        background: var(--nxt1-color-surface-200);
       }
 
       /* Submit Button - professional styling */

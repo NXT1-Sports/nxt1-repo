@@ -24,7 +24,11 @@
     "android:dev": "npm run build:dev && npx cap sync android && npx cap run android",
     "ios:live": "npx cap sync ios && npx cap run ios --livereload-url=http://$(ipconfig getifaddr en0):4300 --external",
     "android:live": "npx cap sync android && npx cap run android --livereload-url=http://$(ipconfig getifaddr en0):4300 --external",
-    "resources": "npx @capacitor/assets generate"
+    "resources": "npx @capacitor/assets generate",
+    "config:staging": "bash scripts/switch-firebase-env.sh staging && npx cap sync",
+    "config:production": "bash scripts/switch-firebase-env.sh production && npx cap sync",
+    "build:staging": "npm run config:staging && npm run build:dev",
+    "build:production": "npm run config:production && npm run build"
   },
   "dependencies": {
     "@angular/animations": "^21.0.6",
@@ -40,6 +44,7 @@
     "@capacitor-community/apple-sign-in": "^7.1.0",
     "@capacitor-firebase/authentication": "^8.0.1",
     "@capacitor-firebase/crashlytics": "^8.0.1",
+    "@capacitor-firebase/performance": "^8.0.1",
     "@capacitor/android": "^8.0.1",
     "@capacitor/app": "^8.0.0",
     "@capacitor/browser": "^8.0.0",

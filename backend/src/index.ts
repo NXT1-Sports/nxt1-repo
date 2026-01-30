@@ -20,6 +20,7 @@ import { firebaseContext } from './middleware/firebase-context.middleware.js';
 
 // Routes
 import authRoutes from './routes/auth.routes.js';
+import uploadRoutes from './routes/upload.routes.js';
 
 const { json, urlencoded } = bodyParser;
 
@@ -54,11 +55,13 @@ app.get('/staging/health', (_req, res) => {
 // API Routes - Production (uses FIREBASE_SERVICE_ACCOUNT)
 // ============================================================================
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/upload', uploadRoutes);
 
 // ============================================================================
 // API Routes - Staging (uses STAGING_FIREBASE_SERVICE_ACCOUNT)
 // ============================================================================
 app.use('/api/v1/staging/auth', authRoutes);
+app.use('/api/v1/staging/upload', uploadRoutes);
 
 // ============================================================================
 // Error Handling (must be last)

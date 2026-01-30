@@ -43,6 +43,15 @@ export { AuthNavigationService, type NavAnimation, type NavOptions } from './aut
 
 export { AuthErrorHandler, type AuthError, type AuthRecoveryAction } from './auth-error';
 
+// Scroll service (2026 Professional Scroll Management)
+export {
+  NxtScrollService,
+  type ScrollBehavior,
+  type ScrollTarget,
+  type ScrollToTopOptions,
+  DEFAULT_SCROLL_OPTIONS,
+} from './scroll';
+
 // Theme service (2026 Professional Theme Management)
 export {
   NxtThemeService,

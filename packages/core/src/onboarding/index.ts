@@ -1,5 +1,5 @@
 /**
- * Onboarding API - Barrel Export
+ * Onboarding Module - Barrel Export
  *
  * ⭐ THIS MODULE IS 100% PORTABLE TO MOBILE ⭐
  *
@@ -13,7 +13,7 @@
  * NOTE: For AnalyticsAdapter and platform-agnostic analytics,
  * import from '@nxt1/core/analytics' directly.
  *
- * @module @nxt1/core/api/onboarding
+ * @module @nxt1/core/onboarding
  * @version 3.0.0
  */
 

@@ -409,10 +409,10 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
       }
 
       /* ============================================
-       INPUT STYLING
+       INPUT STYLING - White base with gray hover
        ============================================ */
       .nxt1-input {
-        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --background: var(--nxt1-color-surface-100);
         --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
@@ -428,9 +428,11 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-base, 1rem);
         min-height: 52px;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
       }
 
       .nxt1-input:hover:not(.nxt1-input-error) {
+        --background: var(--nxt1-color-surface-200);
         --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 
@@ -449,7 +451,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
       }
 
       /* ============================================
-       LOCATION SECTION
+       LOCATION SECTION - White base with gray hover
        ============================================ */
       .nxt1-location-section {
         display: flex;
@@ -466,7 +468,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
         padding: var(--nxt1-spacing-4, 16px);
         border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         border-radius: var(--nxt1-borderRadius-lg, 12px);
-        background: transparent;
+        background: var(--nxt1-color-surface-100);
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
@@ -477,9 +479,9 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
       }
 
       .nxt1-location-detect:hover:not(:disabled):not(.has-location) {
-        border-color: var(--nxt1-color-primary, #ccff00);
-        background: var(--nxt1-color-alpha-primary5, rgba(204, 255, 0, 0.05));
-        color: var(--nxt1-color-primary, #ccff00);
+        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-primary, #ffffff);
         transform: translateY(-1px);
       }
 

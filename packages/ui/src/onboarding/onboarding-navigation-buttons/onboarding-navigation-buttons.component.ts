@@ -106,7 +106,7 @@ import { NxtPlatformService } from '../../services/platform';
 
       .nxt1-skip-btn:hover:not(:disabled) {
         border-color: var(--nxt1-color-border-strong);
-        background: var(--nxt1-color-state-hover);
+        background: var(--nxt1-color-surface-200);
         color: var(--nxt1-color-text-primary);
       }
 

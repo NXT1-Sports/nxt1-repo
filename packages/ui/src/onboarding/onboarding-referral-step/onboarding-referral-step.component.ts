@@ -348,15 +348,15 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       }
 
       /* ============================================
-       REFERRAL CARD - Base State
-       Matches sport chip styling pattern
+       REFERRAL CARD - Base State (White with gray hover)
+       Matches footer/input pattern
        ============================================ */
       .nxt1-referral-card {
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-3, 12px);
         padding: var(--nxt1-spacing-4, 16px);
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         border-radius: var(--nxt1-borderRadius-lg, 12px);
         cursor: pointer;
@@ -366,9 +366,9 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
         -webkit-tap-highlight-color: transparent;
       }
 
-      /* Hover State - only for non-selected */
+      /* Hover State - lighter surface for non-selected */
       .nxt1-referral-card:hover:not(:disabled):not(.nxt1-referral-card-selected) {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-200);
         border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
         transform: translateY(-2px);
       }
@@ -440,7 +440,7 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       }
 
       /* ============================================
-       CARD ICON
+       CARD ICON - Surface background for icon container
        ============================================ */
       .nxt1-card-icon {
         flex-shrink: 0;
@@ -449,7 +449,7 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.08));
         border-radius: var(--nxt1-borderRadius-md, 8px);
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
@@ -503,7 +503,7 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       }
 
       /* ============================================
-       CONDITIONAL INPUT
+       CONDITIONAL INPUT - White base with gray hover
        ============================================ */
       .nxt1-card-input {
         width: 100%;
@@ -511,7 +511,7 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       }
 
       .nxt1-card-input .nxt1-input {
-        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --background: var(--nxt1-color-surface-100);
         --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
@@ -527,6 +527,7 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-base, 1rem);
         min-height: 52px;
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
       }
 
       /* Input inside selected card - needs dark text on light background */
@@ -540,6 +541,7 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       }
 
       .nxt1-card-input .nxt1-input:hover:not(:disabled) {
+        --background: var(--nxt1-color-surface-200);
         --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 

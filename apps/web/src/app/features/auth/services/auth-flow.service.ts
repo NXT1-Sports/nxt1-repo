@@ -58,6 +58,7 @@ import type { Auth as FirebaseAuthType, User as FirebaseUser } from '@angular/fi
 
 import { AuthApiService } from './auth-api.service';
 import { AuthErrorHandler } from '@nxt1/ui';
+import { FileUploadService } from '../../../core/services';
 import {
   type UserRole,
   type AuthState as CoreAuthState,
@@ -1487,7 +1488,18 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   }
 
   /**
-   * Upload profile photo to Firebase Storage
+   * Upload profile photo via backend API
+   *
+   * ⭐ 2026 BEST PRACTICE: Backend-First Pattern ⭐
+   * - Frontend validates and sends file to backend
+   * - Backend handles Firebase Storage upload, optimization, thumbnails
+   * - Backend returns CDN URL
+   *
+   * This ensures:
+   * - Security: Frontend never has direct storage access
+   * - Consistency: Same logic works on web and mobile
+   * - Performance: Backend can optimize images
+   *
    * @param file - Image file to upload
    * @param userId - User's Firebase UID
    * @returns Download URL of uploaded image
@@ -1497,27 +1509,28 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       throw new Error('File upload only available in browser');
     }
 
+    // Use FileUploadService (backend-first pattern)
+    const fileUploadService = this.injector.get(FileUploadService);
+
     try {
-      // Dynamically import Firebase Storage
-      const { Storage } = await import('@angular/fire/storage');
-      const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+      const result = await fileUploadService.uploadProfilePhoto(userId, file);
 
-      const storage = this.injector.get(Storage);
+      if (!result) {
+        throw new Error(fileUploadService.error() ?? 'Failed to upload photo');
+      }
 
-      // Create reference to user's profile photo
-      const fileName = `profile_${Date.now()}_${file.name}`;
-      const storageRef = ref(storage, `users/${userId}/profile/${fileName}`);
+      this.logger.info('Profile photo uploaded via backend', {
+        userId,
+        url: result.url,
+        thumbnailUrl: result.thumbnailUrl,
+      });
 
-      // Upload file
-      await uploadBytes(storageRef, file);
-
-      // Get download URL
-      const downloadURL = await getDownloadURL(storageRef);
-
-      return downloadURL;
+      return result.url;
     } catch (error) {
       this.logger.error('Photo upload failed', error);
-      throw new Error('Failed to upload photo. Please try again.');
+      throw new Error(
+        error instanceof Error ? error.message : 'Failed to upload photo. Please try again.'
+      );
     }
   }
 }

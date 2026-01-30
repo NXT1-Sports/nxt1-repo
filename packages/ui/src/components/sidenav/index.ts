@@ -23,6 +23,7 @@ export type {
   SocialLink,
   SidenavItem,
   SidenavSection,
+  SidenavSportProfile,
   SidenavUserData,
   SidenavVariant,
   SidenavPosition,

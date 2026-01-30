@@ -249,6 +249,7 @@ export {
   type FooterIndicatorStyle,
   type FooterConfig,
   type FooterTabSelectEvent,
+  type FooterScrollToTopEvent,
   // Mobile Footer Constants
   DEFAULT_FOOTER_TABS,
   FOOTER_HEIGHTS,
@@ -284,6 +285,7 @@ export {
   type SocialLink,
   type SidenavItem,
   type SidenavSection,
+  type SidenavSportProfile,
   type SidenavUserData,
   type SidenavVariant,
   type SidenavPosition,

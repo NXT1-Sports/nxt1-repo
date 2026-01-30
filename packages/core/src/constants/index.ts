@@ -77,3 +77,7 @@ export * from './auth.constants';
 
 // Notification constants (push, email, SMS types and categories)
 export * from './notification.constants';
+
+// Storage constants (Firebase Storage paths, sizes, formats)
+// TODO: Create storage.constants.ts
+// export * from './storage.constants';

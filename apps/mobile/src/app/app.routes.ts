@@ -79,7 +79,23 @@ export const routes: Routes = [
         loadChildren: () =>
           import('./features/activity/activity.routes').then((m) => m.ACTIVITY_ROUTES),
       },
+
+      // Developer Settings (non-production only)
+      {
+        path: 'dev-settings',
+        loadComponent: () =>
+          import('./features/dev-settings/dev-settings.component').then(
+            (m) => m.DevSettingsComponent
+          ),
+      },
     ],
+  },
+
+  // Developer Settings (also accessible outside tabs for testing)
+  {
+    path: 'dev-settings',
+    loadComponent: () =>
+      import('./features/dev-settings/dev-settings.component').then((m) => m.DevSettingsComponent),
   },
 
   // Legacy /home redirect (for backwards compatibility)

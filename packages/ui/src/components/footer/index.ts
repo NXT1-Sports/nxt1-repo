@@ -22,6 +22,7 @@ export type {
   FooterConfig,
   FooterTabSelectEvent,
   FooterTabSelectEventBase,
+  FooterScrollToTopEvent,
 } from './footer.types';
 
 // Constants (re-exported from @nxt1/core for convenience)

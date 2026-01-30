@@ -145,7 +145,7 @@ export type { ValidatedTeamInfo, TeamCodeValidationState } from '@nxt1/core';
     `
       /* Team Code Input - matching auth design system */
       .team-code-input {
-        --background: var(--nxt1-color-state-hover);
+        --background: var(--nxt1-color-surface-100);
         --border-color: var(--nxt1-color-border-default);
         --border-radius: var(--nxt1-borderRadius-lg);
         --border-width: 1px;
@@ -175,6 +175,7 @@ export type { ValidatedTeamInfo, TeamCodeValidationState } from '@nxt1/core';
       }
 
       .team-code-input:hover {
+        --background: var(--nxt1-color-surface-200);
         --border-color: var(--nxt1-color-border-strong);
       }
 

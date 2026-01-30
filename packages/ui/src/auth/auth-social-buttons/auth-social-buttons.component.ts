@@ -116,12 +116,12 @@ export interface SocialProvidersConfig {
         width: 100%;
       }
 
-      /* Base auth button - uses design system tokens */
+      /* Base auth button - white base with gray hover to match footer */
       .nxt1-auth-btn {
-        --background: var(--nxt1-color-state-hover);
-        --background-hover: var(--nxt1-color-state-pressed);
+        --background: var(--nxt1-color-surface-100);
+        --background-hover: var(--nxt1-color-surface-200);
         --background-activated: var(--nxt1-color-state-pressed);
-        --background-focused: var(--nxt1-color-state-pressed);
+        --background-focused: var(--nxt1-color-state-hover);
         --border-color: var(--nxt1-color-border-default);
         --border-radius: var(--nxt1-borderRadius-lg);
         --border-width: 1px;

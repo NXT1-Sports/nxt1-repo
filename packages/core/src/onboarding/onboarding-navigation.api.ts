@@ -22,14 +22,14 @@
  * │        Pure functions - 100% portable to mobile            │
  * └────────────────────────────────────────────────────────────┘
  *
- * @module @nxt1/core/api/onboarding
+ * @module @nxt1/core/onboarding
  * @version 2.0.0
  */
 
 // Import from source of truth
-import type { Gender } from '../../constants/user.constants';
-import { GENDER_CONFIGS } from '../../constants/user.constants';
-import type { Location } from '../../models/user.model';
+import type { Gender } from '../constants/user.constants';
+import { GENDER_CONFIGS } from '../constants/user.constants';
+import type { Location } from '../models/user.model';
 
 // ============================================
 // TYPES

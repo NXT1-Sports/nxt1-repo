@@ -107,6 +107,7 @@ export {
 export {
   type CachedUserProfile,
   type CachedSportData,
+  type MergedUserProfile,
   type AuthUserCacheOptions,
   type AuthUserCache,
   createAuthUserCache,
@@ -133,3 +134,33 @@ export {
   getBiometricDisplayName,
   mergeBiometricConfig,
 } from './biometric-config';
+
+// Auth API - Backend HTTP calls
+export {
+  // Factory
+  createAuthApi,
+  type AuthApi,
+  // Types
+  type ValidateTeamCodeRequest,
+  type ValidateTeamCodeResponse,
+  type ValidatedTeamInfo,
+  type TeamCodeValidationState,
+  type OnboardingProfileData,
+  type OnboardingCompleteResponse,
+  type ReferralSourceData,
+  type HearAboutResponse,
+  type UserProfileResponse,
+  type SendVerificationEmailRequest,
+  type SendVerificationEmailResponse,
+  type UsernameCheckResponse,
+  type ReferralValidationResponse,
+  type ApiError,
+  type ApiMeta,
+  type CreateUserRequest,
+  type CreateUserResponse,
+  type CreateUserErrorResponse,
+  type CreateUserResult,
+  type OnboardingStepResponse,
+  // Type guards
+  isCreateUserSuccess,
+} from './auth.api';

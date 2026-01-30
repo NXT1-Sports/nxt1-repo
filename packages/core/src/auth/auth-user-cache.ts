@@ -56,6 +56,38 @@ export interface CachedSportData {
 }
 
 /**
+ * Merged user profile - combines auth state + backend profile.
+ * This is the SINGLE source of truth for UI components.
+ *
+ * Professional pattern: Components should use this type for all user display,
+ * rather than accessing separate auth/profile signals.
+ */
+export interface MergedUserProfile {
+  // Identity (from Firebase Auth)
+  readonly uid: string;
+  readonly email: string;
+  readonly displayName: string;
+  readonly photoURL?: string | null;
+  readonly emailVerified: boolean;
+
+  // Status (computed from backend)
+  readonly role: string | null;
+  readonly isPremium: boolean;
+  readonly hasCompletedOnboarding: boolean;
+
+  // Extended profile (from backend)
+  readonly firstName?: string;
+  readonly lastName?: string;
+  readonly planTier?: string | null;
+  readonly primarySport?: string;
+  readonly sports: readonly CachedSportData[];
+
+  // Timestamps
+  readonly createdAt?: string;
+  readonly updatedAt?: string;
+}
+
+/**
  * Cached user profile data.
  * Matches the backend API response structure.
  */

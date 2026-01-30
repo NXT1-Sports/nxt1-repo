@@ -48,7 +48,7 @@
                 "output": "./svg"
               }
             ],
-            "styles": ["src/global.css"],
+            "styles": ["src/styles.css"],
             "scripts": []
           },
           "configurations": {
@@ -118,7 +118,7 @@
                 "output": "./svg"
               }
             ],
-            "styles": ["src/global.css"],
+            "styles": ["src/styles.css"],
             "scripts": []
           }
         },

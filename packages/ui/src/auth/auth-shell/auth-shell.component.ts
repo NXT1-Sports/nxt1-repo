@@ -415,27 +415,29 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
 
       /* ============================================ */
       /* CARD GLASS VARIANT (Theme-aware)            */
+      /* White base to match footer design           */
       /* ============================================ */
       .auth-card-glass {
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-3);
         border-radius: var(--nxt1-borderRadius-xl);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-default);
+        background: var(--nxt1-color-surface-100);
         padding: var(--nxt1-spacing-6);
       }
 
       /* ============================================ */
       /* TWO-COLUMN LAYOUT (Desktop)                 */
+      /* White base to match footer design           */
       /* ============================================ */
       .auth-two-column-card {
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-3);
         border-radius: var(--nxt1-borderRadius-xl);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        background: var(--nxt1-color-state-hover);
+        border: 1px solid var(--nxt1-color-border-default);
+        background: var(--nxt1-color-surface-100);
         padding: var(--nxt1-spacing-6);
       }
 
@@ -443,7 +445,7 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         display: flex;
         gap: 32px;
         align-items: stretch;
-        justify-content: space-evenly;
+        justify-content: space-between;
       }
 
       @media (max-width: 768px) {

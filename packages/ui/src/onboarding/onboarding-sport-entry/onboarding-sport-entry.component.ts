@@ -338,7 +338,7 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
 
       .nxt1-collapsed-header:hover {
         border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
         transform: translateY(-1px);
       }
 
@@ -453,7 +453,7 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
         justify-content: center;
         width: 36px;
         height: 36px;
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         border-radius: var(--nxt1-borderRadius-lg, 12px);
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
@@ -463,6 +463,7 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
       }
 
       .nxt1-collapse-btn:hover {
+        background: var(--nxt1-color-surface-200);
         border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
         color: var(--nxt1-color-text-primary, #ffffff);
       }
@@ -514,7 +515,7 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
          FORM INPUTS
          ============================================ */
       .nxt1-input {
-        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --background: var(--nxt1-color-surface-100);
         --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
@@ -532,14 +533,15 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
       }
 
       .nxt1-input:hover:not(.has-focus) {
+        --background: var(--nxt1-color-surface-200);
         --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 
       /* ============================================
-         SELECT STYLING - Matches contact step popover
+         SELECT STYLING - Theme-aware with hover
          ============================================ */
       .nxt1-select {
-        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --background: var(--nxt1-color-surface-100);
         --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --border-width: 1px;
@@ -555,10 +557,11 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
         width: 100%;
         border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
         border-radius: var(--nxt1-borderRadius-lg, 12px);
-        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-100);
       }
 
       .nxt1-select:hover:not(:disabled) {
+        background: var(--nxt1-color-surface-200);
         border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 

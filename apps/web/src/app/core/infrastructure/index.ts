@@ -14,6 +14,9 @@
 // HTTP
 export { AngularHttpAdapter } from './http/angular-http-adapter.service';
 
+// HTTP File Upload (extends AngularHttpAdapter with FormData support)
+export { AngularFileUploadAdapter } from './http/angular-file-upload-adapter.service';
+
 // HTTP Cache (app-specific)
 export {
   httpCacheInterceptor,

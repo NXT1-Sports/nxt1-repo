@@ -1,6 +1,6 @@
 /**
  * @fileoverview Profile API - Pure TypeScript
- * @module @nxt1/core/api
+ * @module @nxt1/core/profile
  *
  * Pure functions for profile-related backend API calls.
  * 100% portable - NO platform dependencies.
@@ -8,7 +8,7 @@
  * @version 2.0.0
  */
 
-import type { HttpAdapter } from './http-adapter';
+import type { HttpAdapter } from '../api/http-adapter';
 import type { User, UserSummary, SportProfile } from '../models/user.model';
 
 // ============================================

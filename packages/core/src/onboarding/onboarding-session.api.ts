@@ -12,12 +12,12 @@
  * - User-specific sessions (keyed by userId)
  * - Works with any StorageAdapter (browser, Capacitor, etc.)
  *
- * @module @nxt1/core/api/onboarding
+ * @module @nxt1/core/onboarding
  * @version 2.0.0
  */
 
-import type { StorageAdapter } from '../../storage/storage-adapter';
-import { STORAGE_KEYS } from '../../storage/storage-adapter';
+import type { StorageAdapter } from '../storage/storage-adapter';
+import { STORAGE_KEYS } from '../storage/storage-adapter';
 import type {
   OnboardingUserType,
   OnboardingFormData,

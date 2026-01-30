@@ -57,7 +57,12 @@ import { IonTabBar, IonTabButton } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../icon';
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
-import type { FooterTabItem, FooterConfig, FooterTabSelectEvent } from './footer.types';
+import type {
+  FooterTabItem,
+  FooterConfig,
+  FooterTabSelectEvent,
+  FooterScrollToTopEvent,
+} from './footer.types';
 import { DEFAULT_FOOTER_TABS } from './footer.types';
 
 @Component({
@@ -402,6 +407,7 @@ export class NxtMobileFooterComponent {
     translucent: true,
     glass: false, // Solid background by default
     indicatorStyle: 'none',
+    scrollToTopOnSameTap: true, // Enable scroll-to-top on same tab tap by default
   };
 
   // ============================================
@@ -410,6 +416,13 @@ export class NxtMobileFooterComponent {
 
   /** Emits when a tab is selected */
   @Output() tabSelect = new EventEmitter<FooterTabSelectEvent>();
+
+  /**
+   * Emits when user taps the currently active tab (scroll-to-top trigger).
+   * Following Instagram, Twitter, TikTok patterns for native mobile UX.
+   * Shell components should handle this by scrolling content to top.
+   */
+  @Output() scrollToTop = new EventEmitter<FooterScrollToTopEvent>();
 
   // ============================================
   // INTERNAL STATE
@@ -556,29 +569,53 @@ export class NxtMobileFooterComponent {
 
   /**
    * Handle tab click
+   * Follows Instagram/Twitter/TikTok pattern: tapping active tab scrolls to top.
    */
   async onTabClick(tab: FooterTabItem, event: Event): Promise<void> {
     if (tab.disabled) return;
 
-    // Store previous tab
-    this.previousTab = this.activeTab();
+    try {
+      // Check if tapping the currently active tab (scroll-to-top pattern)
+      const isCurrentlyActive = this.isActiveTab(tab);
 
-    // Trigger haptic feedback
-    await this.triggerHaptic();
+      if (isCurrentlyActive && this.config.scrollToTopOnSameTap !== false) {
+        // Trigger haptic feedback for scroll-to-top action
+        await this.triggerHaptic();
 
-    // Update internal state
-    this._activeTabId.set(tab.id);
+        // Emit scroll-to-top event instead of navigation
+        this.scrollToTop.emit({
+          tab,
+          timestamp: Date.now(),
+          source: 'same-tab-tap',
+        });
 
-    // Emit selection event
-    this.tabSelect.emit({
-      tab,
-      previousTab: this.previousTab,
-      event,
-    });
+        // Don't navigate or emit tabSelect - just scroll to top
+        return;
+      }
 
-    // Navigate (only if not handled externally)
-    if (this.isBrowser && tab.route) {
-      this.router.navigate([tab.route]);
+      // Store previous tab
+      this.previousTab = this.activeTab();
+
+      // Trigger haptic feedback
+      await this.triggerHaptic();
+
+      // Update internal state
+      this._activeTabId.set(tab.id);
+
+      // Emit selection event
+      this.tabSelect.emit({
+        tab,
+        previousTab: this.previousTab,
+        event,
+      });
+
+      // Navigate (only if not handled externally)
+      if (this.isBrowser && tab.route) {
+        void this.router.navigate([tab.route]);
+      }
+    } catch (error) {
+      // Log but don't throw - tab click failures shouldn't crash the app
+      console.warn('[NxtMobileFooter] Tab click handler failed:', error);
     }
   }
 }

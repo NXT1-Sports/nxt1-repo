@@ -318,6 +318,12 @@ export class OnboardingPage implements OnInit, OnDestroy {
   hasInitialized = false;
 
   constructor() {
+    // ⭐ THEME MANAGEMENT: Force light theme during onboarding for optimal UX
+    // The light theme provides better readability for form inputs and content
+    // Dark theme transition happens on completion for a celebratory reveal
+    this.themeService.setTemporaryOverride('light');
+    this.logger.debug('Set temporary light theme override for onboarding');
+    
     // Initialization moved to ngOnInit to avoid circular dependency NG0203
   }
 
@@ -866,6 +872,14 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
     // Track completion
     this.trackCompleted();
+
+    // ⭐ THEME TRANSITION: Switch to dark theme for the celebratory congratulations page
+    // This creates a dramatic, premium feel as user completes onboarding
+    this.logger.debug('Transitioning to dark theme for congratulations');
+    this.themeService.setTemporaryOverride('dark');
+
+    // Brief delay to allow theme transition to render smoothly
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Navigate to congratulations page with haptic feedback (native-feel transition)
     await this.haptics.notification('success');

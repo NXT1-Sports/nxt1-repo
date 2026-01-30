@@ -265,7 +265,7 @@ import { HapticButtonDirective } from '../../services/haptics';
       }
 
       .nxt1-search-input {
-        --background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+        --background: var(--nxt1-color-surface-100);
         --border-radius: var(--nxt1-borderRadius-lg, 12px);
         --padding-start: 40px;
         --padding-end: 40px;
@@ -277,6 +277,11 @@ import { HapticButtonDirective } from '../../services/haptics';
         font-size: var(--nxt1-fontSize-base, 1rem);
         width: 100%;
         min-height: 44px;
+        transition: all var(--nxt1-duration-fast, 150ms) ease-out;
+      }
+
+      .nxt1-search-input:hover {
+        --background: var(--nxt1-color-surface-200);
       }
 
       .nxt1-search-clear {

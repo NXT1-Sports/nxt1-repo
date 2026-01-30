@@ -3,31 +3,14 @@
  * @module @nxt1/ui/components
  *
  * All reusable UI components for the NXT1 platform.
- * Organized using Atomic Design methodology (2026 refactor).
+ * Flat structure with single entry point for tree-shaking optimization.
  *
- * Structure:
- * - atoms/     - Basic building blocks (icons, logos, avatars, chips)
- * - molecules/ - Simple component groups (form fields, pickers)
- * - organisms/ - Complex components (headers, footers, navigation)
- *
- * Note: All components are also exported flat for backwards compatibility.
+ * @example
+ * import { NxtLogoComponent, NxtAvatarComponent, NxtBottomSheetService } from '@nxt1/ui';
  */
 
 // ============================================
-// ATOMIC DESIGN CATEGORIES
-// ============================================
-
-// Atoms - Basic building blocks
-export * from './atoms';
-
-// Molecules - Simple component groups
-export * from './molecules';
-
-// Organisms - Complex components
-export * from './organisms';
-
-// ============================================
-// CORE PRIMITIVES (Atoms)
+// CORE PRIMITIVES
 // ============================================
 export { NxtLogoComponent, type LogoSize, type LogoVariant } from './logo';
 
@@ -42,7 +25,7 @@ export {
 export { NxtIconComponent, type IconName, type UIIconName, type BrandIconName } from './icon';
 
 // ============================================
-// AVATAR (Atoms)
+// AVATAR
 // ============================================
 export {
   // Components

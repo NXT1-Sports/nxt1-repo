@@ -20,6 +20,21 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            
+            // Firebase Crashlytics configuration for release builds
+            // Uploads native symbols for deobfuscated crash reports
+            firebaseCrashlytics {
+                // Upload mapping files for code deobfuscation
+                mappingFileUploadEnabled true
+                // Enable native symbol upload for NDK crashes (if using native code)
+                nativeSymbolUploadEnabled true
+            }
+        }
+        debug {
+            // Disable Crashlytics mapping uploads in debug builds for faster builds
+            firebaseCrashlytics {
+                mappingFileUploadEnabled false
+            }
         }
     }
     compileOptions {
@@ -40,6 +55,11 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    
+    // Firebase Performance Monitoring SDK (automatically collected metrics)
+    implementation platform('com.google.firebase:firebase-bom:34.8.0')
+    implementation 'com.google.firebase:firebase-perf'
+    
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
@@ -53,6 +73,8 @@ try {
         apply plugin: 'com.google.gms.google-services'
         // Firebase Crashlytics plugin - upload mapping files for deobfuscation
         apply plugin: 'com.google.firebase.crashlytics'
+        // Firebase Performance Monitoring plugin - automatic HTTP/S monitoring
+        apply plugin: 'com.google.firebase.firebase-perf'
     }
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")

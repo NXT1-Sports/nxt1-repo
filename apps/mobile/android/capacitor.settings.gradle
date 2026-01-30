@@ -11,6 +11,9 @@ project(':capacitor-firebase-authentication').projectDir = new File('../../../no
 include ':capacitor-firebase-crashlytics'
 project(':capacitor-firebase-crashlytics').projectDir = new File('../../../node_modules/@capacitor-firebase/crashlytics/android')
 
+include ':capacitor-firebase-performance'
+project(':capacitor-firebase-performance').projectDir = new File('../../../node_modules/@capacitor-firebase/performance/android')
+
 include ':capacitor-app'
 project(':capacitor-app').projectDir = new File('../node_modules/@capacitor/app/android')
 

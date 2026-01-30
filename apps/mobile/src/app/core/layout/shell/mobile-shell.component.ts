@@ -78,8 +78,10 @@ import {
   NxtSidenavService,
   HapticsService,
   NxtLoggingService,
+  NxtScrollService,
   type FooterTabItem,
   type FooterTabSelectEvent,
+  type FooterScrollToTopEvent,
   type FooterConfig,
   type SidenavItemSelectEvent,
   type SidenavConfig,
@@ -92,12 +94,15 @@ import {
   DEFAULT_SOCIAL_LINKS,
   createSidenavConfig,
   findTabByRoute,
+  updateTabBadge,
   SIDENAV_GESTURE,
   SIDENAV_WIDTHS,
   SIDENAV_ANIMATION,
 } from '@nxt1/ui';
-import { AUTH_ROUTES } from '@nxt1/core/constants';
+import { AUTH_ROUTES } from '@nxt1/core';
 import { AuthFlowService } from '../../../features/auth/services/auth-flow.service';
+import { ProfileService } from '../../../core/services/profile.service';
+import { ActivityService } from '../../../features/activity/services/activity.service';
 
 /**
  * MobileShellComponent
@@ -142,10 +147,11 @@ import { AuthFlowService } from '../../../features/auth/services/auth-flow.servi
 
       <!-- Persistent Bottom Navigation -->
       <nxt1-mobile-footer
-        [tabs]="tabs"
+        [tabs]="tabs()"
         [activeTabId]="activeTabId()"
         [config]="footerConfig()"
         (tabSelect)="onTabSelect($event)"
+        (scrollToTop)="onScrollToTop($event)"
       />
     </div>
   `,
@@ -220,7 +226,15 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   private readonly haptics = inject(HapticsService);
   private readonly ngZone = inject(NgZone);
   private readonly authFlow = inject(AuthFlowService);
+  private readonly activityService = inject(ActivityService);
+  private readonly scrollService = inject(NxtScrollService);
   private readonly logger = inject(NxtLoggingService).child('MobileShell');
+
+  /**
+   * ⭐ ProfileService - Single source of truth for user data ⭐
+   * Uses User type from @nxt1/core/models (professional 2026 pattern)
+   */
+  private readonly profileService = inject(ProfileService);
 
   /** Public sidenav service for programmatic control */
   readonly sidenavService = inject(NxtSidenavService);
@@ -243,10 +257,17 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   // ============================================
 
   /**
-   * Tab configuration - can be customized per user role in the future
-   * For now, uses the default 5-tab layout from @nxt1/ui
+   * Tab configuration with reactive badge count for notifications.
+   * Uses computed signal to update the 'activity' tab badge when unread count changes.
    */
-  readonly tabs: FooterTabItem[] = DEFAULT_FOOTER_TABS;
+  readonly tabs = computed<FooterTabItem[]>(() => {
+    const unreadCount = this.activityService.totalUnread();
+    return updateTabBadge(
+      DEFAULT_FOOTER_TABS,
+      'activity',
+      unreadCount > 0 ? unreadCount : undefined
+    );
+  });
 
   /** Currently active tab ID, synced with router */
   private readonly _activeTabId = signal<string>('home');
@@ -258,17 +279,18 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * Visual order: [regular tabs...] [action button]
    */
   private getVisualTabPosition(tabId: string): number {
-    const tab = this.tabs.find((t) => t.id === tabId);
+    const currentTabs = this.tabs();
+    const tab = currentTabs.find((t) => t.id === tabId);
     if (!tab) return -1;
 
     if (tab.isActionButton) {
       // Action button is always visually last (rightmost)
-      return this.tabs.filter((t) => !t.isActionButton).length;
+      return currentTabs.filter((t) => !t.isActionButton).length;
     }
 
     // Regular tabs: count only non-action tabs before this one
     let position = 0;
-    for (const t of this.tabs) {
+    for (const t of currentTabs) {
       if (t.id === tabId) break;
       if (!t.isActionButton) position++;
     }
@@ -301,6 +323,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       hidden: false,
       translucent: isIos,
       indicatorStyle: 'none',
+      scrollToTopOnSameTap: true, // Enable Instagram/Twitter-style scroll-to-top
     };
   });
 
@@ -308,9 +331,43 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   // SIDENAV CONFIGURATION
   // ============================================
 
-  /** User data for sidenav header - will be populated from auth state */
-  private readonly _sidenavUser = signal<SidenavUserData | null>(null);
-  readonly sidenavUser = this._sidenavUser.asReadonly();
+  /**
+   * User data for sidenav header - computed from ProfileService.user().
+   *
+   * ⭐ Professional 2026 Pattern: Uses ProfileService as single source of truth
+   * for user data, typed as User from @nxt1/core/models.
+   * Automatically updates when profile changes.
+   */
+  readonly sidenavUser = computed<SidenavUserData | null>(() => {
+    const user = this.profileService.user();
+    if (!user) return null;
+
+    // Get primary sport using order === 0 (User model uses 'order', not 'isPrimary')
+    const primarySport = user.sports?.find((s) => s.order === 0) ?? user.sports?.[0];
+    const position = primarySport?.positions?.[0] ?? '';
+    const displayName = `${user.firstName} ${user.lastName}`.trim();
+
+    return {
+      name: displayName || 'User',
+      subtitle: position ? `${primarySport?.sport ?? ''} • ${position}` : user.email,
+      avatarUrl: user.profileImg ?? undefined,
+      initials: this.getInitials(displayName || user.email || 'U'),
+      verified: false, // TODO: Get from backend profile
+      isPremium: this.profileService.isPremium(),
+      userId: user.id,
+      sportProfiles: (user.sports ?? []).map((s, index: number) => ({
+        id: `${user.id}-${s.sport?.toLowerCase().replace(/\s+/g, '-') ?? index}`,
+        sport: s.sport ?? 'Unknown Sport',
+        sportIcon: this.getSportIcon(s.sport),
+        position: s.positions?.[0] ?? undefined,
+        isActive: s.order === 0, // Primary sport has order === 0
+        classYear: undefined, // TODO: Get from backend profile
+      })),
+      activeSportProfileId: primarySport
+        ? `${user.id}-${primarySport.sport?.toLowerCase().replace(/\s+/g, '-')}`
+        : undefined,
+    };
+  });
 
   /** Sidenav sections (using defaults from @nxt1/core) */
   readonly sidenavSections: SidenavSection[] = DEFAULT_SIDENAV_ITEMS;
@@ -356,24 +413,52 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         this.syncActiveTabFromRoute(event.urlAfterRedirects);
       });
 
-    // TODO: Subscribe to auth state to populate sidenav user data
-    // Example:
-    // this.authService.user$.pipe(
-    //   takeUntilDestroyed(this.destroyRef)
-    // ).subscribe(user => {
-    //   if (user) {
-    //     this._sidenavUser.set({
-    //       name: user.displayName ?? 'User',
-    //       subtitle: user.email ?? '',
-    //       avatarUrl: user.photoURL ?? undefined,
-    //       verified: user.emailVerified,
-    //       isPremium: user.subscription?.tier === 'premium',
-    //       userId: user.uid,
-    //     });
-    //   } else {
-    //     this._sidenavUser.set(null);
-    //   }
-    // });
+    // sidenavUser is now a computed signal that automatically reacts to auth state changes
+  }
+
+  /**
+   * Get user initials from display name or email
+   */
+  private getInitials(nameOrEmail: string): string {
+    if (!nameOrEmail) return 'U';
+
+    // If it looks like an email, use first letter
+    if (nameOrEmail.includes('@')) {
+      return nameOrEmail.charAt(0).toUpperCase();
+    }
+
+    // Split by spaces and get first letter of each word (max 2)
+    const parts = nameOrEmail.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+    }
+    return nameOrEmail.charAt(0).toUpperCase();
+  }
+
+  /**
+   * Get icon name for a sport
+   */
+  private getSportIcon(sport: string | undefined): string | undefined {
+    if (!sport) return undefined;
+
+    const sportLower = sport.toLowerCase();
+    const sportIcons: Record<string, string> = {
+      football: 'football',
+      basketball: 'basketball',
+      baseball: 'baseball',
+      softball: 'softball',
+      soccer: 'soccer',
+      volleyball: 'volleyball',
+      lacrosse: 'lacrosse',
+      tennis: 'tennis',
+      golf: 'golf',
+      swimming: 'swimming',
+      track: 'track',
+      wrestling: 'wrestling',
+      hockey: 'hockey',
+    };
+
+    return sportIcons[sportLower] ?? 'trophy';
   }
 
   // ============================================
@@ -476,6 +561,32 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Handle scroll-to-top event when user taps currently active tab.
+   * Following Instagram, Twitter, TikTok patterns for native mobile UX.
+   * Scrolls the current page's IonContent to top with smooth animation.
+   */
+  async onScrollToTop(event: FooterScrollToTopEvent): Promise<void> {
+    this.logger.debug('Scroll to top triggered', { tabId: event.tab.id, source: event.source });
+
+    // Use the scroll service to scroll IonContent to top
+    // This handles Ionic's scrollToTop method automatically
+    const scrolled = await this.scrollService.scrollIonContentToTop(this.elementRef.nativeElement, {
+      behavior: 'smooth',
+      duration: 300,
+      enableHaptics: true,
+    });
+
+    if (!scrolled) {
+      // Fallback: Try window scroll if no IonContent found
+      await this.scrollService.scrollToTop({
+        target: 'window',
+        behavior: 'smooth',
+        enableHaptics: true,
+      });
+    }
+  }
+
+  /**
    * Navigate to a tab with the specified animation direction
    * Uses navigateForward for right movement, navigateBack for left movement
    */
@@ -498,7 +609,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * Matches route prefix to find the corresponding tab
    */
   private syncActiveTabFromRoute(url: string): void {
-    const matchedTab = findTabByRoute(this.tabs, url);
+    const matchedTab = findTabByRoute(this.tabs(), url);
 
     if (matchedTab) {
       this._activeTabId.set(matchedTab.id);
@@ -590,13 +701,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     } catch (error) {
       this.logger.error('Sign out failed', error);
     }
-  }
-
-  /**
-   * Update sidenav user data (call from auth service subscription)
-   */
-  updateSidenavUser(user: SidenavUserData | null): void {
-    this._sidenavUser.set(user);
   }
 }
 

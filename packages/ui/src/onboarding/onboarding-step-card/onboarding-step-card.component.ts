@@ -210,9 +210,9 @@ const ANIMATION_CONFIG = {
         perspective: 1000px;
       }
 
-      /* Card variant - glass morphism styling */
+      /* Card variant - white base to match footer design */
       .nxt1-step-wrapper--card {
-        background: var(--nxt1-color-state-hover);
+        background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-default);
         border-radius: var(--nxt1-borderRadius-2xl);
         padding: var(--nxt1-spacing-6);

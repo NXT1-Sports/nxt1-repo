@@ -63,7 +63,7 @@ import {
   OnboardingStepCardComponent,
   type AnimationDirection,
 } from '@nxt1/ui';
-import { NxtToastService, NxtPlatformService } from '@nxt1/ui';
+import { NxtToastService, NxtPlatformService, NxtThemeService } from '@nxt1/ui';
 
 // Core API - Types, State Machine & Constants
 import {
@@ -183,8 +183,8 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
           (stepClick)="goToStep($event)"
         />
 
-        <!-- Scrollable Step Content Container -->
-        <div class="nxt1-step-scroll-container">
+        <!-- Step Content Container -->
+        <div class="nxt1-step-content">
           <!-- Step Card Container with Animations -->
           <nxt1-onboarding-step-card
             variant="seamless"
@@ -335,74 +335,22 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
   styles: [
     `
       /* ============================================
-       SCROLLABLE STEP CONTENT CONTAINER
-       Fixed-height scroll container - button never moves
+       STEP CONTENT CONTAINER
+       Natural flow - ion-content handles scrolling
        ============================================ */
-      .nxt1-step-scroll-container {
-        /* FIXED height - prevents button shift */
-        height: 320px;
+      .nxt1-step-content {
+        /* Natural flow with ion-content scroll */
+        width: 100%;
 
-        /* Scrollable content */
-        overflow-y: auto;
-        overflow-x: hidden;
-
-        /* Smooth scrolling */
-        scroll-behavior: smooth;
-        -webkit-overflow-scrolling: touch;
-
-        /* Thin scrollbar */
-        scrollbar-width: thin;
-        scrollbar-color: var(--nxt1-color-border-default) transparent;
-
-        /* Minimal spacing */
-        padding: var(--nxt1-spacing-1) 0;
-        margin: var(--nxt1-spacing-2) 0;
+        /* Spacing around content */
+        padding: var(--nxt1-spacing-2) 0;
+        margin: var(--nxt1-spacing-2) 0 var(--nxt1-spacing-6) 0;
       }
 
-      /* Custom scrollbar styling (Webkit browsers) */
-      .nxt1-step-scroll-container::-webkit-scrollbar {
-        width: 4px;
-      }
-
-      .nxt1-step-scroll-container::-webkit-scrollbar-track {
-        background: transparent;
-      }
-
-      .nxt1-step-scroll-container::-webkit-scrollbar-thumb {
-        background: var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-full);
-      }
-
-      .nxt1-step-scroll-container::-webkit-scrollbar-thumb:hover {
-        background: var(--nxt1-color-border-strong);
-      }
-
-      /* Mobile: disable fixed height, let content flow naturally */
-      @media (max-width: 768px) {
-        .nxt1-step-scroll-container {
-          height: auto;
-          overflow: visible;
-          padding: 0;
-          margin: var(--nxt1-spacing-2) 0;
-        }
-      }
-
-      /* Taller screens get more space */
-      @media (min-height: 800px) and (min-width: 769px) {
-        .nxt1-step-scroll-container {
-          height: 380px;
-        }
-      }
-
-      @media (min-height: 900px) and (min-width: 769px) {
-        .nxt1-step-scroll-container {
-          height: 440px;
-        }
-      }
-
-      @media (min-height: 1000px) and (min-width: 769px) {
-        .nxt1-step-scroll-container {
-          height: 500px;
+      /* Desktop: Add spacing below for navigation buttons */
+      @media (min-width: 769px) {
+        .nxt1-step-content {
+          margin-bottom: var(--nxt1-spacing-8);
         }
       }
     `,
@@ -419,6 +367,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private readonly seo = inject(SeoService);
   private readonly toast = inject(NxtToastService);
   private readonly platform = inject(NxtPlatformService);
+  private readonly themeService = inject(NxtThemeService);
   private readonly onboardingAnalytics = inject(OnboardingAnalyticsService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('Onboarding');
 
@@ -570,6 +519,14 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private hasInitialized = false;
 
   constructor() {
+    // ⭐ THEME MANAGEMENT: Force light theme during onboarding for optimal UX
+    // The light theme provides better readability for form inputs and content
+    // Dark theme transition happens on completion for a celebratory reveal
+    if (isPlatformBrowser(this.platformId)) {
+      this.themeService.setTemporaryOverride('light');
+      this.logger.debug('Set temporary light theme override for onboarding');
+    }
+
     // Use effect to initialize the onboarding flow once auth is ready
     effect(() => {
       const isInitialized = this.authFlow.isInitialized();
@@ -1056,6 +1013,14 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     if (typeof document !== 'undefined') {
       (document.activeElement as HTMLElement)?.blur?.();
     }
+
+    // ⭐ THEME TRANSITION: Switch to dark theme for the celebratory congratulations page
+    // This creates a dramatic, premium feel as user completes onboarding
+    this.logger.debug('Transitioning to dark theme for congratulations');
+    this.themeService.setTemporaryOverride('dark');
+
+    // Brief delay to allow theme transition to render smoothly
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Navigate to congratulations page with Ionic animation
     await this.navController.navigateForward('/auth/onboarding/congratulations', {

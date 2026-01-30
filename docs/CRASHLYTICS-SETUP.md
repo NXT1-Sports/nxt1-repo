@@ -527,39 +527,186 @@ async onUserAuthenticated(user: User) {
 2. Check browser console for GA4 events
 3. Look in GA4 → Events → exception
 
-### Testing Crashes in Development
+---
+
+## Test Your Implementation (2026 Firebase Best Practices)
+
+> **Reference**:
+> [Firebase iOS Test Implementation](https://firebase.google.com/docs/crashlytics/ios/test-implementation)
+> |
+> [Firebase Android Test Implementation](https://firebase.google.com/docs/crashlytics/android/test-implementation)
+
+### Using the Developer Settings Page
+
+NXT1 includes a built-in Developer Settings page for testing Crashlytics:
+
+```
+Navigate to: /dev-settings (or /tabs/dev-settings)
+```
+
+This page provides:
+
+- ✅ Force test crash (fatal)
+- ✅ Record non-fatal errors
+- ✅ Throw JavaScript exceptions
+- ✅ Set test user context
+- ✅ Add custom keys and breadcrumbs
+- ✅ Send/delete unsent reports
+- ✅ Check Crashlytics status
+
+### Step-by-Step Testing Process
+
+#### 1. Build in Release Mode (CRITICAL)
+
+Debug builds may intercept crashes before they reach Crashlytics.
+
+```bash
+# iOS
+cd apps/mobile
+npm run build:production  # Or build:staging for staging Firebase
+npx cap sync ios
+# Open Xcode: Select "Release" scheme, build to device
+
+# Android
+npm run build:production
+npx cap sync android
+# In Android Studio: Build → Generate Signed APK → Release
+```
+
+#### 2. Disconnect the Debugger (CRITICAL)
+
+> ⚠️ **The Xcode/Android Studio debugger prevents crash reports from being
+> sent.**
+
+**For iOS:**
+
+1. Build and run app via Xcode (Cmd+R)
+2. Wait for app to launch on device
+3. Click **Stop** (Cmd+.) to disconnect debugger
+4. Open app from device home screen (not Xcode)
+
+**For Android:**
+
+1. Build and install APK via Android Studio
+2. Stop the app in Android Studio
+3. Open app from device app drawer
+
+#### 3. Force a Test Crash
+
+Navigate to `/dev-settings` in the app and tap **"Force Test Crash"**.
+
+Or programmatically:
 
 ```typescript
-// Test that crashes are being recorded
-async testCrashlytics() {
-  // Check if ready
-  console.log('Ready:', this.crashlytics.isReady());
+import { CrashlyticsService } from './services/crashlytics.service';
 
-  // Check if enabled
-  console.log('Enabled:', await this.crashlytics.isEnabled());
+async testCrash() {
+  const crashlytics = inject(CrashlyticsService);
 
-  // Test breadcrumb
-  await this.crashlytics.log('Test breadcrumb');
+  // Add context before crash
+  await crashlytics.log('Test crash triggered');
+  await crashlytics.setCustomKey('test_crash', true);
 
-  // Test non-fatal
-  await this.crashlytics.recordException({
-    message: 'Test exception',
-    severity: 'warning',
-  });
-
-  // Force send
-  await this.crashlytics.sendUnsentReports();
-
-  console.log('✅ Crashlytics test complete');
+  // Force fatal crash
+  await crashlytics.crash();
 }
 ```
+
+#### 4. Reopen the App
+
+After the crash, **open the app again** from the device home screen. This
+triggers the crash report upload.
+
+#### 5. Verify in Firebase Console
+
+Wait 5-10 minutes, then check:
+
+- **Staging**:
+  https://console.firebase.google.com/project/nxt-1-staging/crashlytics
+- **Production**:
+  https://console.firebase.google.com/project/nxt-1-de054/crashlytics
+
+### Enable Debug Logging
+
+If crashes aren't appearing, enable debug logging:
+
+**iOS (Xcode):**
+
+1. Product → Scheme → Edit Scheme
+2. Run → Arguments tab
+3. Add `-FIRDebugEnabled` to Arguments Passed On Launch
+4. Look for: `Completed report submission`
+
+**Android (adb):**
+
+```bash
+# Enable debug logging
+adb shell setprop log.tag.FirebaseCrashlytics DEBUG
+
+# View logs
+adb logcat -s FirebaseCrashlytics
+
+# Look for: "Crashlytics report upload complete" or code 204
+
+# Disable when done
+adb shell setprop log.tag.FirebaseCrashlytics INFO
+```
+
+### Testing Non-Fatal Errors
+
+Non-fatal errors are captured without crashing the app:
+
+```typescript
+// Record an error
+await this.crashlytics.recordError(new Error('Test non-fatal error'));
+
+// Record with more context
+await this.crashlytics.recordException({
+  message: 'Payment processing failed',
+  code: 'PAYMENT_ERROR_001',
+  category: 'payments',
+  severity: 'error',
+  stacktrace: error.stack,
+});
+```
+
+### Staging vs Production Testing
+
+Use the Firebase config switching scripts:
+
+```bash
+cd apps/mobile
+
+# Switch to staging (development)
+npm run config:staging
+
+# Switch to production (App Store/Play Store)
+npm run config:production
+```
+
+Each environment has its own Crashlytics dashboard:
+
+- Staging crashes → `nxt-1-staging` project
+- Production crashes → `nxt-1-de054` project
+
+---
+
+## Testing Crashes Checklist
+
+- [ ] Firebase configured (`FirebaseApp.configure()` in AppDelegate)
+- [ ] dSYM upload build phase added (iOS)
+- [ ] Crashlytics Gradle plugin applied (Android)
+- [ ] Build in **Release** mode
+- [ ] Debugger **disconnected**
+- [ ] Test crash triggered
+- [ ] App reopened after crash
+- [ ] Crash visible in Firebase Console (wait 5-10 min)
+- [ ] Stack traces are symbolicated (not just addresses)
 
 ---
 
 ## Related Documentation
 
 - [Firebase Crashlytics Docs](https://firebase.google.com/docs/crashlytics)
-- [@capacitor-firebase/crashlytics](https://github.com/capawesome-team/capacitor-firebase/tree/main/packages/crashlytics)
-- [Google Analytics 4 Exception Events](https://developers.google.com/analytics/devguides/collection/ga4/exceptions)
-- [NXT1 Architecture Guide](./ARCHITECTURE.md)
-- [NXT1 Logging Guide](./LOGGING.md)
+- [Firebase iOS Test Implementation](https://firebase.google.com/docs/crashlytics/ios/test-implementation)
+- [Firebase Android Test Implementation](https://firebase.google.com/docs/crashlytics/android/test-implementation)

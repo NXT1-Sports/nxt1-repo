@@ -165,7 +165,7 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
         flex-direction: column;
         align-items: center;
         padding: var(--nxt1-spacing-6);
-        background: var(--nxt1-color-state-hover);
+        background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-default);
         border-radius: var(--nxt1-borderRadius-xl);
         text-align: center;
@@ -223,7 +223,7 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
         width: 100px;
         height: 100px;
         padding: var(--nxt1-spacing-2);
-        background: var(--nxt1-color-state-hover);
+        background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-default);
         border-radius: var(--nxt1-borderRadius-md);
         transition: all var(--nxt1-duration-normal) ease-out;
@@ -236,7 +236,7 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
 
       .qr-code-wrapper:hover {
         border-color: var(--nxt1-color-primary);
-        background: var(--nxt1-color-state-pressed);
+        background: var(--nxt1-color-surface-200);
         box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary10);
         transform: translateY(-2px);
       }
@@ -308,7 +308,7 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
         justify-content: center;
         gap: var(--nxt1-spacing-2_5);
         padding: var(--nxt1-spacing-3_5) var(--nxt1-spacing-3);
-        background: var(--nxt1-color-state-hover);
+        background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-default);
         border-radius: var(--nxt1-borderRadius-md);
         text-decoration: none;
@@ -318,7 +318,7 @@ const QR_BASE_URL = 'https://api.qrserver.com/v1/create-qr-code/';
 
       .app-store-btn:hover {
         border-color: var(--nxt1-color-border-strong);
-        background: var(--nxt1-color-state-pressed);
+        background: var(--nxt1-color-surface-200);
         transform: translateY(-1px);
       }
 
