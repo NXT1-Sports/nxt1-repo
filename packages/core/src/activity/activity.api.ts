@@ -5,6 +5,7 @@
  *
  * Pure functions for activity/notification API calls.
  * 100% portable - NO platform dependencies.
+ * Enterprise error handling with NxtApiError factories.
  *
  * Uses HttpAdapter pattern for cross-platform compatibility.
  */
@@ -19,6 +20,7 @@ import type {
   ActivityTabId,
 } from './activity.types';
 import { ACTIVITY_API_ENDPOINTS } from './activity.constants';
+import { createApiError, isNxtApiError } from '../errors';
 
 // ============================================
 // API FACTORY TYPE
@@ -75,28 +77,38 @@ export function createActivityApi(http: HttpAdapter, baseUrl: string) {
      *
      * @param filter - Filter and pagination options
      * @returns Paginated activity feed
+     * @throws NxtApiError on failure
      */
     async getFeed(filter?: ActivityFilter): Promise<ActivityFeedResponse> {
-      const url = buildUrl(ACTIVITY_API_ENDPOINTS.FEED, {
-        tab: filter?.tab,
-        types: filter?.types?.join(','),
-        isRead: filter?.isRead,
-        priority: filter?.priority,
-        since: filter?.since,
-        until: filter?.until,
-        page: filter?.page,
-        limit: filter?.limit,
-        sortBy: filter?.sortBy,
-        sortOrder: filter?.sortOrder,
-      });
+      try {
+        const url = buildUrl(ACTIVITY_API_ENDPOINTS.FEED, {
+          tab: filter?.tab,
+          types: filter?.types?.join(','),
+          isRead: filter?.isRead,
+          priority: filter?.priority,
+          since: filter?.since,
+          until: filter?.until,
+          page: filter?.page,
+          limit: filter?.limit,
+          sortBy: filter?.sortBy,
+          sortOrder: filter?.sortOrder,
+        });
 
-      const response = await http.get<ActivityFeedResponse>(url);
+        const response = await http.get<ActivityFeedResponse>(url);
 
-      if (!response.success) {
-        throw new Error(response.error ?? 'Failed to fetch activity feed');
+        if (!response.success) {
+          throw createApiError('SRV_INTERNAL_ERROR', {
+            message: response.error ?? 'Failed to fetch activity feed',
+          });
+        }
+
+        return response;
+      } catch (error) {
+        if (isNxtApiError(error)) throw error;
+        throw createApiError('SRV_INTERNAL_ERROR', {
+          message: error instanceof Error ? error.message : 'Failed to fetch activity feed',
+        });
       }
-
-      return response;
     },
 
     /**
@@ -106,16 +118,20 @@ export function createActivityApi(http: HttpAdapter, baseUrl: string) {
      * @returns Activity item or null if not found
      */
     async getItem(id: string): Promise<ActivityItem | null> {
-      const url = `${baseUrl}${ACTIVITY_API_ENDPOINTS.ITEM}/${id}`;
-      const response = await http.get<{ success: boolean; data?: ActivityItem; error?: string }>(
-        url
-      );
+      try {
+        const url = `${baseUrl}${ACTIVITY_API_ENDPOINTS.ITEM}/${id}`;
+        const response = await http.get<{ success: boolean; data?: ActivityItem; error?: string }>(
+          url
+        );
 
-      if (!response.success) {
+        if (!response.success) {
+          return null;
+        }
+
+        return response.data ?? null;
+      } catch {
         return null;
       }
-
-      return response.data ?? null;
     },
 
     /**

@@ -43,5 +43,8 @@
 @import './forms.css';
 @import './links.css';
 
+/* Skeleton loading animations */
+@import './skeleton.css';
+
 /* Accessibility utilities */
 @import './accessibility.css';

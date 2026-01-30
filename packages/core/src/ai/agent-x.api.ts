@@ -5,6 +5,7 @@
  *
  * Pure TypeScript API factory for Agent X.
  * Uses HttpAdapter pattern for platform portability.
+ * Enterprise error handling with NxtApiError factories.
  *
  * @example
  * ```typescript
@@ -27,6 +28,7 @@ import type {
   AgentXMessage,
 } from './agent-x.types';
 import { AGENT_X_ENDPOINTS } from './agent-x.constants';
+import { externalServiceError, rateLimitError, isNxtApiError } from '../errors';
 
 // ============================================
 // API RESPONSE TYPES
@@ -95,6 +97,7 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
      *
      * @param request - Chat request with message and context
      * @returns Chat response with assistant message
+     * @throws NxtApiError on failure (network, rate limit, AI service error)
      */
     async sendMessage(request: AgentXChatRequest): Promise<AgentXChatResponse> {
       try {
@@ -104,20 +107,33 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         );
 
         if (!response.success) {
+          // Map error codes to appropriate NxtApiError types
+          const errorCode = response.errorCode ?? 'UNKNOWN';
+
+          if (errorCode === 'RATE_LIMIT') {
+            throw rateLimitError(60, 'api');
+          }
+
+          if (errorCode === 'AI_SERVICE_ERROR' || errorCode === 'OPENROUTER_ERROR') {
+            throw externalServiceError('ai');
+          }
+
           return {
             success: false,
             error: response.error ?? 'Failed to send message',
-            errorCode: (response.errorCode as AgentXChatResponse['errorCode']) ?? 'UNKNOWN',
+            errorCode: errorCode as AgentXChatResponse['errorCode'],
           };
         }
 
         return response.data ?? { success: false, error: 'No response data' };
       } catch (error) {
-        return {
-          success: false,
-          error: error instanceof Error ? error.message : 'Network error',
-          errorCode: 'NETWORK_ERROR',
-        };
+        // Re-throw NxtApiErrors
+        if (isNxtApiError(error)) {
+          throw error;
+        }
+
+        // Wrap network errors
+        throw externalServiceError('ai', error);
       }
     },
 

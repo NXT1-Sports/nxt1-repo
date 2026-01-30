@@ -1,0 +1,155 @@
+/**
+ * @fileoverview Skeleton Loading Styles
+ * @module @nxt1/ui/styles/base/skeleton
+ * @version 2.0.0
+ *
+ * Shared skeleton loading animations and utilities for all components.
+ * 
+ * 2026 Best Practice (Grade A+):
+ * - Uses design tokens for ALL themes (dark, light, sport themes, team)
+ * - Single source of truth for animation
+ * - Automatic theme adaptation via CSS custom properties
+ * - Accessibility: prefers-reduced-motion support
+ *
+ * Token Integration:
+ * - --nxt1-color-loading-skeleton: Base skeleton background (per theme)
+ * - --nxt1-color-loading-skeletonShimmer: Shimmer highlight color (per theme)
+ * - Themes: dark, light, sport-football, sport-basketball, sport-baseball, sport-softball, team
+ *
+ * Usage:
+ * ```css
+ * .my-skeleton-element {
+ *   background: var(--nxt1-skeleton-gradient);
+ *   background-size: 200% 100%;
+ *   animation: skeleton-shimmer 1.5s infinite ease-in-out;
+ * }
+ * ```
+ */
+
+/* ============================================
+   SKELETON CSS CUSTOM PROPERTIES
+   Maps design tokens to skeleton-specific aliases
+   Automatically inherits from active theme
+   ============================================ */
+:root {
+  /* 
+   * Base skeleton color - uses design token with fallback
+   * Automatically changes based on active theme:
+   * - dark: rgba(255, 255, 255, 0.08)
+   * - light: rgba(0, 0, 0, 0.08)
+   * - sport-football: rgba(255, 255, 255, 0.08) with green tint
+   * - sport-basketball: rgba(255, 255, 255, 0.08) with orange tint
+   * - sport-baseball: rgba(255, 255, 255, 0.08) with blue tint
+   * - sport-softball: rgba(255, 255, 255, 0.08) with yellow tint
+   * - team: uses team's custom surface colors
+   */
+  --nxt1-skeleton-base: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08));
+
+  /* 
+   * Shimmer highlight color - uses design token with fallback
+   * Automatically changes based on active theme
+   */
+  --nxt1-skeleton-shimmer: var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15));
+
+  /* 
+   * Pre-computed gradient for shimmer effect
+   * Uses the theme-aware skeleton tokens
+   */
+  --nxt1-skeleton-gradient: linear-gradient(
+    90deg,
+    var(--nxt1-skeleton-base) 25%,
+    var(--nxt1-skeleton-shimmer) 50%,
+    var(--nxt1-skeleton-base) 75%
+  );
+}
+
+/* ============================================
+   SHIMMER ANIMATION (Global)
+   Single source of truth for all skeletons
+   ============================================ */
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+/**
+ * Apply shimmer effect to any element
+ * Usage: <div class="skeleton-shimmer"></div>
+ */
+.skeleton-shimmer {
+  background: var(--nxt1-skeleton-gradient);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite ease-in-out;
+}
+
+/**
+ * Base skeleton element styles
+ * Common to all skeleton types
+ */
+.skeleton-element {
+  background: var(--nxt1-skeleton-gradient);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite ease-in-out;
+  border-radius: var(--nxt1-radius-sm, 4px);
+}
+
+/**
+ * Skeleton shapes for common patterns
+ */
+.skeleton-circle {
+  border-radius: 50%;
+}
+
+.skeleton-rect {
+  border-radius: var(--nxt1-radius-sm, 4px);
+}
+
+.skeleton-text {
+  height: 1em;
+  border-radius: var(--nxt1-radius-sm, 4px);
+}
+
+.skeleton-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+
+.skeleton-button {
+  height: 44px;
+  border-radius: var(--nxt1-radius-lg, 12px);
+}
+
+/* ============================================
+   ACCESSIBILITY
+   ============================================ */
+
+/**
+ * Hide skeleton elements from screen readers
+ * Actual content should be announced when loaded
+ */
+[aria-hidden='true'].skeleton-shimmer,
+[aria-hidden='true'] .skeleton-element {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ============================================
+   REDUCED MOTION
+   Respects user preference for reduced motion
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-shimmer,
+  .skeleton-element {
+    animation: none;
+    opacity: 0.6;
+  }
+}

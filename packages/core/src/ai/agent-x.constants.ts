@@ -230,3 +230,31 @@ export const AGENT_X_RATE_LIMITS = {
   /** Premium tier: requests per day */
   PREMIUM_RPD: 500,
 } as const;
+
+// ============================================
+// CACHE CONFIGURATION
+// ============================================
+
+/**
+ * Cache key prefixes for Agent X.
+ */
+export const AGENT_X_CACHE_KEYS = {
+  /** Conversation history cache prefix */
+  HISTORY: 'agent-x:history:',
+  /** Quick tasks cache key */
+  TASKS: 'agent-x:tasks:',
+  /** User session cache */
+  SESSION: 'agent-x:session:',
+} as const;
+
+/**
+ * Cache TTL values (in milliseconds).
+ */
+export const AGENT_X_CACHE_TTL = {
+  /** History: 1 minute (frequently updated) */
+  HISTORY: 60_000,
+  /** Tasks: 15 minutes (rarely changes per role) */
+  TASKS: 15 * 60_000,
+  /** Session: 5 minutes */
+  SESSION: 5 * 60_000,
+} as const;

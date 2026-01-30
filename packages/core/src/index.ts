@@ -581,3 +581,43 @@ export {
   createActivityApi,
   type ActivityApi,
 } from './activity';
+
+// ============================================
+// EXPLORE (Search & Discovery)
+// ============================================
+
+export {
+  // Types
+  type ExploreTabId,
+  type ExploreTab,
+  type ExploreSearchQuery,
+  type ExploreSortOption,
+  type ExploreFilters,
+  type ExploreItemBase,
+  type ExploreCollegeItem,
+  type ExploreVideoItem,
+  type ExploreAthleteItem,
+  type ExploreTeamItem,
+  type ExploreItem,
+  type ExplorePagination,
+  type ExploreSearchResponse,
+  type ExploreTabCounts,
+  type ExploreState,
+  // Constants
+  EXPLORE_TABS,
+  EXPLORE_DEFAULT_TAB,
+  EXPLORE_SORT_OPTIONS,
+  EXPLORE_DEFAULT_SORT,
+  EXPLORE_PAGINATION_DEFAULTS,
+  EXPLORE_CACHE_KEYS,
+  EXPLORE_CACHE_TTL,
+  EXPLORE_SEARCH_CONFIG,
+  EXPLORE_EMPTY_STATES,
+  EXPLORE_INITIAL_STATES,
+  EXPLORE_API_ENDPOINTS,
+  EXPLORE_UI_CONFIG,
+  EXPLORE_INITIAL_TAB_COUNTS,
+  // API Factory
+  createExploreApi,
+  type ExploreApi,
+} from './explore';

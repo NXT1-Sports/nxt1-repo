@@ -1,0 +1,24 @@
+{
+  "projects": {
+    "default": "nxt-1-de054",
+    "staging": "nxt-1-staging",
+    "production": "nxt-1-de054"
+  },
+  "targets": {
+    "nxt-1-staging": {
+      "hosting": {
+        "web": [
+          "nxt-1-staging"
+        ]
+      }
+    },
+    "nxt-1-de054": {
+      "hosting": {
+        "web": [
+          "nxt-1-de054"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

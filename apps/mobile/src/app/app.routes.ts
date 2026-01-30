@@ -53,10 +53,11 @@ export const routes: Routes = [
         loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
       },
 
-      // Search Tab (placeholder for now)
+      // Search/Explore Tab - Search & Discovery
       {
         path: 'search',
-        loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
+        loadChildren: () =>
+          import('./features/explore/explore.routes').then((m) => m.EXPLORE_ROUTES),
       },
 
       // Profile Tab (placeholder for now)

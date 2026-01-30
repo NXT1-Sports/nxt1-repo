@@ -33,12 +33,16 @@ import {
   type ActivityItem,
   type ActivityTabId,
   type ActivityPagination,
+  type ActivityFeedResponse,
   ACTIVITY_DEFAULT_TAB,
   ACTIVITY_TABS,
   ACTIVITY_PAGINATION_DEFAULTS,
+  ACTIVITY_CACHE_KEYS,
+  ACTIVITY_CACHE_TTL,
 } from '@nxt1/core';
 import { HapticsService, NxtToastService, NxtLoggingService } from '@nxt1/ui';
 import { ActivityApiService } from './activity-api.service';
+import { MobileCacheService } from '../../../core/services';
 
 /** Mock badge counts for development */
 const MOCK_BADGE_COUNTS: Record<ActivityTabId, number> = {
@@ -58,6 +62,7 @@ const MOCK_BADGE_COUNTS: Record<ActivityTabId, number> = {
 @Injectable({ providedIn: 'root' })
 export class ActivityService {
   private readonly api = inject(ActivityApiService);
+  private readonly cache = inject(MobileCacheService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ActivityService');
@@ -141,27 +146,39 @@ export class ActivityService {
 
   /**
    * Load activity feed for a tab.
+   * Uses cache-first strategy: check cache, return if fresh, fetch in background if stale.
    */
   async loadFeed(tab: ActivityTabId): Promise<void> {
     this._activeTab.set(tab);
-    this._items.set([]);
     this._error.set(null);
     this._isLoading.set(true);
     this._pagination.set(null);
 
-    this.logger.debug('Loading activity feed', { tab });
+    const cacheKey = `${ACTIVITY_CACHE_KEYS.FEED_PREFIX}${tab}:1`;
+    this.logger.debug('Loading activity feed', { tab, cacheKey });
 
     try {
-      const response = await this.api.getFeed({
-        tab,
-        page: 1,
-        limit: ACTIVITY_PAGINATION_DEFAULTS.pageSize,
-      });
+      // Cache-first: Try cache first, then fetch
+      const response = await this.cache.getOrFetch<ActivityFeedResponse>(
+        cacheKey,
+        () =>
+          this.api.getFeed({
+            tab,
+            page: 1,
+            limit: ACTIVITY_PAGINATION_DEFAULTS.pageSize,
+          }),
+        ACTIVITY_CACHE_TTL.FEED
+      );
 
       this._items.set([...(response.items ?? [])]);
       this._pagination.set(response.pagination ?? null);
 
       await this.haptics.impact('light');
+      this.logger.debug('Activity feed loaded', {
+        tab,
+        itemCount: response.items?.length ?? 0,
+        fromCache: true,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load activity';
       this._error.set(message);
@@ -206,26 +223,35 @@ export class ActivityService {
 
   /**
    * Refresh current tab (pull-to-refresh).
+   * Bypasses cache to get fresh data.
    */
   async refresh(): Promise<void> {
     if (this._isRefreshing()) return;
 
     this._isRefreshing.set(true);
     const tab = this._activeTab();
+    const cacheKey = `${ACTIVITY_CACHE_KEYS.FEED_PREFIX}${tab}:1`;
 
-    this.logger.debug('Refreshing activity feed', { tab });
+    this.logger.debug('Refreshing activity feed (bypassing cache)', { tab });
 
     try {
+      // Invalidate cache first to force fresh fetch
+      await this.cache.delete(cacheKey);
+
       const response = await this.api.getFeed({
         tab,
         page: 1,
         limit: ACTIVITY_PAGINATION_DEFAULTS.pageSize,
       });
 
+      // Update cache with fresh data
+      await this.cache.set(cacheKey, response, 'both', ACTIVITY_CACHE_TTL.FEED);
+
       this._items.set([...(response.items ?? [])]);
       this._pagination.set(response.pagination ?? null);
 
       await this.haptics.notification('success');
+      this.logger.debug('Activity feed refreshed', { tab, itemCount: response.items?.length ?? 0 });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to refresh';
       this.toast.error(message);

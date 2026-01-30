@@ -15,7 +15,8 @@
  * - User context from AuthFlowService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, HostBinding } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { IonHeader, IonContent, IonToolbar } from '@ionic/angular/standalone';
 import {
   AgentXShellComponent,
   NxtSidenavService,
@@ -28,20 +29,50 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
 @Component({
   selector: 'app-agent-x',
   standalone: true,
-  imports: [AgentXShellComponent],
+  imports: [IonHeader, IonContent, IonToolbar, AgentXShellComponent],
   template: `
-    <nxt1-agent-x-shell
-      [user]="userInfo()"
-      (avatarClick)="onAvatarClick()"
-      (modeChange)="onModeChange($event)"
-    />
+    <ion-header class="ion-no-border" [translucent]="true">
+      <ion-toolbar></ion-toolbar>
+    </ion-header>
+    <ion-content [fullscreen]="true">
+      <nxt1-agent-x-shell
+        [user]="userInfo()"
+        (avatarClick)="onAvatarClick()"
+        (modeChange)="onModeChange($event)"
+      />
+    </ion-content>
   `,
+  styles: [
+    `
+      :host {
+        display: block;
+        height: 100%;
+      }
+      ion-header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: -1;
+        --background: transparent;
+      }
+      ion-toolbar {
+        --background: transparent;
+        --min-height: 0;
+        --padding-top: 0;
+        --padding-bottom: 0;
+      }
+      ion-content {
+        --background: var(--nxt1-color-bg-primary, #0a0a0a);
+      }
+      ion-content::part(scroll) {
+        overflow: visible;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXComponent {
-  /** Required for Ionic page transitions - marks this as an ion-page */
-  @HostBinding('class.ion-page') readonly ionPage = true;
-
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');

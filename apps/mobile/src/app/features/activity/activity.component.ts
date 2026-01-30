@@ -17,7 +17,7 @@
 
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import { Router } from '@angular/router';
-import { NavController } from '@ionic/angular/standalone';
+import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import {
   ActivityShellComponent,
   NxtSidenavService,
@@ -30,14 +30,47 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
 @Component({
   selector: 'app-activity',
   standalone: true,
-  imports: [ActivityShellComponent],
+  imports: [IonHeader, IonContent, IonToolbar, ActivityShellComponent],
   template: `
-    <nxt1-activity-shell
-      [user]="userInfo()"
-      (avatarClick)="onAvatarClick()"
-      (tabChange)="onTabChange($event)"
-    />
+    <ion-header class="ion-no-border" [translucent]="true">
+      <ion-toolbar></ion-toolbar>
+    </ion-header>
+    <ion-content [fullscreen]="true">
+      <nxt1-activity-shell
+        [user]="userInfo()"
+        (avatarClick)="onAvatarClick()"
+        (tabChange)="onTabChange($event)"
+      />
+    </ion-content>
   `,
+  styles: [
+    `
+      :host {
+        display: block;
+        height: 100%;
+      }
+      ion-header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: -1;
+        --background: transparent;
+      }
+      ion-toolbar {
+        --background: transparent;
+        --min-height: 0;
+        --padding-top: 0;
+        --padding-bottom: 0;
+      }
+      ion-content {
+        --background: var(--nxt1-color-bg-primary, #0a0a0a);
+      }
+      ion-content::part(scroll) {
+        overflow: visible;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ActivityComponent {

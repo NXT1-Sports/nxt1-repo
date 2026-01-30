@@ -247,6 +247,21 @@ export {
 } from './activity';
 
 // ============================================
+// EXPLORE (Search & Discovery - Shared Web & Mobile)
+// ============================================
+export {
+  // Service
+  ExploreService,
+  // Components
+  ExploreShellComponent,
+  ExploreListComponent,
+  ExploreItemComponent,
+  ExploreSkeletonComponent,
+  // Types
+  type ExploreUser,
+} from './explore';
+
+// ============================================
 // THEME SELECTOR (2026 Professional Theme Picker)
 // ============================================
 export {

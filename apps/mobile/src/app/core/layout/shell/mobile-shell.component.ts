@@ -252,6 +252,45 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   private readonly _activeTabId = signal<string>('home');
   readonly activeTabId = this._activeTabId.asReadonly();
 
+  /**
+   * Get the visual position of a tab (for animation direction)
+   * Regular tabs are positioned left-to-right, action button is always rightmost
+   * Visual order: [regular tabs...] [action button]
+   */
+  private getVisualTabPosition(tabId: string): number {
+    const tab = this.tabs.find((t) => t.id === tabId);
+    if (!tab) return -1;
+
+    if (tab.isActionButton) {
+      // Action button is always visually last (rightmost)
+      return this.tabs.filter((t) => !t.isActionButton).length;
+    }
+
+    // Regular tabs: count only non-action tabs before this one
+    let position = 0;
+    for (const t of this.tabs) {
+      if (t.id === tabId) break;
+      if (!t.isActionButton) position++;
+    }
+    return position;
+  }
+
+  /**
+   * Determine animation direction based on visual tab positions
+   * Returns 'forward' when moving right, 'back' when moving left
+   */
+  private getAnimationDirection(fromTabId: string, toTabId: string): 'forward' | 'back' {
+    const fromPosition = this.getVisualTabPosition(fromTabId);
+    const toPosition = this.getVisualTabPosition(toTabId);
+
+    // If we can't determine positions, default to forward
+    if (fromPosition === -1 || toPosition === -1) return 'forward';
+
+    // Moving to a higher position = forward (slide left)
+    // Moving to a lower position = back (slide right)
+    return toPosition > fromPosition ? 'forward' : 'back';
+  }
+
   /** Footer configuration based on platform */
   readonly footerConfig = computed<FooterConfig>(() => {
     const isIos = this.platform.os() === 'ios';
@@ -394,7 +433,10 @@ export class MobileShellComponent implements OnInit, OnDestroy {
 
   /**
    * Handle tab selection from footer
-   * Uses router.navigate for proper Angular routing with state preservation
+   * Uses NavController with directional animation based on tab position
+   * - Moving to right tab = slide left (forward animation)
+   * - Moving to left tab = slide right (back animation)
+   * This matches professional apps like Instagram, Twitter, TikTok
    */
   onTabSelect(event: FooterTabSelectEvent): void {
     const { tab } = event;
@@ -404,27 +446,50 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       this.sidenavService.close();
     }
 
-    // Handle action button (Agent X) differently if needed
-    if (tab.isActionButton) {
-      this.handleAgentAction(tab);
+    // Don't navigate if already on this tab
+    const currentTabId = this._activeTabId();
+    if (tab.id === currentTabId) {
       return;
     }
 
-    // Navigate to tab route (use NavController for Ionic)
+    // Handle action button (Agent X) differently if needed
+    if (tab.isActionButton) {
+      this.handleAgentAction(tab, currentTabId);
+      return;
+    }
+
+    // Navigate to tab route with directional animation
     if (tab.route) {
-      void this.navController.navigateForward(tab.route);
+      const direction = this.getAnimationDirection(currentTabId, tab.id);
+      this.navigateToTab(tab.route, direction);
     }
   }
 
   /**
    * Special handling for the center action button (Agent X)
-   * Can open a modal, bottom sheet, or navigate to a dedicated page
    */
-  private handleAgentAction(tab: FooterTabItem): void {
-    // For now, navigate to the agent page
-    // In the future, this could open a floating AI assistant modal
+  private handleAgentAction(tab: FooterTabItem, currentTabId: string): void {
     if (tab.route) {
-      void this.navController.navigateForward(tab.route);
+      const direction = this.getAnimationDirection(currentTabId, tab.id);
+      this.navigateToTab(tab.route, direction);
+    }
+  }
+
+  /**
+   * Navigate to a tab with the specified animation direction
+   * Uses navigateForward for right movement, navigateBack for left movement
+   */
+  private navigateToTab(route: string, direction: 'forward' | 'back'): void {
+    if (direction === 'forward') {
+      void this.navController.navigateForward(route, {
+        animated: true,
+        animationDirection: 'forward',
+      });
+    } else {
+      void this.navController.navigateBack(route, {
+        animated: true,
+        animationDirection: 'back',
+      });
     }
   }
 

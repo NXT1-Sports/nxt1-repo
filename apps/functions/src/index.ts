@@ -22,11 +22,6 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 // Initialize Firebase Admin (must be done before importing triggers)
 admin.initializeApp();
 
-// Export Firestore reference for use in triggers
-export const db = admin.firestore();
-export const auth = admin.auth();
-export const storage = admin.storage();
-
 // Set default options for all functions
 setGlobalOptions({
   region: 'us-central1',
@@ -47,6 +42,10 @@ export * from './user';
 
 // Notification triggers (push, email)
 export * from './notification';
+
+// Email triggers (transactional & marketing)
+// TODO: Enable when SMTP credentials are configured
+// export * from './email';
 
 // Scheduled/cron tasks
 export * from './scheduled';

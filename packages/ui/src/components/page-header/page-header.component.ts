@@ -189,8 +189,8 @@ addIcons({
         } @else if (title()) {
           <ion-title [size]="titleSize()" class="header-title">{{ title() }}</ion-title>
         } @else {
-          <!-- Custom title slot for complex titles (avatar + name, etc.) -->
-          <ion-title [size]="titleSize()" class="header-title">
+          <!-- Custom title content slot (for searchbars, etc.) - uses ion-title for consistent positioning -->
+          <ion-title class="header-title header-title--custom">
             <ng-content select="[slot=title]" />
           </ion-title>
         }
@@ -339,6 +339,27 @@ addIcons({
         pointer-events: none;
       }
 
+      /* Custom title content (searchbars, etc.) - make interactive */
+      ion-title.header-title--custom {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: auto;
+        padding-top: 0;
+        padding-bottom: 0;
+      }
+
+      /* Allow children inside custom title to be interactive */
+      ion-title.header-title--custom ::ng-deep > * {
+        width: 100%;
+        pointer-events: auto;
+      }
+
+      /* Remove any internal title container padding for custom content */
+      ion-title.header-title--custom ::ng-deep .title-default {
+        padding: 0;
+      }
+
       /* Large title (iOS style) */
       .large-title-toolbar ion-title {
         position: relative;
@@ -347,6 +368,31 @@ addIcons({
         font-weight: var(--nxt1-font-weight-bold, 700);
         letter-spacing: var(--nxt1-letter-spacing-tighter, -0.02em);
         padding-inline: var(--nxt1-spacing-4, 16px);
+      }
+
+      /* ============================================
+         CENTER CONTENT - Custom slot for searchbars etc.
+         Positioned exactly like ion-title for consistent layout
+         ============================================ */
+
+      .header-center-content {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        padding-inline: var(--nxt1-spacing-16, 64px);
+        z-index: 0; /* Below start/end buttons */
+      }
+
+      /* Allow child elements to fill and be interactive */
+      .header-center-content > * {
+        width: 100%;
+        pointer-events: auto;
       }
 
       /* ============================================

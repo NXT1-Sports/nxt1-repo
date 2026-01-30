@@ -8,7 +8,11 @@
     "build:watch": "tsc -w",
     "serve": "npm run build && firebase emulators:start --only functions",
     "shell": "npm run build && firebase functions:shell",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
     "deploy": "firebase deploy --only functions",
+    "deploy:staging": "firebase use staging && firebase deploy --only functions",
     "deploy:prod": "firebase use production && firebase deploy --only functions",
     "logs": "firebase functions:log",
     "lint": "eslint src --ext .ts",
@@ -19,13 +23,20 @@
   },
   "dependencies": {
     "@nxt1/core": "*",
+    "axios": "^1.7.9",
     "firebase-admin": "^13.6.0",
-    "firebase-functions": "^6.0.1"
+    "firebase-functions": "^7.0.5",
+    "lodash": "^4.17.21",
+    "nodemailer": "^6.9.16",
+    "sharp": "^0.33.5"
   },
   "devDependencies": {
-    "@nxt1/config": "*",
+    "@types/lodash": "^4.17.13",
     "@types/node": "^22.0.0",
+    "@types/nodemailer": "^6.4.17",
+    "@vitest/ui": "^4.0.18",
     "firebase-functions-test": "^3.3.0",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.0.18"
   }
 }

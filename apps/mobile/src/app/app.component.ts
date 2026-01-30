@@ -16,9 +16,8 @@ import {
   NxtThemeService,
 } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
-import { NativeAppService, KeyboardService } from './core/services';
+import { NativeAppService, KeyboardService, NetworkService } from './core/services';
 import { BiometricService, AuthFlowService } from './features/auth/services';
-import { NetworkService } from './services/network.service';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { filter } from 'rxjs/operators';
 

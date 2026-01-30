@@ -42,9 +42,18 @@ export const routes: Routes = [
         path: 'agent-x',
         loadChildren: () => import('./features/agent-x/agent-x.routes'),
       },
+      // Explore - Search & Discovery
+      {
+        path: 'explore',
+        loadChildren: () => import('./features/explore/explore.routes'),
+      },
+      // Activity - Notifications & Activity Feed
+      {
+        path: 'activity',
+        loadChildren: () => import('./features/activity/activity.routes'),
+      },
       // Future authenticated routes go here:
       // { path: 'profile', loadComponent: ... },
-      // { path: 'explore', loadComponent: ... },
       // { path: 'settings', loadComponent: ... },
     ],
   },
