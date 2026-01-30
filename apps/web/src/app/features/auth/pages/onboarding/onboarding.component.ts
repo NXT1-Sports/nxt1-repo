@@ -1014,14 +1014,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       (document.activeElement as HTMLElement)?.blur?.();
     }
 
-    // ⭐ THEME TRANSITION: Switch to dark theme for the celebratory congratulations page
-    // This creates a dramatic, premium feel as user completes onboarding
-    this.logger.debug('Transitioning to dark theme for congratulations');
-    this.themeService.setTemporaryOverride('dark');
-
-    // Brief delay to allow theme transition to render smoothly
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
     // Navigate to congratulations page with Ionic animation
     await this.navController.navigateForward('/auth/onboarding/congratulations', {
       animated: true,

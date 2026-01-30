@@ -369,8 +369,15 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     };
   });
 
-  /** Sidenav sections (using defaults from @nxt1/core) */
-  readonly sidenavSections: SidenavSection[] = DEFAULT_SIDENAV_ITEMS;
+  /** Sidenav sections (using defaults from @nxt1/core, adapted for mobile routes) */
+  readonly sidenavSections: SidenavSection[] = DEFAULT_SIDENAV_ITEMS.map((section) => ({
+    ...section,
+    items: section.items.map((item) => ({
+      ...item,
+      // Remap web routes to mobile tab routes
+      route: item.route === '/profile' ? '/tabs/profile' : item.route,
+    })),
+  }));
 
   /** Social links for sidenav footer */
   readonly socialLinks: SocialLink[] = DEFAULT_SOCIAL_LINKS;

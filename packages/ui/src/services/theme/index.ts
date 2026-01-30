@@ -320,10 +320,6 @@ export class NxtThemeService {
    * @param preference - 'light', 'dark', or 'system'
    */
   setTheme(preference: ThemePreference): void {
-    console.log('[NxtThemeService] setTheme called:', preference);
-    console.log('[NxtThemeService] isBrowser:', this.isBrowser);
-    console.log('[NxtThemeService] initialized:', this._initialized());
-
     this._preference.set(preference);
     this.savePreference(preference);
     this.applyTheme('user');
@@ -609,11 +605,7 @@ export class NxtThemeService {
    * Apply the current theme to the DOM.
    */
   private applyTheme(_trigger: ThemeChangeEvent['trigger']): void {
-    console.log('[NxtThemeService] applyTheme called, trigger:', _trigger);
-    console.log('[NxtThemeService] isBrowser:', this.isBrowser);
-
     if (!this.isBrowser) {
-      console.log('[NxtThemeService] NOT in browser, skipping apply');
       return;
     }
 
@@ -621,14 +613,8 @@ export class NxtThemeService {
     const sportTheme = this._sportTheme();
     const activeTheme = this.activeTheme();
 
-    console.log('[NxtThemeService] effectiveTheme:', effectiveTheme);
-    console.log('[NxtThemeService] sportTheme:', sportTheme);
-    console.log('[NxtThemeService] activeTheme:', activeTheme);
-    console.log('[NxtThemeService] document.documentElement exists:', !!document?.documentElement);
-
     // Set data-theme attribute (main theme selector)
     document.documentElement.setAttribute(THEME_ATTRIBUTE, activeTheme);
-    console.log('[NxtThemeService] Set data-theme to:', activeTheme);
 
     // Set base theme attribute (for components that need light/dark regardless of sport)
     document.documentElement.setAttribute(BASE_THEME_ATTRIBUTE, effectiveTheme);

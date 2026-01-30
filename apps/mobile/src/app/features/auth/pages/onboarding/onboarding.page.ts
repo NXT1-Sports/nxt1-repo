@@ -44,7 +44,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
-import { IonContent, NavController } from '@ionic/angular/standalone';
+import { NavController } from '@ionic/angular/standalone';
 
 // Shared UI Components
 import { AuthShellComponent, AuthTitleComponent, AuthSubtitleComponent } from '@nxt1/ui';
@@ -131,7 +131,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
   imports: [
     CommonModule,
     RouterModule,
-    IonContent,
     AuthShellComponent,
     AuthTitleComponent,
     AuthSubtitleComponent,
@@ -323,7 +322,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
     // Dark theme transition happens on completion for a celebratory reveal
     this.themeService.setTemporaryOverride('light');
     this.logger.debug('Set temporary light theme override for onboarding');
-    
+
     // Initialization moved to ngOnInit to avoid circular dependency NG0203
   }
 
@@ -872,14 +871,6 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
     // Track completion
     this.trackCompleted();
-
-    // ⭐ THEME TRANSITION: Switch to dark theme for the celebratory congratulations page
-    // This creates a dramatic, premium feel as user completes onboarding
-    this.logger.debug('Transitioning to dark theme for congratulations');
-    this.themeService.setTemporaryOverride('dark');
-
-    // Brief delay to allow theme transition to render smoothly
-    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Navigate to congratulations page with haptic feedback (native-feel transition)
     await this.haptics.notification('success');

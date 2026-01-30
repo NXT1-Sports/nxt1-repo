@@ -1050,18 +1050,21 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
   /**
    * Refresh user profile from backend (bypasses cache)
-   * Call after completing onboarding to update hasCompletedOnboarding flag
    *
-   * ⚠️ IMPORTANT: This invalidates the cache first to ensure fresh data
+   * Call after completing onboarding to update hasCompletedOnboarding flag.
+   * Invalidates cache first to ensure fresh data from backend.
    *
-   * ⭐ Delegates to ProfileService.refresh() for user data management.
+   * ⭐ Delegates to ProfileService for user data management.
    */
   async refreshUserProfile(): Promise<void> {
     const firebaseUser = this.firebaseAuth.getCurrentUser();
-    if (!firebaseUser) return;
+    if (!firebaseUser) {
+      this.logger.debug('Cannot refresh profile: no Firebase user');
+      return;
+    }
 
-    // ⭐ Use ProfileService.refresh() to invalidate and re-fetch
-    await this.profileService.refresh();
+    // Refresh profile with explicit uid (handles case where profile wasn't loaded yet)
+    await this.profileService.refresh(firebaseUser.uid);
     this.logger.debug('Profile refreshed via ProfileService', { uid: firebaseUser.uid });
 
     // Re-sync auth state with new profile data

@@ -104,6 +104,11 @@ export class OnboardingCongratulationsComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
+    // ⭐ THEME TRANSITION: Switch to dark theme for the celebratory reveal
+    // This creates a dramatic, premium feel as user enters congratulations
+    this.themeService.setTemporaryOverride('dark');
+    this.logger.debug('Set dark theme for congratulations page');
+
     // Refresh user profile to get updated firstName/lastName from backend
     this.authFlow.refreshUserProfile();
 

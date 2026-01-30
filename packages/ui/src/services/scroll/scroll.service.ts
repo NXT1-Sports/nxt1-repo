@@ -335,6 +335,12 @@ export class NxtScrollService {
         return false;
       }
 
+      console.debug('[NxtScrollService] Found IonContent, scrolling to top', {
+        tagName: ionContent.tagName,
+        className: ionContent.className,
+        parentPage: ionContent.closest('.ion-page')?.className,
+      });
+
       const behavior = this.prefersReducedMotion() ? 'instant' : (options.behavior ?? 'smooth');
       const duration =
         behavior === 'instant' ? 0 : (options.duration ?? DEFAULT_SCROLL_OPTIONS.duration);
@@ -343,12 +349,15 @@ export class NxtScrollService {
         await this.haptics.impact('light');
       }
 
-      // IonContent has a scrollToTop method
+      // IonContent has scrollToTop and getScrollElement methods
       const ionContentEl = ionContent as HTMLElement & {
         scrollToTop: (duration?: number) => Promise<void>;
+        getScrollElement: () => Promise<HTMLElement>;
       };
 
+      // Method 1: Use Ionic's native scrollToTop (preferred)
       if (typeof ionContentEl.scrollToTop === 'function') {
+        console.debug('[NxtScrollService] Using IonContent.scrollToTop()', { duration });
         await ionContentEl.scrollToTop(duration);
         if (typeof options.onComplete === 'function') {
           options.onComplete();
@@ -356,7 +365,24 @@ export class NxtScrollService {
         return true;
       }
 
-      // Fallback: Use native scroll
+      // Method 2: Get the internal scroll element and scroll it directly
+      if (typeof ionContentEl.getScrollElement === 'function') {
+        console.debug('[NxtScrollService] Using IonContent.getScrollElement()');
+        const scrollEl = await ionContentEl.getScrollElement();
+        if (scrollEl) {
+          scrollEl.scrollTo({
+            top: options.offset ?? 0,
+            behavior: behavior === 'instant' ? 'instant' : 'smooth',
+          });
+          if (typeof options.onComplete === 'function') {
+            options.onComplete();
+          }
+          return true;
+        }
+      }
+
+      // Method 3: Fallback - use native scroll on the element itself
+      console.debug('[NxtScrollService] Using native scrollTo fallback');
       ionContent.scrollTo?.({
         top: options.offset ?? 0,
         behavior: behavior === 'instant' ? 'instant' : 'smooth',
@@ -426,24 +452,166 @@ export class NxtScrollService {
   }
 
   /**
-   * Find the nearest IonContent element from a starting point
+   * Find the currently active/visible IonContent element for page content.
+   *
+   * IMPORTANT: This excludes ion-content inside ion-menu (sidenav), as that's
+   * menu content, not page content. We specifically look for ion-content
+   * inside the main content area (ion-router-outlet or #main-content).
+   *
+   * Also handles NESTED ion-content (e.g., page wrapper -> shell component).
+   * We find the DEEPEST/INNERMOST ion-content as that's typically the scrollable one.
+   *
+   * Search priority:
+   * 1. Deepest ion-content inside ion-router-outlet's active page
+   * 2. Deepest ion-content inside #main-content (shell's content area)
+   * 3. Deepest ion-content inside active .ion-page (not in ion-menu)
+   * 4. Any scrollable ion-content not in ion-menu
    */
   private findIonContent(startElement?: HTMLElement): HTMLElement | null {
     if (typeof document === 'undefined') return null;
 
-    // If starting element provided, search up the DOM tree
-    if (startElement) {
-      let current: HTMLElement | null = startElement;
-      while (current) {
-        if (current.tagName?.toLowerCase() === 'ion-content') {
-          return current;
+    // Helper to check if an element is inside ion-menu (sidenav)
+    const isInsideMenu = (el: Element): boolean => {
+      return el.closest('ion-menu') !== null;
+    };
+
+    // Helper to find the deepest (innermost) ion-content within a container
+    // This handles nested ion-content scenarios (wrapper -> shell -> content)
+    const findDeepestContent = (container: Element): HTMLElement | null => {
+      const allContents = container.querySelectorAll('ion-content');
+      if (allContents.length === 0) return null;
+
+      // Filter out menu contents and find the deepest one
+      let deepest: HTMLElement | null = null;
+      let maxDepth = -1;
+
+      for (const content of Array.from(allContents)) {
+        if (isInsideMenu(content)) continue;
+
+        // Calculate depth by counting parent elements
+        let depth = 0;
+        let parent = content.parentElement;
+        while (parent && container.contains(parent)) {
+          depth++;
+          parent = parent.parentElement;
         }
-        current = current.parentElement;
+
+        if (depth > maxDepth) {
+          maxDepth = depth;
+          deepest = content as HTMLElement;
+        }
+      }
+
+      return deepest;
+    };
+
+    // Strategy 1: Find deepest ion-content inside ion-router-outlet (main page content)
+    const routerOutlet = document.querySelector('ion-router-outlet');
+    if (routerOutlet) {
+      // Look for the active page inside the router outlet
+      const activePage = routerOutlet.querySelector(
+        '.ion-page:not(.ion-page-hidden):not(.ion-page-leaving)'
+      );
+      if (activePage) {
+        const content = findDeepestContent(activePage);
+        if (content) {
+          console.debug(
+            '[NxtScrollService] Found ion-content via Strategy 1 (deepest in active page)',
+            {
+              tagName: content.tagName,
+              className: content.className,
+            }
+          );
+          return content;
+        }
+      }
+
+      // Fallback: deepest ion-content in router outlet
+      const routerContent = findDeepestContent(routerOutlet);
+      if (routerContent) {
+        console.debug(
+          '[NxtScrollService] Found ion-content via Strategy 1b (deepest in router-outlet)',
+          {
+            tagName: routerContent.tagName,
+            className: routerContent.className,
+          }
+        );
+        return routerContent;
       }
     }
 
-    // Fallback: Find first IonContent in document
-    return document.querySelector('ion-content');
+    // Strategy 2: Find deepest ion-content inside #main-content (shell content area)
+    const mainContent = document.querySelector('#main-content');
+    if (mainContent) {
+      const content = findDeepestContent(mainContent);
+      if (content) {
+        console.debug(
+          '[NxtScrollService] Found ion-content via Strategy 2 (deepest in #main-content)',
+          {
+            tagName: content.tagName,
+            className: content.className,
+          }
+        );
+        return content;
+      }
+    }
+
+    // Strategy 3: Find deepest ion-content in any active .ion-page not inside menu
+    const activePage = document.querySelector(
+      '.ion-page:not(.ion-page-hidden):not(.ion-page-leaving):not([aria-hidden="true"])'
+    );
+    if (activePage && !isInsideMenu(activePage)) {
+      const content = findDeepestContent(activePage);
+      if (content) {
+        console.debug(
+          '[NxtScrollService] Found ion-content via Strategy 3 (deepest in active ion-page)',
+          {
+            tagName: content.tagName,
+            className: content.className,
+          }
+        );
+        return content;
+      }
+    }
+
+    // Strategy 4: Find any ion-content not inside ion-menu
+    const allContents = document.querySelectorAll('ion-content');
+    for (const content of Array.from(allContents)) {
+      if (isInsideMenu(content)) continue; // Skip sidenav content
+
+      // Check if visible
+      const style = window.getComputedStyle(content);
+      const rect = content.getBoundingClientRect();
+      if (
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        rect.width > 0 &&
+        rect.height > 0
+      ) {
+        console.debug(
+          '[NxtScrollService] Found ion-content via Strategy 4 (visible, not in menu)',
+          {
+            tagName: content.tagName,
+            className: content.className,
+          }
+        );
+        return content as HTMLElement;
+      }
+    }
+
+    // Strategy 5: Last resort - first ion-content not in menu
+    for (const content of Array.from(allContents)) {
+      if (!isInsideMenu(content)) {
+        console.debug('[NxtScrollService] Found ion-content via Strategy 5 (fallback)', {
+          tagName: content.tagName,
+          className: content.className,
+        });
+        return content as HTMLElement;
+      }
+    }
+
+    console.warn('[NxtScrollService] No suitable ion-content found');
+    return null;
   }
 
   /**

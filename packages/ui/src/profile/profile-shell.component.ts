@@ -839,8 +839,15 @@ export class ProfileShellComponent implements OnInit {
 
   ngOnInit(): void {
     const unicode = this.profileUnicode();
+    const isOwn = this.isOwnProfile();
+
+    // If unicode is provided, load that profile
+    // If no unicode but marked as own profile, load current user's profile with mock data
     if (unicode) {
-      this.profile.loadProfile(unicode, this.isOwnProfile());
+      this.profile.loadProfile(unicode, isOwn);
+    } else {
+      // No unicode provided - load own profile (default behavior)
+      this.profile.loadProfile('me', true);
     }
   }
 
@@ -884,6 +891,9 @@ export class ProfileShellComponent implements OnInit {
     const unicode = this.profileUnicode();
     if (unicode) {
       this.profile.loadProfile(unicode, this.isOwnProfile());
+    } else {
+      // No unicode - retry loading own profile
+      this.profile.loadProfile('me', true);
     }
   }
 

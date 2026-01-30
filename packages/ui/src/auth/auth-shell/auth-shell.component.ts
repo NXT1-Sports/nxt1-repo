@@ -42,6 +42,8 @@ import {
   ChangeDetectionStrategy,
   inject,
   PLATFORM_ID,
+  signal,
+  effect,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser, Location } from '@angular/common';
 import {
@@ -52,6 +54,7 @@ import {
   IonButton,
   IonIcon,
 } from '@ionic/angular/standalone';
+import { Capacitor } from '@capacitor/core';
 import { addIcons } from 'ionicons';
 import { arrowBack, chevronBack } from 'ionicons/icons';
 import { NxtLogoComponent } from '../../components/logo';
@@ -91,13 +94,27 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       </ion-header>
     }
 
-    <ion-content
-      class="nxt1-auth-content"
-      [fullscreen]="true"
-      [scrollY]="true"
-      [forceOverscroll]="false"
-      scrollEvents="true"
-    >
+    <!-- Mobile/Capacitor: Use ion-content for native scrolling -->
+    @if (isNativePlatform()) {
+      <ion-content
+        class="nxt1-auth-content"
+        [fullscreen]="true"
+        [scrollY]="true"
+        [forceOverscroll]="false"
+      >
+        <ng-container *ngTemplateOutlet="authContentTemplate"></ng-container>
+      </ion-content>
+    }
+
+    <!-- Web: Use native div scrolling for proper SSR/browser support -->
+    @if (!isNativePlatform()) {
+      <div class="nxt1-auth-scroll-wrapper">
+        <ng-container *ngTemplateOutlet="authContentTemplate"></ng-container>
+      </div>
+    }
+
+    <!-- Shared Content Template -->
+    <ng-template #authContentTemplate>
       <!-- Background Effects -->
       <div class="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
         <!-- Gradient Background (Theme-aware CSS custom properties) -->
@@ -174,48 +191,63 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
           <ng-content select="[authFooter]"></ng-content>
         </div>
       </div>
-    </ion-content>
+    </ng-template>
   `,
   styles: [
     `
       :host {
         display: block;
         width: 100%;
-        min-height: 100vh;
-        min-height: 100dvh;
-        position: static;
-        overflow: visible;
+        height: 100vh;
+        height: 100dvh;
+        position: relative;
+        overflow: hidden;
       }
 
       /* ============================================ */
-      /* ION-CONTENT FIX FOR WEB SSR                 */
-      /* Apply only when the IonContent web component  */
-      /* is not yet defined (server / SSR fallback).  */
-      /* This prevents disabling native scrolling on  */
-      /* mobile (Capacitor) where ion-content must     */
-      /* remain interactive and scrollable.           */
+      /* NATIVE SCROLLING FOR WEB                    */
+      /* Better SSR support, no ion-content issues   */
       /* ============================================ */
-      ion-content.nxt1-auth-content:not(:defined) {
+      .nxt1-auth-scroll-wrapper {
+        width: 100%;
+        height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        scroll-behavior: smooth;
+        position: relative;
+      }
+
+      /* Custom scrollbar styling */
+      .nxt1-auth-scroll-wrapper::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      .nxt1-auth-scroll-wrapper::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      .nxt1-auth-scroll-wrapper::-webkit-scrollbar-thumb {
+        background: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        border-radius: 4px;
+      }
+
+      .nxt1-auth-scroll-wrapper::-webkit-scrollbar-thumb:hover {
+        background: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.18));
+      }
+
+      /* Firefox scrollbar */
+      .nxt1-auth-scroll-wrapper {
+        scrollbar-width: thin;
+        scrollbar-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12)) transparent;
+      }
+
+      /* ============================================ */
+      /* ION-CONTENT FOR MOBILE                      */
+      /* Used on Capacitor/native apps only          */
+      /* ============================================ */
+      ion-content.nxt1-auth-content {
         --background: transparent;
-        display: block !important;
-        position: static !important;
-        height: auto !important;
-        min-height: auto !important;
-        overflow: visible !important;
-        contain: none !important;
-      }
-
-      ion-content.nxt1-auth-content:not(:defined)::part(background) {
-        position: static !important;
-        background: transparent !important;
-      }
-
-      ion-content.nxt1-auth-content:not(:defined)::part(scroll) {
-        display: block !important;
-        position: static !important;
-        height: auto !important;
-        min-height: auto !important;
-        overflow: visible !important;
       }
 
       /* ============================================ */
@@ -550,6 +582,9 @@ export class AuthShellComponent {
   /** Max width of the content container */
   @Input() maxWidth = '420px';
 
+  /** Max width when showSidePanel is true (two-column layout) */
+  @Input() sidePanelMaxWidth = '840px';
+
   /** Whether to add bottom padding for a fixed mobile footer (e.g., onboarding) */
   @Input() mobileFooterPadding = false;
 
@@ -570,9 +605,25 @@ export class AuthShellComponent {
   /** Emitted when back button is clicked */
   @Output() backClick = new EventEmitter<void>();
 
+  /** Platform detection - true if running on native (iOS/Android) */
+  private readonly _isNative = signal<boolean>(false);
+
   constructor() {
     // Register icons
     addIcons({ arrowBack, chevronBack });
+
+    // Detect platform (must be done in constructor for SSR safety)
+    if (isPlatformBrowser(this.platformId)) {
+      this._isNative.set(Capacitor.isNativePlatform());
+    }
+  }
+
+  /**
+   * Check if running on native platform (Capacitor iOS/Android)
+   * @returns true for native apps, false for web/browser
+   */
+  isNativePlatform(): boolean {
+    return this._isNative();
   }
 
   /** Get variant-specific Tailwind classes */

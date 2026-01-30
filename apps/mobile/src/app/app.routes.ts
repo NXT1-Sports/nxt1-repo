@@ -60,10 +60,11 @@ export const routes: Routes = [
           import('./features/explore/explore.routes').then((m) => m.EXPLORE_ROUTES),
       },
 
-      // Profile Tab (placeholder for now)
+      // Profile Tab - User Profile Page
       {
         path: 'profile',
-        loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
+        loadChildren: () =>
+          import('./features/profile/profile.routes').then((m) => m.PROFILE_ROUTES),
       },
 
       // Agent X Tab - AI Assistant

@@ -68,7 +68,7 @@ export interface IProfileService {
   readonly state: ReturnType<typeof computed<ProfileLoadingState>>;
 
   load(uid: string): Promise<void>;
-  refresh(): Promise<void>;
+  refresh(uid?: string): Promise<void>;
   update(updates: UpdateProfileRequest): Promise<void>;
   clear(): void;
 }
@@ -233,17 +233,22 @@ export class ProfileService implements OnDestroy, IProfileService {
   }
 
   /**
-   * Refresh current user profile (bypass cache)
+   * Refresh user profile (bypass cache)
+   *
+   * @param uid - Optional user ID. If not provided, uses the last loaded user.
+   *              Pass uid explicitly when refreshing before initial load.
    */
-  async refresh(): Promise<void> {
-    if (!this.currentUid) {
-      this.logger.warn('Cannot refresh: no user loaded');
+  async refresh(uid?: string): Promise<void> {
+    const targetUid = uid ?? this.currentUid;
+
+    if (!targetUid) {
+      this.logger.warn('Cannot refresh: no user loaded and no uid provided');
       return;
     }
 
     // Invalidate cache and fetch fresh
-    this.cache.delete(this.currentUid);
-    await this.fetchProfile(this.currentUid);
+    this.cache.delete(targetUid);
+    await this.fetchProfile(targetUid);
   }
 
   /**
