@@ -144,112 +144,108 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     OnboardingStepCardComponent,
   ],
   template: `
-    <ion-content class="onboarding-page" [fullscreen]="true">
-      <nxt1-auth-shell
-        variant="card-glass"
-        [showLogo]="true"
-        [showBackButton]="canGoBack()"
-        [maxWidth]="'560px'"
-        [mobileFooterPadding]="true"
-        (backClick)="onBack()"
-      >
-        <!-- Title & Subtitle -->
-        <nxt1-auth-title authTitle testId="onboarding-title">
-          {{ currentStep().title }}
-        </nxt1-auth-title>
-        <nxt1-auth-subtitle authSubtitle testId="onboarding-subtitle">
-          {{ currentStep().subtitle }}
-        </nxt1-auth-subtitle>
+    <nxt1-auth-shell
+      variant="card-glass"
+      [showLogo]="true"
+      [showBackButton]="canGoBack()"
+      [maxWidth]="'560px'"
+      [mobileFooterPadding]="true"
+      (backClick)="onBack()"
+    >
+      <!-- Title & Subtitle -->
+      <nxt1-auth-title authTitle testId="onboarding-title">
+        {{ currentStep().title }}
+      </nxt1-auth-title>
+      <nxt1-auth-subtitle authSubtitle testId="onboarding-subtitle">
+        {{ currentStep().subtitle }}
+      </nxt1-auth-subtitle>
 
-        <!-- Main Content -->
-        <div authContent>
-          <!-- Step Card Container with Animations -->
-          <nxt1-onboarding-step-card
-            variant="seamless"
-            [error]="error()"
-            [animationDirection]="animationDirection()"
-            [animationKey]="currentStep().id"
-          >
-            <!-- Role Selection (Optional - Last Step) -->
-            @if (currentStep().id === 'role') {
-              <nxt1-onboarding-role-selection
-                [selectedRole]="selectedRole()"
-                [disabled]="isLoading()"
-                (roleSelected)="onRoleSelect($event)"
-              />
-            }
+      <!-- Main Content -->
+      <div authContent>
+        <!-- Step Card Container with Animations -->
+        <nxt1-onboarding-step-card
+          variant="seamless"
+          [error]="error()"
+          [animationDirection]="animationDirection()"
+          [animationKey]="currentStep().id"
+        >
+          <!-- Role Selection (Optional - Last Step) -->
+          @if (currentStep().id === 'role') {
+            <nxt1-onboarding-role-selection
+              [selectedRole]="selectedRole()"
+              [disabled]="isLoading()"
+              (roleSelected)="onRoleSelect($event)"
+            />
+          }
 
-            <!-- Step 1: Profile -->
-            @if (currentStep().id === 'profile') {
-              <nxt1-onboarding-profile-step
-                #profileStep
-                [profileData]="profileFormData()"
-                [disabled]="isLoading()"
-                [showGender]="true"
-                [showLocation]="true"
-                [showClassYear]="false"
-                (profileChange)="onProfileChange($event)"
-                (photoSelect)="onPhotoSelect()"
-                (fileSelected)="onFileSelected($event)"
-                (locationRequest)="onLocationRequest()"
-              />
-            }
+          <!-- Step 1: Profile -->
+          @if (currentStep().id === 'profile') {
+            <nxt1-onboarding-profile-step
+              #profileStep
+              [profileData]="profileFormData()"
+              [disabled]="isLoading()"
+              [showGender]="true"
+              [showLocation]="true"
+              [showClassYear]="false"
+              (profileChange)="onProfileChange($event)"
+              (photoSelect)="onPhotoSelect()"
+              (fileSelected)="onFileSelected($event)"
+              (locationRequest)="onLocationRequest()"
+            />
+          }
 
-            <!-- Step 2: Team (School) -->
-            @if (currentStep().id === 'school') {
-              <nxt1-onboarding-team-step
-                [teamData]="teamFormData()"
-                [disabled]="isLoading()"
-                (teamChange)="onTeamChange($event)"
-              />
-            }
+          <!-- Step 2: Team (School) -->
+          @if (currentStep().id === 'school') {
+            <nxt1-onboarding-team-step
+              [teamData]="teamFormData()"
+              [disabled]="isLoading()"
+              (teamChange)="onTeamChange($event)"
+            />
+          }
 
-            <!-- Step 3: Sport Selection (uses DEFAULT_SPORTS from @nxt1/core/constants) -->
-            @if (currentStep().id === 'sport') {
-              <nxt1-onboarding-sport-step
-                [sportData]="sportFormData()"
-                [disabled]="isLoading()"
-                (sportChange)="onSportChange($event)"
-              />
-            }
+          <!-- Step 3: Sport Selection (uses DEFAULT_SPORTS from @nxt1/core/constants) -->
+          @if (currentStep().id === 'sport') {
+            <nxt1-onboarding-sport-step
+              [sportData]="sportFormData()"
+              [disabled]="isLoading()"
+              (sportChange)="onSportChange($event)"
+            />
+          }
 
-            <!-- Step 4: Referral Source - "How did you hear about us?" -->
-            @if (currentStep().id === 'referral-source') {
-              <nxt1-onboarding-referral-step
-                [referralData]="referralFormData()"
-                [disabled]="isLoading()"
-                (referralChange)="onReferralChange($event)"
-              />
-            }
+          <!-- Step 4: Referral Source - "How did you hear about us?" -->
+          @if (currentStep().id === 'referral-source') {
+            <nxt1-onboarding-referral-step
+              [referralData]="referralFormData()"
+              [disabled]="isLoading()"
+              (referralChange)="onReferralChange($event)"
+            />
+          }
 
-            <!-- Future Steps: Organization, Positions, Contact, etc. -->
-            @if (
-              currentStep().id !== 'role' &&
-              currentStep().id !== 'profile' &&
-              currentStep().id !== 'school' &&
-              currentStep().id !== 'sport' &&
-              currentStep().id !== 'referral-source'
-            ) {
-              <div class="py-12 text-center">
-                <div
-                  class="bg-surface-200 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" class="text-text-tertiary h-8 w-8">
-                    <path
-                      d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"
-                      fill="currentColor"
-                    />
-                  </svg>
-                </div>
-                <p class="text-text-secondary">
-                  {{ currentStep().title || 'Step' }} coming soon...
-                </p>
+          <!-- Future Steps: Organization, Positions, Contact, etc. -->
+          @if (
+            currentStep().id !== 'role' &&
+            currentStep().id !== 'profile' &&
+            currentStep().id !== 'school' &&
+            currentStep().id !== 'sport' &&
+            currentStep().id !== 'referral-source'
+          ) {
+            <div class="py-12 text-center">
+              <div
+                class="bg-surface-200 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
+              >
+                <svg viewBox="0 0 24 24" fill="none" class="text-text-tertiary h-8 w-8">
+                  <path
+                    d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"
+                    fill="currentColor"
+                  />
+                </svg>
               </div>
-            }
-          </nxt1-onboarding-step-card>
-        </div>
-      </nxt1-auth-shell>
-    </ion-content>
+              <p class="text-text-secondary">{{ currentStep().title || 'Step' }} coming soon...</p>
+            </div>
+          }
+        </nxt1-onboarding-step-card>
+      </div>
+    </nxt1-auth-shell>
 
     <!-- Mobile: Professional Sticky Footer with Compact Progress Indicator -->
     <nxt1-onboarding-button-mobile
@@ -319,30 +315,43 @@ export class OnboardingPage implements OnInit, OnDestroy {
   private machineUnsubscribe?: () => void;
 
   /** Track if we've already initialized the onboarding flow */
-  private hasInitialized = false;
+  hasInitialized = false;
 
   constructor() {
-    // Use effect to initialize the onboarding flow once auth is ready
-    effect(() => {
-      const isInitialized = this.authFlow.isInitialized();
+    // Initialization moved to ngOnInit to avoid circular dependency NG0203
+  }
+
+  ngOnInit(): void {
+    // Poll for auth to be ready (fixes timing issue with Firebase auth state)
+    let attempts = 0;
+    const maxAttempts = 50; // 5 seconds max
+
+    const checkAuth = () => {
+      attempts++;
+
+      if (this.hasInitialized) {
+        return; // Already initialized
+      }
+
+      const isAuthReady = this.authFlow.isInitialized();
       const user = this.authFlow.user();
 
-      // Skip if already initialized
-      if (this.hasInitialized) {
+      if (!isAuthReady || !user) {
+        if (attempts >= maxAttempts) {
+          this.logger.error('[OnboardingPage] Timeout waiting for auth');
+          this.router.navigate(['/auth']);
+          return;
+        }
+        setTimeout(checkAuth, 100);
         return;
       }
 
-      // Wait for auth to be initialized and user to be available
-      if (!isInitialized || !user) {
-        return;
-      }
-
-      // Mark as initialized to prevent re-running
+      // Initialize state machine
       this.hasInitialized = true;
-
-      // Initialize the shared state machine
       this.initializeStateMachine(user.uid);
-    });
+    };
+
+    checkAuth();
   }
 
   // ============================================
@@ -447,10 +456,10 @@ export class OnboardingPage implements OnInit, OnDestroy {
   // LIFECYCLE
   // ============================================
 
-  ngOnInit(): void {
-    // Initialize analytics session tracking
-    this.analytics.initialize();
-  }
+  // ngOnInit(): void {
+  //   // Initialize analytics session tracking
+  //   this.analytics.initialize();
+  // }
 
   ngOnDestroy(): void {
     // Cleanup state machine event listener

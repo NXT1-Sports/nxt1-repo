@@ -227,6 +227,8 @@ export interface NativeAuthResult {
   idToken: string;
   /** OAuth access token (optional, provider-specific) */
   accessToken?: string;
+  /** Server auth code (for Google Sign-In on iOS) */
+  serverAuthCode?: string;
   /** Raw nonce for Apple Sign-In (required for Firebase) */
   rawNonce?: string;
   /** User info from OAuth provider */

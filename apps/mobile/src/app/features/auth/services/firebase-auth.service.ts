@@ -109,7 +109,8 @@ export class FirebaseAuthService implements OnDestroy {
       this._firebaseUser.set(user);
     });
 
-    this.checkRedirectResult();
+    // Skip redirect check on mobile - not used in Capacitor native auth
+    // this.checkRedirectResult();
   }
 
   /**
@@ -263,9 +264,45 @@ export class FirebaseAuthService implements OnDestroy {
           throw new Error('Sign-in was cancelled');
         }
 
-        const currentUser = this.auth.currentUser;
+        // @capacitor-firebase/authentication should have signed in to Firebase automatically
+        // But sometimes auth state hasn't synced yet. Wait a bit and check again.
+        let currentUser = this.auth.currentUser;
+
         if (!currentUser) {
-          throw new Error('Google Sign-In succeeded but no Firebase user found');
+          console.debug('[FirebaseAuthService] Waiting for Firebase auth state to sync...');
+          // Wait up to 2 seconds for auth state to update
+          for (let i = 0; i < 20; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            currentUser = this.auth.currentUser;
+            if (currentUser) {
+              console.debug(
+                '[FirebaseAuthService] Firebase auth state synced after',
+                (i + 1) * 100,
+                'ms'
+              );
+              break;
+            }
+          }
+        }
+
+        if (!currentUser) {
+          console.error('[FirebaseAuthService] No Firebase user after waiting for auth state', {
+            hasIdToken: !!nativeResult.idToken,
+            hasServerAuthCode: !!nativeResult.serverAuthCode,
+          });
+
+          // Last resort: manually sign in with the credential if we have idToken
+          if (nativeResult.idToken) {
+            console.debug('[FirebaseAuthService] Attempting manual sign-in with credential...');
+            const credential = GoogleAuthProvider.credential(nativeResult.idToken);
+            const result = await runInInjectionContext(this.injector, () =>
+              signInWithCredential(this.auth, credential)
+            );
+            console.debug('[FirebaseAuthService] Manual sign-in successful');
+            return result;
+          }
+
+          throw new Error('Google Sign-In succeeded but no Firebase user found. Please try again.');
         }
 
         console.debug('[FirebaseAuthService] Firebase sign-in successful:', {
@@ -313,15 +350,62 @@ export class FirebaseAuthService implements OnDestroy {
     // Use native auth on iOS/Android
     if (this.nativeAuth.isNativeAvailable) {
       console.debug('[FirebaseAuthService] Using native Apple Sign-In');
-      const nativeResult = await this.nativeAuth.signInWithApple();
 
-      // User cancelled
-      if (!nativeResult) {
-        throw new Error('Sign-in was cancelled');
+      try {
+        const nativeResult = await this.nativeAuth.signInWithApple();
+
+        // User cancelled
+        if (!nativeResult) {
+          throw new Error('Sign-in was cancelled');
+        }
+
+        // @capacitor-firebase/authentication should have signed in to Firebase automatically
+        // But sometimes auth state hasn't synced yet. Wait a bit and check again.
+        let currentUser = this.auth.currentUser;
+
+        if (!currentUser) {
+          console.debug('[FirebaseAuthService] Waiting for Firebase auth state to sync...');
+          // Wait up to 2 seconds for auth state to update
+          for (let i = 0; i < 20; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            currentUser = this.auth.currentUser;
+            if (currentUser) {
+              console.debug(
+                '[FirebaseAuthService] Firebase auth state synced after',
+                (i + 1) * 100,
+                'ms'
+              );
+              break;
+            }
+          }
+        }
+
+        if (!currentUser) {
+          // Last resort: manually sign in with the credential if we have tokens
+          if (nativeResult.idToken && nativeResult.rawNonce) {
+            const appleProvider = new OAuthProvider('apple.com');
+            const credential = appleProvider.credential({
+              idToken: nativeResult.idToken,
+              rawNonce: nativeResult.rawNonce,
+            });
+            const result = await runInInjectionContext(this.injector, () =>
+              signInWithCredential(this.auth, credential)
+            );
+            return result;
+          }
+
+          throw new Error('Apple Sign-In succeeded but no Firebase user found. Please try again.');
+        }
+
+        return {
+          user: currentUser,
+          providerId: 'apple.com',
+          operationType: 'signIn',
+        } as UserCredential;
+      } catch (error) {
+        console.error('[FirebaseAuthService] Apple Sign-In error:', error);
+        throw error;
       }
-
-      // Convert native result to Firebase credential
-      return this.signInWithNativeCredential(nativeResult);
     }
 
     // Web fallback (development/PWA)
@@ -362,10 +446,49 @@ export class FirebaseAuthService implements OnDestroy {
           return null;
         }
 
-        // @capacitor-firebase/authentication already signs in to Firebase
-        const currentUser = this.auth.currentUser;
+        // @capacitor-firebase/authentication should have signed in to Firebase automatically
+        // But sometimes auth state hasn't synced yet. Wait longer and also listen to auth state.
+        let currentUser = this.auth.currentUser;
+
         if (!currentUser) {
-          throw new Error('Microsoft Sign-In succeeded but no Firebase user found');
+          // Try waiting with polling AND listening to auth state changes
+          const authStatePromise = new Promise<void>((resolve) => {
+            const unsubscribe = this.authState$.subscribe((user) => {
+              if (user) {
+                console.debug('[FirebaseAuthService] Auth state changed, user detected');
+                unsubscribe.unsubscribe();
+                resolve();
+              }
+            });
+
+            // Also unsubscribe after timeout
+            setTimeout(() => {
+              unsubscribe.unsubscribe();
+              resolve();
+            }, 5000);
+          });
+
+          // Wait up to 5 seconds with both polling and subscription
+          const startTime = Date.now();
+          while (Date.now() - startTime < 5000) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            currentUser = this.auth.currentUser;
+            if (currentUser) {
+              break;
+            }
+          }
+
+          // Final check after waiting
+          if (!currentUser) {
+            await authStatePromise;
+            currentUser = this.auth.currentUser;
+          }
+        }
+
+        if (!currentUser) {
+          throw new Error(
+            'Microsoft Sign-In is not fully supported on iOS. Please use Google or Apple sign-in for a better experience.'
+          );
         }
 
         // Return as UserCredential for consistency

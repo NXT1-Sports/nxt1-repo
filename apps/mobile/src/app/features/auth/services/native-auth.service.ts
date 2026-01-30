@@ -141,15 +141,33 @@ export class NativeAuthService {
       await this.haptics.notification('success');
 
       // Validate we have required tokens
-      if (!result.credential?.idToken) {
-        throw new Error('Google Sign-In did not return ID token');
+      // Note: On iOS simulator, sometimes idToken is missing but serverAuthCode is present
+      if (!result.credential?.idToken && !result.credential?.serverAuthCode) {
+        throw new Error(
+          'Google Sign-In did not return valid credentials. Please check Firebase configuration or try on a real device.'
+        );
       }
 
-      // Return standardized result for Firebase
+      // If we have idToken, use it directly
+      if (result.credential?.idToken) {
+        return {
+          provider: 'google',
+          idToken: result.credential.idToken,
+          accessToken: result.credential.accessToken,
+          user: {
+            id: result.user?.uid || '',
+            email: result.user?.email || null,
+            displayName: result.user?.displayName || null,
+            photoUrl: result.user?.photoUrl || null,
+          },
+        };
+      }
+
       return {
         provider: 'google',
-        idToken: result.credential.idToken,
+        idToken: '', // Will be handled by Firebase SDK
         accessToken: result.credential.accessToken,
+        serverAuthCode: result.credential.serverAuthCode,
         user: {
           id: result.user?.uid || '',
           email: result.user?.email || null,
@@ -168,7 +186,6 @@ export class NativeAuthService {
       }
 
       await this.haptics.notification('error');
-      this.logger.error('Google Sign-In error', error);
       throw error;
     }
   }
