@@ -24,7 +24,11 @@ import {
   trophyOutline,
 } from 'ionicons/icons';
 import type { ProfileOffer, OfferType } from '@nxt1/core';
-import { OFFER_TYPE_ICONS, OFFER_TYPE_LABELS, OFFER_TYPE_COLORS } from '@nxt1/core';
+import {
+  OFFER_TYPE_ICONS,
+  OFFER_TYPE_LABELS,
+  OFFER_TYPE_COLORS as _OFFER_TYPE_COLORS,
+} from '@nxt1/core';
 import { ProfileSkeletonComponent } from './profile-skeleton.component';
 
 // Register icons

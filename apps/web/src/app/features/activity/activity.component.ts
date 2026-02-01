@@ -15,7 +15,7 @@
  * - User context from AuthService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, Inject } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import { Router } from '@angular/router';
 import {
   ActivityShellComponent,

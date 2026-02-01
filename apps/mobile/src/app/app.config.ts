@@ -24,7 +24,6 @@ import {
   getAuth,
   indexedDBLocalPersistence,
   initializeAuth,
-  browserLocalPersistence,
 } from '@angular/fire/auth';
 import { Capacitor } from '@capacitor/core';
 

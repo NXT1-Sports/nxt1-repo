@@ -131,11 +131,12 @@ export class FirebaseAuthService implements OnDestroy {
       } else {
         console.debug('[FirebaseAuthService] No pending OAuth redirect result');
       }
-    } catch (error: any) {
-      if (error?.code !== 'auth/no-auth-event') {
+    } catch (error: unknown) {
+      const authError = error as { code?: string; message?: string };
+      if (authError?.code !== 'auth/no-auth-event') {
         console.error('[FirebaseAuthService] OAuth redirect error:', {
-          code: error?.code,
-          message: error?.message,
+          code: authError?.code,
+          message: authError?.message,
         });
       }
     }

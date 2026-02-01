@@ -15,19 +15,23 @@ Object.defineProperty(window, 'matchMedia', {
     matches: false,
     media: query,
     onchange: null,
+    /* eslint-disable @typescript-eslint/no-empty-function */
     addListener: () => {},
     removeListener: () => {},
     addEventListener: () => {},
     removeEventListener: () => {},
+    /* eslint-enable @typescript-eslint/no-empty-function */
     dispatchEvent: () => false,
   }),
 });
 
 // Mock ResizeObserver (not implemented in jsdom)
 global.ResizeObserver = class ResizeObserver {
+  /* eslint-disable @typescript-eslint/no-empty-function */
   observe() {}
   unobserve() {}
   disconnect() {}
+  /* eslint-enable @typescript-eslint/no-empty-function */
 };
 
 // Mock IntersectionObserver (not implemented in jsdom)
@@ -35,9 +39,11 @@ global.IntersectionObserver = class IntersectionObserver {
   readonly root: Element | null = null;
   readonly rootMargin: string = '';
   readonly thresholds: ReadonlyArray<number> = [];
+  /* eslint-disable @typescript-eslint/no-empty-function */
   observe() {}
   unobserve() {}
   disconnect() {}
+  /* eslint-enable @typescript-eslint/no-empty-function */
   takeRecords(): IntersectionObserverEntry[] {
     return [];
   }

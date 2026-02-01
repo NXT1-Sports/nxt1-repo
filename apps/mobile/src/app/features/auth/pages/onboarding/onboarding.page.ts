@@ -39,7 +39,6 @@ import {
   computed,
   OnInit,
   OnDestroy,
-  effect,
   ViewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -76,7 +75,7 @@ import {
   type OnboardingStateMachine,
   type OnboardingStateSnapshot,
   type OnboardingMachineEvent,
-  type OnboardingMachineSession,
+  type OnboardingMachineSession as _OnboardingMachineSession,
   // State machine types (shared with web)
   type OnboardingMachineState,
   type PartialOnboardingFormData,

@@ -178,9 +178,11 @@ export class GlobalErrorHandler implements ErrorHandler {
       fatal: (msg: string, err?: unknown, data?: Record<string, unknown>) =>
         console.error('[GlobalErrorHandler][FATAL]', msg, err, data),
       child: () => this.logger,
+      /* eslint-disable @typescript-eslint/no-empty-function */
       setContext: () => {},
       clearContext: () => {},
       flush: async () => {},
+      /* eslint-enable @typescript-eslint/no-empty-function */
     };
   }
 

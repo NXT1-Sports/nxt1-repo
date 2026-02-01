@@ -80,7 +80,7 @@ import {
 import { AUTH_ROUTES, AUTH_REDIRECTS, AUTH_METHODS } from '@nxt1/core/constants';
 import {
   type AnalyticsAdapter,
-  createFirebaseAnalyticsAdapterSync,
+  createFirebaseAnalyticsAdapterSync as _createFirebaseAnalyticsAdapterSync,
   createMemoryAnalyticsAdapter,
   APP_EVENTS,
 } from '@nxt1/core/analytics';
@@ -716,7 +716,13 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   /**
    * Process Microsoft authentication result (both popup and redirect)
    */
-  private async processMicrosoftAuthResult(result: any, teamCode?: string): Promise<boolean> {
+  private async processMicrosoftAuthResult(
+    result: {
+      user: { uid: string; email: string | null; displayName: string | null };
+      _tokenResponse?: { isNewUser?: boolean };
+    },
+    teamCode?: string
+  ): Promise<boolean> {
     // Check if this is a new user (Firebase detection can be unreliable)
     const isNewUser = result._tokenResponse?.isNewUser ?? false;
 
@@ -749,9 +755,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         this.logger.info('🏠 User already completed onboarding, navigating to /home (Microsoft)');
         await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
       }
-    } catch (syncError: any) {
+    } catch (syncError: unknown) {
+      const errorObj = syncError as { message?: string };
       this.logger.warn('❌ User sync failed, attempting to create new user (Microsoft)', {
-        error: syncError?.message,
+        error: errorObj?.message,
       });
 
       try {
@@ -777,7 +784,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         // Navigate to onboarding for new users
         this.logger.info('🚀 Navigating to onboarding (new user) (Microsoft)');
         await this.navigateForward(AUTH_ROUTES.ONBOARDING);
-      } catch (createError: any) {
+      } catch (createError: unknown) {
         this.logger.error('❌ Failed to create new user (Microsoft)', createError);
         throw createError; // Re-throw to be handled by outer catch
       }
@@ -792,19 +799,20 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   /**
    * Centralized OAuth error handling with specific Firebase service error detection
    */
-  private handleOAuthError(err: any, provider: string): string {
+  private handleOAuthError(err: unknown, provider: string): string {
+    const authErr = err as { code?: string; message?: string };
     // Check for specific Firebase service unavailable errors
     const isServiceUnavailable =
-      err?.code === 'auth/error-code:-47' ||
-      err?.code === 'auth/internal-error' ||
-      err?.message?.includes('503') ||
-      err?.message?.includes('Service Unavailable');
+      authErr?.code === 'auth/error-code:-47' ||
+      authErr?.code === 'auth/internal-error' ||
+      authErr?.message?.includes('503') ||
+      authErr?.message?.includes('Service Unavailable');
 
     if (isServiceUnavailable) {
       return `${provider} sign-in service is temporarily unavailable due to Firebase server issues (Error -47). This usually resolves within 5-10 minutes. Please try again later or use an alternative sign-in method.`;
-    } else if (err?.code === 'auth/popup-closed-by-user') {
+    } else if (authErr?.code === 'auth/popup-closed-by-user') {
       return 'Sign-in was cancelled. Please try again.';
-    } else if (err?.code === 'auth/popup-blocked') {
+    } else if (authErr?.code === 'auth/popup-blocked') {
       return 'Pop-up was blocked by your browser. Please allow pop-ups and try again.';
     } else {
       // Use centralized auth error handler for other errors
@@ -885,9 +893,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           this.logger.info('🏠 User already completed onboarding, navigating to /home');
           await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
         }
-      } catch (syncError: any) {
+      } catch (syncError: unknown) {
+        const errorObj = syncError as { message?: string };
         this.logger.warn('❌ User sync failed, attempting to create new user', {
-          error: syncError?.message,
+          error: errorObj?.message,
         });
 
         try {
@@ -913,7 +922,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           // Navigate to onboarding for new users
           this.logger.info('🚀 Navigating to onboarding (new user)');
           await this.navigateForward(AUTH_ROUTES.ONBOARDING);
-        } catch (createError: any) {
+        } catch (createError: unknown) {
           this.logger.error('❌ Failed to create new user', createError);
           throw createError; // Re-throw to be handled by outer catch
         }
@@ -923,17 +932,18 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       }
 
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const authErr = err as { code?: string; message?: string; customData?: unknown };
       this.logger.error('Google OAuth failed', err, {
-        code: err?.code,
-        message: err?.message,
-        customData: err?.customData,
+        code: authErr?.code,
+        message: authErr?.message,
+        customData: authErr?.customData,
       });
 
       // Check for specific Firebase service unavailable errors
       const isServiceUnavailable =
-        err?.code === 'auth/error-code:-47' ||
-        err?.code === 'auth/internal-error' ||
+        authErr?.code === 'auth/error-code:-47' ||
+        authErr?.code === 'auth/internal-error' ||
         err?.message?.includes('503') ||
         err?.message?.includes('Service Unavailable');
 
@@ -1007,11 +1017,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       // Process result using helper method
       return await this.processMicrosoftAuthResult(result, teamCode);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const authErr = err as { code?: string; message?: string; customData?: unknown };
       this.logger.error('Microsoft sign in failed', err, {
-        code: err?.code,
-        message: err?.message,
-        customData: err?.customData,
+        code: authErr?.code,
+        message: authErr?.message,
+        customData: authErr?.customData,
       });
 
       const errorMessage = this.handleOAuthError(err, 'Microsoft');
@@ -1090,9 +1101,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           this.logger.info('🏠 User already completed onboarding, navigating to /home (Apple)');
           await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
         }
-      } catch (syncError: any) {
+      } catch (syncError: unknown) {
+        const errorObj = syncError as { message?: string };
         this.logger.warn('❌ User sync failed, attempting to create new user (Apple)', {
-          error: syncError?.message,
+          error: errorObj?.message,
         });
 
         try {
@@ -1118,7 +1130,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           // Navigate to onboarding for new users
           this.logger.info('🚀 Navigating to onboarding (new user) (Apple)');
           await this.navigateForward(AUTH_ROUTES.ONBOARDING);
-        } catch (createError: any) {
+        } catch (createError: unknown) {
           this.logger.error('❌ Failed to create new user (Apple)', createError);
           throw createError; // Re-throw to be handled by outer catch
         }
@@ -1128,19 +1140,20 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       }
 
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const authErr = err as { code?: string; message?: string; customData?: unknown };
       this.logger.error('Apple sign in failed', err, {
-        code: err?.code,
-        message: err?.message,
-        customData: err?.customData,
+        code: authErr?.code,
+        message: authErr?.message,
+        customData: authErr?.customData,
       });
 
       const errorMessage = this.handleOAuthError(err, 'Apple');
 
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
         method: AUTH_METHODS.APPLE,
-        error_code: err?.code || 'unknown',
-        recovery_action: err?.code === 'auth/error-code:-47' ? 'retry_later' : 'unknown',
+        error_code: authErr?.code || 'unknown',
+        recovery_action: authErr?.code === 'auth/error-code:-47' ? 'retry_later' : 'unknown',
       });
 
       this.authManager.setError(errorMessage);

@@ -23,7 +23,6 @@ import {
   signal,
   computed,
   OnInit,
-  effect,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule, ActivatedRoute } from '@angular/router';

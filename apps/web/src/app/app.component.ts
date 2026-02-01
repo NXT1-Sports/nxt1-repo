@@ -112,7 +112,7 @@ export class AppComponent implements OnInit {
   private setupRouterEvents(): void {
     this.router.events
       .pipe(filter((event) => event instanceof NavigationEnd))
-      .subscribe((event) => {
+      .subscribe((_event) => {
         if (this.platform.isBrowser()) {
           // Scroll to top on navigation
           window.scrollTo(0, 0);

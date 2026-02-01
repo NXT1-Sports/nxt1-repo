@@ -84,19 +84,19 @@ import {
   type OnboardingStateMachine,
   type OnboardingStateSnapshot,
   type OnboardingMachineEvent,
-  type OnboardingMachineSession,
+  type OnboardingMachineSession as _OnboardingMachineSession,
   // Session persistence
-  createOnboardingSessionApi,
-  type OnboardingSession,
+  createOnboardingSessionApi as _createOnboardingSessionApi,
+  type OnboardingSession as _OnboardingSession,
   // State machine types (shared with mobile)
   type OnboardingMachineState,
-  type StepAnimationDirection,
+  type StepAnimationDirection as _StepAnimationDirection,
   type PartialOnboardingFormData,
   serializeSession,
   deserializeSession,
 } from '@nxt1/core/api';
-import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
-import { createBrowserStorageAdapter, STORAGE_KEYS } from '@nxt1/core/storage';
+import { AUTH_ROUTES, AUTH_REDIRECTS as _AUTH_REDIRECTS } from '@nxt1/core/constants';
+import { createBrowserStorageAdapter, STORAGE_KEYS as _STORAGE_KEYS } from '@nxt1/core/storage';
 
 // Geolocation - Cross-platform location detection
 import {

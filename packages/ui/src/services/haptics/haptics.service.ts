@@ -93,8 +93,8 @@ export class HapticsService {
       const { Capacitor } = await import('@capacitor/core');
       this.hapticsPlugin = Haptics;
       this.isNativePlatform = Capacitor.isNativePlatform();
-    } catch (error) {
-      console.debug('[HapticsService] Capacitor Haptics not available (web platform)');
+    } catch {
+      // Expected on web platform - Capacitor Haptics not available
     }
 
     this.isInitialized = true;

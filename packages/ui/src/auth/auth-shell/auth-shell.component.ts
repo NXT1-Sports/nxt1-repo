@@ -43,7 +43,6 @@ import {
   inject,
   PLATFORM_ID,
   signal,
-  effect,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser, Location } from '@angular/common';
 import {

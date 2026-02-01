@@ -230,9 +230,10 @@ export class AnalyticsDashboardService implements OnDestroy {
       this._error.set(null);
 
       this.logger.info('Analytics report loaded', { role, period });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load analytics';
       this.logger.error('Failed to load analytics report', err);
-      this._error.set(err.message ?? 'Failed to load analytics');
+      this._error.set(errorMessage);
       this.toast.error('Failed to load analytics. Please try again.');
     } finally {
       this._isLoading.set(false);

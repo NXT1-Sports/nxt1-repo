@@ -44,7 +44,7 @@ export { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './ssr-tokens';
 // INITIALIZATION RESULT TYPE
 // ============================================
 
-interface ServerAuthState {
+interface _ServerAuthState {
   firebaseUser: FirebaseUserInfo | null;
   appUser: AppUser | null;
   isAuthenticated: boolean;
@@ -209,6 +209,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
     try {
       if (this.firebaseAuth) {
         // Sign out to release resources
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
         await this.firebaseAuth.signOut().catch(() => {});
       }
       // Note: FirebaseServerApp doesn't have a deleteApp method

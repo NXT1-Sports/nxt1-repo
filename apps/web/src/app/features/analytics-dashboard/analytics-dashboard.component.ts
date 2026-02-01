@@ -74,20 +74,12 @@ export class AnalyticsDashboardComponent {
    * Defaults to 'athlete' if not determinable.
    */
   protected readonly userRole = computed<AnalyticsUserRole>(() => {
-    const user = this.authService.user();
-    if (!user) return 'athlete';
+    const role = this.authService.userRole();
+    if (!role) return 'athlete';
 
-    // Check user type/role - adjust based on your User model
-    // This is a placeholder - adapt to your actual role detection
-    const roles = (user as any).roles ?? [];
-    const userType = (user as any).userType ?? (user as any).type;
-
-    if (
-      roles.includes('coach') ||
-      roles.includes('team_admin') ||
-      userType === 'coach' ||
-      userType === 'team'
-    ) {
+    // Map UserRole to AnalyticsUserRole
+    // UserRole includes: 'athlete', 'coach', 'parent', 'fan', 'team_admin', etc.
+    if (role === 'coach' || role === 'team_admin') {
       return 'coach';
     }
 

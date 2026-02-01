@@ -44,7 +44,14 @@ import {
   logoInstagram,
   linkOutline,
 } from 'ionicons/icons';
-import { type ProfileTabId, type ProfileTab, PROFILE_TABS, PROFILE_EMPTY_STATES } from '@nxt1/core';
+import {
+  type ProfileTabId,
+  type ProfileTab,
+  PROFILE_TABS,
+  PROFILE_EMPTY_STATES,
+  type ProfileOffer,
+  type ProfileEvent,
+} from '@nxt1/core';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import {
@@ -946,28 +953,28 @@ export class ProfileShellComponent implements OnInit {
     // TODO: Navigate to stats detail
   }
 
-  // Post actions
-  protected onPostClick(post: any): void {
+  // Post actions - using minimal interface since we only need id
+  protected onPostClick(post: { id: string }): void {
     this.logger.debug('Post click', { postId: post.id });
     // TODO: Open post detail
   }
 
-  protected onLikePost(post: any): void {
+  protected onLikePost(post: { id: string }): void {
     this.logger.debug('Like post', { postId: post.id });
     // TODO: Toggle like
   }
 
-  protected onCommentPost(post: any): void {
+  protected onCommentPost(post: { id: string }): void {
     this.logger.debug('Comment post', { postId: post.id });
     // TODO: Open comments
   }
 
-  protected onSharePost(post: any): void {
+  protected onSharePost(post: { id: string }): void {
     this.logger.debug('Share post', { postId: post.id });
     // TODO: Open share sheet
   }
 
-  protected onPostMenu(post: any): void {
+  protected onPostMenu(post: { id: string }): void {
     this.logger.debug('Post menu', { postId: post.id });
     // TODO: Open post menu
   }
@@ -985,8 +992,8 @@ export class ProfileShellComponent implements OnInit {
     // TODO: Open video uploader
   }
 
-  // Offers
-  protected onOfferClick(offer: any): void {
+  // Offers - using ProfileOffer type from @nxt1/core
+  protected onOfferClick(offer: ProfileOffer): void {
     this.logger.debug('Offer click', { offerId: offer.id });
     // TODO: Open offer detail
   }
@@ -1002,8 +1009,8 @@ export class ProfileShellComponent implements OnInit {
     // TODO: Open stats editor
   }
 
-  // Events
-  protected onEventClick(event: any): void {
+  // Events - using ProfileEvent type from @nxt1/core
+  protected onEventClick(event: ProfileEvent): void {
     this.logger.debug('Event click', { eventId: event.id });
     // TODO: Open event detail
   }

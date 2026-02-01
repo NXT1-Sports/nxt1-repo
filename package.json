@@ -94,7 +94,7 @@
     "@capacitor-firebase/authentication": "^8.0.1",
     "@firebase/component": "^0.7.0",
     "firebase": "^12.8.0",
-    "turbo": "^2.5.0"
+    "turbo": "^2.8.1"
   },
   "overrides": {
     "@capacitor/core": "^8.0.1",

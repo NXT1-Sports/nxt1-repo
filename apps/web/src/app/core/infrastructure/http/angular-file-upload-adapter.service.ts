@@ -36,7 +36,7 @@ import {
 } from '@angular/common/http';
 import { firstValueFrom, timeout, catchError, throwError, filter, map, tap } from 'rxjs';
 import type {
-  HttpAdapter,
+  HttpAdapter as _HttpAdapter,
   HttpRequestConfig,
   HttpAdapterError,
   FileUploadHttpAdapter,

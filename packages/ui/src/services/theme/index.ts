@@ -128,7 +128,7 @@ const THEME_STORAGE_KEY = 'nxt1-theme-preference';
 const SPORT_STORAGE_KEY = 'nxt1-sport-theme';
 
 /** Storage key for temporary theme override (e.g., during onboarding) */
-const TEMPORARY_OVERRIDE_KEY = 'nxt1-theme-override';
+const _TEMPORARY_OVERRIDE_KEY = 'nxt1-theme-override';
 
 /** HTML attribute for theme */
 const THEME_ATTRIBUTE = 'data-theme';

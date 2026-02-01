@@ -318,7 +318,7 @@ export class AuthPage implements OnInit {
    */
   private async initializeBiometricAndAutoTrigger(): Promise<void> {
     try {
-      const availability = await this.biometricService.initialize();
+      const _availability = await this.biometricService.initialize();
       await this.biometricService.loadEnrollmentStatus();
 
       this.logger.debug('Biometric initialized', {

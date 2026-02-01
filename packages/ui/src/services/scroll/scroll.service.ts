@@ -467,7 +467,7 @@ export class NxtScrollService {
    * 3. Deepest ion-content inside active .ion-page (not in ion-menu)
    * 4. Any scrollable ion-content not in ion-menu
    */
-  private findIonContent(startElement?: HTMLElement): HTMLElement | null {
+  private findIonContent(_startElement?: HTMLElement): HTMLElement | null {
     if (typeof document === 'undefined') return null;
 
     // Helper to check if an element is inside ion-menu (sidenav)

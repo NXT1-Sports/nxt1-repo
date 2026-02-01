@@ -50,7 +50,7 @@ import {
   type IAuthFlowService,
   type FlowSignInCredentials as SignInCredentials,
   type FlowSignUpCredentials as SignUpCredentials,
-  type OAuthOptions,
+  type OAuthOptions as _OAuthOptions,
 } from '@nxt1/core/auth';
 import { createNativeStorageAdapter } from '../../../core/infrastructure/native-storage.adapter';
 import { AUTH_ROUTES, AUTH_REDIRECTS, AUTH_METHODS } from '@nxt1/core/constants';
@@ -573,8 +573,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         await this.authApi.getUserProfile(result.user.uid);
         isNewUser = false; // User exists in backend
         console.debug('[AuthFlowService] Existing user detected from backend');
-      } catch (error: any) {
-        if (error?.status === 404 || error?.message?.includes('not found')) {
+      } catch (error: unknown) {
+        const apiError = error as { status?: number; message?: string };
+        if (apiError?.status === 404 || apiError?.message?.includes('not found')) {
           isNewUser = true; // User not found in backend = new user
           console.debug('[AuthFlowService] New user detected - not found in backend');
         } else {
@@ -682,8 +683,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         await this.authApi.getUserProfile(result.user.uid);
         isNewUser = false; // User exists in backend
         console.debug('[AuthFlowService] Apple - Existing user detected from backend');
-      } catch (error: any) {
-        if (error?.status === 404 || error?.message?.includes('not found')) {
+      } catch (error: unknown) {
+        const apiError = error as { status?: number; message?: string };
+        if (apiError?.status === 404 || apiError?.message?.includes('not found')) {
           isNewUser = true; // User not found in backend = new user
           console.debug('[AuthFlowService] Apple - New user detected - not found in backend');
         } else {
@@ -784,8 +786,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         await this.authApi.getUserProfile(result.user.uid);
         isNewUser = false; // User exists in backend
         console.debug('[AuthFlowService] Microsoft - Existing user detected from backend');
-      } catch (error: any) {
-        if (error?.status === 404 || error?.message?.includes('not found')) {
+      } catch (error: unknown) {
+        const apiError = error as { status?: number; message?: string };
+        if (apiError?.status === 404 || apiError?.message?.includes('not found')) {
           isNewUser = true; // User not found in backend = new user
           console.debug('[AuthFlowService] Microsoft - New user detected - not found in backend');
         } else {
@@ -852,13 +855,14 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       }
 
       return true;
-    } catch (err: any) {
-      if (err?.message === 'REDIRECT_IN_PROGRESS') {
+    } catch (err: unknown) {
+      const authError = err as { message?: string; code?: string };
+      if (authError?.message === 'REDIRECT_IN_PROGRESS') {
         console.log('[AuthFlowService] Microsoft OAuth redirect in progress...');
         return true;
       }
-      if (err?.message?.includes('currently being implemented')) {
-        this.authManager.setError(err.message);
+      if (authError?.message?.includes('currently being implemented')) {
+        this.authManager.setError(authError.message);
         return false;
       }
 

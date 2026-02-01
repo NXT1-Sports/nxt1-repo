@@ -13,7 +13,7 @@ import {
   METRIC_NAMES,
   ATTRIBUTE_NAMES,
   DEFAULT_PERFORMANCE_CONFIG,
-  type ActiveTrace,
+  type ActiveTrace as _ActiveTrace,
 } from './index';
 
 describe('Performance Adapter', () => {
