@@ -1119,7 +1119,7 @@ export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
         id: 'analytics',
         label: 'Analytics',
         icon: 'barChart',
-        route: '/tabs/analytics',
+        route: '/analytics',
       },
     ],
   },

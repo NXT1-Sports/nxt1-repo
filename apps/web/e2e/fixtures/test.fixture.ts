@@ -10,6 +10,7 @@
 
 import { test as base, expect, Page, BrowserContext } from '@playwright/test';
 import { LoginPage, SignupPage, ForgotPasswordPage, OnboardingPage } from '../pages';
+import { MOCK_USER, MOCK_PROFILE } from '../mocks';
 
 /**
  * Test user credentials loaded from environment
@@ -59,6 +60,57 @@ function getTestUser(suffix = ''): TestUser {
 }
 
 /**
+ * Setup Playwright route interception for backend API
+ * This is used instead of MSW since MSW node server doesn't intercept browser requests
+ */
+async function setupBackendApiRoutes(page: Page): Promise<void> {
+  // Mock the user profile endpoint that's called after Firebase login
+  await page.route('**/api/v1/staging/auth/profile/**', async (route) => {
+    const url = route.request().url();
+    const uidMatch = url.match(/profile\/([^/]+)/);
+    const uid = uidMatch ? uidMatch[1] : 'unknown';
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: {
+          id: uid,
+          email: process.env['E2E_TEST_USER_EMAIL'] || MOCK_USER.email,
+          firstName: 'E2E',
+          lastName: 'Tester',
+          role: 'athlete',
+          planTier: null,
+          onboardingCompleted: true,
+          completeSignUp: true,
+          isCollegeCoach: false,
+          isRecruit: true,
+          profileImg: MOCK_USER.photoURL,
+          sports: [{ sport: 'Football', positions: ['Quarterback'], order: 0 }],
+        },
+      }),
+    });
+  });
+
+  // Mock other common API endpoints
+  await page.route('**/api/v1/staging/**', async (route, request) => {
+    const url = request.url();
+
+    // Let profile requests through (handled above)
+    if (url.includes('/auth/profile/')) {
+      return route.continue();
+    }
+
+    // Default mock for other API calls
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, data: {} }),
+    });
+  });
+}
+
+/**
  * Extended test with custom fixtures
  *
  * @example
@@ -80,8 +132,13 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   /**
    * Login page fixture
    * Creates a new LoginPage instance for each test
+   * Sets up API route interception when E2E_REAL_AUTH is enabled
    */
   loginPage: async ({ page }, use) => {
+    // Setup backend API routes (required since MSW doesn't intercept browser requests)
+    if (process.env['E2E_REAL_AUTH']) {
+      await setupBackendApiRoutes(page);
+    }
     const loginPage = new LoginPage(page);
     await use(loginPage);
   },
@@ -91,6 +148,9 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
    * Creates a new SignupPage instance for each test
    */
   signupPage: async ({ page }, use) => {
+    if (process.env['E2E_REAL_AUTH']) {
+      await setupBackendApiRoutes(page);
+    }
     const signupPage = new SignupPage(page);
     await use(signupPage);
   },
@@ -108,6 +168,9 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
    * Creates a new OnboardingPage instance for each test
    */
   onboardingPage: async ({ page }, use) => {
+    if (process.env['E2E_REAL_AUTH']) {
+      await setupBackendApiRoutes(page);
+    }
     const onboardingPage = new OnboardingPage(page);
     await use(onboardingPage);
   },

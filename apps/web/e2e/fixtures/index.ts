@@ -12,3 +12,6 @@ export {
   type WorkerFixtures,
   type TestUser,
 } from './test.fixture';
+
+// MSW (Mock Service Worker) fixtures for API mocking
+export { testWithMSW, testWithMSWWorker, type MSWFixture } from './msw.fixture';

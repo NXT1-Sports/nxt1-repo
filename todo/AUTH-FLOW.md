@@ -1,6 +1,8 @@
 # Auth Flow Implementation
 
-## Status: In Progress
+## Status: ✅ Nearly Complete (90%)
+
+> Last updated: February 1, 2026
 
 ### Completed Tasks ✅
 
@@ -25,20 +27,28 @@
   - ✅ No hardcoded routes in auth services
   - ✅ Simplified redirects to `/home` or `/auth/onboarding`
 
-### Remaining Tasks
+- [x] **Forgot Password** ✅ COMPLETE
+  - ✅ Build password reset request form
+  - ✅ Send reset email via Firebase
+  - ✅ Add success/error feedback UI
+  - ✅ Handle rate limiting gracefully
+  - Implementation: `apps/web/src/app/features/auth/pages/forgot-password/`
+  - Implementation: `apps/mobile/src/app/features/auth/pages/forgot-password/`
 
-- [ ] **Complete Signup page**
-  - Add Google/Apple OAuth signup options
+- [x] **Auth Guards** ✅ COMPLETE
+  - ✅ `requireAuth` - require authenticated user
+  - ✅ `requireGuest` - redirect authenticated users away from auth pages
+  - ✅ `requireOnboarding` - require completed onboarding
+  - ✅ `requireRole` - restrict by user role
+  - ✅ SSR-safe guard implementations
+  - Implementation: `packages/core/src/auth/auth-guards.ts` (with tests)
+
+- [x] **Signup Page** ✅ COMPLETE
+  - ✅ Add Google/Apple OAuth signup options
   - ✅ Handle team code pre-fill from URL params
   - ✅ Create user in backend after Firebase signup
 
-- [ ] **Implement Forgot Password**
-  - Build password reset request form
-  - Send reset email via Firebase
-  - Add success/error feedback UI
-  - Handle rate limiting gracefully
-
-- [ ] **Build Onboarding wizard**
+- [x] **Onboarding Wizard** ✅ UI COMPLETE
   - ✅ Role selection step (athlete, coach, parent, etc.)
   - ✅ Profile info step (name, photo)
   - ✅ Sport/position selection
@@ -50,19 +60,16 @@
   - ✅ SportFormData: Migrated to selectedSports[] array
   - ✅ NxtTeamLogoPickerComponent created
   - ✅ NxtColorPickerComponent created (preset colors + custom picker)
+
+### Remaining Tasks
+
+- [ ] **Onboarding Persistence Testing**
   - [ ] Progress persistence (resume incomplete onboarding)
   - [ ] Verify all fields save correctly to backend
 
-- [ ] **Add auth guards for protected routes**
-  - `authGuard` - require authenticated user
-  - `guestGuard` - redirect authenticated users away from auth pages
-  - `onboardingGuard` - require completed onboarding
-  - `roleGuard` - restrict by user role
-  - SSR-safe guard implementations
-
 - [ ] **Integrate Biometric Authentication (Mobile)**
   - Add Face ID / Touch ID support for mobile apps
-  - Use `@capacitor/biometric-auth` plugin
+  - Use `capacitor-native-biometric` plugin (already installed)
   - Store biometric preference in secure storage
   - Fallback to password if biometric fails
   - Enable biometric unlock after initial login
@@ -88,26 +95,25 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Files to Modify
+## Key Files
 
 ### Web App
 
-- `apps/web/src/app/features/auth/pages/login/login.component.ts`
-- `apps/web/src/app/features/auth/pages/signup/signup.component.ts`
-- `apps/web/src/app/features/auth/pages/forgot-password/forgot-password.component.ts`
-- `apps/web/src/app/features/auth/pages/onboarding/onboarding.component.ts`
-- `apps/web/src/app/features/auth/guards/`
+- ✅ `apps/web/src/app/features/auth/pages/login/login.component.ts`
+- ✅ `apps/web/src/app/features/auth/pages/signup/signup.component.ts`
+- ✅
+  `apps/web/src/app/features/auth/pages/forgot-password/forgot-password.component.ts`
+- ✅ `apps/web/src/app/features/auth/pages/onboarding/onboarding.component.ts`
 
 ### Mobile App
 
-- `apps/mobile/src/app/features/auth/pages/login/`
-- `apps/mobile/src/app/features/auth/pages/signup/`
-- `apps/mobile/src/app/features/auth/pages/forgot-password/`
-- `apps/mobile/src/app/features/auth/pages/onboarding/`
-- `apps/mobile/src/app/features/auth/guards/`
+- ✅ `apps/mobile/src/app/features/auth/pages/auth/auth.page.ts`
+- ✅
+  `apps/mobile/src/app/features/auth/pages/forgot-password/forgot-password.page.ts`
+- ✅ `apps/mobile/src/app/features/auth/pages/onboarding/onboarding.page.ts`
 
-### Shared (already complete)
+### Shared Packages (Complete)
 
-- `packages/core/src/auth/` ✅
-- `packages/core/src/api/auth.api.ts` ✅
-- `packages/ui/src/auth/` ✅
+- ✅ `packages/core/src/auth/` - Types, guards, state management
+- ✅ `packages/core/src/api/auth.api.ts` - API factory
+- ✅ `packages/ui/src/auth/` - Shared UI components

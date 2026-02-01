@@ -82,6 +82,7 @@ export class ForgotPasswordPage extends BasePage {
     this.pageSubtitle = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_SUBTITLE);
 
     // Form elements - uses shared @nxt1/ui auth-email-form component with mode="reset"
+    // Ionic ion-input uses shadow DOM - locate the native input inside
     this.form = page.getByTestId(AUTH_PAGE_TEST_IDS.FORGOT_PASSWORD_FORM);
     this.emailInput = page.getByTestId(AUTH_TEST_IDS.INPUT_EMAIL).locator('input');
     this.submitButton = page.getByTestId(AUTH_TEST_IDS.SUBMIT_BUTTON);
@@ -112,11 +113,22 @@ export class ForgotPasswordPage extends BasePage {
 
   /**
    * Navigate and verify page loaded
+   * Note: Angular SSR may show different URL than expected during hydration
    */
   async gotoAndVerify(): Promise<void> {
     await this.goto();
-    await this.assertPageLoaded();
+    await this.waitForHydration();
+    // Check content is visible rather than strict URL matching
+    // because Angular hydration may show interim URL
     await this.assertVisible(this.pageTitle);
+  }
+
+  /**
+   * Wait for Angular SSR hydration and Ionic components to be ready
+   */
+  async waitForHydration(): Promise<void> {
+    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForTimeout(500); // Allow Ionic animations to settle
   }
 
   /**
@@ -129,10 +141,12 @@ export class ForgotPasswordPage extends BasePage {
 
   /**
    * Go back to login page via link
+   * Note: The unified auth page uses /auth for login, not /auth/login
    */
   async goToLogin(): Promise<void> {
     await this.backToLoginLink.click();
-    await this.page.waitForURL(/\/auth\/login/);
+    // Wait for navigation - unified auth page at /auth
+    await this.page.waitForURL(/\/auth(?:\?|$)/);
   }
 
   /**
@@ -140,7 +154,7 @@ export class ForgotPasswordPage extends BasePage {
    */
   async goToLoginFromSuccess(): Promise<void> {
     await this.backToLoginButton.click();
-    await this.page.waitForURL(/\/auth\/login/);
+    await this.page.waitForURL(/\/auth(?:\?|$)/);
   }
 
   // ===========================================================================

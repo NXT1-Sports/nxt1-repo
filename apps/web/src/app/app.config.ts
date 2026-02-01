@@ -58,6 +58,7 @@ import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 // Core infrastructure (app-specific)
 import { httpCacheInterceptor, authInterceptor } from './core/infrastructure';
+import { httpPerformanceInterceptor } from './core/infrastructure/performance-interceptor';
 
 // Crashlytics service (web uses GA4 fallback)
 import { CrashlyticsService } from './core/services/crashlytics.service';
@@ -110,6 +111,8 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(
       withFetch(),
       withInterceptors([
+        // Performance monitoring - tracks ALL HTTP requests automatically
+        httpPerformanceInterceptor({ apiOnly: true }),
         // Auth interceptor - adds Firebase ID token to API requests
         // MUST run FIRST before error/cache interceptors
         authInterceptor,

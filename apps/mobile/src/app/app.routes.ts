@@ -81,6 +81,12 @@ export const routes: Routes = [
           import('./features/activity/activity.routes').then((m) => m.ACTIVITY_ROUTES),
       },
 
+      // Analytics Dashboard - User Analytics & Insights
+      {
+        path: 'analytics',
+        loadChildren: () => import('./features/analytics-dashboard/analytics-dashboard.routes'),
+      },
+
       // Developer Settings (non-production only)
       {
         path: 'dev-settings',

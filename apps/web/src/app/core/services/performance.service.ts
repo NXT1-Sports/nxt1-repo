@@ -604,4 +604,94 @@ export class PerformanceService implements PerformanceAdapter {
     await this.removeGlobalAttribute(ATTRIBUTE_NAMES.USER_TIER);
     this.logger.info('User context cleared from performance traces');
   }
+
+  // ==========================================
+  // TESTING / VERIFICATION
+  // ==========================================
+
+  /**
+   * Test Performance Monitoring integration.
+   * Use this to verify traces are being sent to Firebase.
+   *
+   * Call from browser console:
+   * ```
+   * window.testPerformance()
+   * ```
+   *
+   * @returns Test results object
+   */
+  async testPerformance(): Promise<{
+    success: boolean;
+    platform: string;
+    traceSent: boolean;
+    httpMetricSent: boolean;
+    duration: number;
+    message: string;
+  }> {
+    const startTime = Date.now();
+    const results = {
+      success: false,
+      platform: 'web',
+      traceSent: false,
+      httpMetricSent: false,
+      duration: 0,
+      message: '',
+    };
+
+    this.logger.info('🧪 Starting Performance Monitoring test...');
+
+    try {
+      // Test 1: Custom trace
+      const trace = await this.startTrace('test_staging_trace');
+      await trace.putAttribute('environment', 'staging');
+      await trace.putAttribute('test_timestamp', new Date().toISOString());
+      await trace.putMetric('test_value', 42);
+      await trace.putMetric('random_value', Math.floor(Math.random() * 1000));
+
+      // Simulate some work
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      await trace.stop();
+      results.traceSent = true;
+      this.logger.info('✅ Custom trace sent: test_staging_trace');
+
+      // Test 2: HTTP metric
+      const httpMetric = await this.startHttpMetric('https://api.example.com/test', 'GET');
+      await httpMetric.setHttpResponseCode(200);
+      await httpMetric.setResponsePayloadSize(1024);
+      await httpMetric.putAttribute('test', 'true');
+      await httpMetric.stop();
+      results.httpMetricSent = true;
+      this.logger.info('✅ HTTP metric sent: GET https://api.example.com/test');
+
+      // Test 3: Trace wrapper
+      const wrapperResult = await this.trace(
+        'test_trace_wrapper',
+        async () => {
+          await new Promise((resolve) => setTimeout(resolve, 200));
+          return { tested: true };
+        },
+        {
+          attributes: { wrapper_test: 'true' },
+          metrics: { items_processed: 5 },
+        }
+      );
+      this.logger.info('✅ Trace wrapper executed:', wrapperResult);
+
+      results.success = true;
+      results.duration = Date.now() - startTime;
+      results.message = '🎉 All performance tests passed! Check Firebase Console in 12-24 hours.';
+
+      this.logger.info(results.message);
+      this.logger.info(`   Total test duration: ${results.duration}ms`);
+      this.logger.info('   Traces sent: test_staging_trace, test_trace_wrapper');
+      this.logger.info('   HTTP metrics sent: GET https://api.example.com/test');
+    } catch (error) {
+      results.duration = Date.now() - startTime;
+      results.message = `❌ Performance test failed: ${(error as Error).message}`;
+      this.logger.error(results.message, { error });
+    }
+
+    return results;
+  }
 }

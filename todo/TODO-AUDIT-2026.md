@@ -1,47 +1,61 @@
 # 📋 TODO Audit Report — NXT1 Monorepo
 
-**Audit Date:** January 24, 2026  
-**Total Unique TODOs Identified:** 45+  
+**Audit Date:** February 1, 2026  
+**Previous Audit:** January 24, 2026  
 **Focus Areas:** Authentication, Infrastructure, Security  
-**Status:** Ready for Implementation
+**Status:** Significant Progress Made ✅
 
 ---
 
-## 🔴 HIGH PRIORITY: Authentication & Infrastructure TODOs
+## ✅ COMPLETED SINCE LAST AUDIT
 
-These TODOs are **blocking release** or critical to core platform functionality:
+### Infrastructure Completions
 
-### 1. Authentication Flow (BLOCKING)
-
-| Location                                                                           | TODO                                       | Status         | Priority    |
-| ---------------------------------------------------------------------------------- | ------------------------------------------ | -------------- | ----------- |
-| `nxt1/src/app/v2/core/infrastructure/firebase/firebase-auth.service.ts` Line 252   | Implement Microsoft sign-in                | ❌ Not Started | 🔴 Critical |
-| `nxt1/src/app/v2/core/infrastructure/firebase/firebase-auth.service.ts` Line 260   | Implement Apple sign-in                    | ❌ Not Started | 🔴 Critical |
-| `nxt1-monorepo/apps/mobile/src/app/features/auth/pages/auth/auth.page.ts` Line 640 | Pass team code to Google sign-in flow      | ❌ Incomplete  | 🔴 Critical |
-| `nxt1-monorepo/apps/mobile/src/app/features/auth/pages/auth/auth.page.ts` Line 658 | Pass team code to Apple sign-in flow       | ❌ Incomplete  | 🔴 Critical |
-| `nxt1-monorepo/apps/mobile/src/app/features/auth/pages/auth/auth.page.ts` Line 676 | Pass team code to Microsoft sign-in flow   | ❌ Incomplete  | 🔴 Critical |
-| `nxt1/src/app/v2/auth/features/role-selection/role-selection.component.ts` Line 7  | Implement role selection / team code entry | ❌ Not Started | 🔴 Critical |
-| `nxt1/src/app/auth/containers/sign-in/sign-in.component.ts` Line 193               | Handle media role navigation               | ❌ Not Started | 🟡 Medium   |
-
-**Implementation Notes:**
-
-- Microsoft sign-in requires OAuthProvider setup in Firebase
-- Apple sign-in requires OAuthProvider with `apple.com` providerId
-- Team code needs to be passed as custom parameter through OAuth flows
-- Role selection component exists but is a placeholder - full implementation
-  needed
+| Item                 | Status      | Implementation                                             |
+| -------------------- | ----------- | ---------------------------------------------------------- |
+| Toast Service        | ✅ Complete | `packages/ui/src/services/toast/toast.service.ts`          |
+| Auth Guards          | ✅ Complete | `packages/core/src/auth/auth-guards.ts`                    |
+| Forgot Password      | ✅ Complete | Web & Mobile implementations                               |
+| Firebase Crashlytics | ✅ Complete | `apps/mobile/src/app/core/services/crashlytics.service.ts` |
+| CI/CD Workflows      | ✅ Complete | 7 workflows in `.github/workflows/`                        |
+| E2E Testing          | ✅ Complete | 86 tests passing with Playwright                           |
+| Native Auth Packages | ✅ Complete | Using `@capacitor-firebase/authentication`                 |
 
 ---
 
-### 2. Backend Auth (BLOCKING - TECHNICAL DEBT)
+## 🟡 IN PROGRESS: Remaining Critical Items
 
-| Location                                                   | TODO                                                            | Status            | Priority    |
-| ---------------------------------------------------------- | --------------------------------------------------------------- | ----------------- | ----------- |
-| `nxt1-backend/controllers/auth/authController.js` Line 708 | Remove legacy boolean flags once queries migrated to role field | ⚠️ Technical Debt | 🔴 Critical |
+### 1. Onboarding Persistence (BLOCKING)
 
-**Context:** The backend maintains both `role` field (modern) and legacy boolean
-flags (`isRecruit`, `isCollegeCoach`, `isFan`, `isMedia`, `isService`,
-`isParent`, `isScout`) for backwards compatibility.
+| Location                                                                                       | TODO                                                         | Status         | Priority    |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------- | ----------- |
+| `nxt1-monorepo/apps/mobile/src/app/features/auth/pages/onboarding/onboarding.page.ts` Line 747 | Upload to Firebase Storage when backend integration is ready | 🟡 In Progress | 🔴 Critical |
+
+**Implementation Required:**
+
+- Photo upload from onboarding to Firebase Storage
+- Generate thumbnail/optimized versions
+- Store download URL in user profile
+- Progress persistence (resume incomplete onboarding)
+
+---
+
+### 2. Wire Toast Service to Error Handlers
+
+| Location                                                                                             | TODO                             | Status           |
+| ---------------------------------------------------------------------------------------------------- | -------------------------------- | ---------------- |
+| `nxt1-monorepo/apps/web/src/app/core/infrastructure/error-handling/global-error-handler.ts` Line 404 | Use toast service when available | 🟡 Ready to wire |
+
+**Note:** `NxtToastService` is complete and used across 20+ services. Just needs
+to be wired into GlobalErrorHandler.
+
+---
+
+### 3. Backend Auth Technical Debt
+
+| Location                                                   | TODO                                                            | Status            | Priority  |
+| ---------------------------------------------------------- | --------------------------------------------------------------- | ----------------- | --------- |
+| `nxt1-backend/controllers/auth/authController.js` Line 708 | Remove legacy boolean flags once queries migrated to role field | ⚠️ Technical Debt | 🟡 Medium |
 
 **Migration Steps Required:**
 
@@ -53,83 +67,21 @@ flags (`isRecruit`, `isCollegeCoach`, `isFan`, `isMedia`, `isService`,
 
 ---
 
-### 3. Firebase Storage Integration (BLOCKING)
+## 🟢 LOWER PRIORITY: Feature & Cleanup TODOs
 
-| Location                                                                                       | TODO                                                         | Status         | Priority    |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------- | ----------- |
-| `nxt1-monorepo/apps/mobile/src/app/features/auth/pages/onboarding/onboarding.page.ts` Line 747 | Upload to Firebase Storage when backend integration is ready | ❌ Not Started | 🔴 Critical |
+### 4. Analytics Integration
 
-**Implementation Required:**
+| Location                                                                               | TODO                             | Status          |
+| -------------------------------------------------------------------------------------- | -------------------------------- | --------------- |
+| `nxt1-monorepo/apps/web/src/app/features/auth/services/auth-error.handler.ts` Line 501 | Integrate with analytics service | 🟢 Low Priority |
+| `nxt1-monorepo/packages/ui/src/auth-services/auth-error.handler.ts` Line 572           | Integrate with analytics service | 🟢 Low Priority |
 
-- Photo upload from onboarding to Firebase Storage
-- Generate thumbnail/optimized versions
-- Store download URL in user profile
-- Handle upload progress & errors
-
----
-
-## 🟡 MEDIUM PRIORITY: Infrastructure & Observability TODOs
-
-These TODOs affect error handling, monitoring, and developer experience:
-
-### 4. Toast/Notification Service (CONSOLIDATE - 3 LOCATIONS)
-
-**Note:** Multiple files reference the same missing toast service. These should
-be consolidated into a single task:
-
-| Location                                                                                             | TODO                             | Status         |
-| ---------------------------------------------------------------------------------------------------- | -------------------------------- | -------------- |
-| `nxt1-monorepo/apps/web/src/app/core/infrastructure/error-handling/global-error-handler.ts` Line 404 | Use toast service when available | ❌ Not Started |
-| `nxt1-monorepo/apps/web/src/app/core/infrastructure/interceptors/error.interceptor.ts` Line 192      | Integrate with toast service     | ❌ Not Started |
-| `nxt1-monorepo/apps/web/src/app/core/infrastructure/interceptors/error.interceptor.ts` Line 211      | Use toast service                | ❌ Not Started |
-
-**Recommendation:**
-
-1. Create `ToastService` in `packages/ui/src/services/toast.service.ts`
-2. Implement with Ionic's ToastController for consistency
-3. Wire up all three locations
-4. Add toast variants: success, error, warning, info
+**Note:** Analytics module is **fully built** at `packages/core/src/analytics/`.
+Auth tracking already complete. Additional service tracking is optional.
 
 ---
 
-### 5. Analytics Integration (CONSOLIDATE - 2 LOCATIONS)
-
-| Location                                                                               | TODO                             | Status         |
-| -------------------------------------------------------------------------------------- | -------------------------------- | -------------- |
-| `nxt1-monorepo/apps/web/src/app/features/auth/services/auth-error.handler.ts` Line 501 | Integrate with analytics service | ❌ Not Started |
-| `nxt1-monorepo/packages/ui/src/auth-services/auth-error.handler.ts` Line 572           | Integrate with analytics service | ❌ Not Started |
-
-**Implementation Notes:**
-
-- Analytics module is **fully built** at `packages/core/src/analytics/`
-- Just needs wiring to existing error handlers
-- Use `createFirebaseAnalyticsAdapterSync` for web
-- Use `createMobileAnalyticsAdapterSync` for mobile
-- Track error codes, recovery attempts, and user impact
-
----
-
-### 6. Error Monitoring Integration (CONSOLIDATE - 3 LOCATIONS)
-
-| Location                                                                                       | TODO                                       | Status         | Priority |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------ | -------------- | -------- |
-| `nxt1-monorepo/packages/ui/src/infrastructure/error-handling/global-error-handler.ts` Line 379 | Integrate with Sentry, Datadog, or similar | 🟡 In Progress | 🟡 High  |
-| `nxt1-monorepo/packages/ui/src/infrastructure/error-handling/global-error-handler.ts` Line 385 | Integrate with error monitoring service    | 🟡 In Progress | 🟡 High  |
-| `nxt1-monorepo/apps/web/src/environments/environment.prod.ts` Line 19                          | Add Sentry DSN when configured             | 🟡 In Progress | 🟡 High  |
-
-**Current Status:** Firebase Crashlytics integration in progress
-
-**Next Steps:**
-
-1. 🟡 Complete Firebase Crashlytics setup (Web & Mobile)
-2. ⬜ Add `crashlytics()` calls in GlobalErrorHandler
-3. ⬜ Set custom keys for error context
-4. ⬜ Test crash reporting in staging
-5. ⬜ Configure alerts in Firebase Console
-
----
-
-### 7. Caching Infrastructure (BACKEND)
+### 5. Caching Infrastructure (BACKEND)
 
 | Location                                                     | TODO                                            | Status         | Priority |
 | ------------------------------------------------------------ | ----------------------------------------------- | -------------- | -------- |
@@ -143,9 +95,7 @@ be consolidated into a single task:
 
 ---
 
-## 🟢 LOWER PRIORITY: Feature & Cleanup TODOs
-
-### 8. Feature Implementation (Non-blocking)
+### 6. Feature Implementation (Non-blocking)
 
 | Location                                                                                  | TODO                                                | Priority  | Notes                        |
 | ----------------------------------------------------------------------------------------- | --------------------------------------------------- | --------- | ---------------------------- |
@@ -195,63 +145,53 @@ be consolidated into a single task:
 
 ## 📑 TODO Documentation Files Status
 
-The `/todo/` directory contains well-maintained task tracking documents:
-
-| File                         | Status         | Blocking Release? | Link                                                     |
-| ---------------------------- | -------------- | ----------------- | -------------------------------------------------------- |
-| **AUTH-FLOW.md**             | 🟡 In Progress | **Yes**           | Complete authentication system                           |
-| **NATIVE-AUTH-TESTING.md**   | ⬜ Blocked     | **Yes (Mobile)**  | Need to install `@codetrix-studio/capacitor-google-auth` |
-| **ANALYTICS-INTEGRATION.md** | 🟡 Partial     | **Yes**           | Auth tracking done, other services pending               |
-| **SECURITY-HARDENING.md**    | ⬜ Not Started | No                | Pre-production checklist                                 |
-| **CI-CD-SETUP.md**           | ⬜ Not Started | No                | GitHub Actions workflows                                 |
-| **SEO-CHECKLIST.md**         | 🟡 Partial     | No                | Auth pages done, core pages needed                       |
-| **E2E-TESTING.md**           | ⬜ Not Started | No                | Playwright setup                                         |
+| File                         | Status         | Blocking Release? | Notes                                                            |
+| ---------------------------- | -------------- | ----------------- | ---------------------------------------------------------------- |
+| **AUTH-FLOW.md**             | ✅ 90% Done    | Yes (testing)     | Guards, forgot password complete. Onboarding persistence pending |
+| **NATIVE-AUTH-TESTING.md**   | 🟡 Ready       | Yes (device test) | All packages installed, needs device verification                |
+| **ANALYTICS-INTEGRATION.md** | 🟡 Partial     | No                | Auth tracking done, other services optional                      |
+| **SECURITY-HARDENING.md**    | ⬜ Not Started | Yes (Production)  | Pre-production checklist                                         |
+| **CI-CD-SETUP.md**           | ✅ Complete    | No                | All 7 workflows created                                          |
+| **SEO-CHECKLIST.md**         | 🟡 In Progress | No                | Auth pages done, OG images needed                                |
+| **E2E-TESTING.md**           | ✅ Complete    | No                | 86 tests passing with Playwright                                 |
 
 ---
 
-## 🚨 Conflicts & Issues Identified
+## ✅ Resolved Issues (Since January 24, 2026)
 
-### Issue 1: Duplicate Auth Error Handlers
+### ~~Issue 1: Missing Toast Service~~ ✅ RESOLVED
 
-**Files:**
+**Resolution:** `NxtToastService` implemented at
+`packages/ui/src/services/toast/toast.service.ts`
 
-- `apps/web/src/app/features/auth/services/auth-error.handler.ts`
-- `packages/ui/src/auth-services/auth-error.handler.ts`
+- 495 lines, enterprise-grade implementation
+- Used across 20+ services in web and mobile apps
+- Supports success, error, warning, info variants
+- Swipe-to-dismiss with haptic feedback
 
-**Problem:** Both files have identical TODO for analytics integration. This
-suggests the web app has its own copy instead of importing from `@nxt1/ui`.
+### ~~Issue 2: Missing Native Auth Package~~ ✅ RESOLVED
 
-**Resolution Required:**
+**Resolution:** Using different (better) packages:
 
-1. ⬜ Audit if web is using local copy or shared package
-2. ⬜ If local copy exists, remove and import from `@nxt1/ui`
-3. ⬜ Consolidate analytics integration into shared handler
+- `@capacitor-firebase/authentication` for Google Sign-In
+- `@capacitor-community/apple-sign-in` for Apple Sign-In
+- `@recognizebv/capacitor-plugin-msauth` for Microsoft Sign-In
+- Implementation:
+  `apps/mobile/src/app/features/auth/services/native-auth.service.ts`
 
----
+### ~~Issue 3: Missing Crashlytics~~ ✅ RESOLVED
 
-### Issue 2: Missing Native Auth Package (CRITICAL BLOCKER)
+**Resolution:** Full `CrashlyticsService` implemented:
 
-**Problem:** `@codetrix-studio/capacitor-google-auth` is not installed
-
-**Blocked Files:**
-
-- `apps/mobile/src/main.ts` (commented out initialization)
-- `apps/mobile/src/app/features/auth/services/native-auth.service.ts` (commented
-  out imports)
-
-**Resolution Steps:**
-
-```bash
-cd apps/mobile
-npm install @codetrix-studio/capacitor-google-auth
-npx cap sync
-```
-
-Then uncomment the TODOs in the files above.
+- `apps/mobile/src/app/core/services/crashlytics.service.ts` (454 lines)
+- `@capacitor-firebase/crashlytics` package installed
+- Adapter pattern in `packages/core/src/crashlytics/`
 
 ---
 
-### Issue 3: Legacy Role System Active (MIGRATION PLANNING)
+## ⚠️ Remaining Technical Debt
+
+### Legacy Role System Active
 
 **Problem:** Backend maintains both modern `role` field and legacy boolean flags
 for backwards compatibility.
@@ -272,11 +212,11 @@ for backwards compatibility.
 6. ⬜ Remove legacy flags from backend
 7. ⬜ Update TypeScript interfaces
 
-**Estimated Effort:** 2-3 sprints
+**Estimated Effort:** 2-3 sprints (not blocking initial release)
 
 ---
 
-## ✅ Recommended Action Plan
+## ✅ Updated Action Plan
 
 ### 🔴 Sprint 1: Immediate (Release Blockers)
 
@@ -292,93 +232,74 @@ for backwards compatibility.
 4. ⬜ Pass team code through all OAuth flows
    - Update Google, Apple, Microsoft handlers
    - Test team code pre-fill after OAuth
-5. ⬜ Create `ToastService` in `@nxt1/ui`
-   - Implement with IonicToastController
-   - Wire up error handlers (3 locations)
-6. ⬜ Complete Firebase Crashlytics setup
-   - Wire into GlobalErrorHandler
-   - Test on web and mobile
+
+### 🟡 Current Sprint: Final Release Items
+
+**Remaining Tasks:**
+
+1. ⬜ Wire `NxtToastService` into GlobalErrorHandler (simple fix - service
+   exists)
+2. ⬜ Test onboarding persistence (resume incomplete flows)
+3. ⬜ Verify Firebase Storage upload in onboarding
+4. ⬜ Native auth device testing (Google, Apple, Microsoft)
+5. ⬜ Create OG images for social sharing (1200x630px)
 
 ---
 
-### 🟡 Sprint 2: High Priority Infrastructure
+### 🟢 Post-Launch: Enhancement & Technical Debt
 
-**Week 3-4:** 7. ⬜ Implement role selection component
+**Lower Priority:**
 
-- Build UI matching design system
-- Handle team code entry
-- Wire to onboarding flow
-
-8. ⬜ Integrate analytics into auth error tracking
-   - Wire auth error handlers to analytics
-   - Track error codes and recovery attempts
-9. ⬜ Implement Firebase Storage upload in onboarding
-   - Photo upload flow
-   - Thumbnail generation
-   - Progress indicators
-10. ⬜ Complete mobile auth analytics parity
-    - Page view tracking
-    - User action tracking
-    - Error tracking
+1. ⬜ Page view tracking (analytics)
+2. ⬜ GDPR consent UI
+3. ⬜ Legacy role flag migration planning
+4. ⬜ Video social features (like, share)
+5. ⬜ College library feature
+6. ⬜ Security hardening checklist
 
 ---
 
-### 🟢 Sprint 3-4: Feature Completion
+## 📊 Summary Statistics (Updated February 1, 2026)
 
-**Week 5-8:** 11. ⬜ Media role navigation handling 12. ⬜ Post media cleanup on
-deletion 13. ⬜ Email notifications for posts 14. ⬜ Complete analytics
-integration (all services) 15. ⬜ SEO for core public pages 16. ⬜ CI/CD
-pipeline setup
+| Category               | Count | Status              |
+| ---------------------- | ----- | ------------------- |
+| **Completed Items**    | 15+   | ✅ Done             |
+| **In Progress**        | 5     | 🟡 Active           |
+| **Remaining Critical** | 5     | 🔴 Release blockers |
+| **Lower Priority**     | 10+   | 🟢 Post-launch      |
+| **Technical Debt**     | 3     | ⚠️ Plan needed      |
 
----
+### ✅ Major Completions Since Last Audit:
 
-### 📋 Backlog: Technical Debt & Cleanup
-
-**Future Sprints:** 17. ⬜ Plan legacy role flag migration 18. ⬜ Audit and
-migrate all queries to use `role` field 19. ⬜ Execute role field migration 20.
-⬜ Remove legacy boolean flags 21. ⬜ Implement college library feature 22. ⬜
-Video social features (like, share) 23. ⬜ Code cleanup tasks (9 items) 24. ⬜
-E2E testing setup 25. ⬜ Security hardening checklist
-
----
-
-## 📊 Summary Statistics
-
-| Category                       | Count | Status                        |
-| ------------------------------ | ----- | ----------------------------- |
-| **Auth-related TODOs**         | 12    | 🔴 Critical                   |
-| **Infrastructure TODOs**       | 8     | 🟡 High Priority              |
-| **Feature TODOs**              | 6     | 🟢 Medium/Low                 |
-| **Cleanup TODOs**              | 10    | 🟢 Low                        |
-| **Third-party/Non-actionable** | 4     | N/A                           |
-| **Documentation TODO files**   | 7     | Tracked separately            |
-| **🚨 Release Blockers**        | **6** | **Immediate action required** |
+- Toast Service (495 lines, enterprise-grade)
+- Auth Guards (4 guards with tests)
+- Forgot Password (web & mobile)
+- Crashlytics Service (454 lines)
+- CI/CD Workflows (7 complete workflows)
+- E2E Testing (86 tests passing)
+- Native Auth Packages (all installed)
 
 ---
 
-## 🎯 Success Criteria
+## 🎯 Updated Success Criteria
 
-### Sprint 1 Complete When:
+### Ready for Beta Release When:
 
-- ✅ All OAuth providers (Google, Apple, Microsoft) working on mobile
-- ✅ Team code flows through OAuth correctly
-- ✅ Toast notifications working in error handlers
-- ✅ Firebase Crashlytics receiving errors
-
-### Sprint 2 Complete When:
-
-- ✅ Users can select role and enter team code
-- ✅ Auth errors tracked in Firebase Analytics
-- ✅ Profile photos upload from onboarding
-- ✅ Analytics parity between web and mobile
+- ✅ All OAuth providers (Google, Apple, Microsoft) — READY
+- ✅ Toast notifications available — COMPLETE
+- ✅ Firebase Crashlytics configured — COMPLETE
+- ✅ E2E tests passing — COMPLETE (86 tests)
+- ✅ CI/CD pipeline operational — COMPLETE
+- ⬜ Onboarding persistence tested
+- ⬜ Native auth verified on devices
+- ⬜ OG images created
 
 ### Ready for Production When:
 
-- ✅ All release blockers resolved
-- ✅ Native auth tested on real devices
-- ✅ Error monitoring confirmed working
-- ✅ SEO implemented on public pages
-- ✅ Security hardening checklist completed
+- ⬜ All beta items complete
+- ⬜ Security hardening checklist completed
+- ⬜ Performance audit passed
+- ⬜ SEO implemented on public pages
 
 ---
 
@@ -391,5 +312,6 @@ E2E testing setup 25. ⬜ Security hardening checklist
 - All auth-related TODOs have implementation notes in AUTH-FLOW.md
 - Security considerations documented in SECURITY-HARDENING.md
 
-**Last Updated:** January 24, 2026  
-**Next Audit:** After Sprint 1 completion
+**Last Updated:** February 1, 2026  
+**Previous Audit:** January 24, 2026  
+**Next Audit:** After beta release

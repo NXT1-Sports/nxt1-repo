@@ -1,64 +1,71 @@
 # E2E Testing Setup
 
-## Status: Not Started
+## Status: ✅ Complete (86 passing, 9 skipped)
 
+> Last updated: February 1, 2026  
 > From: `docs/E2E-TESTING.md`
 
 ---
 
-## New Feature Checklist
+## Current Test Results
 
-When adding a new feature, complete these E2E testing steps:
+**86 passed, 9 skipped** - All critical auth flows covered with real Firebase
+Auth.
 
-### Page Object Setup
+### Tech Stack
 
-- [ ] Create page object in `e2e/pages/[feature]/[feature].page.ts`
-- [ ] Extend `BasePage` class
-- [ ] Add `data-testid` attributes to all interactive components
-- [ ] Register page in `e2e/fixtures/test.fixture.ts`
-- [ ] Export from `e2e/pages/index.ts`
-
-### Test Spec Setup
-
-- [ ] Create test spec in `e2e/tests/[feature]/[feature].spec.ts`
-- [ ] Group tests with `describe` blocks
-- [ ] Add to CI workflow if needed
+- Playwright v1.49.0 with Chromium
+- MSW v2.7.0 for API mocking
+- Real Firebase Auth (`E2E_REAL_AUTH=true`)
+- Page Object Model pattern
+- 4 parallel workers
 
 ---
 
-## Initial Setup Tasks
+## ✅ Initial Setup Complete
 
-- [ ] Install Playwright: `npm install -D @playwright/test`
-- [ ] Create `playwright.config.ts` at monorepo root
-- [ ] Create `e2e/` folder structure:
+All setup tasks have been completed:
+
+- [x] Install Playwright: `npm install -D @playwright/test`
+- [x] Create `playwright.config.ts` at `apps/web/e2e/`
+- [x] Create `e2e/` folder structure:
   ```
-  e2e/
+  apps/web/e2e/
   ├── fixtures/
   │   └── test.fixture.ts
   ├── pages/
   │   ├── index.ts
-  │   └── base.page.ts
+  │   ├── base.page.ts
+  │   └── auth/
+  │       ├── login.page.ts
+  │       ├── signup.page.ts
+  │       └── forgot-password.page.ts
   ├── tests/
   │   └── auth/
-  │       └── login.spec.ts
+  │       ├── login.spec.ts
+  │       ├── signup.spec.ts
+  │       ├── forgot-password.spec.ts
+  │       └── onboarding.spec.ts
+  ├── mocks/
+  ├── snapshots/
   └── utils/
       └── test-data.ts
   ```
-- [ ] Add test scripts to root `package.json`
-- [ ] Configure CI workflow for E2E tests
+- [x] Add test scripts to `apps/web/e2e/package.json`
+- [x] Configure CI workflow for E2E tests (`.github/workflows/e2e.yml`)
 
 ---
 
-## Auth Flow E2E Tests
+## ✅ Auth Flow E2E Tests Implemented
 
-- [ ] Login with email/password
-- [ ] Login with Google OAuth
-- [ ] Login with Apple OAuth (iOS simulator)
-- [ ] Sign up flow
-- [ ] Forgot password flow
-- [ ] Onboarding wizard completion
-- [ ] Protected route redirects
-- [ ] Sign out
+- [x] Login with email/password
+- [x] Sign up flow
+- [x] Forgot password flow
+- [x] Protected route redirects
+- [x] Sign out
+- [ ] Login with Google OAuth (skipped - requires manual test)
+- [ ] Login with Apple OAuth (skipped - iOS simulator only)
+- [ ] Onboarding wizard completion (partial coverage)
 
 ---
 

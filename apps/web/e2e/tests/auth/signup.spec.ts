@@ -26,7 +26,13 @@ test.describe('Signup Page', () => {
 
   test.describe('Page Load', () => {
     test('should display signup page with correct elements', async ({ signupPage }) => {
+      // Initial state shows social buttons
       await signupPage.assertVisible(signupPage.pageTitle);
+      await signupPage.assertVisible(signupPage.socialButtonsContainer);
+      await signupPage.assertVisible(signupPage.continueWithEmailButton);
+
+      // After clicking Continue with Email, form should appear
+      await signupPage.showEmailForm();
       await signupPage.assertVisible(signupPage.emailInput);
       await signupPage.assertVisible(signupPage.passwordInput);
       await signupPage.assertVisible(signupPage.submitButton);
@@ -36,8 +42,11 @@ test.describe('Signup Page', () => {
       await expect(page).toHaveTitle(/create|sign up|register|nxt1/i);
     });
 
-    test('should show login link', async ({ signupPage }) => {
-      await signupPage.assertVisible(signupPage.loginLink);
+    test('should show mode switcher after email form opened', async ({ signupPage }) => {
+      // The mode switcher appears after clicking Continue with Email
+      await signupPage.showEmailForm();
+      // Mode switcher should be visible (using auth-mode-login/auth-mode-signup)
+      await signupPage.assertVisible(signupPage.page.getByTestId('auth-mode-login'));
     });
   });
 
@@ -46,6 +55,11 @@ test.describe('Signup Page', () => {
   // ===========================================================================
 
   test.describe('Form Validation', () => {
+    test.beforeEach(async ({ signupPage }) => {
+      // Each validation test needs form visible
+      await signupPage.showEmailForm();
+    });
+
     test('should not submit with empty form', async ({ signupPage }) => {
       await signupPage.submit();
 
@@ -110,6 +124,16 @@ test.describe('Signup Page', () => {
   // ===========================================================================
 
   test.describe('Successful Registration', () => {
+    // These tests require a backend server - skip in CI without backend
+    test.skip(
+      () => !process.env.TEST_BACKEND_URL,
+      'Skipping registration tests - no backend configured'
+    );
+
+    test.beforeEach(async ({ signupPage }) => {
+      await signupPage.showEmailForm();
+    });
+
     test('should register new user with valid credentials', async ({ signupPage }) => {
       const testEmail = generateTestEmail();
       const testPassword = generateTestPassword();
@@ -143,6 +167,16 @@ test.describe('Signup Page', () => {
   // ===========================================================================
 
   test.describe('Registration Failures', () => {
+    // These tests require a backend server - skip in CI without backend
+    test.skip(
+      () => !process.env.TEST_BACKEND_URL,
+      'Skipping registration failure tests - no backend configured'
+    );
+
+    test.beforeEach(async ({ signupPage }) => {
+      await signupPage.showEmailForm();
+    });
+
     test('should show error for existing email', async ({ signupPage, testUser }) => {
       test.skip(!testUser.email, 'Test user not configured');
 
@@ -160,7 +194,9 @@ test.describe('Signup Page', () => {
   // ===========================================================================
 
   test.describe('Navigation', () => {
-    test('should have terms link', async ({ signupPage }) => {
+    test('should have terms link after opening email form', async ({ signupPage }) => {
+      // Terms disclaimer shows only after email form is opened in signup mode
+      await signupPage.showEmailForm();
       const hasTerms = await signupPage.termsLink.isVisible().catch(() => false);
       if (hasTerms) {
         await signupPage.assertVisible(signupPage.termsLink);
@@ -196,6 +232,7 @@ test.describe('Signup Page', () => {
 test.describe('Signup Accessibility', () => {
   test('should be keyboard navigable', async ({ signupPage }) => {
     await signupPage.gotoAndVerify();
+    await signupPage.showEmailForm();
 
     // Tab through form elements
     await signupPage.page.keyboard.press('Tab');
@@ -207,6 +244,7 @@ test.describe('Signup Accessibility', () => {
 
   test('should have proper form labels', async ({ signupPage }) => {
     await signupPage.gotoAndVerify();
+    await signupPage.showEmailForm();
 
     // Check for associated labels or aria-labels
     const emailLabel = signupPage.page.locator('label:has-text("email"), [aria-label*="email" i]');

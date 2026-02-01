@@ -1,108 +1,106 @@
 # NXT1 Monorepo - TODO Index
 
-> Master tracking file for all pending work items. Last updated: January 21,
+> Master tracking file for all pending work items. Last updated: February 1,
 > 2026
 
 ---
 
-## 🔴 High Priority
+## ✅ Recently Completed
 
-### [AUTH-FLOW.md](./AUTH-FLOW.md)
+### [CI-CD-SETUP.md](./CI-CD-SETUP.md) ✅
 
-Complete the authentication system for web and mobile.
+GitHub Actions workflows fully configured.
 
-- ✅ Login page (email + OAuth)
-- ✅ Signup page
-- ⬜ Forgot password
-- 🟡 Onboarding wizard (UI complete, needs persistence testing)
-- ⬜ Auth guards
+- ✅ All workflow files created (ci.yml, deploy-web.yml, deploy-mobile.yml,
+  etc.)
+- ✅ AI code review workflow
+- ✅ E2E test workflow
+- 🟡 GitHub secrets configuration (verify in repo settings)
 
-### [NATIVE-AUTH-TESTING.md](./NATIVE-AUTH-TESTING.md)
+### [E2E-TESTING.md](./E2E-TESTING.md) ✅
 
-Verify native OAuth before mobile release.
+Playwright E2E testing fully operational.
 
-- Google Sign-In testing
-- Apple Sign-In testing (iOS)
-- Microsoft Sign-In testing
-- Security checklist
-
-### [ANALYTICS-INTEGRATION.md](./ANALYTICS-INTEGRATION.md)
-
-Complete Firebase Analytics integration.
-
-- Mobile auth tracking (parity with web)
-- Page view tracking
-- GDPR consent UI
-- Firebase Console setup
+- ✅ 86 tests passing, 9 intentionally skipped
+- ✅ Page Object Model pattern
+- ✅ Real Firebase Auth integration
+- ✅ CI workflow integration
 
 ---
 
-## 🟡 Medium Priority
+## 🟡 In Progress
 
-### [CI-CD-SETUP.md](./CI-CD-SETUP.md)
+### [AUTH-FLOW.md](./AUTH-FLOW.md)
 
-Configure GitHub Actions workflows and secrets.
+Authentication system nearly complete.
 
-- GitHub secrets configuration
-- Workflow files creation
-- n8n/Slack notifications
-- Turborepo remote caching
+- ✅ Login page (email + OAuth)
+- ✅ Signup page
+- ✅ Forgot password (fully implemented)
+- ✅ Auth guards (`requireAuth`, `requireGuest`, `requireOnboarding`,
+  `requireRole`)
+- 🟡 Onboarding wizard (UI complete, needs persistence testing)
+- ⬜ Biometric authentication (mobile)
+
+### [NATIVE-AUTH-TESTING.md](./NATIVE-AUTH-TESTING.md)
+
+Native OAuth ready for testing.
+
+- ✅ Native auth package installed (`@capacitor-firebase/authentication`)
+- ✅ Apple Sign-In via `@capacitor-community/apple-sign-in`
+- ✅ Microsoft Sign-In via `@recognizebv/capacitor-plugin-msauth`
+- ⬜ Device testing verification (Google, Apple, Microsoft)
+- ⬜ Security checklist
+
+### [ANALYTICS-INTEGRATION.md](./ANALYTICS-INTEGRATION.md)
+
+Firebase Analytics partially integrated.
+
+- ✅ Mobile auth tracking (parity with web)
+- ✅ Analytics module complete in `@nxt1/core`
+- ⬜ Page view tracking
+- ⬜ GDPR consent UI
+- ⬜ Firebase Console setup
 
 ### [SEO-CHECKLIST.md](./SEO-CHECKLIST.md)
 
-Implement SEO for public pages.
+SEO implementation in progress.
 
-- Per-page SEO setup
-- SSR render modes
-- Sitemap generation
-- Structured data
-
-### [E2E-TESTING.md](./E2E-TESTING.md)
-
-Set up Playwright E2E testing.
-
-- Initial Playwright setup
-- Page object model
-- Auth flow tests
-- CI integration
+- ✅ SeoService implemented
+- ✅ Auth pages SEO complete
+- ⬜ OG images (blocking social sharing)
+- ⬜ Public profile/team pages
+- ⬜ Dynamic sitemap
 
 ---
 
 ## 🟢 Lower Priority
 
-### [DESIGN-SYSTEM-MIGRATION.md](./DESIGN-SYSTEM-MIGRATION.md)
-
-Consolidate Tailwind configuration (8-week roadmap).
-
-- Phase 1: `@nxt1/tailwind-preset` package
-- Phase 2: Style Dictionary token pipeline
-- Phase 3: CVA component utilities
-- Phase 4: Bundle optimization
-
 ### [SECURITY-HARDENING.md](./SECURITY-HARDENING.md)
 
 Production security checklist.
 
-- Mobile certificate pinning
-- API security audit
-- Dependency scanning
-- Incident response
+- ⬜ Mobile certificate pinning
+- ⬜ API security audit
+- ⬜ Dependency scanning
+- ⬜ Incident response plan
 
 ---
 
 ## Quick Status
 
-| Area          | Status         | Blocking Release?                    |
-| ------------- | -------------- | ------------------------------------ |
-| Auth Flow     | 🟡 In Progress | Yes                                  |
-| Onboarding    | 🟡 In Progress | Yes                                  |
-| Native Auth   | ⬜ Blocked     | Yes (Mobile) - needs package install |
-| Analytics     | 🟡 Partial     | Yes (Mobile parity)                  |
-| CI/CD         | ⬜ Not Started | No                                   |
-| SEO           | ⬜ Not Started | No                                   |
-| E2E Testing   | ⬜ Not Started | No                                   |
-| Design System | ⬜ Not Started | No                                   |
-| Security      | ⬜ Not Started | Yes (Production)                     |
+| Area          | Status         | Blocking Release?       |
+| ------------- | -------------- | ----------------------- |
+| Auth Flow     | 🟡 90% Done    | Yes (persistence test)  |
+| Onboarding    | 🟡 In Progress | Yes                     |
+| Native Auth   | 🟡 Ready       | Yes - needs device test |
+| Analytics     | 🟡 Partial     | No                      |
+| CI/CD         | ✅ Complete    | No                      |
+| SEO           | 🟡 In Progress | No                      |
+| E2E Testing   | ✅ Complete    | No                      |
+| Toast Service | ✅ Complete    | No                      |
+| Crashlytics   | ✅ Complete    | No                      |
+| Security      | ⬜ Not Started | Yes (Production)        |
 
 ---
 

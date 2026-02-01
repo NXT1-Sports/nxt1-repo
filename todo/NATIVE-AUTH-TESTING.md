@@ -1,19 +1,22 @@
 # Native Auth Testing Checklist
 
-## Status: ⬜ Blocked - Package Not Installed
+## Status: 🟡 Ready for Device Testing
 
-> **BLOCKER**: `@codetrix-studio/capacitor-google-auth` is not installed.
->
-> To unblock, run:
->
-> ```bash
-> cd apps/mobile && npm install @codetrix-studio/capacitor-google-auth
-> ```
->
-> Then uncomment the TODOs in:
->
-> - `apps/mobile/src/main.ts`
-> - `apps/mobile/src/app/features/auth/services/native-auth.service.ts`
+> Last updated: February 1, 2026
+
+### Package Status ✅
+
+All native authentication packages are installed and configured:
+
+| Package                                | Purpose              | Status       |
+| -------------------------------------- | -------------------- | ------------ |
+| `@capacitor-firebase/authentication`   | Firebase Auth bridge | ✅ Installed |
+| `@capacitor-community/apple-sign-in`   | Apple Sign-In (iOS)  | ✅ Installed |
+| `@recognizebv/capacitor-plugin-msauth` | Microsoft Sign-In    | ✅ Installed |
+| `capacitor-native-biometric`           | Biometric auth       | ✅ Installed |
+
+**Implementation:**
+`apps/mobile/src/app/features/auth/services/native-auth.service.ts`
 
 > From: `docs/NATIVE-AUTH-SETUP.md`
 

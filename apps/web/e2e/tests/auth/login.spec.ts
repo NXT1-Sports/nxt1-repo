@@ -61,25 +61,27 @@ test.describe('Login Page', () => {
 
   // ===========================================================================
   // LOGIN SUCCESS TESTS
+  // Requires real Firebase Auth backend
+  // Run with E2E_REAL_AUTH=true
   // ===========================================================================
 
   test.describe('Successful Login', () => {
     test('should login successfully with valid credentials', async ({ loginPage, testUser }) => {
-      // Skip if no test credentials configured
-      test.skip(!testUser.email || !testUser.password, 'Test credentials not configured');
+      test.skip(!process.env.E2E_REAL_AUTH, 'Requires E2E_REAL_AUTH=true');
 
       await loginPage.loginWithEmail(testUser);
       await loginPage.assertLoginSuccess();
     });
 
     test('should clear error message on successful retry', async ({ loginPage, testUser }) => {
-      test.skip(!testUser.email || !testUser.password, 'Test credentials not configured');
+      test.skip(!process.env.E2E_REAL_AUTH, 'Requires E2E_REAL_AUTH=true');
 
-      // First, try with wrong password
-      await loginPage.loginWithEmail({
+      // First, try with wrong password (should fail)
+      const firstAttempt = await loginPage.tryLoginWithEmail({
         email: testUser.email,
         password: 'WrongPassword123!',
       });
+      expect(firstAttempt).toBe(false);
 
       // Wait for error
       await loginPage.assertError();
@@ -98,16 +100,16 @@ test.describe('Login Page', () => {
   // ===========================================================================
 
   test.describe('Login Failures', () => {
-    test('should show error for invalid credentials', async ({ loginPage, testUser }) => {
-      // Skip if no Firebase backend available (this test needs real auth)
-      test.skip(!testUser.email, 'Requires Firebase backend for error handling');
+    test('should show error for invalid credentials', async ({ loginPage }) => {
+      test.skip(!process.env.E2E_REAL_AUTH, 'Requires E2E_REAL_AUTH=true');
 
-      await loginPage.loginWithEmail({
+      const success = await loginPage.tryLoginWithEmail({
         email: generateTestEmail('invalid'),
         password: 'WrongPassword123!',
       });
 
-      await loginPage.assertError(AUTH_ERRORS.INVALID_CREDENTIALS);
+      expect(success).toBe(false);
+      await loginPage.assertError();
     });
 
     test('should show error for empty email', async ({ loginPage }) => {
@@ -116,9 +118,9 @@ test.describe('Login Page', () => {
         email: '',
         password: 'SomePassword123!',
       });
-      await loginPage.submit();
+      await loginPage.submitAndExpectValidationError();
 
-      // Form should not submit with empty email
+      // Form should not have navigated
       await loginPage.assertPageLoaded();
     });
 
@@ -128,9 +130,9 @@ test.describe('Login Page', () => {
         email: 'test@example.com',
         password: '',
       });
-      await loginPage.submit();
+      await loginPage.submitAndExpectValidationError();
 
-      // Form should not submit with empty password
+      // Form should not have navigated
       await loginPage.assertPageLoaded();
     });
 

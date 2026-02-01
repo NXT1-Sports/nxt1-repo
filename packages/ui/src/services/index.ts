@@ -87,3 +87,21 @@ export {
 
 // Global Badge Service (2026 Professional Badge Management)
 export { GlobalBadgeService, type BadgeType } from './badge';
+
+// ============================================
+// MODAL SERVICE (2026 Unified Native Modal System)
+// ============================================
+export {
+  NxtModalService,
+  type AlertConfig,
+  type ConfirmConfig,
+  type PromptConfig,
+  type PromptResult,
+  type ActionSheetConfig,
+  type ActionSheetAction,
+  type ActionSheetResult,
+  type LoadingConfig,
+  type ActiveModal,
+  type ModalCapabilities,
+  type ModalPreference,
+} from './modal';

@@ -35,7 +35,7 @@ export interface EnvironmentConfig {
 const environments: Record<string, EnvironmentConfig> = {
   local: {
     name: 'local',
-    baseUrl: 'http://localhost:4200',
+    baseUrl: 'http://localhost:4500',
     apiUrl: 'http://localhost:3001',
     firebaseProjectId: 'nxt-1-de054',
     isProduction: false,

@@ -433,6 +433,24 @@ export {
   type HapticFeedbackType,
 } from './services/haptics';
 
+// ============================================
+// MODAL SERVICE (2026 Unified Native Modal System)
+// ============================================
+export {
+  NxtModalService,
+  type AlertConfig,
+  type ConfirmConfig,
+  type PromptConfig,
+  type PromptResult,
+  type ActionSheetConfig,
+  type ActionSheetAction,
+  type ActionSheetResult,
+  type LoadingConfig,
+  type ActiveModal,
+  type ModalCapabilities,
+  type ModalPreference,
+} from './services/modal';
+
 export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './services/logging';
 
 // ============================================
@@ -582,3 +600,18 @@ export {
   // Constants
   DEFAULT_REFRESH_CONFIG,
 } from './components/refresh-container';
+
+// ============================================
+// ANALYTICS DASHBOARD (Shared Web & Mobile)
+// ============================================
+export {
+  // Service
+  AnalyticsDashboardService,
+  // Components
+  AnalyticsDashboardShellComponent,
+  // Types
+  type AnalyticsUser,
+  // Mock Data (Development Only)
+  getMockAthleteReport,
+  getMockCoachReport,
+} from './analytics-dashboard';

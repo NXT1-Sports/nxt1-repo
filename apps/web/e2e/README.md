@@ -200,13 +200,112 @@ await expect(result).toBeVisible();
 await page.waitForTimeout(1000); // ❌
 ```
 
+## 🔶 API Mocking with MSW
+
+Mock Service Worker (MSW) provides reliable API mocking for E2E tests.
+
+### Directory Structure
+
+```
+e2e/
+├── mocks/
+│   ├── index.ts           # Barrel export
+│   ├── handlers.ts        # API mock handlers
+│   └── server.ts          # MSW server setup
+├── fixtures/
+│   └── msw.fixture.ts     # Playwright MSW fixture
+```
+
+### Using MSW in Tests
+
+```typescript
+import { testWithMSW as test, expect } from '../../fixtures';
+import { http, HttpResponse } from 'msw';
+
+test('should display profile data', async ({ page, msw }) => {
+  // Default mock handlers are automatically active
+  await page.goto('/profile');
+
+  // Access mock data for assertions
+  expect(msw.mockData.user.email).toBe('e2e-test@nxt1.com');
+});
+```
+
+### Custom Handlers
+
+Override handlers for specific test scenarios:
+
+```typescript
+test('should handle custom API response', async ({ page, msw }) => {
+  // Add custom handler for this test only
+  msw.use(
+    http.get('http://localhost:3001/api/v1/profile/me', () => {
+      return HttpResponse.json({
+        success: true,
+        data: { firstName: 'Custom', lastName: 'User' },
+      });
+    })
+  );
+
+  await page.goto('/profile');
+});
+```
+
+### Error Scenarios
+
+Simulate API failures:
+
+```typescript
+test('should handle server errors', async ({ page, msw }) => {
+  // Simulate 500 error
+  msw.simulateServerError();
+  await page.goto('/home');
+  // Verify error UI
+});
+
+test('should handle unauthorized', async ({ page, msw }) => {
+  // Simulate 401 error
+  msw.simulateUnauthorized();
+  await page.goto('/profile');
+  // Should redirect to login
+});
+
+test('should handle rate limiting', async ({ page, msw }) => {
+  // Simulate 429 error
+  msw.simulateRateLimited();
+  await page.goto('/home');
+  // Verify retry message
+});
+```
+
+### Available Mock Data
+
+```typescript
+msw.mockData.user; // Mock user object
+msw.mockData.profile; // Mock profile object
+msw.mockData.teams; // Mock teams array
+msw.mockData.posts; // Mock posts array
+msw.mockData.notifications; // Mock notifications array
+```
+
+### MSW Commands
+
+| Method                       | Description                      |
+| ---------------------------- | -------------------------------- |
+| `msw.use(handler)`           | Add custom handler for this test |
+| `msw.reset()`                | Reset to default handlers        |
+| `msw.simulateServerError()`  | Simulate 500 errors              |
+| `msw.simulateUnauthorized()` | Simulate 401 errors              |
+| `msw.simulateTimeout()`      | Simulate network timeout         |
+| `msw.simulateRateLimited()`  | Simulate 429 errors              |
+
 ## 🔧 Configuration
 
 ### Environment Variables
 
 | Variable                 | Description                      | Default                 |
 | ------------------------ | -------------------------------- | ----------------------- |
-| `E2E_BASE_URL`           | Application URL                  | `http://localhost:4200` |
+| `E2E_BASE_URL`           | Application URL                  | `http://localhost:4500` |
 | `E2E_TEST_USER_EMAIL`    | Test user email                  | -                       |
 | `E2E_TEST_USER_PASSWORD` | Test user password               | -                       |
 | `E2E_ENV`                | Environment (local/staging/prod) | `local`                 |

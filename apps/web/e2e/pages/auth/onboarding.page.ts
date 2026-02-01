@@ -265,11 +265,29 @@ export class OnboardingPage extends BasePage {
   // ===========================================================================
 
   /**
+   * Fill an Ionic input field
+   * ion-input uses shadow DOM, so we need to click then type sequentially
+   */
+  private async fillIonicInput(ionInput: Locator, value: string): Promise<void> {
+    // Click to focus the ion-input
+    await ionInput.click();
+
+    // Clear existing value
+    await this.page.keyboard.press('Meta+a');
+    await this.page.keyboard.press('Backspace');
+
+    // Type the value character by character to trigger Angular change detection
+    if (value) {
+      await this.page.keyboard.type(value, { delay: 10 });
+    }
+  }
+
+  /**
    * Fill profile step data
    */
   async fillProfile(data: OnboardingProfileData): Promise<void> {
-    await this.firstNameInput.fill(data.firstName);
-    await this.lastNameInput.fill(data.lastName);
+    await this.fillIonicInput(this.firstNameInput, data.firstName);
+    await this.fillIonicInput(this.lastNameInput, data.lastName);
 
     if (data.photoPath) {
       await this.photoInput.setInputFiles(data.photoPath);

@@ -57,6 +57,11 @@ export const routes: Routes = [
         path: 'profile',
         loadChildren: () => import('./features/profile/profile.routes'),
       },
+      // Analytics Dashboard - User Analytics & Insights
+      {
+        path: 'analytics',
+        loadChildren: () => import('./features/analytics-dashboard/analytics-dashboard.routes'),
+      },
       // Future authenticated routes go here:
       // { path: 'settings', loadComponent: ... },
     ],

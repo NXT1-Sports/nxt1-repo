@@ -62,7 +62,14 @@ export class SignupPage extends BasePage {
   readonly appleButton: Locator;
 
   /**
+   * Action buttons (from shared @nxt1/ui component)
+   */
+  readonly actionButtonsContainer: Locator;
+  readonly continueWithEmailButton: Locator;
+
+  /**
    * Form elements (from shared @nxt1/ui component)
+   * Note: Ionic ion-input uses shadow DOM - Playwright's fill() handles this automatically
    */
   readonly form: Locator;
   readonly emailInput: Locator;
@@ -72,6 +79,7 @@ export class SignupPage extends BasePage {
   readonly passwordToggle: Locator;
   readonly confirmPasswordToggle: Locator;
   readonly submitButton: Locator;
+  readonly backButton: Locator;
 
   /**
    * Navigation
@@ -107,17 +115,25 @@ export class SignupPage extends BasePage {
     this.googleButton = page.getByTestId(AUTH_TEST_IDS.BTN_GOOGLE);
     this.appleButton = page.getByTestId(AUTH_TEST_IDS.BTN_APPLE);
 
+    // Action buttons (from shared @nxt1/ui component)
+    this.actionButtonsContainer = page.getByTestId(AUTH_TEST_IDS.ACTION_BUTTONS_CONTAINER);
+    this.continueWithEmailButton = page.getByTestId(AUTH_TEST_IDS.BTN_EMAIL);
+
     // Form inputs (from shared @nxt1/ui component)
+    // Ionic ion-input uses shadow DOM - locate the native input inside
     this.form = page.getByTestId(AUTH_TEST_IDS.EMAIL_FORM);
     this.emailInput = page.getByTestId(AUTH_TEST_IDS.INPUT_EMAIL).locator('input');
     this.passwordInput = page.getByTestId(AUTH_TEST_IDS.INPUT_PASSWORD).locator('input');
-    this.confirmPasswordInput = page.locator(
-      `[data-testid="${AUTH_TEST_IDS.INPUT_CONFIRM_PASSWORD}"] input`
-    );
+    this.confirmPasswordInput = page
+      .getByTestId(AUTH_TEST_IDS.INPUT_CONFIRM_PASSWORD)
+      .locator('input');
     this.teamCodeInput = page.locator(
       `[data-testid="${AUTH_PAGE_TEST_IDS.SIGNUP_INPUT_TEAMCODE}"] input, [data-testid="${AUTH_TEST_IDS.INPUT_TEAM_CODE}"] input`
     );
     this.passwordToggle = page.getByTestId(AUTH_TEST_IDS.TOGGLE_PASSWORD);
+    this.confirmPasswordToggle = page.getByTestId(AUTH_TEST_IDS.TOGGLE_CONFIRM_PASSWORD);
+    this.submitButton = page.getByTestId(AUTH_TEST_IDS.SUBMIT_BUTTON);
+    this.backButton = page.locator(`[data-testid="${AUTH_TEST_IDS.BACK_BUTTON}"], ion-back-button`);
     this.confirmPasswordToggle = page.locator(
       `[data-testid="${AUTH_TEST_IDS.TOGGLE_CONFIRM_PASSWORD}"]`
     );
@@ -147,14 +163,54 @@ export class SignupPage extends BasePage {
    */
   async gotoAndVerify(): Promise<void> {
     await this.goto();
+    await this.waitForHydration();
     await this.assertPageLoaded();
     await this.assertVisible(this.pageTitle);
   }
 
   /**
+   * Wait for Angular SSR hydration and Ionic components to be ready
+   */
+  async waitForHydration(): Promise<void> {
+    await this.page.waitForLoadState('networkidle');
+    await this.page.waitForTimeout(500); // Allow Ionic animations to settle
+  }
+
+  /**
+   * Show email signup form (unified auth page shows social buttons first)
+   */
+  async showEmailForm(): Promise<void> {
+    await this.waitForHydration();
+
+    // Wait for the email button to be visible and stable
+    await this.continueWithEmailButton.waitFor({ state: 'visible', timeout: 10000 });
+
+    // Click to show the email form
+    await this.continueWithEmailButton.click({ force: true });
+
+    // Wait a brief moment for Angular change detection
+    await this.page.waitForTimeout(100);
+
+    // If form not visible yet, try JavaScript-based click as fallback
+    const formVisible = await this.form.isVisible().catch(() => false);
+    if (!formVisible) {
+      await this.continueWithEmailButton.evaluate((el) => {
+        (el as HTMLElement).click();
+      });
+      await this.page.waitForTimeout(100);
+    }
+
+    await this.waitForElement(this.form);
+  }
+
+  /**
    * Fill signup form with provided data
+   * Assumes email form is already visible (call showEmailForm() first)
    */
   async fillForm(data: SignupData): Promise<void> {
+    // Wait for form elements to be ready
+    await this.emailInput.waitFor({ state: 'visible', timeout: 10000 });
+
     // Fill required fields
     await this.emailInput.fill(data.email);
     await this.passwordInput.fill(data.password);
@@ -175,15 +231,22 @@ export class SignupPage extends BasePage {
 
   /**
    * Submit the signup form
+   * Uses force:true because Ionic forms may intercept pointer events
    */
   async submit(): Promise<void> {
-    await this.submitButton.click();
+    await this.submitButton.click({ force: true });
   }
 
   /**
    * Complete signup flow
+   * Handles showing email form first if needed
    */
   async signupWithEmail(data: SignupData): Promise<void> {
+    // Ensure email form is visible first
+    const formVisible = await this.form.isVisible().catch(() => false);
+    if (!formVisible) {
+      await this.showEmailForm();
+    }
     await this.fillForm(data);
     await this.submit();
   }

@@ -42,7 +42,7 @@ async function globalSetup(config: FullConfig): Promise<void> {
     return;
   }
 
-  const baseURL = config.projects[0].use.baseURL || 'http://localhost:4200';
+  const baseURL = config.projects[0].use.baseURL || 'http://localhost:4500';
 
   console.log('🔐 Setting up authentication state...');
   console.log(`   Base URL: ${baseURL}`);

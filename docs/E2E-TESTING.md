@@ -12,11 +12,12 @@ monorepo using Playwright.
 5. [Page Object Pattern](#page-object-pattern)
 6. [Writing Tests](#writing-tests)
 7. [Test Fixtures](#test-fixtures)
-8. [Authentication](#authentication)
-9. [CI/CD Integration](#cicd-integration)
-10. [Visual Regression Testing](#visual-regression-testing)
-11. [Best Practices](#best-practices)
-12. [Troubleshooting](#troubleshooting)
+8. [API Mocking with MSW](#api-mocking-with-msw)
+9. [Authentication](#authentication)
+10. [CI/CD Integration](#cicd-integration)
+11. [Visual Regression Testing](#visual-regression-testing)
+12. [Best Practices](#best-practices)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -112,7 +113,13 @@ apps/web/e2e/
 │
 ├── fixtures/                  # Playwright Fixtures
 │   ├── index.ts               # Barrel export
-│   └── test.fixture.ts        # Custom test fixtures
+│   ├── test.fixture.ts        # Custom test fixtures
+│   └── msw.fixture.ts         # MSW mocking fixture
+│
+├── mocks/                     # MSW API Mocking (2026)
+│   ├── index.ts               # Barrel export
+│   ├── handlers.ts            # API mock handlers & data
+│   └── server.ts              # MSW server setup
 │
 ├── pages/                     # Page Object Models
 │   ├── index.ts               # Barrel export
@@ -124,11 +131,15 @@ apps/web/e2e/
 │       └── forgot-password.page.ts
 │
 ├── tests/                     # Test Specifications
-│   └── auth/
-│       ├── index.ts
-│       ├── login.spec.ts
-│       ├── signup.spec.ts
-│       └── forgot-password.spec.ts
+│   ├── auth/
+│   │   ├── index.ts
+│   │   ├── login.spec.ts
+│   │   ├── signup.spec.ts
+│   │   └── forgot-password.spec.ts
+│   ├── api/
+│   │   └── api-mocking.spec.ts  # MSW example tests
+│   └── visual/
+│       └── auth-visual.spec.ts  # Visual regression tests
 │
 ├── utils/                     # Shared Utilities
 │   ├── index.ts
@@ -160,7 +171,7 @@ export default defineConfig({
 
   // Global settings
   use: {
-    baseURL: 'http://localhost:4200',
+    baseURL: 'http://localhost:4500',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'on-first-retry',
@@ -178,8 +189,8 @@ export default defineConfig({
 
   // Start dev server
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:4200',
+    command: 'npm run dev -- --port 4500',
+    url: 'http://localhost:4500',
     reuseExistingServer: !CI,
   },
 });
@@ -189,7 +200,7 @@ export default defineConfig({
 
 | Variable                 | Description           | Default                 |
 | ------------------------ | --------------------- | ----------------------- |
-| `E2E_BASE_URL`           | Application URL       | `http://localhost:4200` |
+| `E2E_BASE_URL`           | Application URL       | `http://localhost:4500` |
 | `E2E_TEST_USER_EMAIL`    | Test account email    | -                       |
 | `E2E_TEST_USER_PASSWORD` | Test account password | -                       |
 | `E2E_ENV`                | Environment name      | `local`                 |
@@ -201,7 +212,7 @@ export default defineConfig({
 // utils/environment.ts
 const environments = {
   local: {
-    baseUrl: 'http://localhost:4200',
+    baseUrl: 'http://localhost:4500',
     apiUrl: 'http://localhost:3001',
   },
   staging: {
@@ -465,6 +476,183 @@ test('login test', async ({ loginPage, testUser }) => {
   // loginPage and testUser are ready to use
   await loginPage.login(testUser.email, testUser.password);
 });
+```
+
+---
+
+## API Mocking with MSW
+
+Mock Service Worker (MSW) provides request-level API mocking for reliable E2E
+tests. It intercepts HTTP requests at the network level, allowing tests to run
+without hitting real backends.
+
+### Why MSW?
+
+| Feature            | MSW            | Playwright Route | Nock      |
+| ------------------ | -------------- | ---------------- | --------- |
+| Browser & Node     | ✅             | Browser only     | Node only |
+| Request inspection | ✅             | ⚠️ Limited       | ✅        |
+| Handler reuse      | ✅             | ❌               | ⚠️        |
+| TypeScript         | ✅ First-class | ✅               | ⚠️        |
+| Active maintenance | ✅             | ✅               | ⚠️        |
+
+### Directory Structure
+
+```
+apps/web/e2e/
+├── mocks/
+│   ├── index.ts           # Barrel export
+│   ├── handlers.ts        # API mock handlers & mock data
+│   └── server.ts          # MSW server setup
+├── fixtures/
+│   ├── test.fixture.ts    # Page object fixtures
+│   └── msw.fixture.ts     # MSW Playwright fixture
+```
+
+### Basic Usage
+
+Use `testWithMSW` fixture for tests that need API mocking:
+
+```typescript
+import { testWithMSW as test, expect } from '../../fixtures';
+
+test('should display profile data', async ({ page, msw }) => {
+  // Default mock handlers are automatically active
+  await page.goto('/profile');
+
+  // Access mock data for assertions
+  expect(msw.mockData.user.email).toBe('e2e-test@nxt1.com');
+  expect(msw.mockData.profile.firstName).toBe('E2E');
+});
+```
+
+### Custom Handlers
+
+Override handlers for specific test scenarios:
+
+```typescript
+import { http, HttpResponse } from 'msw';
+
+test('should handle custom profile', async ({ page, msw }) => {
+  // Add custom handler for this test only
+  msw.use(
+    http.get('http://localhost:3001/api/v1/profile/me', () => {
+      return HttpResponse.json({
+        success: true,
+        data: { firstName: 'Custom', lastName: 'User', role: 'coach' },
+      });
+    })
+  );
+
+  await page.goto('/profile');
+  // Test now receives custom response
+});
+```
+
+### Error Scenario Testing
+
+Simulate API failures to test error handling:
+
+```typescript
+test.describe('Error Handling', () => {
+  test('should handle server errors', async ({ page, msw }) => {
+    msw.simulateServerError(); // 500 for all requests
+    await page.goto('/home');
+    await expect(page.locator('[data-testid="error-state"]')).toBeVisible();
+  });
+
+  test('should handle unauthorized', async ({ page, msw }) => {
+    msw.simulateUnauthorized(); // 401 for all requests
+    await page.goto('/profile');
+    await expect(page).toHaveURL(/\/auth/); // Redirected to login
+  });
+
+  test('should handle rate limiting', async ({ page, msw }) => {
+    msw.simulateRateLimited(); // 429 for all requests
+    await page.goto('/home');
+    await expect(page.locator('.rate-limit-message')).toBeVisible();
+  });
+
+  test('should handle network timeout', async ({ page, msw }) => {
+    msw.simulateTimeout(); // 30s delay to trigger timeout
+    await page.goto('/home');
+    // Test timeout handling
+  });
+});
+```
+
+### Available Mock Data
+
+Access pre-configured mock data in tests:
+
+```typescript
+test('verify mock data', async ({ msw }) => {
+  // User mock
+  expect(msw.mockData.user).toMatchObject({
+    uid: 'test-user-123',
+    email: 'e2e-test@nxt1.com',
+  });
+
+  // Profile mock
+  expect(msw.mockData.profile).toMatchObject({
+    firstName: 'E2E',
+    lastName: 'Tester',
+    role: 'athlete',
+  });
+
+  // Arrays
+  expect(msw.mockData.teams).toHaveLength(2);
+  expect(msw.mockData.posts).toHaveLength(2);
+  expect(msw.mockData.notifications).toHaveLength(2);
+});
+```
+
+### MSW Fixture API
+
+| Method                       | Description                      |
+| ---------------------------- | -------------------------------- |
+| `msw.use(handler)`           | Add custom handler for this test |
+| `msw.reset()`                | Reset to default handlers        |
+| `msw.simulateServerError()`  | Simulate 500 errors              |
+| `msw.simulateUnauthorized()` | Simulate 401 errors              |
+| `msw.simulateTimeout()`      | Simulate network timeout         |
+| `msw.simulateRateLimited()`  | Simulate 429 errors              |
+| `msw.mockData`               | Access mock data objects         |
+
+### Conditional Responses
+
+Create dynamic responses based on request:
+
+```typescript
+msw.use(
+  http.get('/api/v1/search/athletes', ({ request }) => {
+    const url = new URL(request.url);
+    const query = url.searchParams.get('q');
+
+    if (query === 'quarterback') {
+      return HttpResponse.json({
+        success: true,
+        data: { results: [{ name: 'QB1' }, { name: 'QB2' }] },
+      });
+    }
+
+    return HttpResponse.json({ success: true, data: { results: [] } });
+  })
+);
+```
+
+### Adding New Mock Handlers
+
+Add handlers in `mocks/handlers.ts`:
+
+```typescript
+// Add to handlers array
+http.get(`${API_BASE}/api/v1/new-endpoint`, async () => {
+  await delay(MOCK_DELAY);
+  return apiSuccess({
+    field: 'value',
+  });
+}),
 ```
 
 ---

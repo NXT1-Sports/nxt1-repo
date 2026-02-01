@@ -108,6 +108,7 @@ export class LoginPage extends BasePage {
     this.teamCodeButton = page.getByTestId(AUTH_TEST_IDS.BTN_TEAM_CODE);
 
     // Email form (from shared @nxt1/ui component)
+    // Ionic ion-input uses shadow DOM - locate the native input inside
     this.emailForm = page.getByTestId(AUTH_TEST_IDS.EMAIL_FORM);
     this.emailInput = page.getByTestId(AUTH_TEST_IDS.INPUT_EMAIL).locator('input');
     this.passwordInput = page.getByTestId(AUTH_TEST_IDS.INPUT_PASSWORD).locator('input');
@@ -179,17 +180,42 @@ export class LoginPage extends BasePage {
 
   /**
    * Fill login form with credentials
+   * Uses clear + type to properly trigger Angular ngModel binding on ion-input
    */
   async fillCredentials(credentials: LoginCredentials): Promise<void> {
-    await this.emailInput.fill(credentials.email);
-    await this.passwordInput.fill(credentials.password);
+    // emailInput and passwordInput already point to native input inside ion-input
+    // Use pressSequentially instead of fill to properly trigger Angular change detection
+    await this.emailInput.click();
+    await this.emailInput.clear();
+    await this.emailInput.pressSequentially(credentials.email, { delay: 10 });
+
+    await this.passwordInput.click();
+    await this.passwordInput.clear();
+    await this.passwordInput.pressSequentially(credentials.password, { delay: 10 });
+
+    // Wait for Angular to process the input changes
+    await this.page.waitForTimeout(200);
   }
 
   /**
    * Submit the login form
+   * Uses multiple strategies to ensure Ionic button click works
    */
   async submit(): Promise<void> {
-    await this.submitButton.click({ force: true });
+    // Ensure button is enabled and visible
+    await this.submitButton.waitFor({ state: 'visible', timeout: 5000 });
+
+    // Check if button is disabled
+    const isDisabled = await this.submitButton.getAttribute('disabled');
+    if (isDisabled !== null) {
+      throw new Error('Submit button is disabled - form may be invalid');
+    }
+
+    // Click the Ionic button - may need to click the native button inside
+    await this.submitButton.click();
+
+    // Wait a moment for the click to register
+    await this.page.waitForTimeout(100);
   }
 
   /**
@@ -199,7 +225,83 @@ export class LoginPage extends BasePage {
   async loginWithEmail(credentials: LoginCredentials): Promise<void> {
     await this.showEmailForm();
     await this.fillCredentials(credentials);
+
+    // Submit and wait for either:
+    // 1. Navigation to home/dashboard/onboarding (success)
+    // 2. Error message to appear (failure)
     await this.submit();
+
+    // Wait a moment for Firebase Auth to process
+    await this.page.waitForTimeout(1000);
+
+    // Check for error first
+    const hasError = await this.errorMessage.isVisible().catch(() => false);
+    if (hasError) {
+      const errorText = (await this.errorText.textContent()) || 'Unknown error';
+      throw new Error(`Login failed: ${errorText}`);
+    }
+
+    // Wait for navigation away from /auth page
+    // Use a pattern that does NOT match the current auth page
+    try {
+      await this.page.waitForURL(
+        (url) => {
+          const path = url.pathname;
+          return (
+            path.includes('/home') ||
+            path.includes('/dashboard') ||
+            path.includes('/onboarding') ||
+            (!path.includes('/auth') && path !== '/')
+          );
+        },
+        { timeout: 30000 }
+      );
+    } catch {
+      // Check again for error after timeout
+      const hasErrorNow = await this.errorMessage.isVisible().catch(() => false);
+      if (hasErrorNow) {
+        const errorText = (await this.errorText.textContent()) || 'Unknown error';
+        throw new Error(`Login failed: ${errorText}`);
+      }
+      throw new Error('Login did not navigate - check credentials or backend');
+    }
+  }
+
+  /**
+   * Attempt login without throwing on error
+   * Returns true if login succeeded, false if error message appeared
+   * Use this for tests that need to verify error handling
+   */
+  async tryLoginWithEmail(credentials: LoginCredentials): Promise<boolean> {
+    await this.showEmailForm();
+    await this.fillCredentials(credentials);
+    await this.submit();
+
+    // Wait for Firebase Auth to process
+    await this.page.waitForTimeout(1500);
+
+    // Check for error
+    const hasError = await this.errorMessage.isVisible().catch(() => false);
+    return !hasError;
+  }
+
+  /**
+   * Submit form and expect validation error (form not submitted)
+   * Use for empty field validation tests
+   */
+  async submitAndExpectValidationError(): Promise<void> {
+    await this.submitButton.waitFor({ state: 'visible', timeout: 5000 });
+
+    // Check if button is disabled (expected for invalid forms)
+    const isDisabled = await this.submitButton.getAttribute('disabled');
+    if (isDisabled !== null) {
+      // This is expected behavior - form is invalid
+      return;
+    }
+
+    // If somehow enabled, click and check we stayed on page
+    await this.submitButton.click();
+    await this.page.waitForTimeout(500);
   }
 
   /**

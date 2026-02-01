@@ -1,0 +1,344 @@
+/**
+ * NxtModalService - Native Modal Styles
+ * @module @nxt1/ui/styles/components/modal
+ *
+ * Platform-adaptive styles for the unified modal system.
+ * Uses NXT1 design tokens for theme-aware colors.
+ *
+ * Targets:
+ * - .nxt-modal-alert - Alert dialogs
+ * - .nxt-modal-confirm - Confirmation dialogs
+ * - .nxt-modal-prompt - Text input prompts
+ * - .nxt-modal-action-sheet - Action sheets
+ * - .nxt-modal-loading - Loading indicators
+ * - .nxt-modal-destructive - Destructive variant
+ */
+
+/* ============================================
+   BASE MODAL STYLES
+   ============================================ */
+
+/* All modals inherit platform-specific styling via Ionic's mode */
+ion-alert.nxt-modal-alert,
+ion-alert.nxt-modal-confirm,
+ion-alert.nxt-modal-prompt {
+  /* Use design tokens for colors */
+  --background: var(--nxt-surface-color, var(--ion-background-color));
+  --max-width: 320px;
+}
+
+/* iOS-specific styling */
+ion-alert.nxt-modal-alert.ios,
+ion-alert.nxt-modal-confirm.ios,
+ion-alert.nxt-modal-prompt.ios {
+  /* SF Pro typography */
+  --ion-font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', sans-serif;
+
+  /* iOS blur effect */
+  --background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* iOS dark mode */
+@media (prefers-color-scheme: dark) {
+  ion-alert.nxt-modal-alert.ios,
+  ion-alert.nxt-modal-confirm.ios,
+  ion-alert.nxt-modal-prompt.ios {
+    --background: rgba(44, 44, 46, 0.9);
+  }
+}
+
+/* Android/Material styling */
+ion-alert.nxt-modal-alert.md,
+ion-alert.nxt-modal-confirm.md,
+ion-alert.nxt-modal-prompt.md {
+  /* Roboto typography */
+  --ion-font-family: 'Roboto', 'Google Sans', sans-serif;
+
+  /* Material elevation */
+  --box-shadow:
+    0 11px 15px -7px rgba(0, 0, 0, 0.2), 0 24px 38px 3px rgba(0, 0, 0, 0.14),
+    0 9px 46px 8px rgba(0, 0, 0, 0.12);
+
+  border-radius: 28px;
+}
+
+/* ============================================
+   ALERT STYLES
+   ============================================ */
+
+ion-alert.nxt-modal-alert .alert-head {
+  text-align: center;
+  padding: 20px 20px 8px;
+}
+
+ion-alert.nxt-modal-alert .alert-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--nxt-text-primary, var(--ion-text-color));
+}
+
+ion-alert.nxt-modal-alert .alert-message {
+  text-align: center;
+  padding: 8px 20px 20px;
+  font-size: 13px;
+  color: var(--nxt-text-secondary, var(--ion-color-medium));
+}
+
+ion-alert.nxt-modal-alert .alert-button {
+  font-weight: 600;
+  color: var(--nxt-primary-color, var(--ion-color-primary));
+}
+
+/* ============================================
+   CONFIRM STYLES
+   ============================================ */
+
+ion-alert.nxt-modal-confirm .alert-button-group {
+  display: flex;
+  flex-direction: column;
+}
+
+ion-alert.nxt-modal-confirm.ios .alert-button-group {
+  flex-direction: row;
+}
+
+ion-alert.nxt-modal-confirm .alert-button.nxt-modal-cancel-btn {
+  color: var(--nxt-text-secondary, var(--ion-color-medium));
+  font-weight: 400;
+}
+
+ion-alert.nxt-modal-confirm .alert-button.nxt-modal-confirm-btn {
+  color: var(--nxt-primary-color, var(--ion-color-primary));
+  font-weight: 600;
+}
+
+/* ============================================
+   DESTRUCTIVE STYLES
+   ============================================ */
+
+ion-alert.nxt-modal-destructive .alert-button.nxt-modal-destructive-btn,
+ion-alert .alert-button.nxt-modal-destructive-btn {
+  color: var(--nxt-error-color, var(--ion-color-danger)) !important;
+  font-weight: 600;
+}
+
+/* iOS destructive - red text */
+ion-alert.nxt-modal-destructive.ios .alert-title {
+  color: var(--nxt-error-color, var(--ion-color-danger));
+}
+
+/* Android destructive - red accent */
+ion-alert.nxt-modal-destructive.md .alert-button.nxt-modal-destructive-btn {
+  --background: var(--nxt-error-color, var(--ion-color-danger));
+  --color: white;
+  border-radius: 20px;
+  margin: 4px 16px;
+}
+
+/* ============================================
+   PROMPT STYLES
+   ============================================ */
+
+ion-alert.nxt-modal-prompt .alert-input-wrapper {
+  padding: 8px 0;
+}
+
+ion-alert.nxt-modal-prompt input.alert-input {
+  border: 1px solid var(--nxt-border-color, var(--ion-color-light-shade));
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 16px;
+  background: var(--nxt-input-background, var(--ion-item-background));
+}
+
+ion-alert.nxt-modal-prompt input.alert-input:focus {
+  border-color: var(--nxt-primary-color, var(--ion-color-primary));
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(var(--nxt-primary-rgb, 0, 122, 255), 0.2);
+}
+
+/* iOS prompt input */
+ion-alert.nxt-modal-prompt.ios input.alert-input {
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+@media (prefers-color-scheme: dark) {
+  ion-alert.nxt-modal-prompt.ios input.alert-input {
+    background: rgba(58, 58, 60, 0.8);
+  }
+}
+
+/* Android prompt input */
+ion-alert.nxt-modal-prompt.md input.alert-input {
+  border-radius: 4px;
+  border-bottom: 2px solid var(--nxt-primary-color, var(--ion-color-primary));
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  background: transparent;
+  padding: 12px 0;
+}
+
+/* ============================================
+   ACTION SHEET STYLES
+   ============================================ */
+
+ion-action-sheet.nxt-modal-action-sheet {
+  --background: var(--nxt-surface-color, var(--ion-background-color));
+}
+
+/* iOS action sheet */
+ion-action-sheet.nxt-modal-action-sheet.ios {
+  --background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+@media (prefers-color-scheme: dark) {
+  ion-action-sheet.nxt-modal-action-sheet.ios {
+    --background: rgba(44, 44, 46, 0.9);
+  }
+}
+
+ion-action-sheet.nxt-modal-action-sheet .action-sheet-button {
+  font-size: 17px;
+  min-height: 56px;
+}
+
+ion-action-sheet.nxt-modal-action-sheet .action-sheet-button.nxt-action-destructive {
+  color: var(--nxt-error-color, var(--ion-color-danger)) !important;
+}
+
+ion-action-sheet.nxt-modal-action-sheet .action-sheet-button.action-sheet-cancel {
+  font-weight: 600;
+}
+
+/* Action sheet icons */
+ion-action-sheet.nxt-modal-action-sheet .action-sheet-button ion-icon {
+  font-size: 24px;
+  margin-right: 16px;
+}
+
+/* Android action sheet - Material Design 3 */
+ion-action-sheet.nxt-modal-action-sheet.md {
+  --border-radius: 28px 28px 0 0;
+}
+
+ion-action-sheet.nxt-modal-action-sheet.md .action-sheet-group {
+  border-radius: 28px 28px 0 0;
+}
+
+/* ============================================
+   LOADING STYLES
+   ============================================ */
+
+ion-loading.nxt-modal-loading {
+  --background: var(--nxt-surface-color, var(--ion-background-color));
+  --spinner-color: var(--nxt-primary-color, var(--ion-color-primary));
+}
+
+ion-loading.nxt-modal-loading.ios {
+  --background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  --border-radius: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  ion-loading.nxt-modal-loading.ios {
+    --background: rgba(44, 44, 46, 0.9);
+  }
+}
+
+ion-loading.nxt-modal-loading.md {
+  --border-radius: 28px;
+}
+
+ion-loading.nxt-modal-loading .loading-content {
+  font-size: 14px;
+  color: var(--nxt-text-secondary, var(--ion-color-medium));
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+
+/* Smooth enter animation */
+@keyframes nxt-modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Smooth leave animation */
+@keyframes nxt-modal-leave {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* Apply to iOS alerts */
+ion-alert.nxt-modal-alert.ios .alert-wrapper,
+ion-alert.nxt-modal-confirm.ios .alert-wrapper,
+ion-alert.nxt-modal-prompt.ios .alert-wrapper {
+  animation: nxt-modal-enter 0.25s ease-out;
+}
+
+/* Apply to Android alerts - slide up */
+@keyframes nxt-modal-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+ion-alert.nxt-modal-alert.md .alert-wrapper,
+ion-alert.nxt-modal-confirm.md .alert-wrapper,
+ion-alert.nxt-modal-prompt.md .alert-wrapper {
+  animation: nxt-modal-slide-up 0.3s ease-out;
+}
+
+/* ============================================
+   SAFE AREA HANDLING
+   ============================================ */
+
+ion-action-sheet.nxt-modal-action-sheet {
+  --padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* ============================================
+   ACCESSIBILITY
+   ============================================ */
+
+/* Focus indicators for keyboard navigation */
+ion-alert .alert-button:focus-visible,
+ion-action-sheet .action-sheet-button:focus-visible {
+  outline: 2px solid var(--nxt-primary-color, var(--ion-color-primary));
+  outline-offset: 2px;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  ion-alert .alert-wrapper,
+  ion-action-sheet .action-sheet-wrapper,
+  ion-loading .loading-wrapper {
+    animation: none !important;
+  }
+}

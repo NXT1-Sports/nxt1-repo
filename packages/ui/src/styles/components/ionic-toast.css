@@ -179,15 +179,15 @@ ion-toast.nxt-toast-warning::part(container) {
   border: 1px solid var(--nxt1-color-warningDark);
 }
 
-/* Info Toast - Uses semantic info color from tokens */
+/* Info Toast - Uses primary brand color for theme-awareness */
 ion-toast.nxt-toast-info {
-  --background: var(--nxt1-color-info);
-  --color: var(--nxt1-color-neutral-dark-1000);
-  --button-color: var(--nxt1-color-neutral-dark-1000);
+  --background: var(--nxt1-color-primary);
+  --color: var(--nxt1-color-text-onPrimary);
+  --button-color: var(--nxt1-color-text-onPrimary);
 }
 
 ion-toast.nxt-toast-info::part(container) {
-  border: 1px solid var(--nxt1-color-infoDark);
+  border: 1px solid var(--nxt1-color-primaryDark);
 }
 
 /* ============================================
@@ -228,15 +228,15 @@ ion-toast.nxt-toast-warning.nxt-toast-soft::part(container) {
   border: 1px solid var(--nxt1-color-warning);
 }
 
-/* Soft Info */
+/* Soft Info - Uses primary brand color with subtle background */
 ion-toast.nxt-toast-info.nxt-toast-soft {
-  --background: var(--nxt1-color-infoBg);
-  --color: var(--nxt1-color-info);
-  --button-color: var(--nxt1-color-info);
+  --background: var(--nxt1-color-alpha-primary10);
+  --color: var(--nxt1-color-primary);
+  --button-color: var(--nxt1-color-primary);
 }
 
 ion-toast.nxt-toast-info.nxt-toast-soft::part(container) {
-  border: 1px solid var(--nxt1-color-info);
+  border: 1px solid var(--nxt1-color-primary);
 }
 
 /* ============================================

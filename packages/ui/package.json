@@ -45,14 +45,26 @@
     "@angular/core": "^21.0.0",
     "@angular/forms": "^21.0.0",
     "@angular/router": "^21.0.0",
+    "@capacitor/action-sheet": "^6.0.0 || ^7.0.0 || ^8.0.0",
     "@capacitor/core": "^6.0.0 || ^7.0.0 || ^8.0.0",
+    "@capacitor/dialog": "^6.0.0 || ^7.0.0 || ^8.0.0",
+    "@capacitor/haptics": "^6.0.0 || ^7.0.0 || ^8.0.0",
     "@capacitor/status-bar": "^8.0.0",
     "@ionic/angular": "^8.0.0",
     "ionicons": "^7.0.0 || ^8.0.0",
     "rxjs": "^7.0.0"
   },
   "peerDependenciesMeta": {
+    "@capacitor/action-sheet": {
+      "optional": true
+    },
     "@capacitor/core": {
+      "optional": true
+    },
+    "@capacitor/dialog": {
+      "optional": true
+    },
+    "@capacitor/haptics": {
       "optional": true
     },
     "capacitor-native-biometric": {

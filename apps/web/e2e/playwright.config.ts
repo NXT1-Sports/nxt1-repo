@@ -10,14 +10,21 @@
  */
 
 import { defineConfig, devices } from '@playwright/test';
-import path from 'path';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+
+/**
+ * ESM-compatible __dirname equivalent
+ */
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Load environment variables from .env file
  * Must be done before accessing process.env
  */
-dotenv.config({ path: path.join(__dirname, '.env') });
+dotenv.config({ path: join(__dirname, '.env') });
 
 /**
  * Environment configuration
@@ -29,7 +36,7 @@ const CI = !!process.env['CI'];
 /**
  * Auth storage state path for authenticated tests
  */
-export const AUTH_STORAGE_STATE = path.join(__dirname, '.auth', 'user.json');
+export const AUTH_STORAGE_STATE = join(__dirname, '.auth', 'user.json');
 
 export default defineConfig({
   // ===========================================================================
@@ -217,6 +224,15 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         // Use auth state for authenticated tests
         storageState: AUTH_STORAGE_STATE,
+        // Disable web security for Firebase Auth (CORS issues with firebaseinstallations.googleapis.com)
+        // This is required because Firebase SDK makes cross-origin requests that fail in headless Chrome
+        launchOptions: {
+          args: [
+            '--disable-web-security',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--allow-running-insecure-content',
+          ],
+        },
       },
       dependencies: ['setup'],
     },
@@ -278,11 +294,12 @@ export default defineConfig({
      * Reuse existing server if already running (don't kill it)
      */
     command: 'npm run dev -- --port 4500',
+    cwd: join(__dirname, '..'), // Run from apps/web directory
     url: BASE_URL,
-    reuseExistingServer: true,
+    reuseExistingServer: !CI, // Always start fresh in CI
     timeout: 120_000,
     // Don't pipe output when reusing server to avoid conflicts
-    stdout: 'ignore',
-    stderr: 'ignore',
+    stdout: 'pipe',
+    stderr: 'pipe',
   },
 });
