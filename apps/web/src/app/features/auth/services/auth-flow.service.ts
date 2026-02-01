@@ -718,7 +718,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   private async processMicrosoftAuthResult(
     result: {
-      user: { uid: string; email: string | null; displayName: string | null };
+      user: FirebaseUser;
       _tokenResponse?: { isNewUser?: boolean };
     },
     teamCode?: string
@@ -944,17 +944,17 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       const isServiceUnavailable =
         authErr?.code === 'auth/error-code:-47' ||
         authErr?.code === 'auth/internal-error' ||
-        err?.message?.includes('503') ||
-        err?.message?.includes('Service Unavailable');
+        authErr?.message?.includes('503') ||
+        authErr?.message?.includes('Service Unavailable');
 
       let errorMessage: string;
 
       if (isServiceUnavailable) {
         errorMessage =
           'Google sign-in service is temporarily unavailable due to Firebase server issues (Error -47). This usually resolves within 5-10 minutes. Please try again later or use Microsoft/Email sign-in as an alternative.';
-      } else if (err?.code === 'auth/popup-closed-by-user') {
+      } else if (authErr?.code === 'auth/popup-closed-by-user') {
         errorMessage = 'Sign-in was cancelled. Please try again.';
-      } else if (err?.code === 'auth/popup-blocked') {
+      } else if (authErr?.code === 'auth/popup-blocked') {
         errorMessage = 'Pop-up was blocked by your browser. Please allow pop-ups and try again.';
       } else {
         // Use centralized auth error handler for other errors
@@ -964,7 +964,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
         method: AUTH_METHODS.GOOGLE,
-        error_code: err?.code || 'unknown',
+        error_code: authErr?.code || 'unknown',
         recovery_action: isServiceUnavailable ? 'retry_later' : 'unknown',
       });
 

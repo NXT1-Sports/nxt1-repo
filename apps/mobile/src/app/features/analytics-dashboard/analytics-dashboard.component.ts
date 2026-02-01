@@ -111,8 +111,8 @@ export class AnalyticsDashboardComponent {
     if (!role) return 'athlete';
 
     // Map UserRole to AnalyticsUserRole
-    // UserRole includes: 'athlete', 'coach', 'parent', 'fan', 'team_admin', etc.
-    if (role === 'coach' || role === 'team_admin') {
+    // UserRole includes: 'athlete', 'coach', 'parent', 'fan', etc.
+    if (role === 'coach') {
       return 'coach';
     }
 
