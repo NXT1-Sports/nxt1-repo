@@ -90,7 +90,6 @@ import {
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
 import { NxtAvatarComponent } from '../avatar';
-import { NxtIconComponent } from '../icon';
 import type { PageHeaderAction, PageHeaderConfig, PageHeaderVariant } from './page-header.types';
 import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
 
