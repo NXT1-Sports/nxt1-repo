@@ -3,6 +3,8 @@
 > Professional sports platform with unified web, mobile, and backend
 > architecture.
 
+<!-- CI/CD Pipeline verified -->
+
 [![CI](https://github.com/nxt1/nxt1-workspace/actions/workflows/ci.yml/badge.svg)](https://github.com/nxt1/nxt1-workspace/actions/workflows/ci.yml)
 [![Deploy](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy.yml/badge.svg)](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy.yml)
 

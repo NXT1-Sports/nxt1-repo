@@ -120,7 +120,6 @@ addIcons({
     IonBackButton,
     IonBadge,
     NxtAvatarComponent,
-    NxtIconComponent,
   ],
   template: `
     <ion-header
