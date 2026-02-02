@@ -38,14 +38,6 @@ import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface
       (itemClick)="onItemClick($event)"
     />
   `,
-  styles: [
-    `
-      :host {
-        display: block;
-        height: 100%;
-      }
-    `,
-  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExploreComponent {

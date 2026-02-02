@@ -8,7 +8,7 @@
 
 import { Component, afterNextRender, inject, effect } from '@angular/core';
 import { Router, NavigationEnd } from '@angular/router';
-import { IonApp, IonRouterOutlet, Platform } from '@ionic/angular/standalone';
+import { IonApp, IonRouterOutlet, Platform, NavController } from '@ionic/angular/standalone';
 import {
   NxtPlatformService,
   NxtLoggingService,
@@ -34,6 +34,7 @@ import { filter } from 'rxjs/operators';
 export class AppComponent {
   private readonly router = inject(Router);
   private readonly ionicPlatform = inject(Platform);
+  private readonly navController = inject(NavController);
   private readonly nativeApp = inject(NativeAppService);
   private readonly keyboard = inject(KeyboardService);
   private readonly network = inject(NetworkService);
@@ -106,15 +107,15 @@ export class AppComponent {
     if (!user) {
       // Not authenticated - go to auth
       this.logger.info('Not authenticated, navigating to auth');
-      void this.router.navigate([AUTH_ROUTES.ROOT]);
+      void this.navController.navigateRoot(AUTH_ROUTES.ROOT);
     } else if (!user.hasCompletedOnboarding) {
       // Authenticated but onboarding incomplete - go to onboarding
       this.logger.info('Onboarding incomplete, navigating to onboarding');
-      void this.router.navigate([AUTH_REDIRECTS.ONBOARDING]);
+      void this.navController.navigateRoot(AUTH_REDIRECTS.ONBOARDING);
     } else {
       // Authenticated and onboarding complete - go to home
       this.logger.info('Authenticated and onboarded, navigating to home');
-      void this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
+      void this.navController.navigateRoot(AUTH_REDIRECTS.DEFAULT);
     }
   }
 

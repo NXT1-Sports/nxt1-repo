@@ -763,6 +763,7 @@ export type SidenavIconName =
   | 'x'
   | 'logout'
   | 'logoutFilled'
+  | 'sparkles'
   | 'twitter'
   | 'facebook'
   | 'instagram'
@@ -1120,6 +1121,18 @@ export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
         label: 'Analytics',
         icon: 'barChart',
         route: '/analytics',
+      },
+      {
+        id: 'xp',
+        label: 'XP',
+        icon: 'sparkles',
+        route: '/tabs/xp',
+      },
+      {
+        id: 'invite-team',
+        label: 'Invite team',
+        icon: 'plusCircle',
+        route: '/tabs/invite-team',
       },
     ],
   },

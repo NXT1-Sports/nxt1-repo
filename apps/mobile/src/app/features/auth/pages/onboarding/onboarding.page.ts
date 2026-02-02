@@ -343,7 +343,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
       if (!isAuthReady || !user) {
         if (attempts >= maxAttempts) {
           this.logger.error('[OnboardingPage] Timeout waiting for auth');
-          this.router.navigate(['/auth']);
+          this.navController.navigateRoot('/auth');
           return;
         }
         setTimeout(checkAuth, 100);
@@ -772,7 +772,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
     try {
       await this.haptics.impact('light');
       await this.authFlow.signOut();
-      void this.router.navigate([AUTH_ROUTES.ROOT]);
+      void this.navController.navigateRoot(AUTH_ROUTES.ROOT);
     } catch (err) {
       this.logger.error('Sign out failed', err);
       this.toast.error('Failed to sign out');

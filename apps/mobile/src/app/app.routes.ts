@@ -28,6 +28,13 @@ export const routes: Routes = [
     loadChildren: () => import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),
   },
 
+  // Create Post (modal-style, outside tabs shell)
+  {
+    path: 'create-post',
+    loadChildren: () =>
+      import('./features/create-post/create-post.routes').then((m) => m.CREATE_POST_ROUTES),
+  },
+
   // Mobile Shell - All authenticated content lives here
   {
     path: 'tabs',
@@ -85,6 +92,20 @@ export const routes: Routes = [
       {
         path: 'analytics',
         loadChildren: () => import('./features/analytics-dashboard/analytics-dashboard.routes'),
+      },
+
+      // Settings - User Settings & Preferences
+      {
+        path: 'settings',
+        loadChildren: () =>
+          import('./features/settings/settings.routes').then((m) => m.SETTINGS_ROUTES),
+      },
+
+      // XP - Gamified Tasks & Achievements
+      {
+        path: 'xp',
+        loadChildren: () =>
+          import('./features/missions/missions.routes').then((m) => m.MISSIONS_ROUTES),
       },
 
       // Developer Settings (non-production only)

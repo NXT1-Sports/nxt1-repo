@@ -85,6 +85,59 @@ import {
   closeOutline,
   menuOutline,
   personCircleOutline,
+  // Common action icons for header buttons
+  add,
+  addOutline,
+  addCircleOutline,
+  notificationsOutline,
+  notifications,
+  checkmarkDoneOutline,
+  settingsOutline,
+  shareOutline,
+  createOutline,
+  trashOutline,
+  heartOutline,
+  bookmarkOutline,
+  filterOutline,
+  optionsOutline,
+  refreshOutline,
+  downloadOutline,
+  cloudUploadOutline,
+  cameraOutline,
+  imageOutline,
+  videocamOutline,
+  micOutline,
+  sendOutline,
+  chatbubbleOutline,
+  mailOutline,
+  callOutline,
+  linkOutline,
+  copyOutline,
+  pencilOutline,
+  eyeOutline,
+  eyeOffOutline,
+  informationCircleOutline,
+  helpCircleOutline,
+  warningOutline,
+  alertCircleOutline,
+  closeCircleOutline,
+  checkmarkCircleOutline,
+  starOutline,
+  star,
+  flag,
+  flagOutline,
+  personAddOutline,
+  peopleOutline,
+  logOutOutline,
+  qrCodeOutline,
+  scanOutline,
+  expandOutline,
+  contractOutline,
+  gridOutline,
+  listOutline,
+  reorderThreeOutline,
+  ellipsisHorizontalCircleOutline,
+  ellipsisVerticalCircleOutline,
 } from 'ionicons/icons';
 
 import { NxtPlatformService } from '../../services/platform';
@@ -93,16 +146,92 @@ import { NxtAvatarComponent } from '../avatar';
 import type { PageHeaderAction, PageHeaderConfig, PageHeaderVariant } from './page-header.types';
 import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
 
-// Register Ionicons used for back button and menu
+// Register Ionicons used for back button, menu, and common action buttons
+// This comprehensive list covers most icons consumers might pass to [actions]
 addIcons({
+  // Navigation
   arrowBack,
   chevronBack,
+  menuOutline,
+  closeOutline,
+
+  // More/overflow
   ellipsisHorizontal,
   ellipsisVertical,
+  ellipsisHorizontalCircleOutline,
+  ellipsisVerticalCircleOutline,
+
+  // Search
   searchOutline,
-  closeOutline,
-  menuOutline,
+  filterOutline,
+
+  // User
   personCircleOutline,
+  personAddOutline,
+  peopleOutline,
+
+  // Common actions
+  add,
+  addOutline,
+  addCircleOutline,
+  createOutline,
+  pencilOutline,
+  trashOutline,
+  shareOutline,
+  copyOutline,
+  linkOutline,
+  downloadOutline,
+  cloudUploadOutline,
+  refreshOutline,
+
+  // Notifications/alerts
+  notificationsOutline,
+  notifications,
+  checkmarkDoneOutline,
+  checkmarkCircleOutline,
+  informationCircleOutline,
+  helpCircleOutline,
+  warningOutline,
+  alertCircleOutline,
+  closeCircleOutline,
+
+  // Settings
+  settingsOutline,
+  optionsOutline,
+
+  // Favorites/bookmarks
+  heartOutline,
+  bookmarkOutline,
+  starOutline,
+  star,
+  flag,
+  flagOutline,
+
+  // Media
+  cameraOutline,
+  imageOutline,
+  videocamOutline,
+  micOutline,
+  qrCodeOutline,
+  scanOutline,
+
+  // Communication
+  sendOutline,
+  chatbubbleOutline,
+  mailOutline,
+  callOutline,
+
+  // View controls
+  eyeOutline,
+  eyeOffOutline,
+  expandOutline,
+  contractOutline,
+  gridOutline,
+  listOutline,
+  reorderThreeOutline,
+
+  // Auth
+  logOutOutline,
 });
 
 @Component({

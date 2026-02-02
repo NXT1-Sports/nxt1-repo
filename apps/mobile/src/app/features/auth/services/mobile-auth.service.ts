@@ -13,6 +13,7 @@
 
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { Router } from '@angular/router';
+import { NavController } from '@ionic/angular/standalone';
 import { NxtPlatformService } from '@nxt1/ui';
 import {
   createAuthStateManager,
@@ -44,6 +45,7 @@ import { Subscription } from 'rxjs';
 export class MobileAuthService implements OnDestroy {
   private readonly auth = inject(Auth);
   private readonly router = inject(Router);
+  private readonly navController = inject(NavController);
   private readonly platform = inject(NxtPlatformService);
 
   private authManager!: AuthStateManager;
@@ -200,7 +202,7 @@ export class MobileAuthService implements OnDestroy {
     try {
       await signInWithEmailAndPassword(this.auth, credentials.email, credentials.password);
       // Firebase listener will handle state update
-      await this.router.navigate(['/home']);
+      await this.navController.navigateRoot('/tabs/home');
     } catch (error) {
       const message = getAuthErrorMessage(error);
       this.authManager.setError(message);
@@ -231,7 +233,7 @@ export class MobileAuthService implements OnDestroy {
       }
 
       // Firebase listener will handle state update
-      await this.router.navigate(['/home']);
+      await this.navController.navigateRoot('/tabs/home');
     } catch (error) {
       const message = getAuthErrorMessage(error);
       this.authManager.setError(message);
@@ -250,7 +252,7 @@ export class MobileAuthService implements OnDestroy {
     try {
       await firebaseSignOut(this.auth);
       await this.authManager.reset();
-      await this.router.navigate(['/auth']);
+      await this.navController.navigateRoot('/auth');
     } catch (error) {
       const message = getAuthErrorMessage(error);
       this.authManager.setError(message);

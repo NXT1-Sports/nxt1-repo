@@ -395,8 +395,8 @@ export class NxtMobileFooterComponent {
   /** Tab items to display */
   @Input() tabs: FooterTabItem[] = DEFAULT_FOOTER_TABS;
 
-  /** Currently active tab ID (if controlling externally) */
-  @Input() activeTabId?: string;
+  /** Currently active tab ID (if controlling externally). Set to null for no selection. */
+  @Input() activeTabId?: string | null;
 
   /** Footer configuration */
   @Input() config: FooterConfig = {
@@ -522,7 +522,10 @@ export class NxtMobileFooterComponent {
   }
 
   /**
-   * Update active tab based on current route
+   * Update active tab based on current route.
+   * Sets to null if no matching tab found (professional pattern:
+   * Instagram, Twitter, TikTok all show no tab selected when on
+   * pages like Settings that aren't part of the main navigation).
    */
   private updateActiveTabFromRoute(url: string): void {
     const matchedTab = this.tabs.find((tab) => {
@@ -532,9 +535,8 @@ export class NxtMobileFooterComponent {
       return url.startsWith(tab.route);
     });
 
-    if (matchedTab) {
-      this._activeTabId.set(matchedTab.id);
-    }
+    // Set to matched tab ID, or null if no match (professional apps behavior)
+    this._activeTabId.set(matchedTab?.id ?? null);
   }
 
   /**

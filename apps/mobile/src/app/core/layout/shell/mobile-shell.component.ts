@@ -269,8 +269,8 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     );
   });
 
-  /** Currently active tab ID, synced with router */
-  private readonly _activeTabId = signal<string>('home');
+  /** Currently active tab ID, synced with router (null when on pages not in footer like /settings) */
+  private readonly _activeTabId = signal<string | null>('home');
   readonly activeTabId = this._activeTabId.asReadonly();
 
   /**
@@ -564,13 +564,13 @@ export class MobileShellComponent implements OnInit, OnDestroy {
 
     // Handle action button (Agent X) differently if needed
     if (tab.isActionButton) {
-      this.handleAgentAction(tab, currentTabId);
+      this.handleAgentAction(tab, currentTabId ?? 'home');
       return;
     }
 
     // Navigate to tab route with directional animation
     if (tab.route) {
-      const direction = this.getAnimationDirection(currentTabId, tab.id);
+      const direction = this.getAnimationDirection(currentTabId ?? 'home', tab.id);
       this.navigateToTab(tab.route, direction);
     }
   }
@@ -630,15 +630,15 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Sync active tab based on current route
-   * Matches route prefix to find the corresponding tab
+   * Sync active tab based on current route.
+   * Sets to null when on pages not in the footer (like /settings, /profile)
+   * - Professional pattern: Instagram, Twitter, TikTok all show no tab
+   *   selected when on secondary pages outside main navigation.
    */
   private syncActiveTabFromRoute(url: string): void {
     const matchedTab = findTabByRoute(this.tabs(), url);
-
-    if (matchedTab) {
-      this._activeTabId.set(matchedTab.id);
-    }
+    // Set to matched tab ID or null (professional apps show no selection on secondary pages)
+    this._activeTabId.set(matchedTab?.id ?? null);
   }
 
   // ============================================
@@ -666,7 +666,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
 
     // Navigate if item has a route
     if (event.item.route) {
-      void this.router.navigate([event.item.route]);
+      void this.navController.navigateForward(event.item.route);
     }
 
     // Execute action if item has one
@@ -681,7 +681,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   onSidenavUserClick(): void {
     this.haptics.impact('light');
     this.sidenavService.close();
-    void this.router.navigate(['/tabs/profile']);
+    void this.navController.navigateForward('/tabs/profile');
   }
 
   /**
@@ -705,7 +705,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         await this.handleSignOut();
         break;
       case 'settings':
-        void this.router.navigate(['/tabs/settings']);
+        void this.navController.navigateForward('/tabs/settings');
         break;
       case 'help':
         // TODO: Open help/support modal or page

@@ -1,0 +1,598 @@
+/**
+ * @fileoverview Settings Constants - Configuration & UI Config
+ * @module @nxt1/core/settings
+ * @version 1.0.0
+ *
+ * Constants for the Settings feature including section definitions,
+ * icons, colors, and UI configuration.
+ *
+ * 100% portable - no framework dependencies.
+ *
+ * ⭐ SHARED BETWEEN WEB, MOBILE, AND BACKEND ⭐
+ */
+
+import type {
+  SettingsSectionId,
+  SettingsSection,
+  SettingsItem,
+  SettingsPreferences,
+  SettingsConnectedProvider,
+} from './settings.types';
+
+// ============================================
+// SECTION METADATA
+// ============================================
+
+/**
+ * Section metadata for rendering headers.
+ */
+export const SETTINGS_SECTIONS_META: Record<
+  SettingsSectionId,
+  { title: string; description: string; icon: string }
+> = {
+  account: {
+    title: 'Account',
+    description: 'Manage your account information and security',
+    icon: 'person-outline',
+  },
+  preferences: {
+    title: 'Preferences',
+    description: 'Customize your experience',
+    icon: 'color-palette-outline',
+  },
+  billing: {
+    title: 'Billing & Usage',
+    description: 'Manage your subscription and view usage',
+    icon: 'card-outline',
+  },
+  tools: {
+    title: 'Tools & Integrations',
+    description: 'Connected services and tracking',
+    icon: 'extension-puzzle-outline',
+  },
+  support: {
+    title: 'Support',
+    description: 'Get help and check for updates',
+    icon: 'help-circle-outline',
+  },
+  legal: {
+    title: 'Legal',
+    description: 'Privacy policy and terms of service',
+    icon: 'document-text-outline',
+  },
+} as const;
+
+/**
+ * Section order for rendering.
+ */
+export const SETTINGS_SECTION_ORDER: readonly SettingsSectionId[] = [
+  'account',
+  'preferences',
+  'billing',
+  'tools',
+  'support',
+  'legal',
+] as const;
+
+// ============================================
+// ACCOUNT SECTION ITEMS
+// ============================================
+
+export const SETTINGS_ACCOUNT_ITEMS: readonly SettingsItem[] = [
+  {
+    id: 'profile',
+    section: 'account',
+    type: 'navigation',
+    label: 'Profile Information',
+    description: 'Name, photo, and bio',
+    icon: 'person-outline',
+    route: '/profile/edit',
+  },
+  {
+    id: 'email',
+    section: 'account',
+    type: 'navigation',
+    label: 'Email Address',
+    description: 'Manage your email address',
+    icon: 'mail-outline',
+    route: '/settings/email',
+  },
+  {
+    id: 'password',
+    section: 'account',
+    type: 'navigation',
+    label: 'Password & Security',
+    description: 'Change password and security settings',
+    icon: 'shield-outline',
+    route: '/settings/security',
+  },
+  {
+    id: 'biometrics',
+    section: 'account',
+    type: 'toggle',
+    label: 'Biometric Login',
+    description: 'Use Face ID or Touch ID to sign in',
+    icon: 'finger-print-outline',
+    value: false,
+    settingKey: 'biometricLogin',
+  },
+  {
+    id: 'signOut',
+    section: 'account',
+    type: 'action',
+    label: 'Sign Out',
+    icon: 'log-out-outline',
+    variant: 'default',
+    action: 'signOut',
+  },
+  {
+    id: 'deleteAccount',
+    section: 'account',
+    type: 'action',
+    label: 'Delete Account',
+    description: 'Permanently delete your account and data',
+    icon: 'trash-outline',
+    variant: 'danger',
+    action: 'deleteAccount',
+    requiresConfirmation: true,
+    confirmationMessage:
+      'Are you sure you want to delete your account? This action cannot be undone.',
+  },
+] as const;
+
+// ============================================
+// PREFERENCES SECTION ITEMS
+// ============================================
+
+export const SETTINGS_PREFERENCES_ITEMS: readonly SettingsItem[] = [
+  {
+    id: 'theme',
+    section: 'preferences',
+    type: 'select',
+    label: 'Appearance',
+    description: 'Choose your preferred theme',
+    icon: 'moon-outline',
+    value: 'system',
+    settingKey: 'theme',
+    options: [
+      { id: 'light', label: 'Light', icon: 'sunny-outline' },
+      { id: 'dark', label: 'Dark', icon: 'moon-outline' },
+      { id: 'system', label: 'System', icon: 'color-palette-outline' },
+    ],
+  },
+  {
+    id: 'pushNotifications',
+    section: 'preferences',
+    type: 'toggle',
+    label: 'Push Notifications',
+    description: 'Receive push notifications on your device',
+    icon: 'notifications-outline',
+    value: true,
+    settingKey: 'pushNotifications',
+  },
+  {
+    id: 'emailNotifications',
+    section: 'preferences',
+    type: 'toggle',
+    label: 'Email Notifications',
+    description: 'Receive updates via email',
+    icon: 'mail-outline',
+    value: true,
+    settingKey: 'emailNotifications',
+  },
+  {
+    id: 'marketingEmails',
+    section: 'preferences',
+    type: 'toggle',
+    label: 'Marketing Emails',
+    description: 'Receive news and promotional content',
+    icon: 'mail-outline',
+    value: false,
+    settingKey: 'marketingEmails',
+  },
+  {
+    id: 'profileVisibility',
+    section: 'preferences',
+    type: 'select',
+    label: 'Profile Visibility',
+    description: 'Control who can see your profile',
+    icon: 'eye-outline',
+    value: 'public',
+    settingKey: 'profileVisibility',
+    options: [
+      { id: 'public', label: 'Public' },
+      { id: 'connections', label: 'Connections Only' },
+      { id: 'private', label: 'Private' },
+    ],
+  },
+  {
+    id: 'showActivityStatus',
+    section: 'preferences',
+    type: 'toggle',
+    label: 'Show Activity Status',
+    description: "Let others see when you're active",
+    icon: 'eye-outline',
+    value: true,
+    settingKey: 'showActivityStatus',
+  },
+] as const;
+
+// ============================================
+// BILLING SECTION ITEMS
+// ============================================
+
+export const SETTINGS_BILLING_ITEMS: readonly SettingsItem[] = [
+  {
+    id: 'currentPlan',
+    section: 'billing',
+    type: 'navigation',
+    label: 'Current Plan',
+    description: 'View and upgrade your subscription',
+    icon: 'star-outline',
+    route: '/settings/subscription',
+    displayValue: 'Free',
+  },
+  {
+    id: 'paymentMethods',
+    section: 'billing',
+    type: 'navigation',
+    label: 'Payment Methods',
+    description: 'Manage cards and payment options',
+    icon: 'card-outline',
+    route: '/settings/payment-methods',
+  },
+  {
+    id: 'billingHistory',
+    section: 'billing',
+    type: 'navigation',
+    label: 'Billing History',
+    description: 'View past invoices and receipts',
+    icon: 'receipt-outline',
+    route: '/settings/billing-history',
+  },
+  {
+    id: 'usage',
+    section: 'billing',
+    type: 'navigation',
+    label: 'Usage & Limits',
+    description: 'View your current usage statistics',
+    icon: 'trending-up-outline',
+    route: '/settings/usage',
+  },
+] as const;
+
+// ============================================
+// TOOLS SECTION ITEMS
+// ============================================
+
+export const SETTINGS_TOOLS_ITEMS: readonly SettingsItem[] = [
+  {
+    id: 'connectProvider',
+    section: 'tools',
+    type: 'navigation',
+    label: 'Connected Accounts',
+    description: 'Link social and streaming accounts',
+    icon: 'link-outline',
+    route: '/settings/connected-accounts',
+  },
+  {
+    id: 'activityTracking',
+    section: 'tools',
+    type: 'toggle',
+    label: 'Activity Tracking',
+    description: 'Track your in-app activity for insights',
+    icon: 'analytics-outline',
+    value: true,
+    settingKey: 'activityTracking',
+  },
+  {
+    id: 'analyticsTracking',
+    section: 'tools',
+    type: 'toggle',
+    label: 'Analytics',
+    description: 'Help improve NXT1 with anonymous usage data',
+    icon: 'trending-up-outline',
+    value: true,
+    settingKey: 'analyticsTracking',
+  },
+  {
+    id: 'crashReporting',
+    section: 'tools',
+    type: 'toggle',
+    label: 'Crash Reporting',
+    description: 'Automatically send crash reports to help fix issues',
+    icon: 'bug-outline',
+    value: true,
+    settingKey: 'crashReporting',
+  },
+  {
+    id: 'cloudSync',
+    section: 'tools',
+    type: 'toggle',
+    label: 'Cloud Sync',
+    description: 'Sync your data across devices',
+    icon: 'cloud-outline',
+    value: true,
+    settingKey: 'cloudSync',
+  },
+] as const;
+
+// ============================================
+// SUPPORT SECTION ITEMS
+// ============================================
+
+export const SETTINGS_SUPPORT_ITEMS: readonly SettingsItem[] = [
+  {
+    id: 'helpCenter',
+    section: 'support',
+    type: 'navigation',
+    label: 'Help Center',
+    description: 'Browse FAQs and guides',
+    icon: 'help-circle-outline',
+    externalUrl: 'https://help.nxt1sports.com',
+  },
+  {
+    id: 'contactUs',
+    section: 'support',
+    type: 'navigation',
+    label: 'Contact Us',
+    description: 'Get in touch with our support team',
+    icon: 'chatbubble-outline',
+    route: '/settings/contact',
+  },
+  {
+    id: 'reportBug',
+    section: 'support',
+    type: 'action',
+    label: 'Report a Bug',
+    description: 'Let us know about any issues',
+    icon: 'bug-outline',
+    action: 'reportBug',
+  },
+  {
+    id: 'checkUpdate',
+    section: 'support',
+    type: 'action',
+    label: 'Check for Updates',
+    description: 'Make sure you have the latest version',
+    icon: 'refresh-outline',
+    action: 'checkUpdate',
+  },
+  {
+    id: 'version',
+    section: 'support',
+    type: 'info',
+    label: 'App Version',
+    icon: 'information-circle-outline',
+    value: '2.0.0',
+  },
+] as const;
+
+// ============================================
+// LEGAL SECTION ITEMS
+// ============================================
+
+export const SETTINGS_LEGAL_ITEMS: readonly SettingsItem[] = [
+  {
+    id: 'privacyPolicy',
+    section: 'legal',
+    type: 'navigation',
+    label: 'Privacy Policy',
+    icon: 'lock-closed-outline',
+    externalUrl: 'https://nxt1sports.com/privacy',
+  },
+  {
+    id: 'termsOfService',
+    section: 'legal',
+    type: 'navigation',
+    label: 'Terms of Service',
+    icon: 'document-outline',
+    externalUrl: 'https://nxt1sports.com/terms',
+  },
+  {
+    id: 'licenses',
+    section: 'legal',
+    type: 'navigation',
+    label: 'Open Source Licenses',
+    icon: 'document-text-outline',
+    route: '/settings/licenses',
+  },
+] as const;
+
+// ============================================
+// DEFAULT SECTION CONFIGURATIONS
+// ============================================
+
+/**
+ * All default settings sections with their items.
+ */
+export const DEFAULT_SETTINGS_SECTIONS: readonly SettingsSection[] = [
+  {
+    id: 'account',
+    title: SETTINGS_SECTIONS_META.account.title,
+    description: SETTINGS_SECTIONS_META.account.description,
+    icon: 'person-outline',
+    items: SETTINGS_ACCOUNT_ITEMS,
+  },
+  {
+    id: 'preferences',
+    title: SETTINGS_SECTIONS_META.preferences.title,
+    description: SETTINGS_SECTIONS_META.preferences.description,
+    icon: 'color-palette-outline',
+    items: SETTINGS_PREFERENCES_ITEMS,
+  },
+  {
+    id: 'billing',
+    title: SETTINGS_SECTIONS_META.billing.title,
+    description: SETTINGS_SECTIONS_META.billing.description,
+    icon: 'card-outline',
+    items: SETTINGS_BILLING_ITEMS,
+  },
+  {
+    id: 'tools',
+    title: SETTINGS_SECTIONS_META.tools.title,
+    description: SETTINGS_SECTIONS_META.tools.description,
+    icon: 'extension-puzzle-outline',
+    items: SETTINGS_TOOLS_ITEMS,
+  },
+  {
+    id: 'support',
+    title: SETTINGS_SECTIONS_META.support.title,
+    description: SETTINGS_SECTIONS_META.support.description,
+    icon: 'help-circle-outline',
+    items: SETTINGS_SUPPORT_ITEMS,
+  },
+  {
+    id: 'legal',
+    title: SETTINGS_SECTIONS_META.legal.title,
+    description: SETTINGS_SECTIONS_META.legal.description,
+    icon: 'document-text-outline',
+    items: SETTINGS_LEGAL_ITEMS,
+  },
+] as const;
+
+// ============================================
+// DEFAULT PREFERENCES
+// ============================================
+
+/**
+ * Default user preferences.
+ */
+export const DEFAULT_SETTINGS_PREFERENCES: SettingsPreferences = {
+  emailNotifications: true,
+  pushNotifications: true,
+  marketingEmails: false,
+  weeklyDigest: true,
+  profileVisibility: 'public',
+  showActivityStatus: true,
+  allowTagging: true,
+  activityTracking: true,
+  analyticsTracking: true,
+  crashReporting: true,
+  theme: 'system',
+  language: 'en',
+  compactMode: false,
+} as const;
+
+// ============================================
+// CONNECTED PROVIDERS
+// ============================================
+
+/**
+ * Default connected providers list.
+ */
+export const DEFAULT_CONNECTED_PROVIDERS: readonly SettingsConnectedProvider[] = [
+  {
+    id: 'google',
+    name: 'Google',
+    icon: 'link-outline',
+    connected: false,
+    connectedAt: null,
+  },
+  {
+    id: 'apple',
+    name: 'Apple',
+    icon: 'link-outline',
+    connected: false,
+    connectedAt: null,
+  },
+  {
+    id: 'twitter',
+    name: 'X (Twitter)',
+    icon: 'link-outline',
+    connected: false,
+    connectedAt: null,
+  },
+  {
+    id: 'instagram',
+    name: 'Instagram',
+    icon: 'link-outline',
+    connected: false,
+    connectedAt: null,
+  },
+  {
+    id: 'hudl',
+    name: 'Hudl',
+    icon: 'link-outline',
+    connected: false,
+    connectedAt: null,
+  },
+] as const;
+
+// ============================================
+// UI CONFIGURATION
+// ============================================
+
+/**
+ * UI configuration for settings components.
+ */
+export const SETTINGS_UI_CONFIG = {
+  /** Animation duration in ms */
+  animationDuration: 200,
+  /** Haptic feedback type for toggles */
+  toggleHaptic: 'selection' as const,
+  /** Haptic feedback type for actions */
+  actionHaptic: 'light' as const,
+  /** Haptic feedback type for destructive actions */
+  destructiveHaptic: 'warning' as const,
+  /** Number of skeleton items to show while loading */
+  skeletonCount: 6,
+  /** Section header height */
+  sectionHeaderHeight: 48,
+  /** Item row height */
+  itemRowHeight: 64,
+  /** Item row height with description */
+  itemRowHeightWithDescription: 80,
+} as const;
+
+// ============================================
+// CACHE CONFIGURATION
+// ============================================
+
+/**
+ * Cache keys for settings data.
+ */
+export const SETTINGS_CACHE_KEYS = {
+  USER_SETTINGS: 'settings:user',
+  PREFERENCES: 'settings:preferences',
+  SUBSCRIPTION: 'settings:subscription',
+  USAGE: 'settings:usage',
+  CONNECTED_PROVIDERS: 'settings:providers',
+} as const;
+
+/**
+ * Cache TTLs for settings data.
+ */
+export const SETTINGS_CACHE_TTL = {
+  /** User settings - 5 minutes */
+  USER_SETTINGS: 300_000,
+  /** Preferences - 15 minutes */
+  PREFERENCES: 900_000,
+  /** Subscription - 1 hour */
+  SUBSCRIPTION: 3_600_000,
+  /** Usage - 5 minutes (frequently updated) */
+  USAGE: 300_000,
+  /** Connected providers - 15 minutes */
+  CONNECTED_PROVIDERS: 900_000,
+} as const;
+
+// ============================================
+// API ENDPOINTS
+// ============================================
+
+/**
+ * API endpoints for settings operations.
+ */
+export const SETTINGS_API_ENDPOINTS = {
+  GET_SETTINGS: '/api/v1/settings',
+  UPDATE_PREFERENCES: '/api/v1/settings/preferences',
+  UPDATE_PROFILE: '/api/v1/settings/profile',
+  CHANGE_PASSWORD: '/api/v1/settings/password',
+  DELETE_ACCOUNT: '/api/v1/settings/account',
+  GET_SUBSCRIPTION: '/api/v1/settings/subscription',
+  GET_USAGE: '/api/v1/settings/usage',
+  GET_BILLING_HISTORY: '/api/v1/settings/billing/history',
+  CONNECT_PROVIDER: '/api/v1/settings/providers/connect',
+  DISCONNECT_PROVIDER: '/api/v1/settings/providers/disconnect',
+  CHECK_UPDATE: '/api/v1/settings/check-update',
+} as const;

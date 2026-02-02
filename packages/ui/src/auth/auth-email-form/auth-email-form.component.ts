@@ -174,13 +174,7 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
           (ionBlur)="emailTouched.set(true)"
           data-testid="auth-input-email"
         >
-          <nxt1-icon
-            slot="start"
-            name="mail"
-            size="20"
-            class="nxt1-input-icon"
-            aria-hidden="true"
-          />
+          <nxt1-icon slot="start" name="mail" size="20" class="input-icon" aria-hidden="true" />
         </ion-input>
       </nxt1-form-field>
 
@@ -347,12 +341,14 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
       }
 
       /* Input icon styling - matching button icons */
-      .auth-input .input-icon,
-      .auth-input nxt1-icon[slot='start'],
-      .auth-input ::ng-deep nxt1-icon[slot='start'] {
-        color: var(--nxt1-color-text-primary);
+      .nxt1-input nxt1-icon[slot='start'],
+      .nxt1-input .input-icon,
+      .nxt1-input .nxt1-input-icon,
+      ion-input.nxt1-input nxt1-icon[slot='start'] {
+        color: var(--nxt1-color-text-tertiary);
         flex-shrink: 0;
-        margin-inline-end: 8px;
+        margin-inline-end: var(--nxt1-spacing-2, 8px);
+        margin-inline-start: var(--nxt1-spacing-1, 4px);
       }
 
       .auth-input-error {

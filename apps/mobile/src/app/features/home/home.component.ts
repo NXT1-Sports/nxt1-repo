@@ -29,6 +29,7 @@ import {
   IonCardContent,
   IonAvatar,
   IonIcon,
+  NavController,
 } from '@ionic/angular/standalone';
 import {
   NxtPageHeaderComponent,
@@ -284,6 +285,7 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
 export class HomeComponent {
   private readonly authFlow = inject(AuthFlowService);
   private readonly router = inject(Router);
+  private readonly navController = inject(NavController);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
@@ -316,11 +318,11 @@ export class HomeComponent {
   /** Currently selected feed */
   readonly selectedFeed = signal<string>('explore');
 
-  /** Header action buttons - Create Post button using design token icon */
+  /** Header action buttons - Create Post button using Ionicons */
   readonly headerActions = signal<PageHeaderAction[]>([
     {
       id: 'create-post',
-      icon: 'plus',
+      icon: 'add-outline', // Ionicons uses 'add' not 'plus'
       label: 'Create Post',
     },
   ]);
@@ -434,7 +436,7 @@ export class HomeComponent {
 
   /**
    * Handle create post action
-   * Opens the post creation flow
+   * Opens the post creation flow using NavController (Ionic native navigation)
    */
   async onCreatePost(): Promise<void> {
     // Haptic feedback for premium action
@@ -442,17 +444,15 @@ export class HomeComponent {
 
     this.logger.debug('Create post initiated');
 
-    // TODO: Navigate to post creation page or open modal
-    // await this.router.navigate(['/create-post']);
-    // OR: await this.modalService.openPostComposer();
-
-    this.toast.info('Post creation coming soon!');
+    // Navigate to create post page using NavController
+    // Forward navigation with slide animation (like Instagram's post creator)
+    await this.navController.navigateForward('/create-post');
   }
 
   async onSignOut(): Promise<void> {
     try {
       await this.authFlow.signOut();
-      await this.router.navigate([AUTH_ROUTES.ROOT]);
+      await this.navController.navigateRoot(AUTH_ROUTES.ROOT);
     } catch (error) {
       this.logger.error('Sign out failed', error);
     }

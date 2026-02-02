@@ -18,20 +18,69 @@ import { authGuard } from './features/auth/guards/auth.guards';
  */
 
 export const routes: Routes = [
-  // Root redirects to home
+  // Root redirects to tabs/home (matches mobile pattern)
   {
     path: '',
     pathMatch: 'full',
-    redirectTo: 'home',
+    redirectTo: 'tabs/home',
+  },
+
+  // Legacy routes redirect to /tabs/* for backwards compatibility
+  {
+    path: 'home',
+    redirectTo: 'tabs/home',
+    pathMatch: 'full',
+  },
+  {
+    path: 'agent-x',
+    redirectTo: 'tabs/agent-x',
+    pathMatch: 'prefix',
+  },
+  {
+    path: 'explore',
+    redirectTo: 'tabs/explore',
+    pathMatch: 'prefix',
+  },
+  {
+    path: 'activity',
+    redirectTo: 'tabs/activity',
+    pathMatch: 'prefix',
+  },
+  {
+    path: 'profile',
+    redirectTo: 'tabs/profile',
+    pathMatch: 'prefix',
+  },
+  {
+    path: 'analytics',
+    redirectTo: 'tabs/analytics',
+    pathMatch: 'prefix',
+  },
+  {
+    path: 'settings',
+    redirectTo: 'tabs/settings',
+    pathMatch: 'prefix',
+  },
+  {
+    path: 'xp',
+    redirectTo: 'tabs/xp',
+    pathMatch: 'prefix',
   },
 
   // Authenticated Routes with Web Shell (Desktop Nav)
+  // Uses /tabs/* pattern for cross-platform compatibility with mobile
   {
-    path: '',
+    path: 'tabs',
     loadComponent: () =>
       import('./core/layout/shell/web-shell.component').then((m) => m.WebShellComponent),
     canActivate: [authGuard],
     children: [
+      // Default tab redirect
+      {
+        path: '',
+        pathMatch: 'full',
+        redirectTo: 'home',
+      },
       // Home Page
       {
         path: 'home',
@@ -62,8 +111,16 @@ export const routes: Routes = [
         path: 'analytics',
         loadChildren: () => import('./features/analytics-dashboard/analytics-dashboard.routes'),
       },
-      // Future authenticated routes go here:
-      // { path: 'settings', loadComponent: ... },
+      // Settings - User Settings & Preferences
+      {
+        path: 'settings',
+        loadChildren: () => import('./features/settings/settings.routes'),
+      },
+      // XP - Gamified Tasks & Achievements
+      {
+        path: 'xp',
+        loadChildren: () => import('./features/missions/missions.routes'),
+      },
     ],
   },
 
@@ -73,9 +130,16 @@ export const routes: Routes = [
     loadChildren: () => import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),
   },
 
-  // Catch-all redirects to home
+  // Create Post (modal-style, outside main shell for focused experience)
+  {
+    path: 'create-post',
+    canActivate: [authGuard],
+    loadChildren: () => import('./features/create-post/create-post.routes'),
+  },
+
+  // Catch-all redirects to tabs/home
   {
     path: '**',
-    redirectTo: 'home',
+    redirectTo: 'tabs/home',
   },
 ];

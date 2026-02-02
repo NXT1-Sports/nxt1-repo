@@ -231,6 +231,34 @@ export {
 } from './agent-x';
 
 // ============================================
+// CREATE POST (Post Creation - Shared Web & Mobile)
+// ============================================
+export {
+  // Components
+  CreatePostSkeletonComponent,
+  CreatePostXpIndicatorComponent,
+  CreatePostPrivacySelectorComponent,
+  CreatePostMediaPickerComponent,
+  CreatePostEditorComponent,
+  CreatePostToolbarComponent,
+  CreatePostPreviewComponent,
+  CreatePostProgressComponent,
+  CreatePostShellComponent,
+  // Services
+  CreatePostService,
+  CreatePostApiService,
+  // Types
+  type UploadingFile,
+  type CreatePostServiceState,
+  // Mock data (dev only)
+  MOCK_CURRENT_USER,
+  MOCK_TAGGABLE_USERS,
+  MOCK_LOCATIONS,
+  MOCK_MEDIA_ITEMS,
+  MOCK_XP_PREVIEW,
+} from './create-post';
+
+// ============================================
 // ACTIVITY (Notifications - Shared Web & Mobile)
 // ============================================
 export {
@@ -289,6 +317,27 @@ export {
   MOCK_EVENTS,
   MOCK_PROFILE_PAGE_DATA,
 } from './profile';
+
+// ============================================
+// SETTINGS (User Settings - Shared Web & Mobile)
+// ============================================
+export {
+  // Service
+  SettingsService,
+  // Components
+  SettingsShellComponent,
+  SettingsSectionComponent,
+  SettingsItemComponent,
+  SettingsSkeletonComponent,
+  // Types
+  type SettingsUser,
+  type SettingsSectionToggleEvent,
+  type SettingsToggleEvent,
+  type SettingsNavigateEvent,
+  type SettingsActionEvent,
+  type SettingsSelectEvent,
+  type SettingsCopyEvent,
+} from './settings';
 
 // ============================================
 // THEME SELECTOR (2026 Professional Theme Picker)
@@ -615,3 +664,26 @@ export {
   getMockAthleteReport,
   getMockCoachReport,
 } from './analytics-dashboard';
+
+// ============================================
+// MISSIONS (Gamified Tasks - Shared Web & Mobile)
+// ============================================
+export {
+  // Service
+  MissionsService,
+  // Components
+  MissionsShellComponent,
+  MissionsProgressComponent,
+  MissionsCategoryComponent,
+  MissionsItemComponent,
+  MissionsBadgeComponent,
+  MissionsBadgeGridComponent,
+  MissionsSkeletonComponent,
+  MissionsProgressSkeletonComponent,
+  MissionsItemSkeletonComponent,
+  // Mock Data (Development Only)
+  MOCK_ATHLETE_MISSIONS,
+  MOCK_COACH_MISSIONS,
+  MOCK_ATHLETE_PROGRESS,
+  MOCK_COACH_PROGRESS,
+} from './missions';

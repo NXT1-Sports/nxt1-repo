@@ -238,8 +238,8 @@ export class WebShellComponent {
   /** Current route for active state detection */
   private readonly _currentRoute = signal('/home');
 
-  /** Active tab ID for mobile footer */
-  private readonly _activeTabId = signal<string>('home');
+  /** Active tab ID for mobile footer (null when on pages not in footer like /settings) */
+  private readonly _activeTabId = signal<string | null>('home');
   readonly activeTabId = computed(() => this._activeTabId());
 
   /** Whether we're in desktop mode (shows header instead of footer) */
@@ -373,13 +373,15 @@ export class WebShellComponent {
   }
 
   /**
-   * Sync active tab ID from current route (for mobile footer)
+   * Sync active tab ID from current route (for mobile footer).
+   * Sets to null when on pages not in the footer (like /settings, /profile)
+   * - Professional pattern: Instagram, Twitter, TikTok all show no tab
+   *   selected when on secondary pages outside main navigation.
    */
   private syncActiveTabFromRoute(url: string): void {
     const matchedTab = findTabByRoute(this.footerTabs, url);
-    if (matchedTab) {
-      this._activeTabId.set(matchedTab.id);
-    }
+    // Set to matched tab ID or null (professional apps show no selection on secondary pages)
+    this._activeTabId.set(matchedTab?.id ?? null);
   }
 
   /**
