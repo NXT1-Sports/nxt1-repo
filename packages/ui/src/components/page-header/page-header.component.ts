@@ -197,7 +197,7 @@ addIcons({
 
         <!-- Right Side: Action Buttons -->
         <ion-buttons slot="end" class="end-buttons">
-          <!-- Configured actions using NXT1 design token icons -->
+          <!-- Configured actions using Ionicons -->
           @for (action of actions(); track action.id) {
             <button
               type="button"
@@ -208,7 +208,7 @@ addIcons({
               (click)="onActionClick(action)"
               [attr.aria-label]="action.label || action.id"
             >
-              <nxt1-icon [name]="action.icon" [size]="24" class="action-icon" />
+              <ion-icon [name]="action.icon" class="action-icon" />
               @if (action.badge && action.badge > 0) {
                 <ion-badge color="danger" class="action-badge">
                   {{ action.badge > 99 ? '99+' : action.badge }}
@@ -517,6 +517,7 @@ addIcons({
       }
 
       .action-icon {
+        font-size: 24px;
         color: var(--nxt1-color-text-primary, var(--ion-text-color));
         transition: color 0.15s ease;
       }

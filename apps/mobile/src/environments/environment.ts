@@ -1,15 +1,31 @@
 /**
  * @fileoverview Development Environment Configuration
  * @module @nxt1/mobile
+ *
+ * ⚠️ AUTO-GENERATED SECTION BELOW - IP is injected by scripts/detect-local-ip.js
+ *
+ * AUTOMATIC IP DETECTION:
+ * - IP is auto-detected by running: npm run detect:ip
+ * - Automatically runs before dev builds (npm run dev, ios:dev, android:dev)
+ * - No manual configuration needed - works for all teammates
+ *
+ * BACKEND OPTIONS:
+ * 1. Local backend: Uses auto-detected IP (default for environment.ts)
+ * 2. Staging backend: Run npm run dev:staging (uses domain)
+ * 3. Production backend: Run npm run build (uses production domain)
  */
+
+// AUTO-GENERATED: Do not edit this line - updated by detect-local-ip.js
+const DETECTED_LOCAL_IP = '192.168.30.108';
 
 export const environment = {
   production: false,
   appVersion: '2.0.0-dev',
-  // Use your Mac's IP address for physical device testing
-  // Your iPhone must be on the same WiFi network
-  // Run: ifconfig en0 | grep "inet " to find your current IP
-  apiUrl: 'http://192.168.1.130:3000/api/v1/staging',
+
+  // Development API - Uses auto-detected IP for local backend
+  apiUrl: `http://${DETECTED_LOCAL_IP}:3000/api/v1/staging`,
+
+  // Firebase Staging Configuration
   firebase: {
     apiKey: 'AIzaSyDSwJsZTCXeUQ2qPPqrGHQjMwxksQ-fkvE',
     authDomain: 'nxt-1-staging.firebaseapp.com',
@@ -21,6 +37,5 @@ export const environment = {
   },
 
   googleClientId: '455734259010-qagtsakkvchuf3tnbgjgitjj80e740ib.apps.googleusercontent.com',
-
   googleServerClientId: '455734259010-d04kqk9g2kkfov38t0lrdqcrlujtrsom.apps.googleusercontent.com',
 };

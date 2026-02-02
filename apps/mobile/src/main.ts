@@ -9,6 +9,8 @@
 import { bootstrapApplication } from '@angular/platform-browser';
 import { enableProdMode } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
+import { addIcons } from 'ionicons';
+import * as allIcons from 'ionicons/icons';
 
 import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
@@ -16,6 +18,9 @@ import { environment } from './environments/environment';
 
 // Import Crashlytics for early initialization
 import { CrashlyticsService } from './app/core/services/crashlytics.service';
+
+// Register all Ionicons globally once
+addIcons(allIcons);
 
 // Fix document base URL for Capacitor
 if (Capacitor.isNativePlatform()) {
