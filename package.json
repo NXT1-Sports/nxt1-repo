@@ -19,6 +19,7 @@
     "backend"
   ],
   "scripts": {
+    "start": "node apps/web/dist/nxt1-web/server/server.mjs",
     "apphosting:build": "turbo run build --filter=@nxt1/web",
     "gcp-build": "npm run build --workspace=@nxt1/web",
     "build": "turbo run build",

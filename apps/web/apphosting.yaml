@@ -26,6 +26,16 @@ runConfig:
   # Maximum instances (controls cost ceiling)
   maxInstances: 10
 
+  # Startup probe configuration - gives app more time to initialize
+  startupProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 10
+    timeoutSeconds: 5
+    periodSeconds: 10
+    failureThreshold: 6
+
 # Environment variables available during build and runtime
 env:
   # Node.js version
