@@ -104,7 +104,9 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
           <nxt1-form-field
             label="First Name"
             inputId="firstName"
-            [error]="firstNameTouched() && firstName && !isFirstNameValid() ? '2-50 letters only' : null"
+            [error]="
+              firstNameTouched() && firstName && !isFirstNameValid() ? '2-50 letters only' : null
+            "
             testId="auth-firstname-field"
           >
             <ion-input
@@ -126,7 +128,9 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
           <nxt1-form-field
             label="Last Name"
             inputId="lastName"
-            [error]="lastNameTouched() && lastName && !isLastNameValid() ? '2-50 letters only' : null"
+            [error]="
+              lastNameTouched() && lastName && !isLastNameValid() ? '2-50 letters only' : null
+            "
             testId="auth-lastname-field"
           >
             <ion-input
@@ -170,7 +174,13 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
           (ionBlur)="emailTouched.set(true)"
           data-testid="auth-input-email"
         >
-          <nxt1-icon slot="start" name="mail" size="20" class="nxt1-input-icon" aria-hidden="true" />
+          <nxt1-icon
+            slot="start"
+            name="mail"
+            size="20"
+            class="nxt1-input-icon"
+            aria-hidden="true"
+          />
         </ion-input>
       </nxt1-form-field>
 
@@ -179,7 +189,11 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
         <nxt1-form-field
           [label]="mode === 'signup' ? 'Create Password' : 'Password'"
           inputId="password"
-          [hint]="mode === 'signup' && password.length === 0 ? 'At least ' + minPasswordLength + ' characters with uppercase, lowercase & number' : null"
+          [hint]="
+            mode === 'signup' && password.length === 0
+              ? 'At least ' + minPasswordLength + ' characters with uppercase, lowercase & number'
+              : null
+          "
           testId="auth-password-field"
         >
           <ion-input
@@ -250,14 +264,14 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
                 }
               </div>
             }
-          }
 
-          @if (mode === 'signup' && password.length === 0) {
-            <ion-note class="text-text-tertiary pl-0.5 text-xs">
-              At least {{ minPasswordLength }} characters with uppercase, lowercase & number
-            </ion-note>
+            @if (mode === 'signup' && password.length === 0) {
+              <ion-note class="text-text-tertiary pl-0.5 text-xs">
+                At least {{ minPasswordLength }} characters with uppercase, lowercase & number
+              </ion-note>
+            }
           }
-        </div>
+        </nxt1-form-field>
       }
 
       <!-- Forgot Password Link (login only) -->
