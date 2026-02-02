@@ -814,6 +814,23 @@ export const BRAND_ICONS = {
       },
     ],
   },
+
+  'notifications-outline': {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M18 8A6 6 0 1 0 6 8c0 7-3 9-3 9h18s-3-2-3-9' },
+      { d: 'M13.73 21a2 2 0 0 1-3.46 0' },
+    ],
+  },
+
+  'search-outline': {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z' }, { d: 'M21 21l-4.35-4.35' }],
+  },
 } as const;
 
 // ============================================
