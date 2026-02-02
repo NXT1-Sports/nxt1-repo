@@ -67,14 +67,14 @@ test.describe('Login Page', () => {
 
   test.describe('Successful Login', () => {
     test('should login successfully with valid credentials', async ({ loginPage, testUser }) => {
-      test.skip(!process.env.E2E_REAL_AUTH, 'Requires E2E_REAL_AUTH=true');
+      test.skip(!process.env['E2E_REAL_AUTH'], 'Requires E2E_REAL_AUTH=true');
 
       await loginPage.loginWithEmail(testUser);
       await loginPage.assertLoginSuccess();
     });
 
     test('should clear error message on successful retry', async ({ loginPage, testUser }) => {
-      test.skip(!process.env.E2E_REAL_AUTH, 'Requires E2E_REAL_AUTH=true');
+      test.skip(!process.env['E2E_REAL_AUTH'], 'Requires E2E_REAL_AUTH=true');
 
       // First, try with wrong password (should fail)
       const firstAttempt = await loginPage.tryLoginWithEmail({
@@ -101,7 +101,7 @@ test.describe('Login Page', () => {
 
   test.describe('Login Failures', () => {
     test('should show error for invalid credentials', async ({ loginPage }) => {
-      test.skip(!process.env.E2E_REAL_AUTH, 'Requires E2E_REAL_AUTH=true');
+      test.skip(!process.env['E2E_REAL_AUTH'], 'Requires E2E_REAL_AUTH=true');
 
       const success = await loginPage.tryLoginWithEmail({
         email: generateTestEmail('invalid'),

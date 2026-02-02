@@ -126,7 +126,7 @@ test.describe('Signup Page', () => {
   test.describe('Successful Registration', () => {
     // These tests require a backend server - skip in CI without backend
     test.skip(
-      () => !process.env.TEST_BACKEND_URL,
+      () => !process.env['TEST_BACKEND_URL'],
       'Skipping registration tests - no backend configured'
     );
 
@@ -169,7 +169,7 @@ test.describe('Signup Page', () => {
   test.describe('Registration Failures', () => {
     // These tests require a backend server - skip in CI without backend
     test.skip(
-      () => !process.env.TEST_BACKEND_URL,
+      () => !process.env['TEST_BACKEND_URL'],
       'Skipping registration failure tests - no backend configured'
     );
 

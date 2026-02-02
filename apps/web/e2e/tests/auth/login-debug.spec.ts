@@ -34,8 +34,8 @@ test.describe('Login Debug', () => {
     await page.waitForTimeout(500);
 
     // Fill credentials using type() which properly triggers Angular ngModel
-    const email = process.env.E2E_TEST_USER_EMAIL || 'john@nxt1sports.com';
-    const password = process.env.E2E_TEST_USER_PASSWORD || 'Jk021300!';
+    const email = process.env['E2E_TEST_USER_EMAIL'] || 'john@nxt1sports.com';
+    const password = process.env['E2E_TEST_USER_PASSWORD'] || 'Jk021300!';
 
     const emailInput = page.getByTestId('auth-input-email').locator('input');
     const passwordInput = page.getByTestId('auth-input-password').locator('input');

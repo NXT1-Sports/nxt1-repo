@@ -17,7 +17,7 @@ import { TIMEOUTS } from '@nxt1/core/testing';
 
 // Requires E2E_REAL_AUTH and test user configured to go to onboarding
 test.describe('Onboarding Flow', () => {
-  test.skip(() => !process.env.E2E_REAL_AUTH, 'Requires E2E_REAL_AUTH=true');
+  test.skip(() => !process.env['E2E_REAL_AUTH'], 'Requires E2E_REAL_AUTH=true');
 
   // ===========================================================================
   // SETUP: Login with test user before each test
@@ -187,7 +187,7 @@ test.describe('Onboarding Flow', () => {
 // ===========================================================================
 
 test.describe('Onboarding Mobile', () => {
-  test.skip(() => !process.env.E2E_REAL_AUTH, 'Requires E2E_REAL_AUTH=true');
+  test.skip(() => !process.env['E2E_REAL_AUTH'], 'Requires E2E_REAL_AUTH=true');
 
   test.use({
     viewport: { width: 390, height: 844 }, // iPhone 14 size

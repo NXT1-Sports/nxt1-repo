@@ -171,7 +171,7 @@ export class SignupPage extends BasePage {
   /**
    * Wait for Angular SSR hydration and Ionic components to be ready
    */
-  async waitForHydration(): Promise<void> {
+  override async waitForHydration(): Promise<void> {
     await this.page.waitForLoadState('networkidle');
     await this.page.waitForTimeout(500); // Allow Ionic animations to settle
   }
