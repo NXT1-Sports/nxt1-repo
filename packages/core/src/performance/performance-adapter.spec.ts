@@ -96,7 +96,7 @@ describe('Performance Adapter', () => {
 
         await trace.stop();
 
-        expect(adapter.traces[0].attributes.user_role).toBe('athlete');
+        expect(adapter.traces[0].attributes['user_role']).toBe('athlete');
       });
 
       it('should start trace with initial config', async () => {
@@ -108,8 +108,8 @@ describe('Performance Adapter', () => {
 
         await trace.stop();
 
-        expect(adapter.traces[0].metrics.initial_count).toBe(5);
-        expect(adapter.traces[0].attributes.source).toBe('test');
+        expect(adapter.traces[0].metrics['initial_count']).toBe(5);
+        expect(adapter.traces[0].attributes['source']).toBe('test');
       });
 
       it('should not record twice if stopped multiple times', async () => {
@@ -231,8 +231,8 @@ describe('Performance Adapter', () => {
           attributes: { source: 'test' },
         });
 
-        expect(adapter.traces[0].metrics.count).toBe(10);
-        expect(adapter.traces[0].attributes.source).toBe('test');
+        expect(adapter.traces[0].metrics['count']).toBe(10);
+        expect(adapter.traces[0].attributes['source']).toBe('test');
       });
     });
 
