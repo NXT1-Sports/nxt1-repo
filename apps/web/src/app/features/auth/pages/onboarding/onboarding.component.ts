@@ -998,10 +998,28 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     }
 
     // Mark onboarding complete
-    await this.authApi.completeOnboarding(user.uid);
+    console.log('📝 [Onboarding] Calling completeOnboarding API', { uid: user.uid });
+    const result = await this.authApi.completeOnboarding(user.uid);
+    console.log('✅ [Onboarding] API Response', { result });
+
+    // CRITICAL: Wait a bit for backend to persist
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    // Force clear ALL cache to ensure fresh fetch
+    const { globalAuthUserCache } = await import('@nxt1/core/auth');
+    await globalAuthUserCache.clear();
+    console.log('🧹 [Onboarding] Cleared all auth cache');
 
     // Refresh user profile
     await this.authFlow.refreshUserProfile();
+
+    // Verify onboarding status
+    const updatedUser = this.authFlow.user();
+    console.log('✅ [Onboarding] Complete, user state:', {
+      uid: user.uid,
+      hasCompletedOnboarding: updatedUser?.hasCompletedOnboarding,
+      displayName: updatedUser?.displayName,
+    });
 
     // Clear session from localStorage
     this.clearSession();

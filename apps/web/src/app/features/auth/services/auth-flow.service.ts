@@ -1491,11 +1491,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   async refreshUserProfile(): Promise<void> {
     if (this.firebaseAuth?.currentUser) {
+      const uid = this.firebaseAuth.currentUser.uid;
       // Invalidate cache to force fresh fetch from backend
       // This is critical after onboarding completion
-      await globalAuthUserCache.invalidate(this.firebaseAuth.currentUser.uid);
-      this.logger.debug('Cache invalidated for user', { uid: this.firebaseAuth.currentUser.uid });
-
+      await globalAuthUserCache.invalidate(uid);
       await this.syncUserProfile(this.firebaseAuth.currentUser);
     }
   }

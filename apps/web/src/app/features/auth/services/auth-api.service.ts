@@ -64,13 +64,17 @@ export class AuthApiService {
    */
   async getUserProfile(uid: string): Promise<User> {
     try {
-      const response = (await this.http.get(`${environment.apiURL}/auth/profile/${uid}`, {
+      const response = await this.http.get(`${environment.apiURL}/auth/profile/${uid}`, {
         timeout: 3000, // 3 second timeout for faster failure when backend is down
-      })) as {
-        data: User;
-      };
-      return response.data;
+      });
+      const profile = response as User;
+      return profile;
     } catch (error) {
+      console.error('❌ [AuthApi] Failed to fetch user profile', {
+        uid,
+        error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       this.logger.error('Failed to fetch user profile', error);
       throw error;
     }
