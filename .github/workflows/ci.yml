@@ -47,28 +47,49 @@ jobs:
         with:
           filters: |
             web:
-              - 'apps/web/**'
+              - 'apps/web/src/**'
+              - '!apps/web/**/*.spec.ts'
+              - '!apps/web/**/*.spec.tsx'
+              - '!apps/web/e2e/**'
               - 'packages/core/**'
+              - '!packages/core/**/*.spec.ts'
+              - 'packages/ui/**'
+              - '!packages/ui/**/*.spec.ts'
               - 'package.json'
               - 'turbo.json'
             mobile:
-              - 'apps/mobile/**'
+              - 'apps/mobile/src/**'
+              - '!apps/mobile/**/*.spec.ts'
+              - '!apps/mobile/**/*.spec.tsx'
               - 'packages/core/**'
+              - '!packages/core/**/*.spec.ts'
+              - 'packages/ui/**'
+              - '!packages/ui/**/*.spec.ts'
               - 'package.json'
               - 'turbo.json'
             backend:
-              - 'backend/**'
+              - 'backend/src/**'
+              - '!backend/**/*.spec.ts'
               - 'packages/core/**'
+              - '!packages/core/**/*.spec.ts'
             functions:
-              - 'apps/functions/**'
+              - 'apps/functions/src/**'
+              - '!apps/functions/**/*.spec.ts'
               - 'packages/core/**'
+              - '!packages/core/**/*.spec.ts'
             core:
-              - 'packages/core/**'
+              - 'packages/core/src/**'
+              - '!packages/core/**/*.spec.ts'
             any_code:
               - '**/*.ts'
               - '**/*.tsx'
               - '**/*.js'
               - '**/*.jsx'
+              - '!**/*.spec.ts'
+              - '!**/*.spec.tsx'
+              - '!**/*.test.ts'
+              - '!**/*.test.tsx'
+              - '!**/e2e/**'
               - '**/*.scss'
               - '**/*.css'
               - '**/*.html'
@@ -294,7 +315,7 @@ jobs:
         run: npm ci
 
       - name: Run unit tests
-        run: npm test -- --coverage
+        run: npm run test -- -- --coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
