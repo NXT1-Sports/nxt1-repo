@@ -93,8 +93,16 @@ async function initializeCrashlytics(): Promise<void> {
 
     console.log('[Bootstrap] Crashlytics initialized successfully');
   } catch (error) {
-    // Don't fail app startup if Crashlytics fails
-    console.error('[Bootstrap] Crashlytics initialization error:', error);
+    // Error code -203 is common on iOS simulator or first run - not critical
+    // App continues without Crashlytics in this case
+    const errorCode = (error as { code?: number })?.code;
+    if (errorCode === -203) {
+      console.log(
+        '[Bootstrap] Crashlytics unavailable (code -203) - continuing without crash reporting'
+      );
+    } else {
+      console.warn('[Bootstrap] Crashlytics initialization error (non-fatal):', error);
+    }
   }
 }
 

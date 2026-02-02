@@ -157,9 +157,10 @@ export class NativeAppService {
   private async initializeNativeFeatures(): Promise<void> {
     await Promise.all([this.configureStatusBar(), this.setupLifecycleListeners()]);
 
-    // Hide splash screen after configured delay
+    // Hide splash screen immediately after features are initialized
+    // We control the timing rather than relying on Capacitor's auto-hide
     if (this._config.autoHideSplash) {
-      setTimeout(() => this.hideSplashScreen(), this._config.splashDelay);
+      await this.hideSplashScreen();
     }
   }
 

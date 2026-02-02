@@ -375,9 +375,27 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     items: section.items.map((item) => ({
       ...item,
       // Remap web routes to mobile tab routes
-      route: item.route === '/profile' ? '/tabs/profile' : item.route,
+      route: this.remapRouteForMobile(item.route),
     })),
   }));
+
+  /**
+   * Remap web routes to mobile tab routes.
+   * Web uses flat routes like /profile, /analytics, /settings
+   * Mobile uses tab-prefixed routes like /tabs/profile, /tabs/analytics, /tabs/settings
+   */
+  private remapRouteForMobile(route: string | undefined): string | undefined {
+    if (!route) return route;
+
+    // Map of web routes to mobile tab routes
+    const routeMap: Record<string, string> = {
+      '/profile': '/tabs/profile',
+      '/analytics': '/tabs/analytics',
+      '/settings': '/tabs/settings',
+    };
+
+    return routeMap[route] ?? route;
+  }
 
   /** Social links for sidenav footer */
   readonly socialLinks: SocialLink[] = DEFAULT_SOCIAL_LINKS;

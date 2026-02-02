@@ -42,6 +42,8 @@
 import { Injectable, inject, PLATFORM_ID, signal, computed } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { HapticsService } from '../haptics';
+import { NxtLoggingService } from '../logging';
+import type { ILogger } from '@nxt1/core/logging';
 
 // ============================================
 // TYPES
@@ -154,6 +156,7 @@ const SCROLL_DEBOUNCE_MS = 100;
 export class NxtScrollService {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly haptics = inject(HapticsService);
+  private readonly logger: ILogger = inject(NxtLoggingService).child('ScrollService');
 
   /** Whether we're in a browser environment */
   private readonly isBrowser: boolean = isPlatformBrowser(this.platformId);
@@ -245,7 +248,7 @@ export class NxtScrollService {
       }
     } catch (error) {
       // Log but don't throw - scroll failures shouldn't crash the app
-      console.warn('[NxtScrollService] Scroll failed:', error);
+      this.logger.warn('Scroll failed', { error });
     } finally {
       // Mark scrolling complete
       this._isScrolling.set(false);
@@ -278,7 +281,9 @@ export class NxtScrollService {
       const element = typeof target === 'string' ? document.querySelector(target) : target;
 
       if (!element) {
-        console.warn('[NxtScrollService] Target element not found:', target);
+        this.logger.warn('Target element not found', {
+          target: typeof target === 'string' ? target : 'HTMLElement',
+        });
         return;
       }
 
@@ -297,7 +302,7 @@ export class NxtScrollService {
         options.onComplete();
       }
     } catch (error) {
-      console.warn('[NxtScrollService] scrollToElement failed:', error);
+      this.logger.warn('scrollToElement failed', { error });
     }
   }
 
@@ -330,12 +335,12 @@ export class NxtScrollService {
     try {
       const ionContent = this.findIonContent(element);
       if (!ionContent) {
-        console.debug('[NxtScrollService] No IonContent found, falling back to window scroll');
+        this.logger.debug('No IonContent found, falling back to window scroll');
         await this.scrollToTop({ ...options, target: 'window' });
         return false;
       }
 
-      console.debug('[NxtScrollService] Found IonContent, scrolling to top', {
+      this.logger.debug('Found IonContent, scrolling to top', {
         tagName: ionContent.tagName,
         className: ionContent.className,
         parentPage: ionContent.closest('.ion-page')?.className,
@@ -357,7 +362,7 @@ export class NxtScrollService {
 
       // Method 1: Use Ionic's native scrollToTop (preferred)
       if (typeof ionContentEl.scrollToTop === 'function') {
-        console.debug('[NxtScrollService] Using IonContent.scrollToTop()', { duration });
+        this.logger.debug('Using IonContent.scrollToTop()', { duration });
         await ionContentEl.scrollToTop(duration);
         if (typeof options.onComplete === 'function') {
           options.onComplete();
@@ -367,7 +372,7 @@ export class NxtScrollService {
 
       // Method 2: Get the internal scroll element and scroll it directly
       if (typeof ionContentEl.getScrollElement === 'function') {
-        console.debug('[NxtScrollService] Using IonContent.getScrollElement()');
+        this.logger.debug('Using IonContent.getScrollElement()');
         const scrollEl = await ionContentEl.getScrollElement();
         if (scrollEl) {
           scrollEl.scrollTo({
@@ -382,7 +387,7 @@ export class NxtScrollService {
       }
 
       // Method 3: Fallback - use native scroll on the element itself
-      console.debug('[NxtScrollService] Using native scrollTo fallback');
+      this.logger.debug('Using native scrollTo fallback');
       ionContent.scrollTo?.({
         top: options.offset ?? 0,
         behavior: behavior === 'instant' ? 'instant' : 'smooth',
@@ -393,7 +398,7 @@ export class NxtScrollService {
       }
       return true;
     } catch (error) {
-      console.warn('[NxtScrollService] scrollIonContentToTop failed:', error);
+      this.logger.warn('scrollIonContentToTop failed', { error });
       return false;
     }
   }
@@ -515,13 +520,10 @@ export class NxtScrollService {
       if (activePage) {
         const content = findDeepestContent(activePage);
         if (content) {
-          console.debug(
-            '[NxtScrollService] Found ion-content via Strategy 1 (deepest in active page)',
-            {
-              tagName: content.tagName,
-              className: content.className,
-            }
-          );
+          this.logger.debug('Found ion-content via Strategy 1 (deepest in active page)', {
+            tagName: content.tagName,
+            className: content.className,
+          });
           return content;
         }
       }
@@ -529,13 +531,10 @@ export class NxtScrollService {
       // Fallback: deepest ion-content in router outlet
       const routerContent = findDeepestContent(routerOutlet);
       if (routerContent) {
-        console.debug(
-          '[NxtScrollService] Found ion-content via Strategy 1b (deepest in router-outlet)',
-          {
-            tagName: routerContent.tagName,
-            className: routerContent.className,
-          }
-        );
+        this.logger.debug('Found ion-content via Strategy 1b (deepest in router-outlet)', {
+          tagName: routerContent.tagName,
+          className: routerContent.className,
+        });
         return routerContent;
       }
     }
@@ -545,13 +544,10 @@ export class NxtScrollService {
     if (mainContent) {
       const content = findDeepestContent(mainContent);
       if (content) {
-        console.debug(
-          '[NxtScrollService] Found ion-content via Strategy 2 (deepest in #main-content)',
-          {
-            tagName: content.tagName,
-            className: content.className,
-          }
-        );
+        this.logger.debug('Found ion-content via Strategy 2 (deepest in #main-content)', {
+          tagName: content.tagName,
+          className: content.className,
+        });
         return content;
       }
     }
@@ -563,13 +559,10 @@ export class NxtScrollService {
     if (activePage && !isInsideMenu(activePage)) {
       const content = findDeepestContent(activePage);
       if (content) {
-        console.debug(
-          '[NxtScrollService] Found ion-content via Strategy 3 (deepest in active ion-page)',
-          {
-            tagName: content.tagName,
-            className: content.className,
-          }
-        );
+        this.logger.debug('Found ion-content via Strategy 3 (deepest in active ion-page)', {
+          tagName: content.tagName,
+          className: content.className,
+        });
         return content;
       }
     }
@@ -588,21 +581,7 @@ export class NxtScrollService {
         rect.width > 0 &&
         rect.height > 0
       ) {
-        console.debug(
-          '[NxtScrollService] Found ion-content via Strategy 4 (visible, not in menu)',
-          {
-            tagName: content.tagName,
-            className: content.className,
-          }
-        );
-        return content as HTMLElement;
-      }
-    }
-
-    // Strategy 5: Last resort - first ion-content not in menu
-    for (const content of Array.from(allContents)) {
-      if (!isInsideMenu(content)) {
-        console.debug('[NxtScrollService] Found ion-content via Strategy 5 (fallback)', {
+        this.logger.debug('Found ion-content via Strategy 4 (visible, not in menu)', {
           tagName: content.tagName,
           className: content.className,
         });
@@ -610,7 +589,18 @@ export class NxtScrollService {
       }
     }
 
-    console.warn('[NxtScrollService] No suitable ion-content found');
+    // Strategy 5: Last resort - first ion-content not in menu
+    for (const content of Array.from(allContents)) {
+      if (!isInsideMenu(content)) {
+        this.logger.debug('Found ion-content via Strategy 5 (fallback)', {
+          tagName: content.tagName,
+          className: content.className,
+        });
+        return content as HTMLElement;
+      }
+    }
+
+    this.logger.warn('No suitable ion-content found');
     return null;
   }
 

@@ -30,8 +30,6 @@ import {
   IonAvatar,
   IonIcon,
 } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { personCircleOutline, searchOutline } from 'ionicons/icons';
 import {
   NxtPageHeaderComponent,
   NxtSidenavService,
@@ -331,8 +329,8 @@ export class HomeComponent {
   @HostBinding('class.ion-page') readonly ionPage = true;
 
   constructor() {
-    // Register icons
-    addIcons({ personCircleOutline, searchOutline });
+    // Icons registered globally in page-header.component.ts
+    // No need to register duplicates here
   }
 
   /**

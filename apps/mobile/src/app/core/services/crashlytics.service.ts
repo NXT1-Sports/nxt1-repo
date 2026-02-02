@@ -111,7 +111,14 @@ export class CrashlyticsService implements CrashlyticsAdapter {
         await this.log('Previous session ended with a crash');
       }
     } catch (error) {
-      console.error('[Crashlytics] Initialization failed:', error);
+      // Error code -203 is common on iOS simulator or first run - not critical
+      // Fall back to no-op mode silently in development, log warning in production
+      const errorCode = (error as { code?: number })?.code;
+      if (errorCode === -203) {
+        this.logDebug('Crashlytics unavailable (code -203) - using no-op mode');
+      } else {
+        console.warn('[Crashlytics] Initialization failed, using no-op mode:', error);
+      }
       await this.noOpAdapter.initialize(this._config);
       this._ready = true;
     }

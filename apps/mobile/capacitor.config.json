@@ -12,8 +12,8 @@
       "providers": ["apple.com", "google.com", "microsoft.com"]
     },
     "SplashScreen": {
-      "launchShowDuration": 2000,
-      "launchAutoHide": true,
+      "launchShowDuration": 0,
+      "launchAutoHide": false,
       "backgroundColor": "#0a0a0a",
       "androidSplashResourceName": "splash",
       "androidScaleType": "CENTER_CROP",

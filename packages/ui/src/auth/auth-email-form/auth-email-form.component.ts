@@ -44,6 +44,7 @@ import {
 } from '@nxt1/core/helpers';
 import { AUTH_VALIDATION } from '@nxt1/core/constants';
 import { NxtIconComponent } from '../../components/icon';
+import { NxtFormFieldComponent } from '../../components/form-field';
 
 /** Form submission data */
 export interface AuthEmailFormData {
@@ -63,7 +64,16 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
 @Component({
   selector: 'nxt1-auth-email-form',
   standalone: true,
-  imports: [CommonModule, FormsModule, IonInput, IonButton, IonSpinner, IonNote, NxtIconComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    IonInput,
+    IonButton,
+    IonSpinner,
+    IonNote,
+    NxtIconComponent,
+    NxtFormFieldComponent,
+  ],
   template: `
     <!-- Error Display -->
     @if (error) {
@@ -90,16 +100,18 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
 
       <!-- Name Fields (signup only) -->
       @if (mode === 'signup' && showNameFields) {
-        <div class="grid grid-cols-2 gap-3">
-          <div class="flex flex-col gap-2">
-            <label class="text-text-secondary text-sm font-medium" for="firstName"
-              >First Name</label
-            >
+        <div class="nxt1-name-fields">
+          <nxt1-form-field
+            label="First Name"
+            inputId="firstName"
+            [error]="firstNameTouched() && firstName && !isFirstNameValid() ? '2-50 letters only' : null"
+            testId="auth-firstname-field"
+          >
             <ion-input
               id="firstName"
               type="text"
-              class="auth-input"
-              [class.auth-input-error]="firstNameTouched() && firstName && !isFirstNameValid()"
+              class="nxt1-input"
+              [class.nxt1-input-error]="firstNameTouched() && firstName && !isFirstNameValid()"
               fill="outline"
               placeholder="First name"
               [(ngModel)]="firstName"
@@ -110,19 +122,18 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
               data-testid="auth-input-first-name"
             >
             </ion-input>
-            @if (firstNameTouched() && firstName && !isFirstNameValid()) {
-              <ion-note class="pl-0.5 text-xs text-red-400" data-testid="auth-firstname-error">
-                2-50 letters only
-              </ion-note>
-            }
-          </div>
-          <div class="flex flex-col gap-2">
-            <label class="text-text-secondary text-sm font-medium" for="lastName">Last Name</label>
+          </nxt1-form-field>
+          <nxt1-form-field
+            label="Last Name"
+            inputId="lastName"
+            [error]="lastNameTouched() && lastName && !isLastNameValid() ? '2-50 letters only' : null"
+            testId="auth-lastname-field"
+          >
             <ion-input
               id="lastName"
               type="text"
-              class="auth-input"
-              [class.auth-input-error]="lastNameTouched() && lastName && !isLastNameValid()"
+              class="nxt1-input"
+              [class.nxt1-input-error]="lastNameTouched() && lastName && !isLastNameValid()"
               fill="outline"
               placeholder="Last name"
               [(ngModel)]="lastName"
@@ -133,23 +144,22 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
               data-testid="auth-input-last-name"
             >
             </ion-input>
-            @if (lastNameTouched() && lastName && !isLastNameValid()) {
-              <ion-note class="pl-0.5 text-xs text-red-400" data-testid="auth-lastname-error">
-                2-50 letters only
-              </ion-note>
-            }
-          </div>
+          </nxt1-form-field>
         </div>
       }
 
       <!-- Email Field -->
-      <div class="flex flex-col gap-2">
-        <label class="text-text-secondary text-sm font-medium" for="email">Email Address</label>
+      <nxt1-form-field
+        label="Email Address"
+        inputId="email"
+        [error]="emailTouched() && !isEmailValid() ? 'Please enter a valid email address' : null"
+        testId="auth-email-field"
+      >
         <ion-input
           id="email"
           type="email"
-          class="auth-input"
-          [class.auth-input-error]="emailTouched() && !isEmailValid()"
+          class="nxt1-input"
+          [class.nxt1-input-error]="emailTouched() && !isEmailValid()"
           fill="outline"
           placeholder="Enter your email"
           [(ngModel)]="email"
@@ -160,26 +170,23 @@ export type PasswordStrength = 'weak' | 'fair' | 'good' | 'strong';
           (ionBlur)="emailTouched.set(true)"
           data-testid="auth-input-email"
         >
-          <nxt1-icon slot="start" name="mail" size="20" class="input-icon" aria-hidden="true" />
+          <nxt1-icon slot="start" name="mail" size="20" class="nxt1-input-icon" aria-hidden="true" />
         </ion-input>
-        @if (emailTouched() && !isEmailValid()) {
-          <ion-note class="pl-0.5 text-xs text-red-400" data-testid="auth-email-error">
-            Please enter a valid email address
-          </ion-note>
-        }
-      </div>
+      </nxt1-form-field>
 
       <!-- Password Field (not shown for reset mode) -->
       @if (mode !== 'reset') {
-        <div class="flex flex-col gap-2">
-          <label class="text-text-secondary text-sm font-medium" for="password">
-            {{ mode === 'signup' ? 'Create Password' : 'Password' }}
-          </label>
+        <nxt1-form-field
+          [label]="mode === 'signup' ? 'Create Password' : 'Password'"
+          inputId="password"
+          [hint]="mode === 'signup' && password.length === 0 ? 'At least ' + minPasswordLength + ' characters with uppercase, lowercase & number' : null"
+          testId="auth-password-field"
+        >
           <ion-input
             id="password"
             [type]="showPassword() ? 'text' : 'password'"
-            class="auth-input"
-            [class.auth-input-error]="
+            class="nxt1-input"
+            [class.nxt1-input-error]="
               passwordTouched() && mode === 'signup' && !isPasswordStrongEnough()
             "
             fill="outline"
