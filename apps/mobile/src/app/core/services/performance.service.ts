@@ -79,10 +79,10 @@ class NativeTrace implements ActiveTrace {
     if (this._state === 'stopped') return;
 
     try {
-      await FirebasePerformance.putTraceMetric({
+      await FirebasePerformance.putMetric({
         traceName: this.name,
         metricName,
-        value,
+        num: value,
       });
     } catch (error) {
       this.logger.warn(`Failed to put metric: ${metricName}`, { error });
@@ -93,7 +93,7 @@ class NativeTrace implements ActiveTrace {
     if (this._state === 'stopped') return;
 
     try {
-      await FirebasePerformance.incrementTraceMetric({
+      await FirebasePerformance.incrementMetric({
         traceName: this.name,
         metricName,
         incrementBy: delta,
@@ -108,10 +108,10 @@ class NativeTrace implements ActiveTrace {
     this._attributes[attributeName] = value;
 
     try {
-      await FirebasePerformance.putTraceAttribute({
+      await FirebasePerformance.putAttribute({
         traceName: this.name,
-        attributeName,
-        attributeValue: value,
+        attribute: attributeName,
+        value,
       });
     } catch (error) {
       this.logger.warn(`Failed to put attribute: ${attributeName}`, { error });
@@ -123,9 +123,9 @@ class NativeTrace implements ActiveTrace {
     delete this._attributes[attributeName];
 
     try {
-      await FirebasePerformance.removeTraceAttribute({
+      await FirebasePerformance.removeAttribute({
         traceName: this.name,
-        attributeName,
+        attribute: attributeName,
       });
     } catch (error) {
       this.logger.warn(`Failed to remove attribute: ${attributeName}`, { error });
@@ -147,6 +147,9 @@ class NativeTrace implements ActiveTrace {
 
 /**
  * Active HTTP metric wrapper for Capacitor Firebase Performance
+ *
+ * NOTE: HTTP metrics are not supported in @capacitor-firebase/performance v8
+ * Using no-op implementation instead
  */
 class NativeHttpMetric implements ActiveHttpMetric {
   readonly startTime: number;
@@ -157,85 +160,34 @@ class NativeHttpMetric implements ActiveHttpMetric {
     private readonly logger: ReturnType<NxtLoggingService['child']>
   ) {
     this.startTime = Date.now();
+    this.logger.debug('HTTP metrics not supported in native implementation - using no-op');
   }
 
   async setHttpResponseCode(code: number): Promise<void> {
-    try {
-      await FirebasePerformance.putHttpMetricAttribute({
-        url: this.url,
-        httpMethod: this.method,
-        attributeName: 'http_response_code',
-        attributeValue: String(code),
-      });
-    } catch (error) {
-      this.logger.warn('Failed to set HTTP response code', { error });
-    }
+    // No-op: HTTP metrics not supported in v8
   }
 
   async setRequestPayloadSize(bytes: number): Promise<void> {
-    try {
-      await FirebasePerformance.putHttpMetricAttribute({
-        url: this.url,
-        httpMethod: this.method,
-        attributeName: 'request_payload_size',
-        attributeValue: String(bytes),
-      });
-    } catch (error) {
-      this.logger.warn('Failed to set request payload size', { error });
-    }
+    // No-op: HTTP metrics not supported in v8
   }
 
   async setResponsePayloadSize(bytes: number): Promise<void> {
-    try {
-      await FirebasePerformance.putHttpMetricAttribute({
-        url: this.url,
-        httpMethod: this.method,
-        attributeName: 'response_payload_size',
-        attributeValue: String(bytes),
-      });
-    } catch (error) {
-      this.logger.warn('Failed to set response payload size', { error });
-    }
+    // No-op: HTTP metrics not supported in v8
   }
 
   async setResponseContentType(contentType: string): Promise<void> {
-    try {
-      await FirebasePerformance.putHttpMetricAttribute({
-        url: this.url,
-        httpMethod: this.method,
-        attributeName: 'content_type',
-        attributeValue: contentType,
-      });
-    } catch (error) {
-      this.logger.warn('Failed to set content type', { error });
-    }
+    // No-op: HTTP metrics not supported in v8
   }
 
   async putAttribute(name: string, value: string): Promise<void> {
-    try {
-      await FirebasePerformance.putHttpMetricAttribute({
-        url: this.url,
-        httpMethod: this.method,
-        attributeName: name,
-        attributeValue: value,
-      });
-    } catch (error) {
-      this.logger.warn(`Failed to put HTTP metric attribute: ${name}`, { error });
-    }
+    // No-op: HTTP metrics not supported in v8
   }
 
   async stop(): Promise<void> {
-    try {
-      await FirebasePerformance.stopHttpMetric({
-        url: this.url,
-        httpMethod: this.method,
-      });
-      this.logger.debug(`HTTP metric stopped: ${this.method} ${this.url}`, {
-        duration: Date.now() - this.startTime,
-      });
-    } catch (error) {
-      this.logger.warn('Failed to stop HTTP metric', { error });
-    }
+    // No-op: HTTP metrics not supported in v8
+    this.logger.debug(`HTTP metric completed (no-op): ${this.method} ${this.url}`, {
+      duration: Date.now() - this.startTime,
+    });
   }
 }
 
@@ -473,14 +425,10 @@ export class PerformanceService implements PerformanceAdapter {
       return this.noOpAdapter.startHttpMetric(url, httpMethod);
     }
 
-    try {
-      await FirebasePerformance.startHttpMetric({ url, httpMethod });
-      this.logger.debug(`HTTP metric started: ${httpMethod} ${url}`);
-      return new NativeHttpMetric(url, httpMethod, this.logger);
-    } catch (error) {
-      this.logger.warn('Failed to start HTTP metric', { error });
-      return this.noOpAdapter.startHttpMetric(url, httpMethod);
-    }
+    // HTTP metrics not supported in @capacitor-firebase/performance v8
+    // Return NativeHttpMetric which logs but doesn't actually track
+    this.logger.debug(`HTTP metric started (no-op): ${httpMethod} ${url}`);
+    return new NativeHttpMetric(url, httpMethod, this.logger);
   }
 
   // ==========================================
