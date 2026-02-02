@@ -99,7 +99,8 @@
   "overrides": {
     "@capacitor/core": "^8.0.1",
     "@capacitor/ios": "^8.0.1",
-    "@capacitor/android": "^8.0.1"
+    "@capacitor/android": "^8.0.1",
+    "chokidar": "^4.0.3"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
