@@ -91,12 +91,12 @@
 			<key>CFBundleURLName</key>
 			<string>Microsoft Auth</string>
 		</dict>
-		<!-- App Deep Link Scheme -->
+		<!-- App Deep Link Scheme (custom URL scheme fallback) -->
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>nxt1</string>
-				<string>nxt1app</string>
+				<string>nxt1sports</string>
 			</array>
 			<key>CFBundleURLName</key>
 			<string>NXT1 Deep Links</string>

@@ -1,0 +1,116 @@
+/**
+ * @fileoverview NXT1 Sheet Modal Styles
+ * @module @nxt1/ui/styles/components/sheet-modal
+ * @version 1.0.0
+ *
+ * Generic draggable bottom sheet modal styles.
+ * Reusable for any feature that needs a native-style sheet modal:
+ * - Edit Profile
+ * - Settings panels
+ * - Filter sheets
+ * - Detail views
+ * - Any full-height draggable content
+ *
+ * Features:
+ * - Native drag handle bar at top
+ * - Multiple breakpoints (drag to resize)
+ * - Platform-adaptive (iOS rounded, Android square)
+ * - 100% theme-aware using NXT1 design tokens
+ *
+ * Usage:
+ * ```typescript
+ * await this.modalCtrl.create({
+ *   component: MyComponent,
+ *   breakpoints: [0, 0.5, 0.75, 1],
+ *   initialBreakpoint: 0.75,
+ *   handle: true,
+ *   cssClass: this.platform.isIOS()
+ *     ? 'nxt1-sheet-modal nxt1-sheet-modal--ios'
+ *     : 'nxt1-sheet-modal nxt1-sheet-modal--android',
+ * });
+ * ```
+ *
+ * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
+ */
+
+/* ============================================
+   BASE SHEET MODAL STYLES
+   ============================================ */
+
+.nxt1-sheet-modal {
+  --background: var(--nxt1-color-bg-primary);
+  --width: 100%;
+  --max-width: 100%;
+}
+
+.nxt1-sheet-modal::part(content) {
+  background: var(--nxt1-color-bg-primary);
+}
+
+/* ============================================
+   NATIVE DRAG HANDLE (Grabber Bar)
+   ============================================ */
+
+.nxt1-sheet-modal::part(handle) {
+  background: var(--nxt1-color-surface-400);
+  width: 36px;
+  height: 5px;
+  border-radius: 2.5px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+/* ============================================
+   BACKDROP STYLING
+   ============================================ */
+
+.nxt1-sheet-modal::part(backdrop) {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* ============================================
+   iOS PLATFORM STYLES
+   Rounded corners, native sheet feel
+   ============================================ */
+
+.nxt1-sheet-modal--ios {
+  --border-radius: var(--nxt1-radius-2xl, 1.5rem) var(--nxt1-radius-2xl, 1.5rem) 0 0;
+}
+
+.nxt1-sheet-modal--ios::part(content) {
+  border-top-left-radius: var(--nxt1-radius-2xl, 1.5rem);
+  border-top-right-radius: var(--nxt1-radius-2xl, 1.5rem);
+}
+
+/* ============================================
+   ANDROID PLATFORM STYLES
+   Slightly rounded, material shadow
+   ============================================ */
+
+.nxt1-sheet-modal--android {
+  --border-radius: var(--nxt1-radius-lg, 1rem) var(--nxt1-radius-lg, 1rem) 0 0;
+  --box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.nxt1-sheet-modal--android::part(content) {
+  border-top-left-radius: var(--nxt1-radius-lg, 1rem);
+  border-top-right-radius: var(--nxt1-radius-lg, 1rem);
+}
+
+/* ============================================
+   SHEET MODAL VARIANTS
+   ============================================ */
+
+/* Full-screen variant (no breakpoints, always 100%) */
+.nxt1-sheet-modal--fullscreen {
+  --height: 100%;
+}
+
+.nxt1-sheet-modal--fullscreen::part(handle) {
+  display: none;
+}
+
+/* Compact variant (max 50% height) */
+.nxt1-sheet-modal--compact {
+  --max-height: 50vh;
+}

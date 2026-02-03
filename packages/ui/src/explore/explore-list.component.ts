@@ -305,9 +305,13 @@ export class ExploreListComponent {
     const state = EXPLORE_INITIAL_STATES[this.activeTab()];
     const iconMap: Record<ExploreTabId, string> = {
       colleges: 'school-outline',
-      videos: 'play-circle-outline',
       athletes: 'person-outline',
       teams: 'people-outline',
+      videos: 'play-circle-outline',
+      leaderboards: 'trophy-outline',
+      'scout-reports': 'clipboard-outline',
+      camps: 'calendar-outline',
+      events: 'ticket-outline',
     };
     return { ...state, icon: iconMap[this.activeTab()] };
   });

@@ -85,6 +85,16 @@ export const routes: Routes = [
     redirectTo: 'tabs/xp',
     pathMatch: 'prefix',
   },
+  {
+    path: 'scout-reports',
+    redirectTo: 'tabs/scout-reports',
+    pathMatch: 'prefix',
+  },
+  {
+    path: 'invite',
+    redirectTo: 'tabs/invite',
+    pathMatch: 'prefix',
+  },
 
   // Authenticated Routes with Web Shell (Desktop Nav)
   // Uses /tabs/* pattern for cross-platform compatibility with mobile
@@ -120,6 +130,11 @@ export const routes: Routes = [
         path: 'activity',
         loadChildren: () => import('./features/activity/activity.routes'),
       },
+      // News - Sports Recruiting News Feed
+      {
+        path: 'news',
+        loadChildren: () => import('./features/news/news.routes'),
+      },
       // Profile - User Profile Page
       {
         path: 'profile',
@@ -138,7 +153,17 @@ export const routes: Routes = [
       // XP - Gamified Tasks & Achievements
       {
         path: 'xp',
-        loadChildren: () => import('./features/missions/missions.routes'),
+        loadChildren: () => import('./features/xp/xp.routes'),
+      },
+      // Scout Reports - Athlete Scout Reports & Ratings
+      {
+        path: 'scout-reports',
+        loadChildren: () => import('./features/scout-reports/scout-reports.routes'),
+      },
+      // Invite - Referral & Sharing
+      {
+        path: 'invite',
+        loadChildren: () => import('./features/invite/invite.routes'),
       },
     ],
   },

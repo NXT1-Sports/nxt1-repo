@@ -1,0 +1,37 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "794G2RS4WQ.com.nxt1sports.nxt1",
+        "paths": [
+          "NOT /__/auth/action/",
+          "NOT /__/auth/handler/",
+          "NOT /_/*",
+          "NOT /api/*",
+          "/profile/*",
+          "/athlete/*",
+          "/team/*",
+          "/post/*",
+          "/rankings",
+          "/rankings/*",
+          "/college/*",
+          "/settings",
+          "/settings/*",
+          "/explore",
+          "/search",
+          "/home",
+          "/*"
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "794G2RS4WQ.com.nxt1sports.nxt1"
+    ]
+  },
+  "appclips": {
+    "apps": []
+  }
+}

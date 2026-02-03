@@ -88,6 +88,12 @@ export const routes: Routes = [
           import('./features/activity/activity.routes').then((m) => m.ACTIVITY_ROUTES),
       },
 
+      // News - Sports Recruiting News Feed
+      {
+        path: 'news',
+        loadChildren: () => import('./features/news/news.routes').then((m) => m.NEWS_ROUTES),
+      },
+
       // Analytics Dashboard - User Analytics & Insights
       {
         path: 'analytics',
@@ -104,8 +110,16 @@ export const routes: Routes = [
       // XP - Gamified Tasks & Achievements
       {
         path: 'xp',
+        loadChildren: () => import('./features/xp/xp.routes').then((m) => m.XP_ROUTES),
+      },
+
+      // Scout Reports - Premium recruiting analysis
+      {
+        path: 'scout-reports',
         loadChildren: () =>
-          import('./features/missions/missions.routes').then((m) => m.MISSIONS_ROUTES),
+          import('./features/scout-reports/scout-reports.routes').then(
+            (m) => m.SCOUT_REPORTS_ROUTES
+          ),
       },
 
       // Developer Settings (non-production only)
@@ -131,6 +145,13 @@ export const routes: Routes = [
     path: 'home',
     redirectTo: 'tabs/home',
     pathMatch: 'full',
+  },
+
+  // Legacy /scout-reports redirect
+  {
+    path: 'scout-reports',
+    redirectTo: 'tabs/scout-reports',
+    pathMatch: 'prefix',
   },
 
   // Catch-all redirect to tabs

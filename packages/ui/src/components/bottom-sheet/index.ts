@@ -4,6 +4,10 @@
  *
  * Exports all bottom sheet related components, services, and types.
  *
+ * Two patterns supported:
+ * 1. Action Sheets: Confirmations, alerts, action menus (show/confirm/alert)
+ * 2. Content Sheets: Full component injection (openSheet)
+ *
  * Usage:
  * ```typescript
  * import {
@@ -11,8 +15,19 @@
  *   NxtBottomSheetService,
  *   BottomSheetConfig,
  *   BottomSheetResult,
- *   BottomSheetAction,
+ *   ContentSheetConfig,
+ *   ContentSheetResult,
  * } from '@nxt1/ui';
+ *
+ * // Action sheet
+ * const confirmed = await bottomSheet.confirm('Delete?', 'Cannot undo');
+ *
+ * // Content sheet (inject any component)
+ * const result = await bottomSheet.openSheet({
+ *   component: MyComponent,
+ *   breakpoints: [0, 0.5, 0.75, 1],
+ *   initialBreakpoint: 0.75,
+ * });
  * ```
  */
 
@@ -28,4 +43,6 @@ export type {
   BottomSheetConfig,
   BottomSheetResult,
   BottomSheetVariant,
+  ContentSheetConfig,
+  ContentSheetResult,
 } from './bottom-sheet.types';

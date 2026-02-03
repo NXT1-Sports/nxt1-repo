@@ -17,13 +17,13 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { Router, RouterModule } from '@angular/router';
 import { IonContent } from '@ionic/angular/standalone';
-import { Router } from '@angular/router';
 import {
   NxtPageHeaderComponent,
   NxtOptionScrollerComponent,
   NxtLoggingService,
+  NewsContentComponent,
   type PageHeaderAction,
   type OptionScrollerItem,
   type OptionScrollerChangeEvent,
@@ -40,6 +40,7 @@ import { SeoService } from '../../core/services/seo.service';
     IonContent,
     NxtPageHeaderComponent,
     NxtOptionScrollerComponent,
+    NewsContentComponent,
   ],
   template: `
     <!-- Page Header with Logo (Twitter/X style) -->
@@ -53,150 +54,165 @@ import { SeoService } from '../../core/services/seo.service';
     <nxt1-option-scroller
       [options]="feedOptions()"
       [selectedId]="selectedFeed()"
-      [config]="{ scrollable: true, stretchToFill: false }"
+      [config]="{ scrollable: false, stretchToFill: true }"
       (selectionChange)="onFeedChange($event)"
     />
 
     <ion-content>
-      <div class="home-page">
-        <!-- Main Content -->
-        <div class="home-content">
-          <!-- Welcome Section -->
-          <section class="welcome-section">
-            <h1 class="welcome-title">Welcome to NXT1 Sports! 🎉</h1>
-            <p class="welcome-subtitle">
-              Your recruiting journey starts here. This is a placeholder home page.
-            </p>
-          </section>
+      @switch (selectedFeed()) {
+        @case ('news') {
+          <nxt1-news-content
+            (articleSelect)="onNewsArticleSelect($event)"
+            (xpBadgeClick)="onXpBadgeClick()"
+          />
+        }
+        @case ('following') {
+          <div class="feed-placeholder">
+            <p>Following feed coming soon...</p>
+          </div>
+        }
+        @default {
+          <div class="home-page">
+            <!-- Main Content -->
+            <div class="home-content">
+              <!-- Welcome Section -->
+              <section class="welcome-section">
+                <h1 class="welcome-title">Welcome to NXT1 Sports! 🎉</h1>
+                <p class="welcome-subtitle">
+                  Your recruiting journey starts here. This is a placeholder home page.
+                </p>
+              </section>
 
-          <!-- Feature Cards Grid -->
-          <section class="feature-grid">
-            <!-- Card 1: Profile -->
-            <article class="feature-card">
-              <div class="card-icon card-icon--blue">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                  />
-                </svg>
-              </div>
-              <h3 class="card-title">Your Profile</h3>
-              <p class="card-description">
-                View and edit your athletic profile, stats, and achievements.
-              </p>
-            </article>
+              <!-- Feature Cards Grid -->
+              <section class="feature-grid">
+                <!-- Card 1: Profile -->
+                <article class="feature-card">
+                  <div class="card-icon card-icon--blue">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                      />
+                    </svg>
+                  </div>
+                  <h3 class="card-title">Your Profile</h3>
+                  <p class="card-description">
+                    View and edit your athletic profile, stats, and achievements.
+                  </p>
+                </article>
 
-            <!-- Card 2: Explore -->
-            <article class="feature-card">
-              <div class="card-icon card-icon--green">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
-              </div>
-              <h3 class="card-title">Explore</h3>
-              <p class="card-description">
-                Discover colleges, coaches, and opportunities that match your goals.
-              </p>
-            </article>
+                <!-- Card 2: Explore -->
+                <article class="feature-card">
+                  <div class="card-icon card-icon--green">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                      />
+                    </svg>
+                  </div>
+                  <h3 class="card-title">Explore</h3>
+                  <p class="card-description">
+                    Discover colleges, coaches, and opportunities that match your goals.
+                  </p>
+                </article>
 
-            <!-- Card 3: Messages -->
-            <article class="feature-card">
-              <div class="card-icon card-icon--purple">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
-                  />
-                </svg>
-              </div>
-              <h3 class="card-title">Messages</h3>
-              <p class="card-description">
-                Connect with coaches and teammates through secure messaging.
-              </p>
-            </article>
+                <!-- Card 3: Messages -->
+                <article class="feature-card">
+                  <div class="card-icon card-icon--purple">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                      />
+                    </svg>
+                  </div>
+                  <h3 class="card-title">Messages</h3>
+                  <p class="card-description">
+                    Connect with coaches and teammates through secure messaging.
+                  </p>
+                </article>
 
-            <!-- Card 4: Stats -->
-            <article class="feature-card">
-              <div class="card-icon card-icon--orange">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                  />
-                </svg>
-              </div>
-              <h3 class="card-title">Performance</h3>
-              <p class="card-description">
-                Track your athletic performance and improvement over time.
-              </p>
-            </article>
+                <!-- Card 4: Stats -->
+                <article class="feature-card">
+                  <div class="card-icon card-icon--orange">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                      />
+                    </svg>
+                  </div>
+                  <h3 class="card-title">Performance</h3>
+                  <p class="card-description">
+                    Track your athletic performance and improvement over time.
+                  </p>
+                </article>
 
-            <!-- Card 5: Videos -->
-            <article class="feature-card">
-              <div class="card-icon card-icon--red">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                  />
-                </svg>
-              </div>
-              <h3 class="card-title">Highlight Reel</h3>
-              <p class="card-description">
-                Upload and share your best game highlights and skills videos.
-              </p>
-            </article>
+                <!-- Card 5: Videos -->
+                <article class="feature-card">
+                  <div class="card-icon card-icon--red">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
+                  </div>
+                  <h3 class="card-title">Highlight Reel</h3>
+                  <p class="card-description">
+                    Upload and share your best game highlights and skills videos.
+                  </p>
+                </article>
 
-            <!-- Card 6: Rankings -->
-            <article class="feature-card">
-              <div class="card-icon card-icon--yellow">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
-                  />
-                </svg>
-              </div>
-              <h3 class="card-title">Rankings</h3>
-              <p class="card-description">
-                See where you stand among recruits in your class and position.
-              </p>
-            </article>
-          </section>
+                <!-- Card 6: Rankings -->
+                <article class="feature-card">
+                  <div class="card-icon card-icon--yellow">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
+                      />
+                    </svg>
+                  </div>
+                  <h3 class="card-title">Rankings</h3>
+                  <p class="card-description">
+                    See where you stand among recruits in your class and position.
+                  </p>
+                </article>
+              </section>
 
-          <!-- Auth Status Card (Development) -->
-          <section class="auth-status">
-            <h3 class="auth-status-title">Authentication Status</h3>
-            <div class="auth-status-content">
-              <p>✅ You are successfully signed in</p>
-              <p>✅ Auth guard is working - protected route</p>
-              <p>✅ Session persistence active</p>
-              @if (user(); as currentUser) {
-                <p>👤 User ID: {{ currentUser.uid }}</p>
-                @if (currentUser.email) {
-                  <p>📧 Email: {{ currentUser.email }}</p>
-                }
-              }
+              <!-- Auth Status Card (Development) -->
+              <section class="auth-status">
+                <h3 class="auth-status-title">Authentication Status</h3>
+                <div class="auth-status-content">
+                  <p>✅ You are successfully signed in</p>
+                  <p>✅ Auth guard is working - protected route</p>
+                  <p>✅ Session persistence active</p>
+                  @if (user(); as currentUser) {
+                    <p>👤 User ID: {{ currentUser.uid }}</p>
+                    @if (currentUser.email) {
+                      <p>📧 Email: {{ currentUser.email }}</p>
+                    }
+                  }
+                </div>
+              </section>
             </div>
-          </section>
-        </div>
-      </div>
+          </div>
+        }
+      }
     </ion-content>
   `,
   styles: [
@@ -407,16 +423,26 @@ import { SeoService } from '../../core/services/seo.service';
           color: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
         }
       }
+
+      /* Feed placeholder styles */
+      .feed-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 300px;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        font-size: var(--nxt1-font-size-lg, 18px);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HomeComponent implements OnInit {
   private readonly authFlow = inject(AuthFlowService);
+  private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('HomeComponent');
   private readonly seo = inject(SeoService);
 
-  private readonly router = inject(Router);
   ngOnInit(): void {
     this.seo.updatePage({
       title: 'Home',
@@ -432,17 +458,13 @@ export class HomeComponent implements OnInit {
 
   /** Feed navigation options (Twitter/TikTok style) */
   readonly feedOptions = signal<OptionScrollerItem[]>([
-    { id: 'explore', label: 'Explore' },
+    { id: 'home', label: 'Home' },
     { id: 'following', label: 'Following' },
     { id: 'news', label: 'News' },
-    { id: 'leaderboards', label: 'Leaderboards' },
-    { id: 'scout-reports', label: 'Scout Reports' },
-    { id: 'athletes', label: 'Athletes' },
-    { id: 'teams', label: 'Teams' },
   ]);
 
   /** Currently selected feed */
-  readonly selectedFeed = signal<string>('explore');
+  readonly selectedFeed = signal<string>('home');
 
   /** Header action buttons */
   readonly headerActions = signal<PageHeaderAction[]>([
@@ -460,7 +482,7 @@ export class HomeComponent implements OnInit {
   ]);
 
   /**
-   * Handle feed tab change (For You / Following)
+   * Handle feed tab change - swaps inline content (no navigation)
    */
   onFeedChange(event: OptionScrollerChangeEvent): void {
     this.selectedFeed.set(event.option.id);
@@ -468,18 +490,22 @@ export class HomeComponent implements OnInit {
       feed: event.option.label,
       via: event.fromSwipe ? 'swipe' : 'tap',
     });
+  }
 
-    // Navigate to specific tab based on selection
-    switch (event.option.id) {
-      case 'explore':
-        break;
-      case 'following':
-        break;
-      case 'news':
-        break;
-      case 'leaderboards':
-        break;
-    }
+  /**
+   * Handle news article selection
+   */
+  onNewsArticleSelect(article: { id: string; title: string }): void {
+    this.logger.debug('News article selected', { articleId: article.id });
+    // Article detail is handled inline by NewsContentComponent
+  }
+
+  /**
+   * Handle XP badge click (navigate to profile/achievements)
+   */
+  onXpBadgeClick(): void {
+    this.logger.debug('XP badge clicked');
+    void this.router.navigate(['/tabs/profile']);
   }
 
   /**

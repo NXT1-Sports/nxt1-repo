@@ -1,5 +1,5 @@
 {
-  "appId": "com.nxt1.sports",
+  "appId": "com.nxt1sports.app.twa",
   "appName": "NXT1 Sports",
   "webDir": "www/browser",
   "bundledWebRuntime": false,

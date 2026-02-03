@@ -24,7 +24,7 @@ import {
   NxtLoggingService,
   type ExploreUser,
 } from '@nxt1/ui';
-import type { ExploreTabId, ExploreItem } from '@nxt1/core';
+import type { ExploreTabId, ExploreItem, ScoutReport } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 
 @Component({
@@ -41,6 +41,8 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
         (avatarClick)="onAvatarClick()"
         (tabChange)="onTabChange($event)"
         (itemClick)="onItemClick($event)"
+        (scoutReportSelect)="onScoutReportSelect($event)"
+        (scoutReportFiltersOpen)="onScoutReportFiltersOpen()"
       />
     </ion-content>
   `,
@@ -120,5 +122,21 @@ export class ExploreComponent {
     if (item.route) {
       this.navController.navigateForward(item.route);
     }
+  }
+
+  /**
+   * Handle scout report selection - navigate to detail page.
+   */
+  protected onScoutReportSelect(report: ScoutReport): void {
+    this.logger.debug('Scout report selected', { reportId: report.id });
+    this.navController.navigateForward(`/tabs/scout-reports/${report.id}`);
+  }
+
+  /**
+   * Handle scout report filters open.
+   */
+  protected onScoutReportFiltersOpen(): void {
+    this.logger.debug('Scout report filters opened');
+    // TODO: Open filter modal/bottom sheet
   }
 }

@@ -29,6 +29,9 @@ export {
 // Analytics service
 export { AnalyticsService } from './analytics.service';
 
+// Deep link handling (Universal Links / App Links)
+export { DeepLinkService, type DeepLinkEvent } from './deep-link.service';
+
 // Two-tier caching (memory + persistent)
 export { MobileCacheService } from './cache.service';
 

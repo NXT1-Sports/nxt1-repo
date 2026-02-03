@@ -125,3 +125,80 @@ export type BottomSheetVariant =
   | 'success'
   | 'warning'
   | 'error';
+
+// ============================================
+// CONTENT SHEET TYPES (Full Component Injection)
+// ============================================
+
+/**
+ * Configuration for opening a full-content sheet modal.
+ * Use this when you need to inject an entire component into the sheet,
+ * rather than just showing actions/confirmations.
+ *
+ * @example
+ * ```typescript
+ * const result = await bottomSheet.openSheet({
+ *   component: EditProfileModalComponent,
+ *   componentProps: { userId: '123' },
+ *   breakpoints: [0, 0.5, 0.75, 1],
+ *   initialBreakpoint: 0.75,
+ * });
+ * ```
+ */
+export interface ContentSheetConfig<T = unknown> {
+  /** The Angular component to render inside the sheet */
+  component: unknown;
+
+  /** Props to pass to the component */
+  componentProps?: Record<string, unknown>;
+
+  /**
+   * Modal breakpoints for draggable resize.
+   * - [0, 1] = Simple open/close (default)
+   * - [0, 0.5, 0.75, 1] = Multi-step draggable
+   */
+  breakpoints?: number[];
+
+  /** Initial breakpoint position (0-1). Default: 0.75 */
+  initialBreakpoint?: number;
+
+  /** Show native drag handle bar. Default: true */
+  showHandle?: boolean;
+
+  /**
+   * Handle behavior when tapped:
+   * - 'none': No action on tap
+   * - 'cycle': Cycle through breakpoints on tap
+   */
+  handleBehavior?: 'none' | 'cycle';
+
+  /** Whether backdrop tap dismisses sheet. Default: false for content sheets */
+  backdropDismiss?: boolean;
+
+  /**
+   * Breakpoint at which backdrop becomes visible.
+   * Useful for sheets that start small.
+   */
+  backdropBreakpoint?: number;
+
+  /**
+   * Custom dismiss guard. Return false to prevent dismiss.
+   * Useful for unsaved changes confirmation.
+   * Matches Ionic's ModalOptions.canDismiss signature.
+   */
+  canDismiss?: boolean | ((data?: unknown, role?: string) => Promise<boolean>);
+
+  /** Additional CSS classes for customization */
+  cssClass?: string | string[];
+}
+
+/**
+ * Result from a content sheet dismissal.
+ */
+export interface ContentSheetResult<T = unknown> {
+  /** The data returned when the sheet was dismissed */
+  data?: T;
+
+  /** How the sheet was dismissed: 'save', 'cancel', 'backdrop', 'gesture' */
+  role?: string;
+}

@@ -511,9 +511,13 @@ export function getMockItemCount(tab: ExploreTabId, query = ''): number {
 export function getMockTabCounts(query = ''): ExploreTabCounts {
   return {
     colleges: getMockItemCount('colleges', query),
-    videos: getMockItemCount('videos', query),
     athletes: getMockItemCount('athletes', query),
     teams: getMockItemCount('teams', query),
+    videos: getMockItemCount('videos', query),
+    leaderboards: 0, // No mock data for new tabs yet
+    'scout-reports': 0,
+    camps: 0,
+    events: 0,
   };
 }
 

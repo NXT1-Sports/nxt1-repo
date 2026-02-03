@@ -9,7 +9,8 @@
  * 0. Font Face Declarations (fonts.css)
  * 1. CSS Reset/Normalize (foundation.css)
  * 2. App Shell Structure (app-shell.css)  
- * 3. Utility Classes (utilities.css)
+ * 3. Skeleton Loaders (skeleton.css)
+ * 4. Utility Classes (utilities.css)
  *
  * Usage:
  *   @import '@nxt1/design-tokens/css/index.css';
@@ -26,5 +27,8 @@
 /* Layer 2: App Shell & Structure */
 @import './app-shell.css';
 
-/* Layer 3: Utility Classes */
+/* Layer 3: Skeleton Loaders */
+@import './skeleton.css';
+
+/* Layer 4: Utility Classes */
 @import './utilities.css';

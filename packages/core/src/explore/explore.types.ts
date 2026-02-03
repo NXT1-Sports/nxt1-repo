@@ -15,7 +15,15 @@
  * Explore tab identifiers.
  * Each tab represents a different content category.
  */
-export type ExploreTabId = 'colleges' | 'videos' | 'athletes' | 'teams';
+export type ExploreTabId =
+  | 'colleges'
+  | 'athletes'
+  | 'teams'
+  | 'videos'
+  | 'leaderboards'
+  | 'scout-reports'
+  | 'camps'
+  | 'events';
 
 /**
  * Configuration for an explore tab.
@@ -250,9 +258,13 @@ export interface ExploreSearchResponse<T extends ExploreItem = ExploreItem> {
  */
 export interface ExploreTabCounts {
   readonly colleges: number;
-  readonly videos: number;
   readonly athletes: number;
   readonly teams: number;
+  readonly videos: number;
+  readonly leaderboards: number;
+  readonly 'scout-reports': number;
+  readonly camps: number;
+  readonly events: number;
 }
 
 // ============================================

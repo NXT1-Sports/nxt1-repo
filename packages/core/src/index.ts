@@ -918,3 +918,97 @@ export {
   createMissionsApi,
   type MissionsApi,
 } from './missions';
+
+// ============================================
+// SCOUT REPORTS
+// ============================================
+
+export * from './scout-reports';
+
+// ============================================
+// NEWS (Sports Recruiting News)
+// ============================================
+
+export {
+  // Types
+  type NewsCategoryId,
+  type NewsCategory,
+  type NewsSource,
+  type NewsArticle,
+  type ReadingProgress,
+  type ReadingStats,
+  type XpRewardType,
+  type NewsFilter,
+  type NewsPagination,
+  type NewsFeedResponse,
+  type NewsArticleResponse,
+  type NewsBookmarkResponse,
+  type NewsProgressResponse,
+  type NewsState,
+  // Constants
+  NEWS_CATEGORIES,
+  NEWS_DEFAULT_CATEGORY,
+  NEWS_XP_REWARDS,
+  NEWS_PAGINATION_DEFAULTS,
+  NEWS_CACHE_KEYS,
+  NEWS_CACHE_TTL,
+  NEWS_EMPTY_STATES,
+  NEWS_API_ENDPOINTS,
+  NEWS_UI_CONFIG,
+  NEWS_CATEGORY_BG_COLORS,
+  NEWS_ANIMATION_CONFIG,
+  // API Factory
+  createNewsApi,
+  type NewsApi,
+  // Validation
+  validateArticle,
+  validateCategory,
+  validateFilter,
+  calculateReadingTime,
+} from './news';
+
+// ============================================
+// EDIT PROFILE (Profile Editing)
+// ============================================
+
+export {
+  // Types
+  type EditProfileSectionId,
+  type EditProfileSection,
+  type EditProfileFieldType,
+  type EditProfileField,
+  type EditProfileFieldOption,
+  type EditProfileFieldValidation,
+  type ProfileCompletionTier,
+  type ProfileCompletionData,
+  type SectionCompletionData,
+  type ProfileAchievement,
+  type EditProfileBasicInfo,
+  type EditProfilePhotos,
+  type EditProfileSportsInfo,
+  type EditProfileAcademics,
+  type EditProfilePhysical,
+  type EditProfileSocialLinks,
+  type EditProfileContact,
+  type EditProfileFormData,
+  type EditProfileUpdateResponse,
+  type EditProfileData,
+  type EditProfileState,
+  // Constants
+  PROFILE_COMPLETION_TIERS,
+  getCompletionTier,
+  getNextTier,
+  EDIT_PROFILE_SECTIONS,
+  getEditProfileSection,
+  EDIT_PROFILE_XP_REWARDS,
+  EDIT_PROFILE_VALIDATION,
+  // API Factory
+  createEditProfileApi,
+  type EditProfileApi,
+} from './edit-profile';
+
+// ============================================
+// INVITE (Referral & Sharing)
+// ============================================
+
+export * from './invite';

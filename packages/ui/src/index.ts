@@ -161,6 +161,9 @@ export {
   type BottomSheetConfig,
   type BottomSheetResult,
   type BottomSheetVariant,
+  // Content Sheet types (for full component injection)
+  type ContentSheetConfig,
+  type ContentSheetResult,
 } from './components/bottom-sheet';
 
 // ============================================
@@ -666,24 +669,135 @@ export {
 } from './analytics-dashboard';
 
 // ============================================
-// MISSIONS (Gamified Tasks - Shared Web & Mobile)
+// XP (Gamified Tasks - Shared Web & Mobile)
 // ============================================
 export {
   // Service
-  MissionsService,
+  XpService,
   // Components
-  MissionsShellComponent,
-  MissionsProgressComponent,
-  MissionsCategoryComponent,
-  MissionsItemComponent,
-  MissionsBadgeComponent,
-  MissionsBadgeGridComponent,
-  MissionsSkeletonComponent,
-  MissionsProgressSkeletonComponent,
-  MissionsItemSkeletonComponent,
+  XpShellComponent,
+  XpProgressComponent,
+  XpCategoryComponent,
+  XpItemComponent,
+  XpBadgeComponent,
+  XpBadgeGridComponent,
+  XpSkeletonComponent,
+  XpProgressSkeletonComponent,
+  XpItemSkeletonComponent,
   // Mock Data (Development Only)
-  MOCK_ATHLETE_MISSIONS,
-  MOCK_COACH_MISSIONS,
+  MOCK_ATHLETE_XP_TASKS,
+  MOCK_COACH_XP_TASKS,
   MOCK_ATHLETE_PROGRESS,
   MOCK_COACH_PROGRESS,
-} from './missions';
+} from './xp';
+
+// ============================================
+// SCOUT REPORTS (Athlete Scouting - Shared Web & Mobile)
+// ============================================
+export {
+  // Components
+  ScoutReportsShellComponent,
+  ScoutReportsContentComponent,
+  ScoutReportListComponent,
+  ScoutReportCardComponent,
+  ScoutReportSkeletonComponent,
+  ScoutReportEmptyStateComponent,
+  ScoutReportCategoryTabsComponent,
+  ScoutReportSearchBarComponent,
+  ScoutReportSortSelectorComponent,
+  ScoutReportFilterPanelComponent,
+  ScoutReportRatingDisplayComponent,
+  ScoutReportQuickStatsComponent,
+  ScoutReportBookmarkButtonComponent,
+  ScoutReportPremiumBadgeComponent,
+  // Services
+  ScoutReportsService,
+  ScoutReportsApiService,
+  // Types
+  type QuickStatItem,
+  type PremiumBadgeVariant,
+  // Mock Data (Development Only)
+  MOCK_SCOUT_REPORTS,
+  MOCK_CATEGORY_BADGES,
+  getMockReportsByCategory,
+  getMockReportCount,
+} from './scout-reports';
+
+// ============================================
+// NEWS (Sports Recruiting News - Shared Web & Mobile)
+// ============================================
+export {
+  // Components
+  NewsShellComponent,
+  NewsContentComponent,
+  NewsListComponent,
+  NewsArticleCardComponent,
+  NewsArticleDetailComponent,
+  NewsCategoryFilterComponent,
+  NewsSkeletonComponent,
+  NewsEmptyStateComponent,
+  NewsBookmarkButtonComponent,
+  NewsReadingProgressComponent,
+  // Services
+  NewsService,
+  NewsApiService,
+  // Mock Data (Development Only)
+  MOCK_NEWS_ARTICLES,
+  MOCK_READING_STATS,
+  getMockArticlesByCategory,
+  getMockArticleById,
+  getMockTrendingArticles,
+} from './news';
+
+// ============================================
+// EDIT PROFILE (Profile Editing - Shared Web & Mobile)
+// ============================================
+export {
+  // Components
+  EditProfileShellComponent,
+  EditProfileProgressComponent,
+  EditProfileSectionComponent,
+  EditProfileSkeletonComponent,
+  // Services
+  EditProfileService,
+  EditProfileBottomSheetService,
+  EditProfileModalComponent,
+  // Mock Data (Development Only)
+  MOCK_EDIT_PROFILE_FORM_DATA,
+  MOCK_PROFILE_COMPLETION,
+  MOCK_EDIT_PROFILE_SECTIONS,
+  MOCK_PROFILE_ACHIEVEMENTS,
+  MOCK_EMPTY_PROFILE_FORM_DATA,
+  MOCK_EMPTY_COMPLETION,
+} from './edit-profile';
+
+// ============================================
+// INVITE (Referral & Sharing - Shared Web & Mobile)
+// ============================================
+export {
+  // Components
+  InviteShellComponent,
+  InviteStatsCardComponent,
+  InviteChannelGridComponent,
+  InviteQrCodeComponent,
+  InviteAchievementsComponent,
+  InviteCelebrationComponent,
+  InviteSkeletonComponent,
+  InviteModalComponent,
+  // Services
+  InviteService,
+  InviteBottomSheetService,
+  // Types
+  type InviteUser,
+  type InviteBottomSheetConfig,
+  // Mock Data (Development Only)
+  MOCK_INVITE_STATS,
+  MOCK_INVITE_ACHIEVEMENTS,
+  MOCK_INVITE_HISTORY,
+  MOCK_INVITE_TEAMS,
+  getMockInviteStats,
+  getMockAchievements,
+  getMockInviteHistory,
+  getMockInviteLink,
+  getMockTeams,
+} from './invite';

@@ -43,6 +43,7 @@ import {
 import {
   type ExploreTabId,
   type ExploreItem,
+  type ScoutReport,
   EXPLORE_TABS,
   EXPLORE_SEARCH_CONFIG,
 } from '@nxt1/core';
@@ -58,6 +59,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
 import { ExploreService } from './explore.service';
 import { ExploreListComponent } from './explore-list.component';
 import { ExploreSkeletonComponent } from './explore-skeleton.component';
+import { ScoutReportsContentComponent } from '../scout-reports/scout-reports-content.component';
 
 addIcons({
   searchOutline,
@@ -87,6 +89,7 @@ export interface ExploreUser {
     NxtOptionScrollerComponent,
     ExploreListComponent,
     ExploreSkeletonComponent,
+    ScoutReportsContentComponent,
   ],
   template: `
     <!-- Professional Page Header (same as Activity/Home) - Search bar replaces title -->
@@ -162,24 +165,32 @@ export interface ExploreUser {
 
         <!-- Search Results - Deferred for Performance -->
         @if (!explore.isSearchFocused() || explore.hasQuery()) {
-          @defer (on viewport; prefetch on idle) {
-            <nxt1-explore-list
-              [items]="explore.items()"
-              [activeTab]="explore.activeTab()"
-              [isLoading]="explore.isLoading()"
-              [isLoadingMore]="explore.isLoadingMore()"
-              [isEmpty]="explore.isEmpty()"
-              [hasQuery]="explore.hasQuery()"
-              [error]="explore.error()"
-              [hasMore]="explore.hasMore()"
-              (loadMore)="onLoadMore()"
-              (retry)="onRetry()"
-              (itemClick)="onItemClick($event)"
+          <!-- Scout Reports Tab: Embed dedicated content component -->
+          @if (explore.activeTab() === 'scout-reports' && !explore.hasQuery()) {
+            <nxt1-scout-reports-content
+              (reportSelect)="onScoutReportSelect($event)"
+              (openFilters)="onScoutReportFiltersOpen()"
             />
-          } @placeholder {
-            <nxt1-explore-skeleton />
-          } @loading (minimum 200ms) {
-            <nxt1-explore-skeleton />
+          } @else {
+            @defer (on viewport; prefetch on idle) {
+              <nxt1-explore-list
+                [items]="explore.items()"
+                [activeTab]="explore.activeTab()"
+                [isLoading]="explore.isLoading()"
+                [isLoadingMore]="explore.isLoadingMore()"
+                [isEmpty]="explore.isEmpty()"
+                [hasQuery]="explore.hasQuery()"
+                [error]="explore.error()"
+                [hasMore]="explore.hasMore()"
+                (loadMore)="onLoadMore()"
+                (retry)="onRetry()"
+                (itemClick)="onItemClick($event)"
+              />
+            } @placeholder {
+              <nxt1-explore-skeleton />
+            } @loading (minimum 200ms) {
+              <nxt1-explore-skeleton />
+            }
           }
         }
       </div>
@@ -324,6 +335,8 @@ export class ExploreShellComponent implements OnInit {
   readonly avatarClick = output<void>();
   readonly tabChange = output<ExploreTabId>();
   readonly itemClick = output<ExploreItem>();
+  readonly scoutReportSelect = output<ScoutReport>();
+  readonly scoutReportFiltersOpen = output<void>();
 
   // Local state
   protected readonly searchValue = signal('');
@@ -409,5 +422,21 @@ export class ExploreShellComponent implements OnInit {
   protected onItemClick(item: ExploreItem): void {
     this.logger.debug('Item clicked', { id: item.id, type: item.type });
     this.itemClick.emit(item);
+  }
+
+  /**
+   * Handle scout report selection - emit to parent for navigation
+   */
+  protected onScoutReportSelect(report: ScoutReport): void {
+    this.logger.debug('Scout report selected', { reportId: report.id });
+    this.scoutReportSelect.emit(report);
+  }
+
+  /**
+   * Handle scout report filters open - emit to parent
+   */
+  protected onScoutReportFiltersOpen(): void {
+    this.logger.debug('Scout report filters opened');
+    this.scoutReportFiltersOpen.emit();
   }
 }

@@ -41,6 +41,11 @@
                 "input": "../../packages/design-tokens/assets/logo",
                 "output": "/assets/shared/logo"
               },
+              {
+                "glob": "**/*",
+                "input": "src/.well-known",
+                "output": "/.well-known"
+              },
               "src/favicon.ico",
               "src/robots.txt",
               "src/manifest.webmanifest"

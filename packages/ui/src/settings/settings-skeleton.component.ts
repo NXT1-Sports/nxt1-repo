@@ -73,27 +73,36 @@ import { CommonModule } from '@angular/common';
       }
 
       /* ============================================
-       SHIMMER ANIMATION
+       SHIMMER ANIMATION (2026 Theme-Aware)
+       Uses global design tokens - auto-switches per theme
        ============================================ */
 
       .shimmer {
         background: linear-gradient(
           90deg,
-          var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04)) 0%,
-          var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08)) 50%,
-          var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04)) 100%
+          var(--nxt1-color-loading-skeleton) 0%,
+          var(--nxt1-color-loading-skeletonShimmer) 50%,
+          var(--nxt1-color-loading-skeleton) 100%
         );
         background-size: 200% 100%;
-        animation: shimmer 1.5s ease-in-out infinite;
+        animation: skeleton-shimmer 1.5s ease-in-out infinite;
         border-radius: 4px;
       }
 
-      @keyframes shimmer {
+      @keyframes skeleton-shimmer {
         0% {
           background-position: 200% 0;
         }
         100% {
           background-position: -200% 0;
+        }
+      }
+
+      /* Reduced motion support */
+      @media (prefers-reduced-motion: reduce) {
+        .shimmer {
+          animation: none;
+          background: var(--nxt1-color-loading-skeleton);
         }
       }
 
@@ -184,32 +193,6 @@ import { CommonModule } from '@angular/common';
         height: 28px;
         border-radius: 14px;
         flex-shrink: 0;
-      }
-
-      /* ============================================
-       LIGHT MODE
-       ============================================ */
-
-      :host-context(.light),
-      :host-context([data-theme='light']) {
-        .shimmer {
-          background: linear-gradient(
-            90deg,
-            var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.04)) 0%,
-            var(--nxt1-color-surface-300, rgba(0, 0, 0, 0.08)) 50%,
-            var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.04)) 100%
-          );
-          background-size: 200% 100%;
-        }
-
-        .settings-skeleton__items {
-          background: var(--nxt1-color-surface-primary, #ffffff);
-          border-color: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.06));
-        }
-
-        .settings-skeleton__item {
-          border-bottom-color: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.06));
-        }
       }
     `,
   ],

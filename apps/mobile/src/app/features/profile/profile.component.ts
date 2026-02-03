@@ -17,7 +17,7 @@
  * Responsibilities:
  * - Route integration with mobile tabs
  * - User state from auth service
- * - Native navigation
+ * - Native navigation (including edit profile bottom sheet)
  * - Deep link handling (future)
  */
 
@@ -27,7 +27,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs/operators';
 
 // Shared UI from @nxt1/ui (95% of the code)
-import { ProfileShellComponent } from '@nxt1/ui';
+import { ProfileShellComponent, EditProfileBottomSheetService } from '@nxt1/ui';
 
 // Mobile-specific services
 import { MobileAuthService } from '../auth/services/mobile-auth.service';
@@ -39,6 +39,7 @@ import { MobileAuthService } from '../auth/services/mobile-auth.service';
  * 1. Extracts unicode from route params
  * 2. Provides current user from auth state
  * 3. Delegates all UI to ProfileShellComponent
+ * 4. Handles edit profile via bottom sheet
  *
  * Note: isOwnProfile is determined by ProfileShellComponent internally
  * by comparing the loaded profile with the current user.
@@ -48,7 +49,11 @@ import { MobileAuthService } from '../auth/services/mobile-auth.service';
   standalone: true,
   imports: [ProfileShellComponent],
   template: `
-    <nxt1-profile-shell [currentUser]="currentUser()" [profileUnicode]="profileUnicode()" />
+    <nxt1-profile-shell
+      [currentUser]="currentUser()"
+      [profileUnicode]="profileUnicode()"
+      (editProfileClick)="onEditProfile()"
+    />
   `,
   styles: `
     :host {
@@ -65,6 +70,7 @@ export class ProfileComponent {
 
   private readonly route = inject(ActivatedRoute);
   private readonly authService = inject(MobileAuthService);
+  private readonly editProfileSheet = inject(EditProfileBottomSheetService);
 
   // ============================================
   // STATE
@@ -86,4 +92,21 @@ export class ProfileComponent {
       displayName: user.displayName ?? 'User',
     };
   });
+
+  // ============================================
+  // ACTIONS
+  // ============================================
+
+  /**
+   * Opens the edit profile bottom sheet (full-screen on mobile).
+   * Called when user taps 'Edit Profile' button.
+   */
+  protected async onEditProfile(): Promise<void> {
+    const result = await this.editProfileSheet.open();
+
+    if (result?.saved) {
+      // Profile was saved - could trigger refresh here if needed
+      // The ProfileService should handle data refresh internally
+    }
+  }
 }

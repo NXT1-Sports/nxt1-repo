@@ -29,11 +29,6 @@ export const EXPLORE_TABS: readonly ExploreTab[] = [
     icon: 'school-outline',
   },
   {
-    id: 'videos',
-    label: 'Videos',
-    icon: 'play-circle-outline',
-  },
-  {
     id: 'athletes',
     label: 'Athletes',
     icon: 'person-outline',
@@ -42,6 +37,31 @@ export const EXPLORE_TABS: readonly ExploreTab[] = [
     id: 'teams',
     label: 'Teams',
     icon: 'people-outline',
+  },
+  {
+    id: 'videos',
+    label: 'Videos',
+    icon: 'play-circle-outline',
+  },
+  {
+    id: 'leaderboards',
+    label: 'Leaderboards',
+    icon: 'trophy-outline',
+  },
+  {
+    id: 'scout-reports',
+    label: 'Scout Reports',
+    icon: 'clipboard-outline',
+  },
+  {
+    id: 'camps',
+    label: 'Camps',
+    icon: 'calendar-outline',
+  },
+  {
+    id: 'events',
+    label: 'Events',
+    icon: 'ticket-outline',
   },
 ] as const;
 
@@ -59,9 +79,13 @@ export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'colleges';
  */
 export const EXPLORE_SORT_OPTIONS: Record<ExploreTabId, readonly ExploreSortOption[]> = {
   colleges: ['relevance', 'alphabetical', 'rating', 'distance'],
-  videos: ['relevance', 'recent', 'popular'],
   athletes: ['relevance', 'recent', 'popular', 'alphabetical'],
   teams: ['relevance', 'alphabetical', 'distance', 'popular'],
+  videos: ['relevance', 'recent', 'popular'],
+  leaderboards: ['relevance', 'recent', 'popular'],
+  'scout-reports': ['relevance', 'recent', 'popular', 'rating'],
+  camps: ['relevance', 'recent', 'distance'],
+  events: ['relevance', 'recent', 'distance'],
 } as const;
 
 /**
@@ -69,9 +93,13 @@ export const EXPLORE_SORT_OPTIONS: Record<ExploreTabId, readonly ExploreSortOpti
  */
 export const EXPLORE_DEFAULT_SORT: Record<ExploreTabId, ExploreSortOption> = {
   colleges: 'relevance',
-  videos: 'popular',
   athletes: 'relevance',
   teams: 'relevance',
+  videos: 'popular',
+  leaderboards: 'popular',
+  'scout-reports': 'recent',
+  camps: 'recent',
+  events: 'recent',
 } as const;
 
 // ============================================
@@ -164,11 +192,6 @@ export const EXPLORE_EMPTY_STATES: Record<
     message: 'Try adjusting your search or filters',
     icon: 'school-outline',
   },
-  videos: {
-    title: 'No videos found',
-    message: 'Be the first to upload a highlight!',
-    icon: 'videocam-outline',
-  },
   athletes: {
     title: 'No athletes found',
     message: 'Try searching with different keywords',
@@ -178,6 +201,31 @@ export const EXPLORE_EMPTY_STATES: Record<
     title: 'No teams found',
     message: 'Expand your search criteria',
     icon: 'people-outline',
+  },
+  videos: {
+    title: 'No videos found',
+    message: 'Be the first to upload a highlight!',
+    icon: 'videocam-outline',
+  },
+  leaderboards: {
+    title: 'No leaderboards found',
+    message: 'Check back soon for updated rankings',
+    icon: 'trophy-outline',
+  },
+  'scout-reports': {
+    title: 'No scout reports found',
+    message: 'Try searching for a specific athlete or event',
+    icon: 'clipboard-outline',
+  },
+  camps: {
+    title: 'No camps found',
+    message: 'Try adjusting your location or date filters',
+    icon: 'calendar-outline',
+  },
+  events: {
+    title: 'No events found',
+    message: 'Check back soon for upcoming events',
+    icon: 'ticket-outline',
   },
 } as const;
 
@@ -195,10 +243,6 @@ export const EXPLORE_INITIAL_STATES: Record<
     title: 'Discover Colleges',
     message: 'Search for colleges by name, state, or division',
   },
-  videos: {
-    title: 'Watch Highlights',
-    message: 'Search for videos by athlete, sport, or team',
-  },
   athletes: {
     title: 'Find Athletes',
     message: 'Search by name, sport, position, or location',
@@ -206,6 +250,26 @@ export const EXPLORE_INITIAL_STATES: Record<
   teams: {
     title: 'Explore Teams',
     message: 'Search for teams by name, sport, or location',
+  },
+  videos: {
+    title: 'Watch Highlights',
+    message: 'Search for videos by athlete, sport, or team',
+  },
+  leaderboards: {
+    title: 'View Leaderboards',
+    message: 'Browse rankings by sport, position, or region',
+  },
+  'scout-reports': {
+    title: 'Scout Reports',
+    message: 'Search for evaluations by athlete or event',
+  },
+  camps: {
+    title: 'Find Camps',
+    message: 'Search for camps by sport, location, or date',
+  },
+  events: {
+    title: 'Upcoming Events',
+    message: 'Search for showcases, combines, and tournaments',
   },
 } as const;
 
@@ -227,12 +291,20 @@ export const EXPLORE_API_ENDPOINTS = {
   counts: '/api/v1/explore/counts',
   /** College detail */
   collegeDetail: '/api/v1/colleges',
-  /** Video detail */
-  videoDetail: '/api/v1/videos',
   /** Athlete detail */
   athleteDetail: '/api/v1/athletes',
   /** Team detail */
   teamDetail: '/api/v1/teams',
+  /** Video detail */
+  videoDetail: '/api/v1/videos',
+  /** Leaderboard detail */
+  leaderboardDetail: '/api/v1/leaderboards',
+  /** Scout report detail */
+  scoutReportDetail: '/api/v1/scout-reports',
+  /** Camp detail */
+  campDetail: '/api/v1/camps',
+  /** Event detail */
+  eventDetail: '/api/v1/events',
 } as const;
 
 // ============================================
@@ -262,7 +334,11 @@ export const EXPLORE_UI_CONFIG = {
  */
 export const EXPLORE_INITIAL_TAB_COUNTS: ExploreTabCounts = {
   colleges: 0,
-  videos: 0,
   athletes: 0,
   teams: 0,
+  videos: 0,
+  leaderboards: 0,
+  'scout-reports': 0,
+  camps: 0,
+  events: 0,
 };

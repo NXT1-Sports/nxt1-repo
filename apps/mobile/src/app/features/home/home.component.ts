@@ -39,6 +39,7 @@ import {
   NxtLoggingService,
   HapticsService,
   NxtOptionScrollerComponent,
+  NewsContentComponent,
   type PageHeaderAction,
   type RefreshEvent,
   type OptionScrollerItem,
@@ -62,6 +63,7 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
     NxtPageHeaderComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
+    NewsContentComponent,
   ],
   template: `
     <!-- Professional Page Header with Logo (Twitter/X style) -->
@@ -78,105 +80,155 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
     <nxt1-option-scroller
       [options]="feedOptions()"
       [selectedId]="selectedFeed()"
-      [config]="{ scrollable: true, stretchToFill: false }"
+      [config]="{ scrollable: false, stretchToFill: true }"
       (selectionChange)="onFeedChange($event)"
     />
 
-    <ion-content class="ion-padding">
+    <ion-content [class.ion-padding]="selectedFeed() !== 'news'">
       <!-- 🔄 Pull-to-Refresh (2026 Native-Style) -->
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
-      <div class="home-container">
-        <!-- Welcome Card -->
-        <ion-card>
-          <ion-card-header>
-            <div class="profile-section">
-              @if (user()?.photoURL) {
-                <ion-avatar>
-                  <img [src]="user()?.photoURL" [alt]="displayName()" />
-                </ion-avatar>
-              } @else {
-                <ion-avatar>
-                  <ion-icon name="person-circle-outline" class="default-avatar"></ion-icon>
-                </ion-avatar>
-              }
-              <ion-card-title>Welcome, {{ displayName() }}!</ion-card-title>
-            </div>
-          </ion-card-header>
-          <ion-card-content>
-            <p class="welcome-text">
-              You're all set! Your profile is complete and you're ready to explore NXT1 Sports.
-            </p>
-
-            <div class="user-info">
-              <div class="info-item">
-                <span class="label">Email:</span>
-                <span class="value">{{ user()?.email }}</span>
-              </div>
-              <div class="info-item">
-                <span class="label">Role:</span>
-                <span class="value">{{ user()?.role }}</span>
-              </div>
-              @if (user()?.isPremium) {
-                <div class="info-item">
-                  <span class="label">Status:</span>
-                  <span class="value premium">⭐ Premium</span>
+      <!-- Dynamic Content Based on Selected Feed -->
+      @switch (selectedFeed()) {
+        @case ('news') {
+          <!-- News Feed Content (Embedded) -->
+          <nxt1-news-content
+            (articleSelect)="onNewsArticleSelect($event)"
+            (xpBadgeClick)="onXpBadgeClick()"
+          />
+        }
+        @case ('following') {
+          <!-- Following Feed (Placeholder) -->
+          <div class="feed-placeholder">
+            <div class="feed-placeholder__icon">👥</div>
+            <h3 class="feed-placeholder__title">Following</h3>
+            <p class="feed-placeholder__text">See updates from people you follow</p>
+          </div>
+        }
+        @default {
+          <!-- Home Feed (Default) -->
+          <div class="home-container">
+            <!-- Welcome Card -->
+            <ion-card>
+              <ion-card-header>
+                <div class="profile-section">
+                  @if (user()?.photoURL) {
+                    <ion-avatar>
+                      <img [src]="user()?.photoURL" [alt]="displayName()" />
+                    </ion-avatar>
+                  } @else {
+                    <ion-avatar>
+                      <ion-icon name="person-circle-outline" class="default-avatar"></ion-icon>
+                    </ion-avatar>
+                  }
+                  <ion-card-title>Welcome, {{ displayName() }}!</ion-card-title>
                 </div>
-              }
-              <div class="info-item">
-                <span class="label">Last Refresh:</span>
-                <span class="value">{{ lastRefreshDisplay() }}</span>
-              </div>
-            </div>
-          </ion-card-content>
-        </ion-card>
+              </ion-card-header>
+              <ion-card-content>
+                <p class="welcome-text">
+                  You're all set! Your profile is complete and you're ready to explore NXT1 Sports.
+                </p>
 
-        <!-- Status Card -->
-        <ion-card>
-          <ion-card-header>
-            <ion-card-title>Status</ion-card-title>
-          </ion-card-header>
-          <ion-card-content>
-            <div class="status-grid">
-              <div class="status-item">
-                <span class="status-label">Authentication</span>
-                <span class="status-value success">✓ Authenticated</span>
-              </div>
-              <div class="status-item">
-                <span class="status-label">Onboarding</span>
-                <span class="status-value success">✓ Complete</span>
-              </div>
-              <div class="status-item">
-                <span class="status-label">Email Verified</span>
-                <span class="status-value" [class.success]="user()?.emailVerified">
-                  {{ user()?.emailVerified ? '✓ Verified' : '⚠ Not Verified' }}
-                </span>
-              </div>
-            </div>
-          </ion-card-content>
-        </ion-card>
+                <div class="user-info">
+                  <div class="info-item">
+                    <span class="label">Email:</span>
+                    <span class="value">{{ user()?.email }}</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="label">Role:</span>
+                    <span class="value">{{ user()?.role }}</span>
+                  </div>
+                  @if (user()?.isPremium) {
+                    <div class="info-item">
+                      <span class="label">Status:</span>
+                      <span class="value premium">⭐ Premium</span>
+                    </div>
+                  }
+                  <div class="info-item">
+                    <span class="label">Last Refresh:</span>
+                    <span class="value">{{ lastRefreshDisplay() }}</span>
+                  </div>
+                </div>
+              </ion-card-content>
+            </ion-card>
 
-        <!-- Coming Soon -->
-        <ion-card>
-          <ion-card-header>
-            <ion-card-title>Coming Soon</ion-card-title>
-          </ion-card-header>
-          <ion-card-content>
-            <p>More features are being developed:</p>
-            <ul>
-              <li>Feed & Posts</li>
-              <li>Profile Management</li>
-              <li>Team Dashboard</li>
-              <li>Messaging</li>
-              <li>Video Highlights</li>
-            </ul>
-          </ion-card-content>
-        </ion-card>
-      </div>
+            <!-- Status Card -->
+            <ion-card>
+              <ion-card-header>
+                <ion-card-title>Status</ion-card-title>
+              </ion-card-header>
+              <ion-card-content>
+                <div class="status-grid">
+                  <div class="status-item">
+                    <span class="status-label">Authentication</span>
+                    <span class="status-value success">✓ Authenticated</span>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">Onboarding</span>
+                    <span class="status-value success">✓ Complete</span>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">Email Verified</span>
+                    <span class="status-value" [class.success]="user()?.emailVerified">
+                      {{ user()?.emailVerified ? '✓ Verified' : '⚠ Not Verified' }}
+                    </span>
+                  </div>
+                </div>
+              </ion-card-content>
+            </ion-card>
+
+            <!-- Coming Soon -->
+            <ion-card>
+              <ion-card-header>
+                <ion-card-title>Coming Soon</ion-card-title>
+              </ion-card-header>
+              <ion-card-content>
+                <p>More features are being developed:</p>
+                <ul>
+                  <li>Feed & Posts</li>
+                  <li>Profile Management</li>
+                  <li>Team Dashboard</li>
+                  <li>Messaging</li>
+                  <li>Video Highlights</li>
+                </ul>
+              </ion-card-content>
+            </ion-card>
+          </div>
+        }
+      }
     </ion-content>
   `,
   styles: [
     `
+      /* Feed placeholder for unbuilt feeds */
+      .feed-placeholder {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 80px 24px;
+        text-align: center;
+        min-height: 60vh;
+      }
+
+      .feed-placeholder__icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+      }
+
+      .feed-placeholder__title {
+        margin: 0 0 8px;
+        font-size: 20px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary, #fff);
+      }
+
+      .feed-placeholder__text {
+        margin: 0;
+        font-size: 14px;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+      }
+
       .home-container {
         max-width: 800px;
         margin: 0 auto;
@@ -306,17 +358,13 @@ export class HomeComponent {
 
   /** Feed navigation options (Twitter/TikTok style) */
   readonly feedOptions = signal<OptionScrollerItem[]>([
-    { id: 'explore', label: 'Explore' },
+    { id: 'home', label: 'Home' },
     { id: 'following', label: 'Following' },
     { id: 'news', label: 'News' },
-    { id: 'leaderboards', label: 'Leaderboards' },
-    { id: 'scout-reports', label: 'Scout Reports' },
-    { id: 'athletes', label: 'Athletes' },
-    { id: 'teams', label: 'Teams' },
   ]);
 
   /** Currently selected feed */
-  readonly selectedFeed = signal<string>('explore');
+  readonly selectedFeed = signal<string>('home');
 
   /** Header action buttons - Create Post button using Ionicons */
   readonly headerActions = signal<PageHeaderAction[]>([
@@ -408,7 +456,8 @@ export class HomeComponent {
   }
 
   /**
-   * Handle feed tab change (For You / Following)
+   * Handle feed tab change (Home / Following / News)
+   * Content swaps inline - NO navigation (Twitter/TikTok pattern)
    */
   onFeedChange(event: OptionScrollerChangeEvent): void {
     this.selectedFeed.set(event.option.id);
@@ -416,9 +465,23 @@ export class HomeComponent {
       feed: event.option.label,
       via: event.fromSwipe ? 'swipe' : 'tap',
     });
+  }
 
-    // In production: trigger data reload for the selected feed
-    // this.loadFeedData(event.option.id);
+  /**
+   * Handle news article selection
+   */
+  onNewsArticleSelect(article: unknown): void {
+    this.logger.debug('News article selected', { article });
+    // Article detail is handled inline by NewsContentComponent
+  }
+
+  /**
+   * Handle XP badge click in news feed
+   */
+  async onXpBadgeClick(): Promise<void> {
+    await this.haptics.impact('light');
+    this.logger.debug('XP badge clicked');
+    // TODO: Show XP breakdown modal or navigate to XP page
   }
 
   /**

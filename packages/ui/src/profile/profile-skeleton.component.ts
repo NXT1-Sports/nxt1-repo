@@ -119,25 +119,20 @@ export type ProfileSkeletonVariant = 'header' | 'stats' | 'post' | 'offer' | 'ev
     `
       /* ============================================
        PROFILE SKELETON - Loading State
-       2026 Theme-Aware Design
+       2026 Theme-Aware Design Tokens
        ============================================ */
 
       :host {
         display: block;
       }
 
-      .profile-skeleton {
-        --skeleton-base: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
-        --skeleton-shine: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
-      }
-
-      /* Skeleton animation */
+      /* Skeleton animation - Uses global design tokens */
       .skeleton-animate {
         background: linear-gradient(
           90deg,
-          var(--skeleton-base) 0%,
-          var(--skeleton-shine) 50%,
-          var(--skeleton-base) 100%
+          var(--nxt1-color-loading-skeleton) 0%,
+          var(--nxt1-color-loading-skeletonShimmer) 50%,
+          var(--nxt1-color-loading-skeleton) 100%
         );
         background-size: 200% 100%;
         animation: skeleton-shimmer 1.5s ease-in-out infinite;
@@ -150,6 +145,14 @@ export type ProfileSkeletonVariant = 'header' | 'stats' | 'post' | 'offer' | 'ev
         }
         100% {
           background-position: -200% 0;
+        }
+      }
+
+      /* Reduced motion support */
+      @media (prefers-reduced-motion: reduce) {
+        .skeleton-animate {
+          animation: none;
+          background: var(--nxt1-color-loading-skeleton);
         }
       }
 

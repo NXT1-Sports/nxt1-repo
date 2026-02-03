@@ -26,7 +26,11 @@ import type {
   ExploreAthleteItem,
   ExploreTeamItem,
 } from './explore.types';
-import { EXPLORE_API_ENDPOINTS, EXPLORE_PAGINATION_DEFAULTS } from './explore.constants';
+import {
+  EXPLORE_API_ENDPOINTS,
+  EXPLORE_PAGINATION_DEFAULTS,
+  EXPLORE_INITIAL_TAB_COUNTS,
+} from './explore.constants';
 
 /**
  * Generic API response wrapper.
@@ -124,9 +128,7 @@ export function createExploreApi(http: HttpAdapter, baseUrl: string) {
       const url = `${baseUrl}${EXPLORE_API_ENDPOINTS.counts}?q=${encodeURIComponent(query)}`;
       const response = await http.get<ApiResponse<ExploreTabCounts>>(url);
 
-      return response.success && response.data
-        ? response.data
-        : { colleges: 0, videos: 0, athletes: 0, teams: 0 };
+      return response.success && response.data ? response.data : EXPLORE_INITIAL_TAB_COUNTS;
     },
 
     /**

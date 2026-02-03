@@ -1,0 +1,457 @@
+/**
+ * @fileoverview Skeleton Loader Utilities
+ * @module @nxt1/design-tokens/foundation
+ * @version 2.0.0
+ *
+ * Reusable skeleton loader styles with design token integration.
+ * Provides consistent loading states across web and mobile.
+ *
+ * Usage:
+ * ```html
+ * <div class="nxt1-skeleton nxt1-skeleton--text"></div>
+ * <div class="nxt1-skeleton nxt1-skeleton--avatar"></div>
+ * <div class="nxt1-skeleton nxt1-skeleton--card"></div>
+ * ```
+ */
+
+/* ============================================================================
+   SKELETON CSS CUSTOM PROPERTIES
+   ============================================================================ */
+
+:root {
+  /* Colors - Reference semantic theme tokens for automatic theme switching */
+  --nxt1-skeleton-color-base: var(--nxt1-color-surface-100);
+  --nxt1-skeleton-color-highlight: var(--nxt1-color-loading-skeleton);
+  --nxt1-skeleton-color-accent: var(--nxt1-color-loading-skeleton-shimmer);
+
+  /* Animation */
+  --nxt1-skeleton-animation-duration: 1.5s;
+  --nxt1-skeleton-animation-timing: ease-in-out;
+
+  /* Border Radius */
+  --nxt1-skeleton-radius-sm: var(--nxt1-radius-sm, 4px);
+  --nxt1-skeleton-radius-md: var(--nxt1-radius-md, 8px);
+  --nxt1-skeleton-radius-lg: var(--nxt1-radius-lg, 12px);
+  --nxt1-skeleton-radius-xl: var(--nxt1-radius-xl, 16px);
+  --nxt1-skeleton-radius-full: var(--nxt1-radius-full, 9999px);
+
+  /* Heights */
+  --nxt1-skeleton-height-xs: 12px;
+  --nxt1-skeleton-height-sm: 14px;
+  --nxt1-skeleton-height-md: 16px;
+  --nxt1-skeleton-height-lg: 20px;
+  --nxt1-skeleton-height-xl: 28px;
+}
+
+/* ============================================================================
+   BASE SKELETON STYLES
+   ============================================================================ */
+
+.nxt1-skeleton {
+  position: relative;
+  display: block;
+  background: var(--nxt1-skeleton-color-base);
+  border-radius: var(--nxt1-skeleton-radius-md);
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.nxt1-skeleton::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--nxt1-skeleton-color-highlight) 25%,
+    var(--nxt1-skeleton-color-accent) 50%,
+    var(--nxt1-skeleton-color-highlight) 75%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: nxt1-skeleton-shimmer var(--nxt1-skeleton-animation-duration)
+    var(--nxt1-skeleton-animation-timing) infinite;
+}
+
+/* ============================================================================
+   SHIMMER ANIMATION
+   ============================================================================ */
+
+@keyframes nxt1-skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .nxt1-skeleton::before {
+    animation: none;
+    background: var(--nxt1-skeleton-color-highlight);
+  }
+}
+
+/* ============================================================================
+   SKELETON VARIANTS - TEXT
+   ============================================================================ */
+
+.nxt1-skeleton--text {
+  width: 100%;
+  border-radius: var(--nxt1-skeleton-radius-sm);
+}
+
+.nxt1-skeleton--text-xs {
+  height: var(--nxt1-skeleton-height-xs);
+  width: 30%;
+}
+
+.nxt1-skeleton--text-sm {
+  height: var(--nxt1-skeleton-height-sm);
+  width: 40%;
+}
+
+.nxt1-skeleton--text-md {
+  height: var(--nxt1-skeleton-height-md);
+  width: 60%;
+}
+
+.nxt1-skeleton--text-lg {
+  height: var(--nxt1-skeleton-height-lg);
+  width: 75%;
+}
+
+.nxt1-skeleton--text-xl {
+  height: var(--nxt1-skeleton-height-xl);
+  width: 100%;
+}
+
+/* Title/Heading variants */
+.nxt1-skeleton--title {
+  height: var(--nxt1-skeleton-height-xl);
+  width: 70%;
+  border-radius: var(--nxt1-skeleton-radius-md);
+}
+
+.nxt1-skeleton--subtitle {
+  height: var(--nxt1-skeleton-height-md);
+  width: 50%;
+  border-radius: var(--nxt1-skeleton-radius-sm);
+}
+
+/* ============================================================================
+   SKELETON VARIANTS - AVATAR
+   ============================================================================ */
+
+.nxt1-skeleton--avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--nxt1-skeleton-radius-full);
+  flex-shrink: 0;
+}
+
+.nxt1-skeleton--avatar-xs {
+  width: 24px;
+  height: 24px;
+}
+
+.nxt1-skeleton--avatar-sm {
+  width: 32px;
+  height: 32px;
+}
+
+.nxt1-skeleton--avatar-md {
+  width: 40px;
+  height: 40px;
+}
+
+.nxt1-skeleton--avatar-lg {
+  width: 56px;
+  height: 56px;
+}
+
+.nxt1-skeleton--avatar-xl {
+  width: 80px;
+  height: 80px;
+}
+
+.nxt1-skeleton--avatar-2xl {
+  width: 120px;
+  height: 120px;
+}
+
+/* ============================================================================
+   SKELETON VARIANTS - IMAGE
+   ============================================================================ */
+
+.nxt1-skeleton--image {
+  width: 100%;
+  aspect-ratio: 16/9;
+  border-radius: var(--nxt1-skeleton-radius-lg);
+}
+
+.nxt1-skeleton--image-square {
+  aspect-ratio: 1/1;
+}
+
+.nxt1-skeleton--image-portrait {
+  aspect-ratio: 3/4;
+}
+
+.nxt1-skeleton--image-landscape {
+  aspect-ratio: 16/9;
+}
+
+.nxt1-skeleton--image-wide {
+  aspect-ratio: 21/9;
+}
+
+/* ============================================================================
+   SKELETON VARIANTS - CARD
+   ============================================================================ */
+
+.nxt1-skeleton--card {
+  width: 100%;
+  min-height: 200px;
+  border-radius: var(--nxt1-skeleton-radius-xl);
+  background: var(--nxt1-skeleton-color-base);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.nxt1-skeleton--card-compact {
+  min-height: 120px;
+}
+
+.nxt1-skeleton--card-tall {
+  min-height: 300px;
+}
+
+/* ============================================================================
+   SKELETON VARIANTS - CHIP/BADGE
+   ============================================================================ */
+
+.nxt1-skeleton--chip {
+  display: inline-block;
+  width: 60px;
+  height: 22px;
+  border-radius: var(--nxt1-skeleton-radius-full);
+}
+
+.nxt1-skeleton--chip-sm {
+  width: 50px;
+  height: 18px;
+}
+
+.nxt1-skeleton--chip-lg {
+  width: 80px;
+  height: 26px;
+}
+
+/* ============================================================================
+   SKELETON VARIANTS - BUTTON
+   ============================================================================ */
+
+.nxt1-skeleton--button {
+  width: 120px;
+  height: 40px;
+  border-radius: var(--nxt1-skeleton-radius-md);
+}
+
+.nxt1-skeleton--button-sm {
+  width: 80px;
+  height: 32px;
+}
+
+.nxt1-skeleton--button-lg {
+  width: 160px;
+  height: 48px;
+}
+
+.nxt1-skeleton--button-full {
+  width: 100%;
+}
+
+/* ============================================================================
+   SKELETON VARIANTS - INPUT
+   ============================================================================ */
+
+.nxt1-skeleton--input {
+  width: 100%;
+  height: 40px;
+  border-radius: var(--nxt1-skeleton-radius-md);
+}
+
+.nxt1-skeleton--input-sm {
+  height: 32px;
+}
+
+.nxt1-skeleton--input-lg {
+  height: 48px;
+}
+
+/* ============================================================================
+   SKELETON LAYOUTS - COMMON PATTERNS
+   ============================================================================ */
+
+/* Profile Card Skeleton */
+.nxt1-skeleton-profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--nxt1-skeleton-color-base);
+  border-radius: var(--nxt1-skeleton-radius-xl);
+}
+
+.nxt1-skeleton-profile__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* List Item Skeleton */
+.nxt1-skeleton-list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+}
+
+.nxt1-skeleton-list-item__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Grid Card Skeleton */
+.nxt1-skeleton-grid-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--nxt1-skeleton-color-base);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--nxt1-skeleton-radius-xl);
+}
+
+/* Table Row Skeleton */
+.nxt1-skeleton-table-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 16px;
+  padding: 16px;
+  background: var(--nxt1-skeleton-color-base);
+  border-radius: var(--nxt1-skeleton-radius-lg);
+}
+
+/* ============================================================================
+   SKELETON UTILITIES
+   ============================================================================ */
+
+/* Width modifiers */
+.nxt1-skeleton--w-xs {
+  width: 30%;
+}
+.nxt1-skeleton--w-sm {
+  width: 40%;
+}
+.nxt1-skeleton--w-md {
+  width: 60%;
+}
+.nxt1-skeleton--w-lg {
+  width: 75%;
+}
+.nxt1-skeleton--w-xl {
+  width: 90%;
+}
+.nxt1-skeleton--w-full {
+  width: 100%;
+}
+
+/* Height modifiers */
+.nxt1-skeleton--h-xs {
+  height: var(--nxt1-skeleton-height-xs);
+}
+.nxt1-skeleton--h-sm {
+  height: var(--nxt1-skeleton-height-sm);
+}
+.nxt1-skeleton--h-md {
+  height: var(--nxt1-skeleton-height-md);
+}
+.nxt1-skeleton--h-lg {
+  height: var(--nxt1-skeleton-height-lg);
+}
+.nxt1-skeleton--h-xl {
+  height: var(--nxt1-skeleton-height-xl);
+}
+
+/* Border radius modifiers */
+.nxt1-skeleton--rounded-sm {
+  border-radius: var(--nxt1-skeleton-radius-sm);
+}
+.nxt1-skeleton--rounded-md {
+  border-radius: var(--nxt1-skeleton-radius-md);
+}
+.nxt1-skeleton--rounded-lg {
+  border-radius: var(--nxt1-skeleton-radius-lg);
+}
+.nxt1-skeleton--rounded-xl {
+  border-radius: var(--nxt1-skeleton-radius-xl);
+}
+.nxt1-skeleton--rounded-full {
+  border-radius: var(--nxt1-skeleton-radius-full);
+}
+
+/* Animation delay utilities */
+.nxt1-skeleton--delay-1 {
+  animation-delay: 0.1s;
+}
+.nxt1-skeleton--delay-2 {
+  animation-delay: 0.2s;
+}
+.nxt1-skeleton--delay-3 {
+  animation-delay: 0.3s;
+}
+.nxt1-skeleton--delay-4 {
+  animation-delay: 0.4s;
+}
+
+/* Staggered entrance animation for skeleton groups */
+.nxt1-skeleton-group > * {
+  animation: nxt1-skeleton-entrance 0.2s ease-out both;
+}
+
+.nxt1-skeleton-group > *:nth-child(1) {
+  animation-delay: 0s;
+}
+.nxt1-skeleton-group > *:nth-child(2) {
+  animation-delay: 0.05s;
+}
+.nxt1-skeleton-group > *:nth-child(3) {
+  animation-delay: 0.1s;
+}
+.nxt1-skeleton-group > *:nth-child(4) {
+  animation-delay: 0.15s;
+}
+.nxt1-skeleton-group > *:nth-child(5) {
+  animation-delay: 0.2s;
+}
+
+@keyframes nxt1-skeleton-entrance {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

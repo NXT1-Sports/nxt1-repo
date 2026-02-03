@@ -23,7 +23,7 @@ import {
   NxtLoggingService,
   type ExploreUser,
 } from '@nxt1/ui';
-import type { ExploreTabId, ExploreItem } from '@nxt1/core';
+import type { ExploreTabId, ExploreItem, ScoutReport } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 
@@ -37,6 +37,8 @@ import { SeoService } from '../../core/services';
       (avatarClick)="onAvatarClick()"
       (tabChange)="onTabChange($event)"
       (itemClick)="onItemClick($event)"
+      (scoutReportSelect)="onScoutReportSelect($event)"
+      (scoutReportFiltersOpen)="onScoutReportFiltersOpen()"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -95,5 +97,21 @@ export class ExploreComponent {
     if (item.route) {
       this.router.navigate([item.route]);
     }
+  }
+
+  /**
+   * Handle scout report selection - navigate to detail page.
+   */
+  protected onScoutReportSelect(report: ScoutReport): void {
+    this.logger.debug('Scout report selected', { reportId: report.id });
+    void this.router.navigate(['/tabs/scout-reports', report.id]);
+  }
+
+  /**
+   * Handle scout report filters open.
+   */
+  protected onScoutReportFiltersOpen(): void {
+    this.logger.debug('Scout report filters opened');
+    // TODO: Open filter modal/side panel
   }
 }

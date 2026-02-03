@@ -79,6 +79,7 @@ import {
   HapticsService,
   NxtLoggingService,
   NxtScrollService,
+  InviteBottomSheetService,
   type FooterTabItem,
   type FooterTabSelectEvent,
   type FooterScrollToTopEvent,
@@ -228,6 +229,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   private readonly authFlow = inject(AuthFlowService);
   private readonly activityService = inject(ActivityService);
   private readonly scrollService = inject(NxtScrollService);
+  private readonly inviteSheet = inject(InviteBottomSheetService);
   private readonly logger = inject(NxtLoggingService).child('MobileShell');
 
   /**
@@ -707,6 +709,9 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       case 'settings':
         void this.navController.navigateForward('/tabs/settings');
         break;
+      case 'invite-team':
+        await this.openInviteSheet();
+        break;
       case 'help':
         // TODO: Open help/support modal or page
         break;
@@ -714,6 +719,24 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         // Unknown action - silently ignore
         break;
     }
+  }
+
+  /**
+   * Open invite feature in a bottom sheet
+   * Professional native UX: Opens as a draggable sheet modal
+   */
+  private async openInviteSheet(): Promise<void> {
+    const user = this.profileService.user();
+    await this.inviteSheet.open({
+      inviteType: 'team',
+      user: user
+        ? {
+            displayName: `${user.firstName} ${user.lastName}`.trim() || user.email || undefined,
+            photoURL: user.profileImg ?? undefined,
+            referralCode: undefined, // TODO: Get from backend
+          }
+        : undefined,
+    });
   }
 
   /**

@@ -183,9 +183,62 @@
     },
 
     "skeleton": {
-      "$description": "Skeleton loader tokens",
-      "borderRadius": { "$value": "{borderRadius.md}", "$type": "dimension" },
-      "animationDuration": { "$value": "1.5s", "$type": "duration" }
+      "$description": "Skeleton loader tokens - Loading state placeholders. Uses theme-aware semantic tokens.",
+
+      "color": {
+        "base": {
+          "$value": "{theme.dark.color.surface.100}",
+          "$type": "color",
+          "$description": "Base skeleton background - references semantic surface token"
+        },
+        "highlight": {
+          "$value": "{theme.dark.color.loading.skeleton}",
+          "$type": "color",
+          "$description": "Shimmer base color - theme-aware"
+        },
+        "accent": {
+          "$value": "{theme.dark.color.loading.skeletonShimmer}",
+          "$type": "color",
+          "$description": "Shimmer highlight/accent - theme-aware"
+        }
+      },
+
+      "borderRadius": {
+        "sm": { "$value": "{borderRadius.sm}", "$type": "dimension" },
+        "md": { "$value": "{borderRadius.md}", "$type": "dimension" },
+        "lg": { "$value": "{borderRadius.lg}", "$type": "dimension" },
+        "xl": { "$value": "{borderRadius.xl}", "$type": "dimension" },
+        "full": { "$value": "{borderRadius.full}", "$type": "dimension" }
+      },
+
+      "animation": {
+        "duration": {
+          "$value": "1.5s",
+          "$type": "duration",
+          "$description": "Shimmer animation duration"
+        },
+        "timing": {
+          "$value": "ease-in-out",
+          "$type": "cubicBezier",
+          "$description": "Animation easing function"
+        }
+      },
+
+      "height": {
+        "xs": { "$value": "12px", "$type": "dimension" },
+        "sm": { "$value": "14px", "$type": "dimension" },
+        "md": { "$value": "16px", "$type": "dimension" },
+        "lg": { "$value": "20px", "$type": "dimension" },
+        "xl": { "$value": "28px", "$type": "dimension" }
+      },
+
+      "width": {
+        "xs": { "$value": "30%", "$type": "dimension" },
+        "sm": { "$value": "40%", "$type": "dimension" },
+        "md": { "$value": "60%", "$type": "dimension" },
+        "lg": { "$value": "75%", "$type": "dimension" },
+        "xl": { "$value": "100%", "$type": "dimension" }
+      }
     }
   },
 

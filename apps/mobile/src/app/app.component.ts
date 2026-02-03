@@ -16,7 +16,12 @@ import {
   NxtThemeService,
 } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
-import { NativeAppService, KeyboardService, NetworkService } from './core/services';
+import {
+  NativeAppService,
+  KeyboardService,
+  NetworkService,
+  DeepLinkService,
+} from './core/services';
 import { BiometricService, AuthFlowService } from './features/auth/services';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { filter } from 'rxjs/operators';
@@ -38,6 +43,7 @@ export class AppComponent {
   private readonly nativeApp = inject(NativeAppService);
   private readonly keyboard = inject(KeyboardService);
   private readonly network = inject(NetworkService);
+  private readonly deepLink = inject(DeepLinkService);
   private readonly biometric = inject(BiometricService);
   private readonly platform = inject(NxtPlatformService);
   private readonly theme = inject(NxtThemeService);
@@ -157,6 +163,10 @@ export class AppComponent {
       // Initialize keyboard behavior for iOS/Android
       await this.keyboard.initialize();
       this.logger.debug('Keyboard service initialized');
+
+      // Initialize deep link handling (Universal Links / App Links)
+      await this.deepLink.initialize();
+      this.logger.debug('Deep link service initialized');
 
       // Theme service auto-initializes and manages theme switching
       // (NxtThemeService from @nxt1/ui handles DOM updates automatically)

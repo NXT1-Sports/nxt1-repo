@@ -1,13 +1,22 @@
 /**
- * @fileoverview NxtBottomSheetService - Programmatic Bottom Sheet Opener
+ * @fileoverview NxtBottomSheetService - Unified Bottom Sheet System
  * @module @nxt1/ui/components/bottom-sheet
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Service for programmatically opening the NxtBottomSheetComponent.
- * Follows the same pattern as NxtPickerService for consistency.
+ * Unified service for all bottom sheet patterns:
+ *
+ * 1. ACTION SHEETS (show/confirm/alert):
+ *    - Confirmations, alerts, action menus
+ *    - Uses NxtBottomSheetComponent internally
+ *
+ * 2. CONTENT SHEETS (openSheet):
+ *    - Full component injection
+ *    - Native draggable sheet with breakpoints
+ *    - Used for: Edit Profile, Settings, Filters, etc.
  *
  * Features:
- * - Platform-adaptive modal presentation (iOS sheet vs Android modal)
+ * - Platform-adaptive (iOS sheet vs Android modal)
+ * - Native drag handle with breakpoints
  * - Type-safe configuration
  * - Promise-based result handling
  * - Automatic cleanup
@@ -21,21 +30,24 @@
  * export class MyComponent {
  *   private readonly bottomSheet = inject(NxtBottomSheetService);
  *
+ *   // Action sheet (confirmation)
  *   async confirmDelete(): Promise<void> {
- *     const result = await this.bottomSheet.show({
- *       title: 'Delete Item?',
- *       subtitle: 'This action cannot be undone.',
- *       icon: 'trash-outline',
- *       destructive: true,
- *       actions: [
- *         { label: 'Delete', role: 'destructive' },
- *         { label: 'Cancel', role: 'cancel' },
- *       ],
- *     });
+ *     const confirmed = await this.bottomSheet.confirm(
+ *       'Delete Item?',
+ *       'This action cannot be undone.',
+ *       { destructive: true }
+ *     );
+ *     if (confirmed) await this.deleteItem();
+ *   }
  *
- *     if (result.confirmed) {
- *       await this.deleteItem();
- *     }
+ *   // Content sheet (inject component)
+ *   async openEditProfile(): Promise<void> {
+ *     const result = await this.bottomSheet.openSheet({
+ *       component: EditProfileModalComponent,
+ *       breakpoints: [0, 0.5, 0.75, 1],
+ *       initialBreakpoint: 0.75,
+ *     });
+ *     if (result.role === 'save') this.refresh();
  *   }
  * }
  * ```
@@ -43,12 +55,17 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, Type } from '@angular/core';
 import { ModalController } from '@ionic/angular/standalone';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { NxtPlatformService } from '../../services/platform';
 import { NxtBottomSheetComponent } from './bottom-sheet.component';
-import type { BottomSheetConfig, BottomSheetResult } from './bottom-sheet.types';
+import type {
+  BottomSheetConfig,
+  BottomSheetResult,
+  ContentSheetConfig,
+  ContentSheetResult,
+} from './bottom-sheet.types';
 
 @Injectable({ providedIn: 'root' })
 export class NxtBottomSheetService {
@@ -56,6 +73,112 @@ export class NxtBottomSheetService {
   private readonly platform = inject(NxtPlatformService);
 
   private activeModal: HTMLIonModalElement | null = null;
+
+  // ============================================
+  // CONTENT SHEET (Full Component Injection)
+  // ============================================
+
+  /**
+   * Opens a draggable content sheet with an injected component.
+   * Use this for full-feature sheets like Edit Profile, Settings, Filters.
+   *
+   * @param config - Configuration including the component to inject
+   * @returns Promise resolving to the sheet result
+   *
+   * @example
+   * ```typescript
+   * // Open Edit Profile in a draggable sheet
+   * const result = await bottomSheet.openSheet({
+   *   component: EditProfileModalComponent,
+   *   breakpoints: [0, 0.5, 0.75, 1],
+   *   initialBreakpoint: 0.75,
+   *   canDismiss: async () => {
+   *     return await this.confirmDiscard();
+   *   },
+   * });
+   *
+   * if (result.role === 'save') {
+   *   // Handle save
+   * }
+   * ```
+   */
+  async openSheet<T = unknown>(config: ContentSheetConfig<T>): Promise<ContentSheetResult<T>> {
+    // Dismiss any existing modal
+    await this.dismiss();
+
+    // Haptic feedback on open
+    await this.triggerHaptic();
+
+    // Build CSS classes
+    const cssClasses = this.buildSheetCssClasses(config.cssClass);
+
+    // Create the modal with injected component
+    const modal = await this.modalCtrl.create({
+      component: config.component as Type<unknown>,
+      componentProps: config.componentProps,
+
+      // Breakpoints for draggable resize
+      breakpoints: config.breakpoints ?? [0, 0.75, 1],
+      initialBreakpoint: config.initialBreakpoint ?? 0.75,
+
+      // Native drag handle
+      handle: config.showHandle ?? true,
+      handleBehavior: config.handleBehavior ?? 'cycle',
+
+      // Backdrop behavior
+      showBackdrop: true,
+      backdropBreakpoint: config.backdropBreakpoint ?? 0.5,
+      backdropDismiss: config.backdropDismiss ?? false,
+
+      // Dismiss guard (for unsaved changes)
+      canDismiss: config.canDismiss ?? true,
+
+      // Platform-specific styling
+      cssClass: cssClasses,
+    });
+
+    this.activeModal = modal;
+
+    // Present the modal
+    await modal.present();
+
+    // Wait for dismissal
+    const { data, role } = await modal.onWillDismiss<T>();
+
+    this.activeModal = null;
+
+    return { data, role };
+  }
+
+  /**
+   * Builds the CSS class array for a content sheet.
+   * Includes base class + platform-specific class + any custom classes.
+   */
+  private buildSheetCssClasses(customClass?: string | string[]): string[] {
+    const classes = ['nxt1-sheet-modal'];
+
+    // Add platform-specific class
+    if (this.platform.isIOS()) {
+      classes.push('nxt1-sheet-modal--ios');
+    } else {
+      classes.push('nxt1-sheet-modal--android');
+    }
+
+    // Add custom classes
+    if (customClass) {
+      if (Array.isArray(customClass)) {
+        classes.push(...customClass);
+      } else {
+        classes.push(customClass);
+      }
+    }
+
+    return classes;
+  }
+
+  // ============================================
+  // ACTION SHEETS (Confirmations, Alerts, Menus)
+  // ============================================
 
   /**
    * Opens a bottom sheet with the specified configuration.

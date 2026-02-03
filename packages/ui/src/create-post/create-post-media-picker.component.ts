@@ -36,8 +36,6 @@ import {
   computed,
   signal,
   inject,
-  ElementRef,
-  viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonIcon, IonSpinner, IonRippleEffect } from '@ionic/angular/standalone';
@@ -607,7 +605,8 @@ addIcons({
 })
 export class CreatePostMediaPickerComponent {
   private readonly haptics = inject(HapticsService);
-  private readonly dropZone = viewChild<ElementRef>('dropZone');
+  // Drop zone ref available for future drag-and-drop enhancements
+  // private readonly dropZone = viewChild<ElementRef>('dropZone');
 
   /** Media items */
   readonly media = input<readonly PostMedia[]>([]);
