@@ -101,21 +101,21 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
      * Get user profile by ID
      */
     async getProfile(userId: string): Promise<ApiResponse<User>> {
-      return http.get<ApiResponse<User>>(`${baseUrl}/profile/${userId}`);
+      return http.get<ApiResponse<User>>(`${baseUrl}/auth/profile/${userId}`);
     },
 
     /**
      * Get user profile by username
      */
     async getProfileByUsername(username: string): Promise<ApiResponse<User>> {
-      return http.get<ApiResponse<User>>(`${baseUrl}/profile/username/${username}`);
+      return http.get<ApiResponse<User>>(`${baseUrl}/auth/profile/username/${username}`);
     },
 
     /**
      * Update user profile
      */
     async updateProfile(userId: string, data: UpdateProfileRequest): Promise<ApiResponse<User>> {
-      return http.put<ApiResponse<User>>(`${baseUrl}/profile/${userId}`, data);
+      return http.put<ApiResponse<User>>(`${baseUrl}/auth/profile/${userId}`, data);
     },
 
     /**
@@ -125,7 +125,7 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
       userId: string,
       data: UpdateSportProfileRequest
     ): Promise<ApiResponse<SportProfile>> {
-      return http.put<ApiResponse<SportProfile>>(`${baseUrl}/profile/${userId}/sport`, data);
+      return http.put<ApiResponse<SportProfile>>(`${baseUrl}/auth/profile/${userId}/sport`, data);
     },
 
     /**
@@ -135,21 +135,23 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
       userId: string,
       sport: Partial<SportProfile>
     ): Promise<ApiResponse<SportProfile>> {
-      return http.post<ApiResponse<SportProfile>>(`${baseUrl}/profile/${userId}/sport`, sport);
+      return http.post<ApiResponse<SportProfile>>(`${baseUrl}/auth/profile/${userId}/sport`, sport);
     },
 
     /**
      * Remove sport from profile
      */
     async removeSport(userId: string, sportIndex: number): Promise<ApiResponse<void>> {
-      return http.delete<ApiResponse<void>>(`${baseUrl}/profile/${userId}/sport/${sportIndex}`);
+      return http.delete<ApiResponse<void>>(
+        `${baseUrl}/auth/profile/${userId}/sport/${sportIndex}`
+      );
     },
 
     /**
      * Search profiles
      */
     async searchProfiles(params: ProfileSearchParams): Promise<PaginatedResponse<UserSummary>> {
-      return http.get<PaginatedResponse<UserSummary>>(`${baseUrl}/profile/search`, {
+      return http.get<PaginatedResponse<UserSummary>>(`${baseUrl}/auth/profile/search`, {
         params: params as Record<string, string | number | boolean>,
       });
     },
@@ -218,7 +220,7 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
       userId: string,
       imageData: string
     ): Promise<ApiResponse<{ url: string }>> {
-      return http.post<ApiResponse<{ url: string }>>(`${baseUrl}/profile/${userId}/image`, {
+      return http.post<ApiResponse<{ url: string }>>(`${baseUrl}/auth/profile/${userId}/image`, {
         imageData,
       });
     },
