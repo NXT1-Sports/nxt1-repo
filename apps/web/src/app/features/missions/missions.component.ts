@@ -15,10 +15,11 @@
  * - Role determination for mission type
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { MissionsShellComponent, NxtLoggingService, NxtSidenavService } from '@nxt1/ui';
 import type { MissionUserRole } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-missions',
@@ -42,11 +43,20 @@ import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class MissionsComponent {
+export class MissionsComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly sidenavService = inject(NxtSidenavService);
-  // Logger prepared for debugging and error tracking
   private readonly _logger = inject(NxtLoggingService).child('MissionsComponent');
+  private readonly seo = inject(SeoService);
+
+  ngOnInit(): void {
+    this.seo.updatePage({
+      title: 'XP Missions',
+      description: 'Complete missions, earn XP, and unlock achievements to level up your profile.',
+      keywords: ['missions', 'xp', 'achievements', 'rewards', 'gamification'],
+      noIndex: true, // Protected page - don't index
+    });
+  }
 
   /**
    * Determine user role for mission type.

@@ -8,10 +8,18 @@
  * Uses NxtPageHeaderComponent from @nxt1/ui for consistent header styling.
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, signal } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  signal,
+  OnInit,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { IonContent } from '@ionic/angular/standalone';
+import { Router } from '@angular/router';
 import {
   NxtPageHeaderComponent,
   NxtOptionScrollerComponent,
@@ -21,6 +29,7 @@ import {
   type OptionScrollerChangeEvent,
 } from '@nxt1/ui';
 import { AuthFlowService } from '../auth/services';
+import { SeoService } from '../../core/services/seo.service';
 
 @Component({
   selector: 'app-home',
@@ -402,9 +411,21 @@ import { AuthFlowService } from '../auth/services';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class HomeComponent {
+export class HomeComponent implements OnInit {
   private readonly authFlow = inject(AuthFlowService);
   private readonly logger = inject(NxtLoggingService).child('HomeComponent');
+  private readonly seo = inject(SeoService);
+
+  private readonly router = inject(Router);
+  ngOnInit(): void {
+    this.seo.updatePage({
+      title: 'Home',
+      description:
+        'Your personalized feed of athletic highlights, training videos, and sports content.',
+      keywords: ['home', 'feed', 'sports', 'highlights'],
+      noIndex: true, // Protected page - don't index
+    });
+  }
 
   /** Current authenticated user */
   readonly user = computed(() => this.authFlow.user());
@@ -448,8 +469,17 @@ export class HomeComponent {
       via: event.fromSwipe ? 'swipe' : 'tap',
     });
 
-    // In production: trigger data reload for the selected feed
-    // this.loadFeedData(event.option.id);
+    // Navigate to specific tab based on selection
+    switch (event.option.id) {
+      case 'explore':
+        break;
+      case 'following':
+        break;
+      case 'news':
+        break;
+      case 'leaderboards':
+        break;
+    }
   }
 
   /**

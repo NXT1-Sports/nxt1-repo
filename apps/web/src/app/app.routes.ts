@@ -46,11 +46,30 @@ export const routes: Routes = [
     redirectTo: 'tabs/activity',
     pathMatch: 'prefix',
   },
+
+  // Public Profile Routes (No Auth Required - SEO Optimized)
+  // These MUST be before the redirect to tabs/profile to handle public URLs
+  {
+    path: 'profile/:unicode',
+    loadComponent: () =>
+      import('./features/profile/profile.component').then((m) => m.ProfileComponent),
+  },
+
+  // Public Explore Route (for SEO - no auth required)
+  // Uncomment if you want /explore to be publicly accessible
+  {
+    path: 'explore',
+    loadComponent: () =>
+      import('./features/explore/explore.component').then((m) => m.ExploreComponent),
+  },
+
+  // Legacy profile redirects (for authenticated users)
   {
     path: 'profile',
     redirectTo: 'tabs/profile',
-    pathMatch: 'prefix',
+    pathMatch: 'full',
   },
+
   {
     path: 'analytics',
     redirectTo: 'tabs/analytics',

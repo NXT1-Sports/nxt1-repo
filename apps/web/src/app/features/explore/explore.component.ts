@@ -25,6 +25,7 @@ import {
 } from '@nxt1/ui';
 import type { ExploreTabId, ExploreItem } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-explore',
@@ -45,7 +46,16 @@ export class ExploreComponent {
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('ExploreComponent');
+  private readonly seo = inject(SeoService);
 
+  ngOnInit(): void {
+    this.seo.updatePage({
+      title: 'Explore',
+      description:
+        'Discover top athletic talent, teams, and sports content from across the country.',
+      keywords: ['explore', 'discover', 'athletes', 'recruiting', 'sports'],
+    });
+  }
   /**
    * Transform auth user to ExploreUser interface.
    */

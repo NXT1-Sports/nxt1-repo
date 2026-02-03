@@ -15,7 +15,7 @@
  * - User context from AuthService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import {
   ActivityShellComponent,
@@ -25,6 +25,7 @@ import {
 } from '@nxt1/ui';
 import type { ActivityTabId } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-activity',
@@ -39,11 +40,21 @@ import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ActivityComponent {
+export class ActivityComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
+  private readonly seo = inject(SeoService);
+
+  ngOnInit(): void {
+    this.seo.updatePage({
+      title: 'Activity',
+      description: 'Stay updated with notifications, messages, and activity from your network.',
+      keywords: ['activity', 'notifications', 'messages', 'updates'],
+      noIndex: true, // Protected page - don't index
+    });
+  }
 
   /**
    * Transform auth user to ActivityUser interface.

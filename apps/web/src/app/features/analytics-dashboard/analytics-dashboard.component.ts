@@ -16,7 +16,7 @@
  * - Role determination
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import {
   AnalyticsDashboardShellComponent,
@@ -32,6 +32,7 @@ import type {
   AnalyticsRecommendation,
 } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-analytics-dashboard',
@@ -50,11 +51,21 @@ import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AnalyticsDashboardComponent {
+export class AnalyticsDashboardComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('AnalyticsDashboardComponent');
+  private readonly seo = inject(SeoService);
+
+  ngOnInit(): void {
+    this.seo.updatePage({
+      title: 'Analytics',
+      description: 'Track your performance metrics, engagement stats, and growth insights.',
+      keywords: ['analytics', 'stats', 'metrics', 'performance', 'insights'],
+      noIndex: true, // Protected page - don't index
+    });
+  }
 
   /**
    * Transform auth user to AnalyticsUser interface.

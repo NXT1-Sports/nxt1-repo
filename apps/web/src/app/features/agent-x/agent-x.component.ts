@@ -15,7 +15,7 @@
  * - User context from AuthFlowService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import {
   AgentXShellComponent,
   NxtSidenavService,
@@ -24,6 +24,7 @@ import {
 } from '@nxt1/ui';
 import type { AgentXMode } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-agent-x',
@@ -46,10 +47,21 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXComponent {
+export class AgentXComponent implements OnInit {
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
+  private readonly seo = inject(SeoService);
+
+  ngOnInit(): void {
+    this.seo.updatePage({
+      title: 'Agent X - AI Assistant',
+      description:
+        'Your AI-powered recruiting assistant. Get personalized insights, analysis, and recommendations.',
+      keywords: ['ai', 'agent x', 'assistant', 'recruiting', 'insights'],
+      noIndex: true, // Protected page - don't index
+    });
+  }
 
   /**
    * Transform auth user to AgentXUser interface.

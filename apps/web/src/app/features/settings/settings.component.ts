@@ -16,7 +16,7 @@
  * - Confirmation dialogs
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import {
   SettingsShellComponent,
@@ -28,6 +28,7 @@ import {
   type SettingsActionEvent,
 } from '@nxt1/ui';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-settings',
@@ -46,12 +47,22 @@ import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class SettingsComponent {
+export class SettingsComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('SettingsComponent');
+  private readonly seo = inject(SeoService);
+
+  ngOnInit(): void {
+    this.seo.updatePage({
+      title: 'Settings',
+      description: 'Manage your account settings, preferences, and privacy options.',
+      keywords: ['settings', 'preferences', 'account', 'privacy'],
+      noIndex: true, // Protected page - don't index
+    });
+  }
 
   /**
    * Transform auth user to SettingsUser interface.

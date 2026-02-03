@@ -25,6 +25,7 @@ import {
   MOCK_XP_PREVIEW,
 } from '@nxt1/ui';
 import type { CreatePostState, TaggableUser, PostXpBreakdown } from '@nxt1/core';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-create-post',
@@ -145,6 +146,7 @@ export class CreatePostComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly createPostService = inject(CreatePostService);
   private readonly api = inject(CreatePostApiService);
+  private readonly seo = inject(SeoService);
 
   // UI State
   protected readonly loading = signal(true);
@@ -154,6 +156,12 @@ export class CreatePostComponent implements OnInit, OnDestroy {
   protected readonly xpBreakdown = signal<PostXpBreakdown | null>(null);
 
   ngOnInit(): void {
+    this.seo.updatePage({
+      title: 'Create Post',
+      description: 'Share your athletic achievements, training sessions, and sports content.',
+      keywords: ['create', 'post', 'share', 'content'],
+      noIndex: true, // Protected page - don't index
+    });
     this.loadInitialData();
   }
 

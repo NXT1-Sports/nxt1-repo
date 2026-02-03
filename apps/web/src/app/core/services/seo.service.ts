@@ -175,7 +175,7 @@ export class SeoService {
       sport: team.sport,
       location: team.location,
       logoUrl: team.logoUrl,
-      imageUrl: team.imageUrl,
+      imageUrl: team.imageUrl || team.logoUrl,
       record: team.record,
     };
 
@@ -212,7 +212,7 @@ export class SeoService {
       videoTitle: video.videoTitle,
       athleteName: video.athleteName,
       thumbnailUrl: video.thumbnailUrl,
-      imageUrl: video.imageUrl,
+      imageUrl: video.imageUrl || video.thumbnailUrl,
       duration: video.duration,
       views: video.views,
     };

@@ -14,14 +14,24 @@
  * - Sidenav integration
  * - User context from AuthService
  * - Share/QR code native APIs
+ * - SEO Metadata
  *
  * Routes:
  * - /profile/:unicode — View profile by unicode (unique profile identifier)
  * - /profile — View own profile (redirects to own unicode)
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  OnInit,
+  signal,
+  effect,
+} from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   ProfileShellComponent,
   NxtSidenavService,
@@ -31,6 +41,9 @@ import {
 } from '@nxt1/ui';
 import type { ProfileTabId } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { SeoService } from '../../core/services';
+import { ProfileService } from './services/profile.service';
+import { toSignal } from '@angular/core/rxjs-interop';
 
 @Component({
   selector: 'app-profile',
@@ -60,6 +73,9 @@ export class ProfileComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileComponent');
+  private readonly seo = inject(SeoService);
+  private readonly profileService = inject(ProfileService);
+  private readonly fetchedProfile = signal<any>(null);
 
   /**
    * Profile unicode from route parameter.
@@ -94,20 +110,108 @@ export class ProfileComponent implements OnInit {
    * Transform auth user to ProfileShellUser interface.
    */
   protected readonly userInfo = computed<ProfileShellUser | null>(() => {
-    const user = this.authService.user();
-    if (!user) return null;
-
-    return {
-      photoURL: user.photoURL,
-      displayName: user.displayName,
-    };
+    if (this.isOwnProfile()) {
+      const user = this.authService.user();
+      if (!user) return null;
+      return {
+        photoURL: user.photoURL,
+        displayName: user.displayName,
+      };
+    } else {
+      const profile = this.fetchedProfile();
+      if (!profile) return null;
+      return {
+        photoURL: profile.profileImg || profile.imageUrl, // Handle variations in API response
+        displayName: `${profile.firstName} ${profile.lastName}`,
+      };
+    }
   });
+
+  constructor() {
+    // Effect to fetch profile data when unicode changes and it's not own profile (or even if it is, for completeness/SEO)
+    effect(() => {
+      const unicode = this.profileUnicode();
+      if (unicode) {
+        this.loadProfileAndSeo(unicode);
+      }
+    });
+  }
 
   ngOnInit(): void {
     this.logger.info('Profile component initialized', {
       profileUnicode: this.profileUnicode(),
       isOwnProfile: this.isOwnProfile(),
     });
+  }
+
+  private loadProfileAndSeo(unicode: string) {
+    this.profileService
+      .getProfile(unicode)
+      .pipe(takeUntilDestroyed())
+      .subscribe({
+        next: (response) => {
+          if (response.success && response.data) {
+            const profile = response.data;
+            this.fetchedProfile.set(profile);
+
+            // Build full name
+            const athleteName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
+
+            // Build location string from structured location or legacy fields
+            const city = profile.location?.city || profile.city || '';
+            const state = profile.location?.state || profile.state || '';
+            const location = [city, state].filter(Boolean).join(', ');
+
+            // Get school name from sports profile or legacy fields
+            const primarySport = profile.sports?.[profile.activeSportIndex || 0];
+            const school = primarySport?.team?.name || profile.highSchool || undefined;
+
+            // Get sport and position from sports array or legacy fields
+            const sport = primarySport?.sport || profile.primarySport || profile.sport || undefined;
+            const position = primarySport?.positions?.[0] || profile.position || undefined;
+
+            // Get class year from athlete data or legacy field
+            const classYear = profile.athlete?.classOf || profile.classOf || undefined;
+
+            // Get image URL - profileImg is the main field
+            const imageUrl = profile.profileImg || undefined;
+
+            // Validate unicode exists
+            if (!profile.unicode) {
+              this.logger.warn('Profile missing unicode', { profileId: profile.id });
+              return;
+            }
+
+            // Update SEO tags with complete data
+            this.seo.updateForProfile({
+              id: profile.unicode,
+              athleteName,
+              position,
+              classYear,
+              school,
+              sport,
+              location: location || undefined,
+              imageUrl,
+            });
+
+            this.logger.info('Profile SEO updated', {
+              unicode: profile.unicode,
+              athleteName,
+              hasImage: !!imageUrl,
+            });
+          }
+        },
+        error: (err) => {
+          this.logger.error('Failed to load profile for SEO', err);
+
+          // Set basic SEO even on error (prevents empty meta tags)
+          this.seo.updatePage({
+            title: 'Profile',
+            description: 'View athlete profile on NXT1 Sports',
+            noIndex: true, // Don't index error pages
+          });
+        },
+      });
   }
 
   /**
