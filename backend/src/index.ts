@@ -21,6 +21,7 @@ import { firebaseContext } from './middleware/firebase-context.middleware.js';
 // Routes
 import authRoutes from './routes/auth.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
+import sitemapRoutes from './routes/sitemap.routes.js';
 
 const { json, urlencoded } = bodyParser;
 
@@ -50,6 +51,11 @@ app.get('/health', (_req, res) => {
 app.get('/staging/health', (_req, res) => {
   res.json({ status: 'Staging OK', timestamp: new Date().toISOString() });
 });
+
+// ============================================================================
+// Public Routes (no /api prefix for SEO)
+// ============================================================================
+app.use('/', sitemapRoutes);
 
 // ============================================================================
 // API Routes - Production (uses FIREBASE_SERVICE_ACCOUNT)
