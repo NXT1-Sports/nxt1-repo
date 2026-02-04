@@ -25,9 +25,10 @@ import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/c
 import { ActivatedRoute } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs/operators';
+import { NavController } from '@ionic/angular/standalone';
 
 // Shared UI from @nxt1/ui (95% of the code)
-import { ProfileShellComponent, EditProfileBottomSheetService } from '@nxt1/ui';
+import { ProfileShellComponent, EditProfileBottomSheetService, NxtSidenavService } from '@nxt1/ui';
 
 // Mobile-specific services
 import { MobileAuthService } from '../auth/services/mobile-auth.service';
@@ -52,6 +53,8 @@ import { MobileAuthService } from '../auth/services/mobile-auth.service';
     <nxt1-profile-shell
       [currentUser]="currentUser()"
       [profileUnicode]="profileUnicode()"
+      (avatarClick)="onAvatarClick()"
+      (backClick)="onBackClick()"
       (editProfileClick)="onEditProfile()"
     />
   `,
@@ -71,6 +74,8 @@ export class ProfileComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly authService = inject(MobileAuthService);
   private readonly editProfileSheet = inject(EditProfileBottomSheetService);
+  private readonly navController = inject(NavController);
+  private readonly sidenavService = inject(NxtSidenavService);
 
   // ============================================
   // STATE
@@ -96,6 +101,21 @@ export class ProfileComponent {
   // ============================================
   // ACTIONS
   // ============================================
+
+  /**
+   * Opens the sidenav (mobile pattern - avatar opens sidenav).
+   */
+  protected onAvatarClick(): void {
+    this.sidenavService.open();
+  }
+
+  /**
+   * Navigates back to the previous page using Ionic's NavController.
+   * Uses navigateBack for proper Ionic page transition animations.
+   */
+  protected onBackClick(): void {
+    this.navController.navigateBack('/tabs/home');
+  }
 
   /**
    * Opens the edit profile bottom sheet (full-screen on mobile).

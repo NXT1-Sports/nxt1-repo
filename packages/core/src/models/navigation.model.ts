@@ -1149,7 +1149,7 @@ export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
         id: 'help-center',
         label: 'Help Center',
         icon: 'help',
-        action: 'help',
+        route: '/help-center',
       },
     ],
   },

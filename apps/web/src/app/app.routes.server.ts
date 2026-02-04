@@ -91,6 +91,40 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
 
+  // ============================================
+  // HELP CENTER (High SEO Priority)
+  // ============================================
+
+  /**
+   * Help Center - Main landing, category pages, articles, videos
+   * Routes: /tabs/help-center/**
+   * SEO: High priority - support content, indexed for search
+   */
+  {
+    path: 'tabs/help-center',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'tabs/help-center/category/:categoryId',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'tabs/help-center/article/:slug',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'tabs/help-center/video/:id',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'tabs/help-center/search',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'tabs/help-center/contact',
+    renderMode: RenderMode.Server,
+  },
+
   /**
    * Homepage
    */

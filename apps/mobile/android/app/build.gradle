@@ -20,21 +20,9 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            
-            // Firebase Crashlytics configuration for release builds
-            // Uploads native symbols for deobfuscated crash reports
-            firebaseCrashlytics {
-                // Upload mapping files for code deobfuscation
-                mappingFileUploadEnabled true
-                // Enable native symbol upload for NDK crashes (if using native code)
-                nativeSymbolUploadEnabled true
-            }
         }
         debug {
-            // Disable Crashlytics mapping uploads in debug builds for faster builds
-            firebaseCrashlytics {
-                mappingFileUploadEnabled false
-            }
+            // Debug build type
         }
     }
     compileOptions {
@@ -75,6 +63,22 @@ try {
         apply plugin: 'com.google.firebase.crashlytics'
         // Firebase Performance Monitoring plugin - automatic HTTP/S monitoring
         apply plugin: 'com.google.firebase.firebase-perf'
+        
+        // Configure Crashlytics after plugin is applied
+        android.buildTypes.release {
+            firebaseCrashlytics {
+                // Upload mapping files for code deobfuscation
+                mappingFileUploadEnabled true
+                // Enable native symbol upload for NDK crashes (if using native code)
+                nativeSymbolUploadEnabled true
+            }
+        }
+        android.buildTypes.debug {
+            firebaseCrashlytics {
+                // Disable Crashlytics mapping uploads in debug builds for faster builds
+                mappingFileUploadEnabled false
+            }
+        }
     }
 } catch(Exception e) {
     logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")

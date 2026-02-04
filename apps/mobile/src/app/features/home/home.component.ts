@@ -5,10 +5,11 @@
  * Main home page shown after successful authentication and onboarding completion.
  * Protected by onboardingCompleteGuard.
  *
- * Uses NxtPageHeaderComponent for professional contextual header.
+ * Uses NxtOptionScrollerComponent for tab navigation (Home/Following/News).
+ * Uses FeedListComponent for Home and Following feeds.
+ * Uses NewsContentComponent for News tab.
  * Avatar click opens the sidenav (Twitter/X pattern).
- * ⭐ PULL-TO-REFRESH enabled using NxtRefresherComponent ⭐
- * ⭐ IDENTICAL STRUCTURE TO WEB ⭐
+ * ⭐ IDENTICAL TO WEB - Uses shared @nxt1/ui components ⭐
  */
 
 import {
@@ -18,33 +19,24 @@ import {
   signal,
   ChangeDetectionStrategy,
   HostBinding,
+  OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
-import {
-  IonContent,
-  IonCard,
-  IonCardHeader,
-  IonCardTitle,
-  IonCardContent,
-  IonAvatar,
-  IonIcon,
-  NavController,
-} from '@ionic/angular/standalone';
+import { IonContent, NavController } from '@ionic/angular/standalone';
 import {
   NxtPageHeaderComponent,
+  NxtOptionScrollerComponent,
   NxtSidenavService,
-  NxtRefresherComponent,
-  NxtToastService,
   NxtLoggingService,
   HapticsService,
-  NxtOptionScrollerComponent,
   NewsContentComponent,
+  FeedListComponent,
+  FeedService,
   type PageHeaderAction,
-  type RefreshEvent,
   type OptionScrollerItem,
   type OptionScrollerChangeEvent,
 } from '@nxt1/ui';
+import { type FeedPost, type FeedAuthor } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { AUTH_ROUTES } from '@nxt1/core/constants';
 
@@ -54,16 +46,10 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
   imports: [
     CommonModule,
     IonContent,
-    IonCard,
-    IonCardHeader,
-    IonCardTitle,
-    IonCardContent,
-    IonAvatar,
-    IonIcon,
     NxtPageHeaderComponent,
-    NxtRefresherComponent,
     NxtOptionScrollerComponent,
     NewsContentComponent,
+    FeedListComponent,
   ],
   template: `
     <!-- Professional Page Header with Logo (Twitter/X style) -->
@@ -84,277 +70,77 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
       (selectionChange)="onFeedChange($event)"
     />
 
-    <ion-content [class.ion-padding]="selectedFeed() !== 'news'">
-      <!-- 🔄 Pull-to-Refresh (2026 Native-Style) -->
-      <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
-
-      <!-- Dynamic Content Based on Selected Feed -->
+    <ion-content>
       @switch (selectedFeed()) {
         @case ('news') {
-          <!-- News Feed Content (Embedded) -->
           <nxt1-news-content
             (articleSelect)="onNewsArticleSelect($event)"
             (xpBadgeClick)="onXpBadgeClick()"
           />
         }
         @case ('following') {
-          <!-- Following Feed (Placeholder) -->
-          <div class="feed-placeholder">
-            <div class="feed-placeholder__icon">👥</div>
-            <h3 class="feed-placeholder__title">Following</h3>
-            <p class="feed-placeholder__text">See updates from people you follow</p>
-          </div>
+          <nxt1-feed-list
+            [posts]="feedService.posts()"
+            [isLoading]="feedService.isLoading()"
+            [isLoadingMore]="feedService.isLoadingMore()"
+            [error]="feedService.error()"
+            [filterType]="'following'"
+            (postClick)="onPostSelect($event)"
+            (authorClick)="onAuthorSelect($event)"
+            (likeClick)="onLikeClick($event)"
+            (commentClick)="onCommentClick($event)"
+            (shareClick)="onShareClick($event)"
+            (bookmarkClick)="onBookmarkClick($event)"
+            (loadMore)="onLoadMore()"
+            (retry)="onRetry()"
+          />
         }
         @default {
-          <!-- Home Feed (Default) -->
-          <div class="home-container">
-            <!-- Welcome Card -->
-            <ion-card>
-              <ion-card-header>
-                <div class="profile-section">
-                  @if (user()?.photoURL) {
-                    <ion-avatar>
-                      <img [src]="user()?.photoURL" [alt]="displayName()" />
-                    </ion-avatar>
-                  } @else {
-                    <ion-avatar>
-                      <ion-icon name="person-circle-outline" class="default-avatar"></ion-icon>
-                    </ion-avatar>
-                  }
-                  <ion-card-title>Welcome, {{ displayName() }}!</ion-card-title>
-                </div>
-              </ion-card-header>
-              <ion-card-content>
-                <p class="welcome-text">
-                  You're all set! Your profile is complete and you're ready to explore NXT1 Sports.
-                </p>
-
-                <div class="user-info">
-                  <div class="info-item">
-                    <span class="label">Email:</span>
-                    <span class="value">{{ user()?.email }}</span>
-                  </div>
-                  <div class="info-item">
-                    <span class="label">Role:</span>
-                    <span class="value">{{ user()?.role }}</span>
-                  </div>
-                  @if (user()?.isPremium) {
-                    <div class="info-item">
-                      <span class="label">Status:</span>
-                      <span class="value premium">⭐ Premium</span>
-                    </div>
-                  }
-                  <div class="info-item">
-                    <span class="label">Last Refresh:</span>
-                    <span class="value">{{ lastRefreshDisplay() }}</span>
-                  </div>
-                </div>
-              </ion-card-content>
-            </ion-card>
-
-            <!-- Status Card -->
-            <ion-card>
-              <ion-card-header>
-                <ion-card-title>Status</ion-card-title>
-              </ion-card-header>
-              <ion-card-content>
-                <div class="status-grid">
-                  <div class="status-item">
-                    <span class="status-label">Authentication</span>
-                    <span class="status-value success">✓ Authenticated</span>
-                  </div>
-                  <div class="status-item">
-                    <span class="status-label">Onboarding</span>
-                    <span class="status-value success">✓ Complete</span>
-                  </div>
-                  <div class="status-item">
-                    <span class="status-label">Email Verified</span>
-                    <span class="status-value" [class.success]="user()?.emailVerified">
-                      {{ user()?.emailVerified ? '✓ Verified' : '⚠ Not Verified' }}
-                    </span>
-                  </div>
-                </div>
-              </ion-card-content>
-            </ion-card>
-
-            <!-- Coming Soon -->
-            <ion-card>
-              <ion-card-header>
-                <ion-card-title>Coming Soon</ion-card-title>
-              </ion-card-header>
-              <ion-card-content>
-                <p>More features are being developed:</p>
-                <ul>
-                  <li>Feed & Posts</li>
-                  <li>Profile Management</li>
-                  <li>Team Dashboard</li>
-                  <li>Messaging</li>
-                  <li>Video Highlights</li>
-                </ul>
-              </ion-card-content>
-            </ion-card>
-          </div>
+          <nxt1-feed-list
+            [posts]="feedService.posts()"
+            [isLoading]="feedService.isLoading()"
+            [isLoadingMore]="feedService.isLoadingMore()"
+            [error]="feedService.error()"
+            [filterType]="'for-you'"
+            (postClick)="onPostSelect($event)"
+            (authorClick)="onAuthorSelect($event)"
+            (likeClick)="onLikeClick($event)"
+            (commentClick)="onCommentClick($event)"
+            (shareClick)="onShareClick($event)"
+            (bookmarkClick)="onBookmarkClick($event)"
+            (loadMore)="onLoadMore()"
+            (retry)="onRetry()"
+          />
         }
       }
     </ion-content>
   `,
   styles: [
     `
-      /* Feed placeholder for unbuilt feeds */
-      .feed-placeholder {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 80px 24px;
-        text-align: center;
-        min-height: 60vh;
+      :host {
+        display: block;
+        min-height: 100%;
+        background: var(--nxt1-color-background-primary, #0a0a0a);
       }
 
-      .feed-placeholder__icon {
-        font-size: 48px;
-        margin-bottom: 16px;
-      }
-
-      .feed-placeholder__title {
-        margin: 0 0 8px;
-        font-size: 20px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary, #fff);
-      }
-
-      .feed-placeholder__text {
-        margin: 0;
-        font-size: 14px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-      }
-
-      .home-container {
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 1rem 0;
-        /* Add top padding to prevent refresher from touching content */
-        padding-top: 1.5rem;
-      }
-
-      .profile-section {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        margin-bottom: 0.5rem;
-      }
-
-      ion-avatar {
-        width: 64px;
-        height: 64px;
-      }
-
-      .default-avatar {
-        font-size: 64px;
-        color: var(--ion-color-medium);
-      }
-
-      .welcome-text {
-        color: var(--ion-color-medium);
-        margin: 1rem 0;
-      }
-
-      .user-info {
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-        margin-top: 1.5rem;
-      }
-
-      .info-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.5rem 0;
-        border-bottom: 1px solid var(--ion-color-light);
-      }
-
-      .info-item:last-child {
-        border-bottom: none;
-      }
-
-      .label {
-        font-weight: 600;
-        color: var(--ion-color-medium);
-      }
-
-      .value {
-        color: var(--ion-color-dark);
-      }
-
-      .value.premium {
-        color: var(--ion-color-warning);
-        font-weight: 600;
-      }
-
-      .status-grid {
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-      }
-
-      .status-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.5rem;
-        background: var(--ion-color-light);
-        border-radius: 8px;
-      }
-
-      .status-label {
-        font-weight: 500;
-        color: var(--ion-color-medium);
-      }
-
-      .status-value {
-        font-weight: 600;
-        color: var(--ion-color-medium);
-      }
-
-      .status-value.success {
-        color: var(--ion-color-success);
-      }
-
-      ul {
-        margin: 0.5rem 0;
-        padding-left: 1.5rem;
-      }
-
-      li {
-        margin: 0.5rem 0;
-        color: var(--ion-color-medium);
+      /* Light theme support */
+      :host-context([data-theme='light']) {
+        background: var(--nxt1-color-background-primary, #ffffff);
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class HomeComponent {
+export class HomeComponent implements OnInit {
   private readonly authFlow = inject(AuthFlowService);
-  private readonly router = inject(Router);
   private readonly navController = inject(NavController);
   private readonly sidenavService = inject(NxtSidenavService);
-  private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly logger = inject(NxtLoggingService).child('HomeComponent');
+  protected readonly feedService = inject(FeedService);
 
   readonly user = this.authFlow.user;
   readonly displayName = computed(() => this.user()?.displayName ?? 'User');
-
-  /** Loading state for skeleton UI (future enhancement) */
-  readonly isLoading = signal(false);
-
-  /** Track last refresh time for display */
-  private readonly _lastRefreshTime = signal<Date | null>(null);
-  readonly lastRefreshDisplay = computed(() => {
-    const time = this._lastRefreshTime();
-    return time ? time.toLocaleTimeString() : 'Never';
-  });
 
   /** Feed navigation options (Twitter/TikTok style) */
   readonly feedOptions = signal<OptionScrollerItem[]>([
@@ -366,11 +152,11 @@ export class HomeComponent {
   /** Currently selected feed */
   readonly selectedFeed = signal<string>('home');
 
-  /** Header action buttons - Create Post button using Ionicons */
+  /** Header action buttons */
   readonly headerActions = signal<PageHeaderAction[]>([
     {
       id: 'create-post',
-      icon: 'add-outline', // Ionicons uses 'add' not 'plus'
+      icon: 'add',
       label: 'Create Post',
     },
   ]);
@@ -378,74 +164,9 @@ export class HomeComponent {
   /** Required for Ionic page transitions - marks this as an ion-page */
   @HostBinding('class.ion-page') readonly ionPage = true;
 
-  constructor() {
-    // Icons registered globally in page-header.component.ts
-    // No need to register duplicates here
-  }
-
-  /**
-   * Handle pull-to-refresh
-   * Called when user pulls down to refresh the page
-   */
-  async handleRefresh(event: RefreshEvent): Promise<void> {
-    this.logger.debug('Refresh triggered', { timestamp: new Date(event.timestamp).toISOString() });
-    this.isLoading.set(true);
-
-    try {
-      // Refresh data from API
-      await this.refreshHomeData();
-
-      // Update last refresh time
-      this._lastRefreshTime.set(new Date());
-
-      // Complete the refresh successfully
-      event.complete();
-
-      // Success feedback
-      this.toast.success('Content refreshed');
-    } catch (error) {
-      this.logger.error('Refresh error', error);
-
-      // Haptic error feedback
-      await this.haptics.notification('error');
-
-      // Show error toast
-      this.toast.error('Failed to refresh. Try again.');
-
-      // Cancel/fail the refresh
-      event.cancel();
-    } finally {
-      this.isLoading.set(false);
-    }
-  }
-
-  /**
-   * Handle refresh timeout (default 30s)
-   */
-  async handleRefreshTimeout(): Promise<void> {
-    this.logger.warn('Refresh timed out');
-    this.isLoading.set(false);
-
-    // Haptic warning feedback
-    await this.haptics.notification('warning');
-
-    // Show timeout toast
-    this.toast.warning('Refresh timed out. Check your connection.');
-  }
-
-  /**
-   * Simulate refreshing home data from API
-   */
-  private async refreshHomeData(): Promise<void> {
-    // Simulate network delay
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    // In a real app, you would:
-    // - Reload user profile
-    // - Fetch latest notifications
-    // - Update feed/posts
-    // - Refresh any cached data
-    this.logger.debug('Data refreshed successfully');
+  ngOnInit(): void {
+    // Load initial feed
+    this.feedService.loadFeed();
   }
 
   /**
@@ -456,32 +177,100 @@ export class HomeComponent {
   }
 
   /**
-   * Handle feed tab change (Home / Following / News)
-   * Content swaps inline - NO navigation (Twitter/TikTok pattern)
+   * Handle feed tab change - swaps inline content (no navigation)
    */
-  onFeedChange(event: OptionScrollerChangeEvent): void {
+  async onFeedChange(event: OptionScrollerChangeEvent): Promise<void> {
     this.selectedFeed.set(event.option.id);
+    await this.haptics.impact('light');
     this.logger.debug('Feed changed', {
       feed: event.option.label,
       via: event.fromSwipe ? 'swipe' : 'tap',
     });
+
+    // Reload feed when switching between home/following
+    if (event.option.id === 'home' || event.option.id === 'following') {
+      this.feedService.loadFeed();
+    }
   }
 
   /**
    * Handle news article selection
    */
-  onNewsArticleSelect(article: unknown): void {
-    this.logger.debug('News article selected', { article });
+  onNewsArticleSelect(article: { id: string; title: string }): void {
+    this.logger.debug('News article selected', { articleId: article.id });
     // Article detail is handled inline by NewsContentComponent
   }
 
   /**
-   * Handle XP badge click in news feed
+   * Handle XP badge click (navigate to profile/achievements)
    */
   async onXpBadgeClick(): Promise<void> {
     await this.haptics.impact('light');
     this.logger.debug('XP badge clicked');
     // TODO: Show XP breakdown modal or navigate to XP page
+  }
+
+  /**
+   * Handle post selection - navigate to post detail
+   */
+  onPostSelect(post: FeedPost): void {
+    this.logger.debug('Post selected', { postId: post.id, type: post.type });
+    // TODO: Navigate to post detail page when implemented
+  }
+
+  /**
+   * Handle author selection - navigate to profile
+   */
+  onAuthorSelect(author: FeedAuthor): void {
+    this.logger.debug('Author selected', { authorId: author.uid });
+    void this.navController.navigateForward(['/profile', author.profileCode]);
+  }
+
+  /**
+   * Handle like click
+   */
+  async onLikeClick(post: FeedPost): Promise<void> {
+    await this.haptics.impact('light');
+    await this.feedService.toggleLike(post);
+  }
+
+  /**
+   * Handle comment click
+   */
+  async onCommentClick(post: FeedPost): Promise<void> {
+    await this.haptics.impact('light');
+    this.logger.debug('Comment clicked', { postId: post.id });
+    // TODO: Open comment modal or navigate to post detail
+  }
+
+  /**
+   * Handle share click
+   */
+  async onShareClick(post: FeedPost): Promise<void> {
+    await this.haptics.impact('medium');
+    await this.feedService.sharePost(post);
+  }
+
+  /**
+   * Handle bookmark click
+   */
+  async onBookmarkClick(post: FeedPost): Promise<void> {
+    await this.haptics.impact('light');
+    await this.feedService.toggleBookmark(post);
+  }
+
+  /**
+   * Handle load more (infinite scroll)
+   */
+  async onLoadMore(): Promise<void> {
+    await this.feedService.loadMore();
+  }
+
+  /**
+   * Handle retry after error
+   */
+  onRetry(): void {
+    this.feedService.loadFeed();
   }
 
   /**
@@ -492,24 +281,10 @@ export class HomeComponent {
 
     switch (action.id) {
       case 'create-post':
-        await this.onCreatePost();
+        await this.haptics.impact('light');
+        await this.navController.navigateForward('/create-post');
         break;
     }
-  }
-
-  /**
-   * Handle create post action
-   * Opens the post creation flow using NavController (Ionic native navigation)
-   */
-  async onCreatePost(): Promise<void> {
-    // Haptic feedback for premium action
-    await this.haptics.impact('medium');
-
-    this.logger.debug('Create post initiated');
-
-    // Navigate to create post page using NavController
-    // Forward navigation with slide animation (like Instagram's post creator)
-    await this.navController.navigateForward('/create-post');
   }
 
   async onSignOut(): Promise<void> {

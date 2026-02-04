@@ -34,7 +34,6 @@
  */
 
 import { Injectable, signal, computed } from '@angular/core';
-import { Preferences } from '@capacitor/preferences';
 
 import {
   createLRUCache,
@@ -47,51 +46,15 @@ import {
   type StorageAdapter,
 } from '@nxt1/core/cache';
 
+// Import native storage adapter that properly handles Preferences plugin availability
+import { createNativeStorageAdapter } from '../infrastructure/native-storage.adapter';
+
 /**
- * Capacitor Preferences storage adapter
+ * Capacitor Preferences storage adapter with proper fallback handling.
+ * Uses the native storage adapter from infrastructure which handles
+ * the "Preferences plugin not implemented" error gracefully.
  */
-const capacitorStorageAdapter: StorageAdapter = {
-  async get(key: string): Promise<string | null> {
-    const { value } = await Preferences.get({ key });
-    return value;
-  },
-
-  async set(key: string, value: string): Promise<void> {
-    await Preferences.set({ key, value });
-  },
-
-  async remove(key: string): Promise<void> {
-    await Preferences.remove({ key });
-  },
-
-  async clear(): Promise<void> {
-    await Preferences.clear();
-  },
-
-  async keys(): Promise<string[]> {
-    const { keys } = await Preferences.keys();
-    return keys;
-  },
-
-  async has(key: string): Promise<boolean> {
-    const { value } = await Preferences.get({ key });
-    return value !== null;
-  },
-
-  async getJSON<T>(key: string): Promise<T | null> {
-    const { value } = await Preferences.get({ key });
-    if (!value) return null;
-    try {
-      return JSON.parse(value) as T;
-    } catch {
-      return null;
-    }
-  },
-
-  async setJSON<T>(key: string, value: T): Promise<void> {
-    await Preferences.set({ key, value: JSON.stringify(value) });
-  },
-};
+const capacitorStorageAdapter: StorageAdapter = createNativeStorageAdapter();
 
 /**
  * Cache tier type

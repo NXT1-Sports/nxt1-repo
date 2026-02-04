@@ -39,6 +39,12 @@ export * from './constants';
 export * from './ai';
 
 // ============================================
+// BROWSER (In-App Browser Types & Utilities)
+// ============================================
+
+export * from './browser';
+
+// ============================================
 // MODELS
 // ============================================
 
@@ -926,6 +932,60 @@ export {
 export * from './scout-reports';
 
 // ============================================
+// FEED (Home Feed / Social Posts)
+// ============================================
+
+export {
+  // Post types
+  type FeedPostType,
+  type FeedPostVisibility,
+  type FeedAuthorRole,
+  type FeedVerificationStatus,
+  // Author types
+  type FeedAuthor,
+  // Media types
+  type FeedMedia,
+  type FeedOfferData,
+  type FeedCommitmentData,
+  type FeedMilestoneData,
+  // Engagement types
+  type FeedEngagement,
+  type FeedUserEngagement,
+  // Main post type
+  type FeedPost,
+  // Filter types
+  type FeedFilterType,
+  type FeedFilter,
+  type FeedPagination,
+  // Response types
+  type FeedResponse,
+  type FeedPostResponse,
+  type FeedActionResponse,
+  // Comment types
+  type FeedCommentAuthor,
+  type FeedComment,
+  type FeedCommentsResponse,
+  // Constants
+  FEED_API_ENDPOINTS,
+  FEED_PAGINATION_DEFAULTS,
+  type FeedFilterOption,
+  FEED_FILTER_OPTIONS,
+  FEED_DEFAULT_FILTER,
+  FEED_POST_TYPE_ICONS,
+  FEED_POST_TYPE_LABELS,
+  FEED_POST_TYPE_COLORS,
+  type FeedEngagementAction,
+  FEED_ENGAGEMENT_ICONS,
+  FEED_EMPTY_STATES,
+  FEED_UI_CONFIG,
+  FEED_CACHE_KEYS,
+  FEED_CACHE_TTLS,
+  // API Factory
+  createFeedApi,
+  type FeedApi,
+} from './feed';
+
+// ============================================
 // NEWS (Sports Recruiting News)
 // ============================================
 
@@ -966,6 +1026,103 @@ export {
   validateFilter,
   calculateReadingTime,
 } from './news';
+
+// ============================================
+// HELP CENTER (AI-Powered Help & Documentation)
+// ============================================
+
+export {
+  // Types
+  type HelpCategoryId,
+  type HelpCategory,
+  type HelpContentType,
+  type HelpUserType,
+  type ArticleTableOfContents,
+  type RelatedContent,
+  type HelpArticle,
+  type FaqItem,
+  type FaqSection,
+  type ChatMessageRole,
+  type ChatAttachmentType,
+  type ChatAttachment,
+  type ChatMessage,
+  type ChatSession,
+  type ChatQuickAction,
+  type HelpSearchResult,
+  type HelpSearchFilter,
+  type TicketPriority,
+  type TicketStatus,
+  type TicketCategory,
+  type SupportTicketRequest,
+  type SupportTicket,
+  type ArticleFeedback,
+  type HelpCenterHome,
+  type HelpCategoryDetail,
+  type HelpSearchResponse,
+  type HelpPagination,
+  type HelpCenterHomeResponse,
+  type HelpCategoryDetailResponse,
+  type HelpArticleResponse,
+  type HelpSearchApiResponse,
+  type ChatMessageResponse,
+  type SupportTicketResponse,
+  type ArticleFeedbackResponse,
+  // Constants
+  HELP_CATEGORIES,
+  HELP_DEFAULT_CATEGORY,
+  HELP_CATEGORY_COLORS,
+  HELP_CATEGORY_ICON_CLASSES,
+  HELP_CONTENT_TYPES,
+  HELP_USER_TYPES,
+  HELP_AI_CONFIG,
+  HELP_QUICK_ACTIONS,
+  HELP_SEARCH_CONFIG,
+  HELP_API_ENDPOINTS,
+  HELP_PAGINATION_DEFAULTS,
+  HELP_CACHE_KEYS,
+  HELP_CACHE_TTL,
+  HELP_SUPPORT_CONFIG,
+  HELP_ANALYTICS_EVENTS,
+  // API Factory
+  createHelpCenterApi,
+  type HelpCenterApi,
+  // Validation
+  validateSearchFilter,
+  validateSupportTicket,
+  validateArticleFeedback,
+  validateChatMessage,
+  sanitizeHtml,
+  htmlToPlainText,
+  type ValidationResult as HelpValidationResult,
+  type ValidationError as HelpValidationError,
+  // Helpers
+  getCategoryById as getHelpCategoryById,
+  getCategoriesForUser,
+  sortCategories,
+  isArticleNew,
+  isArticleUpdated,
+  formatVideoDuration,
+  formatReadingTime as formatHelpReadingTime,
+  getContentTypeConfig,
+  calculateHelpfulnessPercent,
+  filterArticlesByUserType,
+  sortArticles,
+  highlightSearchMatches,
+  generateSearchExcerpt,
+  calculateSearchScore,
+  generateMessageId,
+  generateSessionId,
+  createUserMessage,
+  createAssistantMessage,
+  createStreamingMessage,
+  extractSessionTitle,
+  generateSlug,
+  buildArticlePath,
+  buildCategoryPath,
+  buildSearchPath,
+  formatRelativeTime as formatHelpRelativeTime,
+  formatArticleDate,
+} from './help-center';
 
 // ============================================
 // EDIT PROFILE (Profile Editing)

@@ -506,6 +506,16 @@ export {
 export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './services/logging';
 
 // ============================================
+// BROWSER SERVICE (Professional In-App Browser)
+// ============================================
+export {
+  NxtBrowserService,
+  type BrowserState,
+  type BrowserOpenResult,
+  type BrowserServiceConfig,
+} from './services/browser';
+
+// ============================================
 // SCROLL SERVICE (Cross-Platform Scroll Management)
 // ============================================
 export {
@@ -724,6 +734,28 @@ export {
 } from './scout-reports';
 
 // ============================================
+// FEED (Home Feed - Shared Web & Mobile)
+// ============================================
+export {
+  // Components
+  FeedPostCardComponent,
+  FeedSkeletonComponent,
+  FeedEmptyStateComponent,
+  FeedListComponent,
+  FeedShellComponent,
+  // Services
+  FeedService,
+  // Types
+  type FeedSkeletonVariant,
+  // Mock Data (Development Only)
+  MOCK_FEED_POSTS,
+  getMockFeedPosts,
+  getMockPost,
+  mockToggleLike,
+  mockToggleBookmark,
+} from './feed';
+
+// ============================================
 // NEWS (Sports Recruiting News - Shared Web & Mobile)
 // ============================================
 export {
@@ -748,6 +780,20 @@ export {
   getMockArticleById,
   getMockTrendingArticles,
 } from './news';
+
+// ============================================
+// HELP CENTER (Clean, Minimal Implementation)
+// ============================================
+export {
+  // Components
+  HelpCenterShellComponent,
+  HelpCategoryDetailComponent,
+  HelpArticleDetailComponent,
+  // Services
+  HelpCenterService,
+  // Types
+  type HelpNavigateEvent,
+} from './help-center';
 
 // ============================================
 // EDIT PROFILE (Profile Editing - Shared Web & Mobile)

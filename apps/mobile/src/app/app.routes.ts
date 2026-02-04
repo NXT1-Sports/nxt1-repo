@@ -122,6 +122,13 @@ export const routes: Routes = [
           ),
       },
 
+      // Help Center - Support & FAQ
+      {
+        path: 'help-center',
+        loadChildren: () =>
+          import('./features/help-center/help-center.routes').then((m) => m.HELP_CENTER_ROUTES),
+      },
+
       // Developer Settings (non-production only)
       {
         path: 'dev-settings',
@@ -151,6 +158,13 @@ export const routes: Routes = [
   {
     path: 'scout-reports',
     redirectTo: 'tabs/scout-reports',
+    pathMatch: 'prefix',
+  },
+
+  // Legacy /help-center redirect
+  {
+    path: 'help-center',
+    redirectTo: 'tabs/help-center',
     pathMatch: 'prefix',
   },
 

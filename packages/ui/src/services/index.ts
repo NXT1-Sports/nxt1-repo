@@ -43,6 +43,14 @@ export { AuthNavigationService, type NavAnimation, type NavOptions } from './aut
 
 export { AuthErrorHandler, type AuthError, type AuthRecoveryAction } from './auth-error';
 
+// Browser service (2026 Professional In-App Browser)
+export {
+  NxtBrowserService,
+  type BrowserState,
+  type BrowserOpenResult,
+  type BrowserServiceConfig,
+} from './browser';
+
 // Scroll service (2026 Professional Scroll Management)
 export {
   NxtScrollService,

@@ -160,6 +160,11 @@ export const routes: Routes = [
         path: 'scout-reports',
         loadChildren: () => import('./features/scout-reports/scout-reports.routes'),
       },
+      // Help Center - Help Articles, Videos, FAQs, AI Chat
+      {
+        path: 'help-center',
+        loadChildren: () => import('./features/help-center/help-center.routes'),
+      },
       // Invite - Referral & Sharing
       {
         path: 'invite',

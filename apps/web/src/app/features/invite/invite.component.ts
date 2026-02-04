@@ -67,21 +67,18 @@ export class InviteComponent implements OnInit {
     if (!user) return null;
 
     return {
-      id: user.uid,
       displayName: user.displayName || 'NXT1 User',
       photoURL: user.photoURL,
-      username: user.username || undefined,
-      referralCode: user.referralCode || this.generateReferralCode(user.uid),
+      referralCode: this.generateReferralCode(user.uid),
     };
   });
 
   async ngOnInit(): Promise<void> {
     this.logger.debug('Invite feature initialized');
 
-    // Initialize the invite service with user data
-    const user = this.userInfo();
-    if (user) {
-      await this.inviteService.initialize(user);
+    // Initialize the invite service
+    if (this.userInfo()) {
+      await this.inviteService.initialize();
     }
   }
 
