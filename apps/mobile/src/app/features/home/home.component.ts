@@ -55,7 +55,7 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
     <!-- Professional Page Header with Logo (Twitter/X style) -->
     <nxt1-page-header
       [showLogo]="true"
-      [avatarSrc]="user()?.photoURL"
+      [avatarSrc]="photoURL()"
       [avatarName]="displayName()"
       [actions]="headerActions()"
       (avatarClick)="onAvatarClick()"
@@ -139,8 +139,57 @@ export class HomeComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('HomeComponent');
   protected readonly feedService = inject(FeedService);
 
-  readonly user = this.authFlow.user;
-  readonly displayName = computed(() => this.user()?.displayName ?? 'User');
+  // ⭐ Use both AuthUser (for immediate display on app resume) and Profile (for full data)
+  // AuthUser is persisted in storage, Profile needs to be fetched
+  private readonly authUser = this.authFlow.user;
+  readonly profile = this.authFlow.profile;
+
+  // Hybrid approach: use Profile if available, fallback to AuthUser
+  readonly user = computed(() => this.profile() ?? this.authUser());
+
+  readonly displayName = computed(() => {
+    const profile = this.profile();
+    if (profile) {
+      // Use Profile (full User data)
+      return `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'User';
+    }
+    // Fallback to AuthUser
+    return this.authUser()?.displayName ?? 'User';
+  });
+
+  // Map User model fields to template-friendly names
+  readonly photoURL = computed(() => {
+    const profile = this.profile();
+    if (profile) return profile.profileImg;
+    return this.authUser()?.photoURL;
+  });
+
+  readonly isPremium = computed(() => {
+    const profile = this.profile();
+    if (profile) {
+      const tier = profile.planTier;
+      return !!tier && tier !== 'free';
+    }
+    return this.authUser()?.isPremium ?? false;
+  });
+
+  readonly email = computed(() => {
+    const profile = this.profile();
+    if (profile) return profile.email;
+    return this.authUser()?.email ?? '';
+  });
+
+  readonly role = computed(() => {
+    const profile = this.profile();
+    if (profile) return profile.role;
+    return this.authUser()?.role ?? null;
+  });
+
+  readonly emailVerified = computed(() => {
+    const profile = this.profile();
+    if (profile) return !!profile.emailVerified;
+    return this.authUser()?.emailVerified ?? false;
+  });
 
   /** Feed navigation options (Twitter/TikTok style) */
   readonly feedOptions = signal<OptionScrollerItem[]>([

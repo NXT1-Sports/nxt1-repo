@@ -237,7 +237,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * Uses User type from @nxt1/core/models (professional 2026 pattern)
    */
   private readonly profileService = inject(ProfileService);
-
   /** Public sidenav service for programmatic control */
   readonly sidenavService = inject(NxtSidenavService);
 
@@ -334,40 +333,58 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   // ============================================
 
   /**
-   * User data for sidenav header - computed from ProfileService.user().
+   * User data for sidenav header - hybrid approach with fallback.
    *
-   * ⭐ Professional 2026 Pattern: Uses ProfileService as single source of truth
-   * for user data, typed as User from @nxt1/core/models.
-   * Automatically updates when profile changes.
+   * ⭐ Uses ProfileService (full User data) when available ⭐
+   * Falls back to AuthUser (persisted) for immediate display on app resume.
+   * This ensures sidenav always has data even before ProfileService loads.
    */
   readonly sidenavUser = computed<SidenavUserData | null>(() => {
-    const user = this.profileService.user();
-    if (!user) return null;
+    // Try ProfileService first (full User data)
+    const profile = this.profileService.user();
 
-    // Get primary sport using order === 0 (User model uses 'order', not 'isPrimary')
-    const primarySport = user.sports?.find((s) => s.order === 0) ?? user.sports?.[0];
-    const position = primarySport?.positions?.[0] ?? '';
-    const displayName = `${user.firstName} ${user.lastName}`.trim();
+    if (profile) {
+      // Get primary sport using order === 0 (User model uses 'order', not 'isPrimary')
+      const primarySport = profile.sports?.find((s) => s.order === 0) ?? profile.sports?.[0];
+      const position = primarySport?.positions?.[0] ?? '';
+      const displayName = `${profile.firstName} ${profile.lastName}`.trim();
+
+      return {
+        name: displayName || 'User',
+        subtitle: position ? `${primarySport?.sport ?? ''} • ${position}` : profile.email,
+        avatarUrl: profile.profileImg ?? undefined,
+        initials: this.getInitials(displayName || profile.email || 'U'),
+        verified: false, // TODO: Get from backend profile
+        isPremium: this.profileService.isPremium(),
+        userId: profile.id,
+        sportProfiles: (profile.sports ?? []).map((s, index: number) => ({
+          id: `${profile.id}-${s.sport?.toLowerCase().replace(/\s+/g, '-') ?? index}`,
+          sport: s.sport ?? 'Unknown Sport',
+          sportIcon: this.getSportIcon(s.sport),
+          position: s.positions?.[0] ?? undefined,
+          isActive: s.order === 0, // Primary sport has order === 0
+          classYear: undefined, // TODO: Get from backend profile
+        })),
+        activeSportProfileId: primarySport
+          ? `${profile.id}-${primarySport.sport?.toLowerCase().replace(/\s+/g, '-')}`
+          : undefined,
+      };
+    }
+
+    // Fallback to AuthUser (persisted, available immediately on app resume)
+    const authUser = this.authFlow.user();
+    if (!authUser) return null;
 
     return {
-      name: displayName || 'User',
-      subtitle: position ? `${primarySport?.sport ?? ''} • ${position}` : user.email,
-      avatarUrl: user.profileImg ?? undefined,
-      initials: this.getInitials(displayName || user.email || 'U'),
-      verified: false, // TODO: Get from backend profile
-      isPremium: this.profileService.isPremium(),
-      userId: user.id,
-      sportProfiles: (user.sports ?? []).map((s, index: number) => ({
-        id: `${user.id}-${s.sport?.toLowerCase().replace(/\s+/g, '-') ?? index}`,
-        sport: s.sport ?? 'Unknown Sport',
-        sportIcon: this.getSportIcon(s.sport),
-        position: s.positions?.[0] ?? undefined,
-        isActive: s.order === 0, // Primary sport has order === 0
-        classYear: undefined, // TODO: Get from backend profile
-      })),
-      activeSportProfileId: primarySport
-        ? `${user.id}-${primarySport.sport?.toLowerCase().replace(/\s+/g, '-')}`
-        : undefined,
+      name: authUser.displayName || 'User',
+      subtitle: authUser.email,
+      avatarUrl: authUser.photoURL ?? undefined,
+      initials: this.getInitials(authUser.displayName || authUser.email || 'U'),
+      verified: authUser.emailVerified,
+      isPremium: authUser.isPremium,
+      userId: authUser.uid,
+      sportProfiles: [], // AuthUser doesn't have sports data
+      activeSportProfileId: undefined,
     };
   });
 

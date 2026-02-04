@@ -327,19 +327,46 @@ export class ProfileService implements OnDestroy, IProfileService {
     try {
       const response = await this.api.getProfile(uid);
 
-      if (response.success && response.data) {
-        this._user.set(response.data);
-        this.setCache(uid, response.data);
+      this.logger.debug('Profile API response', {
+        hasSuccess: 'success' in response,
+        hasData: 'data' in response,
+        hasId: 'id' in response,
+        keys: Object.keys(response),
+      });
+
+      // Handle wrapped response: { success: true, data: User }
+      if ('success' in response && 'data' in response) {
+        if (response.success && response.data) {
+          this._user.set(response.data);
+          this.setCache(uid, response.data);
+          this._state.set('loaded');
+          this.logger.info('✅ Profile loaded from backend (wrapped format)', { uid });
+        } else {
+          throw new Error(response.error ?? 'Failed to load profile');
+        }
+      }
+      // Handle unwrapped response: User directly
+      else if ('id' in response || 'email' in response) {
+        const user = response as unknown as User;
+        this._user.set(user);
+        this.setCache(uid, user);
         this._state.set('loaded');
-        this.logger.info('Profile loaded from backend', { uid });
-      } else {
-        throw new Error(response.error ?? 'Failed to load profile');
+        this.logger.info('✅ Profile loaded from backend (unwrapped format)', { uid });
+      }
+      // Unknown response format
+      else {
+        throw new Error('Invalid response format: missing success/data or user fields');
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load profile';
       this._error.set(message);
       this._state.set('error');
-      this.logger.error('Profile load failed', { uid, error: err });
+      this.logger.error('❌ Profile load failed', {
+        uid,
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+      throw err;
     }
   }
 

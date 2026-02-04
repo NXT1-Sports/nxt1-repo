@@ -67,28 +67,57 @@ export class CapacitorHttpAdapter implements HttpAdapter {
    */
   async get<T>(url: string, config?: HttpRequestConfig): Promise<T> {
     const headers = this.buildHeaders(config);
+    const fullUrl = this.buildUrl(url, config?.params);
 
-    if (this.isNative) {
-      const response = await CapacitorHttp.get({
-        url: this.buildUrl(url, config?.params),
-        headers,
-        readTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
-        connectTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
+    this.logger.debug('GET request', {
+      url: fullUrl,
+      isNative: this.isNative,
+      hasAuthToken: !!this.authToken,
+      headers: { ...headers, Authorization: this.authToken ? '[REDACTED]' : undefined },
+    });
+
+    try {
+      if (this.isNative) {
+        const response = await CapacitorHttp.get({
+          url: fullUrl,
+          headers,
+          readTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
+          connectTimeout: config?.timeout ?? DEFAULT_TIMEOUT,
+        });
+        return this.handleResponse<T>(response);
+      }
+
+      // Fallback to fetch for web/PWA
+      this.logger.debug('Using fetch fallback (browser mode)');
+      const response = await this.fetchWithTimeout(
+        fullUrl,
+        {
+          method: 'GET',
+          headers,
+          credentials: config?.withCredentials ? 'include' : 'same-origin',
+        },
+        config?.timeout ?? DEFAULT_TIMEOUT
+      );
+      return this.handleFetchResponse<T>(response);
+    } catch (err) {
+      // Handle native HTTP errors (timeout, network errors, etc.)
+      this.logger.error('❌ HTTP GET failed', {
+        url: fullUrl,
+        error: err instanceof Error ? err.message : String(err),
+        errorCode: (err as { code?: string })?.code,
+        errorMessage: (err as { errorMessage?: string })?.errorMessage,
+        message: (err as { message?: string })?.message,
       });
-      return this.handleResponse<T>(response);
-    }
 
-    // Fallback to fetch for web/PWA
-    const response = await this.fetchWithTimeout(
-      this.buildUrl(url, config?.params),
-      {
-        method: 'GET',
-        headers,
-        credentials: config?.withCredentials ? 'include' : 'same-origin',
-      },
-      config?.timeout ?? DEFAULT_TIMEOUT
-    );
-    return this.handleFetchResponse<T>(response);
+      // Re-throw as standardized error
+      if (err instanceof Error || (err as { message?: string })?.message) {
+        throw err;
+      }
+
+      // Capacitor native error format
+      const nativeError = err as { errorMessage?: string; code?: string };
+      throw new Error(nativeError.errorMessage || nativeError.code || 'Network request failed');
+    }
   }
 
   /**
@@ -314,11 +343,28 @@ export class CapacitorHttpAdapter implements HttpAdapter {
    * Handle Capacitor HTTP response
    */
   private handleResponse<T>(response: HttpResponse): T {
+    this.logger.debug('Handling Capacitor HTTP response', {
+      status: response.status,
+      url: response.url,
+      hasData: !!response.data,
+      dataPreview:
+        typeof response.data === 'object'
+          ? JSON.stringify(response.data).substring(0, 200)
+          : String(response.data).substring(0, 200),
+    });
+
     if (response.status >= 200 && response.status < 300) {
       return response.data as T;
     }
 
-    throw this.createError(response.status, response.data);
+    const error = this.createError(response.status, response.data);
+    this.logger.error('❌ HTTP Error Response', {
+      status: response.status,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+    });
+    throw error;
   }
 
   /**

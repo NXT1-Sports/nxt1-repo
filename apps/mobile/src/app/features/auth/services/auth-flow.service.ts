@@ -412,10 +412,14 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         ? `${userProfile.firstName} ${userProfile.lastName}`.trim()
         : undefined;
 
+      // Extract email from multiple sources (Firebase sometimes doesn't populate firebaseUser.email)
+      const userEmail =
+        firebaseUser.email || firebaseUser.providerData?.[0]?.email || userProfile?.email || '';
+
       // Create AuthUser from Firebase + backend data (minimal auth state)
       const authUser: AuthUser = {
         uid: firebaseUser.uid,
-        email: firebaseUser.email ?? '',
+        email: userEmail,
         displayName: firebaseUser.displayName ?? userDisplayName ?? 'User',
         photoURL: firebaseUser.photoURL ?? userProfile?.profileImg ?? undefined,
         role: this.profileService.role() ?? 'athlete',
@@ -442,12 +446,22 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         auth_provider: authUser.provider,
       });
 
-      this.logger.info('User state synced', {
+      this.logger.info('✅ User state synced successfully', {
         uid: authUser.uid,
         hasCompletedOnboarding: authUser.hasCompletedOnboarding,
+        displayName: authUser.displayName,
+        role: authUser.role,
       });
     } catch (err) {
-      this.logger.error('Failed to sync user profile', err);
+      this.logger.error('❌ Failed to sync user profile', {
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      });
+
+      // Don't throw - allow auth to continue with existing persisted state
+      // ProfileService will remain empty, but AuthUser will be available
+      // This handles cases like network timeout on app resume gracefully
+      this.logger.warn('⚠️ Continuing with persisted auth state despite profile sync failure');
     }
   }
 
@@ -561,9 +575,20 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         '[AuthFlowService][DEBUG] Full Google sign-in result:',
         JSON.stringify(result, null, 2)
       );
+
+      // Extract email from multiple sources (Firebase sometimes doesn't set user.email)
+      const userEmail =
+        result.user.email ||
+        result.user.providerData?.[0]?.email ||
+        // @ts-expect-error _tokenResponse exists on native result
+        result._tokenResponse?.email ||
+        null;
+
       console.debug('[AuthFlowService] Firebase sign-in result:', {
         uid: result.user.uid,
-        email: result.user.email,
+        email: userEmail,
+        emailFromUser: result.user.email,
+        emailFromProvider: result.user.providerData?.[0]?.email,
       });
 
       // Check if new user by trying to fetch profile from backend
@@ -606,10 +631,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       if (isNewUser) {
         console.debug('[AuthFlowService] New user - creating in backend...');
-        // Create user in backend
+        // Create user in backend with email from multiple sources
         await this.authApi.createUser({
           uid: result.user.uid,
-          email: result.user.email!,
+          email: userEmail!,
         });
         // Set user state BEFORE navigating (required for onboarding page)
         await this.syncUserProfile(result.user.uid);

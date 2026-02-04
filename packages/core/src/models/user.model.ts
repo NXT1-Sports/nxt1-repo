@@ -762,6 +762,7 @@ export interface Referral {
  * 5. Preferences replace boolean flags
  */
 export interface User {
+  emailVerified: any;
   // ============================================
   // CORE IDENTITY (required)
   // ============================================

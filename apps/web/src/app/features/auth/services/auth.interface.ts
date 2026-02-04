@@ -38,6 +38,8 @@ export interface AppUser {
   updatedAt: string;
   /** Unique profile identifier for profile URLs (e.g., /profile/abc123) */
   unicode?: string | null;
+  username?: string | null;
+  referralCode?: string | null;
 }
 
 /**
