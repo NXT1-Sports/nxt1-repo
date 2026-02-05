@@ -30,6 +30,9 @@ import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError, conflictError } from '@nxt1/core/errors';
 import { logger } from '../utils/logger.js';
 
+// Import profile routes
+import profileRoutes from './profile.routes.js';
+
 const router: RouterType = Router();
 
 // ============================================
@@ -1313,5 +1316,11 @@ router.post(
     }
   })
 );
+
+// ============================================
+// PROFILE ROUTES
+// ============================================
+// Mount profile API routes at /auth/profile
+router.use('/profile', profileRoutes);
 
 export default router;
