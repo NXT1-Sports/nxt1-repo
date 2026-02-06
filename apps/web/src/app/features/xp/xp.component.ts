@@ -16,7 +16,12 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
-import { XpShellComponent, NxtLoggingService, NxtSidenavService } from '@nxt1/ui';
+import {
+  XpShellComponent,
+  NxtLoggingService,
+  NxtSidenavService,
+  NxtPlatformService,
+} from '@nxt1/ui';
 import type { MissionUserRole } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
@@ -30,6 +35,7 @@ import { SeoService } from '../../core/services';
       [userRole]="userRole()"
       [avatarSrc]="avatarSrc()"
       [avatarName]="avatarName()"
+      [hideHeader]="isDesktop()"
       (avatarClick)="onAvatarClick()"
     />
   `,
@@ -48,6 +54,10 @@ export class XpComponent {
   private readonly sidenavService = inject(NxtSidenavService);
   // Logger prepared for debugging and error tracking
   private readonly _logger = inject(NxtLoggingService).child('XpComponent');
+  private readonly platform = inject(NxtPlatformService);
+
+  /** Desktop detection for hiding redundant page header (sidebar provides nav) */
+  protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
 
   /**
    * Determine user role for XP task type.

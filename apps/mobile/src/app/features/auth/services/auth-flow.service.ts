@@ -303,6 +303,11 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
   /**
    * Sync Firebase auth state with our state manager
+   *
+   * ⭐ 2026 Token Pattern: Wires up a tokenProvider function on the HTTP adapter
+   * instead of storing a static token string. The provider calls
+   * firebaseAuth.getIdToken() per-request — Firebase SDK handles caching
+   * internally and auto-refreshes expired tokens (~60 min).
    */
   private setupFirebaseAuthSync(): void {
     if (!this.platform.isBrowser()) {
@@ -310,6 +315,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       this.authManager.setInitialized(true);
       return;
     }
+
+    // ⭐ Wire up fresh token provider ONCE — every HTTP request gets a fresh/valid token
+    this.httpAdapter.setTokenProvider(() => this.firebaseAuth.getIdToken());
 
     // Listen for Firebase user changes via FirebaseAuthService's signal
     // This is called whenever Firebase auth state changes
@@ -320,17 +328,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         const firebaseUser = this.firebaseAuth.getCurrentUser();
 
         if (firebaseUser) {
-          // Get token and update HTTP adapter
-          const token = await this.firebaseAuth.getIdToken();
-          if (token) {
-            this.httpAdapter.setAuthToken(token);
-            await this.authManager.setToken({
-              token,
-              expiresAt: Date.now() + 55 * 60 * 1000, // ~55 min
-              userId: firebaseUser.uid,
-            });
-          }
-
           // Set Firebase user info
           const userInfo = this.firebaseAuth.getFirebaseUserInfo(firebaseUser);
           if (userInfo) {
@@ -355,7 +352,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           if (!currentState.user) {
             // No persisted user either - reset state
             this.logger.debug('No Firebase user and no persisted user, resetting');
-            this.httpAdapter.setAuthToken(null);
             await this.authManager.reset();
           } else {
             // We have persisted user but Firebase returned null
@@ -510,14 +506,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: AUTH_METHODS.EMAIL });
       this.analytics.setUserId(result.user.uid);
 
-      // Get token and update HTTP adapter
-      const token = await result.user.getIdToken();
-      this.httpAdapter.setAuthToken(token);
-      await this.authManager.setToken({
-        token,
-        expiresAt: Date.now() + 55 * 60 * 1000,
-        userId: result.user.uid,
-      });
+      // Token is handled automatically by tokenProvider on every request
 
       // Sync profile
       await this.syncUserProfile(result.user.uid);
@@ -618,16 +607,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       });
       this.analytics.setUserId(result.user.uid);
 
-      // Get token
-      console.debug('[AuthFlowService] Getting ID token...');
-      const token = await result.user.getIdToken();
-      console.debug('[AuthFlowService] Got token, length:', token.length);
-      this.httpAdapter.setAuthToken(token);
-      await this.authManager.setToken({
-        token,
-        expiresAt: Date.now() + 55 * 60 * 1000,
-        userId: result.user.uid,
-      });
+      // Token is handled automatically by tokenProvider on every request
+      console.debug('[AuthFlowService] Token provider handles auth automatically');
 
       if (isNewUser) {
         console.debug('[AuthFlowService] New user - creating in backend...');
@@ -726,13 +707,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       });
       this.analytics.setUserId(result.user.uid);
 
-      const token = await result.user.getIdToken();
-      this.httpAdapter.setAuthToken(token);
-      await this.authManager.setToken({
-        token,
-        expiresAt: Date.now() + 55 * 60 * 1000,
-        userId: result.user.uid,
-      });
+      // Token is handled automatically by tokenProvider on every request
 
       if (isNewUser) {
         await this.authApi.createUser({
@@ -829,13 +804,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       });
       this.analytics.setUserId(result.user.uid);
 
-      const token = await result.user.getIdToken();
-      this.httpAdapter.setAuthToken(token);
-      await this.authManager.setToken({
-        token,
-        expiresAt: Date.now() + 55 * 60 * 1000,
-        userId: result.user.uid,
-      });
+      // Token is handled automatically by tokenProvider on every request
 
       if (isNewUser) {
         await this.authApi.createUser({
@@ -941,14 +910,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           await this.firebaseAuth.updateUserProfile(displayName);
         }
 
-        // Get token and set on HTTP adapter
-        const token = await result.user.getIdToken();
-        this.httpAdapter.setAuthToken(token);
-        await this.authManager.setToken({
-          token,
-          expiresAt: Date.now() + 55 * 60 * 1000,
-          userId: result.user.uid,
-        });
+        // Token is handled automatically by tokenProvider on every request
 
         // Create user in backend
         const createResult = await this.authApi.createUser({
@@ -1047,7 +1009,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       await this.profileService.clear();
 
       await this.firebaseAuth.signOut();
-      this.httpAdapter.setAuthToken(null);
+      this.httpAdapter.setTokenProvider(null);
       await this.authManager.reset();
       await this.navigateRoot(AUTH_ROUTES.ROOT);
     } catch (err) {

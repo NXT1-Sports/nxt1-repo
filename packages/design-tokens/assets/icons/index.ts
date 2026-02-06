@@ -149,6 +149,17 @@ export const UI_ICONS = {
     paths: [{ d: 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z' }],
   },
 
+  /** Verified badge icon (checkmark in circle/shield) */
+  verified: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z',
+      },
+    ],
+  },
+
   /** Arrow right icon */
   arrowRight: {
     viewBox: '0 0 24 24',
@@ -265,6 +276,18 @@ export const UI_ICONS = {
     type: 'stroke' as const,
     strokeWidth: 2,
     paths: [{ d: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z' }, { d: 'M21 21l-4.35-4.35' }],
+  },
+
+  /** Search with sparkle icon - AI-powered search */
+  searchSparkle: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z' },
+      { d: 'M21 21l-4.35-4.35' },
+      { d: 'M15 3l.4 1.2 1.2.4-1.2.4-.4 1.2-.4-1.2-1.2-.4 1.2-.4L15 3z' },
+    ],
   },
 
   /** Search filled icon - for active search state */
@@ -550,6 +573,81 @@ export const UI_ICONS = {
     type: 'stroke' as const,
     strokeWidth: 2,
     paths: [{ d: 'M16 3l4 4-4 4' }, { d: 'M20 7H4' }, { d: 'M8 21l-4-4 4-4' }, { d: 'M4 17h16' }],
+  },
+
+  /** Users/Group icon (outline) - for teams/groups */
+  users: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' },
+      { d: 'M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
+      { d: 'M23 21v-2a4 4 0 0 0-3-3.87' },
+      { d: 'M16 3.13a4 4 0 0 1 0 7.75' },
+    ],
+  },
+
+  /** Document/File text icon (outline) - for reports/documents */
+  documentText: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' },
+      { d: 'M14 2v6h6' },
+      { d: 'M16 13H8' },
+      { d: 'M16 17H8' },
+      { d: 'M10 9H8' },
+    ],
+  },
+
+  /** More horizontal (3 dots) icon - for menus */
+  moreHorizontal: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      { d: 'M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z' },
+      { d: 'M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z' },
+      { d: 'M18 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z' },
+    ],
+  },
+
+  /** Moon icon (outline) - for dark mode toggle */
+  moon: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z' }],
+  },
+
+  /** Sun icon (outline) - for light mode toggle */
+  sun: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 1v2' },
+      { d: 'M12 21v2' },
+      { d: 'M4.22 4.22l1.42 1.42' },
+      { d: 'M18.36 18.36l1.42 1.42' },
+      { d: 'M1 12h2' },
+      { d: 'M21 12h2' },
+      { d: 'M4.22 19.78l1.42-1.42' },
+      { d: 'M18.36 5.64l1.42-1.42' },
+      { d: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z' },
+    ],
+  },
+
+  /** Person icon (alias for user) - profile */
+  person: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2' },
+      { d: 'M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z' },
+    ],
   },
 } as const;
 

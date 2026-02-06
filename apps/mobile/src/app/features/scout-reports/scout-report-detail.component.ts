@@ -36,7 +36,6 @@ import {
   IonIcon,
   IonChip,
   IonLabel,
-  IonSkeletonText,
 } from '@ionic/angular/standalone';
 import { Share } from '@capacitor/share';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
@@ -59,6 +58,7 @@ import {
   ScoutReportQuickStatsComponent,
   ScoutReportBookmarkButtonComponent,
   ScoutReportPremiumBadgeComponent,
+  ScoutReportDetailSkeletonComponent,
   type QuickStatItem,
 } from '@nxt1/ui';
 import { formatViewCount, formatGradYear, getRatingTier } from '@nxt1/core';
@@ -92,7 +92,7 @@ addIcons({
     IonIcon,
     IonChip,
     IonLabel,
-    IonSkeletonText,
+    ScoutReportDetailSkeletonComponent,
     ScoutReportRatingDisplayComponent,
     ScoutReportQuickStatsComponent,
     ScoutReportBookmarkButtonComponent,
@@ -103,7 +103,7 @@ addIcons({
     <ion-header [translucent]="true">
       <ion-toolbar>
         <ion-buttons slot="start">
-          <ion-back-button defaultHref="/tabs/scout-reports"></ion-back-button>
+          <ion-back-button defaultHref="/scout-reports"></ion-back-button>
         </ion-buttons>
         <ion-title>Scout Report</ion-title>
         <ion-buttons slot="end">
@@ -122,17 +122,8 @@ addIcons({
 
     <ion-content [fullscreen]="true" class="detail-content">
       @if (isLoading()) {
-        <!-- Loading Skeleton -->
-        <div class="detail-skeleton">
-          <div class="detail-skeleton__hero">
-            <ion-skeleton-text [animated]="true" class="skeleton-image"></ion-skeleton-text>
-          </div>
-          <div class="detail-skeleton__content">
-            <ion-skeleton-text [animated]="true" class="skeleton-title"></ion-skeleton-text>
-            <ion-skeleton-text [animated]="true" class="skeleton-subtitle"></ion-skeleton-text>
-            <ion-skeleton-text [animated]="true" class="skeleton-rating"></ion-skeleton-text>
-          </div>
-        </div>
+        <!-- Loading Skeleton (shared from @nxt1/ui) -->
+        <nxt1-scout-report-detail-skeleton />
       } @else if (report()) {
         <!-- Hero Section -->
         <div class="detail-hero">
@@ -471,37 +462,6 @@ addIcons({
           color: var(--nxt1-color-text-secondary);
         }
       }
-
-      .detail-skeleton__hero {
-        height: 300px;
-        background: var(--nxt1-skeleton-color-base);
-      }
-
-      .detail-skeleton__content {
-        padding: var(--nxt1-spacing-4, 16px);
-      }
-
-      .skeleton-image {
-        width: 100%;
-        height: 100%;
-      }
-
-      .skeleton-title {
-        width: 60%;
-        height: var(--nxt1-skeleton-height-xl);
-        margin-bottom: var(--nxt1-spacing-2, 8px);
-      }
-
-      .skeleton-subtitle {
-        width: 40%;
-        height: var(--nxt1-skeleton-height-md);
-        margin-bottom: var(--nxt1-spacing-2, 8px);
-      }
-
-      .skeleton-rating {
-        width: 30%;
-        height: 40px;
-      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -600,7 +560,7 @@ export class ScoutReportDetailComponent implements OnInit {
    * Navigate back.
    */
   protected navigateBack(): void {
-    this.navController.navigateBack('/tabs/scout-reports');
+    this.navController.navigateBack('/scout-reports');
   }
 
   /**

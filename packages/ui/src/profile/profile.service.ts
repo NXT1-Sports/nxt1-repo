@@ -87,6 +87,16 @@ export class ProfileService {
   /** Whether can edit profile */
   readonly canEdit = computed(() => this._profileData()?.canEdit ?? false);
 
+  /** Whether user has a team to edit */
+  readonly hasTeam = computed(() => {
+    // Check if user has team in their sports profile
+    const user = this._profileData()?.user;
+    if (!user) return false;
+    // For now, return true for coaches/team managers, or if they have a team association
+    // This will be enhanced when backend provides team data
+    return !!(user as any).teamId || !!(user as any).managedTeams?.length;
+  });
+
   /** Whether in edit mode */
   readonly isEditMode = computed(() => this._isEditMode());
 

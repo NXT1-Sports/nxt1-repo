@@ -74,30 +74,31 @@ export class DeepLinkService {
   readonly pendingDeepLink = computed(() => this._pendingDeepLink());
 
   // ============================================
-  // ROUTE MAPPING
+  // ROUTE MAPPING (2026 Clean URLs)
   // ============================================
 
   /**
    * Map of URL patterns to app routes
    * Order matters - first match wins
+   * Uses clean URLs (no /tabs/ prefix) matching web platform
    */
   private readonly routeMap: DeepLinkRoute[] = [
     // Profile pages
     {
       pattern: /^\/profile\/([a-zA-Z0-9_-]+)\/?$/,
-      route: '/tabs/profile',
+      route: '/profile',
       extractParams: (m) => ({ userId: m[1] }),
     },
     {
       pattern: /^\/athlete\/([a-zA-Z0-9_-]+)\/?$/,
-      route: '/tabs/profile',
+      route: '/profile',
       extractParams: (m) => ({ userId: m[1] }),
     },
 
     // Team pages
     {
       pattern: /^\/team\/([a-zA-Z0-9_-]+)\/?$/,
-      route: '/tabs/team',
+      route: '/team',
       extractParams: (m) => ({ teamId: m[1] }),
     },
 
@@ -111,11 +112,11 @@ export class DeepLinkService {
     // Rankings
     {
       pattern: /^\/rankings\/?$/,
-      route: '/tabs/rankings',
+      route: '/rankings',
     },
     {
       pattern: /^\/rankings\/([a-z-]+)\/(\d{4})\/?$/,
-      route: '/tabs/rankings',
+      route: '/rankings',
       extractParams: (m) => ({ sport: m[1], year: m[2] }),
     },
 
@@ -129,11 +130,11 @@ export class DeepLinkService {
     // Settings
     {
       pattern: /^\/settings\/?$/,
-      route: '/tabs/settings',
+      route: '/settings',
     },
     {
       pattern: /^\/settings\/([a-z-]+)\/?$/,
-      route: '/tabs/settings',
+      route: '/settings',
       extractParams: (m) => ({ section: m[1] }),
     },
 
@@ -146,21 +147,21 @@ export class DeepLinkService {
     // Explore/Search
     {
       pattern: /^\/explore\/?$/,
-      route: '/tabs/explore',
+      route: '/search',
     },
     {
       pattern: /^\/search\/?$/,
-      route: '/tabs/explore',
+      route: '/search',
     },
 
     // Home (default)
     {
       pattern: /^\/home\/?$/,
-      route: '/tabs/home',
+      route: '/home',
     },
     {
       pattern: /^\/?$/,
-      route: '/tabs/home',
+      route: '/home',
     },
   ];
 
@@ -250,7 +251,7 @@ export class DeepLinkService {
       } else {
         this.logger.warn('No route found for deep link', { path: parsed.path });
         // Fall back to home
-        void this.navController.navigateRoot('/tabs/home');
+        void this.navController.navigateRoot('/home');
       }
     } catch (error) {
       this.logger.error('Error handling deep link', { url, error });

@@ -11,7 +11,7 @@
  */
 
 // HTTP
-export { CapacitorHttpAdapter } from './http/capacitor-http-adapter.service';
+export { CapacitorHttpAdapter, type TokenProvider } from './http/capacitor-http-adapter.service';
 
 // Storage (native - uses static Capacitor imports)
 export { createNativeStorageAdapter } from './native-storage.adapter';

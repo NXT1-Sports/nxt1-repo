@@ -58,8 +58,22 @@ import { addIcons } from 'ionicons';
 import { arrowBack, chevronBack } from 'ionicons/icons';
 import { NxtLogoComponent } from '../../components/logo';
 
-/** Shell layout variants */
-export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'fullscreen';
+/**
+ * Shell layout variants:
+ * - 'card': Contained card with solid background
+ * - 'card-glass': Glassmorphic card with blur effect
+ * - 'wide': Wider content area for complex forms
+ * - 'minimal': Minimal styling, just content
+ * - 'fullscreen': Full viewport coverage
+ * - 'onboarding': Split-screen desktop layout (branding left, form right)
+ */
+export type AuthShellVariant =
+  | 'card'
+  | 'card-glass'
+  | 'wide'
+  | 'minimal'
+  | 'fullscreen'
+  | 'onboarding';
 
 @Component({
   selector: 'nxt1-auth-shell',
@@ -124,70 +138,164 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         ></div>
       </div>
 
-      <!-- Main Wrapper - scrollable content area -->
+      <!-- ============================================ -->
+      <!-- UNIFIED LAYOUT STRUCTURE                    -->
+      <!-- Uses CSS classes to switch between variants -->
+      <!-- ng-content slots appear ONCE (required!)    -->
+      <!-- ============================================ -->
       <div
-        class="nxt1-auth-wrapper relative z-10 flex w-full flex-col items-center px-4 py-6 md:py-10"
+        class="nxt1-auth-layout relative z-10"
+        [class.nxt1-auth-layout--onboarding]="variant === 'onboarding'"
+        [class.nxt1-auth-layout--default]="variant !== 'onboarding'"
         [class.nxt1-auth-wrapper--mobile-footer]="mobileFooterPadding"
       >
-        <!-- Logo -->
-        @if (showLogo) {
-          <div class="auth-logo-wrapper mb-6 flex justify-center">
-            <nxt1-logo [size]="logoSize" variant="auth" />
-          </div>
-        }
+        <!-- Split-Screen Container (onboarding) / Single Column (default) -->
+        <div class="nxt1-layout-grid" [class.nxt1-split-screen]="variant === 'onboarding'">
+          <!-- ======================================== -->
+          <!-- LEFT PANEL: Branding (Onboarding Only)  -->
+          <!-- Hidden via CSS for non-onboarding       -->
+          <!-- ======================================== -->
+          <aside
+            class="nxt1-branding-panel"
+            [class.desktop-only]="variant === 'onboarding'"
+            [hidden]="variant !== 'onboarding'"
+          >
+            <div class="nxt1-branding-content">
+              <!-- Logo -->
+              @if (showLogo && variant === 'onboarding') {
+                <div class="auth-logo-wrapper nxt1-branding-logo">
+                  <nxt1-logo [size]="'xl'" variant="auth" />
+                </div>
+              }
 
-        <!-- Title & Subtitle Slot -->
-        <div class="mb-4 w-full text-center" [style.maxWidth]="showSidePanel ? '840px' : maxWidth">
-          <ng-content select="[authTitle]"></ng-content>
-          <ng-content select="[authSubtitle]"></ng-content>
-        </div>
-
-        <!-- Main Content Area with Optional Side Panel -->
-        <div
-          class="w-full"
-          [style.maxWidth]="showSidePanel ? '840px' : maxWidth"
-          [ngClass]="{
-            'bg-surface-100 border-border-subtle rounded-2xl border p-6':
-              variant === 'card' && !showSidePanel,
-            'auth-card-glass': variant === 'card-glass' && !showSidePanel,
-            'auth-two-column-card':
-              showSidePanel && (variant === 'card' || variant === 'card-glass'),
-          }"
-        >
-          <!-- Two-Column Layout -->
-          <div class="auth-two-column">
-            <!-- Primary Column: Auth Forms -->
-            <div class="auth-column auth-column--primary">
-              <ng-content select="[authContent]"></ng-content>
-              <ng-content></ng-content>
-            </div>
-
-            <!-- Vertical Divider (Desktop Only) -->
-            @if (showSidePanel) {
-              <div class="auth-divider-vertical desktop-only">
-                <div class="divider-line"></div>
-                <span class="divider-text">or</span>
-                <div class="divider-line"></div>
+              <!-- Title & Subtitle (shown in branding panel on desktop onboarding) -->
+              <div class="nxt1-branding-text">
+                <ng-content select="[authTitle]"></ng-content>
+                <ng-content select="[authSubtitle]"></ng-content>
               </div>
 
-              <!-- Secondary Column: Side Panel (Desktop Only) -->
-              <div class="auth-column auth-column--secondary desktop-only">
-                <ng-content select="[authSidePanel]"></ng-content>
+              <!-- Optional Hero/Marketing content -->
+              <div class="nxt1-branding-hero">
+                <ng-content select="[authBrandingHero]"></ng-content>
+              </div>
+            </div>
+
+            <!-- Decorative elements -->
+            <div class="nxt1-branding-decoration" aria-hidden="true">
+              <div class="nxt1-branding-orb nxt1-branding-orb--1"></div>
+              <div class="nxt1-branding-orb nxt1-branding-orb--2"></div>
+            </div>
+          </aside>
+
+          <!-- ======================================== -->
+          <!-- MAIN CONTENT PANEL                      -->
+          <!-- Adapts to both onboarding & default     -->
+          <!-- ======================================== -->
+          <main
+            class="nxt1-main-panel"
+            [class.nxt1-form-panel]="variant === 'onboarding'"
+            [class.nxt1-auth-wrapper]="variant !== 'onboarding'"
+          >
+            <!-- Logo (shown differently based on variant) -->
+            @if (showLogo && variant !== 'onboarding') {
+              <div class="auth-logo-wrapper mb-6 flex justify-center">
+                <nxt1-logo [size]="logoSize" variant="auth" />
               </div>
             }
-          </div>
 
-          <!-- Mobile Side Panel Content -->
-          @if (showSidePanel) {
-            <div class="mobile-only">
-              <ng-content select="[authSidePanelMobile]"></ng-content>
+            <!-- Mobile Header for Onboarding -->
+            @if (variant === 'onboarding') {
+              <div class="mobile-only nxt1-mobile-header">
+                @if (showLogo) {
+                  <div class="auth-logo-wrapper mb-4 flex justify-center">
+                    <nxt1-logo [size]="logoSize" variant="auth" />
+                  </div>
+                }
+                <div class="nxt1-mobile-title">
+                  <ng-content select="[authTitleMobile]"></ng-content>
+                </div>
+              </div>
+            }
+
+            <!-- Title & Subtitle (for default variants - NOT onboarding) -->
+            @if (variant !== 'onboarding') {
+              <div
+                class="mb-4 w-full text-center"
+                [style.maxWidth]="showSidePanel ? '840px' : maxWidth"
+              >
+                <!-- Note: Title/Subtitle already projected in branding panel -->
+                <!-- For default, we show them here via CSS visibility -->
+              </div>
+            }
+
+            <!-- Scrollable Content Area -->
+            <div
+              class="nxt1-content-area"
+              [class.nxt1-form-scroll-area]="variant === 'onboarding'"
+              [style.maxWidth]="
+                variant !== 'onboarding' ? (showSidePanel ? '840px' : maxWidth) : null
+              "
+              [ngClass]="{
+                'bg-surface-100 border-border-subtle rounded-2xl border p-6':
+                  variant === 'card' && !showSidePanel,
+                'auth-card-glass': variant === 'card-glass' && !showSidePanel,
+                'auth-two-column-card':
+                  showSidePanel &&
+                  variant !== 'onboarding' &&
+                  (variant === 'card' || variant === 'card-glass'),
+              }"
+            >
+              <!-- Form Card (onboarding) / Two-Column Layout (default) -->
+              <div
+                [class.nxt1-form-card]="variant === 'onboarding'"
+                [class.auth-two-column]="variant !== 'onboarding'"
+              >
+                <!-- Primary Column: Auth Forms / Onboarding Content -->
+                <div
+                  [class.auth-column]="variant !== 'onboarding'"
+                  [class.auth-column--primary]="variant !== 'onboarding'"
+                >
+                  <ng-content select="[authContent]"></ng-content>
+                  <ng-content></ng-content>
+                </div>
+
+                <!-- Vertical Divider (Default variants with side panel) -->
+                @if (showSidePanel && variant !== 'onboarding') {
+                  <div class="auth-divider-vertical desktop-only">
+                    <div class="divider-line"></div>
+                    <span class="divider-text">or</span>
+                    <div class="divider-line"></div>
+                  </div>
+
+                  <!-- Secondary Column: Side Panel (Desktop Only) -->
+                  <div class="auth-column auth-column--secondary desktop-only">
+                    <ng-content select="[authSidePanel]"></ng-content>
+                  </div>
+                }
+              </div>
+
+              <!-- Mobile Side Panel Content (Default variants) -->
+              @if (showSidePanel && variant !== 'onboarding') {
+                <div class="mobile-only">
+                  <ng-content select="[authSidePanelMobile]"></ng-content>
+                </div>
+              }
             </div>
-          }
-        </div>
 
-        <!-- Footer Links -->
-        <div class="mt-4 w-full text-center" [style.maxWidth]="showSidePanel ? '840px' : maxWidth">
-          <ng-content select="[authFooter]"></ng-content>
+            <!-- Footer Links -->
+            <div
+              class="nxt1-footer-area"
+              [class.nxt1-form-footer]="variant === 'onboarding'"
+              [class.mt-4]="variant !== 'onboarding'"
+              [class.w-full]="variant !== 'onboarding'"
+              [class.text-center]="variant !== 'onboarding'"
+              [style.maxWidth]="
+                variant !== 'onboarding' ? (showSidePanel ? '840px' : maxWidth) : null
+              "
+            >
+              <ng-content select="[authFooter]"></ng-content>
+            </div>
+          </main>
         </div>
       </div>
     </ng-template>
@@ -344,6 +452,53 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         box-sizing: border-box;
         /* Safe area padding for notched devices */
         padding-top: calc(env(safe-area-inset-top, 0px) + var(--nxt1-spacing-16));
+        /* Default variant layout */
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-left: var(--nxt1-spacing-4);
+        padding-right: var(--nxt1-spacing-4);
+        padding-bottom: var(--nxt1-spacing-6);
+        width: 100%;
+      }
+
+      @media (min-width: 768px) {
+        .nxt1-auth-wrapper {
+          padding-top: calc(env(safe-area-inset-top, 0px) + var(--nxt1-spacing-10));
+          padding-bottom: var(--nxt1-spacing-10);
+        }
+      }
+
+      /* ============================================ */
+      /* UNIFIED LAYOUT STRUCTURE                    */
+      /* Supports both onboarding & default variants */
+      /* ============================================ */
+
+      .nxt1-auth-layout {
+        width: 100%;
+        min-height: 100%;
+      }
+
+      .nxt1-layout-grid {
+        width: 100%;
+      }
+
+      /* Default layout: centered content */
+      .nxt1-auth-layout--default .nxt1-layout-grid {
+        display: flex;
+        justify-content: center;
+      }
+
+      .nxt1-auth-layout--default .nxt1-branding-panel {
+        display: none;
+      }
+
+      .nxt1-auth-layout--default .nxt1-main-panel {
+        width: 100%;
+      }
+
+      .nxt1-auth-layout--default .nxt1-content-area {
+        width: 100%;
       }
 
       /* Logo drop shadow for depth */
@@ -536,6 +691,284 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
       }
 
       /* ============================================ */
+      /* ONBOARDING SPLIT-SCREEN LAYOUT              */
+      /* Desktop: 50/50 split (branding | form)      */
+      /* Mobile: Single column (form only)           */
+      /* 2026 Enterprise Pattern                     */
+      /* ============================================ */
+
+      .nxt1-onboarding-layout {
+        width: 100%;
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .nxt1-split-screen {
+        display: grid;
+        grid-template-columns: 1fr;
+        min-height: 100vh;
+        min-height: 100dvh;
+        width: 100%;
+      }
+
+      /* Desktop: Two-column split */
+      @media (min-width: 1024px) {
+        .nxt1-split-screen {
+          grid-template-columns: minmax(400px, 45%) 1fr;
+          gap: 0;
+        }
+      }
+
+      /* Large screens: Better proportions */
+      @media (min-width: 1440px) {
+        .nxt1-split-screen {
+          grid-template-columns: minmax(500px, 42%) 1fr;
+        }
+      }
+
+      /* -------------------------------------------- */
+      /* LEFT PANEL: Branding                        */
+      /* -------------------------------------------- */
+      .nxt1-branding-panel {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: var(--nxt1-spacing-12) var(--nxt1-spacing-8);
+        background: var(--nxt1-color-bg-primary);
+        overflow: hidden;
+        border-right: 1px solid var(--nxt1-color-border-subtle);
+      }
+
+      .nxt1-branding-content {
+        position: relative;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-8);
+        max-width: 400px;
+        text-align: center;
+      }
+
+      .nxt1-branding-logo {
+        margin-bottom: var(--nxt1-spacing-4);
+      }
+
+      .nxt1-branding-text {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-3);
+      }
+
+      /* Override title/subtitle styles for branding panel */
+      .nxt1-branding-text ::ng-deep [authTitle],
+      .nxt1-branding-text ::ng-deep .nxt1-auth-title {
+        font-size: var(--nxt1-fontSize-4xl);
+        font-weight: 700;
+        line-height: 1.1;
+        margin-bottom: var(--nxt1-spacing-2);
+      }
+
+      .nxt1-branding-text ::ng-deep [authSubtitle],
+      .nxt1-branding-text ::ng-deep .nxt1-auth-subtitle {
+        font-size: var(--nxt1-fontSize-lg);
+        color: var(--nxt1-color-text-secondary);
+        max-width: 320px;
+        margin: 0 auto;
+      }
+
+      .nxt1-branding-hero {
+        margin-top: var(--nxt1-spacing-6);
+      }
+
+      /* Decorative orbs */
+      .nxt1-branding-decoration {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+
+      .nxt1-branding-orb {
+        position: absolute;
+        border-radius: 50%;
+        filter: blur(80px);
+        opacity: 0.4;
+      }
+
+      .nxt1-branding-orb--1 {
+        width: 400px;
+        height: 400px;
+        background: var(--nxt1-color-primary);
+        top: -100px;
+        left: -100px;
+        animation: orb-float-1 8s ease-in-out infinite;
+      }
+
+      .nxt1-branding-orb--2 {
+        width: 300px;
+        height: 300px;
+        background: var(--nxt1-color-primary);
+        bottom: -50px;
+        right: -50px;
+        animation: orb-float-2 10s ease-in-out infinite;
+      }
+
+      @keyframes orb-float-1 {
+        0%,
+        100% {
+          transform: translate(0, 0) scale(1);
+          opacity: 0.3;
+        }
+        50% {
+          transform: translate(30px, 20px) scale(1.1);
+          opacity: 0.5;
+        }
+      }
+
+      @keyframes orb-float-2 {
+        0%,
+        100% {
+          transform: translate(0, 0) scale(1);
+          opacity: 0.25;
+        }
+        50% {
+          transform: translate(-20px, -30px) scale(1.15);
+          opacity: 0.45;
+        }
+      }
+
+      /* -------------------------------------------- */
+      /* RIGHT PANEL: Form                           */
+      /* -------------------------------------------- */
+      .nxt1-form-panel {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
+        background: var(--nxt1-color-surface-100);
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden; /* Prevent panel scroll, content scrolls inside */
+      }
+
+      /* Mobile: Adjust padding for safe areas */
+      @media (max-width: 1023px) {
+        .nxt1-form-panel {
+          padding-top: calc(env(safe-area-inset-top, 0px) + var(--nxt1-spacing-6));
+          padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--nxt1-spacing-6));
+          background: var(--nxt1-color-bg-primary);
+          height: auto;
+          min-height: 100vh;
+          min-height: 100dvh;
+          overflow-y: auto; /* Mobile scrolls the whole panel */
+        }
+
+        /* Mobile footer padding when applicable */
+        .nxt1-onboarding-layout.nxt1-auth-wrapper--mobile-footer .nxt1-form-panel {
+          padding-bottom: 200px;
+        }
+      }
+
+      /* Desktop: Fixed height with internal scroll */
+      @media (min-width: 1024px) {
+        .nxt1-form-panel {
+          padding: var(--nxt1-spacing-8) var(--nxt1-spacing-10);
+          justify-content: flex-start;
+        }
+      }
+
+      /* -------------------------------------------- */
+      /* SCROLLABLE FORM CONTENT AREA (Desktop)      */
+      /* -------------------------------------------- */
+      .nxt1-form-scroll-area {
+        flex: 1;
+        width: 100%;
+        max-width: 520px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-height: 0; /* Required for flex child scrolling */
+      }
+
+      @media (min-width: 1024px) {
+        .nxt1-form-scroll-area {
+          overflow-y: auto;
+          overflow-x: hidden;
+          padding-right: var(--nxt1-spacing-2); /* Space for scrollbar */
+          margin-right: calc(-1 * var(--nxt1-spacing-2)); /* Offset scrollbar space */
+        }
+
+        /* Custom scrollbar for form scroll area */
+        .nxt1-form-scroll-area::-webkit-scrollbar {
+          width: 6px;
+        }
+
+        .nxt1-form-scroll-area::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        .nxt1-form-scroll-area::-webkit-scrollbar-thumb {
+          background: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+          border-radius: 3px;
+        }
+
+        .nxt1-form-scroll-area::-webkit-scrollbar-thumb:hover {
+          background: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.18));
+        }
+
+        /* Firefox scrollbar */
+        .nxt1-form-scroll-area {
+          scrollbar-width: thin;
+          scrollbar-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12)) transparent;
+        }
+      }
+
+      .nxt1-form-card {
+        width: 100%;
+        max-width: 520px;
+      }
+
+      /* Desktop: Add card styling to form */
+      @media (min-width: 1024px) {
+        .nxt1-form-card {
+          background: var(--nxt1-color-surface-100);
+          border-radius: var(--nxt1-borderRadius-xl);
+          /* Subtle shadow for depth without border */
+          box-shadow:
+            0 4px 6px -1px var(--nxt1-color-shadow),
+            0 2px 4px -2px var(--nxt1-color-shadow);
+          padding: var(--nxt1-spacing-8);
+        }
+      }
+
+      .nxt1-form-footer {
+        margin-top: var(--nxt1-spacing-4);
+        padding-top: var(--nxt1-spacing-4);
+        text-align: center;
+        width: 100%;
+        max-width: 520px;
+        flex-shrink: 0; /* Never shrink - always visible */
+      }
+
+      /* -------------------------------------------- */
+      /* MOBILE HEADER (visible only on mobile)      */
+      /* -------------------------------------------- */
+      .nxt1-mobile-header {
+        width: 100%;
+        max-width: 520px;
+        text-align: center;
+        margin-bottom: var(--nxt1-spacing-4);
+      }
+
+      .nxt1-mobile-title {
+        margin-bottom: var(--nxt1-spacing-4);
+      }
+
+      /* ============================================ */
       /* RESPONSIVE UTILITIES                        */
       /* ============================================ */
       .desktop-only {
@@ -546,12 +979,32 @@ export type AuthShellVariant = 'card' | 'card-glass' | 'wide' | 'minimal' | 'ful
         display: none;
       }
 
+      /* Default breakpoint for two-column auth layouts (768px) */
       @media (max-width: 768px) {
         .desktop-only {
           display: none !important;
         }
 
         .mobile-only {
+          display: block;
+        }
+      }
+
+      /* Onboarding uses 1024px breakpoint for split-screen */
+      .nxt1-onboarding-layout .desktop-only {
+        display: flex;
+      }
+
+      .nxt1-onboarding-layout .mobile-only {
+        display: none;
+      }
+
+      @media (max-width: 1023px) {
+        .nxt1-onboarding-layout .desktop-only {
+          display: none !important;
+        }
+
+        .nxt1-onboarding-layout .mobile-only {
           display: block;
         }
       }

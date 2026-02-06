@@ -1,21 +1,25 @@
 /**
  * @fileoverview Help Center Home Page - Web
- * @version 2.0.0
- * @description Thin wrapper around shared HelpCenterShellComponent.
+ * @version 3.0.0
+ * @description Web-optimized Help Center using Tailwind SSR components.
  *
- * ⭐ SAME UI AS MOBILE - 100% SHARED ⭐
+ * ⭐ WEB-SPECIFIC - Pure Tailwind, SSR-optimized ⭐
  */
 
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { HelpCenterShellComponent, type HelpNavigateEvent } from '@nxt1/ui';
+import { HelpCenterShellWebComponent, type HelpNavigateEvent } from '@nxt1/ui';
 
 @Component({
   selector: 'app-help-center',
   standalone: true,
-  imports: [HelpCenterShellComponent],
+  imports: [HelpCenterShellWebComponent],
   template: `
-    <nxt1-help-center-shell [showBack]="true" (back)="onBack()" (navigate)="onNavigate($event)" />
+    <nxt1-help-center-shell-web
+      [showBack]="true"
+      (back)="onBack()"
+      (navigate)="onNavigate($event)"
+    />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

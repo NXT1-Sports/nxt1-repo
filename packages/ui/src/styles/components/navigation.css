@@ -324,15 +324,27 @@
 
 /* Blur variant (macOS Sonoma style) - 100% THEME AWARE */
 .nxt1-desktop-nav.blur {
-  background: var(--nxt1-glass-bg);
-  backdrop-filter: var(--nxt1-glass-backdrop);
-  -webkit-backdrop-filter: var(--nxt1-glass-backdrop);
-  border-bottom-color: var(--nxt1-glass-border);
+  background: var(--nxt1-glass-bg, rgba(22, 22, 22, 0.88));
+  backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+  -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+  border-bottom-color: var(--nxt1-glass-border, rgba(255, 255, 255, 0.12));
+}
+
+/* Explicit light theme handling for blur variant */
+[data-theme='light'] .nxt1-desktop-nav.blur,
+.light-theme .nxt1-desktop-nav.blur {
+  background: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.88));
+  border-bottom-color: var(--nxt1-glass-border, rgba(0, 0, 0, 0.12));
 }
 
 @supports not (backdrop-filter: blur(20px)) {
   .nxt1-desktop-nav.blur {
     background: var(--nxt1-nav-bg);
+  }
+
+  [data-theme='light'] .nxt1-desktop-nav.blur,
+  .light-theme .nxt1-desktop-nav.blur {
+    background: var(--nxt1-nav-bg, #ffffff);
   }
 }
 
@@ -343,9 +355,15 @@
 }
 
 .nxt1-desktop-nav.transparent:hover {
-  background: var(--nxt1-glass-bg);
-  backdrop-filter: var(--nxt1-glass-backdrop);
-  -webkit-backdrop-filter: var(--nxt1-glass-backdrop);
+  background: var(--nxt1-glass-bg, rgba(22, 22, 22, 0.88));
+  backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+  -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+}
+
+/* Explicit light theme handling for transparent hover */
+[data-theme='light'] .nxt1-desktop-nav.transparent:hover,
+.light-theme .nxt1-desktop-nav.transparent:hover {
+  background: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.88));
 }
 
 /* Elevated variant (Windows 11 Mica style) - 100% THEME AWARE */
@@ -598,6 +616,45 @@
     box-shadow var(--nxt1-nav-transition-fast);
 }
 
+/* Centered search bar (YouTube-style) */
+.nxt1-desktop-nav .search-input--centered {
+  height: 44px;
+  padding: 0 var(--nxt1-spacing-12, 48px);
+  font-size: 15px;
+  border: 1px solid var(--nxt1-color-border-default);
+  background: var(--nxt1-nav-bg);
+}
+
+.nxt1-desktop-nav .search-input--centered:hover {
+  border-color: var(--nxt1-color-border-subtle);
+}
+
+.nxt1-desktop-nav .search-input--centered:focus {
+  border-color: var(--nxt1-color-primary);
+  background: var(--nxt1-nav-bg);
+  box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary15);
+}
+
+/* AI Search Icon Sparkle Effect */
+.nxt1-desktop-nav .search-icon--ai {
+  color: var(--nxt1-color-text-secondary);
+}
+
+.nxt1-desktop-nav .search-icon--ai svg path:last-child {
+  stroke: var(--nxt1-color-primary);
+  animation: sparkle-pulse 2s ease-in-out infinite;
+}
+
+@keyframes sparkle-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .nxt1-desktop-nav .search-input::placeholder {
   color: var(--nxt1-nav-text-muted);
 }
@@ -649,6 +706,42 @@
 .nxt1-desktop-nav .nav-action-btn:focus-visible {
   outline: 2px solid var(--nxt1-nav-focus-ring);
   outline-offset: 2px;
+}
+
+/* Create button (YouTube-style) */
+.nxt1-desktop-nav .nav-create-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-2, 8px);
+  height: 36px;
+  padding: 0 var(--nxt1-spacing-4, 16px);
+  background: var(--nxt1-nav-hover-bg);
+  border: none;
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  color: var(--nxt1-nav-text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color var(--nxt1-nav-transition-fast),
+    transform var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-desktop-nav .nav-create-btn:hover {
+  background: var(--nxt1-nav-active-bg);
+}
+
+.nxt1-desktop-nav .nav-create-btn:active {
+  transform: scale(0.97);
+}
+
+.nxt1-desktop-nav .nav-create-btn:focus-visible {
+  outline: 2px solid var(--nxt1-nav-focus-ring);
+  outline-offset: 2px;
+}
+
+.nxt1-desktop-nav .nav-create-label {
+  white-space: nowrap;
 }
 
 /* Notification badge */

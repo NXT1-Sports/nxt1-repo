@@ -1,19 +1,26 @@
 /**
- * @fileoverview Web Shell Component - Responsive App Shell
+ * @fileoverview Web Shell Component - Professional Responsive App Shell
  * @module @nxt1/web/core/layout
- * @version 3.0.0
+ * @version 4.0.0 (2026 Professional Pattern)
  *
- * Professional responsive app shell:
- * - Desktop (>768px): Top navigation bar (Linear/Notion pattern)
- * - Mobile (≤768px): Bottom tab bar (Instagram/Twitter pattern)
+ * YouTube/Twitter/LinkedIn-inspired responsive app shell:
+ *
+ * BREAKPOINTS:
+ * - Desktop (≥1280px): Fixed sidebar (expanded) + Header (search/profile only)
+ * - Tablet (768-1279px): Fixed sidebar (collapsed) + Header
+ * - Mobile (<768px): No sidebar, Bottom tab bar (Instagram/TikTok pattern)
  *
  * Architecture:
  * - Platform-aware navigation switching
  * - SSR-safe with proper hydration
- * - Shared navigation state across both modes
+ * - Shared navigation state across all modes
+ * - Full keyboard navigation and accessibility
+ * - 100% design token integration
  *
  * Shell Responsibilities:
- * - Persistent navigation (top on desktop, bottom on mobile)
+ * - Desktop: Fixed sidebar + minimal header
+ * - Tablet: Collapsed sidebar (icons) with hover expand
+ * - Mobile: Bottom tab bar (shared with mobile app)
  * - User authentication state display
  * - Route synchronization with active nav item
  *
@@ -37,13 +44,23 @@ import {
   signal,
   computed,
   DestroyRef,
+  afterNextRender,
+  PLATFORM_ID,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { Router, RouterOutlet, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import {
-  // Header (Desktop)
+  // Desktop Sidebar (new)
+  NxtDesktopSidebarComponent,
+  type DesktopSidebarConfig,
+  type DesktopSidebarSection,
+  type DesktopSidebarUserData,
+  type DesktopSidebarSelectEvent,
+  SIDEBAR_BREAKPOINTS,
+  createDesktopSidebarConfig,
+  // Header (Desktop - simplified for sidebar mode)
   NxtHeaderComponent,
   type TopNavItem,
   type TopNavUserData,
@@ -51,7 +68,6 @@ import {
   type TopNavSelectEvent,
   type TopNavUserMenuEvent,
   createTopNavConfig,
-  DEFAULT_TOP_NAV_ITEMS,
   DEFAULT_USER_MENU_ITEMS,
   // Footer (Mobile)
   NxtMobileFooterComponent,
@@ -70,110 +86,243 @@ import {
 import { AuthFlowService } from '../../../features/auth/services';
 
 // ============================================
-// NAV CONFIGURATION (From Shared Defaults)
+// NAVIGATION CONFIGURATION
 // ============================================
 
 /**
- * Desktop navigation items - Customized from defaults
- * In production, this would come from backend API or environment config
+ * Desktop sidebar sections - Main navigation structure.
+ * Matches YouTube/Twitter sectioned sidebar pattern.
  */
-const DESKTOP_NAV_ITEMS: TopNavItem[] = [
-  // Use shared defaults and customize
-  ...DEFAULT_TOP_NAV_ITEMS.filter((item) => ['home', 'discover'].includes(item.id)),
-  // Add app-specific items
+const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
-    id: 'rankings',
-    label: 'Rankings',
-    icon: 'trophy',
-    route: '/rankings',
+    id: 'main',
+    items: [
+      { id: 'home', label: 'Home', icon: 'home', activeIcon: 'homeFilled', route: '/home' },
+      {
+        id: 'discover',
+        label: 'Discover',
+        icon: 'compass',
+        activeIcon: 'compassFilled',
+        route: '/discover',
+      },
+      { id: 'agent', label: 'Agent X', icon: 'sparkles', route: '/agent' },
+    ],
   },
   {
-    id: 'colleges',
-    label: 'Colleges',
-    icon: 'graduationCap',
-    route: '/colleges',
+    id: 'recruiting',
+    label: 'Recruiting',
+    items: [
+      { id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
+      { id: 'colleges', label: 'Colleges', icon: 'graduationCap', route: '/colleges' },
+      {
+        id: 'scout-reports',
+        label: 'Scout Reports',
+        icon: 'documentText',
+        route: '/scout-reports',
+      },
+      { id: 'teams', label: 'Teams', icon: 'users', route: '/teams' },
+    ],
   },
   {
-    id: 'messages',
-    label: 'Messages',
-    icon: 'messages',
-    route: '/messages',
+    id: 'you',
+    label: 'You',
+    items: [
+      { id: 'profile', label: 'My Profile', icon: 'person', route: '/profile' },
+      { id: 'xp', label: 'XP', icon: 'sparkles', route: '/xp' },
+      { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
+      { id: 'messages', label: 'Messages', icon: 'messages', route: '/messages', badge: 0 },
+      {
+        id: 'notifications',
+        label: 'Notifications',
+        icon: 'bell',
+        route: '/notifications',
+        badge: 0,
+      },
+    ],
+  },
+  {
+    id: 'footer',
+    items: [
+      { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
+      { id: 'help', label: 'Help Center', icon: 'help', route: '/help-center' },
+    ],
   },
 ];
 
 /**
- * User menu dropdown items - Use shared defaults
+ * Desktop header navigation items (empty - sidebar has main nav).
+ * Header only shows: Search, Notifications, User Menu on desktop with sidebar.
+ */
+const DESKTOP_HEADER_ITEMS: TopNavItem[] = [];
+
+/**
+ * User menu dropdown items - shared across header and sidebar.
  */
 const USER_MENU_ITEMS = DEFAULT_USER_MENU_ITEMS;
 
 /**
- * Mobile footer tabs - Use shared defaults
- * These map to the same routes as desktop nav
+ * Mobile footer tabs - same items as main sidebar section.
  */
 const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
 
 @Component({
   selector: 'app-web-shell',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, NxtHeaderComponent, NxtMobileFooterComponent],
+  imports: [
+    CommonModule,
+    RouterOutlet,
+    NxtDesktopSidebarComponent,
+    NxtHeaderComponent,
+    NxtMobileFooterComponent,
+  ],
   template: `
-    <!-- Desktop Header Navigation -->
-    @if (!showMobileNav()) {
-      <nxt1-header
-        [items]="navItems"
-        [user]="userData()"
-        [userMenuItems]="userMenuItems"
-        [config]="navConfig"
-        (navigate)="onNavigate($event)"
-        (userMenuAction)="onUserMenuAction($event)"
-        (notificationsClick)="onNotificationsClick()"
-        (logoClick)="onLogoClick()"
-      />
-    }
+    <div
+      class="shell"
+      [class.shell--mobile]="isMobileView()"
+      [class.shell--desktop]="!isMobileView()"
+    >
+      <!-- ============================================
+           DESKTOP/TABLET: Sidebar + Header Layout
+           ============================================ -->
+      @if (!isMobileView()) {
+        <!-- Fixed Desktop Sidebar -->
+        <nxt1-desktop-sidebar
+          [sections]="sidebarSections"
+          [user]="sidebarUserData()"
+          [config]="sidebarConfig()"
+          (itemSelect)="onSidebarItemSelect($event)"
+          (userClick)="onSidebarUserClick($event)"
+          (logoClick)="onLogoClick()"
+          (collapseChange)="onSidebarCollapseChange($event)"
+        />
 
-    <!-- Main Content Area -->
-    <main class="shell-content" [class.has-mobile-nav]="showMobileNav()">
-      <router-outlet />
-    </main>
+        <!-- Main Content Area -->
+        <div class="shell__main">
+          <!-- Top Header (Search, Notifications, User - no main nav items) -->
+          <nxt1-header
+            [items]="headerItems"
+            [user]="headerUserData()"
+            [userMenuItems]="userMenuItems"
+            [config]="headerConfig"
+            (navigate)="onHeaderNavigate($event)"
+            (userMenuAction)="onUserMenuAction($event)"
+            (notificationsClick)="onNotificationsClick()"
+            (createClick)="onCreateClick()"
+            (logoClick)="onLogoClick()"
+          />
 
-    <!-- Mobile Bottom Navigation -->
-    @if (showMobileNav()) {
-      <nxt1-mobile-footer
-        [tabs]="footerTabs"
-        [activeTabId]="activeTabId()"
-        [config]="footerConfig()"
-        (tabSelect)="onTabSelect($event)"
-        (scrollToTop)="onScrollToTop($event)"
-      />
-    }
+          <!-- Page Content -->
+          <main class="shell__content">
+            <router-outlet />
+          </main>
+        </div>
+      }
+
+      <!-- ============================================
+           MOBILE: Footer Tab Bar Layout
+           ============================================ -->
+      @if (isMobileView()) {
+        <!-- Main Content Area (full width) -->
+        <main class="shell__content shell__content--mobile">
+          <router-outlet />
+        </main>
+
+        <!-- Bottom Tab Bar -->
+        <nxt1-mobile-footer
+          [tabs]="footerTabs"
+          [activeTabId]="activeTabId()"
+          [config]="footerConfig()"
+          (tabSelect)="onTabSelect($event)"
+          (scrollToTop)="onScrollToTop($event)"
+        />
+      }
+    </div>
   `,
   styles: [
     `
+      /* ============================================
+       CSS CUSTOM PROPERTIES (Design Tokens)
+       ============================================ */
       :host {
-        display: flex;
-        flex-direction: column;
+        --shell-header-height: 64px;
+        --shell-sidebar-width: 256px;
+        --shell-sidebar-collapsed-width: 72px;
+        --shell-footer-height: var(--nxt1-mobile-footer-height, 72px);
+        --shell-bg: var(--nxt1-color-bg-primary);
+        --shell-content-bg: var(--nxt1-color-bg-secondary);
+
+        display: block;
         min-height: 100vh;
         min-height: 100dvh;
-        background: var(--nxt1-color-background-primary, #0a0a0a);
+        background: var(--shell-bg);
       }
 
-      .shell-content {
+      /* ============================================
+       SHELL CONTAINER
+       ============================================ */
+      .shell {
+        display: flex;
+        min-height: 100vh;
+        min-height: 100dvh;
+      }
+
+      /* Desktop/Tablet: Sidebar + Main */
+      .shell--desktop {
+        flex-direction: row;
+      }
+
+      /* Mobile: Single column */
+      .shell--mobile {
+        flex-direction: column;
+      }
+
+      /* ============================================
+       DESKTOP SIDEBAR
+       ============================================ */
+      nxt1-desktop-sidebar {
+        flex-shrink: 0;
+        z-index: 50;
+      }
+
+      /* ============================================
+       MAIN CONTENT AREA (Desktop)
+       ============================================ */
+      .shell__main {
         flex: 1;
         display: flex;
         flex-direction: column;
+        min-width: 0; /* Prevent flex overflow */
+        height: 100vh;
+        height: 100dvh;
       }
 
-      /* Desktop mode: account for fixed header */
-      .shell-content:not(.has-mobile-nav) {
-        padding-top: var(--nxt1-nav-height, 56px);
+      /* ============================================
+       HEADER (Desktop)
+       ============================================ */
+      nxt1-header {
+        flex-shrink: 0;
+        z-index: 40;
       }
 
-      /* Mobile mode: account for fixed footer */
-      .shell-content.has-mobile-nav {
-        padding-bottom: var(--nxt1-mobile-footer-height, 56px);
+      /* ============================================
+       PAGE CONTENT
+       ============================================ */
+      .shell__content {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        background: var(--shell-content-bg);
+        min-height: 0; /* Critical for flex overflow scrolling */
       }
 
-      /* Mobile footer styling */
+      /* Mobile: account for fixed footer */
+      .shell__content--mobile {
+        padding-bottom: var(--shell-footer-height);
+      }
+
+      /* ============================================
+       MOBILE FOOTER
+       ============================================ */
       nxt1-mobile-footer {
         position: fixed;
         bottom: 0;
@@ -181,11 +330,30 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
         right: 0;
         z-index: var(--nxt1-z-index-footer, 1000);
       }
+
+      /* ============================================
+       RESPONSIVE BEHAVIOR
+       ============================================ */
+
+      /* Tablet (768-1279px): Collapsed sidebar */
+      @media (min-width: 768px) and (max-width: 1279px) {
+        :host {
+          --shell-sidebar-width: var(--shell-sidebar-collapsed-width);
+        }
+      }
+
+      /* Desktop (≥1280px): Expanded sidebar */
+      @media (min-width: 1280px) {
+        :host {
+          --shell-sidebar-width: 256px;
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class WebShellComponent {
+  private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
   private readonly platform = inject(NxtPlatformService);
   private readonly authFlow = inject(AuthFlowService);
@@ -194,64 +362,82 @@ export class WebShellComponent {
   private readonly scrollService = inject(NxtScrollService);
 
   // ============================================
-  // DESKTOP NAVIGATION CONFIG
+  // SIDEBAR CONFIGURATION (Desktop/Tablet)
   // ============================================
 
-  /** Desktop navigation items */
-  readonly navItems = DESKTOP_NAV_ITEMS;
+  /** Desktop sidebar sections */
+  readonly sidebarSections = DESKTOP_SIDEBAR_SECTIONS;
+
+  /** Sidebar configuration - responsive based on viewport */
+  readonly sidebarConfig = computed<DesktopSidebarConfig>(() => {
+    const viewport = this.platform.viewport();
+    const isTablet =
+      viewport.width >= SIDEBAR_BREAKPOINTS.MOBILE && viewport.width < SIDEBAR_BREAKPOINTS.DESKTOP;
+
+    return createDesktopSidebarConfig({
+      collapsed: isTablet || this._sidebarCollapsed(),
+      expandOnHover: false, // Only expand/collapse via hamburger menu click
+      showLogo: true,
+      showUserSection: false, // User profile is in header (2026 pattern)
+      showThemeToggle: true,
+      persistState: true,
+      variant: 'default',
+      bordered: false,
+    });
+  });
+
+  /** Sidebar user data */
+  readonly sidebarUserData = computed<DesktopSidebarUserData | null>(() => {
+    const user = this.authFlow.user() as {
+      displayName?: string;
+      email?: string;
+      photoURL?: string;
+      unicode?: string;
+    } | null;
+
+    if (!user) return null;
+
+    const name = user.displayName || user.email?.split('@')[0] || 'User';
+
+    return {
+      name,
+      avatarUrl: user.photoURL,
+      initials: this.getInitials(name),
+      handle: user.unicode ? `@${user.unicode}` : undefined,
+      verified: false,
+      isPremium: false,
+    };
+  });
+
+  // ============================================
+  // HEADER CONFIGURATION (Desktop - Minimal)
+  // ============================================
+
+  /** Desktop header items (empty when using sidebar) */
+  readonly headerItems = DESKTOP_HEADER_ITEMS;
 
   /** User menu items */
   readonly userMenuItems = USER_MENU_ITEMS;
 
-  /** Desktop navigation configuration */
-  readonly navConfig: TopNavConfig = createTopNavConfig({
-    variant: 'blur',
+  /** Desktop header configuration - minimal mode with sidebar */
+  readonly headerConfig: TopNavConfig = createTopNavConfig({
+    variant: 'default',
+    showLogo: false, // Sidebar has logo
     showSearch: true,
     showNotifications: true,
     sticky: true,
     hideOnScroll: false,
-    bordered: true,
+    bordered: false,
   });
 
-  // ============================================
-  // MOBILE NAVIGATION CONFIG
-  // ============================================
-
-  /** Mobile footer tabs */
-  readonly footerTabs = MOBILE_FOOTER_TABS;
-
-  /** Mobile footer configuration */
-  readonly footerConfig = computed<FooterConfig>(() => ({
-    showLabels: true,
-    enableHaptics: false, // Web doesn't have haptics
-    variant: 'default',
-    hidden: false,
-    translucent: false,
-    indicatorStyle: 'none',
-    scrollToTopOnSameTap: true, // Enable Instagram/Twitter-style scroll-to-top
-  }));
-
-  // ============================================
-  // STATE
-  // ============================================
-
-  /** Current route for active state detection */
-  private readonly _currentRoute = signal('/home');
-
-  /** Active tab ID for mobile footer (null when on pages not in footer like /settings) */
-  private readonly _activeTabId = signal<string | null>('home');
-  readonly activeTabId = computed(() => this._activeTabId());
-
-  /** Whether we're in desktop mode (shows header instead of footer) */
-  readonly showMobileNav = this.platform.isMobile;
-
-  /** User data for the nav avatar/menu */
-  readonly userData = computed<TopNavUserData | null>(() => {
+  /** Header user data */
+  readonly headerUserData = computed<TopNavUserData | null>(() => {
     const user = this.authFlow.user() as {
       displayName?: string;
       email?: string;
       photoURL?: string;
     } | null;
+
     if (!user) return null;
 
     return {
@@ -264,21 +450,97 @@ export class WebShellComponent {
   });
 
   // ============================================
+  // MOBILE FOOTER CONFIGURATION
+  // ============================================
+
+  /** Mobile footer tabs */
+  readonly footerTabs = MOBILE_FOOTER_TABS;
+
+  /** Mobile footer configuration */
+  readonly footerConfig = computed<FooterConfig>(() => ({
+    showLabels: true,
+    enableHaptics: false, // Web doesn't have haptics
+    variant: 'default',
+    hidden: false,
+    translucent: false,
+    glass: false, // Use solid background
+    indicatorStyle: 'none',
+    scrollToTopOnSameTap: true,
+  }));
+
+  // ============================================
+  // STATE
+  // ============================================
+
+  /** Current route for active state detection */
+  private readonly _currentRoute = signal('/home');
+
+  /** Active tab ID for mobile footer */
+  private readonly _activeTabId = signal<string | null>('home');
+  readonly activeTabId = computed(() => this._activeTabId());
+
+  /** Sidebar collapsed state (persisted) */
+  private readonly _sidebarCollapsed = signal(false);
+
+  /** Whether we're in mobile view (shows footer instead of sidebar) */
+  readonly isMobileView = computed(() => {
+    const viewport = this.platform.viewport();
+    return viewport.width < SIDEBAR_BREAKPOINTS.MOBILE;
+  });
+
+  // ============================================
   // LIFECYCLE
   // ============================================
 
   constructor() {
     this.setupRouteTracking();
+    this.loadSidebarState();
   }
 
   // ============================================
-  // NAVIGATION HANDLERS
+  // SIDEBAR HANDLERS (Desktop/Tablet)
   // ============================================
 
   /**
-   * Handle desktop nav item selection
+   * Handle sidebar item selection
    */
-  onNavigate(event: TopNavSelectEvent): void {
+  onSidebarItemSelect(event: DesktopSidebarSelectEvent): void {
+    const { item } = event;
+
+    // Handle special actions
+    if (item.action === 'logout') {
+      this.signOut();
+      return;
+    }
+
+    // Navigation is handled by the sidebar component
+    this.logger.debug('Sidebar item selected', { itemId: item.id });
+  }
+
+  /**
+   * Handle sidebar user section click
+   */
+  onSidebarUserClick(_event: Event): void {
+    // Could open user menu or navigate to profile
+    this.router.navigate(['/settings/account']);
+  }
+
+  /**
+   * Handle sidebar collapse state change
+   */
+  onSidebarCollapseChange(collapsed: boolean): void {
+    this._sidebarCollapsed.set(collapsed);
+    this.saveSidebarState(collapsed);
+  }
+
+  // ============================================
+  // HEADER HANDLERS (Desktop)
+  // ============================================
+
+  /**
+   * Handle header nav item selection
+   */
+  onHeaderNavigate(event: TopNavSelectEvent): void {
     const { item } = event;
     if (item.route) {
       this.router.navigate([item.route]);
@@ -342,6 +604,13 @@ export class WebShellComponent {
   }
 
   /**
+   * Handle create button click
+   */
+  onCreateClick(): void {
+    this.router.navigate(['/create-post']);
+  }
+
+  /**
    * Handle logo click - navigate to home
    */
   onLogoClick(): void {
@@ -374,14 +643,43 @@ export class WebShellComponent {
 
   /**
    * Sync active tab ID from current route (for mobile footer).
-   * Sets to null when on pages not in the footer (like /settings, /profile)
-   * - Professional pattern: Instagram, Twitter, TikTok all show no tab
-   *   selected when on secondary pages outside main navigation.
    */
   private syncActiveTabFromRoute(url: string): void {
     const matchedTab = findTabByRoute(this.footerTabs, url);
-    // Set to matched tab ID or null (professional apps show no selection on secondary pages)
     this._activeTabId.set(matchedTab?.id ?? null);
+  }
+
+  /**
+   * Load sidebar collapsed state from storage
+   */
+  private loadSidebarState(): void {
+    afterNextRender(() => {
+      if (!isPlatformBrowser(this.platformId)) return;
+
+      const stored = localStorage.getItem('nxt1_sidebar_collapsed');
+      if (stored !== null) {
+        this._sidebarCollapsed.set(stored === 'true');
+      }
+    });
+  }
+
+  /**
+   * Save sidebar collapsed state to storage
+   */
+  private saveSidebarState(collapsed: boolean): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    localStorage.setItem('nxt1_sidebar_collapsed', String(collapsed));
+  }
+
+  /**
+   * Get initials from name
+   */
+  private getInitials(name: string): string {
+    const parts = name.split(' ').filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+    return parts[0]?.substring(0, 2).toUpperCase() || 'U';
   }
 
   /**

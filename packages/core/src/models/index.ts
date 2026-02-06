@@ -254,12 +254,14 @@ export {
   DEFAULT_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
+  MAIN_PAGE_ROUTES,
   // Mobile Footer Helper functions
   findTabById,
   findTabByRoute,
   createFooterConfig,
   updateTabBadge,
   setTabDisabled,
+  isMainPageRoute,
   // Desktop Top Nav Types
   type TopNavIconName,
   type TopNavItem,

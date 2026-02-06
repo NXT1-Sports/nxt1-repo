@@ -26,6 +26,7 @@ import {
   logoYoutube,
   linkOutline,
   shieldCheckmarkOutline,
+  shieldOutline,
 } from 'ionicons/icons';
 import type { ProfileUser, ProfileFollowStats, ProfilePinnedVideo } from '@nxt1/core';
 import { NxtAvatarComponent } from '../components/avatar';
@@ -44,6 +45,7 @@ addIcons({
   logoYoutube,
   linkOutline,
   shieldCheckmarkOutline,
+  shieldOutline,
 });
 
 @Component({
@@ -183,6 +185,11 @@ addIcons({
               <button class="action-btn action-btn--primary" (click)="editProfile.emit()">
                 <ion-icon name="create-outline"></ion-icon>
                 <span>Edit Profile</span>
+              </button>
+              <!-- TODO: Re-enable hasTeam() check when backend provides team data -->
+              <button class="action-btn action-btn--secondary" (click)="editTeam.emit()">
+                <ion-icon name="shield-outline"></ion-icon>
+                <span>Edit Team</span>
               </button>
             } @else {
               <!-- Other Profile Actions -->
@@ -806,6 +813,7 @@ export class ProfileHeaderComponent {
   readonly isOwnProfile = input(false);
   readonly canEdit = input(false);
   readonly isFollowLoading = input(false);
+  readonly hasTeam = input(false);
 
   // ============================================
   // OUTPUTS
@@ -815,6 +823,7 @@ export class ProfileHeaderComponent {
   readonly followersClick = output<void>();
   readonly followingClick = output<void>();
   readonly editProfile = output<void>();
+  readonly editTeam = output<void>();
   readonly editBanner = output<void>();
   readonly editAvatar = output<void>();
   readonly messageClick = output<void>();

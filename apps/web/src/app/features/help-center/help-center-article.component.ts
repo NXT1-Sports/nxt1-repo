@@ -1,24 +1,24 @@
 /**
  * @fileoverview Help Center Article Page - Web
- * @version 2.0.0
- * @description Thin wrapper around shared HelpArticleDetailComponent.
+ * @version 3.0.0
+ * @description Web-optimized article detail using Tailwind SSR components.
  *
- * ⭐ SAME UI AS MOBILE - 100% SHARED ⭐
+ * ⭐ WEB-SPECIFIC - Pure Tailwind, SSR-optimized ⭐
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
-import { HelpArticleDetailComponent } from '@nxt1/ui';
+import { HelpArticleDetailWebComponent } from '@nxt1/ui';
 
 @Component({
   selector: 'app-help-center-article',
   standalone: true,
-  imports: [HelpArticleDetailComponent],
+  imports: [HelpArticleDetailWebComponent],
   template: `
-    <nxt1-help-article-detail
-      [articleId]="articleSlug"
+    <nxt1-help-article-detail-web
+      [slug]="articleSlug"
       (back)="onBack()"
-      (articleSelect)="onArticleSelect($event)"
+      (relatedClick)="onArticleSelect($event)"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,

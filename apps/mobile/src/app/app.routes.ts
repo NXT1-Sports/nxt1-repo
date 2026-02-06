@@ -1,8 +1,8 @@
 /**
- * @fileoverview Mobile App Routes
+ * @fileoverview Mobile App Routes — 2026 SEO Best Practices
  * @module @nxt1/mobile
  *
- * Main application routes following professional mobile app patterns.
+ * Clean URL architecture matching web platform for unified deep linking.
  * Uses MobileShellComponent as shell for all authenticated content.
  *
  * Architecture (like Instagram, TikTok, Twitter):
@@ -10,38 +10,45 @@
  * - All authenticated routes are children of MobileShellComponent
  * - Footer persists across tab navigation (no re-render)
  * - Each page owns its header via NxtPageHeaderComponent
+ * - NO /tabs/ prefix — clean, semantic URLs matching web
  */
 
 import { Routes } from '@angular/router';
 
 export const routes: Routes = [
-  // Root redirect to tabs
-  {
-    path: '',
-    pathMatch: 'full',
-    redirectTo: 'tabs',
-  },
-
-  // Authentication Routes (no shell - standalone flow)
+  // ============================================
+  // AUTHENTICATION ROUTES (no shell - standalone flow)
+  // ============================================
   {
     path: 'auth',
     loadChildren: () => import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),
   },
 
-  // Create Post (modal-style, outside tabs shell)
+  // ============================================
+  // SPECIAL ROUTES (Outside Shell)
+  // ============================================
+
+  // Create Post (modal-style, outside shell)
   {
     path: 'create-post',
     loadChildren: () =>
       import('./features/create-post/create-post.routes').then((m) => m.CREATE_POST_ROUTES),
   },
 
-  // Mobile Shell - All authenticated content lives here
+  // ============================================
+  // AUTHENTICATED ROUTES (With Mobile Shell)
+  // ============================================
+
+  /**
+   * Mobile Shell - All authenticated content lives here
+   * Shell provides: bottom tab bar, sidenav
+   */
   {
-    path: 'tabs',
+    path: '',
     loadComponent: () =>
       import('./core/layout/shell/mobile-shell.component').then((m) => m.MobileShellComponent),
     children: [
-      // Default tab redirect
+      // Default route → Home
       {
         path: '',
         pathMatch: 'full',

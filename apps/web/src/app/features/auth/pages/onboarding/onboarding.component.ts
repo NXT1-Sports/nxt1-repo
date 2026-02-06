@@ -158,14 +158,13 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
   ],
   template: `
     <nxt1-auth-shell
-      variant="card-glass"
+      variant="onboarding"
       [showLogo]="true"
       [showBackButton]="canGoBack()"
-      [maxWidth]="'560px'"
       [mobileFooterPadding]="isMobile()"
       (backClick)="onBack()"
     >
-      <!-- Title & Subtitle -->
+      <!-- Desktop: Title & Subtitle shown in branding panel (left side) -->
       <nxt1-auth-title authTitle testId="onboarding-title">
         {{ currentStep().title || 'Loading...' }}
       </nxt1-auth-title>
@@ -173,7 +172,17 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         {{ currentStep().subtitle || '' }}
       </nxt1-auth-subtitle>
 
-      <!-- Main Content -->
+      <!-- Mobile: Title & Subtitle shown in form panel (top) -->
+      <div authTitleMobile class="nxt1-mobile-titles">
+        <h1 class="text-text-primary mb-2 text-2xl font-bold">
+          {{ currentStep().title || 'Loading...' }}
+        </h1>
+        <p class="text-text-secondary text-base">
+          {{ currentStep().subtitle || '' }}
+        </p>
+      </div>
+
+      <!-- Main Content (Form Panel) -->
       <div authContent class="flex flex-col">
         <!-- Progress Indicator (shown throughout flow) -->
         <nxt1-onboarding-progress-bar
@@ -292,8 +301,10 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             }
           </nxt1-onboarding-step-card>
         </div>
+      </div>
 
-        <!-- Desktop: Navigation Buttons (fixed below scroll area) -->
+      <!-- Desktop: Navigation Buttons (in footer - always visible) -->
+      <div authFooter class="desktop-footer">
         @if (!isMobile()) {
           <nxt1-onboarding-navigation-buttons
             [showSkip]="isCurrentStepOptional()"
@@ -305,18 +316,14 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             (backClick)="onBack()"
             (continueClick)="onContinue()"
           />
-
-          <!-- Desktop: Sign Out Link -->
-          <div class="border-border-subtle mt-6 border-t pt-4 text-center">
-            <button
-              type="button"
-              (click)="onSignOut()"
-              class="text-text-tertiary hover:text-error text-sm hover:underline"
-            >
-              Sign out and start over
-            </button>
-          </div>
         }
+        <button
+          type="button"
+          (click)="onSignOut()"
+          class="text-text-tertiary hover:text-error mt-4 text-sm hover:underline"
+        >
+          Sign out and start over
+        </button>
       </div>
     </nxt1-auth-shell>
 
@@ -344,13 +351,25 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
         /* Spacing around content */
         padding: var(--nxt1-spacing-2) 0;
-        margin: var(--nxt1-spacing-2) 0 var(--nxt1-spacing-6) 0;
+        margin: var(--nxt1-spacing-2) 0 var(--nxt1-spacing-4) 0;
       }
 
-      /* Desktop: Add spacing below for navigation buttons */
-      @media (min-width: 769px) {
-        .nxt1-step-content {
-          margin-bottom: var(--nxt1-spacing-8);
+      /* Mobile titles styling */
+      .nxt1-mobile-titles {
+        text-align: center;
+        padding: var(--nxt1-spacing-2) 0 var(--nxt1-spacing-4) 0;
+      }
+
+      /* Desktop footer visibility */
+      .desktop-footer {
+        display: none;
+      }
+
+      @media (min-width: 1024px) {
+        .desktop-footer {
+          display: block;
+          padding-top: var(--nxt1-spacing-4);
+          border-top: 1px solid var(--nxt1-color-border-subtle);
         }
       }
     `,

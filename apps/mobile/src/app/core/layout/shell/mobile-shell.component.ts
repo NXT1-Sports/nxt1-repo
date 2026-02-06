@@ -62,8 +62,6 @@ import {
   OnDestroy,
   DestroyRef,
   ElementRef,
-  HostListener,
-  NgZone,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, NavigationEnd } from '@angular/router';
@@ -96,7 +94,7 @@ import {
   createSidenavConfig,
   findTabByRoute,
   updateTabBadge,
-  SIDENAV_GESTURE,
+  isMainPageRoute,
   SIDENAV_WIDTHS,
   SIDENAV_ANIMATION,
 } from '@nxt1/ui';
@@ -143,7 +141,13 @@ import { ActivityService } from '../../../features/activity/services/activity.se
     <div id="main-content" class="mobile-shell">
       <!-- Page Content Area - Uses IonRouterOutlet for proper Ionic page lifecycle -->
       <div class="shell-content" #shellContent>
-        <ion-router-outlet></ion-router-outlet>
+        <!-- 
+          ⭐ PROFESSIONAL UX PATTERN (2026) ⭐
+          - On main pages: swipeGesture=false (sidenav handles swipe)
+          - On sub-pages: swipeGesture=true (native iOS back gesture)
+          This matches Instagram, Twitter, TikTok navigation behavior.
+        -->
+        <ion-router-outlet [swipeGesture]="!isOnMainPage()"></ion-router-outlet>
       </div>
 
       <!-- Persistent Bottom Navigation -->
@@ -225,7 +229,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
   private readonly elementRef = inject(ElementRef);
   private readonly haptics = inject(HapticsService);
-  private readonly ngZone = inject(NgZone);
   private readonly authFlow = inject(AuthFlowService);
   private readonly activityService = inject(ActivityService);
   private readonly scrollService = inject(NxtScrollService);
@@ -241,17 +244,23 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   readonly sidenavService = inject(NxtSidenavService);
 
   // ============================================
-  // GESTURE STATE
+  // ROUTE TRACKING (for sidenav gesture control)
   // ============================================
 
-  /** Track swipe left start position */
-  private swipeStartX = 0;
+  /**
+   * Current route - used to determine sidenav swipe gesture behavior.
+   * Updated on navigation events.
+   */
+  private readonly _currentRoute = signal<string>('');
 
-  /** Minimum swipe distance to trigger sidenav (from @nxt1/core) */
-  private readonly MIN_SWIPE_DISTANCE = SIDENAV_GESTURE.minSwipeDistance;
-
-  /** Edge threshold for swipe detection (from @nxt1/core) */
-  private readonly EDGE_THRESHOLD = 20; // 20px from left edge
+  /**
+   * Whether current page is a main page where sidenav swipe should be enabled.
+   * On main pages (home, search, activity, agent), swipe-right opens sidenav.
+   * On sub-pages (profile, settings, etc.), swipe-right triggers native back navigation.
+   *
+   * Professional pattern: Instagram, Twitter, TikTok all use this approach.
+   */
+  readonly isOnMainPage = computed(() => isMainPageRoute(this._currentRoute()));
 
   // ============================================
   // FOOTER CONFIGURATION
@@ -388,40 +397,29 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     };
   });
 
-  /** Sidenav sections (using defaults from @nxt1/core, adapted for mobile routes) */
-  readonly sidenavSections: SidenavSection[] = DEFAULT_SIDENAV_ITEMS.map((section) => ({
-    ...section,
-    items: section.items.map((item) => ({
-      ...item,
-      // Remap web routes to mobile tab routes
-      route: this.remapRouteForMobile(item.route),
-    })),
-  }));
-
   /**
-   * Remap web routes to mobile tab routes.
-   * Web uses flat routes like /profile, /analytics, /settings
-   * Mobile uses tab-prefixed routes like /tabs/profile, /tabs/analytics, /tabs/settings
+   * Sidenav sections (using defaults from @nxt1/core)
+   * Both web and mobile now use clean URLs (no /tabs/ prefix)
    */
-  private remapRouteForMobile(route: string | undefined): string | undefined {
-    if (!route) return route;
-
-    // Map of web routes to mobile tab routes
-    const routeMap: Record<string, string> = {
-      '/profile': '/tabs/profile',
-      '/analytics': '/tabs/analytics',
-      '/settings': '/tabs/settings',
-    };
-
-    return routeMap[route] ?? route;
-  }
+  readonly sidenavSections: SidenavSection[] = DEFAULT_SIDENAV_ITEMS;
 
   /** Social links for sidenav footer */
   readonly socialLinks: SocialLink[] = DEFAULT_SOCIAL_LINKS;
 
-  /** Sidenav configuration based on platform */
+  /**
+   * Sidenav configuration - reactive to current route.
+   *
+   * ⭐ PROFESSIONAL UX PATTERN (2026) ⭐
+   * - On main pages (home, search, activity, agent): Enable sidenav swipe gesture
+   * - On sub-pages (profile, settings, help, etc.): Disable sidenav swipe,
+   *   allowing Ionic's native iOS back swipe to work
+   *
+   * This matches Instagram, Twitter, TikTok navigation patterns.
+   */
   readonly sidenavConfig = computed<SidenavConfig>(() => {
     const isIos = this.platform.os() === 'ios';
+    const enableSwipe = this.isOnMainPage();
+
     return createSidenavConfig({
       mode: 'push',
       position: 'left',
@@ -432,6 +430,9 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       showUserHeader: true,
       showSocialLinks: true,
       variant: 'default',
+      // Only enable swipe-to-open on main pages
+      // Sub-pages use native back swipe instead
+      swipeGesture: enableSwipe,
     });
   });
 
@@ -444,16 +445,23 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    // Initialize current route tracking
+    this._currentRoute.set(this.router.url);
+
     // Sync active tab with current route on init
     this.syncActiveTabFromRoute(this.router.url);
 
-    // Listen for route changes to update active tab
+    // Listen for route changes to update active tab AND sidenav gesture state
     this.router.events
       .pipe(
         filter((event): event is NavigationEnd => event instanceof NavigationEnd),
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe((event) => {
+        // Update current route for sidenav swipe gesture control
+        this._currentRoute.set(event.urlAfterRedirects);
+
+        // Sync active tab highlight
         this.syncActiveTabFromRoute(event.urlAfterRedirects);
       });
 
@@ -503,57 +511,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     };
 
     return sportIcons[sportLower] ?? 'trophy';
-  }
-
-  // ============================================
-  // GESTURE HANDLERS
-  // ============================================
-
-  /**
-   * Handle touch start - record swipe start position
-   * Professional UX: Swipe-left opens sidenav (primary nav) instead of going back
-   */
-  @HostListener('touchstart', ['$event'])
-  onTouchStart(event: TouchEvent): void {
-    if (event.touches.length === 1) {
-      this.swipeStartX = event.touches[0].clientX;
-    }
-  }
-
-  /**
-   * Handle touch end - detect swipe-left gesture
-   * If user swipes from left edge more than MIN_SWIPE_DISTANCE to the right,
-   * open the sidenav instead of navigating back (Twitter/X pattern)
-   */
-  @HostListener('touchend', ['$event'])
-  onTouchEnd(event: TouchEvent): void {
-    if (event.changedTouches.length === 1) {
-      const swipeEndX = event.changedTouches[0].clientX;
-      const swipeDistance = swipeEndX - this.swipeStartX;
-
-      // Detect left-to-right swipe from left edge
-      // (positive distance = swiping right, starting from left edge)
-      if (this.swipeStartX < this.EDGE_THRESHOLD && swipeDistance > this.MIN_SWIPE_DISTANCE) {
-        this.ngZone.run(() => {
-          this.handleSwipeLeftGesture();
-        });
-        event.preventDefault();
-      }
-    }
-  }
-
-  /**
-   * Handle swipe-left gesture - open sidenav
-   * This replaces the default iOS back gesture behavior.
-   * Professional decision: Users have bottom tabs for navigation,
-   * so swipe should open primary nav (sidenav) instead of going back.
-   */
-  private async handleSwipeLeftGesture(): Promise<void> {
-    // Haptic feedback
-    await this.haptics.impact('light');
-
-    // Open sidenav
-    await this.sidenavService.open();
   }
 
   // ============================================
@@ -700,7 +657,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   onSidenavUserClick(): void {
     this.haptics.impact('light');
     this.sidenavService.close();
-    void this.navController.navigateForward('/tabs/profile');
+    void this.navController.navigateForward('/profile');
   }
 
   /**
@@ -724,7 +681,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         await this.handleSignOut();
         break;
       case 'settings':
-        void this.navController.navigateForward('/tabs/settings');
+        void this.navController.navigateForward('/settings');
         break;
       case 'invite-team':
         await this.openInviteSheet();

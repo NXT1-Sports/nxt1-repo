@@ -171,8 +171,8 @@ export interface FooterScrollToTopEvent {
  * Default tab items for NXT1 application navigation.
  * Can be used directly or as a template for customization.
  *
- * Routes use relative paths within the tabs shell (e.g., 'home' not '/tabs/home')
- * The TabsLayoutComponent handles navigation within its context.
+ * Routes use clean URLs (e.g., '/home' not '/tabs/home') matching modern
+ * mobile app patterns (Instagram, TikTok, Twitter).
  */
 export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
   {
@@ -180,7 +180,7 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     label: 'Home',
     icon: 'home',
     iconActive: 'homeFilled',
-    route: '/tabs/home',
+    route: '/home',
     ariaLabel: 'Go to Home',
   },
   {
@@ -188,7 +188,7 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     label: 'Agent X',
     icon: 'bolt',
     iconActive: 'boltFilled',
-    route: '/tabs/agent',
+    route: '/agent',
     isActionButton: true,
     ariaLabel: 'Open AI Agent X',
   },
@@ -197,7 +197,7 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     label: 'Search',
     icon: 'search',
     iconActive: 'searchFilled',
-    route: '/tabs/search',
+    route: '/search',
     ariaLabel: 'Search athletes and teams',
   },
   {
@@ -205,7 +205,7 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     label: 'Activity',
     icon: 'bell',
     iconActive: 'bellFilled',
-    route: '/tabs/activity',
+    route: '/activity',
     ariaLabel: 'View your activity and notifications',
   },
 ];
@@ -235,6 +235,34 @@ export const FOOTER_ANIMATION = {
   /** Badge pop animation duration */
   badgePop: 200,
 } as const;
+
+/**
+ * Main page routes where sidenav swipe-to-open gesture is enabled.
+ * On these routes, swiping from left edge opens the sidenav.
+ * On all other routes, swiping from left edge triggers native back navigation.
+ *
+ * Professional pattern: Instagram, Twitter, TikTok all allow sidenav
+ * swipe only on root/main pages, not on detail/sub-pages.
+ */
+export const MAIN_PAGE_ROUTES = ['/home', '/agent', '/search', '/activity'] as const;
+
+/**
+ * Check if a route is a main page where sidenav swipe should be enabled.
+ * Returns true for exact matches only (not sub-routes like /home/details).
+ *
+ * @param route The current route path
+ * @returns true if sidenav swipe-to-open should be enabled
+ *
+ * @example
+ * isMainPageRoute('/home')      // true - sidenav swipe enabled
+ * isMainPageRoute('/profile')   // false - back swipe instead
+ * isMainPageRoute('/settings')  // false - back swipe instead
+ */
+export function isMainPageRoute(route: string): boolean {
+  // Remove query params and hash from route for comparison
+  const cleanRoute = route.split('?')[0].split('#')[0];
+  return MAIN_PAGE_ROUTES.some((mainRoute) => cleanRoute === mainRoute);
+}
 
 // ============================================
 // HELPER FUNCTIONS (Pure TypeScript)
@@ -504,6 +532,9 @@ export interface TopNavConfig {
   /** Notification count */
   notificationCount?: number;
 
+  /** Whether to show create button */
+  showCreate?: boolean;
+
   /** Whether to show user menu */
   showUserMenu?: boolean;
 
@@ -664,6 +695,7 @@ export function createTopNavConfig(config: Partial<TopNavConfig> = {}): TopNavCo
     searchPlaceholder: 'Search athletes, teams...',
     showNotifications: true,
     notificationCount: 0,
+    showCreate: true,
     showUserMenu: true,
     sticky: true,
     hideOnScroll: false,

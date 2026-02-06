@@ -740,7 +740,7 @@ export class NxtPageHeaderComponent {
   readonly showBack = input(false);
 
   /** Default href for back navigation */
-  readonly backHref = input('/tabs/home');
+  readonly backHref = input('/home');
 
   /** Back button text (iOS only, empty by default) */
   readonly backText = input('');

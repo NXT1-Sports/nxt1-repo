@@ -22,6 +22,7 @@ import {
   AnalyticsDashboardShellComponent,
   NxtSidenavService,
   NxtLoggingService,
+  NxtPlatformService,
   type AnalyticsUser,
 } from '@nxt1/ui';
 import type {
@@ -42,6 +43,7 @@ import { SeoService } from '../../core/services';
     <nxt1-analytics-dashboard-shell
       [user]="userInfo()"
       [role]="userRole()"
+      [hideHeader]="isDesktop()"
       (avatarClick)="onAvatarClick()"
       (tabChange)="onTabChange($event)"
       (periodChange)="onPeriodChange($event)"
@@ -57,6 +59,10 @@ export class AnalyticsDashboardComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('AnalyticsDashboardComponent');
   private readonly seo = inject(SeoService);
+  private readonly platform = inject(NxtPlatformService);
+
+  /** Desktop detection for hiding redundant page header (sidebar provides nav) */
+  protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
 
   ngOnInit(): void {
     this.seo.updatePage({

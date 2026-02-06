@@ -129,7 +129,7 @@ export class ExploreComponent {
    */
   protected onScoutReportSelect(report: ScoutReport): void {
     this.logger.debug('Scout report selected', { reportId: report.id });
-    this.navController.navigateForward(`/tabs/scout-reports/${report.id}`);
+    this.navController.navigateForward(`/scout-reports/${report.id}`);
   }
 
   /**

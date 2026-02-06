@@ -1,62 +1,64 @@
 import { Routes } from '@angular/router';
-import { authGuard } from './features/auth/guards/auth.guards';
 
 /**
- * @fileoverview Web App Routes
+ * @fileoverview Web App Routes — 2026 Professional Pattern
  * @module @nxt1/web
  *
- * Application routing with auth guards and layout wrappers.
+ * ⭐ NO CLIENT-SIDE AUTH GUARDS — Routes are 100% open ⭐
+ *
+ * Professional Pattern (like Twitter, Instagram, LinkedIn):
+ * - ALL routes are publicly accessible
+ * - Backend handles authorization (API returns 401/403 if needed)
+ * - UI adapts based on auth state (show login prompt, etc.)
+ * - Full SSR for ALL pages (SEO + performance)
+ *
+ * This eliminates:
+ * - Hydration mismatches
+ * - Flash redirects (/auth → /home)
+ * - Client-side auth race conditions
  *
  * Architecture:
- * - WebShellComponent wraps authenticated routes (provides top nav)
- * - Auth routes are standalone (no shell wrapper)
+ * - WebShellComponent wraps main routes (provides navigation)
+ * - Auth routes are standalone (different layout)
  * - Uses lazy loading for optimal performance
- *
- * Route Structure:
- * - / (root) → /home (protected, with shell)
- * - /auth → Authentication flows (no shell)
+ * - NO /tabs/ prefix — clean, semantic URLs
  */
 
 export const routes: Routes = [
-  // Root redirects to tabs/home (matches mobile pattern)
+  // ============================================
+  // PUBLIC LANDING PAGE (Marketing/Welcome)
+  // ============================================
+
+  /**
+   * Public Landing Page
+   * SEO-critical: Main marketing page for unauthenticated users
+   * Example: nxt1sports.com/welcome
+   */
   {
-    path: '',
-    pathMatch: 'full',
-    redirectTo: 'tabs/home',
+    path: 'welcome',
+    loadChildren: () => import('./features/landing/landing.routes'),
   },
 
-  // Legacy routes redirect to /tabs/* for backwards compatibility
-  {
-    path: 'home',
-    redirectTo: 'tabs/home',
-    pathMatch: 'full',
-  },
-  {
-    path: 'agent-x',
-    redirectTo: 'tabs/agent-x',
-    pathMatch: 'prefix',
-  },
-  {
-    path: 'explore',
-    redirectTo: 'tabs/explore',
-    pathMatch: 'prefix',
-  },
-  {
-    path: 'activity',
-    redirectTo: 'tabs/activity',
-    pathMatch: 'prefix',
-  },
+  // ============================================
+  // PUBLIC PROFILE & EXPLORE (SEO-Critical)
+  // ============================================
 
-  // Public Profile Routes (No Auth Required - SEO Optimized)
-  // These MUST be before the redirect to tabs/profile to handle public URLs
+  /**
+   * Public Profile Pages
+   * SEO-critical: Used for recruiting, social sharing
+   * Example: nxt1sports.com/profile/john-doe-2026
+   */
   {
     path: 'profile/:unicode',
     loadComponent: () =>
       import('./features/profile/profile.component').then((m) => m.ProfileComponent),
   },
 
-  // Public Explore Route (for SEO - no auth required)
-  // Uncomment if you want /explore to be publicly accessible
+  /**
+   * Public Explore/Discovery
+   * SEO-critical: Search engines index athletes, teams, etc.
+   * Example: nxt1sports.com/explore
+   */
   {
     path: 'explore',
     loadComponent: () =>
@@ -102,7 +104,7 @@ export const routes: Routes = [
     path: 'tabs',
     loadComponent: () =>
       import('./core/layout/shell/web-shell.component').then((m) => m.WebShellComponent),
-    canActivate: [authGuard],
+
     children: [
       // Default tab redirect
       {
@@ -199,10 +201,143 @@ export const routes: Routes = [
     loadChildren: () => import('./features/auth/auth.routes').then((m) => m.AUTH_ROUTES),
   },
 
+  // ============================================
+  // MAIN APP ROUTES (With Web Shell)
+  // ============================================
+
+  /**
+   * All main pages wrapped in WebShellComponent.
+   * Shell provides: top navigation, sidenav, footer
+   * NO AUTH GUARD - routes are open, UI adapts to auth state
+   */
+  {
+    path: '',
+    loadComponent: () =>
+      import('./core/layout/shell/web-shell.component').then((m) => m.WebShellComponent),
+    children: [
+      // Default route → Home
+      {
+        path: '',
+        pathMatch: 'full',
+        redirectTo: 'home',
+      },
+
+      // Home Page (Dashboard)
+      {
+        path: 'home',
+        loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
+      },
+
+      // Discover - Search & Discovery (matches top nav)
+      {
+        path: 'discover',
+        loadComponent: () =>
+          import('./features/explore/explore.component').then((m) => m.ExploreComponent),
+      },
+
+      // Search - Search & Discovery (mobile parity)
+      {
+        path: 'search',
+        loadChildren: () => import('./features/explore/explore.routes'),
+      },
+
+      // Rankings - Athlete Rankings & Leaderboards
+      {
+        path: 'rankings',
+        loadChildren: () => import('./features/rankings/rankings.routes'),
+      },
+
+      // Colleges - College Search & Information
+      {
+        path: 'colleges',
+        loadChildren: () => import('./features/colleges/colleges.routes'),
+      },
+
+      // Messages - User Messages & Conversations
+      {
+        path: 'messages',
+        loadChildren: () => import('./features/messages/messages.routes'),
+      },
+
+      // Agent X - AI Assistant (also accessible via /agent for mobile parity)
+      {
+        path: 'agent-x',
+        loadChildren: () => import('./features/agent-x/agent-x.routes'),
+      },
+      {
+        path: 'agent',
+        loadChildren: () => import('./features/agent-x/agent-x.routes'),
+      },
+
+      // Activity - Notifications & Activity Feed
+      {
+        path: 'activity',
+        loadChildren: () => import('./features/activity/activity.routes'),
+      },
+
+      // News - Sports Recruiting News Feed
+      {
+        path: 'news',
+        loadChildren: () => import('./features/news/news.routes'),
+      },
+
+      // Profile - User's own profile (authenticated view)
+      {
+        path: 'profile',
+        loadChildren: () => import('./features/profile/profile.routes'),
+      },
+
+      // Analytics Dashboard - User Analytics & Insights
+      {
+        path: 'analytics',
+        loadChildren: () => import('./features/analytics-dashboard/analytics-dashboard.routes'),
+      },
+
+      // Settings - User Settings & Preferences
+      {
+        path: 'settings',
+        loadChildren: () => import('./features/settings/settings.routes'),
+      },
+
+      // XP - Gamified Tasks & Achievements
+      {
+        path: 'xp',
+        loadChildren: () => import('./features/xp/xp.routes'),
+      },
+
+      // Scout Reports - Athlete Scout Reports & Ratings
+      {
+        path: 'scout-reports',
+        loadChildren: () => import('./features/scout-reports/scout-reports.routes'),
+      },
+
+      // Help Center - Help Articles, Videos, FAQs, AI Chat
+      {
+        path: 'help-center',
+        loadChildren: () => import('./features/help-center/help-center.routes'),
+      },
+
+      // Invite - Referral & Sharing
+      {
+        path: 'invite',
+        loadChildren: () => import('./features/invite/invite.routes'),
+      },
+
+      // Manage Team - Team Management
+      {
+        path: 'manage-team',
+        loadChildren: () => import('./features/manage-team/manage-team.routes'),
+      },
+    ],
+  },
+
+  // ============================================
+  // SPECIAL ROUTES (Outside Shell)
+  // ============================================
+
   // Create Post (modal-style, outside main shell for focused experience)
   {
     path: 'create-post',
-    canActivate: [authGuard],
     loadChildren: () => import('./features/create-post/create-post.routes'),
   },
 

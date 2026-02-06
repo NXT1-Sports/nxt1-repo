@@ -59,6 +59,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
       (backClick)="onBackClick()"
       (tabChange)="onTabChange($event)"
       (editProfileClick)="onEditProfile()"
+      (editTeamClick)="onEditTeam()"
       (shareClick)="onShare()"
       (qrCodeClick)="onQrCode()"
       (aiSummaryClick)="onAiSummary()"
@@ -259,6 +260,15 @@ export class ProfileComponent implements OnInit {
   protected onEditProfile(): void {
     this.logger.info('Edit profile clicked');
     this.router.navigate(['/settings/profile']);
+  }
+
+  /**
+   * Handle edit team navigation.
+   */
+  protected onEditTeam(): void {
+    this.logger.info('Edit team clicked');
+    // Navigate to manage team page (or open bottom sheet on mobile)
+    this.router.navigate(['/manage-team']);
   }
 
   /**

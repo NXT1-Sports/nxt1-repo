@@ -103,14 +103,14 @@ export class SettingsComponent {
    * Handle back navigation.
    */
   protected onBack(): void {
-    this.navController.navigateBack('/tabs/home');
+    this.navController.navigateBack('/home');
   }
 
   /**
    * Handle edit profile navigation.
    */
   protected onEditProfile(): void {
-    this.navController.navigateForward('/tabs/profile/edit');
+    this.navController.navigateForward('/profile/edit');
   }
 
   /**

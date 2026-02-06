@@ -1,120 +1,124 @@
 <!doctype html>
 <html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <title>NXT1 Sports - The Sports Content Platform | Discover, Watch & Share Athletic Content</title>
+    <base href="/" />
 
-<head>
-  <meta charset="utf-8" />
-  <title>NXT1 Sports - The Sports Content Platform | Discover, Watch & Share Athletic Content</title>
-  <base href="/" />
-
-  <!-- 
+    <!-- 
       CRITICAL: Theme initialization script
       This MUST run before any CSS/JS to prevent flash of wrong theme.
       Sets data-theme attribute and color-scheme before first paint.
     -->
-  <script>
-    (function () {
-      var theme = localStorage.getItem("nxt1-theme") || "light";
-      document.documentElement.setAttribute("data-theme", theme);
-      document.documentElement.style.colorScheme = theme;
-      document.documentElement.style.backgroundColor = theme === "dark" ? "#0a0a0a" : "#ffffff";
-    })();
-  </script>
+    <script>
+      (function () {
+        var theme = localStorage.getItem("nxt1-theme") || "light";
+        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.style.colorScheme = theme;
+        document.documentElement.style.backgroundColor = theme === "dark" ? "#0a0a0a" : "#ffffff";
+      })();
+    </script>
 
-  <!-- 
+    <!-- 
       CRITICAL: Pre-hydration styles for Ionic web components
       These styles prevent layout shift (CLS) during SSR hydration.
       They apply to Custom Elements BEFORE they are defined by Ionic.
       Once hydrated, Ionic's internal styles take over.
     -->
-  <style>
-    /* Pre-hydration: Give Ionic components dimensions before they're defined */
-    ion-app:not(:defined),
-    ion-content:not(:defined) {
-      display: block;
-      width: 100%;
-      min-height: 100vh;
-      background-color: #ffffff;
-    }
+    <style>
+      /* Pre-hydration: Give Ionic components dimensions before they're defined */
+      ion-app:not(:defined),
+      ion-content:not(:defined) {
+        display: block;
+        width: 100%;
+        min-height: 100vh;
+        background-color: #ffffff;
+      }
 
-    ion-header:not(:defined),
-    ion-toolbar:not(:defined) {
-      display: block;
-      width: 100%;
-    }
+      ion-header:not(:defined),
+      ion-toolbar:not(:defined) {
+        display: block;
+        width: 100%;
+      }
 
-    ion-button:not(:defined) {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 48px;
-    }
+      ion-button:not(:defined) {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+      }
 
-    ion-icon:not(:defined) {
-      display: inline-block;
-      width: 24px;
-      height: 24px;
-    }
+      ion-icon:not(:defined) {
+        display: inline-block;
+        width: 24px;
+        height: 24px;
+      }
 
-    /* Auth wrapper - ensure centered content before hydration */
-    .nxt1-auth-wrapper {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      width: 100%;
-      min-height: 100vh;
-    }
-  </style>
+      /* Auth wrapper - ensure centered content before hydration */
+      .nxt1-auth-wrapper {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        min-height: 100vh;
+      }
+    </style>
 
-  <link rel="canonical" href="https://nxt1sports.com/" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <meta name="description"
-    content="The ultimate sports content platform. Discover amazing athletic highlights, training videos, and sports content from athletes worldwide. Upload, share, and explore the best in sports entertainment." />
-  <meta name="author" content="NXT1 Sports" />
-  <meta name="publisher" content="NXT1 Sports" />
+    <link rel="canonical" href="https://nxt1sports.com/" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta
+      name="description"
+      content="The ultimate sports content platform. Discover amazing athletic highlights, training videos, and sports content from athletes worldwide. Upload, share, and explore the best in sports entertainment."
+    />
+    <meta name="author" content="NXT1 Sports" />
+    <meta name="publisher" content="NXT1 Sports" />
 
-  <!-- Open Graph Meta Tags for Social Media -->
-  <meta property="og:type" content="video.other" />
-  <meta property="og:site_name" content="NXT1 Sports" />
-  <meta property="og:title" content="NXT1 Sports - The Sports Content Platform" />
-  <meta property="og:description"
-    content="Your destination for sports content. Watch highlights, training videos, game footage, and exclusive athletic content. Join millions discovering amazing sports moments." />
-  <meta property="og:url" content="https://nxt1sports.com/" />
-  <meta property="og:image" content="https://nxt1sports.com/assets/images/og-image.jpg" />
-  <meta property="og:image:width" content="1200" />
-  <meta property="og:image:height" content="630" />
-  <meta property="og:locale" content="en_US" />
+    <!-- Open Graph Meta Tags for Social Media -->
+    <meta property="og:type" content="video.other" />
+    <meta property="og:site_name" content="NXT1 Sports" />
+    <meta property="og:title" content="NXT1 Sports - The Sports Content Platform" />
+    <meta
+      property="og:description"
+      content="Your destination for sports content. Watch highlights, training videos, game footage, and exclusive athletic content. Join millions discovering amazing sports moments."
+    />
+    <meta property="og:url" content="https://nxt1sports.com/" />
+    <meta property="og:image" content="https://nxt1sports.com/assets/images/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
 
-  <!-- Twitter Card Meta Tags -->
-  <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:site" content="@nxt1sports" />
-  <meta name="twitter:title" content="NXT1 Sports - The Sports Content Platform" />
-  <meta name="twitter:description"
-    content="Discover the best sports content on the web. Watch highlights, training videos, and exclusive athletic moments. Your home for sports entertainment." />
-  <meta name="twitter:image" content="https://nxt1sports.com/assets/images/twitter-card.jpg" />
+    <!-- Twitter Card Meta Tags -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@nxt1sports" />
+    <meta name="twitter:title" content="NXT1 Sports - The Sports Content Platform" />
+    <meta
+      name="twitter:description"
+      content="Discover the best sports content on the web. Watch highlights, training videos, and exclusive athletic moments. Your home for sports entertainment."
+    />
+    <meta name="twitter:image" content="https://nxt1sports.com/assets/images/twitter-card.jpg" />
 
-  <!-- Additional SEO Tags -->
-  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
-  <meta name="googlebot" content="index, follow" />
-  <meta name="language" content="English" />
-  <meta name="revisit-after" content="7 days" />
+    <!-- Additional SEO Tags -->
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow" />
+    <meta name="language" content="English" />
+    <meta name="revisit-after" content="7 days" />
 
-  <link rel="icon" type="image/x-icon" href="favicon.ico" />
-  <link rel="preconnect" href="https://storage.googleapis.com" crossorigin />
+    <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <link rel="preconnect" href="https://storage.googleapis.com" crossorigin />
 
-  <!-- PWA Manifest -->
-  <link rel="manifest" href="manifest.webmanifest" />
-  <meta name="theme-color" content="#ffffff" />
-  <meta name="color-scheme" content="light dark" />
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="color-scheme" content="light dark" />
 
-  <!-- Apple Touch Icon -->
-  <link rel="apple-touch-icon" href="assets/icons/icon-192x192.png" />
+    <!-- Apple Touch Icon -->
+    <link rel="apple-touch-icon" href="assets/icons/icon-192x192.png" />
 
-  <!-- Analytics: Firebase SDK handles analytics - no gtag.js needed -->
-</head>
+    <!-- Analytics: Firebase SDK handles analytics - no gtag.js needed -->
+  </head>
 
-<body>
-  <app-root></app-root>
-</body>
-
+  <body>
+    <app-root></app-root>
+  </body>
 </html>

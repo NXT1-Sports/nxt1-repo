@@ -9,7 +9,7 @@
  * - Automatic fallback to fetch for web/PWA
  * - Error transformation to HttpAdapterError format
  * - Supports all HTTP methods with proper typing
- * - Token injection for authenticated requests
+ * - Fresh token injection per-request via tokenProvider (2026 pattern)
  *
  * @module @nxt1/mobile/core/infrastructure
  */
@@ -19,6 +19,16 @@ import { Capacitor } from '@capacitor/core';
 import { NxtLoggingService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import type { HttpAdapter, HttpRequestConfig, HttpAdapterError } from '@nxt1/core';
+
+/**
+ * Token provider function type
+ *
+ * Called on every HTTP request to get a fresh auth token.
+ * Returns null when no user is signed in.
+ * Firebase's getIdToken() handles caching internally —
+ * it returns the cached token if valid, refreshes if expired.
+ */
+export type TokenProvider = () => Promise<string | null>;
 
 /**
  * Default request timeout in milliseconds
@@ -32,12 +42,21 @@ const DEFAULT_TIMEOUT = 30000;
  * which avoids CORS issues and provides better performance.
  * Falls back to fetch() on web for development/testing.
  *
+ * ⭐ 2026 Token Pattern: Uses a tokenProvider function that fetches
+ * a fresh Firebase ID token per-request. Firebase SDK handles caching
+ * internally — getIdToken() returns cached token if valid, auto-refreshes
+ * if expired (~60 min). This eliminates the stale token bug where a
+ * static token string would expire after the initial 60-minute window.
+ *
  * @example
  * ```typescript
- * const authApi = createAuthApi(
- *   inject(CapacitorHttpAdapter),
- *   environment.apiURL
- * );
+ * const adapter = inject(CapacitorHttpAdapter);
+ *
+ * // Wire up fresh token provider (called once during auth init)
+ * adapter.setTokenProvider(() => firebaseAuth.getIdToken());
+ *
+ * // Every HTTP request now gets a fresh/valid token automatically
+ * const authApi = createAuthApi(adapter, environment.apiURL);
  * ```
  */
 @Injectable({ providedIn: 'root' })
@@ -50,30 +69,59 @@ export class CapacitorHttpAdapter implements HttpAdapter {
   private readonly isNative = Capacitor.isNativePlatform();
 
   /**
-   * Auth token for authenticated requests
-   * Set by AuthFlowService when user signs in
+   * Token provider function for authenticated requests.
+   *
+   * Called per-request to get a fresh token. Firebase SDK handles
+   * internal caching — returns cached token if valid, refreshes if expired.
+   * Set by AuthFlowService during auth initialization.
    */
-  private authToken: string | null = null;
+  private tokenProvider: TokenProvider | null = null;
 
   /**
-   * Set the auth token for subsequent requests
+   * Set the token provider for authenticated requests.
+   *
+   * The provider is called on every HTTP request to ensure a fresh token.
+   * Firebase's getIdToken() handles caching internally, so this is efficient.
+   *
+   * @param provider - Async function returning a token string or null
+   *
+   * @example
+   * ```typescript
+   * // Wire up during auth initialization
+   * adapter.setTokenProvider(() => firebaseAuth.getIdToken());
+   *
+   * // Clear on sign-out
+   * adapter.setTokenProvider(null);
+   * ```
    */
-  setAuthToken(token: string | null): void {
-    this.authToken = token;
+  setTokenProvider(provider: TokenProvider | null): void {
+    this.tokenProvider = provider;
+    this.logger.debug('Token provider updated', { hasProvider: !!provider });
+  }
+
+  /**
+   * @deprecated Use setTokenProvider() instead for automatic token refresh.
+   * This static method stores a snapshot that becomes stale after ~60 minutes.
+   * Kept for backwards compatibility during migration.
+   */
+  setAuthToken(_token: string | null): void {
+    this.logger.warn(
+      'setAuthToken() is deprecated — use setTokenProvider() for automatic token refresh'
+    );
+    // No-op: callers should migrate to setTokenProvider()
   }
 
   /**
    * Perform GET request
    */
   async get<T>(url: string, config?: HttpRequestConfig): Promise<T> {
-    const headers = this.buildHeaders(config);
+    const headers = await this.buildHeaders(config);
     const fullUrl = this.buildUrl(url, config?.params);
 
     this.logger.debug('GET request', {
       url: fullUrl,
       isNative: this.isNative,
-      hasAuthToken: !!this.authToken,
-      headers: { ...headers, Authorization: this.authToken ? '[REDACTED]' : undefined },
+      hasToken: !!headers['Authorization'],
     });
 
     try {
@@ -124,12 +172,12 @@ export class CapacitorHttpAdapter implements HttpAdapter {
    * Perform POST request
    */
   async post<T>(url: string, body: unknown, config?: HttpRequestConfig): Promise<T> {
-    const headers = this.buildHeaders(config);
+    const headers = await this.buildHeaders(config);
 
     this.logger.debug('POST request', {
       url: this.buildUrl(url, config?.params),
       isNative: this.isNative,
-      hasAuthToken: !!this.authToken,
+      hasToken: !!headers['Authorization'],
       bodyPreview: JSON.stringify(body).substring(0, 100),
     });
 
@@ -163,7 +211,7 @@ export class CapacitorHttpAdapter implements HttpAdapter {
    * Perform PUT request
    */
   async put<T>(url: string, body: unknown, config?: HttpRequestConfig): Promise<T> {
-    const headers = this.buildHeaders(config);
+    const headers = await this.buildHeaders(config);
 
     if (this.isNative) {
       const response = await CapacitorHttp.put({
@@ -194,7 +242,7 @@ export class CapacitorHttpAdapter implements HttpAdapter {
    * Perform PATCH request
    */
   async patch<T>(url: string, body: unknown, config?: HttpRequestConfig): Promise<T> {
-    const headers = this.buildHeaders(config);
+    const headers = await this.buildHeaders(config);
 
     if (this.isNative) {
       const response = await CapacitorHttp.patch({
@@ -225,7 +273,7 @@ export class CapacitorHttpAdapter implements HttpAdapter {
    * Perform DELETE request
    */
   async delete<T>(url: string, config?: HttpRequestConfig): Promise<T> {
-    const headers = this.buildHeaders(config);
+    const headers = await this.buildHeaders(config);
 
     if (this.isNative) {
       const response = await CapacitorHttp.delete({
@@ -255,18 +303,32 @@ export class CapacitorHttpAdapter implements HttpAdapter {
   // ============================================
 
   /**
-   * Build headers including auth token
+   * Build headers with fresh auth token from provider.
+   *
+   * Calls the tokenProvider on every request to ensure the token is valid.
+   * Firebase SDK caches tokens internally — getIdToken() only makes a
+   * network call when the cached token is expired (~60 min), making this
+   * pattern both safe and efficient.
    */
-  private buildHeaders(config?: HttpRequestConfig): Record<string, string> {
+  private async buildHeaders(config?: HttpRequestConfig): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
       ...config?.headers,
     };
 
-    // Add auth token if available
-    if (this.authToken) {
-      headers['Authorization'] = `Bearer ${this.authToken}`;
+    // Get fresh token from provider (Firebase handles caching internally)
+    if (this.tokenProvider) {
+      try {
+        const token = await this.tokenProvider();
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+      } catch (err) {
+        this.logger.warn('Token provider failed, proceeding without auth', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     return headers;

@@ -10,14 +10,15 @@
 
 1. [Overview](#overview)
 2. [Styling Strategy](#styling-strategy)
-3. [The Complete Architecture](#the-complete-architecture)
-4. [Design Token Flow](#design-token-flow)
-5. [Platform Styling (Ionic)](#platform-styling-ionic)
-6. [Tailwind Integration](#tailwind-integration)
-7. [Shared UI Components](#shared-ui-components)
-8. [How to Make Changes](#how-to-make-changes)
-9. [File Reference](#file-reference)
-10. [FAQ](#faq)
+3. [Platform Component Strategy](#platform-component-strategy)
+4. [The Complete Architecture](#the-complete-architecture)
+5. [Design Token Flow](#design-token-flow)
+6. [Platform Styling (Ionic)](#platform-styling-ionic)
+7. [Tailwind Integration](#tailwind-integration)
+8. [Shared UI Components](#shared-ui-components)
+9. [How to Make Changes](#how-to-make-changes)
+10. [File Reference](#file-reference)
+11. [FAQ](#faq)
 
 ---
 
@@ -126,6 +127,104 @@ while leveraging **native platform feel** through Ionic Framework.
   border-color: rgba(66, 133, 244, 0.4);
 }
 ```
+
+---
+
+## Platform Component Strategy
+
+### Web vs Mobile: Different Needs, Same Tokens
+
+While both platforms share the **same design tokens**, they require different
+component implementations:
+
+| Aspect               | Web (SSR)                      | Mobile (Native)                |
+| -------------------- | ------------------------------ | ------------------------------ |
+| **Rendering**        | Server + Client (hydration)    | Client only                    |
+| **Component System** | Pure Tailwind CSS              | Ionic Shadow DOM               |
+| **Theme Variables**  | `--nxt1-*` via Tailwind preset | `--nxt1-*` → `--ion-*` mapping |
+| **Navigation**       | Angular Router                 | Ionic NavController            |
+| **Native APIs**      | N/A                            | Haptics, push notifications    |
+
+### Why Separate Components?
+
+**Problem:** Ionic components use Shadow DOM. During SSR, the server renders
+Ionic's outer element, but Shadow DOM content isn't included. When the client
+hydrates, Angular detects a mismatch → **hydration error**.
+
+**Solution:** Use **Adaptive Design** — separate component implementations that
+share the same service layer and design tokens.
+
+### 100% Theme-Aware Pattern
+
+Both web and mobile components use **CSS custom properties** from the design
+token system, ensuring automatic theme adaptation:
+
+```typescript
+// Web component (Tailwind classes map to CSS variables)
+@Component({
+  template: `
+    <div class="bg-surface-100 text-text-primary border-border-subtle">
+      Content automatically adapts to dark/light/sport themes
+    </div>
+  `,
+  styles: [`
+    :host {
+      background-color: var(--nxt1-color-bg-primary);
+      color: var(--nxt1-color-text-primary);
+    }
+  `]
+})
+```
+
+```typescript
+// Mobile component (Ionic variables mapped from design tokens)
+@Component({
+  template: `
+    <ion-content>
+      <ion-card>
+        <!-- Ionic uses --ion-* variables, mapped from --nxt1-* -->
+        Content automatically adapts to dark/light/sport themes
+      </ion-card>
+    </ion-content>
+  `
+})
+```
+
+### Token Flow for Both Platforms
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                  tokens.json (Single Source of Truth)                  │
+└──────────────────────────┬─────────────────────────────────────────────┘
+                           │
+          ┌────────────────┴────────────────┐
+          ▼                                 ▼
+┌─────────────────────┐          ┌─────────────────────────┐
+│   Web (Tailwind)    │          │   Mobile (Ionic)        │
+│   ───────────────   │          │   ─────────────────     │
+│   preset.js maps:   │          │   ionic-theme.css maps: │
+│   bg-primary →      │          │   --ion-color-primary → │
+│   var(--nxt1-...)   │          │   var(--nxt1-...)       │
+└─────────────────────┘          └─────────────────────────┘
+          │                                 │
+          └────────────────┬────────────────┘
+                           ▼
+              ┌───────────────────────┐
+              │  Both render with     │
+              │  consistent branding  │
+              │  Automatic theme      │
+              │  switching works!     │
+              └───────────────────────┘
+```
+
+### When to Use Each Approach
+
+| Feature Type          | Approach                         | Example                |
+| --------------------- | -------------------------------- | ---------------------- |
+| SSR/SEO-critical      | Adaptive Design (web/ + mobile/) | Help Center, Profile   |
+| Auth flows (no SEO)   | Shared Ionic component           | Auth Shell, Onboarding |
+| Simple UI elements    | Shared component                 | Logo, Avatar, Icon     |
+| Native-heavy features | Mobile-only with web fallback    | IAP, Biometrics        |
 
 ---
 

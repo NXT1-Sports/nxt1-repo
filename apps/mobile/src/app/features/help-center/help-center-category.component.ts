@@ -35,10 +35,10 @@ export class HelpCenterCategoryComponent implements OnInit {
   }
 
   protected onArticleSelect(event: { id: string; slug: string }): void {
-    this.nav.navigateForward(`/tabs/help-center/article/${event.slug}`);
+    this.nav.navigateForward(`/help-center/article/${event.slug}`);
   }
 
   protected onBack(): void {
-    this.nav.navigateBack('/tabs/help-center');
+    this.nav.navigateBack('/help-center');
   }
 }

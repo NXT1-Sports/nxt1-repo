@@ -114,6 +114,6 @@ export class XpComponent {
    * Handle badge/achievement click - navigate to detail view
    */
   onBadgeClick(badgeId: string): void {
-    this.navController.navigateForward(`/tabs/xp/badges/${badgeId}`);
+    this.navController.navigateForward(`/xp/badges/${badgeId}`);
   }
 }

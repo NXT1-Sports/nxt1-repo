@@ -12,7 +12,7 @@ import type { StorageAdapter } from '@nxt1/core';
 
 /**
  * Check if Preferences plugin is available
- * Fixes "Preferences plugin not implemented" error on Android
+ * Fixes "Preferences plugin not implemented" error on Android/iOS
  */
 let preferencesAvailable: boolean | null = null;
 
@@ -20,12 +20,25 @@ async function isPreferencesAvailable(): Promise<boolean> {
   if (preferencesAvailable !== null) return preferencesAvailable;
 
   try {
-    await Preferences.get({ key: '__test__' });
+    // Check if Preferences is properly implemented
+    if (!Preferences || typeof Preferences.get !== 'function') {
+      console.warn(
+        '[NativeStorage] Preferences plugin not available (undefined or missing methods)'
+      );
+      preferencesAvailable = false;
+      return false;
+    }
+
+    // Try a simple get operation to verify it works
+    const testResult = await Preferences.get({ key: '__nxt1_test__' });
+
+    // If we got here without error, it works
     preferencesAvailable = true;
-  } catch (error) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.warn(
-      '[NativeStorage] Preferences plugin not available, falling back to localStorage',
-      error
+      '[NativeStorage] Preferences plugin not available, falling back to localStorage:',
+      errorMessage
     );
     preferencesAvailable = false;
   }

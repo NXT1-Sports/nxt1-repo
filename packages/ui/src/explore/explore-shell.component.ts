@@ -93,27 +93,30 @@ export interface ExploreUser {
   ],
   template: `
     <!-- Professional Page Header (same as Activity/Home) - Search bar replaces title -->
-    <nxt1-page-header
-      [avatarSrc]="user()?.photoURL"
-      [avatarName]="displayName()"
-      (avatarClick)="onAvatarClick()"
-    >
-      <!-- Search bar in title slot (same positioning as text title) -->
-      <ion-searchbar
-        slot="title"
-        mode="ios"
-        [placeholder]="searchPlaceholder"
-        [debounce]="300"
-        [(ngModel)]="searchValue"
-        (ionFocus)="onSearchFocus()"
-        (ionBlur)="onSearchBlur()"
-        (ionInput)="onSearchInput($event)"
-        (ionClear)="onSearchClear()"
-        [showCancelButton]="explore.isSearchFocused() ? 'always' : 'never'"
-        cancelButtonText="Cancel"
-        class="explore-searchbar"
-      />
-    </nxt1-page-header>
+    <!-- Hidden on desktop when using sidebar shell -->
+    @if (!hideHeader()) {
+      <nxt1-page-header
+        [avatarSrc]="user()?.photoURL"
+        [avatarName]="displayName()"
+        (avatarClick)="onAvatarClick()"
+      >
+        <!-- Search bar in title slot (same positioning as text title) -->
+        <ion-searchbar
+          slot="title"
+          mode="ios"
+          [placeholder]="searchPlaceholder"
+          [debounce]="300"
+          [(ngModel)]="searchValue"
+          (ionFocus)="onSearchFocus()"
+          (ionBlur)="onSearchBlur()"
+          (ionInput)="onSearchInput($event)"
+          (ionClear)="onSearchClear()"
+          [showCancelButton]="explore.isSearchFocused() ? 'always' : 'never'"
+          cancelButtonText="Cancel"
+          class="explore-searchbar"
+        />
+      </nxt1-page-header>
+    }
 
     <!-- Twitter/TikTok Style Tab Selector (Options Scroller) - same as Activity -->
     @if (!explore.isSearchFocused() || explore.hasQuery()) {
@@ -330,6 +333,9 @@ export class ExploreShellComponent implements OnInit {
 
   // Inputs
   readonly user = input<ExploreUser | null>(null);
+
+  /** Hide page header on desktop (when using sidebar shell) */
+  readonly hideHeader = input(false);
 
   // Outputs
   readonly avatarClick = output<void>();

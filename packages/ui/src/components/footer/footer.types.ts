@@ -21,11 +21,13 @@ export {
   DEFAULT_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
+  MAIN_PAGE_ROUTES,
   findTabById,
   findTabByRoute,
   createFooterConfig,
   updateTabBadge,
   setTabDisabled,
+  isMainPageRoute,
 } from '@nxt1/core';
 
 // Re-export the base event type from core

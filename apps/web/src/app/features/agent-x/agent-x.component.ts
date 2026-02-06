@@ -20,6 +20,7 @@ import {
   AgentXShellComponent,
   NxtSidenavService,
   NxtLoggingService,
+  NxtPlatformService,
   type AgentXUser,
 } from '@nxt1/ui';
 import type { AgentXMode } from '@nxt1/core';
@@ -33,6 +34,7 @@ import { SeoService } from '../../core/services';
   template: `
     <nxt1-agent-x-shell
       [user]="userInfo()"
+      [hideHeader]="isDesktop()"
       (avatarClick)="onAvatarClick()"
       (modeChange)="onModeChange($event)"
     />
@@ -52,6 +54,10 @@ export class AgentXComponent implements OnInit {
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
   private readonly seo = inject(SeoService);
+  private readonly platform = inject(NxtPlatformService);
+
+  /** Desktop detection for hiding redundant page header (sidebar provides nav) */
+  protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
 
   ngOnInit(): void {
     this.seo.updatePage({

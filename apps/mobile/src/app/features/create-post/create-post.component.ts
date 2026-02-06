@@ -135,9 +135,9 @@ export class CreatePostComponent implements OnInit, OnDestroy {
     if (this.createPostService.isDirty()) {
       // TODO: Show confirmation action sheet
       // For now, just close
-      await this.navController.navigateBack('/tabs/home');
+      await this.navController.navigateBack('/home');
     } else {
-      await this.navController.navigateBack('/tabs/home');
+      await this.navController.navigateBack('/home');
     }
   }
 
@@ -168,7 +168,7 @@ export class CreatePostComponent implements OnInit, OnDestroy {
       await this.haptics.notification('success');
 
       // Navigate to success or home
-      await this.navController.navigateRoot('/tabs/home');
+      await this.navController.navigateRoot('/home');
     } catch (error) {
       console.error('Failed to create post:', error);
       await this.haptics.notification('error');

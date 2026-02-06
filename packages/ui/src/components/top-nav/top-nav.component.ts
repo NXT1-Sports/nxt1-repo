@@ -122,134 +122,174 @@ import type {
         }
 
         <!-- ============================================
-             PRIMARY NAVIGATION (hidden on mobile)
+             PRIMARY NAVIGATION / CENTERED SEARCH (hidden on mobile)
              ============================================ -->
         <nav
           class="nav-primary absolute left-1/2 z-[1] hidden h-full -translate-x-1/2 items-center md:flex"
           role="navigation"
           aria-label="Main navigation"
         >
-          <ul class="nav-list m-0 flex h-full list-none items-center gap-1 p-0" role="menubar">
-            @for (item of items; track item.id; let i = $index) {
-              @if (item.showOnMobile !== false) {
-                <li
-                  class="nav-item relative flex h-full items-center"
-                  [class.active]="isActiveItem(item)"
-                  [class.featured]="item.featured"
-                  [class.has-dropdown]="item.children && item.children.length > 0"
-                  [class.dropdown-open]="activeDropdown() === item.id"
-                  role="none"
-                >
-                  <!-- Nav Item Button -->
+          <!-- When sidebar mode (showLogo=false), show centered search bar -->
+          @if (config.showLogo === false && showSearch()) {
+            <div class="nav-search-centered relative w-[400px] lg:w-[500px] xl:w-[600px]">
+              <form
+                class="search-form relative flex items-center"
+                (submit)="onSearchSubmit($event)"
+              >
+                <nxt1-icon
+                  name="searchSparkle"
+                  class="search-icon search-icon--ai pointer-events-none absolute left-4"
+                  size="20"
+                />
+                <input
+                  type="search"
+                  class="search-input search-input--centered"
+                  [placeholder]="config.searchPlaceholder || 'Search athletes, teams...'"
+                  [value]="searchQuery()"
+                  autocomplete="off"
+                  spellcheck="false"
+                  (input)="onSearchInput($event)"
+                  (focus)="onSearchFocus()"
+                  (blur)="onSearchBlur()"
+                />
+                @if (searchQuery()) {
                   <button
                     type="button"
-                    class="nav-item-btn"
+                    class="search-clear absolute right-3 flex h-7 w-7 items-center justify-center rounded-full p-0"
+                    aria-label="Clear search"
+                    (click)="clearSearch()"
+                  >
+                    <nxt1-icon name="close" size="18" />
+                  </button>
+                }
+              </form>
+            </div>
+          } @else {
+            <!-- Standard nav items when not in sidebar mode -->
+            <ul class="nav-list m-0 flex h-full list-none items-center gap-1 p-0" role="menubar">
+              @for (item of items; track item.id; let i = $index) {
+                @if (item.showOnMobile !== false) {
+                  <li
+                    class="nav-item relative flex h-full items-center"
                     [class.active]="isActiveItem(item)"
                     [class.featured]="item.featured"
-                    [attr.aria-expanded]="item.children ? activeDropdown() === item.id : null"
-                    [attr.aria-haspopup]="item.children ? 'menu' : null"
-                    [attr.aria-current]="isActiveItem(item) ? 'page' : null"
-                    [attr.aria-label]="item.ariaLabel || item.label"
-                    [attr.tabindex]="getTabIndex(item, i)"
-                    [disabled]="item.disabled"
-                    role="menuitem"
-                    (click)="onItemClick(item, $event)"
-                    (keydown)="onItemKeydown($event, i)"
+                    [class.has-dropdown]="item.children && item.children.length > 0"
+                    [class.dropdown-open]="activeDropdown() === item.id"
+                    role="none"
                   >
-                    <!-- Icon (optional) -->
-                    @if (item.icon) {
-                      <nxt1-icon
-                        [name]="isActiveItem(item) ? item.icon + 'Filled' : item.icon"
-                        class="nav-item-icon"
-                        [class.active]="isActiveItem(item)"
-                        size="20"
-                      />
-                    }
-
-                    <!-- Label -->
-                    <span class="nav-item-label">{{ item.label }}</span>
-
-                    <!-- Badge -->
-                    @if (item.badge && item.badge > 0) {
-                      <span
-                        class="nav-item-badge"
-                        [attr.aria-label]="item.badge + ' notifications'"
-                      >
-                        {{ item.badge > 99 ? '99+' : item.badge }}
-                      </span>
-                    }
-
-                    <!-- Dropdown Indicator -->
-                    @if (item.children && item.children.length > 0) {
-                      <nxt1-icon
-                        name="chevronDown"
-                        class="nav-item-chevron"
-                        [class.open]="activeDropdown() === item.id"
-                        size="16"
-                      />
-                    }
-                  </button>
-
-                  <!-- Dropdown Menu -->
-                  @if (item.children && item.children.length > 0) {
-                    <div
-                      class="nav-dropdown"
-                      [class.open]="activeDropdown() === item.id"
-                      role="menu"
-                      [attr.aria-label]="item.label + ' submenu'"
+                    <!-- Nav Item Button -->
+                    <button
+                      type="button"
+                      class="nav-item-btn"
+                      [class.active]="isActiveItem(item)"
+                      [class.featured]="item.featured"
+                      [attr.aria-expanded]="item.children ? activeDropdown() === item.id : null"
+                      [attr.aria-haspopup]="item.children ? 'menu' : null"
+                      [attr.aria-current]="isActiveItem(item) ? 'page' : null"
+                      [attr.aria-label]="item.ariaLabel || item.label"
+                      [attr.tabindex]="getTabIndex(item, i)"
+                      [disabled]="item.disabled"
+                      role="menuitem"
+                      (click)="onItemClick(item, $event)"
+                      (keydown)="onItemKeydown($event, i)"
                     >
-                      <ul class="dropdown-list m-0 list-none p-1">
-                        @for (child of item.children; track child.id) {
-                          @if (child.divider) {
-                            <li class="dropdown-divider" role="separator"></li>
-                          }
-                          <li role="none">
-                            <button
-                              type="button"
-                              class="dropdown-item"
-                              [class.disabled]="child.disabled"
-                              [disabled]="child.disabled"
-                              role="menuitem"
-                              (click)="onDropdownItemClick(item, child, $event)"
-                            >
-                              @if (child.icon) {
-                                <nxt1-icon
-                                  [name]="child.icon"
-                                  class="dropdown-icon flex-shrink-0"
-                                  size="18"
-                                />
-                              }
-                              <div class="dropdown-content flex flex-col gap-0.5">
-                                <span class="dropdown-label leading-tight">{{ child.label }}</span>
-                                @if (child.description) {
-                                  <span class="dropdown-description text-xs leading-snug">{{
-                                    child.description
-                                  }}</span>
-                                }
-                              </div>
-                            </button>
-                          </li>
-                        }
-                      </ul>
-                    </div>
-                  }
+                      <!-- Icon (optional) -->
+                      @if (item.icon) {
+                        <nxt1-icon
+                          [name]="isActiveItem(item) ? item.icon + 'Filled' : item.icon"
+                          class="nav-item-icon"
+                          [class.active]="isActiveItem(item)"
+                          size="20"
+                        />
+                      }
 
-                  <!-- Active Indicator -->
-                  @if (isActiveItem(item) && !item.featured) {
-                    <span class="nav-active-indicator" aria-hidden="true"></span>
-                  }
-                </li>
+                      <!-- Label -->
+                      <span class="nav-item-label">{{ item.label }}</span>
+
+                      <!-- Badge -->
+                      @if (item.badge && item.badge > 0) {
+                        <span
+                          class="nav-item-badge"
+                          [attr.aria-label]="item.badge + ' notifications'"
+                        >
+                          {{ item.badge > 99 ? '99+' : item.badge }}
+                        </span>
+                      }
+
+                      <!-- Dropdown Indicator -->
+                      @if (item.children && item.children.length > 0) {
+                        <nxt1-icon
+                          name="chevronDown"
+                          class="nav-item-chevron"
+                          [class.open]="activeDropdown() === item.id"
+                          size="16"
+                        />
+                      }
+                    </button>
+
+                    <!-- Dropdown Menu -->
+                    @if (item.children && item.children.length > 0) {
+                      <div
+                        class="nav-dropdown"
+                        [class.open]="activeDropdown() === item.id"
+                        role="menu"
+                        [attr.aria-label]="item.label + ' submenu'"
+                      >
+                        <ul class="dropdown-list m-0 list-none p-1">
+                          @for (child of item.children; track child.id) {
+                            @if (child.divider) {
+                              <li class="dropdown-divider" role="separator"></li>
+                            }
+                            <li role="none">
+                              <button
+                                type="button"
+                                class="dropdown-item"
+                                [class.disabled]="child.disabled"
+                                [disabled]="child.disabled"
+                                role="menuitem"
+                                (click)="onDropdownItemClick(item, child, $event)"
+                              >
+                                @if (child.icon) {
+                                  <nxt1-icon
+                                    [name]="child.icon"
+                                    class="dropdown-icon flex-shrink-0"
+                                    size="18"
+                                  />
+                                }
+                                <div class="dropdown-content flex flex-col gap-0.5">
+                                  <span class="dropdown-label leading-tight">{{
+                                    child.label
+                                  }}</span>
+                                  @if (child.description) {
+                                    <span class="dropdown-description text-xs leading-snug">{{
+                                      child.description
+                                    }}</span>
+                                  }
+                                </div>
+                              </button>
+                            </li>
+                          }
+                        </ul>
+                      </div>
+                    }
+
+                    <!-- Active Indicator -->
+                    @if (isActiveItem(item) && !item.featured) {
+                      <span class="nav-active-indicator" aria-hidden="true"></span>
+                    }
+                  </li>
+                }
               }
-            }
-          </ul>
+            </ul>
+          }
         </nav>
 
         <!-- ============================================
              ACTIONS SECTION
              ============================================ -->
-        <div class="nav-actions z-[2] ml-auto flex flex-shrink-0 items-center gap-2">
-          <!-- Search Bar -->
-          @if (showSearch()) {
+        <div class="nav-actions z-[2] ml-auto flex flex-shrink-0 items-center gap-3">
+          <!-- Search Bar (only when NOT in sidebar mode - sidebar mode has centered search) -->
+          @if (showSearch() && config.showLogo !== false) {
             <div
               class="nav-search relative hidden w-[200px] transition-[width] duration-200 md:block"
               [class.expanded]="searchExpanded()"
@@ -287,6 +327,19 @@ import type {
                 }
               </form>
             </div>
+          }
+
+          <!-- Create Button -->
+          @if (config.showCreate !== false) {
+            <button
+              type="button"
+              class="nav-create-btn"
+              aria-label="Create new post"
+              (click)="onCreateClick($event)"
+            >
+              <nxt1-icon name="plus" size="20" />
+              <span class="nav-create-label hidden lg:inline">Create</span>
+            </button>
           }
 
           <!-- Notifications -->
@@ -339,14 +392,10 @@ import type {
                   }
                 </div>
 
-                <!-- User Name (desktop only) -->
-                <span class="user-name hidden max-w-[120px] truncate lg:inline">{{
-                  user?.name
-                }}</span>
-
+                <!-- Chevron indicator -->
                 <nxt1-icon
                   name="chevronDown"
-                  class="user-chevron hidden lg:block"
+                  class="user-chevron"
                   [class.open]="userMenuOpen()"
                   size="16"
                 />
@@ -625,6 +674,9 @@ export class NxtHeaderComponent implements OnDestroy {
   /** Emits when logo is clicked */
   @Output() logoClick = new EventEmitter<Event>();
 
+  /** Emits when create button is clicked */
+  @Output() createClick = new EventEmitter<Event>();
+
   // ============================================
   // INTERNAL STATE
   // ============================================
@@ -894,6 +946,14 @@ export class NxtHeaderComponent implements OnDestroy {
   onNotificationsClick(event: Event): void {
     this.haptics.impact('medium');
     this.notificationsClick.emit(event);
+  }
+
+  /**
+   * Handle create button click
+   */
+  onCreateClick(event: Event): void {
+    this.haptics.impact('medium');
+    this.createClick.emit(event);
   }
 
   /**

@@ -106,6 +106,17 @@ export {
 } from './components/icon';
 
 // ============================================
+// HERO / MARKETING COMPONENTS
+// ============================================
+export {
+  NxtHeroHeaderComponent,
+  type HeroAudienceCard,
+  type HeroConfig,
+  type HeroVariant,
+  type HeroAudienceCardClickEvent,
+} from './components/hero-header';
+
+// ============================================
 // AVATAR COMPONENT (Professional Avatar with Status/Badges)
 // ============================================
 export {
@@ -186,12 +197,14 @@ export {
   DEFAULT_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
+  MAIN_PAGE_ROUTES,
   // Helper functions (from @nxt1/core)
   findTabById,
   findTabByRoute,
   createFooterConfig,
   updateTabBadge,
   setTabDisabled,
+  isMainPageRoute,
 } from './components/footer';
 
 // ============================================
@@ -384,6 +397,27 @@ export {
   findTopNavItemByRoute,
   updateTopNavBadge,
 } from '@nxt1/core';
+
+// ============================================
+// DESKTOP SIDEBAR (2026 YouTube/LinkedIn-Style Fixed Sidebar)
+// ============================================
+export {
+  // Component
+  NxtDesktopSidebarComponent,
+  // Types
+  type DesktopSidebarConfig,
+  type DesktopSidebarSection,
+  type DesktopSidebarItem,
+  type DesktopSidebarUserData,
+  type DesktopSidebarSelectEvent,
+  // Constants
+  DEFAULT_DESKTOP_SIDEBAR_CONFIG,
+  DEFAULT_DESKTOP_SIDEBAR_SECTIONS,
+  SIDEBAR_BREAKPOINTS,
+  SIDEBAR_WIDTHS,
+  // Factory
+  createDesktopSidebarConfig,
+} from './components/desktop-sidebar';
 
 // ============================================
 // SIDENAV / DRAWER NAVIGATION (2026 Twitter/X-Style)
@@ -712,6 +746,7 @@ export {
   ScoutReportListComponent,
   ScoutReportCardComponent,
   ScoutReportSkeletonComponent,
+  ScoutReportDetailSkeletonComponent,
   ScoutReportEmptyStateComponent,
   ScoutReportCategoryTabsComponent,
   ScoutReportSearchBarComponent,
@@ -783,17 +818,30 @@ export {
 } from './news';
 
 // ============================================
-// HELP CENTER (Clean, Minimal Implementation)
+// HELP CENTER (Adaptive Design Architecture)
+// - _shared/: Platform-agnostic services
+// - mobile/: Ionic components for native mobile
+// - web/: Tailwind components for SSR-optimized web
 // ============================================
 export {
-  // Components
+  // Shared Service (all platforms)
+  HelpCenterService,
+
+  // Mobile Components (Ionic)
+  HelpCenterShellMobileComponent,
+
+  // Web Components (Tailwind SSR)
+  HelpCenterShellWebComponent,
+  HelpCategoryDetailWebComponent,
+  HelpArticleDetailWebComponent,
+
+  // Types
+  type HelpNavigateEvent,
+
+  // Legacy (deprecated - use platform-specific)
   HelpCenterShellComponent,
   HelpCategoryDetailComponent,
   HelpArticleDetailComponent,
-  // Services
-  HelpCenterService,
-  // Types
-  type HelpNavigateEvent,
 } from './help-center';
 
 // ============================================
@@ -817,6 +865,32 @@ export {
   MOCK_EMPTY_PROFILE_FORM_DATA,
   MOCK_EMPTY_COMPLETION,
 } from './edit-profile';
+
+// ============================================
+// MANAGE TEAM (Team Management - Shared Web & Mobile)
+// ============================================
+export {
+  // Shell Component (main container)
+  ManageTeamShellComponent,
+  type ManageTeamCloseEvent,
+  // Services
+  ManageTeamService,
+  ManageTeamBottomSheetService,
+  type ManageTeamSheetOptions,
+  type ManageTeamSheetResult,
+  // Skeleton
+  ManageTeamSkeletonComponent,
+  // Section Components (for custom layouts)
+  ManageTeamInfoSectionComponent,
+  ManageTeamRosterSectionComponent,
+  ManageTeamScheduleSectionComponent,
+  ManageTeamStatsSectionComponent,
+  ManageTeamStaffSectionComponent,
+  ManageTeamSponsorsSectionComponent,
+  ManageTeamIntegrationsSectionComponent,
+  // Mock Data (Development Only)
+  MOCK_MANAGE_TEAM_FORM_DATA,
+} from './manage-team';
 
 // ============================================
 // INVITE (Referral & Sharing - Shared Web & Mobile)

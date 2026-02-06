@@ -163,6 +163,14 @@ import type { ScoutReportViewMode } from '@nxt1/core';
         }
       }
 
+      /* Reduced motion support for accessibility */
+      @media (prefers-reduced-motion: reduce) {
+        .skeleton-shimmer {
+          animation: none;
+          background: var(--nxt1-skeleton-color-base);
+        }
+      }
+
       /* ============================================
          IMAGE PLACEHOLDER
          ============================================ */

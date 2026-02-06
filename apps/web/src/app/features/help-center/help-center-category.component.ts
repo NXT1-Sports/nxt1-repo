@@ -1,25 +1,26 @@
 /**
  * @fileoverview Help Center Category Page - Web
- * @version 2.0.0
- * @description Thin wrapper around shared HelpCategoryDetailComponent.
+ * @version 3.0.0
+ * @description Web-optimized category detail using Tailwind SSR components.
  *
- * ⭐ SAME UI AS MOBILE - 100% SHARED ⭐
+ * ⭐ WEB-SPECIFIC - Pure Tailwind, SSR-optimized ⭐
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
 import type { HelpCategoryId } from '@nxt1/core';
-import { HelpCategoryDetailComponent } from '@nxt1/ui';
+import { HelpCategoryDetailWebComponent } from '@nxt1/ui';
 
 @Component({
   selector: 'app-help-center-category',
   standalone: true,
-  imports: [HelpCategoryDetailComponent],
+  imports: [HelpCategoryDetailWebComponent],
   template: `
-    <nxt1-help-category-detail
+    <nxt1-help-category-detail-web
       [categoryId]="categoryId"
       (back)="onBack()"
-      (articleSelect)="onArticleSelect($event)"
+      (articleClick)="onArticleSelect($event)"
+      (faqClick)="onFaqClick($event)"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -41,6 +42,10 @@ export class HelpCenterCategoryComponent implements OnInit {
 
   protected onArticleSelect(event: { id: string; slug: string }): void {
     this.router.navigate(['/help-center', 'article', event.slug]);
+  }
+
+  protected onFaqClick(faqId: string): void {
+    this.router.navigate(['/help-center'], { queryParams: { faq: faqId } });
   }
 
   protected onBack(): void {

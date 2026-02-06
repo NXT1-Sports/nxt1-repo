@@ -20,9 +20,9 @@
 
 :root {
   /* Colors - Reference semantic theme tokens for automatic theme switching */
-  --nxt1-skeleton-color-base: var(--nxt1-color-surface-100);
-  --nxt1-skeleton-color-highlight: var(--nxt1-color-loading-skeleton);
-  --nxt1-skeleton-color-accent: var(--nxt1-color-loading-skeleton-shimmer);
+  --nxt1-skeleton-color-base: var(--nxt1-color-loading-skeleton);
+  --nxt1-skeleton-color-highlight: var(--nxt1-color-loading-skeletonShimmer);
+  --nxt1-skeleton-color-accent: var(--nxt1-color-loading-skeletonShimmer);
 
   /* Animation */
   --nxt1-skeleton-animation-duration: 1.5s;

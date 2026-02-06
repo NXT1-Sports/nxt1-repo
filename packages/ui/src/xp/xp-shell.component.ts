@@ -89,14 +89,17 @@ addIcons({
   ],
   template: `
     <!-- Professional Page Header (Twitter/X style) -->
-    <nxt1-page-header
-      title="XP"
-      [avatarSrc]="avatarSrc()"
-      [avatarName]="avatarName()"
-      [actions]="headerActions()"
-      (avatarClick)="avatarClick.emit()"
-      (actionClick)="onHeaderAction($event)"
-    />
+    <!-- Hidden on desktop when using sidebar shell -->
+    @if (!hideHeader()) {
+      <nxt1-page-header
+        title="XP"
+        [avatarSrc]="avatarSrc()"
+        [avatarName]="avatarName()"
+        [actions]="headerActions()"
+        (avatarClick)="avatarClick.emit()"
+        (actionClick)="onHeaderAction($event)"
+      />
+    }
 
     <ion-content [fullscreen]="true" class="xp-content">
       <!-- Pull to Refresh -->
@@ -569,6 +572,9 @@ export class XpShellComponent {
 
   /** Avatar display name for page header */
   readonly avatarName = input<string>('');
+
+  /** Hide page header (desktop sidebar provides navigation) */
+  readonly hideHeader = input(false);
 
   // ============================================
   // OUTPUTS

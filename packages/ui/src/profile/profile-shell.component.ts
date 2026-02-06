@@ -145,10 +145,12 @@ export interface ProfileShellUser {
             [pinnedVideo]="profile.pinnedVideo()"
             [isOwnProfile]="profile.isOwnProfile()"
             [canEdit]="profile.canEdit()"
+            [hasTeam]="profile.hasTeam()"
             (followToggle)="onFollowToggle()"
             (followersClick)="onFollowersClick()"
             (followingClick)="onFollowingClick()"
             (editProfile)="onEditProfile()"
+            (editTeam)="onEditTeam()"
             (editBanner)="onEditBanner()"
             (editAvatar)="onEditAvatar()"
             (messageClick)="onMessageClick()"
@@ -795,6 +797,7 @@ export class ProfileShellComponent implements OnInit {
   readonly backClick = output<void>();
   readonly tabChange = output<ProfileTabId>();
   readonly editProfileClick = output<void>();
+  readonly editTeamClick = output<void>();
   readonly shareClick = output<void>();
   readonly qrCodeClick = output<void>();
   readonly aiSummaryClick = output<void>();
@@ -921,6 +924,10 @@ export class ProfileShellComponent implements OnInit {
 
   protected onEditProfile(): void {
     this.editProfileClick.emit();
+  }
+
+  protected onEditTeam(): void {
+    this.editTeamClick.emit();
   }
 
   protected onEditBanner(): void {

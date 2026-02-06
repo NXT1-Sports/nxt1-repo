@@ -28,7 +28,12 @@ import { map } from 'rxjs/operators';
 import { NavController } from '@ionic/angular/standalone';
 
 // Shared UI from @nxt1/ui (95% of the code)
-import { ProfileShellComponent, EditProfileBottomSheetService, NxtSidenavService } from '@nxt1/ui';
+import {
+  ProfileShellComponent,
+  EditProfileBottomSheetService,
+  ManageTeamBottomSheetService,
+  NxtSidenavService,
+} from '@nxt1/ui';
 
 // Mobile-specific services
 import { MobileAuthService } from '../auth/services/mobile-auth.service';
@@ -56,6 +61,7 @@ import { MobileAuthService } from '../auth/services/mobile-auth.service';
       (avatarClick)="onAvatarClick()"
       (backClick)="onBackClick()"
       (editProfileClick)="onEditProfile()"
+      (editTeamClick)="onEditTeam()"
     />
   `,
   styles: `
@@ -74,6 +80,7 @@ export class ProfileComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly authService = inject(MobileAuthService);
   private readonly editProfileSheet = inject(EditProfileBottomSheetService);
+  private readonly manageTeamSheet = inject(ManageTeamBottomSheetService);
   private readonly navController = inject(NavController);
   private readonly sidenavService = inject(NxtSidenavService);
 
@@ -114,7 +121,7 @@ export class ProfileComponent {
    * Uses navigateBack for proper Ionic page transition animations.
    */
   protected onBackClick(): void {
-    this.navController.navigateBack('/tabs/home');
+    this.navController.navigateBack('/home');
   }
 
   /**
@@ -127,6 +134,19 @@ export class ProfileComponent {
     if (result?.saved) {
       // Profile was saved - could trigger refresh here if needed
       // The ProfileService should handle data refresh internally
+    }
+  }
+
+  /**
+   * Opens the manage team bottom sheet (full-screen on mobile).
+   * Called when user taps 'Edit Team' button.
+   */
+  protected async onEditTeam(): Promise<void> {
+    const result = await this.manageTeamSheet.open();
+
+    if (result?.saved) {
+      // Team was saved - could trigger refresh here if needed
+      // The ManageTeamService should handle data refresh internally
     }
   }
 }

@@ -26,7 +26,12 @@ export type {
 } from './footer.types';
 
 // Constants (re-exported from @nxt1/core for convenience)
-export { DEFAULT_FOOTER_TABS, FOOTER_HEIGHTS, FOOTER_ANIMATION } from './footer.types';
+export {
+  DEFAULT_FOOTER_TABS,
+  FOOTER_HEIGHTS,
+  FOOTER_ANIMATION,
+  MAIN_PAGE_ROUTES,
+} from './footer.types';
 
 // Helper functions (re-exported from @nxt1/core for convenience)
 export {
@@ -35,4 +40,5 @@ export {
   createFooterConfig,
   updateTabBadge,
   setTabDisabled,
+  isMainPageRoute,
 } from './footer.types';

@@ -83,38 +83,40 @@ export interface ThemeSelectEvent {
       [class.theme-selector--inline]="variant === 'inline'"
     >
       <!-- APPEARANCE SECTION -->
-      <section class="theme-section" role="group" aria-labelledby="appearance-label">
-        @if (showLabels) {
-          <h3 id="appearance-label" class="theme-section__title">
-            <ion-icon name="contrast-outline" class="theme-section__icon"></ion-icon>
-            Appearance
-          </h3>
-        }
-
-        <div class="theme-options" role="radiogroup" aria-label="Theme mode">
-          @for (option of themeOptions; track option.id) {
-            <button
-              type="button"
-              class="theme-option"
-              [class.theme-option--selected]="themeService.preference() === option.id"
-              role="radio"
-              [attr.aria-checked]="themeService.preference() === option.id"
-              [attr.aria-label]="option.label"
-              (click)="selectAppearance(option)"
-            >
-              <div class="theme-option__icon-wrapper">
-                <ion-icon [name]="option.icon" class="theme-option__icon"></ion-icon>
-              </div>
-              <span class="theme-option__label">{{ option.label }}</span>
-              @if (themeService.preference() === option.id) {
-                <div class="theme-option__check">
-                  <ion-icon name="checkmark" class="theme-option__check-icon"></ion-icon>
-                </div>
-              }
-            </button>
+      @if (showAppearance) {
+        <section class="theme-section" role="group" aria-labelledby="appearance-label">
+          @if (showLabels) {
+            <h3 id="appearance-label" class="theme-section__title">
+              <ion-icon name="contrast-outline" class="theme-section__icon"></ion-icon>
+              Appearance
+            </h3>
           }
-        </div>
-      </section>
+
+          <div class="theme-options" role="radiogroup" aria-label="Theme mode">
+            @for (option of themeOptions; track option.id) {
+              <button
+                type="button"
+                class="theme-option"
+                [class.theme-option--selected]="themeService.preference() === option.id"
+                role="radio"
+                [attr.aria-checked]="themeService.preference() === option.id"
+                [attr.aria-label]="option.label"
+                (click)="selectAppearance(option)"
+              >
+                <div class="theme-option__icon-wrapper">
+                  <ion-icon [name]="option.icon" class="theme-option__icon"></ion-icon>
+                </div>
+                <span class="theme-option__label">{{ option.label }}</span>
+                @if (themeService.preference() === option.id) {
+                  <div class="theme-option__check">
+                    <ion-icon name="checkmark" class="theme-option__check-icon"></ion-icon>
+                  </div>
+                }
+              </button>
+            }
+          </div>
+        </section>
+      }
 
       <!-- SPORT COLORS SECTION -->
       @if (showSportThemes) {
@@ -547,6 +549,9 @@ export class NxtThemeSelectorComponent {
 
   /** Whether to show section labels */
   @Input() showLabels = true;
+
+  /** Whether to show appearance mode options (System/Light/Dark) */
+  @Input() showAppearance = true;
 
   /** Whether to show sport theme options */
   @Input() showSportThemes = true;

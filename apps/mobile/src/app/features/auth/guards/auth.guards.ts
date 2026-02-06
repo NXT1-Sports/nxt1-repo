@@ -78,18 +78,6 @@ function getAuthState(authService: AuthFlowService): AuthState {
   };
 }
 
-/**
- * Wait for auth to be initialized before checking
- * Returns an Observable that emits once auth is ready
- */
-function waitForAuthInitialization(authService: AuthFlowService) {
-  return toObservable(authService.isInitialized).pipe(
-    filter((isInitialized) => isInitialized === true),
-    take(1),
-    map(() => getAuthState(authService))
-  );
-}
-
 // ============================================
 // ASYNC GUARDS (Wait for auth initialization)
 // ============================================
@@ -97,6 +85,9 @@ function waitForAuthInitialization(authService: AuthFlowService) {
 /**
  * Guard that requires authentication
  * Waits for auth initialization, then redirects to login if not authenticated
+ *
+ * IMPORTANT: toObservable must be called inside the guard function (injection context)
+ * to properly track signal changes.
  */
 export const authGuard: CanActivateFn = () => {
   const authService = inject(AuthFlowService);
@@ -109,8 +100,12 @@ export const authGuard: CanActivateFn = () => {
     return router.createUrlTree([result.redirectTo ?? AUTH_ROUTES.ROOT]);
   }
 
-  return waitForAuthInitialization(authService).pipe(
-    map((state) => {
+  // Wait for initialization - toObservable must be called in injection context
+  return toObservable(authService.isInitialized).pipe(
+    filter((isInitialized) => isInitialized === true),
+    take(1),
+    map(() => {
+      const state = getAuthState(authService);
       const result = requireAuth(state);
       if (result.allowed) return true;
       return router.createUrlTree([result.redirectTo ?? AUTH_ROUTES.ROOT]);
@@ -133,8 +128,12 @@ export const guestGuard: CanActivateFn = () => {
     return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.DEFAULT]);
   }
 
-  return waitForAuthInitialization(authService).pipe(
-    map((state) => {
+  // Wait for initialization - toObservable must be called in injection context
+  return toObservable(authService.isInitialized).pipe(
+    filter((isInitialized) => isInitialized === true),
+    take(1),
+    map(() => {
+      const state = getAuthState(authService);
       const result = requireGuest(state, { homePath: AUTH_REDIRECTS.DEFAULT });
       if (result.allowed) return true;
       return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.DEFAULT]);
@@ -167,8 +166,12 @@ export const onboardingCompleteGuard: CanActivateFn = () => {
   }
 
   logger.debug('Waiting for auth initialization');
-  return waitForAuthInitialization(authService).pipe(
-    map((state) => {
+  // Wait for initialization - toObservable must be called in injection context
+  return toObservable(authService.isInitialized).pipe(
+    filter((isInitialized) => isInitialized === true),
+    take(1),
+    map(() => {
+      const state = getAuthState(authService);
       logger.debug('Auth initialized, checking access', {
         isAuthenticated: !!state.user,
         hasCompletedOnboarding: state.user?.hasCompletedOnboarding,
@@ -198,8 +201,12 @@ export const premiumGuard: CanActivateFn = () => {
     return router.createUrlTree([result.redirectTo ?? '/premium']);
   }
 
-  return waitForAuthInitialization(authService).pipe(
-    map((state) => {
+  // Wait for initialization - toObservable must be called in injection context
+  return toObservable(authService.isInitialized).pipe(
+    filter((isInitialized) => isInitialized === true),
+    take(1),
+    map(() => {
+      const state = getAuthState(authService);
       const result = requirePremium(state, { loginPath: AUTH_ROUTES.ROOT });
       if (result.allowed) return true;
       return router.createUrlTree([result.redirectTo ?? '/premium']);
@@ -229,7 +236,12 @@ export const onboardingInProgressGuard: CanActivateFn = () => {
     return checkOnboardingAccess(getAuthState(authService));
   }
 
-  return waitForAuthInitialization(authService).pipe(map(checkOnboardingAccess));
+  // Wait for initialization - toObservable must be called in injection context
+  return toObservable(authService.isInitialized).pipe(
+    filter((isInitialized) => isInitialized === true),
+    take(1),
+    map(() => checkOnboardingAccess(getAuthState(authService)))
+  );
 };
 
 /**
@@ -253,6 +265,11 @@ export function roleGuard(roles: UserRole[]): CanActivateFn {
       return checkRole(getAuthState(authService));
     }
 
-    return waitForAuthInitialization(authService).pipe(map(checkRole));
+    // Wait for initialization - toObservable must be called in injection context
+    return toObservable(authService.isInitialized).pipe(
+      filter((isInitialized) => isInitialized === true),
+      take(1),
+      map(() => checkRole(getAuthState(authService)))
+    );
   };
 }

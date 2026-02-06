@@ -27,12 +27,16 @@ The architecture is designed to maximize code sharing across all platforms:
 │   Types, Models, Validation, Helpers, API Functions         │
 │   ⚡ Pure TypeScript - No framework dependencies            │
 ├─────────────────────────────────────────────────────────────┤
-│                     @nxt1/ui (~90%)                         │
-│   Angular/Ionic Components - Works on Web & Mobile          │
-│   🎨 Auth Shell, Logo, Platform Service                     │
+│                     @nxt1/ui (Adaptive)                     │
+│   ┌───────────────────────────────────────────────────────┐ │
+│   │  _shared/ (100%)     Services, state, business logic  │ │
+│   ├───────────────────────────────────────────────────────┤ │
+│   │  mobile/             Ionic components (native feel)   │ │
+│   │  web/                Tailwind components (SSR-safe)   │ │
+│   └───────────────────────────────────────────────────────┘ │
 ├────────────────────────┬────────────────────────────────────┤
-│   Platform-Specific    │    Platform-Specific               │
-│   (Web ~10%)           │    (Mobile ~10%)                   │
+│   apps/web (~5%)       │    apps/mobile (~5%)               │
+│   SSR, PWA, SEO        │    Push, IAP, Biometrics           │
 └────────────────────────┴────────────────────────────────────┘
 ```
 
@@ -147,6 +151,220 @@ import { NxtLogoComponent, AuthShellComponent } from '@nxt1/ui';
 import { AuthEmailFormComponent } from '@nxt1/ui/auth';
 import { NxtPlatformService } from '@nxt1/ui/services';
 ```
+
+---
+
+## Adaptive Design Pattern (2026)
+
+### Why Adaptive Design?
+
+Different platforms have fundamentally different requirements:
+
+| Requirement          | Web (SSR)                    | Mobile (Native)     |
+| -------------------- | ---------------------------- | ------------------- |
+| **Rendering**        | Server-side (hydration-safe) | Client-side only    |
+| **Styling**          | Tailwind CSS (atomic)        | Ionic Shadow DOM    |
+| **Navigation**       | Angular Router               | Ionic NavController |
+| **Native Features**  | N/A                          | Haptics, push, IAP  |
+| **Performance Goal** | SEO, First Contentful Paint  | 60fps, native feel  |
+
+**Problem with "100% shared UI":** Ionic components use Shadow DOM which causes
+SSR hydration mismatches, breaking SEO and performance.
+
+**Solution:** Adaptive Design — Share business logic, platform-specific views.
+
+### Folder Structure
+
+```
+packages/ui/src/[feature]/
+├── _shared/                    ← 100% shared (services, state, types)
+│   ├── [feature].service.ts    ← Signal-based state management
+│   ├── [feature].types.ts      ← Feature-specific interfaces
+│   └── index.ts                ← Barrel export
+├── mobile/                     ← Native mobile (Ionic + Capacitor)
+│   ├── [feature]-shell.component.ts
+│   ├── [feature]-*.component.ts
+│   └── index.ts
+├── web/                        ← SSR-safe web (Pure Tailwind)
+│   ├── [feature]-shell.component.ts
+│   ├── [feature]-*.component.ts
+│   └── index.ts
+└── index.ts                    ← Main barrel (exports all)
+```
+
+### Example: Help Center
+
+```
+packages/ui/src/help-center/
+├── _shared/
+│   ├── help-center.service.ts  ← Signal-based state, search, filtering
+│   └── index.ts
+├── mobile/
+│   ├── help-center-shell.component.ts  ← ion-content, ion-list, haptics
+│   └── index.ts
+├── web/
+│   ├── help-center-shell.component.ts          ← Pure Tailwind, SSR-safe
+│   ├── help-center-category-detail.component.ts
+│   ├── help-center-article-detail.component.ts
+│   └── index.ts
+└── index.ts
+```
+
+### Import Patterns
+
+```typescript
+// Web app — imports web-specific components
+import {
+  HelpCenterService,
+  HelpCenterShellWebComponent,
+  HelpCategoryDetailWebComponent,
+} from '@nxt1/ui';
+
+// Mobile app — imports mobile-specific components
+import { HelpCenterService, HelpCenterShellMobileComponent } from '@nxt1/ui';
+```
+
+### Service Pattern (100% Shared)
+
+```typescript
+// packages/ui/src/[feature]/_shared/[feature].service.ts
+@Injectable({ providedIn: 'root' })
+export class FeatureService {
+  // Private writeable signals
+  private readonly _data = signal<Item[]>([]);
+  private readonly _loading = signal(false);
+  private readonly _error = signal<string | null>(null);
+
+  // Public readonly computed signals
+  readonly data = computed(() => this._data());
+  readonly loading = computed(() => this._loading());
+  readonly error = computed(() => this._error());
+  readonly isEmpty = computed(() => this._data().length === 0);
+
+  // Business logic methods
+  async loadData(): Promise<void> {
+    /* ... */
+  }
+  setFilter(filter: string): void {
+    /* ... */
+  }
+}
+```
+
+### Web Component Pattern (SSR-Safe)
+
+```typescript
+// packages/ui/src/[feature]/web/[feature]-shell.component.ts
+@Component({
+  selector: 'nxt1-feature-shell-web',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
+  template: `
+    <!-- 100% Tailwind — Design token classes only -->
+    <header class="bg-bg-primary border-border-subtle border-b">
+      <h1 class="text-text-primary">{{ title }}</h1>
+    </header>
+
+    @if (service.loading()) {
+      <div class="bg-surface-100 h-20 animate-pulse rounded-xl"></div>
+    } @else {
+      @for (item of service.data(); track item.id) {
+        <div class="bg-surface-100 hover:bg-surface-200 rounded-lg p-4">
+          {{ item.title }}
+        </div>
+      }
+    }
+  `,
+  styles: [
+    `
+      :host {
+        display: block;
+        background-color: var(--nxt1-color-bg-primary);
+        color: var(--nxt1-color-text-primary);
+      }
+    `,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class FeatureShellWebComponent {
+  protected readonly service = inject(FeatureService);
+}
+```
+
+### Mobile Component Pattern (Native Feel)
+
+```typescript
+// packages/ui/src/[feature]/mobile/[feature]-shell.component.ts
+@Component({
+  selector: 'nxt1-feature-shell-mobile',
+  standalone: true,
+  imports: [
+    CommonModule,
+    IonHeader,
+    IonToolbar,
+    IonTitle,
+    IonContent,
+    IonList,
+    IonItem,
+    IonLabel,
+    IonSpinner,
+  ],
+  template: `
+    <ion-header>
+      <ion-toolbar>
+        <ion-title>{{ title }}</ion-title>
+      </ion-toolbar>
+    </ion-header>
+
+    <ion-content>
+      @if (service.loading()) {
+        <div class="flex justify-center py-8">
+          <ion-spinner />
+        </div>
+      } @else {
+        <ion-list>
+          @for (item of service.data(); track item.id) {
+            <ion-item (click)="onItemClick(item)" detail>
+              <ion-label>{{ item.title }}</ion-label>
+            </ion-item>
+          }
+        </ion-list>
+      }
+    </ion-content>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class FeatureShellMobileComponent {
+  protected readonly service = inject(FeatureService);
+  private readonly haptics = inject(HapticsService);
+
+  async onItemClick(item: Item): Promise<void> {
+    await this.haptics.impact('light');
+    // Navigate...
+  }
+}
+```
+
+### Decision Tree: When to Use Adaptive Design
+
+```
+Is it a feature with complex UI?
+│
+├─ YES ─────────────────────────────────────────────────────┐
+│   Does it need SSR for SEO?                               │
+│   │                                                       │
+│   ├─ YES → Adaptive Design (_shared/ + mobile/ + web/)    │
+│   │        Examples: Help Center, Profile, Explore        │
+│   │                                                       │
+│   └─ NO → Shared Ionic (works on both)                    │
+│           Examples: Auth Shell, Onboarding                │
+│                                                           │
+└─ NO ──────────────────────────────────────────────────────┘
+    Simple components → Shared in @nxt1/ui/components/
+    Examples: Logo, Avatar, Icon, Chip
+```
+
+---
 
 ### @nxt1/core API Factory Pattern
 

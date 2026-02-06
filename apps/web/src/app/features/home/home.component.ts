@@ -21,17 +21,16 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
-import { IonContent } from '@ionic/angular/standalone';
 import {
-  NxtPageHeaderComponent,
   NxtOptionScrollerComponent,
   NxtLoggingService,
   NewsContentComponent,
   FeedListComponent,
   FeedService,
-  type PageHeaderAction,
+  NxtHeroHeaderComponent,
   type OptionScrollerItem,
   type OptionScrollerChangeEvent,
+  type HeroAudienceCardClickEvent,
 } from '@nxt1/ui';
 import { type FeedPost, type FeedAuthor } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -44,18 +43,20 @@ import { SeoService, AnalyticsService } from '../../core/services';
   imports: [
     CommonModule,
     RouterModule,
-    IonContent,
-    NxtPageHeaderComponent,
     NxtOptionScrollerComponent,
     NewsContentComponent,
     FeedListComponent,
+    NxtHeroHeaderComponent,
   ],
   template: `
-    <!-- Page Header with Logo (Twitter/X style) -->
-    <nxt1-page-header
+    <!-- Hero Header Section -->
+    <nxt1-hero-header
       [showLogo]="true"
-      [actions]="headerActions()"
-      (actionClick)="onHeaderAction($event)"
+      [showPrimaryCta]="true"
+      [showAnimatedBg]="true"
+      [showTrustBadges]="true"
+      [showAppBadges]="false"
+      (cardClick)="onHeroCardClick($event)"
     />
 
     <!-- Twitter/TikTok Style Feed Selector -->
@@ -66,7 +67,7 @@ import { SeoService, AnalyticsService } from '../../core/services';
       (selectionChange)="onFeedChange($event)"
     />
 
-    <ion-content>
+    <main class="feed-content">
       @switch (selectedFeed()) {
         @case ('news') {
           <nxt1-news-content
@@ -109,19 +110,22 @@ import { SeoService, AnalyticsService } from '../../core/services';
           />
         }
       }
-    </ion-content>
+    </main>
   `,
   styles: [
     `
       :host {
-        display: block;
-        min-height: 100%;
-        background: var(--nxt1-color-background-primary, #0a0a0a);
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        background: var(--nxt1-color-bg-primary);
+        overflow-y: auto;
       }
 
-      /* Light theme support */
-      :host-context([data-theme='light']) {
-        background: var(--nxt1-color-background-primary, #ffffff);
+      .feed-content {
+        flex: 1;
+        padding: var(--nxt1-spacing-4);
+        background: var(--nxt1-color-bg-primary);
       }
     `,
   ],
@@ -161,15 +165,6 @@ export class HomeComponent implements OnInit {
   /** Currently selected feed */
   readonly selectedFeed = signal<string>('home');
 
-  /** Header action buttons */
-  readonly headerActions = signal<PageHeaderAction[]>([
-    {
-      id: 'create-post',
-      icon: 'add',
-      label: 'Create Post',
-    },
-  ]);
-
   /**
    * Handle feed tab change - swaps inline content (no navigation)
    */
@@ -199,7 +194,7 @@ export class HomeComponent implements OnInit {
    */
   onXpBadgeClick(): void {
     this.logger.debug('XP badge clicked');
-    void this.router.navigate(['/tabs/profile']);
+    void this.router.navigate(['/profile']);
   }
 
   /**
@@ -295,14 +290,10 @@ export class HomeComponent implements OnInit {
   }
 
   /**
-   * Handle header action button clicks
+   * Handle hero audience card click
    */
-  onHeaderAction(action: PageHeaderAction): void {
-    switch (action.id) {
-      case 'create-post':
-        this.logger.debug('Create post clicked');
-        void this.router.navigate(['/create-post']);
-        break;
-    }
+  onHeroCardClick(event: HeroAudienceCardClickEvent): void {
+    this.logger.debug('Hero card clicked', { cardId: event.card.id });
+    // Navigation is handled by routerLink in the component
   }
 }

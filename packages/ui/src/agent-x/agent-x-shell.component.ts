@@ -75,14 +75,17 @@ export interface AgentXUser {
   ],
   template: `
     <!-- Professional Page Header with Avatar (Twitter/X style) -->
-    <nxt1-page-header
-      title="Agent X"
-      [avatarSrc]="user()?.photoURL"
-      [avatarName]="displayName()"
-      [actions]="headerActions"
-      (avatarClick)="avatarClick.emit()"
-      (actionClick)="onHeaderAction($event)"
-    />
+    <!-- Hidden on desktop when using sidebar shell -->
+    @if (!hideHeader()) {
+      <nxt1-page-header
+        title="Agent X"
+        [avatarSrc]="user()?.photoURL"
+        [avatarName]="displayName()"
+        [actions]="headerActions"
+        (avatarClick)="avatarClick.emit()"
+        (actionClick)="onHeaderAction($event)"
+      />
+    }
 
     <!-- Twitter/TikTok Style Mode Selector -->
     <nxt1-option-scroller
@@ -196,6 +199,9 @@ export class AgentXShellComponent {
 
   /** Current user info */
   readonly user = input<AgentXUser | null>(null);
+
+  /** Hide page header (desktop sidebar provides navigation) */
+  readonly hideHeader = input(false);
 
   // ============================================
   // OUTPUTS

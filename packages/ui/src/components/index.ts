@@ -128,7 +128,28 @@ export {
 } from './top-nav';
 
 // ============================================
-// SIDENAV / DRAWER NAVIGATION
+// DESKTOP SIDEBAR (Fixed Navigation)
+// ============================================
+export {
+  // Component
+  NxtDesktopSidebarComponent,
+  // Types
+  type DesktopSidebarConfig,
+  type DesktopSidebarSection,
+  type DesktopSidebarItem,
+  type DesktopSidebarUserData,
+  type DesktopSidebarSelectEvent,
+  // Constants
+  DEFAULT_DESKTOP_SIDEBAR_CONFIG,
+  DEFAULT_DESKTOP_SIDEBAR_SECTIONS,
+  SIDEBAR_BREAKPOINTS,
+  SIDEBAR_WIDTHS,
+  // Factory
+  createDesktopSidebarConfig,
+} from './desktop-sidebar';
+
+// ============================================
+// SIDENAV / DRAWER NAVIGATION (Mobile/Hamburger)
 // ============================================
 export {
   // Component
@@ -192,6 +213,17 @@ export {
   NxtSportPickerContentComponent,
   NxtPositionPickerContentComponent,
 } from './picker';
+
+// ============================================
+// HERO / MARKETING COMPONENTS
+// ============================================
+export {
+  NxtHeroHeaderComponent,
+  type HeroAudienceCard,
+  type HeroConfig,
+  type HeroVariant,
+  type HeroAudienceCardClickEvent,
+} from './hero-header';
 
 // ============================================
 // UTILITY COMPONENTS

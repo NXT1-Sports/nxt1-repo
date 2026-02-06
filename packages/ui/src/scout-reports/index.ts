@@ -26,6 +26,7 @@ export { ScoutReportsContentComponent } from './scout-reports-content.component'
 export { ScoutReportListComponent } from './scout-report-list.component';
 export { ScoutReportCardComponent } from './scout-report-card.component';
 export { ScoutReportSkeletonComponent } from './scout-report-skeleton.component';
+export { ScoutReportDetailSkeletonComponent } from './scout-report-detail-skeleton.component';
 export { ScoutReportEmptyStateComponent } from './scout-report-empty-state.component';
 export { ScoutReportCategoryTabsComponent } from './scout-report-category-tabs.component';
 export { ScoutReportSearchBarComponent } from './scout-report-search-bar.component';

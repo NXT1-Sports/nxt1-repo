@@ -2,11 +2,11 @@
  * @fileoverview Mobile Auth Service
  *
  * Ionic/Capacitor auth service that wraps @nxt1/core auth infrastructure.
- * Uses Capacitor Preferences for secure storage on native platforms.
+ * Uses native storage adapter with static imports for iOS/Android compatibility.
  *
  * Architecture:
  * - Uses createAuthStateManager from @nxt1/core
- * - Uses createCapacitorStorageAdapter for native storage
+ * - Uses createNativeStorageAdapter for native storage (static imports)
  * - Provides Angular signals for reactive UI binding
  * - Handles Firebase auth operations (sign in, sign up, etc.)
  */
@@ -17,7 +17,6 @@ import { NavController } from '@ionic/angular/standalone';
 import { NxtPlatformService } from '@nxt1/ui';
 import {
   createAuthStateManager,
-  createCapacitorStorageAdapter,
   createBrowserStorageAdapter,
   createMemoryStorageAdapter,
   isCapacitor,
@@ -29,6 +28,7 @@ import {
   getAuthErrorMessage,
   INITIAL_AUTH_STATE,
 } from '@nxt1/core';
+import { createNativeStorageAdapter } from '../../../core/infrastructure/native-storage.adapter';
 import {
   Auth,
   signInWithEmailAndPassword,
@@ -84,13 +84,13 @@ export class MobileAuthService implements OnDestroy {
   private async initializeAuthManager(): Promise<void> {
     // Use appropriate storage based on platform:
     // - Server (SSR): memory storage
-    // - Native (Capacitor): Capacitor Preferences
+    // - Native (Capacitor): Native storage with static imports (iOS-safe)
     // - Browser: localStorage
     let storage;
     if (!this.platform.isBrowser()) {
       storage = createMemoryStorageAdapter();
     } else if (isCapacitor()) {
-      storage = await createCapacitorStorageAdapter();
+      storage = createNativeStorageAdapter();
     } else {
       storage = createBrowserStorageAdapter();
     }
@@ -160,13 +160,8 @@ export class MobileAuthService implements OnDestroy {
       },
     });
 
-    // Store token for API calls
-    const token = await firebaseUser.getIdToken();
-    await this.authManager.setToken({
-      token,
-      expiresAt: Date.now() + 55 * 60 * 1000, // ~55 min
-      userId: firebaseUser.uid,
-    });
+    // Note: Token injection is handled per-request by CapacitorHttpAdapter's
+    // tokenProvider. No need to store a static token snapshot here.
 
     await this.authManager.setUser(authUser);
   }
@@ -202,7 +197,7 @@ export class MobileAuthService implements OnDestroy {
     try {
       await signInWithEmailAndPassword(this.auth, credentials.email, credentials.password);
       // Firebase listener will handle state update
-      await this.navController.navigateRoot('/tabs/home');
+      await this.navController.navigateRoot('/home');
     } catch (error) {
       const message = getAuthErrorMessage(error);
       this.authManager.setError(message);
@@ -233,7 +228,7 @@ export class MobileAuthService implements OnDestroy {
       }
 
       // Firebase listener will handle state update
-      await this.navController.navigateRoot('/tabs/home');
+      await this.navController.navigateRoot('/home');
     } catch (error) {
       const message = getAuthErrorMessage(error);
       this.authManager.setError(message);

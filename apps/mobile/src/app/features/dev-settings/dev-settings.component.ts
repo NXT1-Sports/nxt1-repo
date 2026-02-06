@@ -95,7 +95,7 @@ import { environment } from '../../../environments/environment';
     <ion-header>
       <ion-toolbar>
         <ion-buttons slot="start">
-          <ion-back-button defaultHref="/tabs/home" />
+          <ion-back-button defaultHref="/home" />
         </ion-buttons>
         <ion-title>Developer Settings</ion-title>
         <ion-buttons slot="end">
@@ -513,7 +513,7 @@ export class DevSettingsComponent {
       type: 'navigation',
       message: 'Test breadcrumb from DevSettings',
       data: {
-        from: '/tabs/home',
+        from: '/home',
         to: '/dev-settings',
         timestamp: new Date().toISOString(),
       },

@@ -38,19 +38,19 @@ export class HelpCenterComponent {
   private readonly nav = inject(NavController);
 
   protected onBack(): void {
-    this.nav.navigateBack('/tabs/more');
+    this.nav.navigateBack('/more');
   }
 
   protected onNavigate(event: HelpNavigateEvent): void {
     switch (event.type) {
       case 'article':
         if (event.slug) {
-          this.nav.navigateForward(`/tabs/help-center/article/${event.slug}`);
+          this.nav.navigateForward(`/help-center/article/${event.slug}`);
         }
         break;
       case 'category':
         if (event.id) {
-          this.nav.navigateForward(`/tabs/help-center/category/${event.id}`);
+          this.nav.navigateForward(`/help-center/category/${event.id}`);
         }
         break;
       case 'faq':

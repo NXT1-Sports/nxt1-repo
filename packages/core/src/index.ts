@@ -153,11 +153,13 @@ export {
   DEFAULT_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
+  MAIN_PAGE_ROUTES,
   findTabById,
   findTabByRoute,
   createFooterConfig,
   updateTabBadge,
   setTabDisabled,
+  isMainPageRoute,
   // Navigation model - Desktop Top Nav
   type TopNavIconName,
   type TopNavItem,
@@ -1169,3 +1171,9 @@ export {
 // ============================================
 
 export * from './invite';
+
+// ============================================
+// MANAGE TEAM (Team Management)
+// ============================================
+
+export * from './manage-team';

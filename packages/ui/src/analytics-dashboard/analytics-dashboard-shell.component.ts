@@ -81,30 +81,33 @@ export interface AnalyticsUser {
   ],
   template: `
     <!-- Professional Page Header -->
-    <nxt1-page-header
-      title="Analytics"
-      [avatarSrc]="user()?.photoURL"
-      [avatarName]="displayName()"
-      [actions]="headerActions()"
-      (avatarClick)="avatarClick.emit()"
-      (actionClick)="onHeaderAction($event)"
-    >
-      <!-- Period Selector in Header -->
-      <div slot="end" class="period-selector">
-        <ion-select
-          [value]="analytics.selectedPeriod()"
-          interface="popover"
-          (ionChange)="onPeriodChange($any($event).detail.value)"
-          aria-label="Select time period"
-        >
-          @for (period of periods; track period.id) {
-            <ion-select-option [value]="period.id">
-              {{ period.label }}
-            </ion-select-option>
-          }
-        </ion-select>
-      </div>
-    </nxt1-page-header>
+    <!-- Hidden on desktop when using sidebar shell -->
+    @if (!hideHeader()) {
+      <nxt1-page-header
+        title="Analytics"
+        [avatarSrc]="user()?.photoURL"
+        [avatarName]="displayName()"
+        [actions]="headerActions()"
+        (avatarClick)="avatarClick.emit()"
+        (actionClick)="onHeaderAction($event)"
+      >
+        <!-- Period Selector in Header -->
+        <div slot="end" class="period-selector">
+          <ion-select
+            [value]="analytics.selectedPeriod()"
+            interface="popover"
+            (ionChange)="onPeriodChange($any($event).detail.value)"
+            aria-label="Select time period"
+          >
+            @for (period of periods; track period.id) {
+              <ion-select-option [value]="period.id">
+                {{ period.label }}
+              </ion-select-option>
+            }
+          </ion-select>
+        </div>
+      </nxt1-page-header>
+    }
 
     <!-- Tab Navigation -->
     <nxt1-option-scroller
@@ -945,6 +948,9 @@ export class AnalyticsDashboardShellComponent implements OnInit {
 
   /** User role (athlete or coach) */
   readonly role = input<AnalyticsUserRole>('athlete');
+
+  /** Hide page header (desktop sidebar provides navigation) */
+  readonly hideHeader = input(false);
 
   // ============================================
   // OUTPUTS

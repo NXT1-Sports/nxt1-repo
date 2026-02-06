@@ -33,7 +33,8 @@
  * ```
  */
 
-import { inject } from '@angular/core';
+import { inject, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { Router, type CanActivateFn } from '@angular/router';
 import { toObservable } from '@angular/core/rxjs-interop';
 import { filter, map, take } from 'rxjs';
@@ -84,18 +85,6 @@ function getAuthState(authService: AuthFlowService): AuthState {
   };
 }
 
-/**
- * Wait for auth to be initialized before checking
- * Returns an Observable that emits once auth is ready
- */
-function waitForAuthInitialization(authService: AuthFlowService) {
-  return toObservable(authService.isInitialized).pipe(
-    filter((isInitialized) => isInitialized === true),
-    take(1),
-    map(() => getAuthState(authService))
-  );
-}
-
 // ============================================
 // ASYNC GUARDS (Wait for auth initialization)
 // ============================================
@@ -104,11 +93,26 @@ function waitForAuthInitialization(authService: AuthFlowService) {
  * Guard that requires authentication
  * Waits for auth initialization, then redirects to login if not authenticated
  *
+ * SSR STRATEGY (2026 Best Practice):
+ * On server, ALLOW access - the server doesn't have auth cookie on first load.
+ * Client hydration will properly check auth and redirect if needed.
+ * This prevents the flash: /auth → /home pattern.
+ *
+ * IMPORTANT: toObservable must be called inside the guard function (injection context)
+ * to properly track signal changes.
+ *
  * @example canActivate: [authGuard]
  */
 export const authGuard: CanActivateFn = () => {
+  const platformId = inject(PLATFORM_ID);
   const authService = inject(AuthFlowService);
   const router = inject(Router);
+
+  // SSR: Allow access, let client handle auth check after hydration
+  // This prevents server redirect → client redirect flash
+  if (!isPlatformBrowser(platformId)) {
+    return true;
+  }
 
   // If already initialized, check immediately
   if (authService.isInitialized()) {
@@ -119,9 +123,12 @@ export const authGuard: CanActivateFn = () => {
     return router.createUrlTree([result.redirectTo ?? AUTH_ROUTES.ROOT]);
   }
 
-  // Wait for initialization
-  return waitForAuthInitialization(authService).pipe(
-    map((state) => {
+  // Wait for initialization - toObservable must be called in injection context
+  return toObservable(authService.isInitialized).pipe(
+    filter((isInitialized) => isInitialized === true),
+    take(1),
+    map(() => {
+      const state = getAuthState(authService);
       const result = requireAuth(state);
 
       if (result.allowed) return true;
@@ -134,14 +141,21 @@ export const authGuard: CanActivateFn = () => {
  * Guard that requires NO authentication (for login/signup pages)
  * Waits for auth initialization, then redirects to home if already authenticated
  *
+ * SSR STRATEGY: Allow on server, let client handle redirect
  * DEV MODE: Add ?dev=1 to bypass guard for testing (e.g., /auth?dev=1)
  *
  * @example canActivate: [guestGuard]
  */
 export const guestGuard: CanActivateFn = (route) => {
+  const platformId = inject(PLATFORM_ID);
   const authService = inject(AuthFlowService);
   const router = inject(Router);
   const logger: ILogger = inject(NxtLoggingService).child('GuestGuard');
+
+  // SSR: Allow access, let client handle auth check after hydration
+  if (!isPlatformBrowser(platformId)) {
+    return true;
+  }
 
   // DEV BYPASS: Allow access with ?dev=1 query param for testing
   const devBypass = route.queryParams['dev'] === '1';
@@ -161,9 +175,12 @@ export const guestGuard: CanActivateFn = (route) => {
     return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.DEFAULT]);
   }
 
-  // Wait for initialization
-  return waitForAuthInitialization(authService).pipe(
-    map((state) => {
+  // Wait for initialization - toObservable must be called in injection context
+  return toObservable(authService.isInitialized).pipe(
+    filter((isInitialized) => isInitialized === true),
+    take(1),
+    map(() => {
+      const state = getAuthState(authService);
       const result = requireGuest(state, {
         homePath: AUTH_REDIRECTS.DEFAULT,
       });
@@ -178,11 +195,19 @@ export const guestGuard: CanActivateFn = (route) => {
  * Guard that requires authentication AND completed onboarding
  * Use this for main app routes (home, profile, etc.)
  *
+ * SSR STRATEGY: Allow on server, let client handle redirect
+ *
  * @example canActivate: [onboardingCompleteGuard]
  */
 export const onboardingCompleteGuard: CanActivateFn = () => {
+  const platformId = inject(PLATFORM_ID);
   const authService = inject(AuthFlowService);
   const router = inject(Router);
+
+  // SSR: Allow access, let client handle auth check after hydration
+  if (!isPlatformBrowser(platformId)) {
+    return true;
+  }
 
   // If already initialized, check immediately
   if (authService.isInitialized()) {
@@ -195,9 +220,12 @@ export const onboardingCompleteGuard: CanActivateFn = () => {
     return router.createUrlTree([result.redirectTo ?? AUTH_REDIRECTS.ONBOARDING]);
   }
 
-  // Wait for initialization
-  return waitForAuthInitialization(authService).pipe(
-    map((state) => {
+  // Wait for initialization - toObservable must be called in injection context
+  return toObservable(authService.isInitialized).pipe(
+    filter((isInitialized) => isInitialized === true),
+    take(1),
+    map(() => {
+      const state = getAuthState(authService);
       const result = requireOnboarding(state, {
         loginPath: AUTH_ROUTES.ROOT,
       });
@@ -211,11 +239,19 @@ export const onboardingCompleteGuard: CanActivateFn = () => {
 /**
  * Guard that requires premium subscription
  *
+ * SSR STRATEGY: Allow on server, let client handle redirect
+ *
  * @example canActivate: [premiumGuard]
  */
 export const premiumGuard: CanActivateFn = () => {
+  const platformId = inject(PLATFORM_ID);
   const authService = inject(AuthFlowService);
   const router = inject(Router);
+
+  // SSR: Allow access, let client handle auth check after hydration
+  if (!isPlatformBrowser(platformId)) {
+    return true;
+  }
 
   // If already initialized, check immediately
   if (authService.isInitialized()) {
@@ -228,9 +264,12 @@ export const premiumGuard: CanActivateFn = () => {
     return router.createUrlTree([result.redirectTo ?? '/premium']);
   }
 
-  // Wait for initialization
-  return waitForAuthInitialization(authService).pipe(
-    map((state) => {
+  // Wait for initialization - toObservable must be called in injection context
+  return toObservable(authService.isInitialized).pipe(
+    filter((isInitialized) => isInitialized === true),
+    take(1),
+    map(() => {
+      const state = getAuthState(authService);
       const result = requirePremium(state, {
         loginPath: AUTH_ROUTES.ROOT,
       });
@@ -245,11 +284,19 @@ export const premiumGuard: CanActivateFn = () => {
  * Guard that requires user to have started but NOT completed onboarding
  * Use this to protect the onboarding route itself
  *
+ * SSR STRATEGY: Allow on server, let client handle redirect
+ *
  * @example canActivate: [onboardingInProgressGuard]
  */
 export const onboardingInProgressGuard: CanActivateFn = () => {
+  const platformId = inject(PLATFORM_ID);
   const authService = inject(AuthFlowService);
   const router = inject(Router);
+
+  // SSR: Allow access, let client handle auth check after hydration
+  if (!isPlatformBrowser(platformId)) {
+    return true;
+  }
 
   const checkOnboardingAccess = (state: AuthState) => {
     // Not authenticated - redirect to login
@@ -277,8 +324,12 @@ export const onboardingInProgressGuard: CanActivateFn = () => {
     return checkOnboardingAccess(getAuthState(authService));
   }
 
-  // Wait for initialization
-  return waitForAuthInitialization(authService).pipe(map(checkOnboardingAccess));
+  // Wait for initialization - toObservable must be called in injection context
+  return toObservable(authService.isInitialized).pipe(
+    filter((isInitialized) => isInitialized === true),
+    take(1),
+    map(() => checkOnboardingAccess(getAuthState(authService)))
+  );
 };
 
 /**
@@ -286,11 +337,19 @@ export const onboardingInProgressGuard: CanActivateFn = () => {
  * Requires: authenticated user with UNVERIFIED email
  * Redirects: to onboarding if already verified, to login if not authenticated
  *
+ * SSR STRATEGY: Allow on server, let client handle redirect
+ *
  * @example canActivate: [emailVerificationGuard]
  */
 export const emailVerificationGuard: CanActivateFn = () => {
+  const platformId = inject(PLATFORM_ID);
   const authService = inject(AuthFlowService);
   const router = inject(Router);
+
+  // SSR: Allow access, let client handle auth check after hydration
+  if (!isPlatformBrowser(platformId)) {
+    return true;
+  }
 
   const checkEmailVerification = (state: AuthState) => {
     // Not authenticated - redirect to login
@@ -317,8 +376,12 @@ export const emailVerificationGuard: CanActivateFn = () => {
     return checkEmailVerification(getAuthState(authService));
   }
 
-  // Wait for initialization
-  return waitForAuthInitialization(authService).pipe(map(checkEmailVerification));
+  // Wait for initialization - toObservable must be called in injection context
+  return toObservable(authService.isInitialized).pipe(
+    filter((isInitialized) => isInitialized === true),
+    take(1),
+    map(() => checkEmailVerification(getAuthState(authService)))
+  );
 };
 
 // ============================================
@@ -344,8 +407,14 @@ export const emailVerificationGuard: CanActivateFn = () => {
  */
 export function roleGuard(roles: UserRole[]): CanActivateFn {
   return () => {
+    const platformId = inject(PLATFORM_ID);
     const authService = inject(AuthFlowService);
     const router = inject(Router);
+
+    // SSR: Allow access, let client handle auth check after hydration
+    if (!isPlatformBrowser(platformId)) {
+      return true;
+    }
 
     const checkRole = (state: AuthState) => {
       const result = requireRole(state, roles, {
@@ -362,7 +431,11 @@ export function roleGuard(roles: UserRole[]): CanActivateFn {
       return checkRole(getAuthState(authService));
     }
 
-    // Wait for initialization
-    return waitForAuthInitialization(authService).pipe(map(checkRole));
+    // Wait for initialization - toObservable must be called in injection context
+    return toObservable(authService.isInitialized).pipe(
+      filter((isInitialized) => isInitialized === true),
+      take(1),
+      map(() => checkRole(getAuthState(authService)))
+    );
   };
 }

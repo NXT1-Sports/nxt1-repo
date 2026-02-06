@@ -66,9 +66,10 @@ export type FeedSkeletonVariant = 'post' | 'post-with-media' | 'compact';
       :host {
         display: block;
 
-        --skeleton-bg: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
-        --skeleton-shimmer: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
-        --skeleton-border: var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+        /* Theme-aware skeleton tokens - changes automatically per theme */
+        --skeleton-bg: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.06));
+        --skeleton-shimmer: var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.12));
+        --skeleton-border: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.06));
       }
 
       .feed-skeleton {
@@ -238,6 +239,19 @@ export type FeedSkeletonVariant = 'post' | 'post-with-media' | 'compact';
         );
         background-size: 200% 100%;
         animation: skeleton-shimmer 1.5s ease-in-out infinite;
+      }
+
+      /* Reduced motion support for accessibility */
+      @media (prefers-reduced-motion: reduce) {
+        .feed-skeleton__avatar,
+        .feed-skeleton__name,
+        .feed-skeleton__meta,
+        .feed-skeleton__text,
+        .feed-skeleton__media,
+        .feed-skeleton__action {
+          animation: none;
+          background: var(--skeleton-bg);
+        }
       }
     `,
   ],
