@@ -205,7 +205,7 @@ export class ProfileComponent implements OnInit {
             // Track profile view for analytics
             this.analytics.trackEvent(APP_EVENTS.PROFILE_VIEWED, {
               profile_id: profile.unicode,
-              profile_type: profile.userType || 'athlete',
+              profile_type: profile.athleteOrParentOrCoach || 'athlete',
               is_own_profile: this.isOwnProfile(),
               has_image: !!imageUrl,
               sport: sport,

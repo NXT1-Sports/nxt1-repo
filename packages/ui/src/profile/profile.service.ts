@@ -274,7 +274,7 @@ export class ProfileService {
     if (!followStats || !data) return;
 
     const newIsFollowing = !followStats.isFollowing;
-    const profileUserId = data.user?.id || 'unknown';
+    const profileUserId = data.user?.uid || 'unknown';
     this.logger.info('Toggling follow', { isFollowing: newIsFollowing, userId: profileUserId });
 
     // Optimistic update

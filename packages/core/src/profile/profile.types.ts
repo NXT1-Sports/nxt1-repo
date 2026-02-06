@@ -114,7 +114,6 @@ export interface ProfileContact {
  * Profile user data.
  */
 export interface ProfileUser {
-  readonly id: string;
   /** Unique user ID */
   readonly uid: string;
   /** Profile code/slug (URL-friendly identifier) */

@@ -223,7 +223,7 @@ export class HomeComponent implements OnInit {
    */
   async onLikeClick(post: FeedPost): Promise<void> {
     // Track reaction before toggling
-    const isCurrentlyLiked = post.userEngagement?.hasLiked ?? false;
+    const isCurrentlyLiked = post.userEngagement?.isLiked ?? false;
     if (!isCurrentlyLiked) {
       this.analytics.trackEvent(APP_EVENTS.REACTION_ADDED, {
         post_id: post.id,
