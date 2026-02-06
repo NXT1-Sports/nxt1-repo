@@ -90,6 +90,7 @@ export {
 // CORE UI COMPONENTS
 // ============================================
 export { NxtLogoComponent, type LogoSize, type LogoVariant } from './components/logo';
+export { NotFoundComponent } from './components/not-found/not-found.component';
 export {
   NxtImageComponent,
   type ImageFit,
@@ -847,3 +848,17 @@ export {
   getMockInviteLink,
   getMockTeams,
 } from './invite';
+
+// ============================================
+// LEGAL (About, Terms, Privacy - Shared Web & Mobile)
+// ============================================
+export {
+  AboutContentShellComponent,
+  TermsContentShellComponent,
+  PrivacyContentShellComponent,
+} from './legal';
+
+// ============================================
+// TEAM (Team Pages - Shared Web & Mobile)
+// ============================================
+export { TeamShellComponent, type TeamData } from './team';

@@ -521,6 +521,139 @@ router.post(
 );
 
 /**
+ * POST /upload/banner-photo
+ *
+ * Upload banner/cover photo with optimization.
+ * Alias for cover-photo to match core API expectations.
+ */
+router.post(
+  '/banner-photo',
+  upload.single('file'),
+  asyncHandler(async (req: Request, res: Response) => {
+    req.body.category = 'cover-photo'; // Map to existing category
+    const { userId } = req.body;
+    const file = req.file;
+
+    if (!userId) {
+      throw fieldError('userId', 'User ID is required', 'required');
+    }
+
+    if (!file) {
+      throw fieldError('file', 'File is required', 'required');
+    }
+
+    const category: FileCategory = 'cover-photo';
+    const rules = FILE_UPLOAD_RULES[category];
+
+    if (file.size > rules.maxSize) {
+      throw fieldError(
+        'file',
+        `File must be smaller than ${formatFileSize(rules.maxSize)}`,
+        'maxSize'
+      );
+    }
+
+    res.status(501).json({ success: false, error: 'Not implemented' });
+  })
+);
+
+/**
+ * POST /upload/highlight-video
+ *
+ * Upload highlight video.
+ */
+router.post(
+  '/highlight-video',
+  upload.single('file'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { userId } = req.body;
+    const file = req.file;
+
+    if (!userId) {
+      throw fieldError('userId', 'User ID is required', 'required');
+    }
+
+    if (!file) {
+      throw fieldError('file', 'File is required', 'required');
+    }
+
+    res.status(501).json({ success: false, error: 'Not implemented' });
+  })
+);
+
+/**
+ * POST /upload/graphic
+ *
+ * Upload graphic/image.
+ */
+router.post(
+  '/graphic',
+  upload.single('file'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { userId } = req.body;
+    const file = req.file;
+
+    if (!userId) {
+      throw fieldError('userId', 'User ID is required', 'required');
+    }
+
+    if (!file) {
+      throw fieldError('file', 'File is required', 'required');
+    }
+
+    res.status(501).json({ success: false, error: 'Not implemented' });
+  })
+);
+
+/**
+ * POST /upload/highlight-video
+ *
+ * Upload highlight video.
+ */
+router.post(
+  '/highlight-video',
+  upload.single('file'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { userId } = req.body;
+    const file = req.file;
+
+    if (!userId) {
+      throw fieldError('userId', 'User ID is required', 'required');
+    }
+
+    if (!file) {
+      throw fieldError('file', 'File is required', 'required');
+    }
+
+    res.status(501).json({ success: false, error: 'Not implemented' });
+  })
+);
+
+/**
+ * POST /upload/graphic
+ *
+ * Upload graphic/image.
+ */
+router.post(
+  '/graphic',
+  upload.single('file'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { userId } = req.body;
+    const file = req.file;
+
+    if (!userId) {
+      throw fieldError('userId', 'User ID is required', 'required');
+    }
+
+    if (!file) {
+      throw fieldError('file', 'File is required', 'required');
+    }
+
+    res.status(501).json({ success: false, error: 'Not implemented' });
+  })
+);
+
+/**
  * POST /upload/cover-photo
  *
  * Upload cover photo with optimization.
@@ -647,6 +780,18 @@ router.post(
       success: true,
       data: result,
     });
+  })
+);
+
+/**
+ * DELETE /upload/:filePath
+ *
+ * Delete uploaded file from storage (path param version for core API compatibility).
+ */
+router.delete(
+  '/:filePath',
+  asyncHandler(async (_: Request, res: Response) => {
+    res.status(501).json({ success: false, error: 'Not implemented' });
   })
 );
 

@@ -98,4 +98,26 @@ router.post('/export', (_req: Request, res: Response) => {
   });
 });
 
+/**
+ * Get profile analytics for user
+ * GET /api/v1/analytics/:userId
+ */
+router.get('/:userId', (_req: Request, res: Response) => {
+  res.status(501).json({
+    success: false,
+    error: 'Not implemented',
+  });
+});
+
+/**
+ * Track profile view
+ * POST /api/v1/analytics/profile-view
+ */
+router.post('/profile-view', (_req: Request, res: Response) => {
+  res.status(501).json({
+    success: false,
+    error: 'Not implemented',
+  });
+});
+
 export default router;

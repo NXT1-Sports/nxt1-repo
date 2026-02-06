@@ -21,6 +21,19 @@ export const HELP_CENTER_ROUTES: Routes = [
     loadComponent: () =>
       import('./help-center-article.component').then((m) => m.HelpCenterArticleComponent),
   },
+  {
+    path: 'video/:id',
+    loadComponent: () =>
+      import('./help-center-article.component').then((m) => m.HelpCenterArticleComponent),
+  },
+  {
+    path: 'search',
+    loadComponent: () => import('./help-center.component').then((m) => m.HelpCenterComponent),
+  },
+  {
+    path: 'contact',
+    loadComponent: () => import('./help-center.component').then((m) => m.HelpCenterComponent),
+  },
 ];
 
 export default HELP_CENTER_ROUTES;

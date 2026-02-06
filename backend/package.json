@@ -17,7 +17,9 @@
     "typecheck": "tsc --noEmit",
     "clean": "rimraf dist tsconfig.tsbuildinfo node_modules",
     "deploy:staging": "gcloud app deploy --project nxt1-staging",
-    "deploy:prod": "gcloud app deploy --project nxt1-production"
+    "deploy:prod": "gcloud app deploy --project nxt1-production",
+    "migrate:search-indexes": "tsx scripts/migrate-search-indexes.ts",
+    "migrate:search-indexes:dry-run": "tsx scripts/migrate-search-indexes.ts --dry-run"
   },
   "dependencies": {
     "@google-cloud/firestore": "^8.0.0",

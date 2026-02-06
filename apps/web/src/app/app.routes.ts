@@ -173,6 +173,26 @@ export const routes: Routes = [
     ],
   },
 
+  // Static Legal Pages (Public - for SEO)
+  {
+    path: 'about',
+    loadChildren: () => import('./features/about/about.routes').then((m) => m.ABOUT_ROUTES),
+  },
+  {
+    path: 'terms',
+    loadChildren: () => import('./features/terms/terms.routes').then((m) => m.TERMS_ROUTES),
+  },
+  {
+    path: 'privacy',
+    loadChildren: () => import('./features/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
+  },
+
+  // Team Pages (Public - for SEO)
+  {
+    path: 'team/:slug',
+    loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
+  },
+
   // Authentication Routes (Public - no layout wrapper)
   {
     path: 'auth',
@@ -186,9 +206,9 @@ export const routes: Routes = [
     loadChildren: () => import('./features/create-post/create-post.routes'),
   },
 
-  // Catch-all redirects to tabs/home
+  // 404 Not Found Page (catch-all route)
   {
     path: '**',
-    redirectTo: 'tabs/home',
+    loadComponent: () => import('@nxt1/ui').then((m) => m.NotFoundComponent),
   },
 ];

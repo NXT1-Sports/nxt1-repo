@@ -23,9 +23,9 @@ router.get('/', (_req: Request, res: Response) => {
 
 /**
  * Update preference (single)
- * PUT /api/v1/settings/preferences/:key
+ * PATCH /api/v1/settings/preferences/:key
  */
-router.put('/preferences/:key', (_req: Request, res: Response) => {
+router.patch('/preferences/:key', (_req: Request, res: Response) => {
   res.status(501).json({
     success: false,
     error: 'Not implemented',
@@ -34,9 +34,9 @@ router.put('/preferences/:key', (_req: Request, res: Response) => {
 
 /**
  * Update preferences (bulk)
- * PUT /api/v1/settings/preferences
+ * PATCH /api/v1/settings/preferences
  */
-router.put('/preferences', (_req: Request, res: Response) => {
+router.patch('/preferences', (_req: Request, res: Response) => {
   res.status(501).json({
     success: false,
     error: 'Not implemented',
@@ -78,9 +78,10 @@ router.get('/providers', (_req: Request, res: Response) => {
 
 /**
  * Connect provider
- * POST /api/v1/settings/providers/:providerId
+ * POST /api/v1/settings/connect-provider
+ * Body: { providerId: string, authCode?: string }
  */
-router.post('/providers/:providerId', (_req: Request, res: Response) => {
+router.post('/connect-provider', (_req: Request, res: Response) => {
   res.status(501).json({
     success: false,
     error: 'Not implemented',
@@ -89,9 +90,10 @@ router.post('/providers/:providerId', (_req: Request, res: Response) => {
 
 /**
  * Disconnect provider
- * DELETE /api/v1/settings/providers/:providerId
+ * POST /api/v1/settings/disconnect-provider
+ * Body: { providerId: string }
  */
-router.delete('/providers/:providerId', (_req: Request, res: Response) => {
+router.post('/disconnect-provider', (_req: Request, res: Response) => {
   res.status(501).json({
     success: false,
     error: 'Not implemented',
@@ -122,9 +124,9 @@ router.delete('/account', (_req: Request, res: Response) => {
 
 /**
  * Check for app updates
- * GET /api/v1/settings/update
+ * GET /api/v1/settings/check-update
  */
-router.get('/update', (_req: Request, res: Response) => {
+router.get('/check-update', (_req: Request, res: Response) => {
   res.status(501).json({
     success: false,
     error: 'Not implemented',

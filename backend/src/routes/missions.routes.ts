@@ -44,6 +44,17 @@ router.get('/badges', (_req: Request, res: Response) => {
 });
 
 /**
+ * Get leaderboard
+ * GET /api/v1/missions/leaderboard
+ */
+router.get('/leaderboard', (_req: Request, res: Response) => {
+  res.status(501).json({
+    success: false,
+    error: 'Not implemented',
+  });
+});
+
+/**
  * Get mission detail
  * GET /api/v1/missions/:id
  */

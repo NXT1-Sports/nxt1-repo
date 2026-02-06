@@ -24,6 +24,22 @@ export const HELP_CENTER_ROUTES: Routes = [
       import('./help-center-article.component').then((m) => m.HelpCenterArticleComponent),
     title: 'Help Article | NXT1',
   },
+  {
+    path: 'video/:id',
+    loadComponent: () =>
+      import('./help-center-article.component').then((m) => m.HelpCenterArticleComponent),
+    title: 'Help Video | NXT1',
+  },
+  {
+    path: 'search',
+    loadComponent: () => import('./help-center.component').then((m) => m.HelpCenterComponent),
+    title: 'Search Help | NXT1',
+  },
+  {
+    path: 'contact',
+    loadComponent: () => import('./help-center.component').then((m) => m.HelpCenterComponent),
+    title: 'Contact Support | NXT1',
+  },
 ];
 
 export default HELP_CENTER_ROUTES;

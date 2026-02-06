@@ -129,6 +129,31 @@ export const routes: Routes = [
           import('./features/help-center/help-center.routes').then((m) => m.HELP_CENTER_ROUTES),
       },
 
+      // About - Company information
+      {
+        path: 'about',
+        loadChildren: () => import('./features/about/about.routes').then((m) => m.ABOUT_ROUTES),
+      },
+
+      // Terms - Terms of Service
+      {
+        path: 'terms',
+        loadChildren: () => import('./features/terms/terms.routes').then((m) => m.TERMS_ROUTES),
+      },
+
+      // Privacy - Privacy Policy
+      {
+        path: 'privacy',
+        loadChildren: () =>
+          import('./features/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
+      },
+
+      // Team - Team pages
+      {
+        path: 'team/:slug',
+        loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
+      },
+
       // Developer Settings (non-production only)
       {
         path: 'dev-settings',
@@ -168,9 +193,9 @@ export const routes: Routes = [
     pathMatch: 'prefix',
   },
 
-  // Catch-all redirect to tabs
+  // 404 Not Found Page (catch-all route)
   {
     path: '**',
-    redirectTo: 'tabs',
+    loadComponent: () => import('@nxt1/ui').then((m) => m.NotFoundComponent),
   },
 ];

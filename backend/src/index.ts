@@ -32,14 +32,21 @@ import newsRoutes from './routes/news.routes.js';
 import inviteRoutes from './routes/invite.routes.js';
 import missionsRoutes from './routes/missions.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
-import helpRoutes from './routes/help.routes.js';
+import helpCenterRoutes from './routes/help-center.routes.js';
 import editProfileRoutes from './routes/edit-profile.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import locationsRoutes from './routes/locations.routes.js';
-import adminRoutes from './routes/admin/index.js';
 import agentXRoutes from './routes/agent-x.routes.js';
 import followRoutes from './routes/follow.routes.js';
 import ssrRoutes from './routes/ssr.routes.js';
+// Detail routes for explore
+import collegesRoutes from './routes/colleges.routes.js';
+import athletesRoutes from './routes/athletes.routes.js';
+import teamsRoutes from './routes/teams.routes.js';
+import videosRoutes from './routes/videos.routes.js';
+import leaderboardsRoutes from './routes/leaderboards.routes.js';
+import campsRoutes from './routes/camps.routes.js';
+import eventsRoutes from './routes/events.routes.js';
 
 const { json, urlencoded } = bodyParser;
 
@@ -90,13 +97,20 @@ app.use('/api/v1/news', newsRoutes);
 app.use('/api/v1/invite', inviteRoutes);
 app.use('/api/v1/missions', missionsRoutes);
 app.use('/api/v1/settings', settingsRoutes);
-app.use('/api/v1/help', helpRoutes);
+app.use('/api/v1/help-center', helpCenterRoutes);
 app.use('/api/v1/profile', editProfileRoutes); // Edit profile endpoints (mount at /profile)
 app.use('/api/v1/agent-x', agentXRoutes);
 app.use('/api/v1/users', usersRoutes);
 app.use('/api/v1/locations', locationsRoutes);
-app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/follow', followRoutes);
+// Detail routes
+app.use('/api/v1/colleges', collegesRoutes);
+app.use('/api/v1/athletes', athletesRoutes);
+app.use('/api/v1/teams', teamsRoutes);
+app.use('/api/v1/videos', videosRoutes);
+app.use('/api/v1/leaderboards', leaderboardsRoutes);
+app.use('/api/v1/camps', campsRoutes);
+app.use('/api/v1/events', eventsRoutes);
 
 app.use('/api/v1/ssr', ssrRoutes);
 
@@ -115,13 +129,20 @@ app.use('/api/v1/staging/news', newsRoutes);
 app.use('/api/v1/staging/invite', inviteRoutes);
 app.use('/api/v1/staging/missions', missionsRoutes);
 app.use('/api/v1/staging/settings', settingsRoutes);
-app.use('/api/v1/staging/help', helpRoutes);
+app.use('/api/v1/staging/help-center', helpCenterRoutes);
 app.use('/api/v1/staging/profile', editProfileRoutes); // Edit profile endpoints
 app.use('/api/v1/staging/agent-x', agentXRoutes);
 app.use('/api/v1/staging/users', usersRoutes);
 app.use('/api/v1/staging/locations', locationsRoutes);
-app.use('/api/v1/staging/admin', adminRoutes);
 app.use('/api/v1/staging/follow', followRoutes);
+// Detail routes
+app.use('/api/v1/staging/colleges', collegesRoutes);
+app.use('/api/v1/staging/athletes', athletesRoutes);
+app.use('/api/v1/staging/teams', teamsRoutes);
+app.use('/api/v1/staging/videos', videosRoutes);
+app.use('/api/v1/staging/leaderboards', leaderboardsRoutes);
+app.use('/api/v1/staging/camps', campsRoutes);
+app.use('/api/v1/staging/events', eventsRoutes);
 app.use('/api/v1/staging/ssr', ssrRoutes);
 
 // ============================================================================

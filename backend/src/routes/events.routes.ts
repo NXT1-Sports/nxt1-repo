@@ -1,0 +1,23 @@
+/**
+ * @fileoverview Event Detail Routes
+ * @module @nxt1/backend/routes/events
+ *
+ * Event detail routes matching EXPLORE_API_ENDPOINTS from @nxt1/core/explore/constants.
+ */
+
+import { Router, Request, Response } from 'express';
+
+const router = Router();
+
+/**
+ * Get event details by ID
+ * GET /api/v1/events/:id
+ */
+router.get('/:id', (_req: Request, res: Response) => {
+  res.status(501).json({
+    success: false,
+    error: 'Not implemented',
+  });
+});
+
+export default router;

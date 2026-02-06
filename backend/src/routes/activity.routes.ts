@@ -88,10 +88,21 @@ router.post('/archive', (_req: Request, res: Response) => {
 });
 
 /**
- * Restore archived items
- * POST /api/v1/activity/restore
+ * Get archived items
+ * GET /api/v1/activity/archived
  */
-router.post('/restore', (_req: Request, res: Response) => {
+router.get('/archived', (_req: Request, res: Response) => {
+  res.status(501).json({
+    success: false,
+    error: 'Not implemented',
+  });
+});
+
+/**
+ * Restore archived items
+ * POST /api/v1/activity/archived/restore
+ */
+router.post('/archived/restore', (_req: Request, res: Response) => {
   res.status(501).json({
     success: false,
     error: 'Not implemented',
