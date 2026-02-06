@@ -41,9 +41,10 @@ import {
 } from '@nxt1/ui';
 import type { ProfileTabId } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
-import { SeoService } from '../../core/services';
+import { SeoService, AnalyticsService } from '../../core/services';
 import { ProfileService } from './services/profile.service';
 import { toSignal } from '@angular/core/rxjs-interop';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 
 @Component({
   selector: 'app-profile',
@@ -74,6 +75,7 @@ export class ProfileComponent implements OnInit {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileComponent');
   private readonly seo = inject(SeoService);
+  private readonly analytics = inject(AnalyticsService);
   private readonly profileService = inject(ProfileService);
   private readonly fetchedProfile = signal<any>(null);
 
@@ -198,6 +200,15 @@ export class ProfileComponent implements OnInit {
               unicode: profile.unicode,
               athleteName,
               hasImage: !!imageUrl,
+            });
+
+            // Track profile view for analytics
+            this.analytics.trackEvent(APP_EVENTS.PROFILE_VIEWED, {
+              profile_id: profile.unicode,
+              profile_type: profile.userType || 'athlete',
+              is_own_profile: this.isOwnProfile(),
+              has_image: !!imageUrl,
+              sport: sport,
             });
           }
         },

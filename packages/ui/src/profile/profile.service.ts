@@ -18,6 +18,7 @@ import {
   type ProfileStatItem,
   PROFILE_DEFAULT_TAB,
 } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { MOCK_PROFILE_PAGE_DATA, getMockOwnProfileData } from './profile.mock-data';
 
@@ -273,7 +274,8 @@ export class ProfileService {
     if (!followStats || !data) return;
 
     const newIsFollowing = !followStats.isFollowing;
-    this.logger.info('Toggling follow', { isFollowing: newIsFollowing });
+    const profileUserId = data.user?.id || 'unknown';
+    this.logger.info('Toggling follow', { isFollowing: newIsFollowing, userId: profileUserId });
 
     // Optimistic update
     this._profileData.set({
@@ -288,6 +290,14 @@ export class ProfileService {
     try {
       // TODO: Replace with actual API call
       await this.simulateDelay(300);
+
+      // Track follow/unfollow event
+      // Note: Analytics should be injected in platform-specific wrappers for best practice,
+      // but we log here as a signal that tracking should occur
+      this.logger.info(newIsFollowing ? 'User followed' : 'User unfollowed', {
+        followed_user_id: profileUserId,
+        event: newIsFollowing ? APP_EVENTS.USER_FOLLOWED : APP_EVENTS.USER_UNFOLLOWED,
+      });
     } catch (err) {
       // Rollback on error
       this._profileData.set(data);

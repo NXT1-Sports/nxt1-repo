@@ -34,8 +34,9 @@ import {
   type OptionScrollerChangeEvent,
 } from '@nxt1/ui';
 import { type FeedPost, type FeedAuthor } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AuthFlowService } from '../auth/services';
-import { SeoService } from '../../core/services/seo.service';
+import { SeoService, AnalyticsService } from '../../core/services';
 
 @Component({
   selector: 'app-home',
@@ -131,6 +132,7 @@ export class HomeComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('HomeComponent');
   private readonly seo = inject(SeoService);
+  private readonly analytics = inject(AnalyticsService);
   protected readonly feedService = inject(FeedService);
 
   ngOnInit(): void {
@@ -220,6 +222,23 @@ export class HomeComponent implements OnInit {
    * Handle like click
    */
   async onLikeClick(post: FeedPost): Promise<void> {
+    // Track reaction before toggling
+    const isCurrentlyLiked = post.userEngagement?.hasLiked ?? false;
+    if (!isCurrentlyLiked) {
+      this.analytics.trackEvent(APP_EVENTS.REACTION_ADDED, {
+        post_id: post.id,
+        post_type: post.type,
+        author_id: post.author.uid,
+        reaction_type: 'like',
+      });
+    } else {
+      this.analytics.trackEvent(APP_EVENTS.REACTION_REMOVED, {
+        post_id: post.id,
+        post_type: post.type,
+        reaction_type: 'like',
+      });
+    }
+
     await this.feedService.toggleLike(post);
   }
 
@@ -228,6 +247,14 @@ export class HomeComponent implements OnInit {
    */
   onCommentClick(post: FeedPost): void {
     this.logger.debug('Comment clicked', { postId: post.id });
+
+    // Track comment intent (actual comment submission would be tracked separately)
+    this.analytics.trackEvent('comment_intent', {
+      post_id: post.id,
+      post_type: post.type,
+      author_id: post.author.uid,
+    });
+
     // TODO: Open comment modal or navigate to post detail
   }
 
@@ -235,6 +262,14 @@ export class HomeComponent implements OnInit {
    * Handle share click
    */
   async onShareClick(post: FeedPost): Promise<void> {
+    // Track post share
+    this.analytics.trackEvent(APP_EVENTS.POST_SHARED, {
+      post_id: post.id,
+      post_type: post.type,
+      author_id: post.author.uid,
+      share_method: 'web_share_api',
+    });
+
     await this.feedService.sharePost(post);
   }
 

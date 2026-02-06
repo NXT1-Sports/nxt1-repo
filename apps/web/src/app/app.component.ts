@@ -13,6 +13,7 @@ import { IonApp, IonRouterOutlet } from '@ionic/angular/standalone';
 import { NxtPlatformService, NxtLoggingService, NxtBreadcrumbService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import { filter } from 'rxjs/operators';
+import { AnalyticsService } from './core/services/analytics.service';
 
 /**
  * Root Application Component
@@ -41,6 +42,7 @@ export class AppComponent implements OnInit {
   private readonly platform = inject(NxtPlatformService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('AppComponent');
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
+  private readonly analytics = inject(AnalyticsService);
 
   // ============================================
   // STATE SIGNALS
@@ -112,13 +114,14 @@ export class AppComponent implements OnInit {
   private setupRouterEvents(): void {
     this.router.events
       .pipe(filter((event) => event instanceof NavigationEnd))
-      .subscribe((_event) => {
+      .subscribe((event) => {
         if (this.platform.isBrowser()) {
           // Scroll to top on navigation
           window.scrollTo(0, 0);
 
-          // Track page view (integrate with analytics service)
-          // this.analytics.trackPageView(event.urlAfterRedirects);
+          // Track page view for analytics
+          this.analytics.trackPageView(event.urlAfterRedirects);
+          this.logger.debug('Page view tracked', { path: event.urlAfterRedirects });
         }
       });
   }
