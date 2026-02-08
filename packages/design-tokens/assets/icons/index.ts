@@ -652,6 +652,20 @@ export const UI_ICONS = {
 } as const;
 
 // ============================================
+// ALIAS ICONS (Compatibility with legacy names)
+// ============================================
+
+/**
+ * Alias names for compatibility with Ionicons-style identifiers.
+ * Keeps legacy templates working while using the design token registry.
+ */
+export const ALIAS_ICONS = {
+  'alert-circle-outline': UI_ICONS.alertCircle,
+  'arrow-back-outline': UI_ICONS.chevronLeft,
+  'home-outline': UI_ICONS.home,
+} as const;
+
+// ============================================
 // ROLE ICONS (Onboarding User Type Selection)
 // ============================================
 
@@ -926,6 +940,7 @@ export const ICONS = {
   ...UI_ICONS,
   ...BRAND_ICONS,
   ...ROLE_ICONS,
+  ...ALIAS_ICONS,
 } as const;
 
 // ============================================

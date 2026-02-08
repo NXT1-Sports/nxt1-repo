@@ -534,6 +534,19 @@ ion-app {
 }
 
 /* ============================================
+   WEB SHELL MOBILE SCROLL FIX
+   
+   Ionic's ion-router-outlet wraps pages in .ion-page
+   which sets position: absolute + overflow: hidden.
+   This blocks native scrolling in the web shell's
+   flex-based layout on mobile. Override to allow
+   the shell's internal scroll container to work.
+   ============================================ */
+ion-app:has(app-web-shell) ion-router-outlet > .ion-page {
+  overflow: visible !important;
+}
+
+/* ============================================
    AUTH SHELL SCROLL FIX
    
    NUCLEAR OPTION: Completely disable Ionic's internal

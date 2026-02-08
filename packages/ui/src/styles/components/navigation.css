@@ -744,6 +744,46 @@
   white-space: nowrap;
 }
 
+/* Auth button (Sign In) */
+.nxt1-desktop-nav .nav-auth-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 var(--nxt1-spacing-5, 20px);
+  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--nxt1-nav-transition-fast),
+    color var(--nxt1-nav-transition-fast),
+    transform var(--nxt1-nav-transition-fast),
+    box-shadow var(--nxt1-nav-transition-fast);
+}
+
+.nxt1-desktop-nav .nav-auth-btn--primary {
+  background: var(--nxt1-color-primary);
+  color: #000000;
+  box-shadow: 0 8px 18px var(--nxt1-color-alpha-primary25);
+}
+
+.nxt1-desktop-nav .nav-auth-btn--primary:hover {
+  background: var(--nxt1-color-primary-dark, var(--nxt1-color-primary));
+  transform: translateY(-1px);
+}
+
+.nxt1-desktop-nav .nav-auth-btn--primary:active {
+  transform: translateY(0);
+  box-shadow: 0 6px 14px var(--nxt1-color-alpha-primary25);
+}
+
+.nxt1-desktop-nav .nav-auth-btn--primary:focus-visible {
+  outline: 2px solid var(--nxt1-nav-focus-ring);
+  outline-offset: 2px;
+}
+
 /* Notification badge */
 .nxt1-desktop-nav .notification-badge {
   position: absolute;

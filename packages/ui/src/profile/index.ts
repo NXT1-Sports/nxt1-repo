@@ -1,39 +1,48 @@
 /**
  * @fileoverview Profile Module - Public API
  * @module @nxt1/ui/profile
- * @version 1.0.0
+ * @version 2.0.0
  *
- * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
+ * ADAPTIVE DESIGN PATTERN:
+ * - ProfileShellComponent → Mobile (Ionic)
+ * - ProfileShellWebComponent → Web (Tailwind, SSR-optimized)
  *
- * This module exports all profile-related components and services.
- *
- * @example
+ * Import based on platform:
  * ```typescript
- * import {
- *   ProfileShellComponent,
- *   ProfileService,
- *   ProfileHeaderComponent,
- * } from '@nxt1/ui';
+ * // Mobile app (Ionic)
+ * import { ProfileShellComponent } from '@nxt1/ui';
+ *
+ * // Web app (SSR, Grade A+ SEO)
+ * import { ProfileShellWebComponent } from '@nxt1/ui';
  * ```
  */
 
 // ============================================
-// SERVICE
+// SERVICE (Shared)
 // ============================================
 
 export { ProfileService } from './profile.service';
 
 // ============================================
-// SHELL COMPONENT (Main Entry Point)
+// SHELL COMPONENTS
 // ============================================
 
+/** Mobile shell (Ionic) — For web SSR, use ProfileShellWebComponent instead */
 export { ProfileShellComponent, type ProfileShellUser } from './profile-shell.component';
+
+// Web-optimized shell (Tailwind, semantic HTML, Grade A+ SEO)
+export { ProfileShellWebComponent } from './web/profile-shell-web.component';
 
 // ============================================
 // SECTION COMPONENTS
 // ============================================
 
+/** Mobile header (Ionic) — For web SSR, use ProfileHeaderWebComponent instead */
 export { ProfileHeaderComponent } from './profile-header.component';
+
+// Web-optimized header (YouTube-style, Tailwind, zero Ionic)
+export { ProfileHeaderWebComponent } from './web/profile-header-web.component';
+
 export { ProfileStatsBarComponent } from './profile-stats-bar.component';
 export { ProfileTimelineComponent } from './profile-timeline.component';
 export { ProfileOffersComponent } from './profile-offers.component';

@@ -6,9 +6,9 @@
  * Matches CREATE_POST_API_ENDPOINTS.SEARCH_LOCATIONS
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 /**
  * Search locations for post tagging

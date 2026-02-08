@@ -35,6 +35,12 @@ export const routes: Routes = [
       import('./features/create-post/create-post.routes').then((m) => m.CREATE_POST_ROUTES),
   },
 
+  // Profile (outside shell - no tabs)
+  {
+    path: 'profile',
+    loadChildren: () => import('./features/profile/profile.routes').then((m) => m.PROFILE_ROUTES),
+  },
+
   // ============================================
   // AUTHENTICATED ROUTES (With Mobile Shell)
   // ============================================
@@ -72,13 +78,6 @@ export const routes: Routes = [
         path: 'search',
         loadChildren: () =>
           import('./features/explore/explore.routes').then((m) => m.EXPLORE_ROUTES),
-      },
-
-      // Profile Tab - User Profile Page
-      {
-        path: 'profile',
-        loadChildren: () =>
-          import('./features/profile/profile.routes').then((m) => m.PROFILE_ROUTES),
       },
 
       // Agent X Tab - AI Assistant

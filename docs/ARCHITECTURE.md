@@ -160,18 +160,21 @@ import { NxtPlatformService } from '@nxt1/ui/services';
 
 Different platforms have fundamentally different requirements:
 
-| Requirement          | Web (SSR)                    | Mobile (Native)     |
-| -------------------- | ---------------------------- | ------------------- |
-| **Rendering**        | Server-side (hydration-safe) | Client-side only    |
-| **Styling**          | Tailwind CSS (atomic)        | Ionic Shadow DOM    |
-| **Navigation**       | Angular Router               | Ionic NavController |
-| **Native Features**  | N/A                          | Haptics, push, IAP  |
-| **Performance Goal** | SEO, First Contentful Paint  | 60fps, native feel  |
+| Requirement          | Web (SSR)                            | Mobile (Native)     |
+| -------------------- | ------------------------------------ | ------------------- |
+| **Rendering**        | Server-side (hydration-safe)         | Client-side only    |
+| **Styling**          | Tailwind CSS (atomic) — **NO IONIC** | Ionic Shadow DOM    |
+| **Navigation**       | Angular Router                       | Ionic NavController |
+| **Native Features**  | N/A                                  | Haptics, push, IAP  |
+| **Performance Goal** | SEO, First Contentful Paint          | 60fps, native feel  |
 
 **Problem with "100% shared UI":** Ionic components use Shadow DOM which causes
 SSR hydration mismatches, breaking SEO and performance.
 
 **Solution:** Adaptive Design — Share business logic, platform-specific views.
+
+**⚠️ CRITICAL:** Web components must use **ZERO Ionic imports**
+(`@ionic/angular`) to avoid SSR hydration errors. Use pure Tailwind CSS instead.
 
 ### Folder Structure
 
@@ -200,15 +203,22 @@ packages/ui/src/help-center/
 │   ├── help-center.service.ts  ← Signal-based state, search, filtering
 │   └── index.ts
 ├── mobile/
-│   ├── help-center-shell.component.ts  ← ion-content, ion-list, haptics
+│   ├── help-center-shell.component.ts  ← Uses Ionic: IonContent, IonList, etc.
 │   └── index.ts
 ├── web/
-│   ├── help-center-shell.component.ts          ← Pure Tailwind, SSR-safe
-│   ├── help-center-category-detail.component.ts
-│   ├── help-center-article-detail.component.ts
+│   ├── help-center-shell.component.ts          ← ⭐ ZERO Ionic — Pure Tailwind only
+│   ├── help-center-category-detail.component.ts ← ⭐ ZERO Ionic — Pure Tailwind only
+│   ├── help-center-article-detail.component.ts  ← ⭐ ZERO Ionic — Pure Tailwind only
 │   └── index.ts
 └── index.ts
 ```
+
+**Key Point:** Web components import **zero Ionic modules**. They use:
+
+- ✅ `CommonModule`, `FormsModule`, `RouterModule` (Angular)
+- ✅ Tailwind utility classes for all styling
+- ✅ CSS custom properties from design tokens
+- ❌ NO `@ionic/angular` imports (causes SSR hydration errors)
 
 ### Import Patterns
 

@@ -6,10 +6,10 @@
  * Generates XML sitemap from Firestore data (user profiles, teams, etc.)
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { logger } from '../utils/logger.js';
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 /**
  * Sitemap entry interface

@@ -5,9 +5,9 @@
  * Profile editing feature routes.
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 /**
  * Get profile data for editing

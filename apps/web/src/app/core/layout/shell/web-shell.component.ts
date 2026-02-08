@@ -223,18 +223,20 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
            ============================================ -->
       @if (isMobileView()) {
         <!-- Main Content Area (full width) -->
-        <main class="shell__content shell__content--mobile">
+        <main class="shell__content" [class.shell__content--mobile]="showMobileFooter()">
           <router-outlet />
         </main>
 
         <!-- Bottom Tab Bar -->
-        <nxt1-mobile-footer
-          [tabs]="footerTabs"
-          [activeTabId]="activeTabId()"
-          [config]="footerConfig()"
-          (tabSelect)="onTabSelect($event)"
-          (scrollToTop)="onScrollToTop($event)"
-        />
+        @if (showMobileFooter()) {
+          <nxt1-mobile-footer
+            [tabs]="footerTabs"
+            [activeTabId]="activeTabId()"
+            [config]="footerConfig()"
+            (tabSelect)="onTabSelect($event)"
+            (scrollToTop)="onScrollToTop($event)"
+          />
+        }
       }
     </div>
   `,
@@ -274,6 +276,8 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
       /* Mobile: Single column */
       .shell--mobile {
         flex-direction: column;
+        height: 100vh;
+        height: 100dvh;
       }
 
       /* ============================================
@@ -487,6 +491,11 @@ export class WebShellComponent {
     const viewport = this.platform.viewport();
     return viewport.width < SIDEBAR_BREAKPOINTS.MOBILE;
   });
+
+  /** Show mobile footer only when authenticated */
+  readonly showMobileFooter = computed(
+    () => this.isMobileView() && this.authFlow.isAuthenticated()
+  );
 
   // ============================================
   // LIFECYCLE

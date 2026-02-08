@@ -5,9 +5,9 @@
  * Follow/unfollow routes matching profile.api.ts
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 /**
  * Follow a user

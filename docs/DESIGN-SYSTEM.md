@@ -137,13 +137,14 @@ while leveraging **native platform feel** through Ionic Framework.
 While both platforms share the **same design tokens**, they require different
 component implementations:
 
-| Aspect               | Web (SSR)                      | Mobile (Native)                |
-| -------------------- | ------------------------------ | ------------------------------ |
-| **Rendering**        | Server + Client (hydration)    | Client only                    |
-| **Component System** | Pure Tailwind CSS              | Ionic Shadow DOM               |
-| **Theme Variables**  | `--nxt1-*` via Tailwind preset | `--nxt1-*` → `--ion-*` mapping |
-| **Navigation**       | Angular Router                 | Ionic NavController            |
-| **Native APIs**      | N/A                            | Haptics, push notifications    |
+| Aspect               | Web (SSR)                         | Mobile (Native)                |
+| -------------------- | --------------------------------- | ------------------------------ |
+| **Rendering**        | Server + Client (hydration)       | Client only                    |
+| **Component System** | Pure Tailwind CSS (**NO IONIC**)  | Ionic Shadow DOM               |
+| **Theme Variables**  | `--nxt1-*` via Tailwind preset    | `--nxt1-*` → `--ion-*` mapping |
+| **Navigation**       | Angular Router                    | Ionic NavController            |
+| **Native APIs**      | N/A                               | Haptics, push notifications    |
+| **Imports Allowed**  | Angular, Tailwind — NO `@ionic/*` | Angular + Ionic                |
 
 ### Why Separate Components?
 
@@ -153,6 +154,25 @@ hydrates, Angular detects a mismatch → **hydration error**.
 
 **Solution:** Use **Adaptive Design** — separate component implementations that
 share the same service layer and design tokens.
+
+**⚠️ CRITICAL RULE:**
+
+- **Web components** → Use **ZERO Ionic imports** (`@ionic/angular`)
+- **Mobile components** → Use Ionic freely for native feel
+- **Both** → Share the same service layer (`_shared/`) and design tokens
+
+**Example: Help Center**
+
+```typescript
+// ✅ Web: packages/ui/src/help-center/web/help-center-shell.component.ts
+import { CommonModule } from '@angular/common'; // ✅ Angular common
+import { FormsModule } from '@angular/forms'; // ✅ Angular forms
+// NO @ionic/angular imports! Pure Tailwind classes for styling.
+
+// ✅ Mobile: packages/ui/src/help-center/mobile/help-center-shell.component.ts
+import { IonContent, IonList, IonItem } from '@ionic/angular/standalone'; // ✅ Ionic
+import { HapticsService } from '@nxt1/ui'; // ✅ Native haptics
+```
 
 ### 100% Theme-Aware Pattern
 

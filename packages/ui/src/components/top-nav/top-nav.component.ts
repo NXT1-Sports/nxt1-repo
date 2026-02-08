@@ -362,6 +362,17 @@ import type {
             </button>
           }
 
+          <!-- Sign In (unauthenticated state) -->
+          @if (!user) {
+            <a
+              class="nav-auth-btn nav-auth-btn--primary"
+              routerLink="/auth/login"
+              aria-label="Sign in"
+            >
+              Sign In
+            </a>
+          }
+
           <!-- User Menu -->
           @if (showUserMenu()) {
             <div class="nav-user relative" [class.open]="userMenuOpen()">

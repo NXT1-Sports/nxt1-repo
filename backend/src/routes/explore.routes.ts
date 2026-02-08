@@ -16,7 +16,7 @@
  * - Leaderboards
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import type {
   ExploreSearchQuery,
   ExploreSearchResponse,
@@ -27,7 +27,7 @@ import type {
 } from '@nxt1/core';
 import { logger } from '../utils/logger.js';
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 // ============================================
 // CACHE CONFIGURATION

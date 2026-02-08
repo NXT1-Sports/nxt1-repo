@@ -6,9 +6,9 @@
  * Matches SETTINGS_API_ENDPOINTS from @nxt1/core/settings/constants.
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 /**
  * Get user settings

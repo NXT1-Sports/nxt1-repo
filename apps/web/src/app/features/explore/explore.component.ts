@@ -1,12 +1,12 @@
 /**
  * @fileoverview Explore Page - Web App Wrapper
  * @module @nxt1/web/features/explore
- * @version 1.0.0
+ * @version 2.0.0
  *
  * Thin wrapper component that imports the shared Explore shell
  * from @nxt1/ui and wires up platform-specific concerns.
  *
- * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
+ * ⭐ USES WEB-OPTIMIZED SHELL FOR GRADE A+ SEO ⭐
  *
  * The actual UI and logic live in @nxt1/ui (shared package).
  * This wrapper only handles:
@@ -18,7 +18,7 @@
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import { Router } from '@angular/router';
 import {
-  ExploreShellComponent,
+  ExploreShellWebComponent,
   NxtSidenavService,
   NxtLoggingService,
   NxtPlatformService,
@@ -31,9 +31,9 @@ import { SeoService } from '../../core/services';
 @Component({
   selector: 'app-explore',
   standalone: true,
-  imports: [ExploreShellComponent],
+  imports: [ExploreShellWebComponent],
   template: `
-    <nxt1-explore-shell
+    <nxt1-explore-shell-web
       [user]="userInfo()"
       [hideHeader]="isDesktop()"
       (avatarClick)="onAvatarClick()"

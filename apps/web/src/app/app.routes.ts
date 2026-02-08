@@ -65,12 +65,8 @@ export const routes: Routes = [
       import('./features/explore/explore.component').then((m) => m.ExploreComponent),
   },
 
-  // Legacy profile redirects (for authenticated users)
-  {
-    path: 'profile',
-    redirectTo: 'tabs/profile',
-    pathMatch: 'full',
-  },
+  // Legacy profile redirect — direct /profile goes to shell's /profile route
+  // (No redirect needed, handled by the main shell at path: '')
 
   {
     path: 'analytics',

@@ -6,9 +6,9 @@
  * Matches NEWS_API_ENDPOINTS from @nxt1/core/news/constants.
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 /**
  * Get news feed

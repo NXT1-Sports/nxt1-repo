@@ -165,60 +165,15 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
       <div
         class="hero-content mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-20"
       >
-        <!-- Hero Top Section -->
-        <div class="hero-top mb-12 text-center lg:mb-16">
-          @if (showLogo) {
-            <div class="hero-logo mb-6 flex justify-center">
-              <nxt1-logo size="xl" variant="header" [routerLink]="['/']" />
-            </div>
-          }
+        <!-- SEO H1 (screen reader only) -->
+        <h1 class="sr-only">NXT1 — The Future of Sports Recruiting</h1>
 
-          <!-- Main Headline (SEO H1) -->
-          <h1
-            class="hero-headline font-brand text-text-primary mb-4 text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl"
-          >
-            @if (headline) {
-              {{ headline }}
-            } @else {
-              <span class="block">The Future of</span>
-              <span
-                class="hero-headline__accent from-primary to-secondary block bg-gradient-to-r bg-clip-text text-transparent"
-              >
-                Sports Recruiting
-              </span>
-            }
-          </h1>
-
-          <!-- Subheadline -->
-          <p
-            class="hero-subheadline text-text-secondary mx-auto max-w-2xl text-lg sm:text-xl lg:text-2xl"
-          >
-            {{ subheadline || 'Connect with coaches. Showcase your talent. Get recruited.' }}
-          </p>
-
-          <!-- Primary CTA -->
-          @if (showPrimaryCta) {
-            <div class="hero-cta mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <a
-                [routerLink]="['/auth/register']"
-                class="btn-hero-primary group bg-primary text-text-inverse hover:bg-primaryLight hover:shadow-glow focus:ring-primary focus:ring-offset-bg-primary inline-flex items-center justify-center gap-2 rounded-xl px-8 py-4 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-xl focus:ring-2 focus:ring-offset-2 focus:outline-none"
-              >
-                Get Started Free
-                <nxt1-icon
-                  name="arrowRight"
-                  [size]="20"
-                  class="transition-transform duration-300 group-hover:translate-x-1"
-                />
-              </a>
-              <a
-                [routerLink]="['/explore']"
-                class="btn-hero-secondary border-border bg-surface-200/50 text-text-primary hover:border-border-strong hover:bg-surface-300/50 inline-flex items-center justify-center gap-2 rounded-xl border px-8 py-4 text-lg font-semibold backdrop-blur-sm transition-all duration-300"
-              >
-                Explore Athletes
-              </a>
-            </div>
-          }
-        </div>
+        <!-- Brand Logo -->
+        @if (showLogo) {
+          <div class="hero-logo mb-8 flex justify-center">
+            <nxt1-logo size="lg" variant="header" />
+          </div>
+        }
 
         <!-- Audience Cards Section -->
         <section class="hero-cards" aria-label="Choose your path">
@@ -266,6 +221,31 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
             }
           </div>
         </section>
+
+        <!-- Primary CTA -->
+        @if (showPrimaryCta) {
+          <div
+            class="hero-cta mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row lg:mt-12"
+          >
+            <a
+              [routerLink]="['/auth/register']"
+              class="btn-hero-primary group bg-primary text-text-inverse hover:bg-primaryLight hover:shadow-glow focus:ring-primary focus:ring-offset-bg-primary inline-flex items-center justify-center gap-2 rounded-xl px-8 py-4 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-xl focus:ring-2 focus:ring-offset-2 focus:outline-none"
+            >
+              Get Started Free
+              <nxt1-icon
+                name="arrowRight"
+                [size]="20"
+                class="transition-transform duration-300 group-hover:translate-x-1"
+              />
+            </a>
+            <a
+              [routerLink]="['/explore']"
+              class="btn-hero-secondary border-border bg-surface-200/50 text-text-primary hover:border-border-strong hover:bg-surface-300/50 inline-flex items-center justify-center gap-2 rounded-xl border px-8 py-4 text-lg font-semibold backdrop-blur-sm transition-all duration-300"
+            >
+              Explore Athletes
+            </a>
+          </div>
+        }
 
         <!-- Trust Badges / Social Proof -->
         @if (showTrustBadges) {
@@ -340,7 +320,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
        ============================================ */
 
       .hero-header {
-        min-height: 70vh;
+        min-height: auto;
         display: flex;
         align-items: center;
       }

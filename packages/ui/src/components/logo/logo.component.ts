@@ -23,6 +23,7 @@
 
 import { Component, ChangeDetectionStrategy, Input, HostBinding } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { LOGO_PATHS, LOGO_DIMENSIONS } from '@nxt1/design-tokens/assets';
 
 export type LogoSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'full';
 export type LogoVariant = 'default' | 'header' | 'auth' | 'footer' | 'splash';
@@ -79,33 +80,39 @@ export class NxtLogoComponent {
 
   /** Path to AVIF logo (primary modern format) */
   get avifSrc(): string {
-    return 'assets/shared/logo/nxt1_logo.avif';
+    return LOGO_PATHS.mainAvif;
   }
 
   /** Path to PNG logo (fallback for older browsers) */
   get pngSrc(): string {
-    // Note: Using AVIF for PNG fallback as well since that's what we have
-    // For production, add a proper PNG export to design-tokens
-    return 'assets/shared/logo/nxt1_logo.avif';
+    return LOGO_PATHS.main;
   }
 
   /** Intrinsic width based on size */
   get width(): number {
-    const widths: Record<LogoSize, number> = {
-      xs: 80,
-      sm: 120,
-      md: 160,
-      lg: 200,
-      xl: 280,
-      xxl: 400,
-      full: 400,
+    const scale: Record<LogoSize, number> = {
+      xs: 0.13,
+      sm: 0.2,
+      md: 0.27,
+      lg: 0.33,
+      xl: 0.47,
+      xxl: 0.67,
+      full: 1,
     };
-    return widths[this.size];
+    return Math.round(LOGO_DIMENSIONS.main.width * scale[this.size]);
   }
 
   /** Intrinsic height (maintains aspect ratio) */
   get height(): number {
-    // Logo aspect ratio is approximately 3.33:1 (800x240)
-    return Math.round(this.width / 3.33);
+    const scale: Record<LogoSize, number> = {
+      xs: 0.13,
+      sm: 0.2,
+      md: 0.27,
+      lg: 0.33,
+      xl: 0.47,
+      xxl: 0.67,
+      full: 1,
+    };
+    return Math.round(LOGO_DIMENSIONS.main.height * scale[this.size]);
   }
 }

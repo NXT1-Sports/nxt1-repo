@@ -293,13 +293,14 @@ export {
 } from './activity';
 
 // ============================================
-// EXPLORE (Search & Discovery - Shared Web & Mobile)
+// EXPLORE (Search & Discovery)
 // ============================================
 export {
   // Service
   ExploreService,
   // Components
   ExploreShellComponent,
+  ExploreShellWebComponent,
   ExploreListComponent,
   ExploreItemComponent,
   ExploreSkeletonComponent,
@@ -308,13 +309,14 @@ export {
 } from './explore';
 
 // ============================================
-// PROFILE (User Profile - Shared Web & Mobile)
+// PROFILE (User Profile)
 // ============================================
 export {
   // Service
   ProfileService,
   // Components
   ProfileShellComponent,
+  ProfileShellWebComponent,
   ProfileHeaderComponent,
   ProfileStatsBarComponent,
   ProfileTimelineComponent,

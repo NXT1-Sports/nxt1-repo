@@ -5,9 +5,9 @@
  * AI-powered assistant routes for Agent X feature.
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 /**
  * Send chat message to Agent X

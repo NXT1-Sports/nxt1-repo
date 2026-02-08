@@ -1,12 +1,12 @@
 /**
  * @fileoverview Profile Page - Web App Wrapper
  * @module @nxt1/web/features/profile
- * @version 1.0.0
+ * @version 2.0.0
  *
  * Thin wrapper component that imports the shared Profile shell
  * from @nxt1/ui and wires up platform-specific concerns.
  *
- * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
+ * ⭐ USES WEB-OPTIMIZED SHELL FOR GRADE A+ SEO ⭐
  *
  * The actual UI and logic live in @nxt1/ui (shared package).
  * This wrapper only handles:
@@ -29,11 +29,13 @@ import {
   OnInit,
   signal,
   effect,
+  PLATFORM_ID,
 } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
-  ProfileShellComponent,
+  ProfileShellWebComponent,
   NxtSidenavService,
   NxtLoggingService,
   NxtToastService,
@@ -49,9 +51,9 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 @Component({
   selector: 'app-profile',
   standalone: true,
-  imports: [ProfileShellComponent],
+  imports: [ProfileShellWebComponent],
   template: `
-    <nxt1-profile-shell
+    <nxt1-profile-shell-web
       [currentUser]="userInfo()"
       [profileUnicode]="profileUnicode()"
       [isOwnProfile]="isOwnProfile()"
@@ -78,6 +80,7 @@ export class ProfileComponent implements OnInit {
   private readonly seo = inject(SeoService);
   private readonly analytics = inject(AnalyticsService);
   private readonly profileService = inject(ProfileService);
+  private readonly platformId = inject(PLATFORM_ID);
   private readonly fetchedProfile = signal<any>(null);
 
   /**
@@ -237,6 +240,8 @@ export class ProfileComponent implements OnInit {
    * Handle back navigation.
    */
   protected onBackClick(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+
     // Use browser history if available, otherwise go home
     if (window.history.length > 1) {
       window.history.back();
@@ -275,6 +280,8 @@ export class ProfileComponent implements OnInit {
    * Handle share profile.
    */
   protected async onShare(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
+
     const profileUrl = `${window.location.origin}/profile/${this.profileUnicode()}`;
 
     // Try native share API first

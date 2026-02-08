@@ -6,9 +6,9 @@
  * Note: These routes are mounted under /auth/profile in auth.routes.ts
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 
-const router = Router();
+const router: ExpressRouter = Router();
 
 /**
  * Search profiles
