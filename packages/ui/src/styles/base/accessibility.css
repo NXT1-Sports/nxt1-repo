@@ -69,12 +69,12 @@
   z-index: 9999;
   padding: var(--nxt1-spacing-3, 0.75rem) var(--nxt1-spacing-6, 1.5rem);
   background: var(--nxt1-ui-primary);
-  color: #0a0a0a;
+  color: var(--nxt1-ui-text-inverse, #0a0a0a);
   font-family: var(--nxt1-ui-font);
-  font-weight: var(--nxt1-font-weight-bold, 700);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
   text-decoration: none;
   border-radius: var(--nxt1-ui-radius-default);
-  transition: top 0.2s ease;
+  transition: top var(--nxt1-duration-normal, 200ms) var(--nxt1-easing-out, ease);
 }
 
 .nxt1-skip-link:focus {
@@ -173,7 +173,7 @@
  * Dark/inverted focus ring for use on primary-colored backgrounds
  */
 .nxt1-focus-dark:focus-visible {
-  outline-color: #0a0a0a;
+  outline-color: var(--nxt1-ui-text-inverse, #0a0a0a);
 }
 
 /* ============================================
@@ -182,14 +182,14 @@
    ============================================ */
 
 .nxt1-touch-target {
-  min-width: 44px;
-  min-height: 44px;
+  min-width: var(--nxt1-ui-touch-target, 2.75rem);
+  min-height: var(--nxt1-ui-touch-target, 2.75rem);
 }
 
 /* Larger touch targets for important actions */
 .nxt1-touch-target-lg {
-  min-width: 48px;
-  min-height: 48px;
+  min-width: var(--nxt1-spacing-12, 3rem);
+  min-height: var(--nxt1-spacing-12, 3rem);
 }
 
 /* ============================================
@@ -228,7 +228,7 @@
  * Ensure sufficient contrast for text on primary background
  */
 .nxt1-on-primary {
-  color: #0a0a0a;
+  color: var(--nxt1-ui-text-inverse, #0a0a0a);
 }
 
 /**

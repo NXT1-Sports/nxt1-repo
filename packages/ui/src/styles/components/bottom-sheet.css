@@ -40,7 +40,7 @@
  * Apple HIG: 24px corner radius, system blur
  * ============================================ */
 .nxt1-bottom-sheet-ios {
-  --border-radius: var(--nxt1-radius-2xl) var(--nxt1-radius-2xl) 0 0;
+  --border-radius: var(--nxt1-borderRadius-2xl) var(--nxt1-borderRadius-2xl) 0 0;
   --max-height: auto;
   --min-height: auto;
 
@@ -48,7 +48,7 @@
 }
 
 .nxt1-bottom-sheet-ios::part(content) {
-  border-radius: var(--nxt1-radius-2xl) var(--nxt1-radius-2xl) 0 0;
+  border-radius: var(--nxt1-borderRadius-2xl) var(--nxt1-borderRadius-2xl) 0 0;
   background: var(--nxt1-color-surface-200);
   margin-top: auto;
   max-height: 92vh;
@@ -72,7 +72,7 @@
  * Material Design 3: 28px corner radius, elevation
  * ============================================ */
 .nxt1-bottom-sheet-android {
-  --border-radius: var(--nxt1-radius-3xl) var(--nxt1-radius-3xl) 0 0;
+  --border-radius: var(--nxt1-borderRadius-3xl) var(--nxt1-borderRadius-3xl) 0 0;
   --max-height: auto;
   --min-height: auto;
 
@@ -80,7 +80,7 @@
 }
 
 .nxt1-bottom-sheet-android::part(content) {
-  border-radius: var(--nxt1-radius-3xl) var(--nxt1-radius-3xl) 0 0;
+  border-radius: var(--nxt1-borderRadius-3xl) var(--nxt1-borderRadius-3xl) 0 0;
   background: var(--nxt1-color-surface-200);
   margin-top: auto;
   max-height: 92vh;

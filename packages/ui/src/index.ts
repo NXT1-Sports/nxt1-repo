@@ -938,3 +938,12 @@ export {
 // TEAM (Team Pages - Shared Web & Mobile)
 // ============================================
 export { TeamShellComponent, type TeamData } from './team';
+
+// ============================================
+// APP DOWNLOAD BAR (Global Sticky Promotion)
+// ============================================
+export {
+  NxtAppDownloadBarComponent,
+  NxtAppDownloadBarService,
+  type AppDownloadBarConfig,
+} from './components/app-download-bar';

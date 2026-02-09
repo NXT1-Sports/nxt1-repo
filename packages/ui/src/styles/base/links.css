@@ -26,7 +26,7 @@
 .nxt1-auth-link {
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-base, 1rem);
-  font-weight: var(--nxt1-font-weight-bold, 700);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
   color: var(--nxt1-ui-primary);
   text-decoration: none;
   cursor: pointer;
@@ -50,7 +50,7 @@
 .nxt1-link--secondary,
 .nxt1-auth-link--secondary {
   font-size: var(--nxt1-fontSize-sm, 0.875rem);
-  font-weight: var(--nxt1-font-weight-medium, 500);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   color: var(--nxt1-ui-text-muted);
 }
 
@@ -63,7 +63,7 @@
   display: inline-block;
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-sm, 0.875rem);
-  font-weight: var(--nxt1-font-weight-medium, 500);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   color: var(--nxt1-ui-text-muted);
   text-decoration: none;
   cursor: pointer;
@@ -127,7 +127,7 @@
 .nxt1-auth-divider span {
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-xs, 0.75rem);
-  font-weight: var(--nxt1-font-weight-medium, 500);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   color: var(--nxt1-ui-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -174,7 +174,7 @@
   .nxt1-auth-divider-vertical span {
     font-family: var(--nxt1-ui-font);
     font-size: var(--nxt1-fontSize-xs, 0.75rem);
-    font-weight: var(--nxt1-font-weight-semibold, 600);
+    font-weight: var(--nxt1-fontWeight-semibold, 600);
     color: var(--nxt1-ui-text-muted);
     text-transform: uppercase;
     letter-spacing: 0.1em;

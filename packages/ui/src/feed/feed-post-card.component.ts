@@ -34,24 +34,7 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  heartOutline,
-  heart,
-  chatbubbleOutline,
-  shareOutline,
-  bookmarkOutline,
-  bookmark,
-  ellipsisHorizontal,
-  playCircle,
-  checkmarkCircle,
-  schoolOutline,
-  trophyOutline,
-  ribbonOutline,
-  locationOutline,
-  repeatOutline,
-} from 'ionicons/icons';
+import { IonRippleEffect } from '@ionic/angular/standalone';
 import {
   type FeedPost,
   type FeedAuthor,
@@ -61,30 +44,13 @@ import {
 } from '@nxt1/core';
 import { NxtAvatarComponent } from '../components/avatar';
 import { NxtImageComponent } from '../components/image';
+import { NxtIconComponent } from '../components/icon';
 import { HapticsService } from '../services/haptics/haptics.service';
-
-// Register icons
-addIcons({
-  heartOutline,
-  heart,
-  chatbubbleOutline,
-  shareOutline,
-  bookmarkOutline,
-  bookmark,
-  ellipsisHorizontal,
-  playCircle,
-  checkmarkCircle,
-  schoolOutline,
-  trophyOutline,
-  ribbonOutline,
-  locationOutline,
-  repeatOutline,
-});
 
 @Component({
   selector: 'nxt1-feed-post-card',
   standalone: true,
-  imports: [CommonModule, IonIcon, IonRippleEffect, NxtAvatarComponent, NxtImageComponent],
+  imports: [CommonModule, IonRippleEffect, NxtAvatarComponent, NxtImageComponent, NxtIconComponent],
   template: `
     <article
       class="feed-post"
@@ -117,7 +83,7 @@ addIcons({
           <div class="feed-post__author-row">
             <span class="feed-post__author-name">{{ post().author.displayName }}</span>
             @if (post().author.isVerified) {
-              <ion-icon name="checkmark-circle" class="feed-post__verified"></ion-icon>
+              <nxt1-icon name="checkmarkCircle" [size]="16" class="feed-post__verified" />
             }
           </div>
           <div class="feed-post__author-meta">
@@ -141,7 +107,7 @@ addIcons({
             (click)="handleMenuClick($event)"
             aria-label="Post options"
           >
-            <ion-icon name="ellipsis-horizontal"></ion-icon>
+            <nxt1-icon name="moreHorizontal" [size]="20" />
           </button>
         }
       </header>
@@ -149,7 +115,7 @@ addIcons({
       <!-- Post Type Badge (for special posts) -->
       @if (showTypeBadge()) {
         <div class="feed-post__type-badge" [style.--badge-color]="typeBadgeColor()">
-          <ion-icon [name]="typeBadgeIcon()"></ion-icon>
+          <nxt1-icon [name]="typeBadgeIcon()" [size]="16" />
           <span>{{ typeBadgeLabel() }}</span>
         </div>
       }
@@ -219,7 +185,7 @@ addIcons({
                 />
                 @if (media.type === 'video') {
                   <div class="feed-post__video-overlay">
-                    <ion-icon name="play-circle"></ion-icon>
+                    <nxt1-icon name="playCircle" [size]="48" />
                     @if (media.duration) {
                       <span class="feed-post__video-duration">{{
                         formatDuration(media.duration)
@@ -238,7 +204,7 @@ addIcons({
         <!-- Location Tag -->
         @if (post().location) {
           <div class="feed-post__location">
-            <ion-icon name="location-outline"></ion-icon>
+            <nxt1-icon name="location" [size]="14" />
             <span>{{ post().location }}</span>
           </div>
         }
@@ -276,7 +242,7 @@ addIcons({
           [attr.aria-label]="post().userEngagement.isLiked ? 'Unlike' : 'Like'"
           [attr.aria-pressed]="post().userEngagement.isLiked"
         >
-          <ion-icon [name]="post().userEngagement.isLiked ? 'heart' : 'heart-outline'"></ion-icon>
+          <nxt1-icon [name]="post().userEngagement.isLiked ? 'heartFilled' : 'heart'" [size]="20" />
           @if (post().engagement.likeCount > 0) {
             <span>{{ formatCount(post().engagement.likeCount) }}</span>
           }
@@ -289,7 +255,7 @@ addIcons({
           (click)="handleCommentClick($event)"
           aria-label="Comment"
         >
-          <ion-icon name="chatbubble-outline"></ion-icon>
+          <nxt1-icon name="chatBubble" [size]="20" />
           @if (post().engagement.commentCount > 0) {
             <span>{{ formatCount(post().engagement.commentCount) }}</span>
           }
@@ -302,7 +268,7 @@ addIcons({
           (click)="handleShareClick($event)"
           aria-label="Share"
         >
-          <ion-icon name="share-outline"></ion-icon>
+          <nxt1-icon name="share" [size]="20" />
           @if (post().engagement.shareCount > 0) {
             <span>{{ formatCount(post().engagement.shareCount) }}</span>
           }
@@ -317,9 +283,10 @@ addIcons({
           [attr.aria-label]="post().userEngagement.isBookmarked ? 'Remove bookmark' : 'Bookmark'"
           [attr.aria-pressed]="post().userEngagement.isBookmarked"
         >
-          <ion-icon
-            [name]="post().userEngagement.isBookmarked ? 'bookmark' : 'bookmark-outline'"
-          ></ion-icon>
+          <nxt1-icon
+            [name]="post().userEngagement.isBookmarked ? 'bookmarkFilled' : 'bookmark'"
+            [size]="20"
+          />
         </button>
       </footer>
     </article>

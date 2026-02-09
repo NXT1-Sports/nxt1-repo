@@ -30,6 +30,15 @@
   </div>
 }
 
+<!-- App Download Promotion Bar (scroll-triggered, smooth slide transition) -->
+@if (downloadBar.shouldRender()) {
+  <nxt1-app-download-bar
+    [visible]="downloadBar.isVisible()"
+    [bottomOffset]="downloadBar.bottomOffset()"
+    (dismissed)="downloadBar.dismiss()"
+  />
+}
+
 <!-- Critical Error State -->
 @if (error()) {
   <div class="bg-bg-primary p-lg fixed inset-0 flex items-center justify-center">

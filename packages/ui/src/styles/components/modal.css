@@ -61,7 +61,7 @@ ion-alert.nxt-modal-prompt.md {
     0 11px 15px -7px rgba(0, 0, 0, 0.2), 0 24px 38px 3px rgba(0, 0, 0, 0.14),
     0 9px 46px 8px rgba(0, 0, 0, 0.12);
 
-  border-radius: 28px;
+  border-radius: var(--nxt1-borderRadius-3xl, 2rem);
 }
 
 /* ============================================
@@ -70,24 +70,26 @@ ion-alert.nxt-modal-prompt.md {
 
 ion-alert.nxt-modal-alert .alert-head {
   text-align: center;
-  padding: 20px 20px 8px;
+  padding: var(--nxt1-spacing-5, 1.25rem) var(--nxt1-spacing-5, 1.25rem)
+    var(--nxt1-spacing-2, 0.5rem);
 }
 
 ion-alert.nxt-modal-alert .alert-title {
-  font-size: 17px;
-  font-weight: 600;
+  font-size: var(--nxt1-fontSize-md, 1.125rem);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   color: var(--nxt-text-primary, var(--ion-text-color));
 }
 
 ion-alert.nxt-modal-alert .alert-message {
   text-align: center;
-  padding: 8px 20px 20px;
-  font-size: 13px;
+  padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-5, 1.25rem)
+    var(--nxt1-spacing-5, 1.25rem);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
   color: var(--nxt-text-secondary, var(--ion-color-medium));
 }
 
 ion-alert.nxt-modal-alert .alert-button {
-  font-weight: 600;
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   color: var(--nxt-primary-color, var(--ion-color-primary));
 }
 
@@ -106,12 +108,12 @@ ion-alert.nxt-modal-confirm.ios .alert-button-group {
 
 ion-alert.nxt-modal-confirm .alert-button.nxt-modal-cancel-btn {
   color: var(--nxt-text-secondary, var(--ion-color-medium));
-  font-weight: 400;
+  font-weight: var(--nxt1-fontWeight-regular, 400);
 }
 
 ion-alert.nxt-modal-confirm .alert-button.nxt-modal-confirm-btn {
   color: var(--nxt-primary-color, var(--ion-color-primary));
-  font-weight: 600;
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
 }
 
 /* ============================================
@@ -121,7 +123,7 @@ ion-alert.nxt-modal-confirm .alert-button.nxt-modal-confirm-btn {
 ion-alert.nxt-modal-destructive .alert-button.nxt-modal-destructive-btn,
 ion-alert .alert-button.nxt-modal-destructive-btn {
   color: var(--nxt-error-color, var(--ion-color-danger)) !important;
-  font-weight: 600;
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
 }
 
 /* iOS destructive - red text */
@@ -133,8 +135,8 @@ ion-alert.nxt-modal-destructive.ios .alert-title {
 ion-alert.nxt-modal-destructive.md .alert-button.nxt-modal-destructive-btn {
   --background: var(--nxt-error-color, var(--ion-color-danger));
   --color: white;
-  border-radius: 20px;
-  margin: 4px 16px;
+  border-radius: var(--nxt1-borderRadius-2xl, 1.5rem);
+  margin: var(--nxt1-spacing-1, 0.25rem) var(--nxt1-spacing-4, 1rem);
 }
 
 /* ============================================
@@ -142,14 +144,14 @@ ion-alert.nxt-modal-destructive.md .alert-button.nxt-modal-destructive-btn {
    ============================================ */
 
 ion-alert.nxt-modal-prompt .alert-input-wrapper {
-  padding: 8px 0;
+  padding: var(--nxt1-spacing-2, 0.5rem) 0;
 }
 
 ion-alert.nxt-modal-prompt input.alert-input {
   border: 1px solid var(--nxt-border-color, var(--ion-color-light-shade));
-  border-radius: 8px;
-  padding: 12px;
-  font-size: 16px;
+  border-radius: var(--nxt1-borderRadius-md, 0.5rem);
+  padding: var(--nxt1-spacing-3, 0.75rem);
+  font-size: var(--nxt1-fontSize-base, 1rem);
   background: var(--nxt-input-background, var(--ion-item-background));
 }
 
@@ -161,7 +163,7 @@ ion-alert.nxt-modal-prompt input.alert-input:focus {
 
 /* iOS prompt input */
 ion-alert.nxt-modal-prompt.ios input.alert-input {
-  border-radius: 10px;
+  border-radius: var(--nxt1-borderRadius-lg, 0.75rem);
   background: rgba(255, 255, 255, 0.8);
 }
 
@@ -173,13 +175,13 @@ ion-alert.nxt-modal-prompt.ios input.alert-input {
 
 /* Android prompt input */
 ion-alert.nxt-modal-prompt.md input.alert-input {
-  border-radius: 4px;
+  border-radius: var(--nxt1-borderRadius-sm, 0.25rem);
   border-bottom: 2px solid var(--nxt-primary-color, var(--ion-color-primary));
   border-top: none;
   border-left: none;
   border-right: none;
   background: transparent;
-  padding: 12px 0;
+  padding: var(--nxt1-spacing-3, 0.75rem) 0;
 }
 
 /* ============================================
@@ -204,8 +206,8 @@ ion-action-sheet.nxt-modal-action-sheet.ios {
 }
 
 ion-action-sheet.nxt-modal-action-sheet .action-sheet-button {
-  font-size: 17px;
-  min-height: 56px;
+  font-size: var(--nxt1-fontSize-md, 1.125rem);
+  min-height: var(--nxt1-spacing-14, 3.5rem);
 }
 
 ion-action-sheet.nxt-modal-action-sheet .action-sheet-button.nxt-action-destructive {
@@ -213,22 +215,22 @@ ion-action-sheet.nxt-modal-action-sheet .action-sheet-button.nxt-action-destruct
 }
 
 ion-action-sheet.nxt-modal-action-sheet .action-sheet-button.action-sheet-cancel {
-  font-weight: 600;
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
 }
 
 /* Action sheet icons */
 ion-action-sheet.nxt-modal-action-sheet .action-sheet-button ion-icon {
-  font-size: 24px;
-  margin-right: 16px;
+  font-size: var(--nxt1-spacing-6, 1.5rem);
+  margin-right: var(--nxt1-spacing-4, 1rem);
 }
 
 /* Android action sheet - Material Design 3 */
 ion-action-sheet.nxt-modal-action-sheet.md {
-  --border-radius: 28px 28px 0 0;
+  --border-radius: var(--nxt1-borderRadius-3xl, 2rem) var(--nxt1-borderRadius-3xl, 2rem) 0 0;
 }
 
 ion-action-sheet.nxt-modal-action-sheet.md .action-sheet-group {
-  border-radius: 28px 28px 0 0;
+  border-radius: var(--nxt1-borderRadius-3xl, 2rem) var(--nxt1-borderRadius-3xl, 2rem) 0 0;
 }
 
 /* ============================================
@@ -244,7 +246,7 @@ ion-loading.nxt-modal-loading.ios {
   --background: rgba(255, 255, 255, 0.9);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  --border-radius: 14px;
+  --border-radius: var(--nxt1-borderRadius-xl, 1rem);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -254,11 +256,11 @@ ion-loading.nxt-modal-loading.ios {
 }
 
 ion-loading.nxt-modal-loading.md {
-  --border-radius: 28px;
+  --border-radius: var(--nxt1-borderRadius-3xl, 2rem);
 }
 
 ion-loading.nxt-modal-loading .loading-content {
-  font-size: 14px;
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
   color: var(--nxt-text-secondary, var(--ion-color-medium));
 }
 

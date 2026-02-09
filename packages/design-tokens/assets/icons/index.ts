@@ -149,6 +149,17 @@ export const UI_ICONS = {
     paths: [{ d: 'M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z' }],
   },
 
+  /** Double checkmark icon (mark all as read / done-all) */
+  checkmarkDone: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z',
+      },
+    ],
+  },
+
   /** Verified badge icon (checkmark in circle/shield) */
   verified: {
     viewBox: '0 0 24 24',
@@ -165,6 +176,14 @@ export const UI_ICONS = {
     viewBox: '0 0 24 24',
     type: 'fill' as const,
     paths: [{ d: 'M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8-8-8z' }],
+  },
+
+  /** Arrow forward icon (right arrow without stem) */
+  arrowForward: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M5 12h14' }, { d: 'M12 5l7 7-7 7' }],
   },
 
   /** Close/X icon */
@@ -649,20 +668,377 @@ export const UI_ICONS = {
       { d: 'M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z' },
     ],
   },
-} as const;
 
-// ============================================
-// ALIAS ICONS (Compatibility with legacy names)
-// ============================================
+  /** Smartphone/Device icon - for system theme option */
+  smartphone: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M17 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2z' },
+      { d: 'M12 18h.01' },
+    ],
+  },
 
-/**
- * Alias names for compatibility with Ionicons-style identifiers.
- * Keeps legacy templates working while using the design token registry.
- */
-export const ALIAS_ICONS = {
-  'alert-circle-outline': UI_ICONS.alertCircle,
-  'arrow-back-outline': UI_ICONS.chevronLeft,
-  'home-outline': UI_ICONS.home,
+  /** Contrast icon - half circle for theme switching */
+  contrast: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z' }, { d: 'M12 2v20' }],
+  },
+
+  /** Color palette icon - for theme/color options */
+  colorPalette: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      {
+        d: 'M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z',
+      },
+    ],
+  },
+
+  /** Football (American) icon - for sport themes */
+  football: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      {
+        d: 'M6 6c0 0 2-4 6-4s6 4 6 4c0 0 4 2 4 6s-4 6-4 6c0 0-2 4-6 4s-6-4-6-4c0 0-4-2-4-6s4-6 4-6z',
+      },
+      { d: 'M12 8v8' },
+      { d: 'M9 10l3-2 3 2' },
+      { d: 'M9 14l3 2 3-2' },
+    ],
+  },
+
+  /** Basketball icon - for sport themes */
+  basketball: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z' },
+      { d: 'M12 2v20' },
+      { d: 'M2 12h20' },
+      { d: 'M4.93 4.93c4.08 2.35 6.44 6.21 7.07 10.07' },
+      { d: 'M19.07 4.93c-4.08 2.35-6.44 6.21-7.07 10.07' },
+    ],
+  },
+
+  /** Baseball icon - for sport themes */
+  baseball: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z' },
+      { d: 'M4.93 4.93c1.53 1.53 2.5 3.53 2.5 5.57s-.97 4.04-2.5 5.57' },
+      { d: 'M19.07 4.93c-1.53 1.53-2.5 3.53-2.5 5.57s.97 4.04 2.5 5.57' },
+    ],
+  },
+
+  /** Flame/Fire icon - for streaks, hot items */
+  flame: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M12 23c-4.97 0-9-4.03-9-9 0-3.53 2.04-6.58 5-8.05 0 0-.5 3.05 2 5.05 0-4 3-7 3-7s3 3 3 7c2.5-2 2-5.05 2-5.05 2.96 1.47 5 4.52 5 8.05 0 4.97-4.03 9-9 9zm0-4c1.66 0 3-1.34 3-3 0-1.12-.61-2.1-1.5-2.63 0 0 .15.88-.5 1.63-.35-.75-1-1.5-1-1.5s-1 .75-1 1.5c-.65-.75-.5-1.63-.5-1.63-.89.53-1.5 1.51-1.5 2.63 0 1.66 1.34 3 3 3z',
+      },
+    ],
+  },
+
+  /** Chat bubble/Comment icon - for messages */
+  chatBubble: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      {
+        d: 'M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z',
+      },
+    ],
+  },
+
+  /** Share icon - for sharing content */
+  share: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8' },
+      { d: 'M16 6l-4-4-4 4' },
+      { d: 'M12 2v13' },
+    ],
+  },
+
+  /** Bookmark icon - for saving content */
+  bookmark: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z' }],
+  },
+
+  /** Bookmark filled icon */
+  bookmarkFilled: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [{ d: 'M17 3H7a2 2 0 0 0-2 2v16l7-5 7 5V5a2 2 0 0 0-2-2z' }],
+  },
+
+  /** Heart icon - for likes */
+  heart: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      {
+        d: 'M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z',
+      },
+    ],
+  },
+
+  /** Heart filled icon */
+  heartFilled: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z',
+      },
+    ],
+  },
+
+  /** Play icon - for videos */
+  play: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [{ d: 'M5 4l14 8-14 8V4z' }],
+  },
+
+  /** Play circle icon - for video overlays */
+  playCircle: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 14.5v-9l6 4.5-6 4.5z',
+      },
+    ],
+  },
+
+  /** Location/Map pin icon */
+  location: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1 1 18 0z' },
+      { d: 'M12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z' },
+    ],
+  },
+
+  /** Trash/Delete icon */
+  trash: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M3 6h18' },
+      { d: 'M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2' },
+    ],
+  },
+
+  /** School/Education icon */
+  school: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M22 10l-10-5-10 5 10 5 10-5z' },
+      { d: 'M6 12v5c0 1.1 2.7 2 6 2s6-.9 6-2v-5' },
+      { d: 'M22 10v6' },
+    ],
+  },
+
+  /** Ribbon/Award icon */
+  ribbon: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 2l2.4 4.8 5.3.8-3.8 3.7.9 5.3L12 14l-4.8 2.6.9-5.3-3.8-3.7 5.3-.8L12 2z' },
+      { d: 'M8 17l-3 5 3-1.5L11 22l-1-5' },
+      { d: 'M16 17l3 5-3-1.5L13 22l1-5' },
+    ],
+  },
+
+  /** Star icon (outline) - for premium badges, ratings */
+  star: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      {
+        d: 'M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z',
+      },
+    ],
+  },
+
+  /** Star filled icon */
+  starFilled: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z',
+      },
+    ],
+  },
+
+  /** Whistle icon - for coach badges */
+  whistle: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M2 8l5 5' },
+      {
+        d: 'M7 13a7 7 0 1 0 0-1l-5-5V4h4l5 5a7 7 0 0 0-4 9z',
+      },
+      { d: 'M14 10a3 3 0 1 1 0 6 3 3 0 0 1 0-6z' },
+    ],
+  },
+
+  /** Trending up icon - for positive metrics */
+  trendingUp: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M23 6l-9.5 9.5-5-5L1 18' }, { d: 'M17 6h6v6' }],
+  },
+
+  /** Trending down icon - for negative metrics */
+  trendingDown: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M23 18l-9.5-9.5-5 5L1 6' }, { d: 'M17 18h6v-6' }],
+  },
+
+  /** Refresh icon - for reload/retry actions */
+  refresh: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M23 4v6h-6' },
+      { d: 'M1 20v-6h6' },
+      { d: 'M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15' },
+    ],
+  },
+
+  /** Video camera icon - for video content */
+  videocam: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M23 7l-7 5 7 5V7z' },
+      { d: 'M14 5H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z' },
+    ],
+  },
+
+  /** Download icon - for downloads/exports */
+  download: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' },
+      { d: 'M7 10l5 5 5-5' },
+      { d: 'M12 15V3' },
+    ],
+  },
+
+  /** Image/Photo icon - for image content */
+  image: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z' },
+      { d: 'M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z' },
+      { d: 'M21 15l-5-5L5 21' },
+    ],
+  },
+
+  /** Newspaper/Article icon - for news/article content */
+  newspaper: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M19 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z' },
+      { d: 'M7 9h4v4H7z' },
+      { d: 'M13 9h4' },
+      { d: 'M13 13h4' },
+      { d: 'M7 17h10' },
+    ],
+  },
+
+  /** Repeat/Repost icon - for repost/loop actions */
+  repeat: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M17 1l4 4-4 4' },
+      { d: 'M3 11V9a4 4 0 0 1 4-4h14' },
+      { d: 'M7 23l-4-4 4-4' },
+      { d: 'M21 13v2a4 4 0 0 1-4 4H3' },
+    ],
+  },
+
+  /** Flag icon (outline) - for reporting/flagging */
+  flag: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z' }, { d: 'M4 22v-7' }],
+  },
+
+  /** Flag filled icon */
+  flagFilled: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M14.4 6l-.24-1.2c-.09-.46-.5-.8-.98-.8H6c-.55 0-1 .45-1 1v15c0 .55.45 1 1 1s1-.45 1-1v-5h5.6l.24 1.2c.09.47.5.8.98.8H19c.55 0 1-.45 1-1V7c0-.55-.45-1-1-1h-4.6z',
+      },
+    ],
+  },
+
+  /** Business/Building icon - for organizations/companies */
+  business: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M3 21h18' },
+      { d: 'M5 21V7l8-4v18' },
+      { d: 'M19 21V11l-6-4' },
+      { d: 'M9 9v.01' },
+      { d: 'M9 12v.01' },
+      { d: 'M9 15v.01' },
+      { d: 'M9 18v.01' },
+    ],
+  },
 } as const;
 
 // ============================================
@@ -926,6 +1302,84 @@ export const BRAND_ICONS = {
       },
     ],
   },
+} as const;
+
+// ============================================
+// ALIAS ICONS (Compatibility with legacy names)
+// ============================================
+
+/**
+ * Alias names for compatibility with Ionicons-style identifiers.
+ * Maps kebab-case and `-outline` suffixed names to NXT1 icon definitions.
+ * Keeps legacy templates and constants working while using the design token registry.
+ *
+ * Naming convention:
+ *   - Ionicons format: `icon-name-outline` → maps to camelCase UI icon
+ *   - Kebab-case format: `icon-name` → maps to camelCase UI icon
+ */
+export const ALIAS_ICONS = {
+  // ---- Alert / Status ----
+  'alert-circle-outline': UI_ICONS.alertCircle,
+  'checkmark-circle-outline': UI_ICONS.checkmarkCircle,
+
+  // ---- Navigation / Arrows ----
+  'arrow-back-outline': UI_ICONS.chevronLeft,
+  'trending-up': UI_ICONS.trendingUp,
+  'trending-down': UI_ICONS.trendingDown,
+  'trending-up-outline': UI_ICONS.trendingUp,
+
+  // ---- Home / Places ----
+  'home-outline': UI_ICONS.home,
+  'school-outline': UI_ICONS.school,
+  'business-outline': UI_ICONS.business,
+  'location-outline': UI_ICONS.location,
+
+  // ---- Media ----
+  'play-circle-outline': UI_ICONS.playCircle,
+  'videocam-outline': UI_ICONS.videocam,
+  'image-outline': UI_ICONS.image,
+
+  // ---- Content ----
+  'document-text-outline': UI_ICONS.documentText,
+  'newspaper-outline': UI_ICONS.newspaper,
+  'flag-outline': UI_ICONS.flag,
+  'bookmark-outline': UI_ICONS.bookmark,
+
+  // ---- Social / People ----
+  'people-outline': UI_ICONS.users,
+  'chatbubble-outline': UI_ICONS.chatBubble,
+  'share-outline': UI_ICONS.share,
+  'heart-outline': UI_ICONS.heart,
+
+  // ---- Metrics / Analytics ----
+  'analytics-outline': UI_ICONS.barChart,
+  'bar-chart-outline': UI_ICONS.barChart,
+  'eye-outline': UI_ICONS.eye,
+  'star-outline': UI_ICONS.star,
+
+  // ---- Actions ----
+  'refresh-outline': UI_ICONS.refresh,
+  'download-outline': UI_ICONS.download,
+  'flash-outline': UI_ICONS.bolt,
+  'repeat-outline': UI_ICONS.repeat,
+
+  // ---- Awards ----
+  'trophy-outline': UI_ICONS.trophy,
+  'ribbon-outline': UI_ICONS.ribbon,
+
+  // ---- Sports / Themes ----
+  'sparkles-outline': UI_ICONS.sparkles,
+  'football-outline': UI_ICONS.football,
+
+  // ---- Semantic aliases (camelCase alternatives) ----
+  /** Sports icon → athlete role icon (for avatar badges) */
+  sports: ROLE_ICONS.athlete,
+  /** People icon → users UI icon (for avatar badges) */
+  people: UI_ICONS.users,
+  /** Analytics icon → barChart UI icon */
+  analytics: UI_ICONS.barChart,
+  /** Flash icon → bolt UI icon */
+  flash: UI_ICONS.bolt,
 } as const;
 
 // ============================================

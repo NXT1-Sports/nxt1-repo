@@ -44,15 +44,15 @@
      - Light: rgba(255, 255, 255, 0.88) with light shadows
   */
 
-  /* Compact pill dimensions - Layout only (no colors) */
-  --nxt1-pill-height: 52px;
-  --nxt1-pill-radius: 28px;
-  --nxt1-pill-padding: 2px;
-  --nxt1-pill-gap: 8px;
+  /* Compact pill dimensions - from design tokens */
+  --nxt1-pill-height: var(--nxt1-pill-height, 48px);
+  --nxt1-pill-radius: var(--nxt1-pill-radius, 28px);
+  --nxt1-pill-padding: var(--nxt1-pill-padding, 2px);
+  --nxt1-pill-gap: var(--nxt1-pill-gap, 4px);
 
-  /* Tab button dimensions - Layout only (no colors) */
-  --nxt1-tab-label-size: 10px;
-  --nxt1-tab-label-gap: 4px;
+  /* Tab button dimensions - from design tokens */
+  --nxt1-tab-label-size: var(--nxt1-tab-labelSize, 10px);
+  --nxt1-tab-label-gap: var(--nxt1-tab-labelGap, 4px);
 
   /* NOTE: Icon colors and active states now come from design tokens:
      --nxt1-icon-active (dark: #ffffff, light: #000000)
@@ -63,9 +63,9 @@
      --nxt1-tab-iconSize (26px)
   */
 
-  /* FAB dimensions */
-  --nxt1-fab-size: 48px;
-  --nxt1-fab-radius: 50%;
+  /* FAB dimensions - from design tokens */
+  --nxt1-fab-size: var(--nxt1-fab-size, 48px);
+  --nxt1-fab-radius: var(--nxt1-fab-radius, 50%);
   /* NOTE: FAB shadows and gradients now come from design tokens:
      --nxt1-fab-shadow
      --nxt1-fab-shadowActive
@@ -74,9 +74,9 @@
   */
 
   /* Layout */
-  --nxt1-nav-height: 64px;
-  --nxt1-nav-height-mobile: 56px;
-  --nxt1-nav-padding-x: var(--nxt1-spacing-6, 24px);
+  --nxt1-nav-height: var(--nxt1-spacing-16, 4rem);
+  --nxt1-nav-height-mobile: var(--nxt1-spacing-14, 3.5rem);
+  --nxt1-nav-padding-x: var(--nxt1-spacing-6, 1.5rem);
   --nxt1-nav-max-width: 1536px;
 
   /* Z-index scale for navigation */
@@ -143,7 +143,7 @@
   --tab-active-bg: var(--nxt1-tab-activeBg);
   --action-bg: var(--nxt1-color-primary);
   --action-text: var(--nxt1-color-text-on-Primary);
-  --action-size: 44px;
+  --action-size: var(--nxt1-ui-touch-target);
   --action-glow: var(--nxt1-glow-sm);
 }
 
@@ -241,16 +241,16 @@
   position: absolute;
   top: -2px;
   right: -4px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  min-width: var(--nxt1-spacing-4, 1rem);
+  height: var(--nxt1-spacing-4, 1rem);
+  padding: 0 var(--nxt1-spacing-1, 0.25rem);
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--nxt1-nav-badge-bg);
   color: var(--nxt1-nav-badge-text);
-  font-size: 9px;
-  font-weight: 700;
+  font-size: var(--nxt1-fontSize-2xs, 0.625rem);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
   line-height: 1;
   border-radius: var(--nxt1-ui-radius-full, 9999px);
   border: 2px solid var(--pill-bg);
@@ -258,8 +258,8 @@
 }
 
 .nxt1-footer .tab-badge.large {
-  min-width: 20px;
-  font-size: 8px;
+  min-width: var(--nxt1-spacing-5, 1.25rem);
+  font-size: var(--nxt1-fontSize-2xs, 0.625rem);
 }
 
 /* Platform adjustments */
@@ -278,7 +278,7 @@
 }
 
 .nxt1-footer.hide-labels .tab-button {
-  height: 40px;
+  height: var(--nxt1-spacing-10, 2.5rem);
   gap: 0;
 }
 
@@ -311,9 +311,9 @@
   width: 100%;
   height: var(--nxt1-nav-height);
   background: var(--nxt1-nav-bg);
-  transition:
-    transform var(--nxt1-nav-transition-normal),
-    background-color var(--nxt1-nav-transition-fast);
+  /* Only transition transform for hide-on-scroll. 
+     Background-color removed to allow instant theme switching. */
+  transition: transform var(--nxt1-nav-transition-normal);
   will-change: transform;
 }
 
@@ -416,15 +416,15 @@
 .nxt1-desktop-nav .nav-item-btn {
   display: flex;
   align-items: center;
-  gap: var(--nxt1-spacing-1, 4px);
-  height: 36px;
-  padding: 0 var(--nxt1-spacing-3, 12px);
+  gap: var(--nxt1-spacing-1, 0.25rem);
+  height: var(--nxt1-ui-btn-height-sm);
+  padding: 0 var(--nxt1-spacing-3, 0.75rem);
   background: transparent;
   border: none;
   border-radius: var(--nxt1-ui-radius-default, 8px);
   color: var(--nxt1-nav-text-secondary);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   letter-spacing: 0.01em;
   cursor: pointer;
   white-space: nowrap;
@@ -464,8 +464,8 @@
 .nxt1-desktop-nav .nav-item-btn.featured {
   background: var(--nxt1-color-primary);
   color: var(--nxt1-color-text-on-Primary);
-  font-weight: 600;
-  padding: 0 var(--nxt1-spacing-4, 16px);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
+  padding: 0 var(--nxt1-spacing-4, 1rem);
 }
 
 .nxt1-desktop-nav .nav-item-btn.featured:hover:not(:disabled) {
@@ -480,14 +480,14 @@
   justify-content: center;
   min-width: 18px;
   height: 18px;
-  padding: 0 5px;
+  padding: 0 var(--nxt1-spacing-1, 0.25rem);
   background: var(--nxt1-nav-badge-bg);
   color: var(--nxt1-nav-badge-text);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--nxt1-fontSize-2xs, 0.625rem);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   line-height: 1;
   border-radius: var(--nxt1-ui-radius-full, 9999px);
-  margin-left: var(--nxt1-spacing-1, 4px);
+  margin-left: var(--nxt1-spacing-1, 0.25rem);
 }
 
 /* Chevron rotation */
@@ -518,7 +518,7 @@
 .nxt1-desktop-nav .user-dropdown {
   position: absolute;
   top: calc(100% + var(--nxt1-spacing-2, 8px));
-  min-width: 200px;
+  min-width: var(--nxt1-spacing-52, 13rem);
   background: var(--nxt1-color-surface-100);
   border: 1px solid var(--nxt1-color-border-default);
   border-radius: var(--nxt1-ui-radius-lg, 12px);
@@ -541,7 +541,7 @@
 
 .nxt1-desktop-nav .user-dropdown {
   right: 0;
-  min-width: 240px;
+  min-width: var(--nxt1-spacing-60, 15rem);
   transform-origin: top right;
 }
 
@@ -557,15 +557,15 @@
 .nxt1-desktop-nav .user-menu-item {
   display: flex;
   align-items: center;
-  gap: var(--nxt1-spacing-3, 12px);
+  gap: var(--nxt1-spacing-3, 0.75rem);
   width: 100%;
-  padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-3, 12px);
+  padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-3, 0.75rem);
   background: transparent;
   border: none;
   border-radius: var(--nxt1-ui-radius-default, 8px);
   color: var(--nxt1-nav-text);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   text-align: left;
   cursor: pointer;
   transition: background-color var(--nxt1-nav-transition-fast);
@@ -602,13 +602,13 @@
 /* Search bar */
 .nxt1-desktop-nav .search-input {
   width: 100%;
-  height: 36px;
-  padding: 0 var(--nxt1-spacing-10, 40px);
+  height: var(--nxt1-ui-btn-height-sm);
+  padding: 0 var(--nxt1-spacing-10, 2.5rem);
   background: var(--nxt1-nav-hover-bg);
   border: 1px solid transparent;
   border-radius: var(--nxt1-ui-radius-full, 9999px);
   color: var(--nxt1-nav-text);
-  font-size: 14px;
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
   outline: none;
   transition:
     background-color var(--nxt1-nav-transition-fast),
@@ -618,9 +618,9 @@
 
 /* Centered search bar (YouTube-style) */
 .nxt1-desktop-nav .search-input--centered {
-  height: 44px;
-  padding: 0 var(--nxt1-spacing-12, 48px);
-  font-size: 15px;
+  height: var(--nxt1-ui-btn-height-md);
+  padding: 0 var(--nxt1-spacing-12, 3rem);
+  font-size: var(--nxt1-fontSize-base, 1rem);
   border: 1px solid var(--nxt1-color-border-default);
   background: var(--nxt1-nav-bg);
 }
@@ -680,8 +680,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: var(--nxt1-spacing-10, 2.5rem);
+  height: var(--nxt1-spacing-10, 2.5rem);
   padding: 0;
   background: transparent;
   border: none;
@@ -712,15 +712,15 @@
 .nxt1-desktop-nav .nav-create-btn {
   display: flex;
   align-items: center;
-  gap: var(--nxt1-spacing-2, 8px);
-  height: 36px;
-  padding: 0 var(--nxt1-spacing-4, 16px);
+  gap: var(--nxt1-spacing-2, 0.5rem);
+  height: var(--nxt1-ui-btn-height-sm);
+  padding: 0 var(--nxt1-spacing-4, 1rem);
   background: var(--nxt1-nav-hover-bg);
   border: none;
   border-radius: var(--nxt1-ui-radius-full, 9999px);
   color: var(--nxt1-nav-text);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   cursor: pointer;
   transition:
     background-color var(--nxt1-nav-transition-fast),
@@ -749,11 +749,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 36px;
-  padding: 0 var(--nxt1-spacing-5, 20px);
+  height: var(--nxt1-ui-btn-height-sm);
+  padding: 0 var(--nxt1-spacing-5, 1.25rem);
   border-radius: var(--nxt1-ui-radius-full, 9999px);
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   text-decoration: none;
   cursor: pointer;
   transition:
@@ -765,8 +765,8 @@
 
 .nxt1-desktop-nav .nav-auth-btn--primary {
   background: var(--nxt1-color-primary);
-  color: #000000;
-  box-shadow: 0 8px 18px var(--nxt1-color-alpha-primary25);
+  color: var(--nxt1-ui-text-inverse, #000000);
+  box-shadow: var(--nxt1-glow-md);
 }
 
 .nxt1-desktop-nav .nav-auth-btn--primary:hover {
@@ -776,7 +776,7 @@
 
 .nxt1-desktop-nav .nav-auth-btn--primary:active {
   transform: translateY(0);
-  box-shadow: 0 6px 14px var(--nxt1-color-alpha-primary25);
+  box-shadow: var(--nxt1-glow-sm);
 }
 
 .nxt1-desktop-nav .nav-auth-btn--primary:focus-visible {
@@ -792,13 +792,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  min-width: var(--nxt1-spacing-4, 1rem);
+  height: var(--nxt1-spacing-4, 1rem);
+  padding: 0 var(--nxt1-spacing-1, 0.25rem);
   background: var(--nxt1-nav-badge-bg);
   color: var(--nxt1-nav-badge-text);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: var(--nxt1-fontSize-2xs, 0.625rem);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
   line-height: 1;
   border-radius: var(--nxt1-ui-radius-full, 9999px);
   border: 2px solid var(--nxt1-nav-bg);
@@ -809,10 +809,10 @@
 .nxt1-desktop-nav .user-btn {
   display: flex;
   align-items: center;
-  gap: var(--nxt1-spacing-2, 8px);
-  height: 40px;
-  padding: var(--nxt1-spacing-1, 4px) var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-1, 4px)
-    var(--nxt1-spacing-1, 4px);
+  gap: var(--nxt1-spacing-2, 0.5rem);
+  height: var(--nxt1-spacing-10, 2.5rem);
+  padding: var(--nxt1-spacing-1, 0.25rem) var(--nxt1-spacing-3, 0.75rem)
+    var(--nxt1-spacing-1, 0.25rem) var(--nxt1-spacing-1, 0.25rem);
   background: transparent;
   border: none;
   border-radius: var(--nxt1-ui-radius-full, 9999px);
@@ -848,13 +848,13 @@
 }
 
 .nxt1-desktop-nav .user-avatar {
-  width: 32px;
-  height: 32px;
+  width: var(--nxt1-spacing-8, 2rem);
+  height: var(--nxt1-spacing-8, 2rem);
 }
 
 .nxt1-desktop-nav .user-info-avatar {
-  width: 40px;
-  height: 40px;
+  width: var(--nxt1-spacing-10, 2.5rem);
+  height: var(--nxt1-spacing-10, 2.5rem);
 }
 
 .nxt1-desktop-nav .avatar-img,
@@ -871,17 +871,17 @@
   justify-content: center;
   width: 100%;
   height: 100%;
-  font-weight: 600;
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   color: var(--nxt1-nav-text);
   text-transform: uppercase;
 }
 
 .nxt1-desktop-nav .avatar-initials {
-  font-size: 12px;
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
 }
 
 .nxt1-desktop-nav .avatar-initials-lg {
-  font-size: 16px;
+  font-size: var(--nxt1-fontSize-base, 1rem);
 }
 
 .nxt1-desktop-nav .avatar-verified {
@@ -891,8 +891,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: var(--nxt1-spacing-3_5, 0.875rem);
+  height: var(--nxt1-spacing-3_5, 0.875rem);
   background: var(--nxt1-ui-primary);
   border-radius: var(--nxt1-ui-radius-full, 9999px);
   color: var(--nxt1-ui-text-inverse);
@@ -903,8 +903,8 @@
 .nxt1-desktop-nav .user-info {
   display: flex;
   align-items: flex-start;
-  gap: var(--nxt1-spacing-3, 12px);
-  padding: var(--nxt1-spacing-4, 16px);
+  gap: var(--nxt1-spacing-3, 0.75rem);
+  padding: var(--nxt1-spacing-4, 1rem);
   position: relative;
 }
 
@@ -917,8 +917,8 @@
 }
 
 .nxt1-desktop-nav .user-info-name {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   color: var(--nxt1-nav-text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -926,7 +926,7 @@
 }
 
 .nxt1-desktop-nav .user-info-email {
-  font-size: 12px;
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
   color: var(--nxt1-nav-text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -937,11 +937,11 @@
   display: inline-flex;
   align-items: center;
   margin-top: var(--nxt1-spacing-1, 4px);
-  padding: 2px var(--nxt1-spacing-2, 8px);
+  padding: 2px var(--nxt1-spacing-2, 0.5rem);
   background: var(--nxt1-nav-hover-bg);
   border-radius: var(--nxt1-ui-radius-sm, 4px);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   color: var(--nxt1-nav-text-secondary);
   width: fit-content;
 }
@@ -950,12 +950,16 @@
   position: absolute;
   top: var(--nxt1-spacing-3, 12px);
   right: var(--nxt1-spacing-3, 12px);
-  padding: 2px var(--nxt1-spacing-2, 8px);
-  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  padding: 2px var(--nxt1-spacing-2, 0.5rem);
+  background: linear-gradient(
+    135deg,
+    var(--nxt1-color-warning, #f59e0b),
+    var(--nxt1-color-warningLight, #fbbf24)
+  );
   border-radius: var(--nxt1-ui-radius-sm, 4px);
-  font-size: 10px;
-  font-weight: 700;
-  color: #000000;
+  font-size: var(--nxt1-fontSize-2xs, 0.625rem);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
+  color: var(--nxt1-ui-text-inverse, #000000);
   letter-spacing: 0.05em;
 }
 
@@ -982,7 +986,7 @@
   top: 0;
   left: 0;
   bottom: 0;
-  width: 280px;
+  width: var(--nxt1-spacing-72, 18rem);
   max-width: 85vw;
   background: var(--nxt1-nav-bg);
   border-right: 1px solid var(--nxt1-nav-border);
@@ -1001,15 +1005,15 @@
 .nxt1-desktop-nav .mobile-nav-btn {
   display: flex;
   align-items: center;
-  gap: var(--nxt1-spacing-3, 12px);
+  gap: var(--nxt1-spacing-3, 0.75rem);
   width: 100%;
-  padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+  padding: var(--nxt1-spacing-3, 0.75rem) var(--nxt1-spacing-4, 1rem);
   background: transparent;
   border: none;
   border-radius: var(--nxt1-ui-radius-default, 8px);
   color: var(--nxt1-nav-text-secondary);
-  font-size: 16px;
-  font-weight: 500;
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   text-align: left;
   cursor: pointer;
   transition: all var(--nxt1-nav-transition-fast);
@@ -1031,10 +1035,10 @@
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 5px;
-  width: 40px;
-  height: 40px;
-  padding: 8px;
+  gap: var(--nxt1-spacing-1, 0.25rem);
+  width: var(--nxt1-spacing-10, 2.5rem);
+  height: var(--nxt1-spacing-10, 2.5rem);
+  padding: var(--nxt1-spacing-2, 0.5rem);
   background: transparent;
   border: none;
   border-radius: var(--nxt1-ui-radius-default, 8px);
@@ -1048,7 +1052,7 @@
 
 .nxt1-desktop-nav .hamburger-line {
   display: block;
-  width: 20px;
+  width: var(--nxt1-spacing-5, 1.25rem);
   height: 2px;
   background: var(--nxt1-nav-text);
   border-radius: 1px;
@@ -1073,10 +1077,10 @@
   align-items: center;
   justify-content: center;
   width: 100%;
-  padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+  padding: var(--nxt1-spacing-3, 0.75rem) var(--nxt1-spacing-4, 1rem);
   border-radius: var(--nxt1-ui-radius-default, 8px);
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   cursor: pointer;
   transition: all var(--nxt1-nav-transition-fast);
 }
@@ -1130,21 +1134,21 @@
 }
 
 .nxt1-page-header ion-toolbar {
-  --padding-start: 8px;
-  --padding-end: 8px;
-  --min-height: 44px;
+  --padding-start: var(--nxt1-spacing-2);
+  --padding-end: var(--nxt1-spacing-2);
+  --min-height: var(--nxt1-ui-touch-target);
 }
 
 .nxt1-page-header ion-back-button {
   --color: var(--nxt1-ui-primary, #007aff);
-  --icon-font-size: 24px;
-  --icon-margin-end: 4px;
+  --icon-font-size: var(--nxt1-spacing-6, 1.5rem);
+  --icon-margin-end: var(--nxt1-spacing-1);
   --padding-start: 0;
   --margin-start: 0;
 }
 
 :host-context(.ios) .nxt1-page-header ion-back-button {
-  --icon-font-size: 28px;
+  --icon-font-size: var(--nxt1-spacing-7, 1.75rem);
 }
 
 .nxt1-page-header ion-title {
@@ -1152,7 +1156,7 @@
   font-weight: var(--nxt1-fontWeight-semibold, 600);
   font-size: var(--nxt1-fontSize-lg, 17px);
   letter-spacing: -0.01em;
-  padding-inline: 8px;
+  padding-inline: var(--nxt1-spacing-2);
 }
 
 .nxt1-page-header .large-title-toolbar ion-title {
@@ -1163,13 +1167,13 @@
 
 .nxt1-page-header ion-buttons ion-button {
   --color: var(--nxt1-ui-primary, #007aff);
-  --padding-start: 8px;
-  --padding-end: 8px;
+  --padding-start: var(--nxt1-spacing-2);
+  --padding-end: var(--nxt1-spacing-2);
   position: relative;
 }
 
 .nxt1-page-header ion-buttons ion-button ion-icon {
-  font-size: 24px;
+  font-size: var(--nxt1-spacing-6, 1.5rem);
 }
 
 .nxt1-page-header .action--danger {
@@ -1180,18 +1184,18 @@
   position: absolute;
   top: 2px;
   right: 2px;
-  font-size: 10px;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
+  font-size: var(--nxt1-fontSize-2xs, 0.625rem);
+  min-width: var(--nxt1-spacing-4, 1rem);
+  height: var(--nxt1-spacing-4, 1rem);
+  padding: 0 var(--nxt1-spacing-1, 0.25rem);
+  border-radius: var(--nxt1-borderRadius-md, 0.5rem);
   --background: var(--nxt1-ui-error, #ff3b30);
   --color: white;
 }
 
 .nxt1-page-header .search-toolbar {
   --padding-top: 0;
-  --padding-bottom: 8px;
+  --padding-bottom: var(--nxt1-spacing-2);
 }
 
 .nxt1-page-header ion-button:active {

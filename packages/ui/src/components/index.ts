@@ -226,6 +226,15 @@ export {
 } from './hero-header';
 
 // ============================================
+// APP DOWNLOAD BAR
+// ============================================
+export {
+  NxtAppDownloadBarComponent,
+  NxtAppDownloadBarService,
+  type AppDownloadBarConfig,
+} from './app-download-bar';
+
+// ============================================
 // UTILITY COMPONENTS
 // ============================================
 export { NxtRefreshContainerComponent, type RefreshEvent } from './refresh-container';

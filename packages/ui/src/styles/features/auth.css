@@ -113,8 +113,8 @@ ion-content.nxt1-auth-content {
   width: 100%;
   min-height: 100vh;
   min-height: 100dvh;
-  padding-top: 60px;
-  padding-bottom: 40px;
+  padding-top: var(--nxt1-spacing-16, 4rem);
+  padding-bottom: var(--nxt1-spacing-10, 2.5rem);
   background-color: transparent;
 }
 
@@ -130,7 +130,7 @@ ion-content.nxt1-auth-content {
 
 .nxt1-auth-logo img,
 .nxt1-auth-logo svg {
-  height: 40px;
+  height: var(--nxt1-spacing-10, 2.5rem);
   width: auto;
 }
 
@@ -191,8 +191,8 @@ ion-content.nxt1-auth-content {
 }
 
 .nxt1-auth-app-promo .phone-icon {
-  width: 48px;
-  height: 48px;
+  width: var(--nxt1-spacing-12, 3rem);
+  height: var(--nxt1-spacing-12, 3rem);
   color: var(--nxt1-ui-primary);
   stroke-width: 1.5;
 }
@@ -200,7 +200,7 @@ ion-content.nxt1-auth-content {
 .nxt1-auth-app-promo h3 {
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-lg, 1.25rem);
-  font-weight: var(--nxt1-font-weight-bold, 700);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
   color: var(--nxt1-ui-text-primary);
   margin: 0;
 }
@@ -230,11 +230,11 @@ ion-content.nxt1-auth-content {
 }
 
 .nxt1-auth-qr-code img {
-  width: 100px;
-  height: 100px;
+  width: var(--nxt1-spacing-24, 6rem);
+  height: var(--nxt1-spacing-24, 6rem);
   border-radius: var(--nxt1-ui-radius-default);
   background: white;
-  padding: 4px;
+  padding: var(--nxt1-spacing-1, 0.25rem);
 }
 
 .nxt1-auth-qr-code span {
@@ -247,8 +247,8 @@ ion-content.nxt1-auth-content {
 }
 
 .nxt1-auth-qr-code span svg {
-  width: 14px;
-  height: 14px;
+  width: var(--nxt1-spacing-3_5, 0.875rem);
+  height: var(--nxt1-spacing-3_5, 0.875rem);
 }
 
 /* ============================================
@@ -273,7 +273,7 @@ ion-content.nxt1-auth-content {
 .nxt1-auth-app-buttons .app-buttons-label {
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-xs, 0.75rem);
-  font-weight: var(--nxt1-font-weight-semibold, 600);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   color: var(--nxt1-ui-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -308,8 +308,8 @@ ion-content.nxt1-auth-content {
 }
 
 .nxt1-auth-store-btn svg {
-  width: 24px;
-  height: 24px;
+  width: var(--nxt1-spacing-6, 1.5rem);
+  height: var(--nxt1-spacing-6, 1.5rem);
   color: var(--nxt1-ui-text-primary);
 }
 
@@ -321,7 +321,7 @@ ion-content.nxt1-auth-content {
 
 .nxt1-auth-store-btn .store-label {
   font-family: var(--nxt1-ui-font);
-  font-size: 10px;
+  font-size: var(--nxt1-fontSize-2xs, 0.625rem);
   color: var(--nxt1-ui-text-muted);
   line-height: 1;
 }
@@ -329,7 +329,7 @@ ion-content.nxt1-auth-content {
 .nxt1-auth-store-btn .store-name {
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-sm, 0.875rem);
-  font-weight: var(--nxt1-font-weight-semibold, 600);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   color: var(--nxt1-ui-text-primary);
   line-height: 1.2;
 }
@@ -348,7 +348,7 @@ ion-content.nxt1-auth-content {
 .nxt1-auth-header h1 {
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-2xl, 1.875rem);
-  font-weight: var(--nxt1-font-weight-bold, 700);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
   color: var(--nxt1-ui-text-primary);
   margin: 0 0 var(--nxt1-spacing-2, 0.5rem);
   letter-spacing: -0.02em;
@@ -357,7 +357,7 @@ ion-content.nxt1-auth-content {
 .nxt1-auth-header p {
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-base, 1rem);
-  font-weight: var(--nxt1-font-weight-medium, 500);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   color: var(--nxt1-ui-text-secondary);
   margin: 0;
 }
@@ -372,7 +372,7 @@ ion-content.nxt1-auth-content {
 h1[authTitle] {
   font-family: var(--nxt1-ui-font);
   font-size: clamp(1.75rem, 5vw, 2.25rem);
-  font-weight: var(--nxt1-font-weight-bold, 700);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
   color: var(--nxt1-ui-text-primary);
   margin: 0;
   letter-spacing: -0.025em;
@@ -384,7 +384,7 @@ h1[authTitle] {
 p[authSubtitle] {
   font-family: var(--nxt1-ui-font);
   font-size: clamp(0.9375rem, 2.5vw, 1rem);
-  font-weight: var(--nxt1-font-weight-medium, 500);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   color: var(--nxt1-ui-text-secondary);
   margin: var(--nxt1-spacing-2, 0.5rem) 0 0;
   line-height: 1.5;
@@ -406,7 +406,7 @@ p[authFooter] {
 
 [authFooter] a,
 p[authFooter] a {
-  font-weight: var(--nxt1-font-weight-bold, 700);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
   color: var(--nxt1-ui-primary);
   text-decoration: none;
   cursor: pointer;
@@ -442,7 +442,7 @@ p[authFooter] a:hover {
 .nxt1-auth-footer a {
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-base, 1rem);
-  font-weight: var(--nxt1-font-weight-bold, 700);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
   color: var(--nxt1-ui-primary);
   text-decoration: none;
   cursor: pointer;
@@ -515,7 +515,7 @@ p[authFooter] a:hover {
 
   [authTitle],
   h1[authTitle] {
-    font-size: 2rem;
+    font-size: var(--nxt1-fontSize-3xl, 2rem);
   }
 }
 
@@ -530,17 +530,17 @@ p[authFooter] a:hover {
 
   .nxt1-auth-card {
     padding: var(--nxt1-spacing-10, 2.5rem);
-    max-width: 480px;
+    max-width: var(--nxt1-ui-auth-card-max-width, 480px);
   }
 
   [authTitle],
   h1[authTitle] {
-    font-size: 2.25rem;
+    font-size: var(--nxt1-fontSize-4xl, 2.25rem);
   }
 
   [authSubtitle],
   p[authSubtitle] {
-    font-size: 1.0625rem;
+    font-size: var(--nxt1-fontSize-md, 1.0625rem);
   }
 }
 
@@ -565,11 +565,11 @@ p[authFooter] a:hover {
 
   [authTitle],
   h1[authTitle] {
-    font-size: 1.75rem;
+    font-size: var(--nxt1-fontSize-2xl, 1.75rem);
   }
 
   [authSubtitle],
   p[authSubtitle] {
-    font-size: 0.9375rem;
+    font-size: var(--nxt1-fontSize-base, 0.9375rem);
   }
 }

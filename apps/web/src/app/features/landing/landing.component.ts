@@ -32,7 +32,7 @@ import { SeoService } from '../../core/services/seo.service';
     <nxt1-hero-header
       headline=""
       subheadline="The ultimate platform for high school and club athletes to get recruited."
-      [showLogo]="true"
+      [showLogo]="false"
       [showPrimaryCta]="true"
       [showAnimatedBg]="true"
       [showTrustBadges]="true"

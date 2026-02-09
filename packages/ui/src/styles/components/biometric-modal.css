@@ -18,7 +18,7 @@
 
 ion-modal.nxt1-biometric-modal {
   --backdrop-opacity: 0.5;
-  --box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.3);
+  --box-shadow: var(--nxt1-shadow-xl);
 
   /* Align to bottom for sheet presentation */
   align-items: flex-end;
@@ -30,7 +30,7 @@ ion-modal.nxt1-biometric-modal::part(backdrop) {
 }
 
 ion-modal.nxt1-biometric-modal::part(content) {
-  border-radius: 20px 20px 0 0;
+  border-radius: var(--nxt1-borderRadius-2xl, 1.5rem) var(--nxt1-borderRadius-2xl, 1.5rem) 0 0;
   overflow: hidden;
 }
 
@@ -43,11 +43,11 @@ ion-modal.nxt1-biometric-modal::part(handle) {
  * ============================================ */
 
 ion-modal.nxt1-biometric-modal--ios {
-  --background: rgba(28, 28, 30, 0.98);
+  --background: var(--nxt1-color-surface-glass, rgba(28, 28, 30, 0.98));
 }
 
 ion-modal.nxt1-biometric-modal--ios::part(content) {
-  border-radius: 16px 16px 0 0;
+  border-radius: var(--nxt1-borderRadius-xl, 1rem) var(--nxt1-borderRadius-xl, 1rem) 0 0;
   /* iOS system blur effect */
   -webkit-backdrop-filter: saturate(180%) blur(20px);
   backdrop-filter: saturate(180%) blur(20px);
@@ -71,16 +71,13 @@ html[data-theme='light'] ion-modal.nxt1-biometric-modal--ios::part(backdrop) {
  * ============================================ */
 
 ion-modal.nxt1-biometric-modal--android {
-  --background: #1e1e1e;
+  --background: var(--nxt1-color-surface-elevated, #1e1e1e);
 }
 
 ion-modal.nxt1-biometric-modal--android::part(content) {
-  border-radius: 28px 28px 0 0;
+  border-radius: var(--nxt1-borderRadius-3xl, 2rem) var(--nxt1-borderRadius-3xl, 2rem) 0 0;
   /* Material elevation */
-  box-shadow:
-    0 -1px 2px rgba(0, 0, 0, 0.3),
-    0 -2px 6px rgba(0, 0, 0, 0.15),
-    0 -8px 24px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--nxt1-shadow-2xl);
 }
 
 ion-modal.nxt1-biometric-modal--android::part(backdrop) {
@@ -89,14 +86,11 @@ ion-modal.nxt1-biometric-modal--android::part(backdrop) {
 
 /* Android Light Theme */
 html[data-theme='light'] ion-modal.nxt1-biometric-modal--android {
-  --background: #ffffff;
+  --background: var(--nxt1-color-surface-elevated, #ffffff);
 }
 
 html[data-theme='light'] ion-modal.nxt1-biometric-modal--android::part(content) {
-  box-shadow:
-    0 -1px 2px rgba(0, 0, 0, 0.1),
-    0 -2px 6px rgba(0, 0, 0, 0.08),
-    0 -8px 24px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--nxt1-shadow-xl);
 }
 
 /* ============================================
@@ -104,17 +98,19 @@ html[data-theme='light'] ion-modal.nxt1-biometric-modal--android::part(content) 
  * ============================================ */
 
 ion-modal.nxt1-biometric-modal {
-  --transition-duration: 300ms;
+  --transition-duration: var(--nxt1-duration-normal, 300ms);
 }
 
 /* iOS spring animation */
 ion-modal.nxt1-biometric-modal--ios {
-  --transition: transform 350ms cubic-bezier(0.32, 0.72, 0, 1);
+  --transition: transform var(--nxt1-duration-slow, 350ms)
+    var(--nxt1-easing-spring, cubic-bezier(0.32, 0.72, 0, 1));
 }
 
 /* Android Material motion */
 ion-modal.nxt1-biometric-modal--android {
-  --transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition: transform var(--nxt1-duration-normal, 300ms)
+    var(--nxt1-easing-inOut, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 /* ============================================

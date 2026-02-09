@@ -36,21 +36,7 @@ import {
   EventEmitter,
   inject,
 } from '@angular/core';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  contrastOutline,
-  sunnyOutline,
-  moonOutline,
-  phonePortraitOutline,
-  sparkles,
-  checkmark,
-  checkmarkCircle,
-  colorPaletteOutline,
-  americanFootballOutline,
-  basketballOutline,
-  baseballOutline,
-} from 'ionicons/icons';
+import { NxtIconComponent } from '../icon';
 import { HapticsService } from '../../services/haptics';
 import {
   NxtThemeService,
@@ -75,41 +61,52 @@ export interface ThemeSelectEvent {
 @Component({
   selector: 'nxt1-theme-selector',
   standalone: true,
-  imports: [IonIcon],
+  imports: [NxtIconComponent],
   template: `
     <div
       class="theme-selector"
       [class.theme-selector--compact]="variant === 'compact'"
       [class.theme-selector--inline]="variant === 'inline'"
+      [class.theme-selector--single-row]="singleRow"
     >
       <!-- APPEARANCE SECTION -->
       @if (showAppearance) {
         <section class="theme-section" role="group" aria-labelledby="appearance-label">
           @if (showLabels) {
             <h3 id="appearance-label" class="theme-section__title">
-              <ion-icon name="contrast-outline" class="theme-section__icon"></ion-icon>
+              <nxt1-icon name="contrast" [size]="18" class="theme-section__icon" />
               Appearance
             </h3>
           }
 
           <div class="theme-options" role="radiogroup" aria-label="Theme mode">
             @for (option of themeOptions; track option.id) {
+              <!-- In singleRow mode, appearance only shows selected if NO sport theme active -->
               <button
                 type="button"
                 class="theme-option"
-                [class.theme-option--selected]="themeService.preference() === option.id"
+                [class.theme-option--selected]="
+                  themeService.preference() === option.id &&
+                  (!singleRow || !themeService.hasSportTheme())
+                "
                 role="radio"
-                [attr.aria-checked]="themeService.preference() === option.id"
+                [attr.aria-checked]="
+                  themeService.preference() === option.id &&
+                  (!singleRow || !themeService.hasSportTheme())
+                "
                 [attr.aria-label]="option.label"
                 (click)="selectAppearance(option)"
               >
                 <div class="theme-option__icon-wrapper">
-                  <ion-icon [name]="option.icon" class="theme-option__icon"></ion-icon>
+                  <nxt1-icon [name]="option.icon" [size]="20" class="theme-option__icon" />
                 </div>
                 <span class="theme-option__label">{{ option.label }}</span>
-                @if (themeService.preference() === option.id) {
+                @if (
+                  themeService.preference() === option.id &&
+                  (!singleRow || !themeService.hasSportTheme())
+                ) {
                   <div class="theme-option__check">
-                    <ion-icon name="checkmark" class="theme-option__check-icon"></ion-icon>
+                    <nxt1-icon name="checkmark" [size]="14" class="theme-option__check-icon" />
                   </div>
                 }
               </button>
@@ -127,50 +124,78 @@ export interface ThemeSelectEvent {
         >
           @if (showLabels) {
             <h3 id="sport-label" class="theme-section__title">
-              <ion-icon name="color-palette-outline" class="theme-section__icon"></ion-icon>
+              <nxt1-icon name="colorPalette" [size]="18" class="theme-section__icon" />
               Sport Colors
             </h3>
           }
 
-          <div class="sport-options">
-            <!-- Default (No sport theme) -->
-            <button
-              type="button"
-              class="sport-option"
-              [class.sport-option--selected]="!themeService.hasSportTheme()"
-              role="radio"
-              [attr.aria-checked]="!themeService.hasSportTheme()"
-              aria-label="NXT1 Default (Volt Green)"
-              (click)="clearSportTheme()"
-            >
-              <div class="sport-option__color sport-option__color--default">
-                <ion-icon name="sparkles" class="sport-option__icon"></ion-icon>
-              </div>
-              <span class="sport-option__label">Default</span>
-              @if (!themeService.hasSportTheme()) {
-                <ion-icon name="checkmark-circle" class="sport-option__check"></ion-icon>
-              }
-            </button>
-
-            <!-- Sport themes -->
-            @for (sport of sportOptions; track sport.id) {
+          <div class="sport-options" [class.sport-options--unified]="singleRow">
+            <!-- Default (No sport theme) - hidden in single-row desktop mode -->
+            @if (!singleRow) {
               <button
                 type="button"
                 class="sport-option"
-                [class.sport-option--selected]="themeService.sportTheme() === sport.id"
+                [class.sport-option--selected]="!themeService.hasSportTheme()"
                 role="radio"
-                [attr.aria-checked]="themeService.sportTheme() === sport.id"
-                [attr.aria-label]="sport.label"
-                (click)="selectSport(sport)"
+                [attr.aria-checked]="!themeService.hasSportTheme()"
+                aria-label="NXT1 Default (Volt Green)"
+                (click)="clearSportTheme()"
               >
-                <div class="sport-option__color" [style.--sport-color]="sport.primaryColor">
-                  <ion-icon [name]="sport.icon" class="sport-option__icon"></ion-icon>
+                <div class="sport-option__color sport-option__color--default">
+                  <nxt1-icon name="sparkles" [size]="18" class="sport-option__icon" />
                 </div>
-                <span class="sport-option__label">{{ sport.label }}</span>
-                @if (themeService.sportTheme() === sport.id) {
-                  <ion-icon name="checkmark-circle" class="sport-option__check"></ion-icon>
+                <span class="sport-option__label">Default</span>
+                @if (!themeService.hasSportTheme()) {
+                  <nxt1-icon name="checkmarkCircle" [size]="18" class="sport-option__check" />
                 }
               </button>
+            }
+
+            <!-- Sport themes -->
+            @for (sport of sportOptions; track sport.id) {
+              <!-- In singleRow mode, use theme-option class for identical styling -->
+              @if (singleRow) {
+                <button
+                  type="button"
+                  class="theme-option theme-option--sport"
+                  [class.theme-option--selected]="themeService.sportTheme() === sport.id"
+                  role="radio"
+                  [attr.aria-checked]="themeService.sportTheme() === sport.id"
+                  [attr.aria-label]="sport.label"
+                  (click)="selectSport(sport)"
+                >
+                  <div
+                    class="theme-option__icon-wrapper theme-option__icon-wrapper--sport"
+                    [style.--sport-accent]="sport.primaryColor"
+                  >
+                    <nxt1-icon [name]="sport.icon" [size]="20" class="theme-option__icon" />
+                  </div>
+                  <span class="theme-option__label">{{ sport.label }}</span>
+                  @if (themeService.sportTheme() === sport.id) {
+                    <div class="theme-option__check">
+                      <nxt1-icon name="checkmark" [size]="14" class="theme-option__check-icon" />
+                    </div>
+                  }
+                </button>
+              } @else {
+                <button
+                  type="button"
+                  class="sport-option"
+                  [class.sport-option--selected]="themeService.sportTheme() === sport.id"
+                  role="radio"
+                  [attr.aria-checked]="themeService.sportTheme() === sport.id"
+                  [attr.aria-label]="sport.label"
+                  (click)="selectSport(sport)"
+                >
+                  <div class="sport-option__color" [style.--sport-color]="sport.primaryColor">
+                    <nxt1-icon [name]="sport.icon" [size]="18" class="sport-option__icon" />
+                  </div>
+                  <span class="sport-option__label">{{ sport.label }}</span>
+                  @if (themeService.sportTheme() === sport.id) {
+                    <nxt1-icon name="checkmarkCircle" [size]="18" class="sport-option__check" />
+                  }
+                </button>
+              }
             }
           </div>
         </section>
@@ -220,6 +245,80 @@ export interface ThemeSelectEvent {
         flex-direction: row;
         align-items: flex-start;
         gap: 24px;
+      }
+
+      /* Single row layout (desktop sidebar) */
+      .theme-selector--single-row {
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding: 4px;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .theme-selector--single-row::-webkit-scrollbar {
+        display: none;
+      }
+
+      .theme-selector--single-row .theme-section__title {
+        display: none;
+      }
+
+      .theme-selector--single-row .theme-section,
+      .theme-selector--single-row .theme-options,
+      .theme-selector--single-row .sport-options {
+        display: contents;
+      }
+
+      .theme-selector--single-row .theme-options {
+        padding: 0;
+        background: transparent;
+      }
+
+      .theme-selector--single-row .sport-options {
+        overflow: visible;
+        padding: 0;
+        margin: 0;
+        gap: 8px;
+      }
+
+      .theme-selector--single-row .theme-option,
+      .theme-selector--single-row .sport-option {
+        flex: 0 0 auto;
+        pointer-events: auto;
+        cursor: pointer;
+      }
+
+      /* Unified sport options in single-row mode - match appearance styling */
+      .sport-option--unified {
+        flex: 1;
+        padding: 12px 8px;
+        border: 2px solid transparent;
+        border-radius: calc(var(--border-radius) - 4px);
+        min-width: auto;
+      }
+
+      .sport-option--unified.sport-option--selected {
+        border-color: var(--border-selected);
+      }
+
+      .sport-option--unified .theme-option__icon-wrapper {
+        background: var(--sport-accent, var(--bg-hover));
+      }
+
+      .sport-option--unified .theme-option__icon {
+        color: #000;
+      }
+
+      .sport-option--unified.sport-option--selected .theme-option__icon-wrapper {
+        background: var(--sport-accent, var(--accent));
+      }
+
+      .theme-selector--compact .sport-option--unified {
+        padding: 10px 6px;
       }
 
       /* ============================================
@@ -318,6 +417,7 @@ export interface ThemeSelectEvent {
         border-radius: 50%;
         background: var(--bg-hover);
         transition: all 150ms ease-out;
+        pointer-events: none;
       }
 
       .theme-selector--compact .theme-option__icon-wrapper {
@@ -343,12 +443,26 @@ export interface ThemeSelectEvent {
         color: var(--accent-text);
       }
 
+      /* Sport theme icon wrapper - uses sport color */
+      .theme-option__icon-wrapper--sport {
+        background: var(--sport-accent, var(--bg-hover));
+      }
+
+      .theme-option__icon-wrapper--sport .theme-option__icon {
+        color: #000;
+      }
+
+      .theme-option--selected .theme-option__icon-wrapper--sport {
+        background: var(--sport-accent, var(--accent));
+      }
+
       .theme-option__label {
         font-family: var(--nxt1-fontFamily-brand);
         font-size: 12px;
         font-weight: 500;
         color: var(--text-secondary);
         transition: color 150ms ease-out;
+        pointer-events: none;
       }
 
       .theme-selector--compact .theme-option__label {
@@ -372,6 +486,7 @@ export interface ThemeSelectEvent {
         align-items: center;
         justify-content: center;
         animation: check-pop 200ms ease-out;
+        pointer-events: none;
       }
 
       .theme-option__check-icon {
@@ -449,6 +564,7 @@ export interface ThemeSelectEvent {
         transition: all 150ms ease-out;
         box-shadow: 0 2px 8px var(--sport-color, var(--accent));
         opacity: 0.9;
+        pointer-events: none;
       }
 
       .theme-selector--compact .sport-option__color {
@@ -487,6 +603,7 @@ export interface ThemeSelectEvent {
         color: var(--text-secondary);
         transition: color 150ms ease-out;
         white-space: nowrap;
+        pointer-events: none;
       }
 
       .theme-selector--compact .sport-option__label {
@@ -505,6 +622,7 @@ export interface ThemeSelectEvent {
         font-size: 16px;
         color: var(--accent);
         animation: check-pop 200ms ease-out;
+        pointer-events: none;
       }
 
       /* ============================================
@@ -556,6 +674,9 @@ export class NxtThemeSelectorComponent {
   /** Whether to show sport theme options */
   @Input() showSportThemes = true;
 
+  /** Flatten appearance + sport options into a single row (desktop sidebar) */
+  @Input() singleRow = false;
+
   /** Theme selection event */
   @Output() themeSelect = new EventEmitter<ThemeSelectEvent>();
 
@@ -565,31 +686,22 @@ export class NxtThemeSelectorComponent {
   /** Available sport theme options */
   protected readonly sportOptions: readonly SportThemeOption[] = SPORT_THEME_OPTIONS;
 
-  constructor() {
-    // Register Ionicons used by this component
-    addIcons({
-      'contrast-outline': contrastOutline,
-      'sunny-outline': sunnyOutline,
-      'moon-outline': moonOutline,
-      'phone-portrait-outline': phonePortraitOutline,
-      sparkles,
-      checkmark,
-      'checkmark-circle': checkmarkCircle,
-      'color-palette-outline': colorPaletteOutline,
-      'american-football-outline': americanFootballOutline,
-      'basketball-outline': basketballOutline,
-      'baseball-outline': baseballOutline,
-    });
-  }
-
   /**
    * Handle appearance theme selection.
+   * In singleRow mode (desktop), also clears sport theme so appearance change is visible.
    */
   protected selectAppearance(option: ThemeOption): void {
     console.log('[ThemeSelector] selectAppearance clicked:', option.id);
     console.log('[ThemeSelector] current preference:', this.themeService.preference());
 
-    if (this.themeService.preference() === option.id) {
+    // In singleRow mode (desktop), always clear sport theme first
+    const hadSportTheme = this.singleRow && this.themeService.hasSportTheme();
+    if (hadSportTheme) {
+      this.themeService.clearSportTheme();
+    }
+
+    // Skip if same preference AND no sport theme was cleared
+    if (this.themeService.preference() === option.id && !hadSportTheme) {
       console.log('[ThemeSelector] Same theme selected, skipping');
       return;
     }

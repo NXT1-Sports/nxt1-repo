@@ -98,7 +98,7 @@
   background: var(--nxt1-skeleton-gradient);
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.5s infinite ease-in-out;
-  border-radius: var(--nxt1-radius-sm, 4px);
+  border-radius: var(--nxt1-borderRadius-sm, 0.25rem);
 }
 
 /**
@@ -109,23 +109,23 @@
 }
 
 .skeleton-rect {
-  border-radius: var(--nxt1-radius-sm, 4px);
+  border-radius: var(--nxt1-borderRadius-sm, 0.25rem);
 }
 
 .skeleton-text {
   height: 1em;
-  border-radius: var(--nxt1-radius-sm, 4px);
+  border-radius: var(--nxt1-borderRadius-sm, 0.25rem);
 }
 
 .skeleton-avatar {
-  width: 44px;
-  height: 44px;
+  width: var(--nxt1-ui-touch-target);
+  height: var(--nxt1-ui-touch-target);
   border-radius: 50%;
 }
 
 .skeleton-button {
-  height: 44px;
-  border-radius: var(--nxt1-radius-lg, 12px);
+  height: var(--nxt1-ui-btn-height-md);
+  border-radius: var(--nxt1-borderRadius-lg, 0.75rem);
 }
 
 /* ============================================

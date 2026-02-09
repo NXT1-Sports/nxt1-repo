@@ -12,8 +12,8 @@
 
 ion-modal.nxt1-biometric-prompt-modal {
   --background: var(--nxt1-color-background-primary, #0a0a0a);
-  --border-radius: 24px 24px 0 0;
-  --box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.4);
+  --border-radius: var(--nxt1-borderRadius-2xl, 1.5rem) var(--nxt1-borderRadius-2xl, 1.5rem) 0 0;
+  --box-shadow: var(--nxt1-shadow-xl);
 }
 
 ion-modal.nxt1-biometric-prompt-modal::part(backdrop) {
@@ -24,9 +24,9 @@ ion-modal.nxt1-biometric-prompt-modal::part(backdrop) {
 
 ion-modal.nxt1-biometric-prompt-modal::part(handle) {
   background: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.15));
-  width: 36px;
-  height: 4px;
-  margin-top: 12px;
+  width: var(--nxt1-spacing-9, 2.25rem);
+  height: var(--nxt1-spacing-1, 0.25rem);
+  margin-top: var(--nxt1-spacing-3, 0.75rem);
 }
 
 ion-modal.nxt1-biometric-prompt-modal ion-content {

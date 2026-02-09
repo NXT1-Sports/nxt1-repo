@@ -53,11 +53,11 @@
 
 .nxt1-sheet-modal::part(handle) {
   background: var(--nxt1-color-surface-400);
-  width: 36px;
-  height: 5px;
-  border-radius: 2.5px;
-  margin-top: 8px;
-  margin-bottom: 8px;
+  width: var(--nxt1-spacing-9, 2.25rem);
+  height: var(--nxt1-spacing-1, 0.25rem);
+  border-radius: var(--nxt1-borderRadius-full, 9999px);
+  margin-top: var(--nxt1-spacing-2, 0.5rem);
+  margin-bottom: var(--nxt1-spacing-2, 0.5rem);
 }
 
 /* ============================================
@@ -74,12 +74,12 @@
    ============================================ */
 
 .nxt1-sheet-modal--ios {
-  --border-radius: var(--nxt1-radius-2xl, 1.5rem) var(--nxt1-radius-2xl, 1.5rem) 0 0;
+  --border-radius: var(--nxt1-borderRadius-2xl, 1.5rem) var(--nxt1-borderRadius-2xl, 1.5rem) 0 0;
 }
 
 .nxt1-sheet-modal--ios::part(content) {
-  border-top-left-radius: var(--nxt1-radius-2xl, 1.5rem);
-  border-top-right-radius: var(--nxt1-radius-2xl, 1.5rem);
+  border-top-left-radius: var(--nxt1-borderRadius-2xl, 1.5rem);
+  border-top-right-radius: var(--nxt1-borderRadius-2xl, 1.5rem);
 }
 
 /* ============================================
@@ -88,13 +88,13 @@
    ============================================ */
 
 .nxt1-sheet-modal--android {
-  --border-radius: var(--nxt1-radius-lg, 1rem) var(--nxt1-radius-lg, 1rem) 0 0;
-  --box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
+  --border-radius: var(--nxt1-borderRadius-lg, 1rem) var(--nxt1-borderRadius-lg, 1rem) 0 0;
+  --box-shadow: var(--nxt1-shadow-lg);
 }
 
 .nxt1-sheet-modal--android::part(content) {
-  border-top-left-radius: var(--nxt1-radius-lg, 1rem);
-  border-top-right-radius: var(--nxt1-radius-lg, 1rem);
+  border-top-left-radius: var(--nxt1-borderRadius-lg, 1rem);
+  border-top-right-radius: var(--nxt1-borderRadius-lg, 1rem);
 }
 
 /* ============================================

@@ -106,47 +106,48 @@
   --nxt1-ui-radius-default: var(--nxt1-borderRadius-md, 8px);
   --nxt1-ui-radius-lg: var(--nxt1-borderRadius-lg, 12px);
   --nxt1-ui-radius-xl: var(--nxt1-borderRadius-xl, 16px);
-  --nxt1-ui-radius-2xl: var(--nxt1-radius-2xl, 24px);
-  --nxt1-ui-radius-full: 9999px;
+  --nxt1-ui-radius-2xl: var(--nxt1-borderRadius-2xl, 1.5rem);
+  --nxt1-ui-radius-full: var(--nxt1-borderRadius-full, 9999px);
 
   /* ============================================
-     SHADOWS
+     SHADOWS (mapped from design tokens)
      ============================================ */
-  --nxt1-ui-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
-  --nxt1-ui-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
-  --nxt1-ui-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.4);
-  --nxt1-ui-shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.5);
-  --nxt1-ui-shadow-glow: 0 0 20px var(--nxt1-ui-primary-glow);
+  --nxt1-ui-shadow-sm: var(--nxt1-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.2));
+  --nxt1-ui-shadow-md: var(--nxt1-shadow-md, 0 4px 6px rgba(0, 0, 0, 0.3));
+  --nxt1-ui-shadow-lg: var(--nxt1-shadow-lg, 0 10px 15px rgba(0, 0, 0, 0.4));
+  --nxt1-ui-shadow-xl: var(--nxt1-shadow-xl, 0 20px 25px rgba(0, 0, 0, 0.5));
+  --nxt1-ui-shadow-glow: var(--nxt1-glow-md, 0 0 20px var(--nxt1-ui-primary-glow));
 
   /* ============================================
-     TRANSITIONS
+     TRANSITIONS (mapped from design tokens)
      ============================================ */
-  --nxt1-ui-transition-fast: 150ms ease-out;
-  --nxt1-ui-transition-normal: 200ms ease-out;
-  --nxt1-ui-transition-slow: 300ms ease-out;
-  --nxt1-ui-transition-spring: 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --nxt1-ui-transition-fast: var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out);
+  --nxt1-ui-transition-normal: var(--nxt1-duration-normal, 200ms) var(--nxt1-easing-out, ease-out);
+  --nxt1-ui-transition-slow: var(--nxt1-duration-slow, 300ms) var(--nxt1-easing-out, ease-out);
+  --nxt1-ui-transition-spring: var(--nxt1-duration-slow, 300ms)
+    var(--nxt1-easing-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
 
   /* ============================================
-     Z-INDEX SCALE
+     Z-INDEX SCALE (mapped from design tokens)
      ============================================ */
-  --nxt1-ui-z-dropdown: 100;
-  --nxt1-ui-z-sticky: 200;
-  --nxt1-ui-z-fixed: 300;
-  --nxt1-ui-z-modal-backdrop: 400;
-  --nxt1-ui-z-modal: 500;
-  --nxt1-ui-z-popover: 600;
-  --nxt1-ui-z-tooltip: 700;
-  --nxt1-ui-z-toast: 800;
+  --nxt1-ui-z-dropdown: var(--nxt1-zIndex-dropdown, 1000);
+  --nxt1-ui-z-sticky: var(--nxt1-zIndex-sticky, 1020);
+  --nxt1-ui-z-fixed: var(--nxt1-zIndex-fixed, 1030);
+  --nxt1-ui-z-modal-backdrop: var(--nxt1-zIndex-modalBackdrop, 1040);
+  --nxt1-ui-z-modal: var(--nxt1-zIndex-modal, 1050);
+  --nxt1-ui-z-popover: var(--nxt1-zIndex-popover, 1060);
+  --nxt1-ui-z-tooltip: var(--nxt1-zIndex-tooltip, 1070);
+  --nxt1-ui-z-toast: var(--nxt1-zIndex-toast, 1080);
   --nxt1-ui-z-max: 9999;
 
   /* ============================================
-     COMPONENT SIZING
+     COMPONENT SIZING (mapped from design tokens)
      ============================================ */
-  --nxt1-ui-btn-height-sm: 36px;
-  --nxt1-ui-btn-height-md: 44px;
-  --nxt1-ui-btn-height-lg: 52px;
-  --nxt1-ui-input-height: 52px;
-  --nxt1-ui-touch-target: 44px;
+  --nxt1-ui-btn-height-sm: var(--nxt1-spacing-9, 2.25rem);
+  --nxt1-ui-btn-height-md: var(--nxt1-spacing-11, 2.75rem);
+  --nxt1-ui-btn-height-lg: var(--nxt1-spacing-14, 3.5rem);
+  --nxt1-ui-input-height: var(--nxt1-spacing-14, 3.5rem);
+  --nxt1-ui-touch-target: var(--nxt1-spacing-11, 2.75rem);
 
   /* ============================================
      LEGACY ALIASES (Backward Compatibility)
@@ -183,6 +184,6 @@
   --auth-transition-normal: var(--nxt1-ui-transition-normal);
 
   /* Auth-specific layout (kept for auth components) */
-  --auth-content-max-width: 840px;
+  --auth-content-max-width: var(--nxt1-spacing-96, 840px);
   --auth-card-max-width: 480px;
 }

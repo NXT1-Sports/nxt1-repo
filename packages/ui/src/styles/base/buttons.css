@@ -31,7 +31,7 @@
   justify-content: center;
   gap: var(--nxt1-spacing-2, 0.5rem);
   font-family: var(--nxt1-ui-font);
-  font-weight: var(--nxt1-font-weight-semibold, 600);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   cursor: pointer;
   border: none;
   text-decoration: none;
@@ -60,7 +60,7 @@
 .nxt1-btn-primary,
 .nxt1-submit-btn {
   width: 100%;
-  height: 52px;
+  height: var(--nxt1-ui-btn-height-lg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -70,8 +70,8 @@
   border-radius: var(--nxt1-ui-radius-default);
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-base, 1rem);
-  font-weight: var(--nxt1-font-weight-bold, 700);
-  color: #0a0a0a;
+  font-weight: var(--nxt1-fontWeight-bold, 700);
+  color: var(--nxt1-ui-text-inverse);
   cursor: pointer;
   transition: all var(--nxt1-ui-transition-normal);
   -webkit-user-select: none;
@@ -112,7 +112,7 @@
 .nxt1-btn-secondary,
 .nxt1-submit-btn--secondary {
   width: 100%;
-  height: 52px;
+  height: var(--nxt1-ui-btn-height-lg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -122,7 +122,7 @@
   border-radius: var(--nxt1-ui-radius-default);
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-base, 1rem);
-  font-weight: var(--nxt1-font-weight-semibold, 600);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   color: var(--nxt1-ui-text-primary);
   cursor: pointer;
   transition: all var(--nxt1-ui-transition-normal);
@@ -160,17 +160,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.75rem;
+  gap: var(--nxt1-spacing-3, 0.75rem);
   width: 100%;
-  height: 52px;
-  padding: 0 1.25rem;
+  height: var(--nxt1-ui-btn-height-lg);
+  padding: 0 var(--nxt1-spacing-5, 1.25rem);
   border: 1px solid var(--nxt1-ui-border-default);
   border-radius: var(--nxt1-ui-radius-lg);
   background-color: var(--nxt1-ui-bg-input);
   color: var(--nxt1-ui-text-primary);
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-base, 1rem);
-  font-weight: var(--nxt1-font-weight-semibold, 600);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   cursor: pointer;
   transition: all var(--nxt1-ui-transition-normal);
   -webkit-tap-highlight-color: transparent;
@@ -181,7 +181,7 @@
 
 .nxt1-btn-action ion-icon,
 .action-btn ion-icon {
-  font-size: 1.375rem;
+  font-size: var(--nxt1-fontSize-xl, 1.5rem);
   color: var(--nxt1-ui-text-secondary);
   flex-shrink: 0;
 }
@@ -223,7 +223,7 @@
   background-color: transparent;
   border: 1px dashed var(--nxt1-ui-border-hover);
   color: var(--nxt1-ui-text-secondary);
-  height: 48px;
+  height: var(--nxt1-ui-btn-height-md);
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -251,7 +251,7 @@
   border: none;
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-sm, 0.875rem);
-  font-weight: var(--nxt1-font-weight-medium, 500);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   color: var(--nxt1-ui-text-muted);
   cursor: pointer;
   transition: color var(--nxt1-ui-transition-fast);
@@ -265,8 +265,8 @@
 
 .nxt1-btn-back svg,
 .nxt1-back-btn svg {
-  width: 16px;
-  height: 16px;
+  width: var(--nxt1-spacing-4, 1rem);
+  height: var(--nxt1-spacing-4, 1rem);
 }
 
 /* ============================================
@@ -277,7 +277,7 @@
 .nxt1-btn-social,
 .nxt1-social-btn {
   width: 100%;
-  height: 52px;
+  height: var(--nxt1-ui-btn-height-lg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -287,7 +287,7 @@
   border-radius: var(--nxt1-ui-radius-default);
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-base, 1rem);
-  font-weight: var(--nxt1-font-weight-semibold, 600);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
   color: var(--nxt1-ui-text-primary);
   cursor: pointer;
   transition: all var(--nxt1-ui-transition-normal);
@@ -299,8 +299,8 @@
 
 .nxt1-btn-social .icon,
 .nxt1-social-btn .icon {
-  width: 20px;
-  height: 20px;
+  width: var(--nxt1-spacing-5, 1.25rem);
+  height: var(--nxt1-spacing-5, 1.25rem);
   flex-shrink: 0;
 }
 
@@ -340,17 +340,17 @@
    PROVIDER-SPECIFIC SOCIAL BUTTONS
    ============================================ */
 
-/* Apple button - solid black background */
+/* Apple button - solid black background (Apple HIG brand requirement) */
 .nxt1-btn-social--apple,
 .nxt1-social-btn--apple {
-  background: #000000;
+  background: var(--nxt1-color-neutral-dark-0, #000000);
   border-color: rgba(255, 255, 255, 0.15);
-  color: #ffffff;
+  color: var(--nxt1-color-neutral-light-0, #ffffff);
 }
 
 .nxt1-btn-social--apple:hover:not(:disabled),
 .nxt1-social-btn--apple:hover:not(:disabled) {
-  background: #1a1a1a;
+  background: var(--nxt1-color-neutral-dark-100, #1a1a1a);
   border-color: rgba(255, 255, 255, 0.3);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
@@ -382,7 +382,7 @@
   background: transparent;
   border: 1px dashed var(--nxt1-ui-border-hover);
   color: var(--nxt1-ui-text-secondary);
-  height: 48px;
+  height: var(--nxt1-ui-btn-height-md);
 }
 
 .nxt1-btn-social--team-code:hover:not(:disabled),
@@ -471,11 +471,11 @@
   .nxt1-submit-btn,
   .nxt1-btn-social,
   .nxt1-social-btn {
-    height: 48px;
+    height: var(--nxt1-ui-btn-height-md);
   }
 
   .nxt1-btn-action,
   .action-btn {
-    height: 48px;
+    height: var(--nxt1-ui-btn-height-md);
   }
 }

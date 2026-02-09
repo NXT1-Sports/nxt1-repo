@@ -51,7 +51,7 @@
 .nxt1-form-label {
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-sm, 0.875rem);
-  font-weight: var(--nxt1-font-weight-medium, 500);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   color: var(--nxt1-ui-text-secondary);
 }
 
@@ -74,8 +74,8 @@
 .nxt1-input-icon {
   position: absolute;
   left: var(--nxt1-spacing-4, 1rem);
-  width: 20px;
-  height: 20px;
+  width: var(--nxt1-spacing-5, 1.25rem);
+  height: var(--nxt1-spacing-5, 1.25rem);
   color: var(--nxt1-ui-text-muted);
   pointer-events: none;
   transition: color var(--nxt1-ui-transition-fast);
@@ -99,14 +99,14 @@
 .nxt1-input,
 .nxt1-auth-input {
   width: 100%;
-  height: 52px;
+  height: var(--nxt1-ui-input-height);
   padding: 0 var(--nxt1-spacing-4, 1rem);
   background: var(--nxt1-ui-bg-input);
   border: 1px solid var(--nxt1-ui-border-default);
   border-radius: var(--nxt1-ui-radius-lg);
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-base, 1rem);
-  font-weight: var(--nxt1-font-weight-medium, 500);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   color: var(--nxt1-ui-text-primary);
   transition: all var(--nxt1-ui-transition-fast);
 }
@@ -114,18 +114,18 @@
 /* With left icon */
 .nxt1-input-icon ~ .nxt1-input,
 .nxt1-input-icon ~ .nxt1-auth-input {
-  padding-left: 48px;
+  padding-left: var(--nxt1-spacing-12, 3rem);
 }
 
 /* With right icon */
 .nxt1-input--has-end-icon {
-  padding-right: 48px;
+  padding-right: var(--nxt1-spacing-12, 3rem);
 }
 
 .nxt1-input::placeholder,
 .nxt1-auth-input::placeholder {
   color: var(--nxt1-ui-text-placeholder);
-  font-weight: var(--nxt1-font-weight-regular, 400);
+  font-weight: var(--nxt1-fontWeight-regular, 400);
 }
 
 .nxt1-input:hover:not(:focus):not(:disabled),
@@ -178,8 +178,8 @@ nxt1-auth-email-form ion-input[fill='outline'],
   --border-color: var(--nxt1-ui-border-default);
   --border-radius: var(--nxt1-ui-radius-lg);
   --border-width: 1px;
-  --padding-start: 16px;
-  --padding-end: 16px;
+  --padding-start: var(--nxt1-spacing-4);
+  --padding-end: var(--nxt1-spacing-4);
   --color: var(--nxt1-ui-text-primary);
   --placeholder-color: var(--nxt1-ui-text-muted);
   /* Subtle highlight - reduced from bright primary color */
@@ -188,8 +188,8 @@ nxt1-auth-email-form ion-input[fill='outline'],
   --highlight-color-invalid: var(--nxt1-ui-error);
   /* Reduce highlight thickness for subtlety */
   --highlight-height: 1px;
-  font-size: 1rem;
-  min-height: 52px;
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  min-height: var(--nxt1-ui-input-height);
   transition:
     border-color 200ms ease-out,
     background 200ms ease-out;
@@ -244,7 +244,7 @@ nxt1-auth-email-form ion-input ion-icon[slot='start'],
 .nxt1-auth-form ion-input ion-icon[slot='start'],
 .nxt1-form ion-input ion-icon[slot='start'] {
   color: var(--nxt1-ui-text-muted);
-  font-size: 1.25rem;
+  font-size: var(--nxt1-fontSize-lg, 1.25rem);
 }
 
 /* Error state */
@@ -301,8 +301,8 @@ nxt1-auth-email-form ion-input.auth-input-error,
 
 .nxt1-form-error svg,
 .nxt1-form-error ion-icon {
-  width: 16px;
-  height: 16px;
+  width: var(--nxt1-spacing-4, 1rem);
+  height: var(--nxt1-spacing-4, 1rem);
   flex-shrink: 0;
 }
 
@@ -332,8 +332,8 @@ nxt1-auth-email-form ion-input.auth-input-error,
 
 .nxt1-form-success svg,
 .nxt1-form-success ion-icon {
-  width: 16px;
-  height: 16px;
+  width: var(--nxt1-spacing-4, 1rem);
+  height: var(--nxt1-spacing-4, 1rem);
   flex-shrink: 0;
 }
 
@@ -343,14 +343,14 @@ nxt1-auth-email-form ion-input.auth-input-error,
 
 .nxt1-textarea {
   width: 100%;
-  min-height: 120px;
+  min-height: var(--nxt1-spacing-32, 8rem);
   padding: var(--nxt1-spacing-3, 0.75rem) var(--nxt1-spacing-4, 1rem);
   background: var(--nxt1-ui-bg-input);
   border: 1px solid var(--nxt1-ui-border-default);
   border-radius: var(--nxt1-ui-radius-lg);
   font-family: var(--nxt1-ui-font);
   font-size: var(--nxt1-fontSize-base, 1rem);
-  font-weight: var(--nxt1-font-weight-medium, 500);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
   color: var(--nxt1-ui-text-primary);
   resize: vertical;
   transition: all var(--nxt1-ui-transition-fast);
@@ -391,8 +391,8 @@ nxt1-auth-email-form ion-input.auth-input-error,
 
 .nxt1-checkbox,
 .nxt1-radio {
-  width: 20px;
-  height: 20px;
+  width: var(--nxt1-spacing-5, 1.25rem);
+  height: var(--nxt1-spacing-5, 1.25rem);
   accent-color: var(--nxt1-ui-primary);
   cursor: pointer;
 }

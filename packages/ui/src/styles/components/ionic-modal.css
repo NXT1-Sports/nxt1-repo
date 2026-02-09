@@ -34,7 +34,7 @@ ion-modal.nxt1-picker-modal {
   --border-radius: var(--nxt1-borderRadius-2xl, 20px);
 
   /* Box shadow for depth */
-  --box-shadow: 0 -4px 40px rgba(0, 0, 0, 0.4);
+  --box-shadow: var(--nxt1-shadow-xl);
 
   /* Maximum dimensions for the modal content */
   --max-height: 90vh;
@@ -64,10 +64,10 @@ ion-modal.nxt1-picker-modal--sheet .modal-wrapper {
 /* Sheet handle styling */
 ion-modal.nxt1-picker-modal--sheet .modal-handle {
   background: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.3));
-  width: 36px;
-  height: 5px;
+  width: var(--nxt1-spacing-9, 2.25rem);
+  height: var(--nxt1-spacing-1, 0.25rem);
   border-radius: var(--nxt1-borderRadius-full, 9999px);
-  margin: 8px auto;
+  margin: var(--nxt1-spacing-2, 0.5rem) auto;
 }
 
 /* ============================================
@@ -112,7 +112,7 @@ ion-modal.nxt1-picker-modal ion-toolbar {
   --background: var(--nxt1-color-surface-elevated, #121212);
   --border-color: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
   --color: var(--nxt1-color-text-primary, #ffffff);
-  --min-height: 56px;
+  --min-height: var(--nxt1-spacing-14, 3.5rem);
 }
 
 /* Modal title */
@@ -215,22 +215,22 @@ html[data-theme='light'] ion-modal.nxt1-picker-modal::part(backdrop) {
 
 /* Sport-Basketball Theme - Orange accent */
 html[data-theme='sport-basketball'] ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion-button {
-  --color: #ff6d00;
+  --color: var(--nxt1-color-primary, #ff6d00);
 }
 
 /* Sport-Football Theme - Green accent */
 html[data-theme='sport-football'] ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion-button {
-  --color: #4ade80;
+  --color: var(--nxt1-color-primary, #4ade80);
 }
 
 /* Sport-Baseball Theme - Red-brown accent */
 html[data-theme='sport-baseball'] ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion-button {
-  --color: #ff5722;
+  --color: var(--nxt1-color-primary, #ff5722);
 }
 
 /* Sport-Softball Theme - Yellow accent */
 html[data-theme='sport-softball'] ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion-button {
-  --color: #ffed4e;
+  --color: var(--nxt1-color-primary, #ffed4e);
 }
 
 /* ============================================

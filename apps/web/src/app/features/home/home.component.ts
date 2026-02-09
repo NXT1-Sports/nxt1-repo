@@ -51,7 +51,7 @@ import { SeoService, AnalyticsService } from '../../core/services';
   template: `
     <!-- Hero Header Section -->
     <nxt1-hero-header
-      [showLogo]="true"
+      [showLogo]="false"
       [showPrimaryCta]="true"
       [showAnimatedBg]="true"
       [showTrustBadges]="true"

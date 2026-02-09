@@ -102,13 +102,7 @@ addIcons({ chevronForward, chevronBack });
       [attr.aria-label]="ariaLabel()"
     >
       <!-- Options Container -->
-      <div
-        #optionsContainer
-        class="option-scroller__container"
-        (touchstart)="onTouchStart($event)"
-        (touchmove)="onTouchMove($event)"
-        (touchend)="onTouchEnd($event)"
-      >
+      <div #optionsContainer class="option-scroller__container">
         <!-- Sliding Indicator (for default/pill variants) -->
         @if (variant() !== 'minimal' && options().length > 0) {
           <div
@@ -446,6 +440,11 @@ export class NxtOptionScrollerComponent implements AfterViewInit, OnDestroy {
   /** ResizeObserver for recalculating indicator */
   private resizeObserver?: ResizeObserver;
 
+  /** Bound event handlers for cleanup */
+  private boundTouchStart = this.onTouchStart.bind(this);
+  private boundTouchMove = this.onTouchMove.bind(this);
+  private boundTouchEnd = this.onTouchEnd.bind(this);
+
   // ============================================
   // COMPUTED
   // ============================================
@@ -504,10 +503,26 @@ export class NxtOptionScrollerComponent implements AfterViewInit, OnDestroy {
       this.updateIndicator();
     });
     this.resizeObserver.observe(this.elementRef.nativeElement);
+
+    // Add passive touch event listeners (avoids Chrome violations)
+    const container = this.optionsContainer?.nativeElement;
+    if (container) {
+      container.addEventListener('touchstart', this.boundTouchStart, { passive: true });
+      container.addEventListener('touchmove', this.boundTouchMove, { passive: true });
+      container.addEventListener('touchend', this.boundTouchEnd, { passive: true });
+    }
   }
 
   ngOnDestroy(): void {
     this.resizeObserver?.disconnect();
+
+    // Clean up touch event listeners
+    const container = this.optionsContainer?.nativeElement;
+    if (container) {
+      container.removeEventListener('touchstart', this.boundTouchStart);
+      container.removeEventListener('touchmove', this.boundTouchMove);
+      container.removeEventListener('touchend', this.boundTouchEnd);
+    }
   }
 
   // ============================================

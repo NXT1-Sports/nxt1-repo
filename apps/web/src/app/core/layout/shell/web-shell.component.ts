@@ -82,8 +82,11 @@ import {
   NxtLoggingService,
   // Scroll
   NxtScrollService,
+  // Activity (for badge count)
+  ActivityService,
 } from '@nxt1/ui';
 import { AuthFlowService } from '../../../features/auth/services';
+import { NotificationPopoverComponent } from '../notification-popover/notification-popover.component';
 
 // ============================================
 // NAVIGATION CONFIGURATION
@@ -174,6 +177,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
     NxtDesktopSidebarComponent,
     NxtHeaderComponent,
     NxtMobileFooterComponent,
+    NotificationPopoverComponent,
   ],
   template: `
     <div
@@ -203,12 +207,18 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
             [items]="headerItems"
             [user]="headerUserData()"
             [userMenuItems]="userMenuItems"
-            [config]="headerConfig"
+            [config]="headerConfig()"
             (navigate)="onHeaderNavigate($event)"
             (userMenuAction)="onUserMenuAction($event)"
             (notificationsClick)="onNotificationsClick()"
             (createClick)="onCreateClick()"
             (logoClick)="onLogoClick()"
+          />
+
+          <!-- Notification Popover (Desktop) -->
+          <app-notification-popover
+            [isOpen]="notificationPopoverOpen()"
+            (closePopover)="closeNotificationPopover()"
           />
 
           <!-- Page Content -->
@@ -364,6 +374,7 @@ export class WebShellComponent {
   private readonly logger = inject(NxtLoggingService).child('WebShellComponent');
   private readonly destroyRef = inject(DestroyRef);
   private readonly scrollService = inject(NxtScrollService);
+  private readonly activityService = inject(ActivityService);
 
   // ============================================
   // SIDEBAR CONFIGURATION (Desktop/Tablet)
@@ -424,14 +435,17 @@ export class WebShellComponent {
   readonly userMenuItems = USER_MENU_ITEMS;
 
   /** Desktop header configuration - minimal mode with sidebar */
-  readonly headerConfig: TopNavConfig = createTopNavConfig({
-    variant: 'default',
-    showLogo: false, // Sidebar has logo
-    showSearch: true,
-    showNotifications: true,
-    sticky: true,
-    hideOnScroll: false,
-    bordered: false,
+  readonly headerConfig = computed<TopNavConfig>(() => {
+    return createTopNavConfig({
+      variant: 'default',
+      showLogo: false, // Sidebar has logo
+      showSearch: true,
+      showNotifications: true,
+      notificationCount: this.activityService.totalUnread(),
+      sticky: true,
+      hideOnScroll: false,
+      bordered: false,
+    });
   });
 
   /** Header user data */
@@ -485,6 +499,10 @@ export class WebShellComponent {
 
   /** Sidebar collapsed state (persisted) */
   private readonly _sidebarCollapsed = signal(false);
+
+  /** Whether the notification popover is open */
+  private readonly _notificationPopoverOpen = signal(false);
+  readonly notificationPopoverOpen = computed(() => this._notificationPopoverOpen());
 
   /** Whether we're in mobile view (shows footer instead of sidebar) */
   readonly isMobileView = computed(() => {
@@ -606,10 +624,21 @@ export class WebShellComponent {
   }
 
   /**
-   * Handle notifications bell click
+   * Handle notifications bell click — toggle popover on desktop, navigate on mobile
    */
   onNotificationsClick(): void {
-    this.router.navigate(['/notifications']);
+    if (this.isMobileView()) {
+      this.router.navigate(['/activity']);
+    } else {
+      this._notificationPopoverOpen.update((open) => !open);
+    }
+  }
+
+  /**
+   * Close the notification popover
+   */
+  closeNotificationPopover(): void {
+    this._notificationPopoverOpen.set(false);
   }
 
   /**

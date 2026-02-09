@@ -10,7 +10,13 @@ import {
 import { CommonModule } from '@angular/common';
 import { Router, NavigationEnd } from '@angular/router';
 import { IonApp, IonRouterOutlet } from '@ionic/angular/standalone';
-import { NxtPlatformService, NxtLoggingService, NxtBreadcrumbService } from '@nxt1/ui';
+import {
+  NxtPlatformService,
+  NxtLoggingService,
+  NxtBreadcrumbService,
+  NxtAppDownloadBarComponent,
+  NxtAppDownloadBarService,
+} from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import { filter } from 'rxjs/operators';
 import { AnalyticsService } from './core/services/analytics.service';
@@ -33,7 +39,7 @@ import { AnalyticsService } from './core/services/analytics.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, IonApp, IonRouterOutlet],
+  imports: [CommonModule, IonApp, IonRouterOutlet, NxtAppDownloadBarComponent],
   templateUrl: './app.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -43,6 +49,7 @@ export class AppComponent implements OnInit {
   private readonly logger: ILogger = inject(NxtLoggingService).child('AppComponent');
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
   private readonly analytics = inject(AnalyticsService);
+  protected readonly downloadBar = inject(NxtAppDownloadBarService);
 
   // ============================================
   // STATE SIGNALS
@@ -103,6 +110,9 @@ export class AppComponent implements OnInit {
 
     // Initialize breadcrumb tracking for crashlytics context
     this.breadcrumbs.initialize();
+
+    // Initialize app download promotion bar (scroll-triggered)
+    this.downloadBar.initialize();
 
     // Log app initialization
     this.logger.info('Browser features initialized');

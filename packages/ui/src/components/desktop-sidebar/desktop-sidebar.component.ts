@@ -191,6 +191,7 @@ import {
                 [showLabels]="false"
                 [showAppearance]="true"
                 [showSportThemes]="true"
+                [singleRow]="true"
               />
             } @else {
               <button
