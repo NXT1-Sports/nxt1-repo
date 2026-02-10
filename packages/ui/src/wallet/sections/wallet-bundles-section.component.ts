@@ -10,21 +10,11 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import {
-  Component,
-  ChangeDetectionStrategy,
-  input,
-  output,
-  computed,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonIcon, IonRippleEffect, IonSpinner } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import {
-  cartOutline,
-  checkmarkCircle,
-  flashOutline,
-} from 'ionicons/icons';
+import { cartOutline, checkmarkCircle, flashOutline } from 'ionicons/icons';
 import { formatPrice } from '@nxt1/core/constants';
 import type { WalletBundle } from '../wallet.mock-data';
 
@@ -98,7 +88,10 @@ addIcons({
             <span>Processing…</span>
           } @else {
             <ion-icon name="flash-outline"></ion-icon>
-            <span>Buy {{ selectedBundle()!.credits + selectedBundle()!.bonusCredits }} Credits — {{ formatBundlePrice(selectedBundle()!.price) }}</span>
+            <span
+              >Buy {{ selectedBundle()!.credits + selectedBundle()!.bonusCredits }} Credits —
+              {{ formatBundlePrice(selectedBundle()!.price) }}</span
+            >
           }
         </button>
       }

@@ -27,8 +27,7 @@
   --max-height: 90vh;
   --max-height: 90dvh;
   --border-radius: var(--nxt1-borderRadius-2xl, 20px);
-  --box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.5),
-    0 10px 20px -5px rgba(0, 0, 0, 0.3);
+  --box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.5), 0 10px 20px -5px rgba(0, 0, 0, 0.3);
 }
 
 .nxt1-auth-modal::part(content) {
@@ -100,8 +99,8 @@
 
 .nxt1-auth-modal--android {
   --border-radius: var(--nxt1-borderRadius-xl, 16px);
-  --box-shadow: 0 11px 15px -7px rgba(0, 0, 0, 0.2),
-    0 24px 38px 3px rgba(0, 0, 0, 0.14),
+  --box-shadow:
+    0 11px 15px -7px rgba(0, 0, 0, 0.2), 0 24px 38px 3px rgba(0, 0, 0, 0.14),
     0 9px 46px 8px rgba(0, 0, 0, 0.12);
   align-items: center;
   justify-content: center;
@@ -131,6 +130,7 @@
    ============================================ */
 
 .nxt1-auth-modal .modal-wrapper {
-  transition: transform 300ms cubic-bezier(0.32, 0.72, 0, 1),
+  transition:
+    transform 300ms cubic-bezier(0.32, 0.72, 0, 1),
     opacity 300ms cubic-bezier(0.32, 0.72, 0, 1) !important;
 }

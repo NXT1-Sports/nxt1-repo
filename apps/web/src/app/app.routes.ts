@@ -36,8 +36,7 @@ export const routes: Routes = [
    */
   {
     path: 'dev/wallet',
-    loadComponent: () =>
-      import('./dev/wallet-test.component').then((m) => m.WalletTestComponent),
+    loadComponent: () => import('./dev/wallet-test.component').then((m) => m.WalletTestComponent),
   },
 
   // ============================================

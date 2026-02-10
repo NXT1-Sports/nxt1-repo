@@ -119,8 +119,8 @@ export class WalletService {
   });
 
   /** Recommended bundle (best value or popular) */
-  readonly recommendedBundle = computed(() =>
-    this._bundles().find((b) => b.recommended) ?? this._bundles()[1] ?? null
+  readonly recommendedBundle = computed(
+    () => this._bundles().find((b) => b.recommended) ?? this._bundles()[1] ?? null
   );
 
   /** Transaction count */
@@ -326,9 +326,7 @@ export class WalletService {
     });
 
     this.haptics.impact('light');
-    this.toast.success(
-      current.enabled ? 'Auto-reload disabled' : 'Auto-reload enabled'
-    );
+    this.toast.success(current.enabled ? 'Auto-reload disabled' : 'Auto-reload enabled');
   }
 
   /**

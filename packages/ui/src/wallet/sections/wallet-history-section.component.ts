@@ -10,13 +10,7 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import {
-  Component,
-  ChangeDetectionStrategy,
-  input,
-  output,
-  computed,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
@@ -67,7 +61,10 @@ addIcons({
               </div>
 
               <!-- Amount -->
-              <div class="txn-amount" [class]="'txn-amount--' + (txn.amount > 0 ? 'positive' : 'negative')">
+              <div
+                class="txn-amount"
+                [class]="'txn-amount--' + (txn.amount > 0 ? 'positive' : 'negative')"
+              >
                 <span>{{ txn.amount > 0 ? '+' : '' }}{{ txn.amount }}</span>
               </div>
             </div>
@@ -305,9 +302,7 @@ export class WalletHistorySectionComponent {
   );
 
   /** Whether there are more transactions than displayed */
-  readonly hasMore = computed(() =>
-    this.transactions().length > this.maxDisplayed()
-  );
+  readonly hasMore = computed(() => this.transactions().length > this.maxDisplayed());
 
   /** Get icon name for transaction type */
   getIcon(type: WalletTransaction['type']): string {

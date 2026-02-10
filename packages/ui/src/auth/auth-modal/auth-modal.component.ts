@@ -170,10 +170,7 @@ type AuthProvider = 'google' | 'apple' | 'microsoft' | 'email';
               </button>
 
               <!-- Mode Switcher (Sign In / Sign Up) -->
-              <nxt1-auth-mode-switcher
-                [mode]="mode()"
-                (modeChange)="setMode($event)"
-              />
+              <nxt1-auth-mode-switcher [mode]="mode()" (modeChange)="setMode($event)" />
 
               <!-- Email Form -->
               <nxt1-auth-email-form
@@ -564,10 +561,7 @@ export class AuthModalComponent implements OnInit {
 
   /** Dismiss with successful authentication */
   private dismissAuthenticated(provider: string): void {
-    this.modalCtrl.dismiss(
-      { authenticated: true, provider, reason: 'authenticated' },
-      'confirm',
-    );
+    this.modalCtrl.dismiss({ authenticated: true, provider, reason: 'authenticated' }, 'confirm');
   }
 
   /** Dismiss with provider selection (when no callback provided) */
@@ -580,7 +574,7 @@ export class AuthModalComponent implements OnInit {
         emailData: data,
         reason: 'provider-selected',
       },
-      'confirm',
+      'confirm'
     );
   }
 }

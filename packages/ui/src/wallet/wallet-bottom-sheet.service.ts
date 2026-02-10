@@ -70,7 +70,11 @@ export class WalletModalComponent {
   }
 
   /** Forward section actions to modal result (for external handling) */
-  async onSectionAction(event: { section: WalletSectionId; action: string; data?: unknown }): Promise<void> {
+  async onSectionAction(event: {
+    section: WalletSectionId;
+    action: string;
+    data?: unknown;
+  }): Promise<void> {
     // Close sheet and propagate the action outward
     if (event.action === 'managePayment') {
       await this.modalCtrl.dismiss(event, 'navigate');

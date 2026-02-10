@@ -35,7 +35,10 @@ import { CommonModule } from '@angular/common';
         <div class="balance-label-skeleton shimmer"></div>
         <div class="balance-breakdown-skeleton">
           @for (i of [1, 2, 3]; track i) {
-            <div class="balance-type-skeleton shimmer" [style.animation-delay]="i * 0.08 + 's'"></div>
+            <div
+              class="balance-type-skeleton shimmer"
+              [style.animation-delay]="i * 0.08 + 's'"
+            ></div>
           }
         </div>
       </div>

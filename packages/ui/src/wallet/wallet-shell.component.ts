@@ -27,19 +27,9 @@
  * ```
  */
 
-import {
-  Component,
-  ChangeDetectionStrategy,
-  inject,
-  input,
-  output,
-  OnInit,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, input, output, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import {
-  IonIcon,
-  IonRippleEffect,
-} from '@ionic/angular/standalone';
+import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {
   closeOutline,
@@ -112,12 +102,7 @@ export interface WalletCloseEvent {
       @if (!showHeader()) {
         <header class="wallet-sheet-header">
           <h1 class="sheet-title">Wallet</h1>
-          <button
-            type="button"
-            class="sheet-done-btn"
-            (click)="onClose()"
-            aria-label="Done"
-          >
+          <button type="button" class="sheet-done-btn" (click)="onClose()" aria-label="Done">
             <span>Done</span>
           </button>
         </header>

@@ -9,20 +9,11 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import {
-  Component,
-  ChangeDetectionStrategy,
-  input,
-  output,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonIcon, IonToggle, IonRippleEffect } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import {
-  refreshOutline,
-  cardOutline,
-  chevronForwardOutline,
-} from 'ionicons/icons';
+import { refreshOutline, cardOutline, chevronForwardOutline } from 'ionicons/icons';
 import type { WalletAutoReload } from '../wallet.mock-data';
 
 addIcons({
@@ -55,7 +46,11 @@ addIcons({
       </div>
 
       <!-- Payment Method -->
-      <button type="button" class="setting-row setting-row--interactive" (click)="managePayment.emit()">
+      <button
+        type="button"
+        class="setting-row setting-row--interactive"
+        (click)="managePayment.emit()"
+      >
         <ion-ripple-effect></ion-ripple-effect>
         <div class="setting-icon">
           <ion-icon name="card-outline"></ion-icon>

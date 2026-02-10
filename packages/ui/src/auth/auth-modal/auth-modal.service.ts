@@ -294,10 +294,7 @@ export class AuthModalService {
   async dismiss(): Promise<void> {
     if (this.activeModal) {
       try {
-        await this.activeModal.dismiss(
-          { authenticated: false, reason: 'closed' },
-          'cancel'
-        );
+        await this.activeModal.dismiss({ authenticated: false, reason: 'closed' }, 'cancel');
       } catch {
         // Already dismissed
       }

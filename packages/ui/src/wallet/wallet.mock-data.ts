@@ -8,8 +8,6 @@
  * during development. All data here is fabricated for UI testing purposes only.
  */
 
-
-
 // ============================================
 // WALLET SECTION IDS
 // ============================================

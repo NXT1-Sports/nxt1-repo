@@ -9,22 +9,11 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import {
-  Component,
-  ChangeDetectionStrategy,
-  input,
-  output,
-  computed,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import {
-  sparklesOutline,
-  schoolOutline,
-  mailOutline,
-  addCircleOutline,
-} from 'ionicons/icons';
+import { sparklesOutline, schoolOutline, mailOutline, addCircleOutline } from 'ionicons/icons';
 import type { WalletBalance } from '../wallet.mock-data';
 
 addIcons({
@@ -41,7 +30,11 @@ addIcons({
   template: `
     <div class="balance-section">
       <!-- Hero Balance -->
-      <div class="hero-balance" [class.hero-balance--low]="isLow()" [class.hero-balance--critical]="isCritical()">
+      <div
+        class="hero-balance"
+        [class.hero-balance--low]="isLow()"
+        [class.hero-balance--critical]="isCritical()"
+      >
         <span class="hero-value">{{ balance()?.total ?? 0 }}</span>
         <span class="hero-label">credits available</span>
       </div>

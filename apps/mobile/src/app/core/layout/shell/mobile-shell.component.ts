@@ -212,7 +212,7 @@ import { ActivityService } from '../../../features/activity/services/activity.se
         --nxt1-footer-left: 16px;
         --nxt1-footer-right: 16px;
         --nxt1-z-index-footer: 1000;
-        
+
         /* Smooth transitions for scroll-hide behavior */
         transition:
           transform var(--nxt1-transition-normal, 300ms)

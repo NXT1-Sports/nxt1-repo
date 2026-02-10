@@ -78,16 +78,9 @@ export interface SearchBarSubmitEvent {
   standalone: true,
   imports: [NxtIconComponent],
   template: `
-    <form
-      class="search-form relative flex items-center"
-      (submit)="onSubmit($event)"
-    >
+    <form class="search-form relative flex items-center" (submit)="onSubmit($event)">
       <!-- Search Icon -->
-      <nxt1-icon
-        [name]="iconName()"
-        [class]="iconClass()"
-        [size]="iconSize()"
-      />
+      <nxt1-icon [name]="iconName()" [class]="iconClass()" [size]="iconSize()" />
 
       <!-- Native search input (NOT ion-searchbar — avoids shadow DOM conflicts) -->
       <input
@@ -114,12 +107,7 @@ export interface SearchBarSubmitEvent {
           Cancel
         </button>
       } @else if (value()) {
-        <button
-          type="button"
-          [class]="clearClass()"
-          aria-label="Clear search"
-          (click)="onClear()"
-        >
+        <button type="button" [class]="clearClass()" aria-label="Clear search" (click)="onClear()">
           <nxt1-icon name="close" [size]="clearIconSize()" />
         </button>
       }
@@ -153,8 +141,7 @@ export interface SearchBarSubmitEvent {
         justify-content: center;
         gap: var(--nxt1-spacing-2, 8px);
         background: var(--nxt1-color-surface-200, #1f1f1f);
-        border: 1px solid
-          var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
         transition: width 0.25s var(--nxt1-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
       }
 
@@ -256,8 +243,8 @@ export class NxtSearchBarComponent {
   private readonly inputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
 
   /** Internal focused state for mobile (tracks actual input focus) */
-  protected readonly isMobileFocused = computed(() =>
-    this.variant() === 'mobile' && this.focused()
+  protected readonly isMobileFocused = computed(
+    () => this.variant() === 'mobile' && this.focused()
   );
 
   // ─── Computed helpers ─────────────────────────────────────
@@ -298,8 +285,7 @@ export class NxtSearchBarComponent {
   /** Clear button CSS classes */
   protected readonly clearClass = computed(() => {
     const v = this.variant();
-    const base =
-      'search-clear absolute flex items-center justify-center rounded-full p-0';
+    const base = 'search-clear absolute flex items-center justify-center rounded-full p-0';
     if (v === 'desktop-centered') {
       return `${base} right-3 h-7 w-7`;
     }
