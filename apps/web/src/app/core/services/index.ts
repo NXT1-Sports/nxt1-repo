@@ -36,3 +36,6 @@ export { FileUploadService, type UploadStatus, type UploadState } from './file-u
 
 // Crashlytics Service for crash reporting (web uses GA4 fallback)
 export { CrashlyticsService } from './crashlytics.service';
+
+// Share Service for centralized web sharing + analytics
+export { ShareService } from './share.service';

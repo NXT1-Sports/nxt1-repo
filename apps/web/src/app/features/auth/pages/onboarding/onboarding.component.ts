@@ -45,7 +45,6 @@ import {
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
-import { NavController } from '@ionic/angular/standalone';
 
 // Shared UI Components
 import { AuthShellComponent, AuthTitleComponent, AuthSubtitleComponent } from '@nxt1/ui';
@@ -343,10 +342,10 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     `
       /* ============================================
        STEP CONTENT CONTAINER
-       Natural flow - ion-content handles scrolling
+       Natural flow layout
        ============================================ */
       .nxt1-step-content {
-        /* Natural flow with ion-content scroll */
+        /* Natural flow layout */
         width: 100%;
 
         /* Spacing around content */
@@ -379,7 +378,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 export class OnboardingComponent implements OnInit, OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
-  private readonly navController = inject(NavController);
   private readonly authFlow = inject(AuthFlowService);
   private readonly authApi = inject(AuthApiService);
   private readonly errorHandler = inject(AuthErrorHandler);
@@ -932,10 +930,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
     try {
       await this.authFlow.signOut();
-      await this.navController.navigateRoot(AUTH_ROUTES.ROOT, {
-        animated: true,
-        animationDirection: 'back',
-      });
+      await this.router.navigate([AUTH_ROUTES.ROOT], { replaceUrl: true });
     } catch (err) {
       this.logger.error('Sign out failed', err);
       this.toast.error('Failed to sign out');
@@ -1051,11 +1046,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       (document.activeElement as HTMLElement)?.blur?.();
     }
 
-    // Navigate to congratulations page with Ionic animation
-    await this.navController.navigateForward('/auth/onboarding/congratulations', {
-      animated: true,
-      animationDirection: 'forward',
-    });
+    // Navigate to congratulations page
+    await this.router.navigate(['/auth/onboarding/congratulations']);
   }
 
   // ============================================

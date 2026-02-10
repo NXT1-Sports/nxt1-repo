@@ -193,12 +193,12 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Open AI Agent X',
   },
   {
-    id: 'search',
-    label: 'Search',
-    icon: 'search',
-    iconActive: 'searchFilled',
-    route: '/search',
-    ariaLabel: 'Search athletes and teams',
+    id: 'explore',
+    label: 'Explore',
+    icon: 'compass',
+    iconActive: 'compassFilled',
+    route: '/explore',
+    ariaLabel: 'Explore athletes and teams',
   },
   {
     id: 'activity',
@@ -244,7 +244,7 @@ export const FOOTER_ANIMATION = {
  * Professional pattern: Instagram, Twitter, TikTok all allow sidenav
  * swipe only on root/main pages, not on detail/sub-pages.
  */
-export const MAIN_PAGE_ROUTES = ['/home', '/agent', '/search', '/activity'] as const;
+export const MAIN_PAGE_ROUTES = ['/home', '/agent', '/explore', '/activity'] as const;
 
 /**
  * Check if a route is a main page where sidenav swipe should be enabled.
@@ -598,16 +598,10 @@ export const DEFAULT_TOP_NAV_ITEMS: TopNavItem[] = [
     icon: 'home',
   },
   {
-    id: 'discover',
-    label: 'Discover',
-    route: '/discover',
+    id: 'explore',
+    label: 'Explore',
+    route: '/explore',
     icon: 'compass',
-  },
-  {
-    id: 'search',
-    label: 'Search',
-    route: '/search',
-    icon: 'search',
   },
   {
     id: 'ai',
@@ -638,7 +632,7 @@ export const DEFAULT_USER_MENU_ITEMS: TopNavUserMenuItem[] = [
     id: 'help',
     label: 'Help & Support',
     icon: 'help',
-    route: '/help',
+    route: '/help-center',
     divider: true,
   },
   {
@@ -692,7 +686,7 @@ export function createTopNavConfig(config: Partial<TopNavConfig> = {}): TopNavCo
     logoSize: 'md',
     logoLinksHome: true,
     showSearch: true,
-    searchPlaceholder: 'Search athletes, teams...',
+    searchPlaceholder: 'Search anything (athletes, videos, colleges, teams, and more)',
     showNotifications: true,
     notificationCount: 0,
     showCreate: true,
@@ -1158,7 +1152,7 @@ export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
         id: 'xp',
         label: 'XP',
         icon: 'sparkles',
-        route: '/tabs/xp',
+        route: '/xp',
       },
       {
         id: 'invite-team',

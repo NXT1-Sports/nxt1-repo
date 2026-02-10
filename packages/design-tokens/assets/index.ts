@@ -27,11 +27,14 @@
  * Apps should copy design-tokens/assets/logo to assets/shared/logo/
  */
 export const LOGO_PATHS = {
-  /** Main logo (AVIF) - Primary brand logo */
+  /** Main logo (AVIF) - Primary brand logo (with green accent) */
   main: 'assets/shared/logo/nxt1_logo.avif',
 
   /** Main logo (AVIF) - Modern format, smaller size */
   mainAvif: 'assets/shared/logo/nxt1_logo.avif',
+
+  /** White logo (PNG) - For dark backgrounds and custom themes */
+  white: 'assets/shared/logo/nxt1-whitelogo.png',
 
   /** Lightning bolt icon - NXT1 brand icon */
   icon: 'assets/shared/logo/nxt1_icon.png',

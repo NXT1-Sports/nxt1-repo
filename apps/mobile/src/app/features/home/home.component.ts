@@ -22,7 +22,7 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonContent, NavController } from '@ionic/angular/standalone';
+import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import {
   NxtPageHeaderComponent,
   NxtOptionScrollerComponent,
@@ -45,32 +45,37 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
   standalone: true,
   imports: [
     CommonModule,
+    IonHeader,
     IonContent,
+    IonToolbar,
     NxtPageHeaderComponent,
     NxtOptionScrollerComponent,
     NewsContentComponent,
     FeedListComponent,
   ],
   template: `
-    <!-- Professional Page Header with Logo (Twitter/X style) -->
-    <nxt1-page-header
-      [showLogo]="true"
-      [avatarSrc]="photoURL()"
-      [avatarName]="displayName()"
-      [actions]="headerActions()"
-      (avatarClick)="onAvatarClick()"
-      (actionClick)="onHeaderAction($event)"
-    />
+    <ion-header class="ion-no-border" [translucent]="true">
+      <ion-toolbar></ion-toolbar>
+    </ion-header>
+    <ion-content [fullscreen]="true">
+      <!-- Professional Page Header with Logo (Twitter/X style) -->
+      <nxt1-page-header
+        [showLogo]="true"
+        [avatarSrc]="photoURL()"
+        [avatarName]="displayName()"
+        [actions]="headerActions()"
+        (avatarClick)="onAvatarClick()"
+        (actionClick)="onHeaderAction($event)"
+      />
 
-    <!-- Twitter/TikTok Style Feed Selector -->
-    <nxt1-option-scroller
-      [options]="feedOptions()"
-      [selectedId]="selectedFeed()"
-      [config]="{ scrollable: false, stretchToFill: true }"
-      (selectionChange)="onFeedChange($event)"
-    />
+      <!-- Twitter/TikTok Style Feed Selector -->
+      <nxt1-option-scroller
+        [options]="feedOptions()"
+        [selectedId]="selectedFeed()"
+        [config]="{ scrollable: false, stretchToFill: true }"
+        (selectionChange)="onFeedChange($event)"
+      />
 
-    <ion-content>
       @switch (selectedFeed()) {
         @case ('news') {
           <nxt1-news-content
@@ -119,13 +124,29 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
     `
       :host {
         display: block;
-        min-height: 100%;
-        background: var(--nxt1-color-background-primary, #0a0a0a);
+        height: 100%;
+      }
+      ion-header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: -1;
+        --background: transparent;
+      }
+      ion-toolbar {
+        --background: transparent;
+        --min-height: 0;
+        --padding-top: 0;
+        --padding-bottom: 0;
+      }
+      ion-content {
+        --background: var(--nxt1-color-bg-primary, #0a0a0a);
       }
 
       /* Light theme support */
-      :host-context([data-theme='light']) {
-        background: var(--nxt1-color-background-primary, #ffffff);
+      :host-context([data-theme='light']) ion-content {
+        --background: var(--nxt1-color-bg-primary, #ffffff);
       }
     `,
   ],

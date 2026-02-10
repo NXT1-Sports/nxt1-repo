@@ -11,47 +11,14 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon, IonSpinner } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  personAddOutline,
-  checkmarkOutline,
-  createOutline,
-  cameraOutline,
-  locationOutline,
-  schoolOutline,
-  calendarOutline,
-  logoTwitter,
-  logoInstagram,
-  logoYoutube,
-  linkOutline,
-  shieldCheckmarkOutline,
-  shieldOutline,
-} from 'ionicons/icons';
 import type { ProfileUser, ProfileFollowStats, ProfilePinnedVideo } from '@nxt1/core';
 import { NxtAvatarComponent } from '../components/avatar';
-
-// Register icons
-addIcons({
-  personAddOutline,
-  checkmarkOutline,
-  createOutline,
-  cameraOutline,
-  locationOutline,
-  schoolOutline,
-  calendarOutline,
-  logoTwitter,
-  logoInstagram,
-  logoYoutube,
-  linkOutline,
-  shieldCheckmarkOutline,
-  shieldOutline,
-});
+import { NxtIconComponent } from '../components/icon';
 
 @Component({
   selector: 'nxt1-profile-header',
   standalone: true,
-  imports: [CommonModule, IonIcon, IonSpinner, NxtAvatarComponent],
+  imports: [CommonModule, NxtAvatarComponent, NxtIconComponent],
   template: `
     <header class="profile-header">
       <!-- Banner Section -->
@@ -63,63 +30,83 @@ addIcons({
         <!-- Edit Banner Button (Own Profile) -->
         @if (canEdit() && isOwnProfile()) {
           <button class="banner-edit-btn" (click)="editBanner.emit()" aria-label="Edit banner">
-            <ion-icon name="camera-outline"></ion-icon>
+            <nxt1-icon name="image" [size]="18" />
           </button>
         }
       </div>
 
-      <!-- Profile Content -->
+      <!-- Profile Content (YouTube-style: no overlap with banner) -->
       <div class="profile-header-content">
-        <!-- Avatar Section -->
-        <div class="profile-avatar-container">
-          <nxt1-avatar
-            [src]="user()?.profileImg"
-            [name]="displayName()"
-            [size]="avatarSize()"
-            shape="circle"
-          />
+        <!-- Top Row: Avatar + Name/Followers (side by side) -->
+        <div class="profile-top-row">
+          <!-- Avatar Section -->
+          <div class="profile-avatar-container">
+            <nxt1-avatar
+              [src]="user()?.profileImg"
+              [name]="displayName()"
+              [size]="avatarSize()"
+              shape="circle"
+            />
 
-          <!-- Edit Avatar Button (Own Profile) -->
-          @if (canEdit() && isOwnProfile()) {
-            <button
-              class="avatar-edit-btn"
-              (click)="editAvatar.emit()"
-              aria-label="Edit profile picture"
-            >
-              <ion-icon name="camera-outline"></ion-icon>
-            </button>
-          }
+            <!-- Edit Avatar Button (Own Profile) -->
+            @if (canEdit() && isOwnProfile()) {
+              <button
+                class="avatar-edit-btn"
+                (click)="editAvatar.emit()"
+                aria-label="Edit profile picture"
+              >
+                <nxt1-icon name="image" [size]="14" />
+              </button>
+            }
 
-          <!-- Verified Badge -->
-          @if (user()?.verificationStatus === 'verified') {
-            <div class="verification-badge" title="Verified">
-              <ion-icon name="shield-checkmark-outline"></ion-icon>
-            </div>
-          }
+            <!-- Verified Badge -->
+            @if (user()?.verificationStatus === 'verified') {
+              <div class="verification-badge" title="Verified">
+                <nxt1-icon name="verified" [size]="14" />
+              </div>
+            }
+          </div>
+
+          <!-- Name & Follow Stats (right of avatar) -->
+          <div class="profile-name-section">
+            <h1 class="profile-name">
+              {{ displayName() }}
+              @if (user()?.verificationStatus === 'verified') {
+                <nxt1-icon name="verified" className="verified-icon" [size]="18" />
+              }
+            </h1>
+
+            <!-- Follow Stats (YouTube-style inline) -->
+            @if (followStats()) {
+              <div class="follow-stats-inline">
+                <button class="follow-stat" (click)="followersClick.emit()">
+                  <span class="stat-count">{{ formatCount(followStats()!.followersCount) }}</span>
+                  <span class="stat-label">Followers</span>
+                </button>
+                <span class="stat-separator">&#8226;</span>
+                <button class="follow-stat" (click)="followingClick.emit()">
+                  <span class="stat-count">{{ formatCount(followStats()!.followingCount) }}</span>
+                  <span class="stat-label">Following</span>
+                </button>
+              </div>
+            }
+
+            <!-- Sport & Position (below followers) -->
+            @if (user()?.primarySport) {
+              <p class="profile-meta">
+                <span class="sport-position">
+                  {{ user()?.primarySport?.position }} • {{ user()?.primarySport?.name }}
+                </span>
+                @if (user()?.primarySport?.jerseyNumber) {
+                  <span class="jersey-number">#{{ user()?.primarySport?.jerseyNumber }}</span>
+                }
+              </p>
+            }
+          </div>
         </div>
 
-        <!-- Info Section -->
-        <div class="profile-info">
-          <!-- Name -->
-          <h1 class="profile-name">
-            {{ displayName() }}
-            @if (user()?.verificationStatus === 'verified') {
-              <ion-icon name="shield-checkmark-outline" class="verified-icon"></ion-icon>
-            }
-          </h1>
-
-          <!-- Sport & Position -->
-          @if (user()?.primarySport) {
-            <p class="profile-meta">
-              <span class="sport-position">
-                {{ user()?.primarySport?.position }} • {{ user()?.primarySport?.name }}
-              </span>
-              @if (user()?.primarySport?.jerseyNumber) {
-                <span class="jersey-number">#{{ user()?.primarySport?.jerseyNumber }}</span>
-              }
-            </p>
-          }
-
+        <!-- Details Section (full width, under avatar) -->
+        <div class="profile-details">
           <!-- School & Location -->
           @if (user()?.school || user()?.location) {
             <div class="profile-location-school">
@@ -137,7 +124,7 @@ addIcons({
               }
               @if (user()?.location) {
                 <span class="location-info">
-                  <ion-icon name="location-outline"></ion-icon>
+                  <nxt1-icon name="location" [size]="14" />
                   {{ user()?.location }}
                 </span>
               }
@@ -164,31 +151,17 @@ addIcons({
             <p class="profile-bio">{{ user()?.aboutMe }}</p>
           }
 
-          <!-- Follow Stats -->
-          @if (followStats()) {
-            <div class="follow-stats">
-              <button class="follow-stat" (click)="followersClick.emit()">
-                <span class="stat-count">{{ formatCount(followStats()!.followersCount) }}</span>
-                <span class="stat-label">Followers</span>
-              </button>
-              <button class="follow-stat" (click)="followingClick.emit()">
-                <span class="stat-count">{{ formatCount(followStats()!.followingCount) }}</span>
-                <span class="stat-label">Following</span>
-              </button>
-            </div>
-          }
-
           <!-- Action Buttons -->
           <div class="profile-actions">
             @if (isOwnProfile()) {
               <!-- Own Profile Actions -->
               <button class="action-btn action-btn--primary" (click)="editProfile.emit()">
-                <ion-icon name="create-outline"></ion-icon>
+                <nxt1-icon name="pencil" [size]="18" />
                 <span>Edit Profile</span>
               </button>
               <!-- TODO: Re-enable hasTeam() check when backend provides team data -->
               <button class="action-btn action-btn--secondary" (click)="editTeam.emit()">
-                <ion-icon name="shield-outline"></ion-icon>
+                <nxt1-icon name="school" [size]="18" />
                 <span>Edit Team</span>
               </button>
             } @else {
@@ -201,11 +174,12 @@ addIcons({
                 (click)="followToggle.emit()"
               >
                 @if (isFollowLoading()) {
-                  <ion-spinner name="crescent"></ion-spinner>
+                  <span class="nxt1-spinner" aria-hidden="true"></span>
                 } @else {
-                  <ion-icon
-                    [name]="followStats()?.isFollowing ? 'checkmark-outline' : 'person-add-outline'"
-                  ></ion-icon>
+                  <nxt1-icon
+                    [name]="followStats()?.isFollowing ? 'checkmark' : 'plus'"
+                    [size]="18"
+                  />
                   <span>{{ followStats()?.isFollowing ? 'Following' : 'Follow' }}</span>
                 }
               </button>
@@ -227,7 +201,7 @@ addIcons({
                   <img [src]="pinnedVideo()?.previewImage" [alt]="pinnedVideo()?.name" />
                 }
                 <div class="play-overlay">
-                  <ion-icon name="play-circle-outline"></ion-icon>
+                  <nxt1-icon name="playCircle" [size]="32" />
                 </div>
                 @if (pinnedVideo()?.duration) {
                   <span class="video-duration">{{ formatDuration(pinnedVideo()!.duration!) }}</span>
@@ -244,14 +218,14 @@ addIcons({
             </button>
           } @else if (isOwnProfile()) {
             <button class="pinned-video-placeholder" (click)="pinVideoClick.emit()">
-              <ion-icon name="add-circle-outline"></ion-icon>
+              <nxt1-icon name="plusCircle" [size]="24" />
               <span>Pin a Video</span>
             </button>
           }
 
           @if (isOwnProfile() && pinnedVideo()) {
             <button class="pinned-video-edit" (click)="pinVideoClick.emit()">
-              <ion-icon name="create-outline"></ion-icon>
+              <nxt1-icon name="pencil" [size]="14" />
             </button>
           }
         </div>
@@ -294,9 +268,14 @@ addIcons({
         background-size: cover;
         background-position: center;
         background-color: var(--header-surface);
+        border-radius: var(--nxt1-radius-lg, 12px);
+        margin: 12px 16px 0;
+        overflow: hidden;
 
         @media (max-width: 768px) {
           height: 150px;
+          margin: 8px 12px 0;
+          border-radius: var(--nxt1-radius-md, 10px);
         }
       }
 
@@ -339,23 +318,27 @@ addIcons({
       }
 
       /* ============================================
-         HEADER CONTENT
+         HEADER CONTENT (YouTube-style: no overlap)
          ============================================ */
 
       .profile-header-content {
         display: flex;
-        gap: 24px;
-        padding: 0 24px 24px;
-        margin-top: -60px;
-        position: relative;
+        flex-direction: column;
+        padding: 16px 24px 24px;
 
         @media (max-width: 768px) {
-          flex-direction: column;
-          align-items: center;
-          text-align: center;
-          padding: 0 16px 20px;
-          margin-top: -50px;
-          gap: 16px;
+          padding: 12px 16px 20px;
+        }
+      }
+
+      /* Top Row: Avatar + Name/Followers side by side */
+      .profile-top-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+
+        @media (max-width: 768px) {
+          gap: 12px;
         }
       }
 
@@ -369,8 +352,24 @@ addIcons({
       }
 
       :host ::ng-deep nxt1-avatar {
-        --avatar-border-color: var(--header-bg);
-        --avatar-border-width: 4px;
+        --avatar-border-color: var(--header-primary);
+        --avatar-border-width: 3px;
+      }
+
+      /* Name Section (right of avatar) */
+      .profile-name-section {
+        flex: 1;
+        min-width: 0;
+        padding-top: 8px;
+      }
+
+      /* Details Section (full width, under avatar) */
+      .profile-details {
+        padding-top: 12px;
+
+        @media (max-width: 768px) {
+          padding-top: 10px;
+        }
       }
 
       .avatar-edit-btn {
@@ -414,19 +413,8 @@ addIcons({
       }
 
       /* ============================================
-         INFO SECTION
+         NAME SECTION (part of top row)
          ============================================ */
-
-      .profile-info {
-        flex: 1;
-        padding-top: 68px;
-        min-width: 0;
-
-        @media (max-width: 768px) {
-          padding-top: 8px;
-          width: 100%;
-        }
-      }
 
       .profile-name {
         font-size: 28px;
@@ -438,15 +426,18 @@ addIcons({
         gap: 8px;
 
         @media (max-width: 768px) {
-          font-size: 24px;
-          justify-content: center;
+          font-size: 22px;
         }
       }
 
       .verified-icon {
         color: var(--header-verified);
-        font-size: 20px;
+        font-size: 18px;
       }
+
+      /* ============================================
+         DETAILS SECTION (under avatar)
+         ============================================ */
 
       .profile-meta {
         font-size: 16px;
@@ -455,10 +446,6 @@ addIcons({
         display: flex;
         align-items: center;
         gap: 8px;
-
-        @media (max-width: 768px) {
-          justify-content: center;
-        }
       }
 
       .jersey-number {
@@ -476,12 +463,8 @@ addIcons({
         margin-bottom: 8px;
         font-size: 14px;
         color: var(--header-text-secondary);
-
-        @media (max-width: 768px) {
-          justify-content: center;
-          flex-wrap: wrap;
-          gap: 12px;
-        }
+        flex-wrap: wrap;
+        gap: 12px;
       }
 
       .school-info,
@@ -503,10 +486,6 @@ addIcons({
         gap: 8px;
         margin-bottom: 12px;
         flex-wrap: wrap;
-
-        @media (max-width: 768px) {
-          justify-content: center;
-        }
       }
 
       .info-badge {
@@ -531,17 +510,14 @@ addIcons({
       }
 
       /* ============================================
-         FOLLOW STATS
+         FOLLOW STATS (INLINE)
          ============================================ */
 
-      .follow-stats {
+      .follow-stats-inline {
         display: flex;
-        gap: 24px;
-        margin-bottom: 16px;
-
-        @media (max-width: 768px) {
-          justify-content: center;
-        }
+        gap: 12px;
+        align-items: center;
+        margin: 4px 0 10px;
       }
 
       .follow-stat {
@@ -570,6 +546,11 @@ addIcons({
         color: inherit;
       }
 
+      .stat-separator {
+        color: var(--header-text-tertiary);
+        font-size: 14px;
+      }
+
       /* ============================================
          ACTION BUTTONS
          ============================================ */
@@ -579,7 +560,9 @@ addIcons({
         gap: 12px;
 
         @media (max-width: 768px) {
-          justify-content: center;
+          width: 100%;
+          justify-content: flex-start;
+          flex-wrap: wrap;
         }
       }
 
@@ -596,15 +579,6 @@ addIcons({
         transition: all 0.2s ease;
         border: none;
         min-width: 120px;
-
-        ion-icon {
-          font-size: 18px;
-        }
-
-        ion-spinner {
-          width: 18px;
-          height: 18px;
-        }
 
         &:disabled {
           opacity: 0.6;
@@ -710,11 +684,6 @@ addIcons({
         align-items: center;
         justify-content: center;
         background: rgba(0, 0, 0, 0.4);
-
-        ion-icon {
-          font-size: 32px;
-          color: white;
-        }
       }
 
       .video-duration {
@@ -762,10 +731,6 @@ addIcons({
         font-size: 15px;
         transition: all 0.2s ease;
 
-        ion-icon {
-          font-size: 24px;
-        }
-
         &:hover {
           border-color: var(--header-primary);
           color: var(--header-primary);
@@ -796,6 +761,22 @@ addIcons({
 
         @media (max-width: 768px) {
           right: 24px;
+        }
+      }
+
+      .nxt1-spinner {
+        width: 18px;
+        height: 18px;
+        border: 2px solid currentColor;
+        border-top-color: transparent;
+        border-radius: 50%;
+        display: inline-block;
+        animation: profile-spin 0.8s linear infinite;
+      }
+
+      @keyframes profile-spin {
+        to {
+          transform: rotate(360deg);
         }
       }
     `,

@@ -144,14 +144,14 @@ export class DeepLinkService {
       route: '/auth/action',
     },
 
-    // Explore/Search
+    // Explore
     {
       pattern: /^\/explore\/?$/,
-      route: '/search',
+      route: '/explore',
     },
     {
       pattern: /^\/search\/?$/,
-      route: '/search',
+      route: '/explore',
     },
 
     // Home (default)

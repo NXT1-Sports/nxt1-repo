@@ -486,6 +486,10 @@ export {
   type ShareableTeam,
   type ShareableVideo,
   type ShareablePost,
+  type ProfileShareSource,
+  type TeamShareSource,
+  type VideoShareSource,
+  type PostShareSource,
   // Functions
   buildShareUrl,
   buildProfileSeoConfig,
@@ -493,6 +497,15 @@ export {
   buildVideoSeoConfig,
   truncateDescription,
   sanitizeMetaText,
+  buildProfileShareTitle,
+  buildProfileShareText,
+  buildProfileShareDescription,
+  buildTeamShareTitle,
+  buildTeamShareText,
+  buildVideoShareTitle,
+  buildVideoShareText,
+  buildPostShareTitle,
+  buildPostShareText,
 } from './seo';
 
 // ============================================

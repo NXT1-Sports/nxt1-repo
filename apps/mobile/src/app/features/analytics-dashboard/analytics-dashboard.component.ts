@@ -45,6 +45,8 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
       <nxt1-analytics-dashboard-shell
         [user]="userInfo()"
         [role]="userRole()"
+        [showBack]="true"
+        (back)="onBack()"
         (avatarClick)="onAvatarClick()"
         (tabChange)="onTabChange($event)"
         (periodChange)="onPeriodChange($event)"
@@ -124,6 +126,13 @@ export class AnalyticsDashboardComponent {
    */
   protected onAvatarClick(): void {
     this.sidenavService.open();
+  }
+
+  /**
+   * Handle back navigation using Ionic's navigation stack.
+   */
+  protected onBack(): void {
+    this.navController.back();
   }
 
   /**

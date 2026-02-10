@@ -3,7 +3,7 @@
  * @module @nxt1/web
  *
  * Professional password reset page using shared auth components from @nxt1/ui.
- * Uses Ionic components and design tokens for 100% consistency with other auth pages.
+ * Uses design tokens for 100% consistency with other auth pages.
  *
  * Route: /auth/forgot-password
  *
@@ -13,7 +13,6 @@
 
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonButton } from '@ionic/angular/standalone';
 import { AuthShellComponent, AuthEmailFormComponent, type AuthEmailFormData } from '@nxt1/ui';
 import { NxtIconComponent } from '@nxt1/ui';
 import { AuthNavigationService } from '@nxt1/ui/services';
@@ -23,7 +22,7 @@ import { SeoService } from '../../../../core/services';
 @Component({
   selector: 'app-forgot-password',
   standalone: true,
-  imports: [CommonModule, IonButton, AuthShellComponent, AuthEmailFormComponent, NxtIconComponent],
+  imports: [CommonModule, AuthShellComponent, AuthEmailFormComponent, NxtIconComponent],
   template: `
     <nxt1-auth-shell
       variant="card-glass"
@@ -87,15 +86,13 @@ import { SeoService } from '../../../../core/services';
             </div>
 
             <!-- Try Again Button (Secondary) -->
-            <ion-button
-              fill="outline"
-              expand="block"
+            <button
+              type="button"
               class="action-btn"
               (click)="resetForm()"
               data-testid="forgot-password-try-again"
             >
               <svg
-                slot="start"
                 viewBox="0 0 24 24"
                 width="18"
                 height="18"
@@ -107,18 +104,18 @@ import { SeoService } from '../../../../core/services';
                 />
               </svg>
               <span>Didn't receive it? Try again</span>
-            </ion-button>
+            </button>
 
             <!-- Back to Sign In Button (Primary) -->
-            <ion-button
-              expand="block"
+            <button
+              type="button"
               class="action-btn action-btn--primary"
               (click)="goToSignIn()"
               data-testid="forgot-password-btn-back-to-login"
             >
               <span>Back to Sign In</span>
-              <nxt1-icon name="arrowRight" size="18" slot="end" aria-hidden="true" />
-            </ion-button>
+              <nxt1-icon name="arrowRight" size="18" aria-hidden="true" />
+            </button>
           </div>
         } @else {
           <!-- Request State - Form Only (matches auth.component.ts pattern) -->
@@ -136,15 +133,15 @@ import { SeoService } from '../../../../core/services';
       <!-- Footer -->
       <div authFooter class="footer-container" data-testid="forgot-password-footer">
         @if (!emailSent()) {
-          <ion-button
-            fill="clear"
+          <button
+            type="button"
             class="back-link"
             (click)="goToSignIn()"
             data-testid="forgot-password-link-back"
           >
-            <nxt1-icon name="chevronLeft" size="16" slot="start" aria-hidden="true" />
+            <nxt1-icon name="chevronLeft" size="16" aria-hidden="true" />
             <span>Back to Sign In</span>
-          </ion-button>
+          </button>
         }
       </div>
     </nxt1-auth-shell>
@@ -212,45 +209,55 @@ import { SeoService } from '../../../../core/services';
       }
 
       /* ============================================ */
-      /* ACTION BUTTONS - Using Ionic + Design Tokens */
+      /* ACTION BUTTONS - Pure HTML + Design Tokens   */
       /* ============================================ */
       .action-btn {
-        --border-radius: var(--nxt1-borderRadius-lg);
-        --padding-start: var(--nxt1-spacing-4);
-        --padding-end: var(--nxt1-spacing-4);
-        --box-shadow: none;
-        --background: transparent;
-        --background-hover: var(--nxt1-color-state-hover);
-        --background-activated: var(--nxt1-color-state-pressed);
-        --border-color: var(--nxt1-color-primary);
-        --border-width: 2px;
-        --color: var(--nxt1-color-primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--nxt1-spacing-2);
         width: 100%;
         max-width: 320px;
+        min-height: 52px;
+        padding: 0 var(--nxt1-spacing-4);
+        border-radius: var(--nxt1-borderRadius-lg);
+        border: 2px solid var(--nxt1-color-primary);
+        background: transparent;
+        color: var(--nxt1-color-primary);
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-base);
         font-weight: 600;
         text-transform: none;
         letter-spacing: normal;
         margin: 0;
+        cursor: pointer;
+        transition: all var(--nxt1-duration-normal) ease-out;
       }
 
-      .action-btn::part(native) {
-        min-height: 52px;
-        transition: all var(--nxt1-duration-normal) ease-out;
+      .action-btn:hover {
+        background: var(--nxt1-color-state-hover);
+      }
+
+      .action-btn:active {
+        background: var(--nxt1-color-state-pressed);
       }
 
       /* Primary Button (Filled) */
       .action-btn--primary {
-        --background: var(--nxt1-color-primary);
-        --background-hover: var(--nxt1-color-primaryDark);
-        --background-activated: var(--nxt1-color-primaryDark);
-        --border-width: 0;
-        --color: var(--nxt1-color-text-onPrimary);
+        background: var(--nxt1-color-primary);
+        border-color: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
       }
 
-      .action-btn--primary:hover::part(native) {
+      .action-btn--primary:hover {
+        background: var(--nxt1-color-primaryDark);
+        border-color: var(--nxt1-color-primaryDark);
         transform: translateY(-1px);
+      }
+
+      .action-btn--primary:active {
+        background: var(--nxt1-color-primaryDark);
+        transform: translateY(0);
       }
 
       /* ============================================ */
@@ -262,29 +269,23 @@ import { SeoService } from '../../../../core/services';
         width: 100%;
       }
 
-      /* Back Link - Clear Button Style */
+      /* Back Link - Text Button Style */
       .back-link {
-        --background: transparent;
-        --background-hover: transparent;
-        --background-activated: transparent;
-        --color: var(--nxt1-color-primary);
-        --padding-start: var(--nxt1-spacing-2);
-        --padding-end: var(--nxt1-spacing-2);
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-1);
+        background: transparent;
+        border: none;
+        color: var(--nxt1-color-primary);
+        padding: var(--nxt1-spacing-2);
         font-family: var(--nxt1-fontFamily-body);
         font-size: var(--nxt1-fontSize-sm);
         font-weight: var(--nxt1-fontWeight-medium);
-        text-transform: none;
-        letter-spacing: normal;
-        margin: 0;
-      }
-
-      .back-link::part(native) {
-        padding: var(--nxt1-spacing-2);
-        min-height: auto;
+        cursor: pointer;
         transition: opacity var(--nxt1-duration-fast) ease;
       }
 
-      .back-link:hover::part(native) {
+      .back-link:hover {
         opacity: 0.8;
       }
     `,

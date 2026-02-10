@@ -4,8 +4,7 @@
  * Orchestrates authentication flows by coordinating between:
  * - Firebase Auth (SDK operations)
  * - Auth API (Backend HTTP calls)
- * - NavController (Ionic navigation with animations)
- * - Router (URL access for redirect logic)
+ * - Router (Angular navigation)
  * - State management (via @nxt1/core AuthStateManager)
  *
  * This is the DOMAIN layer - it knows about business rules but not UI.
@@ -48,7 +47,6 @@ import {
   runInInjectionContext,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { NavController } from '@ionic/angular/standalone';
 import { NxtPlatformService, NxtLoggingService } from '@nxt1/ui';
 import { type ILogger } from '@nxt1/core/logging';
 import { Subscription } from 'rxjs';
@@ -133,7 +131,6 @@ type Auth = FirebaseAuthType;
 @Injectable({ providedIn: 'root' })
 export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly router = inject(Router);
-  private readonly navController = inject(NavController);
   private readonly platform = inject(NxtPlatformService);
   private readonly injector = inject(Injector);
   private readonly authApi = inject(AuthApiService);
@@ -200,40 +197,28 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   }
 
   // ============================================
-  // NAVIGATION HELPERS (Ionic NavController)
+  // NAVIGATION HELPERS (Angular Router)
   // ============================================
 
   /**
-   * Navigate forward with Ionic slide animation
-   * Uses NavController for proper ion-router-outlet animations
+   * Navigate forward to a route
    */
   private async navigateForward(path: string): Promise<void> {
-    await this.navController.navigateForward(path, {
-      animated: true,
-      animationDirection: 'forward',
-    });
+    await this.router.navigate([path]);
   }
 
   /**
-   * Navigate back with Ionic slide animation
-   * Uses NavController for proper ion-router-outlet animations
+   * Navigate back to a route
    */
   private async navigateBack(path: string): Promise<void> {
-    await this.navController.navigateBack(path, {
-      animated: true,
-      animationDirection: 'back',
-    });
+    await this.router.navigate([path]);
   }
 
   /**
    * Navigate to root (replaces navigation stack)
-   * Uses NavController for proper ion-router-outlet animations
    */
   private async navigateRoot(path: string): Promise<void> {
-    await this.navController.navigateRoot(path, {
-      animated: true,
-      animationDirection: 'forward',
-    });
+    await this.router.navigate([path], { replaceUrl: true });
   }
 
   // ============================================

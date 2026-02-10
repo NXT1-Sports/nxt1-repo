@@ -16,7 +16,7 @@ import {
   OnDestroy,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NavController, IonContent } from '@ionic/angular/standalone';
+import { NavController, IonHeader, IonContent, IonToolbar } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { closeOutline } from 'ionicons/icons';
 import {
@@ -37,8 +37,11 @@ addIcons({
 @Component({
   selector: 'app-create-post',
   standalone: true,
-  imports: [CommonModule, IonContent, CreatePostShellComponent],
+  imports: [CommonModule, IonHeader, IonContent, IonToolbar, CreatePostShellComponent],
   template: `
+    <ion-header class="ion-no-border" [translucent]="true">
+      <ion-toolbar></ion-toolbar>
+    </ion-header>
     <ion-content [fullscreen]="true">
       <nxt1-create-post-shell
         [user]="currentUser()"
@@ -64,6 +67,22 @@ addIcons({
       :host {
         display: block;
         height: 100%;
+      }
+
+      ion-header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: -1;
+        --background: transparent;
+      }
+
+      ion-toolbar {
+        --background: transparent;
+        --min-height: 0;
+        --padding-top: 0;
+        --padding-bottom: 0;
       }
 
       ion-content {
@@ -135,9 +154,9 @@ export class CreatePostComponent implements OnInit, OnDestroy {
     if (this.createPostService.isDirty()) {
       // TODO: Show confirmation action sheet
       // For now, just close
-      await this.navController.navigateBack('/home');
+      await this.navController.back();
     } else {
-      await this.navController.navigateBack('/home');
+      await this.navController.back();
     }
   }
 

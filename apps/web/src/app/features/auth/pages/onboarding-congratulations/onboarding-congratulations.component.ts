@@ -6,7 +6,7 @@
  * This page handles:
  * - Refreshing user profile data
  * - SEO meta tags
- * - Navigation with NavController
+ * - Navigation with Angular Router
  * - Theme restoration after onboarding (clears temporary dark override)
  *
  * Route: /auth/onboarding/congratulations
@@ -34,7 +34,7 @@
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NavController } from '@ionic/angular/standalone';
+import { Router } from '@angular/router';
 
 // Shared UI Components
 import {
@@ -77,7 +77,7 @@ import { SeoService } from '../../../../core/services';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OnboardingCongratulationsComponent implements OnInit {
-  private readonly navController = inject(NavController);
+  private readonly router = inject(Router);
   private readonly authFlow = inject(AuthFlowService);
   private readonly seo = inject(SeoService);
   private readonly themeService = inject(NxtThemeService);
@@ -144,8 +144,8 @@ export class OnboardingCongratulationsComponent implements OnInit {
   // ============================================
 
   /**
-   * Navigate to home/feed using NavController
-   * Uses navigateRoot to replace the navigation stack (no back to onboarding)
+   * Navigate to home/feed using Angular Router
+   * Uses replaceUrl to replace the navigation stack (no back to onboarding)
    *
    * Also clears the temporary theme override, restoring user's saved preference.
    */
@@ -155,9 +155,6 @@ export class OnboardingCongratulationsComponent implements OnInit {
     this.themeService.clearTemporaryOverride();
     this.logger.debug('Cleared temporary theme override, restored user preference');
 
-    await this.navController.navigateRoot(AUTH_REDIRECTS.DEFAULT, {
-      animated: true,
-      animationDirection: 'forward',
-    });
+    await this.router.navigate([AUTH_REDIRECTS.DEFAULT], { replaceUrl: true });
   }
 }

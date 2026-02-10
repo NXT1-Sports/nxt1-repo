@@ -309,6 +309,25 @@ export const UI_ICONS = {
     ],
   },
 
+  /** AI Search icon - magnifying glass with multiple sparkles (from ai-search-icon.svg) */
+  aiSearch: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      // Magnifying glass circle (slightly smaller to accommodate sparkles)
+      { d: 'M10 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z' },
+      // Handle
+      { d: 'M15.5 16.5l5 5' },
+      // Single large sparkle (upper-right of lens)
+      {
+        d: 'M14.2 1.8L16.6 6.2L21 8.6L16.6 11L14.2 15.4L11.8 11L7.4 8.6L11.8 6.2Z',
+        fill: 'currentColor',
+        stroke: 'none',
+      },
+    ],
+  },
+
   /** Search filled icon - for active search state */
   searchFilled: {
     viewBox: '0 0 24 24',
@@ -621,6 +640,14 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Pencil/Edit icon (outline) */
+  pencil: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z' }],
+  },
+
   /** More horizontal (3 dots) icon - for menus */
   moreHorizontal: {
     viewBox: '0 0 24 24',
@@ -721,11 +748,64 @@ export const UI_ICONS = {
     type: 'stroke' as const,
     strokeWidth: 2,
     paths: [
-      { d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z' },
-      { d: 'M12 2v20' },
-      { d: 'M2 12h20' },
-      { d: 'M4.93 4.93c4.08 2.35 6.44 6.21 7.07 10.07' },
-      { d: 'M19.07 4.93c-4.08 2.35-6.44 6.21-7.07 10.07' },
+      { d: 'M12 2a10 10 0 1 0 0 20a10 10 0 0 0 0-20z' },
+      { d: 'M12 2c-2.5 2.6-4 5.7-4 10s1.5 7.4 4 10' },
+      { d: 'M12 2c2.5 2.6 4 5.7 4 10s-1.5 7.4-4 10' },
+      { d: 'M2 12c3.5-2 7-2 10 0s6.5 2 10 0' },
+    ],
+  },
+
+  /** Soccer icon - for sport themes */
+  soccer: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 2a10 10 0 1 0 0 20a10 10 0 0 0 0-20z' },
+      { d: 'M12 6.5l3.2 2.3-1.2 3.8H9.9L8.6 8.8 12 6.5z' },
+      { d: 'M12 6.5V2' },
+      { d: 'M15.2 8.8l3.6-1.6' },
+      { d: 'M8.6 8.8L5 7.2' },
+      { d: 'M9.9 12.6l-1.8 3.6' },
+      { d: 'M14 12.6l1.8 3.6' },
+    ],
+  },
+
+  /** Volleyball icon - for sport themes */
+  volleyball: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 2a10 10 0 1 0 0 20a10 10 0 0 0 0-20z' },
+      { d: 'M4 9c4 3 12 3 16 0' },
+      { d: 'M4 15c3-2 6-3 8-3s5 1 8 3' },
+      { d: 'M8 4c1.5 2.5 2.5 5 2.5 8s-1 5.5-2.5 8' },
+      { d: 'M16 4c-1.5 2.5-2.5 5-2.5 8s1 5.5 2.5 8' },
+    ],
+  },
+
+  /** Lacrosse icon - for sport themes */
+  lacrosse: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M6 20l8-8' },
+      { d: 'M14 12l3 3' },
+      { d: 'M18 6a2 2 0 1 0 0-4a2 2 0 0 0 0 4z' },
+      { d: 'M9 17l3 3' },
+    ],
+  },
+
+  /** Track & field icon - for sport themes */
+  track: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M7 4h10a5 5 0 0 1 5 5v6a5 5 0 0 1-5 5H7a5 5 0 0 1-5-5V9a5 5 0 0 1 5-5z' },
+      { d: 'M9 7h6a3 3 0 0 1 3 3v4a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3v-4a3 3 0 0 1 3-3z' },
     ],
   },
 
@@ -1183,6 +1263,18 @@ export const ROLE_ICONS = {
  * These icons use specific brand colors and filled rendering.
  */
 export const BRAND_ICONS = {
+  /** NXT1 lightning icon (brand) */
+  nxt1: {
+    viewBox: '0 0 201.134 200.97',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M200.884 0.25l-76.506 83.264 17.3-3.925-141.428 121.131 87.041-87.905-17.892 3.07z',
+        fill: 'currentColor',
+      },
+    ],
+  },
+
   /** Google logo (4-color) */
   google: {
     viewBox: '0 0 24 24',

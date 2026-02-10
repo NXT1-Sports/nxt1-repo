@@ -8,14 +8,14 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router, NavigationEnd } from '@angular/router';
-import { IonApp, IonRouterOutlet } from '@ionic/angular/standalone';
+import { Router, RouterOutlet, NavigationEnd } from '@angular/router';
 import {
   NxtPlatformService,
   NxtLoggingService,
   NxtBreadcrumbService,
   NxtAppDownloadBarComponent,
   NxtAppDownloadBarService,
+  NxtThemeService,
 } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import { filter } from 'rxjs/operators';
@@ -39,7 +39,7 @@ import { AnalyticsService } from './core/services/analytics.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, IonApp, IonRouterOutlet, NxtAppDownloadBarComponent],
+  imports: [CommonModule, RouterOutlet, NxtAppDownloadBarComponent],
   templateUrl: './app.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -50,6 +50,9 @@ export class AppComponent implements OnInit {
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
   private readonly analytics = inject(AnalyticsService);
   protected readonly downloadBar = inject(NxtAppDownloadBarService);
+
+  /** Theme service — injected at root so it initializes on every route (including 404) */
+  private readonly theme = inject(NxtThemeService);
 
   // ============================================
   // STATE SIGNALS

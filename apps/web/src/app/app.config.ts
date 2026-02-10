@@ -32,7 +32,6 @@ import {
   withInMemoryScrolling,
   withPreloading,
   PreloadAllModules,
-  RouteReuseStrategy,
 } from '@angular/router';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import {
@@ -43,7 +42,7 @@ import {
 } from '@angular/platform-browser';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideServiceWorker } from '@angular/service-worker';
-import { provideIonicAngular, IonicRouteStrategy } from '@ionic/angular/standalone';
+import { provideIonicAngular } from '@ionic/angular/standalone';
 
 import { routes } from './app.routes';
 
@@ -53,6 +52,7 @@ import {
   GLOBAL_ERROR_LOGGER,
   GLOBAL_CRASHLYTICS,
   httpErrorInterceptor,
+  ANALYTICS_ADAPTER,
 } from '@nxt1/ui';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
@@ -62,6 +62,7 @@ import { httpPerformanceInterceptor } from './core/infrastructure/performance-in
 
 // Crashlytics service (web uses GA4 fallback)
 import { CrashlyticsService } from './core/services/crashlytics.service';
+import { AnalyticsService } from './core/services/analytics.service';
 
 // Firebase
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
@@ -154,20 +155,14 @@ export const appConfig: ApplicationConfig = {
     provideAnimationsAsync(),
 
     // ============================================
-    // IONIC FRAMEWORK
+    // IONIC FRAMEWORK (UI Components Only — routing uses Angular Router)
     // ============================================
 
     provideIonicAngular({
       mode: undefined, // Auto-detect platform (ios/md)
       animated: true,
       rippleEffect: true,
-      hardwareBackButton: true,
-      statusTap: true,
-      swipeBackEnabled: true,
     }),
-
-    // Ionic route reuse strategy for navigation stack
-    { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
 
     // ============================================
     // FIREBASE
@@ -206,6 +201,9 @@ export const appConfig: ApplicationConfig = {
 
     // Provide Crashlytics service for crash reporting (web uses GA4 fallback)
     { provide: GLOBAL_CRASHLYTICS, useExisting: CrashlyticsService },
+
+    // Provide analytics adapter for shared services (@nxt1/ui)
+    { provide: ANALYTICS_ADAPTER, useExisting: AnalyticsService },
 
     // Global error handler - catches all unhandled errors
     // Handles chunk loading failures, tracks errors, provides recovery

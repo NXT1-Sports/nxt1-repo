@@ -14,21 +14,43 @@
 
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NavController } from '@ionic/angular/standalone';
+import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import { HelpCenterShellComponent, type HelpNavigateEvent } from '@nxt1/ui';
 
 @Component({
   selector: 'app-help-center',
   standalone: true,
-  imports: [CommonModule, HelpCenterShellComponent],
+  imports: [CommonModule, IonHeader, IonContent, IonToolbar, HelpCenterShellComponent],
   template: `
-    <nxt1-help-center-shell [showBack]="true" (back)="onBack()" (navigate)="onNavigate($event)" />
+    <ion-header class="ion-no-border" [translucent]="true">
+      <ion-toolbar></ion-toolbar>
+    </ion-header>
+    <ion-content [fullscreen]="true">
+      <nxt1-help-center-shell [showBack]="true" (back)="onBack()" (navigate)="onNavigate($event)" />
+    </ion-content>
   `,
   styles: [
     `
       :host {
         display: block;
         height: 100%;
+      }
+      ion-header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: -1;
+        --background: transparent;
+      }
+      ion-toolbar {
+        --background: transparent;
+        --min-height: 0;
+        --padding-top: 0;
+        --padding-bottom: 0;
+      }
+      ion-content {
+        --background: var(--nxt1-color-bg-primary, #0a0a0a);
       }
     `,
   ],
@@ -38,7 +60,7 @@ export class HelpCenterComponent {
   private readonly nav = inject(NavController);
 
   protected onBack(): void {
-    this.nav.navigateBack('/more');
+    this.nav.back();
   }
 
   protected onNavigate(event: HelpNavigateEvent): void {

@@ -30,6 +30,7 @@ import {
   signal,
   effect,
   PLATFORM_ID,
+  DestroyRef,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
@@ -43,7 +44,7 @@ import {
 } from '@nxt1/ui';
 import type { ProfileTabId } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
-import { SeoService, AnalyticsService } from '../../core/services';
+import { SeoService, AnalyticsService, ShareService } from '../../core/services';
 import { ProfileService } from './services/profile.service';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -79,9 +80,11 @@ export class ProfileComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('ProfileComponent');
   private readonly seo = inject(SeoService);
   private readonly analytics = inject(AnalyticsService);
+  private readonly share = inject(ShareService);
   private readonly profileService = inject(ProfileService);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly fetchedProfile = signal<any>(null);
+  private readonly destroyRef = inject(DestroyRef);
 
   /**
    * Profile unicode from route parameter.
@@ -153,7 +156,7 @@ export class ProfileComponent implements OnInit {
   private loadProfileAndSeo(unicode: string) {
     this.profileService
       .getProfile(unicode)
-      .pipe(takeUntilDestroyed())
+      .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (response) => {
           if (response.success && response.data) {
@@ -282,34 +285,43 @@ export class ProfileComponent implements OnInit {
   protected async onShare(): Promise<void> {
     if (!isPlatformBrowser(this.platformId)) return;
 
-    const profileUrl = `${window.location.origin}/profile/${this.profileUnicode()}`;
+    const unicode = this.profileUnicode();
+    if (!unicode) return;
 
-    // Try native share API first
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'Check out my NXT1 profile',
-          text: 'View my sports recruiting profile on NXT1',
-          url: profileUrl,
-        });
-        this.logger.info('Profile shared via native share');
-        return;
-      } catch (err) {
-        // User cancelled or error - fall back to clipboard
-        if ((err as Error).name !== 'AbortError') {
-          this.logger.warn('Native share failed', { error: err });
-        }
+    const profile = this.fetchedProfile();
+    const athleteName = profile
+      ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim()
+      : this.authService.user()?.displayName || 'NXT1 Athlete';
+
+    const city = profile?.location?.city || profile?.city || '';
+    const state = profile?.location?.state || profile?.state || '';
+    const location = [city, state].filter(Boolean).join(', ');
+
+    const primarySport = profile?.sports?.[profile?.activeSportIndex || 0];
+    const school = primarySport?.team?.name || profile?.highSchool || undefined;
+    const sport = primarySport?.sport || profile?.primarySport || profile?.sport || undefined;
+    const position = primarySport?.positions?.[0] || profile?.position || undefined;
+    const classYear = profile?.athlete?.classOf || profile?.classOf || undefined;
+    const imageUrl = profile?.profileImg || profile?.imageUrl || undefined;
+
+    await this.share.shareProfile(
+      {
+        id: unicode,
+        slug: profile?.slug,
+        athleteName: athleteName || 'NXT1 Athlete',
+        position,
+        classYear,
+        school,
+        sport,
+        location: location || undefined,
+        imageUrl,
+      },
+      {
+        analyticsProps: {
+          is_own_profile: this.isOwnProfile(),
+        },
       }
-    }
-
-    // Fall back to clipboard
-    try {
-      await navigator.clipboard.writeText(profileUrl);
-      this.toast.success('Profile link copied to clipboard');
-      this.logger.info('Profile link copied to clipboard');
-    } catch {
-      this.toast.error('Failed to copy link');
-    }
+    );
   }
 
   /**

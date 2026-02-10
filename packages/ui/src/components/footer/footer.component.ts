@@ -103,7 +103,7 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         }
       </ion-tab-bar>
 
-      <!-- FAB Button (right of pill) -->
+      <!-- FAB Button (right of pill) - Agent X with custom logo -->
       @if (actionTab(); as actionButton) {
         <button
           class="fab-button"
@@ -111,7 +111,25 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
           (click)="onTabClick(actionButton, $event)"
           [attr.aria-label]="actionButton.ariaLabel ?? actionButton.label"
         >
-          <nxt1-icon [name]="actionButton.icon" [size]="26" />
+          <!-- Agent X Logo SVG - Theme-aware via currentColor -->
+          <svg
+            class="agent-logo"
+            viewBox="0 0 612 792"
+            width="53"
+            height="53"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="8"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+            />
+            <polygon
+              points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
+            />
+          </svg>
         </button>
       }
     </div>
@@ -122,23 +140,35 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         display: block;
         background: transparent;
 
+        /* ============================================
+           POSITIONING - Fixed at bottom
+           Shell components can override via CSS variables:
+           --nxt1-footer-bottom, --nxt1-footer-left, --nxt1-footer-right
+           ============================================ */
+        position: fixed;
+        bottom: var(--nxt1-footer-bottom, 20px);
+        left: var(--nxt1-footer-left, 16px);
+        right: var(--nxt1-footer-right, 16px);
+        z-index: var(--nxt1-z-index-footer, 1000);
+        pointer-events: none; /* Allow clicks through transparent areas */
+
         /* iOS 26 Liquid Glass Design Tokens - 100% Theme Aware */
         --footer-glass-bg: var(--nxt1-glass-bg);
         --footer-glass-border: var(--nxt1-glass-border);
         --footer-glass-shadow: var(--nxt1-glass-shadow);
         --footer-glass-backdrop: var(--nxt1-glass-backdrop);
-        --footer-icon-active: var(--nxt1-icon-active);
-        --footer-icon-inactive: var(--nxt1-icon-inactive);
-        --footer-tab-active-bg: var(--nxt1-tab-activeBg);
+        --footer-icon-active: var(--nxt1-icon-active, #ffffff);
+        --footer-icon-inactive: var(--nxt1-icon-inactive, #666666);
+        --footer-tab-active-bg: var(--nxt1-tab-activeBg, rgba(255, 255, 255, 0.12));
         --footer-fab-shadow: var(--nxt1-fab-shadow);
         --footer-fab-shadow-active: var(--nxt1-fab-shadowActive);
         --footer-fab-gradient-active: var(--nxt1-fab-gradientActive);
         --footer-fab-glow-active: var(--nxt1-fab-glowActive);
 
         /* Solid navigation tokens (from design tokens) */
-        --footer-solid-bg: var(--nxt1-nav-bgSolid);
-        --footer-solid-border: var(--nxt1-nav-borderSolid);
-        --footer-solid-shadow: var(--nxt1-nav-shadowSolid);
+        --footer-solid-bg: var(--nxt1-nav-bgSolid, rgb(22, 22, 22));
+        --footer-solid-border: var(--nxt1-nav-borderSolid, rgba(255, 255, 255, 0.12));
+        --footer-solid-shadow: var(--nxt1-nav-shadowSolid, 0 1px 3px rgba(0, 0, 0, 0.12));
       }
 
       /* Container for pill + FAB side by side */
@@ -146,11 +176,12 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: var(--nxt1-pill-gap);
-        padding: 0 16px;
+        gap: var(--nxt1-pill-gap, 4px);
+        padding: 0;
         background: transparent;
         max-width: 360px;
         margin: 0 auto;
+        pointer-events: auto; /* Re-enable clicks for the actual footer content */
       }
 
       /* Floating Pill Tab Bar - Base styles */
@@ -160,9 +191,10 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         --color-selected: var(--footer-icon-active);
         flex: 1;
         border: 1px solid var(--footer-solid-border) !important;
-        border-radius: var(--nxt1-pill-radius);
-        padding: var(--nxt1-pill-padding);
-        height: var(--nxt1-pill-height);
+        border-radius: var(--nxt1-pill-radius, 28px);
+        padding: var(--nxt1-pill-padding, 2px);
+        height: var(--nxt1-pill-height, 48px);
+        min-height: var(--nxt1-pill-height, 48px); /* Ensure height is respected */
         box-shadow: var(--footer-solid-shadow);
         background: var(--footer-solid-bg) !important;
         -webkit-backdrop-filter: none !important;
@@ -298,13 +330,19 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         display: flex;
         align-items: center;
         justify-content: center;
-        width: var(--nxt1-fab-size);
-        height: var(--nxt1-fab-size);
-        border-radius: var(--nxt1-fab-radius);
+        width: var(--nxt1-fab-size, 48px);
+        height: var(--nxt1-fab-size, 48px);
+        min-width: var(--nxt1-fab-size, 48px);
+        min-height: var(--nxt1-fab-size, 48px);
+        border-radius: var(--nxt1-fab-radius, 50%);
         border: none;
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-onPrimary);
-        box-shadow: var(--footer-fab-shadow);
+        background: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-text-onPrimary, #000000);
+        box-shadow: var(
+          --footer-fab-shadow,
+          0 4px 16px rgba(204, 255, 0, 0.4),
+          0 2px 6px rgba(0, 0, 0, 0.2)
+        );
         cursor: pointer;
         flex-shrink: 0;
         transition:
@@ -313,6 +351,7 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
           background 0.3s ease;
         position: relative;
         overflow: visible;
+        pointer-events: auto; /* Ensure FAB is clickable */
       }
 
       /* FAB Glow ring (pseudo element) */
@@ -321,10 +360,11 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         position: absolute;
         inset: -3px;
         border-radius: 50%;
-        background: var(--nxt1-glow-md);
+        background: var(--nxt1-glow-md, 0 0 16px rgba(204, 255, 0, 0.3));
         opacity: 0;
         transition: opacity 0.3s ease;
         z-index: -1;
+        pointer-events: none;
       }
 
       .fab-button:active {
@@ -335,24 +375,55 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
       .fab-button.fab-button--active {
         background: var(
           --footer-fab-gradient-active,
-          linear-gradient(135deg, #00ff88, #00ccff, #8855ff, #ff0088, #ff6600)
+          linear-gradient(135deg, #00ff88 0%, #00ccff 25%, #8855ff 50%, #ff0088 75%, #ff6600 100%)
         );
         background-size: 200% 200%;
         animation: gemini-gradient 3s ease infinite;
-        box-shadow: var(--footer-fab-shadow-active);
-        color: var(--nxt1-color-text-primary);
+        box-shadow: var(
+          --footer-fab-shadow-active,
+          0 0 30px rgba(0, 255, 136, 0.5),
+          0 0 60px rgba(0, 204, 255, 0.3),
+          0 4px 20px rgba(0, 0, 0, 0.4)
+        );
+        color: var(--nxt1-color-text-primary, #ffffff);
       }
 
       .fab-button.fab-button--active::before {
         opacity: 1;
         background: var(
           --footer-fab-glow-active,
-          linear-gradient(135deg, rgba(0, 255, 136, 0.4), rgba(204, 255, 0, 0.4))
+          linear-gradient(
+            135deg,
+            rgba(0, 255, 136, 0.4) 0%,
+            rgba(0, 204, 255, 0.3) 50%,
+            rgba(136, 85, 255, 0.4) 100%
+          )
         );
         filter: blur(12px);
         inset: -8px;
         animation: gemini-gradient 3s ease infinite;
         background-size: 200% 200%;
+      }
+
+      /* FAB Icon styling */
+      .fab-button nxt1-icon {
+        color: inherit;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      /* Agent X Logo - Theme-aware SVG */
+      .fab-button .agent-logo {
+        color: inherit;
+        fill: currentColor;
+        stroke: currentColor;
+        display: block;
+        width: 53px;
+        height: 53px;
+        transition:
+          color 0.2s ease,
+          fill 0.2s ease;
       }
 
       @keyframes gemini-gradient {

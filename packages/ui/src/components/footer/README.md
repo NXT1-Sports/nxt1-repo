@@ -171,11 +171,11 @@ export const MY_FOOTER_TABS: FooterTabItem[] = [
     route: '/home',
   },
   {
-    id: 'discover',
-    label: 'Discover',
+    id: 'explore',
+    label: 'Explore',
     icon: 'compass',
     iconActive: 'compassFilled',
-    route: '/discover',
+    route: '/explore',
   },
   {
     id: 'create',
@@ -186,11 +186,11 @@ export const MY_FOOTER_TABS: FooterTabItem[] = [
     isActionButton: true, // Center floating button
   },
   {
-    id: 'search',
-    label: 'Search',
-    icon: 'search',
-    iconActive: 'searchFilled',
-    route: '/search',
+    id: 'activity',
+    label: 'Activity',
+    icon: 'bell',
+    iconActive: 'bellFilled',
+    route: '/activity',
     badge: 3, // Show notification badge
   },
   {

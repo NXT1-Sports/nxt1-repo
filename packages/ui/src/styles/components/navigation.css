@@ -120,14 +120,15 @@
    MOBILE FOOTER - Slack-Style Pill Tab Bar
    ============================================ */
 
-/* Host element */
+/**
+ * Host element - minimal styles only.
+ * Positioning is handled by the component itself to avoid conflicts.
+ * Shell components can override via CSS variables:
+ * --nxt1-footer-bottom, --nxt1-footer-left, --nxt1-footer-right
+ */
 .nxt1-mobile-footer-host {
-  display: block;
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: var(--nxt1-nav-z-footer);
+  /* Positioning is now in the component - these are removed to prevent conflicts */
+  /* position, bottom, left, right, z-index handled by component's :host styles */
   pointer-events: auto;
 }
 
@@ -600,77 +601,168 @@
 }
 
 /* Search bar */
-.nxt1-desktop-nav .search-input {
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .nav-search-centered {
+  position: relative;
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-form {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--nxt1-ui-btn-height-md);
+  padding: var(--nxt1-spacing-1, 0.25rem);
+  background: var(--nxt1-glass-bg);
+  border: 1px solid var(--nxt1-glass-borderSubtle);
+  border-radius: var(--nxt1-ui-radius-2xl, 20px);
+  box-shadow:
+    var(--nxt1-glass-shadow),
+    0 0 0 1px var(--nxt1-color-alpha-primary10, var(--nxt1-color-alpha-primary15));
+  backdrop-filter: var(--nxt1-glass-backdrop);
+  -webkit-backdrop-filter: var(--nxt1-glass-backdrop);
+  transition:
+    border-color var(--nxt1-nav-transition-fast),
+    box-shadow var(--nxt1-nav-transition-fast),
+    transform var(--nxt1-nav-transition-fast);
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-form::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    135deg,
+    var(--nxt1-color-alpha-primary30, var(--nxt1-color-alpha-primary15)),
+    transparent,
+    var(--nxt1-color-alpha-primary20, var(--nxt1-color-alpha-primary15))
+  );
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-form::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: linear-gradient(
+    45deg,
+    transparent,
+    var(--nxt1-color-alpha-primary20, var(--nxt1-color-alpha-primary15)),
+    transparent,
+    var(--nxt1-color-alpha-primary20, var(--nxt1-color-alpha-primary15)),
+    transparent
+  );
+  background-size: 400% 400%;
+  opacity: 0;
+  animation: nxt1-nav-gradient-flow 3s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-form:hover {
+  border-color: var(--nxt1-glass-border);
+  box-shadow:
+    var(--nxt1-glass-shadow),
+    0 0 20px var(--nxt1-color-alpha-primary10, var(--nxt1-color-alpha-primary15));
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-form:focus-within {
+  border-color: var(--nxt1-color-primary);
+  box-shadow:
+    var(--nxt1-glass-shadow),
+    0 0 0 2px var(--nxt1-color-alpha-primary20, var(--nxt1-color-alpha-primary15)),
+    0 0 28px var(--nxt1-color-alpha-primary20, var(--nxt1-color-alpha-primary15));
+  transform: translateY(-1px);
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-form:focus-within::before {
+  opacity: 1;
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-input {
   width: 100%;
-  height: var(--nxt1-ui-btn-height-sm);
+  height: 100%;
   padding: 0 var(--nxt1-spacing-10, 2.5rem);
-  background: var(--nxt1-nav-hover-bg);
-  border: 1px solid transparent;
-  border-radius: var(--nxt1-ui-radius-full, 9999px);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--nxt1-ui-radius-2xl, 20px) - 2px);
   color: var(--nxt1-nav-text);
   font-size: var(--nxt1-fontSize-sm, 0.875rem);
   outline: none;
-  transition:
-    background-color var(--nxt1-nav-transition-fast),
-    border-color var(--nxt1-nav-transition-fast),
-    box-shadow var(--nxt1-nav-transition-fast);
 }
 
-/* Centered search bar (YouTube-style) */
-.nxt1-desktop-nav .search-input--centered {
-  height: var(--nxt1-ui-btn-height-md);
+/* Centered search bar (AI Scout style) */
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-input--centered {
   padding: 0 var(--nxt1-spacing-12, 3rem);
   font-size: var(--nxt1-fontSize-base, 1rem);
-  border: 1px solid var(--nxt1-color-border-default);
-  background: var(--nxt1-nav-bg);
 }
 
-.nxt1-desktop-nav .search-input--centered:hover {
-  border-color: var(--nxt1-color-border-subtle);
+/* Brand search icon */
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-icon--brand {
+  color: var(--nxt1-color-primary);
+  filter: drop-shadow(0 0 6px var(--nxt1-color-alpha-primary20, var(--nxt1-color-alpha-primary15)));
 }
 
-.nxt1-desktop-nav .search-input--centered:focus {
-  border-color: var(--nxt1-color-primary);
-  background: var(--nxt1-nav-bg);
-  box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary15);
-}
-
-/* AI Search Icon Sparkle Effect */
-.nxt1-desktop-nav .search-icon--ai {
-  color: var(--nxt1-color-text-secondary);
-}
-
-.nxt1-desktop-nav .search-icon--ai svg path:last-child {
-  stroke: var(--nxt1-color-primary);
-  animation: sparkle-pulse 2s ease-in-out infinite;
-}
-
-@keyframes sparkle-pulse {
-  0%,
-  100% {
-    opacity: 0.7;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-.nxt1-desktop-nav .search-input::placeholder {
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-input::placeholder {
   color: var(--nxt1-nav-text-muted);
 }
 
-.nxt1-desktop-nav .search-input:hover {
-  background: var(--nxt1-nav-hover-bg);
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-input:hover {
+  color: var(--nxt1-nav-text);
 }
 
-.nxt1-desktop-nav .search-input:focus {
-  background: var(--nxt1-nav-active-bg);
-  border-color: var(--nxt1-nav-focus-ring);
-  box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary15);
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-input:focus {
+  color: var(--nxt1-nav-text);
 }
 
-.nxt1-desktop-nav .search-input::-webkit-search-cancel-button,
-.nxt1-desktop-nav .search-input::-webkit-search-decoration {
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-icon {
+  color: var(--nxt1-color-text-secondary);
+  transition: color var(--nxt1-nav-transition-fast);
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-form:focus-within .search-icon {
+  color: var(--nxt1-color-primary);
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-clear {
+  background: var(--nxt1-color-surface-200);
+  border: 1px solid var(--nxt1-color-border-subtle);
+  color: var(--nxt1-color-text-secondary);
+  transition:
+    background-color var(--nxt1-nav-transition-fast),
+    color var(--nxt1-nav-transition-fast),
+    transform var(--nxt1-nav-transition-fast);
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-clear:hover {
+  background: var(--nxt1-color-surface-300);
+  color: var(--nxt1-nav-text);
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-clear:active {
+  transform: scale(0.95);
+}
+
+@keyframes nxt1-nav-gradient-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-input::-webkit-search-cancel-button,
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-input::-webkit-search-decoration {
   display: none;
 }
 

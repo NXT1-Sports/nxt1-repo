@@ -50,13 +50,13 @@
  *
  * <!-- Header with custom content -->
  * <nxt1-page-header [showBack]="true">
- *   <ng-container slot="title">
+ *   <ng-container pageHeaderSlot="title">
  *     <div class="user-title">
  *       <img [src]="user.avatar" />
  *       <span>@{{ user.username }}</span>
  *     </div>
  *   </ng-container>
- *   <ion-button slot="end" (click)="openSettings()">
+ *   <ion-button pageHeaderSlot="end" (click)="openSettings()">
  *     <ion-icon name="settings-outline"></ion-icon>
  *   </ion-button>
  * </nxt1-page-header>
@@ -72,13 +72,10 @@ import {
   IonButtons,
   IonButton,
   IonIcon,
-  IonBackButton,
   IonBadge,
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {
-  arrowBack,
-  chevronBack,
   ellipsisHorizontal,
   ellipsisVertical,
   searchOutline,
@@ -143,15 +140,15 @@ import {
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
 import { NxtAvatarComponent } from '../avatar';
+import { NxtLogoComponent } from '../logo';
+import { NxtBackButtonComponent } from '../back-button';
 import type { PageHeaderAction, PageHeaderConfig, PageHeaderVariant } from './page-header.types';
 import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
 
 // Register Ionicons used for back button, menu, and common action buttons
 // This comprehensive list covers most icons consumers might pass to [actions]
 addIcons({
-  // Navigation
-  arrowBack,
-  chevronBack,
+  // Navigation (arrowBack, chevronBack removed - using NxtBackButtonComponent)
   menuOutline,
   closeOutline,
 
@@ -245,9 +242,10 @@ addIcons({
     IonButtons,
     IonButton,
     IonIcon,
-    IonBackButton,
     IonBadge,
     NxtAvatarComponent,
+    NxtLogoComponent,
+    NxtBackButtonComponent,
   ],
   template: `
     <ion-header
@@ -262,6 +260,7 @@ addIcons({
         <!-- Left Side: Avatar (Twitter/X style), Back Button, or Custom Start Content -->
         <ion-buttons slot="start" class="start-buttons">
           @if (showAvatar()) {
+            <!-- Avatar rendered only when visible (removed from DOM when hideAvatar=true) -->
             <button
               type="button"
               class="avatar-button"
@@ -276,11 +275,11 @@ addIcons({
               />
             </button>
           } @else if (showBack()) {
-            <ion-back-button
-              [defaultHref]="backHref()"
-              [text]="backText()"
-              [icon]="backIcon()"
-              (click)="onBackClick($event)"
+            <nxt1-back-button
+              size="md"
+              variant="ghost"
+              [ariaLabel]="backLabel()"
+              (backClick)="onBackClick()"
             />
           } @else if (showClose()) {
             <ion-button
@@ -296,30 +295,21 @@ addIcons({
             </ion-button>
           }
           <!-- Custom start slot content -->
-          <ng-content select="[slot=start]" />
+          <ng-content select="[pageHeaderSlot=start]" />
         </ion-buttons>
 
         <!-- Center: Logo or Title (properly centered) -->
         @if (showLogo()) {
           <!-- Twitter/X style: Logo centered in header for home page -->
+          <!-- Uses NxtLogoComponent for theme-aware logo switching (white logo on custom themes) -->
           <div class="header-logo-container">
-            <picture>
-              <source srcset="assets/shared/logo/nxt1_logo.avif" type="image/avif" />
-              <img
-                src="assets/shared/logo/nxt1_logo.avif"
-                alt="NXT1"
-                class="header-logo-image"
-                height="24"
-              />
-            </picture>
+            <nxt1-logo size="xs" variant="header" alt="NXT1" />
           </div>
         } @else if (title()) {
           <ion-title [size]="titleSize()" class="header-title">{{ title() }}</ion-title>
         } @else {
-          <!-- Custom title content slot (for searchbars, etc.) - uses ion-title for consistent positioning -->
-          <ion-title class="header-title header-title--custom">
-            <ng-content select="[slot=title]" />
-          </ion-title>
+          <!-- Custom title content (searchbars, etc.) - direct in toolbar for proper Ionic layout -->
+          <ng-content select="[pageHeaderSlot=title]" />
         }
 
         <!-- Right Side: Action Buttons -->
@@ -345,7 +335,7 @@ addIcons({
           }
 
           <!-- Custom end slot content -->
-          <ng-content select="[slot=end]" />
+          <ng-content select="[pageHeaderSlot=end]" />
         </ion-buttons>
       </ion-toolbar>
 
@@ -359,7 +349,7 @@ addIcons({
       <!-- Optional: Search Bar -->
       @if (showSearch()) {
         <ion-toolbar class="search-toolbar">
-          <ng-content select="[slot=search]" />
+          <ng-content select="[pageHeaderSlot=search]" />
         </ion-toolbar>
       }
     </ion-header>
@@ -433,7 +423,8 @@ addIcons({
       ion-toolbar {
         --padding-start: var(--nxt1-spacing-2, 8px);
         --padding-end: var(--nxt1-spacing-2, 8px);
-        --min-height: 44px;
+        --min-height: 56px;
+        height: 56px;
         --background: inherit;
       }
 
@@ -466,26 +457,9 @@ addIcons({
         pointer-events: none;
       }
 
-      /* Custom title content (searchbars, etc.) - make interactive */
-      ion-title.header-title--custom {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        pointer-events: auto;
-        padding-top: 0;
-        padding-bottom: 0;
-      }
-
-      /* Allow children inside custom title to be interactive */
-      ion-title.header-title--custom ::ng-deep > * {
-        width: 100%;
-        pointer-events: auto;
-      }
-
-      /* Remove any internal title container padding for custom content */
-      ion-title.header-title--custom ::ng-deep .title-default {
-        padding: 0;
-      }
+      /* Custom title content (searchbars, etc.) - direct in toolbar default slot */
+      /* ion-toolbar shadow DOM places unslotted children in .toolbar-content between start/end */
+      /* This is the proper Ionic pattern for searchbars in toolbars */
 
       /* Large title (iOS style) */
       .large-title-toolbar ion-title {
@@ -524,6 +498,7 @@ addIcons({
 
       /* ============================================
          LOGO - Twitter/X Style Home Header
+         Uses NxtLogoComponent for theme-aware switching
          ============================================ */
 
       .header-logo-container {
@@ -538,13 +513,17 @@ addIcons({
         pointer-events: none;
       }
 
-      .header-logo-image {
+      /* Style the nxt1-logo component within the container */
+      .header-logo-container ::ng-deep nxt1-logo {
+        pointer-events: auto;
+      }
+
+      .header-logo-container ::ng-deep nxt1-logo img {
         height: 24px;
         width: auto;
         object-fit: contain;
         user-select: none;
         -webkit-user-drag: none;
-        pointer-events: auto;
       }
 
       /* ============================================
@@ -554,6 +533,9 @@ addIcons({
       .start-buttons {
         position: relative;
         z-index: 1;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
       }
 
       /* Avatar button (Twitter/X style) */
@@ -575,18 +557,11 @@ addIcons({
         opacity: 0.7;
       }
 
-      /* Back button styling */
-      ion-back-button {
-        --color: var(--nxt1-color-primary, #a3e635);
-        --icon-font-size: 24px;
-        --icon-margin-end: var(--nxt1-spacing-1, 4px);
-        --padding-start: 0;
-        --margin-start: 0;
-      }
-
-      /* iOS: Use chevron, Android: Use arrow */
-      :host-context(.ios) ion-back-button {
-        --icon-font-size: 28px;
+      /* Hidden state: invisible but preserves space (no layout shift) */
+      .avatar-button--hidden {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
       }
 
       /* ============================================
@@ -725,13 +700,27 @@ export class NxtPageHeaderComponent {
   /** User's name for avatar fallback initials */
   readonly avatarName = input<string | null | undefined>();
 
-  /** Computed: Show avatar when src or name is provided */
-  readonly showAvatar = computed(() => {
+  /** Externally hide the avatar visually (e.g. when search is focused) — keeps space reserved */
+  readonly hideAvatar = input(false);
+
+  /**
+   * Computed: Should render avatar in DOM (has src/name and no back/close/menu).
+   * This controls DOM presence only — use hideAvatar input to control visibility.
+   */
+  protected readonly shouldRenderAvatar = computed(() => {
     const src = this.avatarSrc();
     const name = this.avatarName();
-    // Only show avatar if we have a source OR a name for initials
+    // Render avatar if we have a source OR a name for initials
     // AND we're not showing back/close/menu buttons
     return (!!src || !!name) && !this.showBack() && !this.showClose() && !this.showMenu();
+  });
+
+  /**
+   * Computed: Show avatar (fully visible)
+   * True when avatar should be rendered AND not externally hidden
+   */
+  readonly showAvatar = computed(() => {
+    return this.shouldRenderAvatar() && !this.hideAvatar();
   });
 
   // --- Navigation Buttons ---
@@ -739,10 +728,19 @@ export class NxtPageHeaderComponent {
   /** Show back button */
   readonly showBack = input(false);
 
-  /** Default href for back navigation */
+  /** Accessible label for back button */
+  readonly backLabel = input<string>('Go back');
+
+  /**
+   * Default href for back navigation
+   * @deprecated No longer used - back navigation handled by parent via backClick event
+   */
   readonly backHref = input('/home');
 
-  /** Back button text (iOS only, empty by default) */
+  /**
+   * Back button text (iOS only)
+   * @deprecated No longer used - NxtBackButtonComponent handles styling
+   */
   readonly backText = input('');
 
   /** Show close button instead of back */
@@ -802,7 +800,10 @@ export class NxtPageHeaderComponent {
     return this.platform.os() === 'ios' || cfg.translucent === true;
   });
 
-  /** Platform-specific back icon */
+  /**
+   * Platform-specific back icon
+   * @deprecated No longer used - NxtBackButtonComponent handles its own icon
+   */
   readonly backIcon = computed(() =>
     this.platform.os() === 'ios' ? 'chevron-back' : 'arrow-back'
   );
@@ -821,10 +822,9 @@ export class NxtPageHeaderComponent {
 
   /**
    * Handle back button click with haptic feedback
+   * Note: NxtBackButtonComponent already handles haptics, so we skip them here
    */
-  onBackClick(_event: Event): void {
-    // Haptic feedback for navigation
-    void this.haptics.impact('light');
+  onBackClick(): void {
     this.backClick.emit();
   }
 

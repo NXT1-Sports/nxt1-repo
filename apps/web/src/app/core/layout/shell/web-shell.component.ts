@@ -55,6 +55,7 @@ import {
   // Desktop Sidebar (new)
   NxtDesktopSidebarComponent,
   type DesktopSidebarConfig,
+  type DesktopSidebarItem,
   type DesktopSidebarSection,
   type DesktopSidebarUserData,
   type DesktopSidebarSelectEvent,
@@ -77,6 +78,16 @@ import {
   type FooterConfig,
   DEFAULT_FOOTER_TABS,
   findTabByRoute,
+  // Mobile Header (YouTube-style top bar)
+  NxtMobileHeaderComponent,
+  type MobileHeaderConfig,
+  type MobileHeaderUserData,
+  createMobileHeaderConfig,
+  // Mobile Sidebar (YouTube-style slide-out drawer)
+  NxtMobileSidebarComponent,
+  type MobileSidebarConfig,
+  type MobileSidebarSelectEvent,
+  createMobileSidebarConfig,
   // Platform
   NxtPlatformService,
   NxtLoggingService,
@@ -84,9 +95,14 @@ import {
   NxtScrollService,
   // Activity (for badge count)
   ActivityService,
+  // Notification state (global)
+  NxtNotificationStateService,
+  DEFAULT_SOCIAL_LINKS,
+  // Auth Modal (popup auth for gated features)
+  AuthModalService,
 } from '@nxt1/ui';
 import { AuthFlowService } from '../../../features/auth/services';
-import { NotificationPopoverComponent } from '../notification-popover/notification-popover.component';
+import { NotificationPopoverComponent } from '../../../features/activity/components';
 
 // ============================================
 // NAVIGATION CONFIGURATION
@@ -96,17 +112,25 @@ import { NotificationPopoverComponent } from '../notification-popover/notificati
  * Desktop sidebar sections - Main navigation structure.
  * Matches YouTube/Twitter sectioned sidebar pattern.
  */
+const FOLLOW_US_ITEMS: readonly DesktopSidebarItem[] = DEFAULT_SOCIAL_LINKS.map((social) => ({
+  id: `follow-${social.id}`,
+  label: social.label,
+  icon: social.icon,
+  href: social.url,
+  ariaLabel: social.ariaLabel ?? `Follow NXT1 on ${social.label}`,
+}));
+
 const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
     items: [
       { id: 'home', label: 'Home', icon: 'home', activeIcon: 'homeFilled', route: '/home' },
       {
-        id: 'discover',
-        label: 'Discover',
+        id: 'explore',
+        label: 'Explore',
         icon: 'compass',
         activeIcon: 'compassFilled',
-        route: '/discover',
+        route: '/explore',
       },
       { id: 'agent', label: 'Agent X', icon: 'sparkles', route: '/agent' },
     ],
@@ -150,6 +174,11 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
       { id: 'help', label: 'Help Center', icon: 'help', route: '/help-center' },
     ],
   },
+  {
+    id: 'follow-us',
+    label: 'Follow Us',
+    items: FOLLOW_US_ITEMS,
+  },
 ];
 
 /**
@@ -177,6 +206,8 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
     NxtDesktopSidebarComponent,
     NxtHeaderComponent,
     NxtMobileFooterComponent,
+    NxtMobileHeaderComponent,
+    NxtMobileSidebarComponent,
     NotificationPopoverComponent,
   ],
   template: `
@@ -229,11 +260,37 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
       }
 
       <!-- ============================================
-           MOBILE: Footer Tab Bar Layout
+           MOBILE: Header + Sidebar + Footer Layout
            ============================================ -->
       @if (isMobileView()) {
+        <!-- Mobile Top Header Bar (YouTube-style) -->
+        <nxt1-mobile-header
+          [config]="mobileHeaderConfig()"
+          [user]="mobileHeaderUserData()"
+          (menuClick)="onMobileMenuToggle()"
+          (logoClick)="onLogoClick()"
+          (searchClick)="onMobileSearchClick()"
+          (notificationsClick)="onNotificationsClick()"
+          (userClick)="onMobileUserClick()"
+        />
+
+        <!-- Mobile Slide-Out Sidebar Drawer -->
+        <nxt1-mobile-sidebar
+          [sections]="mobileSidebarSections"
+          [user]="sidebarUserData()"
+          [config]="mobileSidebarConfig()"
+          [open]="mobileSidebarOpen()"
+          (itemSelect)="onMobileSidebarItemSelect($event)"
+          (userClick)="onMobileSidebarUserClick($event)"
+          (logoClick)="onLogoClick()"
+          (closeRequest)="closeMobileSidebar()"
+        />
+
         <!-- Main Content Area (full width) -->
-        <main class="shell__content" [class.shell__content--mobile]="showMobileFooter()">
+        <main
+          class="shell__content shell__content--mobile-header"
+          [class.shell__content--mobile]="showMobileFooter()"
+        >
           <router-outlet />
         </main>
 
@@ -334,15 +391,36 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
         padding-bottom: var(--shell-footer-height);
       }
 
+      /* Mobile: account for mobile header at top */
+      .shell__content--mobile-header {
+        /* Content below the sticky mobile header */
+      }
+
+      /* ============================================
+       MOBILE HEADER (sticky) 
+       ============================================ */
+      nxt1-mobile-header {
+        flex-shrink: 0;
+        z-index: 40;
+      }
+
+      /* ============================================
+       MOBILE SIDEBAR (overlay drawer)
+       ============================================ */
+      nxt1-mobile-sidebar {
+        /* Sidebar component handles its own positioning */
+      }
+
       /* ============================================
        MOBILE FOOTER
        ============================================ */
       nxt1-mobile-footer {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        z-index: var(--nxt1-z-index-footer, 1000);
+        /* Footer component handles positioning via :host styles */
+        /* Web uses full-width footer (not floating pill) */
+        --nxt1-footer-bottom: 0;
+        --nxt1-footer-left: 0;
+        --nxt1-footer-right: 0;
+        --nxt1-z-index-footer: 1000;
       }
 
       /* ============================================
@@ -375,6 +453,8 @@ export class WebShellComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly scrollService = inject(NxtScrollService);
   private readonly activityService = inject(ActivityService);
+  private readonly notificationState = inject(NxtNotificationStateService);
+  private readonly authModal = inject(AuthModalService);
 
   // ============================================
   // SIDEBAR CONFIGURATION (Desktop/Tablet)
@@ -487,6 +567,68 @@ export class WebShellComponent {
   }));
 
   // ============================================
+  // MOBILE HEADER CONFIGURATION (YouTube-style top bar)
+  // ============================================
+
+  /** Mobile header configuration */
+  readonly mobileHeaderConfig = computed<MobileHeaderConfig>(() => {
+    return createMobileHeaderConfig({
+      showLogo: true,
+      showSearch: true,
+      showNotifications: true,
+      notificationCount: this.activityService.totalUnread(),
+      showSignIn: true,
+      showMore: false,
+      sticky: true,
+      hideOnScroll: false,
+      bordered: true,
+      variant: 'default',
+    });
+  });
+
+  /** Mobile header user data */
+  readonly mobileHeaderUserData = computed<MobileHeaderUserData | null>(() => {
+    const user = this.authFlow.user() as {
+      displayName?: string;
+      email?: string;
+      photoURL?: string;
+    } | null;
+
+    if (!user) return null;
+
+    const name = user.displayName || user.email?.split('@')[0] || 'User';
+
+    return {
+      name,
+      avatarUrl: user.photoURL || undefined,
+      initials: this.getInitials(name),
+    };
+  });
+
+  // ============================================
+  // MOBILE SIDEBAR CONFIGURATION (YouTube-style drawer)
+  // ============================================
+
+  /**
+   * Mobile sidebar sections — same navigation structure as desktop sidebar
+   * but filtered to remove the "follow-us" section (social links) for mobile.
+   */
+  readonly mobileSidebarSections = DESKTOP_SIDEBAR_SECTIONS.filter((s) => s.id !== 'follow-us');
+
+  /** Mobile sidebar configuration */
+  readonly mobileSidebarConfig = computed<MobileSidebarConfig>(() => {
+    return createMobileSidebarConfig({
+      showLogo: true,
+      showUserSection: true,
+      showThemeToggle: true,
+      showSignIn: true,
+      showExplore: false,
+      variant: 'default',
+      width: '280px',
+    });
+  });
+
+  // ============================================
   // STATE
   // ============================================
 
@@ -500,9 +642,12 @@ export class WebShellComponent {
   /** Sidebar collapsed state (persisted) */
   private readonly _sidebarCollapsed = signal(false);
 
-  /** Whether the notification popover is open */
-  private readonly _notificationPopoverOpen = signal(false);
-  readonly notificationPopoverOpen = computed(() => this._notificationPopoverOpen());
+  /** Whether the mobile sidebar drawer is open */
+  private readonly _mobileSidebarOpen = signal(false);
+  readonly mobileSidebarOpen = computed(() => this._mobileSidebarOpen());
+
+  /** Whether the notification popover is open (via global state service) */
+  readonly notificationPopoverOpen = computed(() => this.notificationState.isOpen());
 
   /** Whether we're in mobile view (shows footer instead of sidebar) */
   readonly isMobileView = computed(() => {
@@ -558,6 +703,67 @@ export class WebShellComponent {
   onSidebarCollapseChange(collapsed: boolean): void {
     this._sidebarCollapsed.set(collapsed);
     this.saveSidebarState(collapsed);
+  }
+
+  // ============================================
+  // MOBILE HEADER HANDLERS
+  // ============================================
+
+  /**
+   * Toggle mobile sidebar drawer open/close
+   */
+  onMobileMenuToggle(): void {
+    this._mobileSidebarOpen.update((open) => !open);
+    this.logger.debug('Mobile sidebar toggled', { open: this._mobileSidebarOpen() });
+  }
+
+  /**
+   * Close the mobile sidebar drawer
+   */
+  closeMobileSidebar(): void {
+    this._mobileSidebarOpen.set(false);
+  }
+
+  /**
+   * Handle mobile search button click.
+   * Navigate to explore page on mobile.
+   */
+  onMobileSearchClick(): void {
+    this.router.navigate(['/explore']);
+  }
+
+  /**
+   * Handle mobile user avatar click.
+   * Navigate to settings/account page.
+   */
+  onMobileUserClick(): void {
+    this.router.navigate(['/settings/account']);
+  }
+
+  // ============================================
+  // MOBILE SIDEBAR HANDLERS
+  // ============================================
+
+  /**
+   * Handle mobile sidebar item selection
+   */
+  onMobileSidebarItemSelect(event: MobileSidebarSelectEvent): void {
+    const { item } = event;
+
+    // Handle special actions
+    if (item.action === 'logout') {
+      this.signOut();
+      return;
+    }
+
+    this.logger.debug('Mobile sidebar item selected', { itemId: item.id });
+  }
+
+  /**
+   * Handle mobile sidebar user section click
+   */
+  onMobileSidebarUserClick(_event: Event): void {
+    this.router.navigate(['/profile']);
   }
 
   // ============================================
@@ -624,13 +830,37 @@ export class WebShellComponent {
   }
 
   /**
-   * Handle notifications bell click — toggle popover on desktop, navigate on mobile
+   * Handle notifications bell click.
+   *
+   * Professional "Sign in to continue" pattern (Twitter/X, Reddit, Instagram):
+   * - Logged in → toggle notification popover (desktop) or navigate (mobile)
+   * - Logged out → present auth modal with contextual messaging
+   *   On successful auth → immediately show notifications
    */
-  onNotificationsClick(): void {
+  async onNotificationsClick(): Promise<void> {
+    // Gated feature: require authentication
+    if (!this.authFlow.isAuthenticated()) {
+      const result = await this.authModal.presentSignInToContinue('view your notifications', {
+        onGoogle: () => this.authFlow.signInWithGoogle(),
+        onApple: () => this.authFlow.signInWithApple(),
+        onEmailAuth: (mode, data) =>
+          mode === 'login'
+            ? this.authFlow.signInWithEmail(data)
+            : this.authFlow.signUpWithEmail(data),
+        onForgotPassword: () => this.router.navigate(['/auth/forgot-password']),
+      });
+
+      // User dismissed without authenticating
+      if (!result.authenticated) return;
+
+      // Auth succeeded — fall through to show notifications
+    }
+
+    // Authenticated: show notifications
     if (this.isMobileView()) {
       this.router.navigate(['/activity']);
     } else {
-      this._notificationPopoverOpen.update((open) => !open);
+      this.notificationState.toggle();
     }
   }
 
@@ -638,13 +868,28 @@ export class WebShellComponent {
    * Close the notification popover
    */
   closeNotificationPopover(): void {
-    this._notificationPopoverOpen.set(false);
+    this.notificationState.close();
   }
 
   /**
-   * Handle create button click
+   * Handle create button click.
+   * Gated behind auth — logged out users see the auth modal first.
    */
-  onCreateClick(): void {
+  async onCreateClick(): Promise<void> {
+    if (!this.authFlow.isAuthenticated()) {
+      const result = await this.authModal.presentSignInToContinue('create a post', {
+        onGoogle: () => this.authFlow.signInWithGoogle(),
+        onApple: () => this.authFlow.signInWithApple(),
+        onEmailAuth: (mode, data) =>
+          mode === 'login'
+            ? this.authFlow.signInWithEmail(data)
+            : this.authFlow.signUpWithEmail(data),
+        onForgotPassword: () => this.router.navigate(['/auth/forgot-password']),
+      });
+
+      if (!result.authenticated) return;
+    }
+
     this.router.navigate(['/create-post']);
   }
 
@@ -726,7 +971,7 @@ export class WebShellComponent {
   private async signOut(): Promise<void> {
     try {
       await this.authFlow.signOut();
-      void this.router.navigate(['/auth/login']);
+      void this.router.navigate(['/auth']);
     } catch (err) {
       this.logger.error('Sign out failed', err);
     }

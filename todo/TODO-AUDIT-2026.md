@@ -1,15 +1,18 @@
 # 📋 TODO Audit Report — NXT1 Monorepo
 
-**Audit Date:** February 1, 2026  
-**Previous Audit:** January 24, 2026  
+**Audit Date:** February 9, 2026  
+**Previous Audit:** February 1, 2026  
 **Focus Areas:** Authentication, Infrastructure, Security  
-**Status:** Significant Progress Made ✅
+**Status:** No Material Change Since Last Audit ⚠️
 
 ---
 
 ## ✅ COMPLETED SINCE LAST AUDIT
 
-### Infrastructure Completions
+No new completions since February 1, 2026. Prior completions carried forward for
+context.
+
+### Previously Completed (Carried Forward)
 
 | Item                 | Status      | Implementation                                             |
 | -------------------- | ----------- | ---------------------------------------------------------- |
@@ -143,17 +146,57 @@ Auth tracking already complete. Additional service tracking is optional.
 
 ---
 
+### 12. Additional TODOs Discovered (Feb 9 Scan)
+
+**Note:** Excludes `node_modules/`, build outputs, and third-party assets.
+
+#### Mobile App (Monorepo)
+
+| Location                                                                                                                       | TODO                                                | Priority  |
+| ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- | --------- |
+| `nxt1-monorepo/apps/mobile/src/app/features/team/team.page.ts` Line 90                                                         | Connect to TeamService when backend is ready        | 🟡 Medium |
+| `nxt1-monorepo/apps/mobile/src/app/core/layout/shell/mobile-shell.component.ts` Lines 369, 378                                 | Pull verified/class year from backend profile       | 🟢 Low    |
+| `nxt1-monorepo/apps/mobile/src/app/core/layout/shell/mobile-shell.component.ts` Line 693                                       | Open help/support modal or page                     | 🟢 Low    |
+| `nxt1-monorepo/apps/mobile/src/app/core/layout/shell/mobile-shell.component.ts` Line 713                                       | Pull referral code from backend                     | 🟢 Low    |
+| `nxt1-monorepo/apps/mobile/src/app/features/explore/explore.component.ts` Line 140                                             | Open filter modal/bottom sheet                      | 🟢 Low    |
+| `nxt1-monorepo/apps/mobile/src/app/features/create-post/create-post.component.ts` Lines 136, 151, 175                          | Confirmation sheet, API create, error toast         | 🟡 Medium |
+| `nxt1-monorepo/apps/mobile/src/app/features/create-post/create-post.component.ts` Lines 186, 195, 204, 213                     | Media picker, tag picker, location picker, poll     | 🟡 Medium |
+| `nxt1-monorepo/apps/mobile/src/app/features/auth/pages/onboarding-congratulations/onboarding-congratulations.page.ts` Line 139 | Track with mobile analytics service                 | 🟢 Low    |
+| `nxt1-monorepo/apps/mobile/src/app/features/auth/pages/auth/auth.page.ts` Lines 643, 661, 679                                  | Pass team code through Google/Apple/Microsoft OAuth | 🟡 Medium |
+| `nxt1-monorepo/apps/mobile/src/app/features/home/home.component.ts` Lines 259, 267, 292                                        | XP breakdown, post detail, comment modal            | 🟢 Low    |
+| `nxt1-monorepo/apps/mobile/src/app/features/agent-x/services/agent-x.service.ts` Line 219                                      | Replace stub with actual API call                   | 🟡 Medium |
+| `nxt1-monorepo/apps/mobile/src/app/features/settings/settings.component.ts` Lines 160, 224                                     | Implement account deletion (with password confirm)  | 🟡 Medium |
+
+#### Legacy Web App (nxt1)
+
+| Location                                                                               | TODO                                 | Priority  |
+| -------------------------------------------------------------------------------------- | ------------------------------------ | --------- |
+| `nxt1/src/app/auth/containers/sign-in/sign-in.component.ts` Line 193                   | Handle media role navigation         | 🟢 Low    |
+| `nxt1/src/app/v2/auth/features/role-selection/role-selection.component.ts` Line 7      | Implement role selection / team code | 🟢 Low    |
+| `nxt1/src/app/v2/core/infrastructure/firebase/firebase-auth.service.ts` Lines 252, 260 | Implement Microsoft/Apple sign-in    | 🟡 Medium |
+| `nxt1/src/app/offers/containers/offers-log/log.component.scss` Line 1627               | Verify conflicting height rule       | 🟢 Low    |
+
+#### Backend (nxt1-backend)
+
+| Location                                                    | TODO                     | Priority |
+| ----------------------------------------------------------- | ------------------------ | -------- |
+| `nxt1-backend/controllers/ssr/ssrTestController.js` Line 12 | Define description field | 🟢 Low   |
+
 ## 📑 TODO Documentation Files Status
 
-| File                         | Status         | Blocking Release? | Notes                                                            |
-| ---------------------------- | -------------- | ----------------- | ---------------------------------------------------------------- |
-| **AUTH-FLOW.md**             | ✅ 90% Done    | Yes (testing)     | Guards, forgot password complete. Onboarding persistence pending |
-| **NATIVE-AUTH-TESTING.md**   | 🟡 Ready       | Yes (device test) | All packages installed, needs device verification                |
-| **ANALYTICS-INTEGRATION.md** | 🟡 Partial     | No                | Auth tracking done, other services optional                      |
-| **SECURITY-HARDENING.md**    | ⬜ Not Started | Yes (Production)  | Pre-production checklist                                         |
-| **CI-CD-SETUP.md**           | ✅ Complete    | No                | All 7 workflows created                                          |
-| **SEO-CHECKLIST.md**         | 🟡 In Progress | No                | Auth pages done, OG images needed                                |
-| **E2E-TESTING.md**           | ✅ Complete    | No                | 86 tests passing with Playwright                                 |
+| File                          | Status                 | Blocking Release? | Notes                                       |
+| ----------------------------- | ---------------------- | ----------------- | ------------------------------------------- |
+| **ANALYTICS-INTEGRATION.md**  | 🟡 Partial             | No                | Auth tracking done, other services optional |
+| **CI-CD-SETUP.md**            | ✅ Complete            | No                | All 7 workflows created                     |
+| **CRASHLYTICS-NEXT-STEPS.md** | 🟡 Testing Required    | Yes (device test) | Setup complete, production config + testing |
+| **DEEP-LINKS-DEPLOYMENT.md**  | 🟡 Awaiting Deployment | Yes (activation)  | Code ready, server deployment not confirmed |
+| **SECURITY-HARDENING.md**     | ⬜ Not Started         | Yes (Production)  | Pre-production checklist                    |
+| **SEO-CHECKLIST.md**          | 🟡 In Progress         | No                | Auth pages done, OG images needed           |
+
+**Doc audit mismatch:** The following files referenced in prior audits are not
+present in `todo/`: **AUTH-FLOW.md**, **NATIVE-AUTH-TESTING.md**,
+**E2E-TESTING.md**. If these moved to `docs/` or were archived, update the audit
+references accordingly.
 
 ---
 
@@ -218,31 +261,14 @@ for backwards compatibility.
 
 ## ✅ Updated Action Plan
 
-### 🔴 Sprint 1: Immediate (Release Blockers)
+### 🔴 Immediate (Release Blockers)
 
-**Week 1-2:**
-
-1. ⬜ Install `@codetrix-studio/capacitor-google-auth` package
-2. ⬜ Implement Microsoft sign-in in `FirebaseAuthService`
-   - Add OAuthProvider for Microsoft
-   - Wire up to mobile auth flow
-3. ⬜ Implement Apple sign-in in `FirebaseAuthService`
-   - Add OAuthProvider for Apple
-   - Wire up to mobile auth flow
-4. ⬜ Pass team code through all OAuth flows
-   - Update Google, Apple, Microsoft handlers
-   - Test team code pre-fill after OAuth
-
-### 🟡 Current Sprint: Final Release Items
-
-**Remaining Tasks:**
-
-1. ⬜ Wire `NxtToastService` into GlobalErrorHandler (simple fix - service
-   exists)
-2. ⬜ Test onboarding persistence (resume incomplete flows)
-3. ⬜ Verify Firebase Storage upload in onboarding
-4. ⬜ Native auth device testing (Google, Apple, Microsoft)
-5. ⬜ Create OG images for social sharing (1200x630px)
+1. ⬜ Wire `NxtToastService` into GlobalErrorHandler (service exists)
+2. ⬜ Implement onboarding photo upload to Firebase Storage
+3. ⬜ Store photo URL + persist onboarding progress
+4. ⬜ Test onboarding persistence (resume incomplete flows)
+5. ⬜ Native auth device testing (Google, Apple, Microsoft)
+6. ⬜ Create OG images for social sharing (1200x630px)
 
 ---
 
@@ -259,7 +285,7 @@ for backwards compatibility.
 
 ---
 
-## 📊 Summary Statistics (Updated February 1, 2026)
+## 📊 Summary Statistics (Updated February 9, 2026)
 
 | Category               | Count | Status              |
 | ---------------------- | ----- | ------------------- |
@@ -285,7 +311,7 @@ for backwards compatibility.
 
 ### Ready for Beta Release When:
 
-- ✅ All OAuth providers (Google, Apple, Microsoft) — READY
+- ⬜ OAuth providers verified on devices (Google, Apple, Microsoft)
 - ✅ Toast notifications available — COMPLETE
 - ✅ Firebase Crashlytics configured — COMPLETE
 - ✅ E2E tests passing — COMPLETE (86 tests)
@@ -312,6 +338,6 @@ for backwards compatibility.
 - All auth-related TODOs have implementation notes in AUTH-FLOW.md
 - Security considerations documented in SECURITY-HARDENING.md
 
-**Last Updated:** February 1, 2026  
-**Previous Audit:** January 24, 2026  
+**Last Updated:** February 9, 2026  
+**Previous Audit:** February 1, 2026  
 **Next Audit:** After beta release

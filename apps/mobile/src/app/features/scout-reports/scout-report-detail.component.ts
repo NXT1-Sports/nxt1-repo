@@ -37,7 +37,6 @@ import {
   IonChip,
   IonLabel,
 } from '@ionic/angular/standalone';
-import { Share } from '@capacitor/share';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { addIcons } from 'ionicons';
 import {
@@ -62,6 +61,7 @@ import {
   type QuickStatItem,
 } from '@nxt1/ui';
 import { formatViewCount, formatGradYear, getRatingTier } from '@nxt1/core';
+import { ShareService } from '../../core/services/share.service';
 
 // Register icons
 addIcons({
@@ -470,6 +470,7 @@ export class ScoutReportDetailComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly navController = inject(NavController);
   private readonly service = inject(ScoutReportsService);
+  private readonly shareService = inject(ShareService);
 
   /** Current report */
   protected readonly report = this.service.selectedReport;
@@ -557,10 +558,10 @@ export class ScoutReportDetailComponent implements OnInit {
   }
 
   /**
-   * Navigate back.
+   * Navigate back using Ionic's navigation stack.
    */
   protected navigateBack(): void {
-    this.navController.navigateBack('/scout-reports');
+    this.navController.back();
   }
 
   /**
@@ -575,7 +576,7 @@ export class ScoutReportDetailComponent implements OnInit {
   }
 
   /**
-   * Share report using native share sheet.
+   * Share report using native share sheet via centralized ShareService.
    */
   protected async onShare(): Promise<void> {
     const r = this.report();
@@ -583,15 +584,18 @@ export class ScoutReportDetailComponent implements OnInit {
 
     await Haptics.impact({ style: ImpactStyle.Light });
 
-    try {
-      await Share.share({
+    await this.shareService.shareContent(
+      {
+        type: 'post',
+        id: r.id,
+        slug: r.id,
+        title: `${r.athlete.name} Scout Report`,
+        description: `Check out this scout report on NXT1!`,
+      },
+      {
         title: `${r.athlete.name} Scout Report`,
         text: `Check out this scout report on NXT1!`,
-        url: `https://nxt1.com/scout-reports/${r.id}`,
-        dialogTitle: 'Share Scout Report',
-      });
-    } catch {
-      // User cancelled
-    }
+      }
+    );
   }
 }

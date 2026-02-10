@@ -39,6 +39,9 @@ export {
 
 export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './logging';
 
+// Analytics adapter token (provided by apps)
+export { ANALYTICS_ADAPTER } from './analytics/analytics-adapter.token';
+
 export { AuthNavigationService, type NavAnimation, type NavOptions } from './auth-navigation';
 
 export { AuthErrorHandler, type AuthError, type AuthRecoveryAction } from './auth-error';
@@ -95,6 +98,9 @@ export {
 
 // Global Badge Service (2026 Professional Badge Management)
 export { GlobalBadgeService, type BadgeType } from './badge';
+
+// Notification State Service (2026 Professional Global State)
+export { NxtNotificationStateService } from './notification-state';
 
 // ============================================
 // MODAL SERVICE (2026 Unified Native Modal System)

@@ -45,18 +45,10 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser, Location } from '@angular/common';
-import {
-  IonContent,
-  IonHeader,
-  IonToolbar,
-  IonButtons,
-  IonButton,
-  IonIcon,
-} from '@ionic/angular/standalone';
+import { IonContent } from '@ionic/angular/standalone';
 import { Capacitor } from '@capacitor/core';
-import { addIcons } from 'ionicons';
-import { arrowBack, chevronBack } from 'ionicons/icons';
 import { NxtLogoComponent } from '../../components/logo';
+import { NxtBackButtonComponent } from '../../components/back-button';
 
 /**
  * Shell layout variants:
@@ -78,33 +70,18 @@ export type AuthShellVariant =
 @Component({
   selector: 'nxt1-auth-shell',
   standalone: true,
-  imports: [
-    CommonModule,
-    IonContent,
-    IonHeader,
-    IonToolbar,
-    IonButtons,
-    IonButton,
-    IonIcon,
-    NxtLogoComponent,
-  ],
+  imports: [CommonModule, IonContent, NxtLogoComponent, NxtBackButtonComponent],
   template: `
     <!-- Professional Floating Back Button -->
     @if (showBackButton) {
-      <ion-header class="ion-no-border nxt1-floating-header">
-        <ion-toolbar class="nxt1-floating-toolbar">
-          <ion-buttons slot="start" class="nxt1-floating-buttons">
-            <ion-button
-              (click)="onBackClick()"
-              aria-label="Back"
-              data-testid="back-button"
-              class="nxt1-back-button"
-            >
-              <ion-icon slot="icon-only" name="chevron-back"></ion-icon>
-            </ion-button>
-          </ion-buttons>
-        </ion-toolbar>
-      </ion-header>
+      <div class="nxt1-floating-header">
+        <nxt1-back-button
+          variant="floating"
+          testId="back-button"
+          ariaLabel="Go back"
+          (backClick)="onBackClick()"
+        />
+      </div>
     }
 
     <!-- Mobile/Capacitor: Use ion-content for native scrolling -->
@@ -362,79 +339,18 @@ export type AuthShellVariant =
       /* No background bar, just clean button        */
       /* Fixed position to not affect content flow   */
       /* ============================================ */
-      ion-header.nxt1-floating-header {
+      .nxt1-floating-header {
         position: fixed;
         top: 0;
         left: 0;
-        right: 0;
         z-index: 1000;
-        --background: transparent;
-        background: transparent;
+        padding: 16px;
+        padding-top: calc(16px + env(safe-area-inset-top, 0px));
         pointer-events: none;
       }
 
-      ion-header.nxt1-floating-header ion-toolbar,
-      ion-header.nxt1-floating-header ion-buttons,
-      ion-header.nxt1-floating-header ion-button {
+      .nxt1-floating-header nxt1-back-button {
         pointer-events: auto;
-      }
-
-      ion-header.nxt1-floating-header::part(native) {
-        background: transparent !important;
-      }
-
-      .nxt1-floating-toolbar {
-        --background: transparent;
-        --border-width: 0;
-        --padding-start: 12px;
-        --padding-end: 12px;
-        --padding-top: 12px;
-        --padding-bottom: 12px;
-        --min-height: 64px;
-      }
-
-      .nxt1-floating-toolbar::part(native) {
-        background: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-      }
-
-      .nxt1-floating-buttons {
-        display: flex;
-        align-items: center;
-      }
-
-      /* Professional floating back button - Theme-aware */
-      .nxt1-back-button {
-        --background: transparent;
-        --background-hover: transparent;
-        --background-activated: transparent;
-        --border-radius: 50%;
-        --padding-start: 0;
-        --padding-end: 0;
-        width: 40px;
-        height: 40px;
-        margin: 0;
-      }
-
-      .nxt1-back-button::part(native) {
-        border-radius: 50%;
-        background: var(--nxt1-color-surface-200, #1a1a1a);
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        box-shadow: 0 2px 8px var(--nxt1-color-shadow, rgba(0, 0, 0, 0.15));
-        transition: all 0.2s ease;
-      }
-
-      .nxt1-back-button:hover::part(native) {
-        background: var(--nxt1-color-surface-300, #242424);
-        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-      }
-
-      .nxt1-back-button ion-icon {
-        font-size: var(--nxt1-fontSize-xl);
-        color: var(--nxt1-color-text-primary);
       }
 
       .nxt1-auth-content {
@@ -451,11 +367,14 @@ export type AuthShellVariant =
         overflow: visible;
         box-sizing: border-box;
         /* Safe area padding for notched devices */
-        padding-top: calc(env(safe-area-inset-top, 0px) + var(--nxt1-spacing-16));
-        /* Default variant layout */
+        padding-top: env(safe-area-inset-top, 0px);
+        /* Default variant layout — vertically centered */
         display: flex;
         flex-direction: column;
         align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        min-height: 100dvh;
         padding-left: var(--nxt1-spacing-4);
         padding-right: var(--nxt1-spacing-4);
         padding-bottom: var(--nxt1-spacing-6);
@@ -464,7 +383,6 @@ export type AuthShellVariant =
 
       @media (min-width: 768px) {
         .nxt1-auth-wrapper {
-          padding-top: calc(env(safe-area-inset-top, 0px) + var(--nxt1-spacing-10));
           padding-bottom: var(--nxt1-spacing-10);
         }
       }
@@ -1061,9 +979,6 @@ export class AuthShellComponent {
   private readonly _isNative = signal<boolean>(false);
 
   constructor() {
-    // Register icons
-    addIcons({ arrowBack, chevronBack });
-
     // Detect platform (must be done in constructor for SSR safety)
     if (isPlatformBrowser(this.platformId)) {
       this._isNative.set(Capacitor.isNativePlatform());

@@ -37,6 +37,7 @@ import { SeoService } from '../../core/services';
   template: `
     <nxt1-settings-shell
       [user]="userInfo()"
+      [showPageHeader]="false"
       (back)="onBack()"
       (editProfile)="onEditProfile()"
       (navigate)="onNavigate($event)"

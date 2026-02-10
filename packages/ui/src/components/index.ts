@@ -24,6 +24,23 @@ export {
 
 export { NxtIconComponent, type IconName, type UIIconName, type BrandIconName } from './icon';
 
+export { NxtBackButtonComponent, type BackButtonSize, type BackButtonVariant } from './back-button';
+
+export {
+  NxtShareButtonComponent,
+  type ShareButtonSize,
+  type ShareButtonVariant,
+} from './share-button';
+
+// ============================================
+// SEARCH BAR
+// ============================================
+export {
+  NxtSearchBarComponent,
+  type SearchBarVariant,
+  type SearchBarSubmitEvent,
+} from './search-bar';
+
 // ============================================
 // AVATAR
 // ============================================
@@ -149,6 +166,39 @@ export {
 } from './desktop-sidebar';
 
 // ============================================
+// MOBILE HEADER (YouTube-Style Mobile Top Nav Bar)
+// ============================================
+export {
+  // Component
+  NxtMobileHeaderComponent,
+  // Types
+  type MobileHeaderConfig,
+  type MobileHeaderUserData,
+  // Constants
+  DEFAULT_MOBILE_HEADER_CONFIG,
+  // Factory
+  createMobileHeaderConfig,
+} from './mobile-header';
+
+// ============================================
+// MOBILE SIDEBAR (YouTube-Style Slide-Out Drawer)
+// ============================================
+export {
+  // Component
+  NxtMobileSidebarComponent,
+  // Types
+  type MobileSidebarConfig,
+  type MobileSidebarItem,
+  type MobileSidebarSection,
+  type MobileSidebarUserData,
+  type MobileSidebarSelectEvent,
+  // Constants
+  DEFAULT_MOBILE_SIDEBAR_CONFIG,
+  // Factory
+  createMobileSidebarConfig,
+} from './mobile-sidebar';
+
+// ============================================
 // SIDENAV / DRAWER NAVIGATION (Mobile/Hamburger)
 // ============================================
 export {
@@ -224,6 +274,16 @@ export {
   type HeroVariant,
   type HeroAudienceCardClickEvent,
 } from './hero-header';
+
+// ============================================
+// PARTNER MARQUEE (Infinite Logo Scroll)
+// ============================================
+export {
+  NxtPartnerMarqueeComponent,
+  type PartnerItem,
+  type MarqueeDirection,
+  type MarqueeVariant,
+} from './partner-marquee';
 
 // ============================================
 // APP DOWNLOAD BAR

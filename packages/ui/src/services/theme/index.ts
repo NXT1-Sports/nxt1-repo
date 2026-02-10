@@ -73,7 +73,15 @@ export type ThemePreference = 'light' | 'dark' | 'system';
 export type EffectiveTheme = 'light' | 'dark';
 
 /** Available sport themes */
-export type SportTheme = 'football' | 'basketball' | 'baseball' | 'softball';
+export type SportTheme =
+  | 'football'
+  | 'basketball'
+  | 'baseball'
+  | 'softball'
+  | 'soccer'
+  | 'volleyball'
+  | 'lacrosse'
+  | 'track';
 
 /** Theme change event */
 export interface ThemeChangeEvent {
@@ -175,15 +183,43 @@ export const SPORT_THEME_OPTIONS: readonly SportThemeOption[] = [
     id: 'baseball',
     label: 'Baseball',
     icon: 'baseball',
-    primaryColor: '#7c4dff',
-    description: 'Diamond purple',
+    primaryColor: '#2575ff',
+    description: 'Diamond blue',
   },
   {
     id: 'softball',
     label: 'Softball',
     icon: 'baseball',
-    primaryColor: '#ff4081',
-    description: 'Softball pink',
+    primaryColor: '#ffed4e',
+    description: 'Softball yellow',
+  },
+  {
+    id: 'soccer',
+    label: 'Soccer',
+    icon: 'soccer',
+    primaryColor: '#e10600',
+    description: 'Red & black pitch',
+  },
+  {
+    id: 'volleyball',
+    label: 'Volleyball',
+    icon: 'volleyball',
+    primaryColor: '#ff4fb3',
+    description: 'Pink & black energy',
+  },
+  {
+    id: 'lacrosse',
+    label: 'Lacrosse',
+    icon: 'lacrosse',
+    primaryColor: '#00bcd4',
+    description: 'Teal & white precision',
+  },
+  {
+    id: 'track',
+    label: 'Track & Field',
+    icon: 'track',
+    primaryColor: '#7c4dff',
+    description: 'Purple speed',
   },
 ] as const;
 
@@ -195,6 +231,10 @@ const THEME_BG_COLORS: Record<string, string> = {
   'sport-basketball': '#3d2000',
   'sport-baseball': '#1a1424',
   'sport-softball': '#1a1818',
+  'sport-soccer': '#120909',
+  'sport-volleyball': '#140a12',
+  'sport-lacrosse': '#08181c',
+  'sport-track': '#120a1c',
 };
 
 // ============================================

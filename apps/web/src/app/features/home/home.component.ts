@@ -28,6 +28,7 @@ import {
   FeedListComponent,
   FeedService,
   NxtHeroHeaderComponent,
+  NxtPartnerMarqueeComponent,
   type OptionScrollerItem,
   type OptionScrollerChangeEvent,
   type HeroAudienceCardClickEvent,
@@ -47,6 +48,7 @@ import { SeoService, AnalyticsService } from '../../core/services';
     NewsContentComponent,
     FeedListComponent,
     NxtHeroHeaderComponent,
+    NxtPartnerMarqueeComponent,
   ],
   template: `
     <!-- Hero Header Section -->
@@ -57,6 +59,14 @@ import { SeoService, AnalyticsService } from '../../core/services';
       [showTrustBadges]="true"
       [showAppBadges]="false"
       (cardClick)="onHeroCardClick($event)"
+    />
+
+    <!-- Partners Section -->
+    <nxt1-partner-marquee
+      title="Trusted By Leading Organizations"
+      subtitle="Partnering with the best to power the future of sports recruiting"
+      label="Our Partners"
+      [showLabel]="true"
     />
 
     <!-- Twitter/TikTok Style Feed Selector -->

@@ -152,7 +152,9 @@ export class ScoutReportSearchBarComponent {
   readonly value = input<string>('');
 
   /** Placeholder text */
-  readonly placeholder = input<string>('Search athletes, teams, positions...');
+  readonly placeholder = input<string>(
+    'Search anything (athletes, videos, colleges, teams, and more)'
+  );
 
   /** Debounce time in ms */
   readonly debounce = input<number>(300);

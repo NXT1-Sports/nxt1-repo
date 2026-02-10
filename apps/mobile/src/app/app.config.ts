@@ -32,12 +32,14 @@ import {
   GlobalErrorHandler,
   GLOBAL_ERROR_LOGGER,
   GLOBAL_CRASHLYTICS,
+  ANALYTICS_ADAPTER,
   httpErrorInterceptor,
 } from '@nxt1/ui';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 // Local services
 import { CrashlyticsService } from './core/services/crashlytics.service';
+import { AnalyticsService } from './core/services/analytics.service';
 
 import { routes } from './app.routes';
 import { environment } from '../environments/environment';
@@ -117,5 +119,8 @@ export const appConfig: ApplicationConfig = {
 
     // Global error handler (shared with web)
     { provide: ErrorHandler, useClass: GlobalErrorHandler },
+
+    // Analytics adapter (used by @nxt1/ui shared services like FeedService)
+    { provide: ANALYTICS_ADAPTER, useExisting: AnalyticsService },
   ],
 };

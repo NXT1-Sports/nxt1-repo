@@ -1,0 +1,347 @@
+/**
+ * @fileoverview NxtSearchBarComponent - Shared Search Bar
+ * @module @nxt1/ui/components/search-bar
+ * @version 1.0.0
+ *
+ * Single source of truth for the NXT1 search bar UI across all contexts.
+ * Uses native HTML `<input>` (NOT ion-searchbar) to avoid Ionic shadow DOM
+ * height/padding conflicts inside toolbars.
+ *
+ * Variants:
+ * - `mobile`           – Compact pill (40px, 320px max, solid surface bg, nxt1 brand icon)
+ * - `desktop`          – Actions-area bar (glass bg, aiSearch icon, narrower)
+ * - `desktop-centered` – Centered nav bar (glass bg, nxt1 brand icon, wider)
+ *
+ * Styling is driven by shared CSS classes from `navigation.css` scoped through
+ * the `.nxt1-nav-search` host class. Mobile variant overrides are applied via
+ * component-scoped CSS using `:host(.mobile)`.
+ *
+ * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
+ *
+ * @example
+ * ```html
+ * <!-- Mobile (Explore page) -->
+ * <nxt1-search-bar
+ *   variant="mobile"
+ *   placeholder="Search"
+ *   [value]="searchValue()"
+ *   (searchInput)="onSearch($event)"
+ *   (searchSubmit)="onSubmit($event)"
+ *   (searchClear)="onClear()"
+ * />
+ *
+ * <!-- Desktop centered (Top Nav sidebar mode) -->
+ * <nxt1-search-bar
+ *   variant="desktop-centered"
+ *   placeholder="Search anything..."
+ *   [value]="searchQuery()"
+ *   (searchInput)="onSearch($event)"
+ *   (searchSubmit)="onSubmit($event)"
+ *   (searchClear)="onClear()"
+ * />
+ *
+ * <!-- Desktop actions area -->
+ * <nxt1-search-bar
+ *   variant="desktop"
+ *   [value]="searchQuery()"
+ *   (searchInput)="onSearch($event)"
+ *   (searchSubmit)="onSubmit($event)"
+ *   (searchClear)="onClear()"
+ * />
+ * ```
+ */
+
+import {
+  Component,
+  ChangeDetectionStrategy,
+  input,
+  output,
+  computed,
+  signal,
+  HostBinding,
+  ElementRef,
+  viewChild,
+} from '@angular/core';
+import { NxtIconComponent } from '../icon';
+
+/** Search bar visual variant */
+export type SearchBarVariant = 'mobile' | 'desktop' | 'desktop-centered';
+
+/** Emitted on search submit */
+export interface SearchBarSubmitEvent {
+  readonly query: string;
+  readonly timestamp: number;
+}
+
+@Component({
+  selector: 'nxt1-search-bar',
+  standalone: true,
+  imports: [NxtIconComponent],
+  template: `
+    <form
+      class="search-form relative flex items-center"
+      (submit)="onSubmit($event)"
+    >
+      <!-- Search Icon -->
+      <nxt1-icon
+        [name]="iconName()"
+        [class]="iconClass()"
+        [size]="iconSize()"
+      />
+
+      <!-- Native search input (NOT ion-searchbar — avoids shadow DOM conflicts) -->
+      <input
+        #searchInput
+        type="search"
+        [class]="inputClass()"
+        [placeholder]="placeholder()"
+        [value]="value()"
+        autocomplete="off"
+        spellcheck="false"
+        (input)="onInput($event)"
+        (focus)="onFocus()"
+        (blur)="onBlur()"
+      />
+
+      <!-- Clear / Cancel button -->
+      @if (isMobileFocused()) {
+        <button
+          type="button"
+          class="mobile-cancel"
+          aria-label="Cancel search"
+          (mousedown)="onCancel($event)"
+        >
+          Cancel
+        </button>
+      } @else if (value()) {
+        <button
+          type="button"
+          [class]="clearClass()"
+          aria-label="Clear search"
+          (click)="onClear()"
+        >
+          <nxt1-icon name="close" [size]="clearIconSize()" />
+        </button>
+      }
+    </form>
+  `,
+  styles: [
+    `
+      /* ============================================
+         SEARCH BAR — Variant-specific overrides
+         Base styles come from navigation.css via .nxt1-nav-search
+         ============================================ */
+
+      :host {
+        display: block;
+      }
+
+      /* --- MOBILE variant overrides --- */
+
+      /* Host is always full-width so the page header layout never shifts */
+      :host(.mobile) {
+        width: 100%;
+        --nxt1-ui-btn-height-md: 40px;
+        --nxt1-ui-radius-2xl: 20px;
+      }
+
+      :host(.mobile) .search-form {
+        width: min(100%, 220px);
+        margin: 0 auto;
+        height: var(--nxt1-ui-btn-height-md);
+        padding: 0 var(--nxt1-spacing-3, 12px);
+        justify-content: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        background: var(--nxt1-color-surface-200, #1f1f1f);
+        border: 1px solid
+          var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        transition: width 0.25s var(--nxt1-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+      }
+
+      /* Focused: expand width and left-align content */
+      :host(.mobile.mobile--focused) .search-form {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      /* Input: centered by default, flexible so it absorbs extra space on expand */
+      :host(.mobile) .search-input {
+        min-width: 0;
+        flex: 1 1 auto;
+        font-size: var(--nxt1-fontSize-sm, 0.9375rem);
+        text-align: center;
+        padding: 0;
+        letter-spacing: var(--nxt1-letterSpacing-tight, 0.01em);
+        -webkit-appearance: none;
+        appearance: none;
+      }
+
+      /* Focused: left-align input text */
+      :host(.mobile.mobile--focused) .search-input {
+        text-align: left;
+      }
+
+      :host(.mobile) .search-input:focus {
+        outline: none;
+        box-shadow: none;
+      }
+
+      :host(.mobile) .search-icon {
+        position: static !important;
+        left: auto !important;
+        transform: none !important;
+        margin: 0;
+        flex-shrink: 0;
+      }
+
+      /* Cancel button (shown on focus) */
+      .mobile-cancel {
+        flex-shrink: 0;
+        background: none;
+        border: none;
+        color: var(--nxt1-color-primary, #ccff00);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-medium, 500);
+        padding: 0 var(--nxt1-spacing-1, 4px);
+        cursor: pointer;
+        white-space: nowrap;
+      }
+    `,
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class NxtSearchBarComponent {
+  // ─── Inputs ───────────────────────────────────────────────
+  /** Visual variant */
+  readonly variant = input<SearchBarVariant>('mobile');
+
+  /** Placeholder text */
+  readonly placeholder = input('Search');
+
+  /** Current search value (two-way via value + searchInput) */
+  readonly value = input('');
+
+  // ─── Outputs ──────────────────────────────────────────────
+  /** Fires on every keystroke with the current input value */
+  readonly searchInput = output<string>();
+
+  /** Fires on form submit (Enter key) */
+  readonly searchSubmit = output<SearchBarSubmitEvent>();
+
+  /** Fires when user clicks the clear button */
+  readonly searchClear = output<void>();
+
+  /** Fires on input focus */
+  readonly searchFocus = output<void>();
+
+  /** Fires on input blur */
+  readonly searchBlur = output<void>();
+
+  /** Fires when mobile cancel is tapped */
+  readonly searchCancel = output<void>();
+
+  /** Whether the mobile variant is currently focused (drives expand animation) */
+  readonly focused = input(false);
+
+  // ─── Host bindings ────────────────────────────────────────
+  /** Apply .nxt1-nav-search + variant class + focused modifier */
+  @HostBinding('class')
+  get hostClass(): string {
+    const v = this.variant();
+    const focusedClass = v === 'mobile' && this.isMobileFocused() ? ' mobile--focused' : '';
+    return `nxt1-nav-search ${v}${focusedClass}`;
+  }
+
+  /** Reference to native input for programmatic focus */
+  private readonly inputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');
+
+  /** Internal focused state for mobile (tracks actual input focus) */
+  protected readonly isMobileFocused = computed(() =>
+    this.variant() === 'mobile' && this.focused()
+  );
+
+  // ─── Computed helpers ─────────────────────────────────────
+  /** Determine which icon to show based on variant */
+  protected readonly iconName = computed(() => {
+    const v = this.variant();
+    return v === 'desktop' ? 'aiSearch' : 'nxt1';
+  });
+
+  /** Icon CSS classes */
+  protected readonly iconClass = computed(() => {
+    const v = this.variant();
+    if (v === 'mobile') {
+      return 'search-icon search-icon--brand pointer-events-none flex-shrink-0';
+    }
+    const base = 'search-icon pointer-events-none absolute';
+    if (v === 'desktop') {
+      return `${base} search-icon--ai left-3`;
+    }
+    // desktop-centered uses brand icon
+    return `${base} search-icon--brand left-3`;
+  });
+
+  /** Icon size per variant */
+  protected readonly iconSize = computed(() => {
+    const v = this.variant();
+    if (v === 'desktop-centered') return '20';
+    return '18';
+  });
+
+  /** Input CSS classes */
+  protected readonly inputClass = computed(() => {
+    const v = this.variant();
+    const base = 'search-input';
+    return v === 'desktop' ? base : `${base} search-input--centered`;
+  });
+
+  /** Clear button CSS classes */
+  protected readonly clearClass = computed(() => {
+    const v = this.variant();
+    const base =
+      'search-clear absolute flex items-center justify-center rounded-full p-0';
+    if (v === 'desktop-centered') {
+      return `${base} right-3 h-7 w-7`;
+    }
+    return `${base} right-2 h-6 w-6`;
+  });
+
+  /** Clear icon size */
+  protected readonly clearIconSize = computed(() => {
+    return this.variant() === 'desktop-centered' ? '18' : '16';
+  });
+
+  // ─── Event handlers ───────────────────────────────────────
+  protected onInput(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.searchInput.emit(input.value);
+  }
+
+  protected onSubmit(event: Event): void {
+    event.preventDefault();
+    const query = this.value().trim();
+    if (query) {
+      this.searchSubmit.emit({ query, timestamp: Date.now() });
+    }
+  }
+
+  protected onClear(): void {
+    this.searchClear.emit();
+  }
+
+  protected onFocus(): void {
+    this.searchFocus.emit();
+  }
+
+  protected onBlur(): void {
+    this.searchBlur.emit();
+  }
+
+  /** Cancel search on mobile — blur the input first, then fire cancel */
+  protected onCancel(event: Event): void {
+    event.preventDefault(); // Prevent default mousedown behavior
+    // Blur the input to dismiss keyboard and remove focus
+    this.inputRef()?.nativeElement.blur();
+    this.searchCancel.emit();
+  }
+}

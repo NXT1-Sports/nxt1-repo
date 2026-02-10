@@ -48,6 +48,7 @@ import { NxtLogoComponent } from '../logo';
 import { NxtIconComponent } from '../icon';
 import { NxtAvatarComponent } from '../avatar';
 import { NxtThemeSelectorComponent } from '../theme-selector';
+import { NxtThemeService } from '../../services/theme';
 import type {
   DesktopSidebarConfig,
   DesktopSidebarSection,
@@ -201,7 +202,7 @@ import {
                 aria-label="Toggle theme"
               >
                 <span class="sidebar__item-icon">
-                  <nxt1-icon name="moon" [size]="22" />
+                  <nxt1-icon [name]="theme.isDark() ? 'sun' : 'moon'" [size]="22" />
                 </span>
                 <span class="sidebar__tooltip">Toggle theme</span>
               </button>
@@ -628,6 +629,7 @@ export class NxtDesktopSidebarComponent {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly theme = inject(NxtThemeService);
 
   // ============================================
   // INPUTS
@@ -798,8 +800,10 @@ export class NxtDesktopSidebarComponent {
 
   toggleTheme(event: Event): void {
     event.stopPropagation();
-    // Theme toggle is handled by NxtThemeSelectorComponent
-    // This is just a placeholder for collapsed state
+    if (this.theme.hasSportTheme()) {
+      this.theme.clearSportTheme();
+    }
+    this.theme.toggle();
   }
 
   // ============================================

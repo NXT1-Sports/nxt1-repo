@@ -39,6 +39,8 @@ import {
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { NxtPlatformService } from '../../services/platform';
+import { NxtSidenavService } from '../sidenav/sidenav.service';
+import { NxtNotificationStateService } from '../../services/notification-state';
 
 /** Configuration options for the download bar */
 export interface AppDownloadBarConfig {
@@ -66,6 +68,8 @@ export class NxtAppDownloadBarService {
   private readonly platform = inject(NxtPlatformService);
   private readonly ngZone = inject(NgZone);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly sidenavService = inject(NxtSidenavService);
+  private readonly notificationState = inject(NxtNotificationStateService);
 
   // ============================================
   // PRIVATE STATE
@@ -101,10 +105,19 @@ export class NxtAppDownloadBarService {
   );
 
   /**
-   * Whether the download bar should be in the visible (slid-up) state.
-   * Used as CSS class binding for smooth bidirectional transitions.
+   * Conditions:
+   * - shouldRender (initialized, not dismissed, not native, browser)
+   * - scrolledPastThreshold (user scrolled down past threshold)
+   * - sidenav is NOT open (don't show when sidenav is open)
+   * - notification popover is NOT open (don't show when notifications open)
    */
-  readonly isVisible = computed(() => this.shouldRender() && this._scrolledPastThreshold());
+  readonly isVisible = computed(
+    () =>
+      this.shouldRender() &&
+      this._scrolledPastThreshold() &&
+      !this.sidenavService.isOpen() &&
+      !this.notificationState.isOpen()
+  );
 
   /**
    * Bottom offset in pixels for the download bar.
@@ -207,6 +220,11 @@ export class NxtAppDownloadBarService {
        * actually scrolled) instead of guessing which element to read.
        * This works on all pages regardless of which container scrolls
        * (.shell__content, .ion-page, body, documentElement, etc.).
+       *
+       * IMPORTANT: Ignores scroll events from:
+       * - Sidenav/drawer containers (mobile menu)
+       * - Desktop sidebar containers
+       * - Notification popovers/modals
        */
       const scrollHandler = (event: Event): void => {
         if (this.rafId !== null) {
@@ -218,6 +236,45 @@ export class NxtAppDownloadBarService {
 
           // Read scroll position from the element that actually scrolled
           const target = event.target;
+
+          // Ignore scroll events from sidenav/sidebar containers
+          if (target instanceof Element) {
+            const element = target as HTMLElement;
+            const className = element.className || '';
+            const tagName = element.tagName?.toLowerCase() || '';
+
+            // Skip if scrolling within sidenav (mobile menu)
+            if (
+              className.includes('ion-menu') ||
+              className.includes('nxt1-sidenav') ||
+              tagName === 'ion-menu' ||
+              element.closest('ion-menu') ||
+              element.closest('.nxt1-sidenav-menu')
+            ) {
+              return;
+            }
+
+            // Skip if scrolling within desktop sidebar
+            if (
+              className.includes('sidebar') ||
+              element.closest('.sidebar') ||
+              element.closest('nxt1-desktop-sidebar')
+            ) {
+              return;
+            }
+
+            // Skip if scrolling within notification popover/modal
+            if (
+              className.includes('notification-popover') ||
+              className.includes('notification-modal') ||
+              element.closest('.notification-popover') ||
+              element.closest('.notification-modal') ||
+              element.closest('app-notification-popover')
+            ) {
+              return;
+            }
+          }
+
           let scrollY: number;
 
           if (target === document || target === document.documentElement) {

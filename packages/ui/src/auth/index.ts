@@ -28,3 +28,12 @@ export {
 } from './auth-team-code';
 export { AuthBiometricPromptComponent, type BiometryDisplayType } from './auth-biometric-prompt';
 export { AuthBiometricButtonComponent, type BiometryButtonType } from './auth-biometric-button';
+export {
+  AuthModalComponent,
+} from './auth-modal';
+export {
+  AuthModalService,
+  type AuthModalConfig,
+  type AuthModalResult,
+  type AuthModalDismissReason,
+} from './auth-modal';

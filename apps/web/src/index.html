@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <title>NXT1 Sports - The Sports Content Platform | Discover, Watch & Share Athletic Content</title>
@@ -12,7 +12,11 @@
     -->
     <script>
       (function () {
-        var theme = localStorage.getItem("nxt1-theme") || "light";
+        var pref = localStorage.getItem("nxt1-theme-preference") || "dark";
+        var theme = pref;
+        if (pref === "system") {
+          theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+        }
         document.documentElement.setAttribute("data-theme", theme);
         document.documentElement.style.colorScheme = theme;
         document.documentElement.style.backgroundColor = theme === "dark" ? "#0a0a0a" : "#ffffff";
@@ -27,7 +31,6 @@
     -->
     <style>
       /* Pre-hydration: Give Ionic components dimensions before they're defined */
-      ion-app:not(:defined),
       ion-content:not(:defined) {
         display: block;
         width: 100%;

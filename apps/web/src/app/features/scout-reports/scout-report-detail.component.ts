@@ -26,32 +26,6 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { Meta, Title } from '@angular/platform-browser';
 import {
-  IonHeader,
-  IonToolbar,
-  IonTitle,
-  IonContent,
-  IonButtons,
-  IonButton,
-  IonBackButton,
-  IonIcon,
-  IonChip,
-  IonLabel,
-} from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  arrowBackOutline,
-  bookmarkOutline,
-  bookmark,
-  shareOutline,
-  locationOutline,
-  schoolOutline,
-  calendarOutline,
-  trophyOutline,
-  footballOutline,
-  starOutline,
-  eyeOutline,
-} from 'ionicons/icons';
-import {
   ScoutReportsService,
   ScoutReportRatingDisplayComponent,
   ScoutReportQuickStatsComponent,
@@ -61,21 +35,8 @@ import {
   type QuickStatItem,
 } from '@nxt1/ui';
 import { formatViewCount, formatGradYear, getRatingTier } from '@nxt1/core';
-
-// Register icons
-addIcons({
-  arrowBackOutline,
-  bookmarkOutline,
-  bookmark,
-  shareOutline,
-  locationOutline,
-  schoolOutline,
-  calendarOutline,
-  trophyOutline,
-  footballOutline,
-  starOutline,
-  eyeOutline,
-});
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { AnalyticsService } from '../../core/services';
 
 @Component({
   selector: 'app-scout-report-detail',
@@ -83,16 +44,6 @@ addIcons({
   imports: [
     CommonModule,
     RouterModule,
-    IonHeader,
-    IonToolbar,
-    IonTitle,
-    IonContent,
-    IonButtons,
-    IonButton,
-    IonBackButton,
-    IonIcon,
-    IonChip,
-    IonLabel,
     ScoutReportDetailSkeletonComponent,
     ScoutReportRatingDisplayComponent,
     ScoutReportQuickStatsComponent,
@@ -101,27 +52,42 @@ addIcons({
   ],
   template: `
     <!-- Header -->
-    <ion-header>
-      <ion-toolbar>
-        <ion-buttons slot="start">
-          <ion-back-button defaultHref="/scout-reports"></ion-back-button>
-        </ion-buttons>
-        <ion-title>Scout Report</ion-title>
-        <ion-buttons slot="end">
-          <ion-button (click)="onShare()">
-            <ion-icon name="share-outline" slot="icon-only"></ion-icon>
-          </ion-button>
+    <header class="detail-header">
+      <div class="detail-toolbar">
+        <a
+          routerLink="/scout-reports"
+          class="detail-toolbar__back-btn"
+          aria-label="Back to scout reports"
+        >
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true">
+            <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+          </svg>
+        </a>
+        <span class="detail-toolbar__title">Scout Report</span>
+        <div class="detail-toolbar__end">
+          <button
+            type="button"
+            class="detail-toolbar__icon-btn"
+            (click)="onShare()"
+            aria-label="Share"
+          >
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true">
+              <path
+                d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"
+              />
+            </svg>
+          </button>
           @if (report()) {
             <nxt1-scout-report-bookmark-button
               [isBookmarked]="report()!.isBookmarked"
               (toggle)="onBookmark()"
             />
           }
-        </ion-buttons>
-      </ion-toolbar>
-    </ion-header>
+        </div>
+      </div>
+    </header>
 
-    <ion-content class="detail-content">
+    <main class="detail-content">
       @if (isLoading()) {
         <!-- Loading Skeleton (shared from @nxt1/ui) -->
         <nxt1-scout-report-detail-skeleton />
@@ -137,7 +103,17 @@ addIcons({
               />
             } @else {
               <div class="detail-hero__placeholder">
-                <ion-icon name="person-outline"></ion-icon>
+                <svg
+                  viewBox="0 0 24 24"
+                  width="80"
+                  height="80"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
+                  />
+                </svg>
               </div>
             }
             <div class="detail-hero__overlay"></div>
@@ -165,7 +141,17 @@ addIcons({
               }}</span>
             </div>
             <div class="detail-hero__location">
-              <ion-icon name="location-outline"></ion-icon>
+              <svg
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"
+                />
+              </svg>
               {{ report()!.athlete.location ?? 'Unknown' }},
               {{ report()!.athlete.state ?? 'Unknown' }}
             </div>
@@ -228,9 +214,7 @@ addIcons({
             <h2 class="detail-section__title">Tags</h2>
             <div class="detail-tags">
               @for (tag of report()!.tags; track tag) {
-                <ion-chip>
-                  <ion-label>{{ tag }}</ion-label>
-                </ion-chip>
+                <span class="detail-chip">{{ tag }}</span>
               }
             </div>
           </div>
@@ -238,22 +222,93 @@ addIcons({
       } @else {
         <!-- Not Found -->
         <div class="detail-not-found">
-          <ion-icon name="document-text-outline"></ion-icon>
+          <svg viewBox="0 0 24 24" width="64" height="64" fill="currentColor" aria-hidden="true">
+            <path
+              d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"
+            />
+          </svg>
           <h2>Report Not Found</h2>
           <p>This scout report may have been removed or is no longer available.</p>
-          <ion-button routerLink="/scout-reports"> Browse All Reports </ion-button>
+          <a routerLink="/scout-reports" class="detail-browse-btn">Browse All Reports</a>
         </div>
       }
-    </ion-content>
+    </main>
   `,
   styles: [
     `
+      /* ============================================
+         HEADER & TOOLBAR
+         ============================================ */
+
+      .detail-header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: var(--nxt1-color-background, #0f0f0f);
+        border-bottom: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.1));
+      }
+
+      .detail-toolbar {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-4, 16px);
+        min-height: 56px;
+      }
+
+      .detail-toolbar__back-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        border-radius: var(--nxt1-radius-full, 50%);
+        color: var(--nxt1-color-text-primary);
+        text-decoration: none;
+        transition: background var(--nxt1-duration-fast, 150ms) ease;
+      }
+
+      .detail-toolbar__back-btn:hover {
+        background: var(--nxt1-color-state-hover);
+      }
+
+      .detail-toolbar__title {
+        flex: 1;
+        font-size: 17px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .detail-toolbar__end {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-1, 4px);
+      }
+
+      .detail-toolbar__icon-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        border: none;
+        border-radius: var(--nxt1-radius-full, 50%);
+        background: transparent;
+        color: var(--nxt1-color-text-primary);
+        cursor: pointer;
+        transition: background var(--nxt1-duration-fast, 150ms) ease;
+      }
+
+      .detail-toolbar__icon-btn:hover {
+        background: var(--nxt1-color-state-hover);
+      }
+
       /* ============================================
          CONTENT
          ============================================ */
 
       .detail-content {
-        --background: var(--nxt1-color-background, #0f0f0f);
+        background-color: var(--nxt1-color-background, #0f0f0f);
       }
 
       /* ============================================
@@ -283,11 +338,7 @@ addIcons({
         align-items: center;
         justify-content: center;
         background: var(--nxt1-color-surface, #1a1a1a);
-
-        ion-icon {
-          font-size: 80px;
-          color: var(--nxt1-color-text-tertiary);
-        }
+        color: var(--nxt1-color-text-tertiary);
       }
 
       .detail-hero__overlay {
@@ -345,10 +396,6 @@ addIcons({
         margin-top: var(--nxt1-spacing-2, 8px);
         font-size: 14px;
         color: var(--nxt1-color-text-tertiary);
-
-        ion-icon {
-          font-size: 16px;
-        }
       }
 
       /* ============================================
@@ -464,6 +511,17 @@ addIcons({
         gap: var(--nxt1-spacing-2, 8px);
       }
 
+      .detail-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: var(--nxt1-spacing-1, 4px) var(--nxt1-spacing-3, 12px);
+        background: var(--nxt1-color-surface-elevated, rgba(255, 255, 255, 0.08));
+        border-radius: var(--nxt1-radius-full, 9999px);
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--nxt1-color-text-secondary);
+      }
+
       /* ============================================
          NOT FOUND
          ============================================ */
@@ -476,10 +534,9 @@ addIcons({
         padding: var(--nxt1-spacing-8, 32px);
         text-align: center;
         min-height: 400px;
+        color: var(--nxt1-color-text-tertiary);
 
-        ion-icon {
-          font-size: 64px;
-          color: var(--nxt1-color-text-tertiary);
+        svg {
           margin-bottom: var(--nxt1-spacing-4, 16px);
         }
 
@@ -493,6 +550,25 @@ addIcons({
           color: var(--nxt1-color-text-secondary);
         }
       }
+
+      .detail-browse-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-4, 16px);
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
+        border-radius: var(--nxt1-radius-md, 8px);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-weight: 600;
+        text-decoration: none;
+        transition: background var(--nxt1-duration-fast, 150ms) ease;
+      }
+
+      .detail-browse-btn:hover {
+        background: var(--nxt1-color-primaryDark);
+        color: var(--nxt1-color-text-onPrimary);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -503,6 +579,7 @@ export class ScoutReportDetailComponent implements OnInit {
   private readonly service = inject(ScoutReportsService);
   private readonly meta = inject(Meta);
   private readonly title = inject(Title);
+  private readonly analytics = inject(AnalyticsService);
 
   /** Current report */
   protected readonly report = this.service.selectedReport;
@@ -625,12 +702,18 @@ export class ScoutReportDetailComponent implements OnInit {
     if (navigator.share) {
       try {
         await navigator.share(shareData);
+        this.analytics.trackShare('scout_report', r.id, 'native_share', {
+          athlete_name: r.athlete.name,
+        });
       } catch {
         // User cancelled or error
       }
     } else {
       // Fallback: copy to clipboard
       await navigator.clipboard.writeText(window.location.href);
+      this.analytics.trackShare('scout_report', r.id, 'clipboard', {
+        athlete_name: r.athlete.name,
+      });
     }
   }
 }

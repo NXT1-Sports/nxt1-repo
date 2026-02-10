@@ -21,12 +21,22 @@
  * ```
  */
 
-import { Component, ChangeDetectionStrategy, Input, HostBinding } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  Input,
+  HostBinding,
+  inject,
+  PLATFORM_ID,
+  signal,
+  computed,
+} from '@angular/core';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { LOGO_PATHS, LOGO_DIMENSIONS } from '@nxt1/design-tokens/assets';
 
 export type LogoSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'full';
 export type LogoVariant = 'default' | 'header' | 'auth' | 'footer' | 'splash';
+export type Theme = 'light' | 'dark' | string; // 'string' allows custom themes like 'football', 'basketball'
 
 @Component({
   selector: 'nxt1-logo',
@@ -34,11 +44,9 @@ export type LogoVariant = 'default' | 'header' | 'auth' | 'footer' | 'splash';
   imports: [CommonModule],
   template: `
     <picture>
-      <!-- Modern browsers get AVIF -->
-      <source [srcset]="avifSrc" type="image/avif" />
-      <!-- Fallback to PNG -->
+      <!-- Use white logo for custom themes, standard for light/dark -->
       <img
-        [src]="pngSrc"
+        [src]="logoSrc()"
         [alt]="alt"
         class="h-auto max-w-full object-contain select-none"
         [style.user-drag]="'none'"
@@ -58,6 +66,8 @@ export type LogoVariant = 'default' | 'header' | 'auth' | 'footer' | 'splash';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtLogoComponent {
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly _currentTheme = signal<Theme>('light');
   /** Logo size variant */
   @Input() size: LogoSize = 'md';
 
@@ -73,20 +83,36 @@ export class NxtLogoComponent {
   /** Display as block element */
   @Input() block = false;
 
+  constructor() {
+    // Initialize theme detection (SSR-safe)
+    if (isPlatformBrowser(this.platformId)) {
+      this.detectTheme();
+      this.watchThemeChanges();
+    }
+  }
+
   @HostBinding('class.nxt1-logo--block')
   get isBlock(): boolean {
     return this.block || this.variant === 'auth';
   }
 
-  /** Path to AVIF logo (primary modern format) */
-  get avifSrc(): string {
-    return LOGO_PATHS.mainAvif;
-  }
+  /**
+   * Logo source based on current theme.
+   * - Light theme: Standard logo (with green accent)
+   * - Dark theme: Standard logo (designed for dark backgrounds)
+   * - Custom themes (football, basketball, etc.): White logo
+   */
+  readonly logoSrc = computed(() => {
+    const theme = this._currentTheme();
 
-  /** Path to PNG logo (fallback for older browsers) */
-  get pngSrc(): string {
+    // Use white logo for any custom theme (not light or dark)
+    if (theme !== 'light' && theme !== 'dark') {
+      return LOGO_PATHS.white;
+    }
+
+    // Use standard logo for light and dark themes
     return LOGO_PATHS.main;
-  }
+  });
 
   /** Intrinsic width based on size */
   get width(): number {
@@ -114,5 +140,38 @@ export class NxtLogoComponent {
       full: 1,
     };
     return Math.round(LOGO_DIMENSIONS.main.height * scale[this.size]);
+  }
+
+  /**
+   * Detect current theme from document element (SSR-safe).
+   */
+  private detectTheme(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    const theme = document.documentElement.getAttribute('data-theme') || 'light';
+    this._currentTheme.set(theme as Theme);
+  }
+
+  /**
+   * Watch for theme changes via MutationObserver (SSR-safe).
+   */
+  private watchThemeChanges(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    // Listen for custom theme change events
+    window.addEventListener('nxt1-theme-change', (event: Event) => {
+      const customEvent = event as CustomEvent<{ theme: Theme }>;
+      this._currentTheme.set(customEvent.detail.theme);
+    });
+
+    // Also watch for data-theme attribute changes
+    const observer = new MutationObserver(() => {
+      this.detectTheme();
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
   }
 }

@@ -30,16 +30,9 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
-import { IonContent, IonSearchbar, IonIcon } from '@ionic/angular/standalone';
+import { IonContent, IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import {
-  searchOutline,
-  closeCircle,
-  timeOutline,
-  trendingUpOutline,
-  chevronForwardOutline,
-} from 'ionicons/icons';
+import { timeOutline, trendingUpOutline, chevronForwardOutline } from 'ionicons/icons';
 import {
   type ExploreTabId,
   type ExploreItem,
@@ -48,6 +41,7 @@ import {
   EXPLORE_SEARCH_CONFIG,
 } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
+import { NxtSearchBarComponent, type SearchBarSubmitEvent } from '../components/search-bar';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import {
   NxtOptionScrollerComponent,
@@ -61,13 +55,8 @@ import { ExploreListComponent } from './explore-list.component';
 import { ExploreSkeletonComponent } from './explore-skeleton.component';
 import { ScoutReportsContentComponent } from '../scout-reports/scout-reports-content.component';
 
-addIcons({
-  searchOutline,
-  closeCircle,
-  timeOutline,
-  trendingUpOutline,
-  chevronForwardOutline,
-});
+// Register icons for search suggestions
+addIcons({ timeOutline, trendingUpOutline, chevronForwardOutline });
 
 /** User info for header display */
 export interface ExploreUser {
@@ -80,10 +69,9 @@ export interface ExploreUser {
   standalone: true,
   imports: [
     CommonModule,
-    FormsModule,
     IonContent,
-    IonSearchbar,
     IonIcon,
+    NxtSearchBarComponent,
     NxtPageHeaderComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
@@ -92,33 +80,32 @@ export interface ExploreUser {
     ScoutReportsContentComponent,
   ],
   template: `
-    <!-- Professional Page Header (same as Activity/Home) - Search bar replaces title -->
-    <!-- Hidden on desktop when using sidebar shell -->
+    <!-- Professional Page Header with shared Top Nav search styling -->
     @if (!hideHeader()) {
       <nxt1-page-header
         [avatarSrc]="user()?.photoURL"
         [avatarName]="displayName()"
+        [hideAvatar]="explore.isSearchFocused()"
         (avatarClick)="onAvatarClick()"
       >
-        <!-- Search bar in title slot (same positioning as text title) -->
-        <ion-searchbar
-          slot="title"
-          mode="ios"
-          [placeholder]="searchPlaceholder"
-          [debounce]="300"
-          [(ngModel)]="searchValue"
-          (ionFocus)="onSearchFocus()"
-          (ionBlur)="onSearchBlur()"
-          (ionInput)="onSearchInput($event)"
-          (ionClear)="onSearchClear()"
-          [showCancelButton]="explore.isSearchFocused() ? 'always' : 'never'"
-          cancelButtonText="Cancel"
-          class="explore-searchbar"
-        />
+        <div pageHeaderSlot="title">
+          <nxt1-search-bar
+            variant="mobile"
+            placeholder="Search"
+            [value]="searchValue()"
+            [focused]="explore.isSearchFocused()"
+            (searchInput)="onSearchInputFromBar($event)"
+            (searchSubmit)="onSearchSubmitFromBar($event)"
+            (searchClear)="onSearchClear()"
+            (searchFocus)="onSearchFocus()"
+            (searchBlur)="onSearchBlur()"
+            (searchCancel)="onCancelSearch()"
+          />
+        </div>
       </nxt1-page-header>
     }
 
-    <!-- Twitter/TikTok Style Tab Selector (Options Scroller) - same as Activity -->
+    <!-- Twitter/TikTok Style Tab Selector -->
     @if (!explore.isSearchFocused() || explore.hasQuery()) {
       <nxt1-option-scroller
         [options]="tabOptions()"
@@ -133,7 +120,7 @@ export interface ExploreUser {
       <nxt-refresher (onRefresh)="handleRefresh($event)" />
 
       <div class="explore-container">
-        <!-- Search Suggestions Overlay -->
+        <!-- Search Suggestions Overlay (shown when focused, no query) -->
         @if (explore.isSearchFocused() && !explore.hasQuery()) {
           <div class="search-suggestions">
             <!-- Recent Searches -->
@@ -166,7 +153,7 @@ export interface ExploreUser {
           </div>
         }
 
-        <!-- Search Results - Deferred for Performance -->
+        <!-- Main Content -->
         @if (!explore.isSearchFocused() || explore.hasQuery()) {
           <!-- Scout Reports Tab: Embed dedicated content component -->
           @if (explore.activeTab() === 'scout-reports' && !explore.hasQuery()) {
@@ -221,23 +208,7 @@ export interface ExploreUser {
         --explore-primary: var(--nxt1-color-primary, #ccff00);
       }
 
-      /* Searchbar styling - matches toolbar height exactly */
-      .explore-searchbar {
-        --background: var(--explore-surface);
-        --border-radius: var(--nxt1-radius-full, 9999px);
-        --box-shadow: none;
-        --placeholder-color: var(--explore-text-muted);
-        --placeholder-opacity: 1;
-        --color: var(--explore-text-primary);
-        --icon-color: var(--explore-text-muted);
-        --clear-button-color: var(--explore-text-muted);
-        --cancel-button-color: var(--explore-primary);
-        height: 36px;
-        min-height: 36px;
-        max-height: 36px;
-        padding: 0;
-        margin: 0;
-      }
+      /* Mobile overrides now handled by NxtSearchBarComponent variant="mobile" */
 
       /* Content area */
       .explore-content {
@@ -381,8 +352,20 @@ export class ExploreShellComponent implements OnInit {
     }, 200);
   }
 
-  protected async onSearchInput(event: CustomEvent): Promise<void> {
-    const query = (event.detail.value ?? '').trim();
+  /** Handle search bar input from NxtSearchBarComponent */
+  protected async onSearchInputFromBar(value: string): Promise<void> {
+    this.searchValue.set(value);
+
+    const query = value.trim();
+    if (query.length >= EXPLORE_SEARCH_CONFIG.minQueryLength) {
+      await this.explore.search(query);
+    } else if (!query) {
+      this.explore.clearSearch();
+    }
+  }
+
+  protected async onSearchSubmitFromBar(event: SearchBarSubmitEvent): Promise<void> {
+    const query = event.query;
     if (query.length >= EXPLORE_SEARCH_CONFIG.minQueryLength) {
       await this.explore.search(query);
     } else if (!query) {
@@ -393,6 +376,13 @@ export class ExploreShellComponent implements OnInit {
   protected onSearchClear(): void {
     this.searchValue.set('');
     this.explore.clearSearch();
+  }
+
+  /** Cancel search and blur input */
+  protected onCancelSearch(): void {
+    this.searchValue.set('');
+    this.explore.clearSearch();
+    this.explore.setSearchFocused(false);
   }
 
   protected async onSuggestionClick(query: string): Promise<void> {

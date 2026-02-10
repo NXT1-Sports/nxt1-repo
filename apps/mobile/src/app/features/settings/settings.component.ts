@@ -100,10 +100,10 @@ export class SettingsComponent {
   });
 
   /**
-   * Handle back navigation.
+   * Handle back navigation using Ionic's navigation stack.
    */
   protected onBack(): void {
-    this.navController.navigateBack('/home');
+    this.navController.back();
   }
 
   /**

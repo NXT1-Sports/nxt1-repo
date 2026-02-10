@@ -19,7 +19,6 @@
           "/settings",
           "/settings/*",
           "/explore",
-          "/search",
           "/home",
           "/*"
         ]

@@ -1,21 +1,15 @@
 <!-- 
-  Root Application Template
+  Root Application Template (2026 Professional Pattern)
   
   Architecture:
-  - Uses Ionic's router outlet for consistent navigation behavior across web/mobile
-  - ion-app provides the Ionic framework shell
-  - ion-router-outlet handles page transitions and navigation stack
+  - Uses Angular's standard RouterOutlet for clean SSR and web routing
+  - No Ionic shell on web — Ionic is for mobile app only
   - Loading overlay shown during initial auth resolution
   - Error boundary for critical failures
-  
-  Note: For optimal SSR, web-specific components should use pure Angular/Tailwind
-  instead of Ionic components. Ionic is best suited for mobile apps.
 -->
 
 <!-- Main Application Shell -->
-<ion-app>
-  <ion-router-outlet></ion-router-outlet>
-</ion-app>
+<router-outlet />
 
 <!-- Loading Overlay (non-blocking) -->
 @if (loading()) {

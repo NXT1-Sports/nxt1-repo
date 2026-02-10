@@ -26,6 +26,21 @@ import { Routes } from '@angular/router';
 
 export const routes: Routes = [
   // ============================================
+  // DEV/TEST ROUTES (Remove before production)
+  // ============================================
+
+  /**
+   * Wallet UI Test Page
+   * ⚠️ DEVELOPMENT ONLY — Remove before production
+   * Example: http://localhost:4200/dev/wallet
+   */
+  {
+    path: 'dev/wallet',
+    loadComponent: () =>
+      import('./dev/wallet-test.component').then((m) => m.WalletTestComponent),
+  },
+
+  // ============================================
   // PUBLIC LANDING PAGE (Marketing/Welcome)
   // ============================================
 
@@ -52,17 +67,6 @@ export const routes: Routes = [
     path: 'profile/:unicode',
     loadComponent: () =>
       import('./features/profile/profile.component').then((m) => m.ProfileComponent),
-  },
-
-  /**
-   * Public Explore/Discovery
-   * SEO-critical: Search engines index athletes, teams, etc.
-   * Example: nxt1sports.com/explore
-   */
-  {
-    path: 'explore',
-    loadComponent: () =>
-      import('./features/explore/explore.component').then((m) => m.ExploreComponent),
   },
 
   // Legacy profile redirect — direct /profile goes to shell's /profile route
@@ -224,16 +228,9 @@ export const routes: Routes = [
         loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
       },
 
-      // Discover - Search & Discovery (matches top nav)
+      // Explore - Search & Discovery
       {
-        path: 'discover',
-        loadComponent: () =>
-          import('./features/explore/explore.component').then((m) => m.ExploreComponent),
-      },
-
-      // Search - Search & Discovery (mobile parity)
-      {
-        path: 'search',
+        path: 'explore',
         loadChildren: () => import('./features/explore/explore.routes'),
       },
 

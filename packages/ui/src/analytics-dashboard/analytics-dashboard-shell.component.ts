@@ -87,8 +87,10 @@ export interface AnalyticsUser {
         title="Analytics"
         [avatarSrc]="user()?.photoURL"
         [avatarName]="displayName()"
+        [showBack]="showBack()"
         [actions]="headerActions()"
         (avatarClick)="avatarClick.emit()"
+        (backClick)="back.emit()"
         (actionClick)="onHeaderAction($event)"
       >
         <!-- Period Selector in Header -->
@@ -952,12 +954,18 @@ export class AnalyticsDashboardShellComponent implements OnInit {
   /** Hide page header (desktop sidebar provides navigation) */
   readonly hideHeader = input(false);
 
+  /** Show back button instead of avatar */
+  readonly showBack = input(false);
+
   // ============================================
   // OUTPUTS
   // ============================================
 
   /** Emitted when avatar is clicked (open sidenav) */
   readonly avatarClick = output<void>();
+
+  /** Emitted when back is clicked */
+  readonly back = output<void>();
 
   /** Emitted when a tab changes */
   readonly tabChange = output<AnalyticsTabId>();

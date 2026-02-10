@@ -59,6 +59,7 @@ import { filter, takeUntil } from 'rxjs/operators';
 import { Subject } from 'rxjs';
 import { NxtLogoComponent } from '../logo';
 import { NxtIconComponent } from '../icon';
+import { NxtSearchBarComponent, type SearchBarSubmitEvent } from '../search-bar';
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
 import type { TopNavItem, TopNavUserMenuItem, TopNavUserData, TopNavConfig } from '@nxt1/core';
@@ -77,7 +78,7 @@ import type {
 @Component({
   selector: 'nxt1-header',
   standalone: true,
-  imports: [CommonModule, RouterModule, NxtLogoComponent, NxtIconComponent],
+  imports: [CommonModule, RouterModule, NxtLogoComponent, NxtIconComponent, NxtSearchBarComponent],
   template: `
     <!--
       NxtHeaderComponent Template
@@ -132,37 +133,19 @@ import type {
           <!-- When sidebar mode (showLogo=false), show centered search bar -->
           @if (config.showLogo === false && showSearch()) {
             <div class="nav-search-centered relative w-[400px] lg:w-[500px] xl:w-[600px]">
-              <form
-                class="search-form relative flex items-center"
-                (submit)="onSearchSubmit($event)"
-              >
-                <nxt1-icon
-                  name="searchSparkle"
-                  class="search-icon search-icon--ai pointer-events-none absolute left-4"
-                  size="20"
-                />
-                <input
-                  type="search"
-                  class="search-input search-input--centered"
-                  [placeholder]="config.searchPlaceholder || 'Search athletes, teams...'"
-                  [value]="searchQuery()"
-                  autocomplete="off"
-                  spellcheck="false"
-                  (input)="onSearchInput($event)"
-                  (focus)="onSearchFocus()"
-                  (blur)="onSearchBlur()"
-                />
-                @if (searchQuery()) {
-                  <button
-                    type="button"
-                    class="search-clear absolute right-3 flex h-7 w-7 items-center justify-center rounded-full p-0"
-                    aria-label="Clear search"
-                    (click)="clearSearch()"
-                  >
-                    <nxt1-icon name="close" size="18" />
-                  </button>
-                }
-              </form>
+              <nxt1-search-bar
+                variant="desktop-centered"
+                [placeholder]="
+                  config.searchPlaceholder ||
+                  'Search anything (athletes, videos, colleges, teams, and more)'
+                "
+                [value]="searchQuery()"
+                (searchInput)="onSearchInputFromBar($event)"
+                (searchSubmit)="onSearchSubmitFromBar($event)"
+                (searchClear)="clearSearch()"
+                (searchFocus)="onSearchFocus()"
+                (searchBlur)="onSearchBlur()"
+              />
             </div>
           } @else {
             <!-- Standard nav items when not in sidebar mode -->
@@ -295,37 +278,16 @@ import type {
               [class.expanded]="searchExpanded()"
               [class.!w-[320px]]="searchExpanded()"
             >
-              <form
-                class="search-form relative flex items-center"
-                (submit)="onSearchSubmit($event)"
-              >
-                <nxt1-icon
-                  name="search"
-                  class="search-icon pointer-events-none absolute left-3"
-                  size="18"
-                />
-                <input
-                  type="search"
-                  class="search-input"
-                  [placeholder]="config.searchPlaceholder || 'Search...'"
-                  [value]="searchQuery()"
-                  autocomplete="off"
-                  spellcheck="false"
-                  (input)="onSearchInput($event)"
-                  (focus)="onSearchFocus()"
-                  (blur)="onSearchBlur()"
-                />
-                @if (searchQuery()) {
-                  <button
-                    type="button"
-                    class="search-clear absolute right-2 flex h-6 w-6 items-center justify-center rounded-full p-0"
-                    aria-label="Clear search"
-                    (click)="clearSearch()"
-                  >
-                    <nxt1-icon name="close" size="16" />
-                  </button>
-                }
-              </form>
+              <nxt1-search-bar
+                variant="desktop"
+                [placeholder]="config.searchPlaceholder || 'Search...'"
+                [value]="searchQuery()"
+                (searchInput)="onSearchInputFromBar($event)"
+                (searchSubmit)="onSearchSubmitFromBar($event)"
+                (searchClear)="clearSearch()"
+                (searchFocus)="onSearchFocus()"
+                (searchBlur)="onSearchBlur()"
+              />
             </div>
           }
 
@@ -364,11 +326,7 @@ import type {
 
           <!-- Sign In (unauthenticated state) -->
           @if (!user) {
-            <a
-              class="nav-auth-btn nav-auth-btn--primary"
-              routerLink="/auth/login"
-              aria-label="Sign in"
-            >
+            <a class="nav-auth-btn nav-auth-btn--primary" routerLink="/auth" aria-label="Sign in">
               Sign In
             </a>
           }
@@ -594,7 +552,7 @@ import type {
               type="button"
               class="mobile-auth-btn mobile-auth-btn--primary flex h-12 w-full items-center justify-center rounded-xl bg-[var(--nxt1-color-primary)] font-semibold text-white transition-all duration-200 hover:bg-[var(--nxt1-color-primary-dark)] active:scale-[0.98]"
               (click)="closeMobileMenu()"
-              routerLink="/auth/login"
+              routerLink="/auth"
             >
               Sign In
             </button>
@@ -911,6 +869,13 @@ export class NxtHeaderComponent implements OnDestroy {
   }
 
   /**
+   * Handle search input from NxtSearchBarComponent
+   */
+  onSearchInputFromBar(value: string): void {
+    this.searchQuery.set(value);
+  }
+
+  /**
    * Handle search form submit
    */
   onSearchSubmit(event: Event): void {
@@ -922,6 +887,21 @@ export class NxtHeaderComponent implements OnDestroy {
         query,
         event,
         timestamp: Date.now(),
+      });
+    }
+  }
+
+  /**
+   * Handle search submit from NxtSearchBarComponent
+   */
+  onSearchSubmitFromBar(event: SearchBarSubmitEvent): void {
+    const query = event.query.trim();
+    if (query) {
+      this.haptics.impact('medium');
+      this.search.emit({
+        query,
+        event: new Event('submit'),
+        timestamp: event.timestamp,
       });
     }
   }

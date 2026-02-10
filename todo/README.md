@@ -1,6 +1,6 @@
 # NXT1 Monorepo - TODO Index
 
-> Master tracking file for all pending work items. Last updated: February 1,
+> Master tracking file for all pending work items. Last updated: February 9,
 > 2026
 
 ---
@@ -29,28 +29,6 @@ Playwright E2E testing fully operational.
 ---
 
 ## 🟡 In Progress
-
-### [AUTH-FLOW.md](./AUTH-FLOW.md)
-
-Authentication system nearly complete.
-
-- ✅ Login page (email + OAuth)
-- ✅ Signup page
-- ✅ Forgot password (fully implemented)
-- ✅ Auth guards (`requireAuth`, `requireGuest`, `requireOnboarding`,
-  `requireRole`)
-- 🟡 Onboarding wizard (UI complete, needs persistence testing)
-- ⬜ Biometric authentication (mobile)
-
-### [NATIVE-AUTH-TESTING.md](./NATIVE-AUTH-TESTING.md)
-
-Native OAuth ready for testing.
-
-- ✅ Native auth package installed (`@capacitor-firebase/authentication`)
-- ✅ Apple Sign-In via `@capacitor-community/apple-sign-in`
-- ✅ Microsoft Sign-In via `@recognizebv/capacitor-plugin-msauth`
-- ⬜ Device testing verification (Google, Apple, Microsoft)
-- ⬜ Security checklist
 
 ### [ANALYTICS-INTEGRATION.md](./ANALYTICS-INTEGRATION.md)
 
@@ -89,18 +67,15 @@ Production security checklist.
 
 ## Quick Status
 
-| Area          | Status         | Blocking Release?       |
-| ------------- | -------------- | ----------------------- |
-| Auth Flow     | 🟡 90% Done    | Yes (persistence test)  |
-| Onboarding    | 🟡 In Progress | Yes                     |
-| Native Auth   | 🟡 Ready       | Yes - needs device test |
-| Analytics     | 🟡 Partial     | No                      |
-| CI/CD         | ✅ Complete    | No                      |
-| SEO           | 🟡 In Progress | No                      |
-| E2E Testing   | ✅ Complete    | No                      |
-| Toast Service | ✅ Complete    | No                      |
-| Crashlytics   | ✅ Complete    | No                      |
-| Security      | ⬜ Not Started | Yes (Production)        |
+| Area          | Status         | Blocking Release? |
+| ------------- | -------------- | ----------------- |
+| Analytics     | 🟡 Partial     | No                |
+| CI/CD         | ✅ Complete    | No                |
+| SEO           | 🟡 In Progress | No                |
+| E2E Testing   | ✅ Complete    | No                |
+| Toast Service | ✅ Complete    | No                |
+| Crashlytics   | ✅ Complete    | No                |
+| Security      | ⬜ Not Started | Yes (Production)  |
 
 ---
 

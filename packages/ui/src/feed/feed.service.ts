@@ -40,9 +40,11 @@ import {
   FEED_DEFAULT_FILTER,
   FEED_PAGINATION_DEFAULTS,
 } from '@nxt1/core';
+import { FIREBASE_EVENTS, type AnalyticsAdapter } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 // ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
 import { getMockFeedPosts, mockToggleLike, mockToggleBookmark } from './feed.mock-data';
 
@@ -57,6 +59,7 @@ export class FeedService {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('FeedService');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -322,15 +325,39 @@ export class FeedService {
         });
 
         this.logger.info('Post shared via native share', { postId: post.id });
+        this.trackShareEvent(post, 'native_share');
       } catch (err) {
         // User cancelled or share failed
         this.logger.warn('Share cancelled or failed', { error: err });
       }
     } else {
       // Fallback: copy link
-      this.toast.info('Link copied to clipboard');
-      this.logger.info('Share fallback: copy link', { postId: post.id });
+      const shareUrl = `https://nxt1sports.com/post/${post.id}`;
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
+        }
+        this.toast.info('Link copied to clipboard');
+        this.logger.info('Share fallback: copy link', { postId: post.id });
+        this.trackShareEvent(post, 'copy_link');
+      } catch (error) {
+        this.toast.error('Failed to copy link');
+        this.logger.warn('Share fallback copy failed', { error });
+      }
     }
+  }
+
+  private trackShareEvent(post: FeedPost, method: string): void {
+    const analytics: AnalyticsAdapter | null = this.analytics ?? null;
+    if (!analytics) return;
+
+    const payload = {
+      method,
+      content_type: 'post',
+      item_id: post.id,
+    };
+
+    analytics.trackEvent(FIREBASE_EVENTS.SHARE, payload);
   }
 
   // ============================================

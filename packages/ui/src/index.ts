@@ -77,6 +77,15 @@ export {
   type BiometryButtonType,
 } from './auth/auth-biometric-button';
 
+// Auth Modal (Popup Authentication)
+export { AuthModalComponent } from './auth/auth-modal';
+export {
+  AuthModalService,
+  type AuthModalConfig,
+  type AuthModalResult,
+  type AuthModalDismissReason,
+} from './auth/auth-modal';
+
 // Biometric Prompt Service (2026 Native-Style Modal)
 export {
   BiometricPromptService,
@@ -104,6 +113,25 @@ export {
   type UIIconName,
   type BrandIconName,
 } from './components/icon';
+export {
+  NxtBackButtonComponent,
+  type BackButtonSize,
+  type BackButtonVariant,
+} from './components/back-button';
+export {
+  NxtShareButtonComponent,
+  type ShareButtonSize,
+  type ShareButtonVariant,
+} from './components/share-button';
+
+// ============================================
+// SEARCH BAR (Shared Native HTML Search — No Shadow DOM)
+// ============================================
+export {
+  NxtSearchBarComponent,
+  type SearchBarVariant,
+  type SearchBarSubmitEvent,
+} from './components/search-bar';
 
 // ============================================
 // HERO / MARKETING COMPONENTS
@@ -115,6 +143,16 @@ export {
   type HeroVariant,
   type HeroAudienceCardClickEvent,
 } from './components/hero-header';
+
+// ============================================
+// PARTNER MARQUEE (Infinite Logo Scroll)
+// ============================================
+export {
+  NxtPartnerMarqueeComponent,
+  type PartnerItem,
+  type MarqueeDirection,
+  type MarqueeVariant,
+} from './components/partner-marquee';
 
 // ============================================
 // AVATAR COMPONENT (Professional Avatar with Status/Badges)
@@ -422,6 +460,39 @@ export {
 } from './components/desktop-sidebar';
 
 // ============================================
+// MOBILE HEADER (2026 YouTube-Style Mobile Top Nav Bar)
+// ============================================
+export {
+  // Component
+  NxtMobileHeaderComponent,
+  // Types
+  type MobileHeaderConfig,
+  type MobileHeaderUserData,
+  // Constants
+  DEFAULT_MOBILE_HEADER_CONFIG,
+  // Factory
+  createMobileHeaderConfig,
+} from './components/mobile-header';
+
+// ============================================
+// MOBILE SIDEBAR (2026 YouTube-Style Slide-Out Drawer)
+// ============================================
+export {
+  // Component
+  NxtMobileSidebarComponent,
+  // Types
+  type MobileSidebarConfig,
+  type MobileSidebarItem,
+  type MobileSidebarSection,
+  type MobileSidebarUserData,
+  type MobileSidebarSelectEvent,
+  // Constants
+  DEFAULT_MOBILE_SIDEBAR_CONFIG,
+  // Factory
+  createMobileSidebarConfig,
+} from './components/mobile-sidebar';
+
+// ============================================
 // SIDENAV / DRAWER NAVIGATION (2026 Twitter/X-Style)
 // ============================================
 export {
@@ -541,6 +612,14 @@ export {
 } from './services/modal';
 
 export { NxtLoggingService, LOGGING_CONFIG, type LoggingConfig } from './services/logging';
+
+// Analytics adapter token (provided by apps)
+export { ANALYTICS_ADAPTER } from './services/analytics/analytics-adapter.token';
+
+// ============================================
+// NOTIFICATION STATE SERVICE (Global State Management)
+// ============================================
+export { NxtNotificationStateService } from './services/notification-state';
 
 // ============================================
 // BROWSER SERVICE (Professional In-App Browser)
@@ -893,6 +972,43 @@ export {
   // Mock Data (Development Only)
   MOCK_MANAGE_TEAM_FORM_DATA,
 } from './manage-team';
+
+// ============================================
+// WALLET (Credit Wallet & Purchases - Shared Web & Mobile)
+// ============================================
+export {
+  // Shell Component (main container)
+  WalletShellComponent,
+  type WalletCloseEvent,
+  // Services
+  WalletService,
+  WalletBottomSheetService,
+  WalletModalComponent,
+  type WalletSheetOptions,
+  type WalletSheetResult,
+  // Skeleton
+  WalletSkeletonComponent,
+  // Section Components (for custom layouts)
+  WalletBalanceSectionComponent,
+  WalletBundlesSectionComponent,
+  WalletHistorySectionComponent,
+  WalletSettingsSectionComponent,
+  // Types
+  type WalletSectionId,
+  type WalletBalance,
+  type WalletBundle,
+  type WalletTransaction,
+  type WalletSection,
+  type WalletAutoReload,
+  // Mock Data (Development Only)
+  MOCK_WALLET_BALANCE,
+  MOCK_WALLET_BUNDLES,
+  MOCK_WALLET_TRANSACTIONS,
+  MOCK_WALLET_AUTO_RELOAD,
+  WALLET_SECTIONS,
+  MOCK_EMPTY_WALLET_BALANCE,
+  MOCK_EMPTY_WALLET_TRANSACTIONS,
+} from './wallet';
 
 // ============================================
 // INVITE (Referral & Sharing - Shared Web & Mobile)

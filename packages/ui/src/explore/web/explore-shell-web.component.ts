@@ -76,7 +76,7 @@ import type { ExploreUser } from '../explore-shell.component';
         (avatarClick)="onAvatarClick()"
       >
         <!-- Native search input (SSR-friendly, accessible) -->
-        <div slot="title" class="search-container w-full">
+        <div pageHeaderSlot="title" class="search-container w-full">
           <div class="relative">
             <!-- Search Icon -->
             <svg

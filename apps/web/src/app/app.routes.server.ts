@@ -78,15 +78,11 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
-    path: 'discover',
+    path: 'explore',
     renderMode: RenderMode.Server,
   },
   {
-    path: 'search',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'search/**',
+    path: 'explore/**',
     renderMode: RenderMode.Server,
   },
   {

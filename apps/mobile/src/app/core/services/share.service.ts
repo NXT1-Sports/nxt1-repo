@@ -37,13 +37,28 @@ import { ToastController, Platform } from '@ionic/angular/standalone';
 import { Share, ShareOptions, ShareResult } from '@capacitor/share';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import {
+  FIREBASE_EVENTS,
+  type ShareEventParams,
+  type AnalyticsAdapter,
+} from '@nxt1/core/analytics';
+import {
   type ShareableProfile,
   type ShareableTeam,
   type ShareableVideo,
   type ShareablePost,
   type ShareableContent,
   buildShareUrl,
+  buildProfileShareTitle,
+  buildProfileShareText,
+  buildProfileShareDescription,
+  buildTeamShareTitle,
+  buildTeamShareText,
+  buildVideoShareTitle,
+  buildVideoShareText,
+  buildPostShareTitle,
+  buildPostShareText,
 } from '@nxt1/core/seo';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui';
 
 // ============================================
 // TYPES
@@ -78,6 +93,9 @@ export interface ShareContentOptions {
 
   /** Track analytics event */
   trackAnalytics?: boolean;
+
+  /** Additional analytics properties */
+  analyticsProps?: Record<string, unknown>;
 }
 
 // ============================================
@@ -94,6 +112,7 @@ export interface ShareContentOptions {
 export class ShareService {
   private readonly toastController = inject(ToastController);
   private readonly platform = inject(Platform);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   /** Whether sharing is currently in progress */
   private readonly _isSharing = signal(false);
@@ -136,7 +155,7 @@ export class ShareService {
       id: profile.id,
       slug: profile.slug,
       title: profile.athleteName,
-      description: this.buildProfileDescription(profile),
+      description: buildProfileShareDescription(profile),
       athleteName: profile.athleteName,
       position: profile.position,
       classYear: profile.classYear,
@@ -146,8 +165,8 @@ export class ShareService {
       imageUrl: profile.imageUrl,
     };
 
-    const shareText = options?.text || this.buildProfileShareText(profile);
-    const shareTitle = options?.title || `Check out ${profile.athleteName} on NXT1`;
+    const shareText = options?.text || buildProfileShareText(profile);
+    const shareTitle = options?.title || buildProfileShareTitle(profile);
 
     return this.shareContent(shareableProfile, {
       ...options,
@@ -181,8 +200,8 @@ export class ShareService {
       record: team.record,
     };
 
-    const shareText = options?.text || `Check out ${team.teamName} on NXT1 Sports`;
-    const shareTitle = options?.title || team.teamName;
+    const shareText = options?.text || buildTeamShareText(team);
+    const shareTitle = options?.title || buildTeamShareTitle(team);
 
     return this.shareContent(shareableTeam, {
       ...options,
@@ -216,10 +235,8 @@ export class ShareService {
       views: video.views,
     };
 
-    const shareText =
-      options?.text ||
-      `Watch ${video.videoTitle}${video.athleteName ? ` by ${video.athleteName}` : ''} on NXT1`;
-    const shareTitle = options?.title || video.videoTitle;
+    const shareText = options?.text || buildVideoShareText(video);
+    const shareTitle = options?.title || buildVideoShareTitle(video);
 
     return this.shareContent(shareableVideo, {
       ...options,
@@ -252,8 +269,8 @@ export class ShareService {
       imageUrl: post.imageUrl,
     };
 
-    const shareText = options?.text || `${post.postText.slice(0, 100)}... - See more on NXT1`;
-    const shareTitle = options?.title || `Post by ${post.authorName}`;
+    const shareText = options?.text || buildPostShareText(post);
+    const shareTitle = options?.title || buildPostShareTitle(post);
 
     return this.shareContent(shareablePost, {
       ...options,
@@ -268,11 +285,24 @@ export class ShareService {
    * @returns Share result
    */
   async shareApp(): Promise<ShareResultData> {
-    return this.shareCustom({
+    const result = await this.shareCustom({
       title: 'NXT1 Sports',
       text: 'Check out NXT1 Sports - The ultimate platform for athletic recruiting and highlights!',
       url: 'https://nxt1sports.com',
     });
+
+    this.trackShareEvent(
+      {
+        type: 'post',
+        id: 'nxt1-app',
+        title: 'NXT1 Sports',
+        description: 'NXT1 Sports app',
+      },
+      result,
+      { trackAnalytics: true }
+    );
+
+    return result;
   }
 
   // ============================================
@@ -292,12 +322,16 @@ export class ShareService {
   ): Promise<ShareResultData> {
     const url = buildShareUrl(content);
 
-    return this.shareCustom({
+    const result = await this.shareCustom({
       title: options?.title || content.title,
       text: options?.text || content.description,
       url,
       files: options?.files,
     });
+
+    this.trackShareEvent(content, result, options);
+
+    return result;
   }
 
   /**
@@ -417,45 +451,6 @@ export class ShareService {
   // ============================================
 
   /**
-   * Build share text for profile
-   */
-  private buildProfileShareText(
-    profile: Omit<ShareableProfile, 'type' | 'title' | 'description'> & { id: string }
-  ): string {
-    const parts: string[] = [`Check out ${profile.athleteName}`];
-
-    if (profile.position && profile.sport) {
-      parts.push(`- ${profile.position} in ${profile.sport}`);
-    } else if (profile.position) {
-      parts.push(`- ${profile.position}`);
-    }
-
-    if (profile.school) {
-      parts.push(`at ${profile.school}`);
-    }
-
-    parts.push('on NXT1 Sports');
-
-    return parts.join(' ');
-  }
-
-  /**
-   * Build description for profile
-   */
-  private buildProfileDescription(
-    profile: Omit<ShareableProfile, 'type' | 'title' | 'description'> & { id: string }
-  ): string {
-    const parts: string[] = [];
-
-    if (profile.position) parts.push(profile.position);
-    if (profile.sport) parts.push(profile.sport);
-    if (profile.school) parts.push(`at ${profile.school}`);
-    if (profile.classYear) parts.push(`Class of ${profile.classYear}`);
-
-    return parts.join(' | ');
-  }
-
-  /**
    * Trigger haptic feedback
    */
   private async triggerHaptic(): Promise<void> {
@@ -484,5 +479,29 @@ export class ShareService {
     });
 
     await toast.present();
+  }
+
+  private trackShareEvent(
+    content: ShareableContent,
+    result: ShareResultData,
+    options?: ShareContentOptions
+  ): void {
+    const analytics: AnalyticsAdapter | null = this.analytics ?? null;
+    if (!analytics || options?.trackAnalytics === false || !result.completed) return;
+
+    const payload: ShareEventParams & Record<string, unknown> = {
+      method: this.resolveShareMethod(result.activityType),
+      content_type: content.type,
+      item_id: content.id,
+      ...options?.analyticsProps,
+    };
+
+    analytics.trackEvent(FIREBASE_EVENTS.SHARE, payload);
+  }
+
+  private resolveShareMethod(activityType?: string): string {
+    if (!activityType) return 'native_share';
+    if (activityType === 'clipboard') return 'copy_link';
+    return activityType;
   }
 }

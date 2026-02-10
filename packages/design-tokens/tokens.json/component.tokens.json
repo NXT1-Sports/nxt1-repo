@@ -105,6 +105,27 @@
       }
     },
 
+    "backButton": {
+      "$description": "Navigation back button component tokens - Touch-optimized, accessible",
+      "size": {
+        "sm": { "$value": "36px", "$type": "dimension" },
+        "md": { "$value": "44px", "$type": "dimension" },
+        "lg": { "$value": "48px", "$type": "dimension" }
+      },
+      "iconSize": {
+        "sm": { "$value": "20px", "$type": "dimension" },
+        "md": { "$value": "24px", "$type": "dimension" },
+        "lg": { "$value": "28px", "$type": "dimension" }
+      },
+      "borderRadius": { "$value": "{borderRadius.full}", "$type": "dimension" },
+      "transition": {
+        "$value": "all {duration.fast} {easing.inOut}",
+        "$type": "transition"
+      },
+      "focusRingWidth": { "$value": "2px", "$type": "dimension" },
+      "focusRingOffset": { "$value": "2px", "$type": "dimension" }
+    },
+
     "modal": {
       "$description": "Modal/dialog component tokens",
       "width": {

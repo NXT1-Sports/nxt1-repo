@@ -67,15 +67,9 @@ export const routes: Routes = [
         loadChildren: () => import('./features/home/home.routes').then((m) => m.HOME_ROUTES),
       },
 
-      // Discover Tab (placeholder for now)
+      // Explore Tab - Search & Discovery
       {
-        path: 'discover',
-        loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
-      },
-
-      // Search/Explore Tab - Search & Discovery
-      {
-        path: 'search',
+        path: 'explore',
         loadChildren: () =>
           import('./features/explore/explore.routes').then((m) => m.EXPLORE_ROUTES),
       },

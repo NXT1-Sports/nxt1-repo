@@ -75,14 +75,16 @@ export interface SettingsUser {
     SettingsSkeletonComponent,
   ],
   template: `
-    <!-- Professional Page Header with Back Button -->
-    <nxt1-page-header
-      title="Settings"
-      [showBack]="true"
-      [actions]="headerActions()"
-      (backClick)="back.emit()"
-      (actionClick)="onHeaderAction($event)"
-    />
+    <!-- Professional Page Header with Back Button (hidden on desktop web) -->
+    @if (showPageHeader()) {
+      <nxt1-page-header
+        title="Settings"
+        [showBack]="true"
+        [actions]="headerActions()"
+        (backClick)="back.emit()"
+        (actionClick)="onHeaderAction($event)"
+      />
+    }
 
     <ion-content [fullscreen]="true" class="settings-content">
       <!-- Pull-to-Refresh -->
@@ -211,6 +213,9 @@ export class SettingsShellComponent implements OnInit {
 
   /** Current user info */
   readonly user = input<SettingsUser | null>(null);
+
+  /** Whether to show the page header (back arrow + title). Hide on desktop web. */
+  readonly showPageHeader = input<boolean>(true);
 
   // ============================================
   // OUTPUTS

@@ -20,13 +20,17 @@
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
-import { NxtHeroHeaderComponent, type HeroAudienceCardClickEvent } from '@nxt1/ui';
+import {
+  NxtHeroHeaderComponent,
+  NxtPartnerMarqueeComponent,
+  type HeroAudienceCardClickEvent,
+} from '@nxt1/ui';
 import { SeoService } from '../../core/services/seo.service';
 
 @Component({
   selector: 'app-landing',
   standalone: true,
-  imports: [CommonModule, RouterModule, NxtHeroHeaderComponent],
+  imports: [CommonModule, RouterModule, NxtHeroHeaderComponent, NxtPartnerMarqueeComponent],
   template: `
     <!-- Hero Section with Audience Cards -->
     <nxt1-hero-header
@@ -38,6 +42,14 @@ import { SeoService } from '../../core/services/seo.service';
       [showTrustBadges]="true"
       [showAppBadges]="true"
       (cardClick)="onAudienceCardClick($event)"
+    />
+
+    <!-- Partners Section -->
+    <nxt1-partner-marquee
+      title="Trusted By Leading Organizations"
+      subtitle="Partnering with the best to power the future of sports recruiting"
+      label="Our Partners"
+      [showLabel]="true"
     />
 
     <!-- Additional Sections Can Go Here -->

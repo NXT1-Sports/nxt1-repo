@@ -34,6 +34,8 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
         [userRole]="userRole()"
         [avatarSrc]="avatarSrc()"
         [avatarName]="avatarName()"
+        [showBack]="true"
+        (back)="onBack()"
         (avatarClick)="onAvatarClick()"
       />
     </ion-content>
@@ -108,6 +110,13 @@ export class XpComponent {
    */
   onAvatarClick(): void {
     this.sidenavService.open();
+  }
+
+  /**
+   * Handle back navigation using Ionic's navigation stack.
+   */
+  protected onBack(): void {
+    this.navController.back();
   }
 
   /**

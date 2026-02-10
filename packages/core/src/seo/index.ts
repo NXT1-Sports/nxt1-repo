@@ -275,6 +275,12 @@ export interface ShareablePost extends ShareableContent {
 }
 
 // ============================================
+// SHARE COPY
+// ============================================
+
+export * from './share-copy';
+
+// ============================================
 // HELPER FUNCTIONS (Pure TypeScript)
 // ============================================
 

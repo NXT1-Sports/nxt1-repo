@@ -94,41 +94,14 @@ ion-searchbar input:focus-visible {
 }
 
 /* ============================================
-   LAYER 7: IONIC LAYOUT STABILITY (CLS Fix)
-   Prevents layout shift on Ionic components during SSR hydration
+   LAYER 7: SSR LAYOUT STABILITY (CLS Fix)
+   Prevents layout shift during SSR hydration
    ============================================ */
-
-/**
- * Fix for Cumulative Layout Shift (CLS) on SSR pages.
- * 
- * PROBLEM:
- * Ionic web components (ion-app, ion-content, etc.) are Custom Elements.
- * During SSR, these elements are rendered as empty tags without dimensions.
- * When Angular hydrates and Ionic defines these components, they suddenly
- * gain layout, causing visible layout shift.
- * 
- * SOLUTION:
- * Use :not(:defined) selector to style components BEFORE they're hydrated.
- * This gives them placeholder dimensions that match their final state.
- * Once hydrated, the :defined state kicks in and Ionic takes over.
- *
- * This eliminates the "flash" when Ionic components initialize.
- */
 
 /* ============================================
    PRE-HYDRATION STYLES (Before Custom Elements are defined)
    These styles apply during SSR and initial page load
    ============================================ */
-
-/* ion-app - Full viewport container */
-ion-app:not(:defined) {
-  display: block;
-  width: 100%;
-  min-height: 100vh;
-  min-height: 100dvh;
-  background-color: var(--nxt1-color-bg-primary, #0a0a0a);
-  contain: layout style;
-}
 
 /* ion-content - Scrollable content area */
 ion-content:not(:defined) {
@@ -525,87 +498,6 @@ ion-title:not(:defined) {
 /* ============================================
    POST-HYDRATION STYLES (After Custom Elements are defined)
    ============================================ */
-
-ion-app {
-  width: 100%;
-  min-height: 100vh;
-  min-height: 100dvh;
-  overflow: visible;
-}
-
-/* ============================================
-   WEB SHELL MOBILE SCROLL FIX
-   
-   Ionic's ion-router-outlet wraps pages in .ion-page
-   which sets position: absolute + overflow: hidden.
-   This blocks native scrolling in the web shell's
-   flex-based layout on mobile. Override to allow
-   the shell's internal scroll container to work.
-   ============================================ */
-ion-app:has(app-web-shell) ion-router-outlet > .ion-page {
-  overflow: visible !important;
-}
-
-/* ============================================
-   AUTH SHELL SCROLL FIX
-   
-   NUCLEAR OPTION: Completely disable Ionic's internal
-   scroll mechanism for auth pages and use native 
-   document scrolling instead.
-   ============================================ */
-
-/* When auth shell is present, make ion-app flow naturally */
-ion-app:has(nxt1-auth-shell) {
-  position: static !important;
-  height: auto !important;
-  min-height: 0 !important;
-  overflow: visible !important;
-  contain: none !important;
-}
-
-/* Make router outlet also flow naturally */
-ion-app:has(nxt1-auth-shell) ion-router-outlet {
-  position: static !important;
-  height: auto !important;
-  overflow: visible !important;
-  contain: none !important;
-}
-
-/* The page inside router outlet */
-ion-app:has(nxt1-auth-shell) ion-router-outlet > .ion-page {
-  position: static !important;
-  height: auto !important;
-  min-height: 0 !important;
-  overflow: visible !important;
-  contain: none !important;
-}
-
-/* Auth shell itself */
-ion-app:has(nxt1-auth-shell) nxt1-auth-shell {
-  position: static !important;
-  height: auto !important;
-  min-height: 0 !important;
-  overflow: visible !important;
-}
-
-/* CRITICAL: Disable ion-content's internal scrolling completely */
-ion-app:has(nxt1-auth-shell) ion-content.nxt1-auth-content {
-  position: static !important;
-  height: auto !important;
-  min-height: 0 !important;
-  overflow: visible !important;
-  contain: none !important;
-  --offset-top: 0 !important;
-  --offset-bottom: 0 !important;
-}
-
-/* Override Ionic's internal shadow parts */
-ion-app:has(nxt1-auth-shell) ion-content.nxt1-auth-content::part(background),
-ion-app:has(nxt1-auth-shell) ion-content.nxt1-auth-content::part(scroll) {
-  position: static !important;
-  height: auto !important;
-  overflow: visible !important;
-}
 
 /* ============================================
    LAYER 8: TAILWIND CSS

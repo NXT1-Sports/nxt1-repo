@@ -169,7 +169,7 @@ export const EXPLORE_SEARCH_CONFIG = {
   /** Maximum suggestions to show */
   maxSuggestions: 8,
   /** Search input placeholder */
-  placeholder: 'Search athletes, teams, colleges...',
+  placeholder: 'Search anything (athletes, videos, colleges, teams, and more)',
 } as const;
 
 // ============================================

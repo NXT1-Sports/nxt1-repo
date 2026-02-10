@@ -95,8 +95,10 @@ addIcons({
         title="XP"
         [avatarSrc]="avatarSrc()"
         [avatarName]="avatarName()"
+        [showBack]="showBack()"
         [actions]="headerActions()"
         (avatarClick)="avatarClick.emit()"
+        (backClick)="back.emit()"
         (actionClick)="onHeaderAction($event)"
       />
     }
@@ -576,12 +578,18 @@ export class XpShellComponent {
   /** Hide page header (desktop sidebar provides navigation) */
   readonly hideHeader = input(false);
 
+  /** Show back button instead of avatar */
+  readonly showBack = input(false);
+
   // ============================================
   // OUTPUTS
   // ============================================
 
   /** Emitted when avatar is clicked (typically opens sidenav) */
   readonly avatarClick = output<void>();
+
+  /** Emitted when back is clicked */
+  readonly back = output<void>();
 
   /** Emitted when a header action is clicked */
   readonly actionClick = output<PageHeaderAction>();

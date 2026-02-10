@@ -1,0 +1,136 @@
+/**
+ * @fileoverview NXT1 Auth Modal Styles
+ * @module @nxt1/ui/styles/components/auth-modal
+ * @version 1.0.0
+ *
+ * Global styles for the authentication popup modal.
+ * These styles target the ion-modal host element via CSS classes
+ * applied by AuthModalService.
+ *
+ * Design:
+ * - Web: Centered dialog with glassmorphic backdrop blur
+ * - iOS: Bottom sheet with rounded corners and drag handle
+ * - Android: Centered dialog with Material elevation
+ *
+ * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
+ */
+
+/* ============================================
+   BASE AUTH MODAL
+   ============================================ */
+
+.nxt1-auth-modal {
+  --background: transparent;
+  --width: 100%;
+  --max-width: 440px;
+  --height: auto;
+  --max-height: 90vh;
+  --max-height: 90dvh;
+  --border-radius: var(--nxt1-borderRadius-2xl, 20px);
+  --box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.5),
+    0 10px 20px -5px rgba(0, 0, 0, 0.3);
+}
+
+.nxt1-auth-modal::part(content) {
+  background: var(--nxt1-color-surface-100, #1a1a2e);
+  border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
+  border-radius: var(--nxt1-borderRadius-2xl, 20px);
+  overflow: hidden;
+}
+
+.nxt1-auth-modal::part(backdrop) {
+  background: rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.nxt1-auth-modal::part(handle) {
+  display: none;
+}
+
+/* ============================================
+   WEB — Centered dialog, no handle
+   ============================================ */
+
+.nxt1-auth-modal--web {
+  --border-radius: var(--nxt1-borderRadius-2xl, 20px);
+  align-items: center;
+  justify-content: center;
+}
+
+.nxt1-auth-modal--web::part(content) {
+  position: relative;
+  border-radius: var(--nxt1-borderRadius-2xl, 20px);
+}
+
+.nxt1-auth-modal--web::part(handle) {
+  display: none;
+}
+
+/* ============================================
+   iOS — Bottom sheet style with drag handle
+   ============================================ */
+
+.nxt1-auth-modal--ios {
+  --border-radius: var(--nxt1-borderRadius-2xl, 1.5rem) var(--nxt1-borderRadius-2xl, 1.5rem) 0 0;
+  --max-width: 100%;
+  align-items: flex-end;
+}
+
+.nxt1-auth-modal--ios::part(content) {
+  border-top-left-radius: var(--nxt1-borderRadius-2xl, 1.5rem);
+  border-top-right-radius: var(--nxt1-borderRadius-2xl, 1.5rem);
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.nxt1-auth-modal--ios::part(handle) {
+  display: block;
+  background: var(--nxt1-color-surface-400);
+  width: var(--nxt1-spacing-9, 2.25rem);
+  height: var(--nxt1-spacing-1, 0.25rem);
+  border-radius: var(--nxt1-borderRadius-full, 9999px);
+  margin-top: var(--nxt1-spacing-2, 0.5rem);
+  margin-bottom: var(--nxt1-spacing-1, 0.25rem);
+}
+
+/* ============================================
+   ANDROID — Centered dialog, material shadow
+   ============================================ */
+
+.nxt1-auth-modal--android {
+  --border-radius: var(--nxt1-borderRadius-xl, 16px);
+  --box-shadow: 0 11px 15px -7px rgba(0, 0, 0, 0.2),
+    0 24px 38px 3px rgba(0, 0, 0, 0.14),
+    0 9px 46px 8px rgba(0, 0, 0, 0.12);
+  align-items: center;
+  justify-content: center;
+}
+
+.nxt1-auth-modal--android::part(content) {
+  border-radius: var(--nxt1-borderRadius-xl, 16px);
+}
+
+.nxt1-auth-modal--android::part(handle) {
+  display: none;
+}
+
+/* ============================================
+   RESPONSIVE — Mobile full-width
+   ============================================ */
+
+@media (max-width: 480px) {
+  .nxt1-auth-modal--web {
+    --max-width: calc(100% - 32px);
+  }
+}
+
+/* ============================================
+   ANIMATION OVERRIDES
+   Smoother entrance for auth context
+   ============================================ */
+
+.nxt1-auth-modal .modal-wrapper {
+  transition: transform 300ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 300ms cubic-bezier(0.32, 0.72, 0, 1) !important;
+}

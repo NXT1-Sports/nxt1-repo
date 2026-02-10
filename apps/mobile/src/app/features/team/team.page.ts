@@ -29,8 +29,8 @@ import {
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { NavController } from '@ionic/angular/standalone';
-import { Share } from '@capacitor/share';
 import { TeamShellComponent, type TeamData, NxtLoggingService } from '@nxt1/ui';
+import { ShareService } from '../../core/services/share.service';
 
 @Component({
   selector: 'app-team',
@@ -51,6 +51,7 @@ export class TeamPage {
   private readonly navCtrl = inject(NavController);
   private readonly route = inject(ActivatedRoute);
   private readonly logger = inject(NxtLoggingService).child('TeamPage');
+  private readonly share = inject(ShareService);
 
   // ============================================
   // STATE
@@ -125,28 +126,19 @@ export class TeamPage {
       return;
     }
 
-    try {
-      const shareUrl = `https://nxt1sports.com/team/${team.slug}`;
-      const shareText = `Check out ${team.teamName} on NXT1 Sports!`;
+    const result = await this.share.shareTeam({
+      id: team.id,
+      slug: team.slug,
+      teamName: team.teamName,
+      sport: team.sport,
+      location: team.location,
+      logoUrl: team.logoUrl,
+      imageUrl: team.imageUrl,
+      record: team.record,
+    });
 
-      // Check if native sharing is available
-      const canShare = await Share.canShare();
-      if (canShare.value) {
-        await Share.share({
-          title: team.teamName,
-          text: shareText,
-          url: shareUrl,
-          dialogTitle: 'Share Team',
-        });
-        this.logger.info('Team shared via native dialog', { teamSlug: team.slug });
-      } else {
-        this.logger.warn('Native share not available');
-      }
-    } catch (error) {
-      // User cancelled or error occurred
-      if (error instanceof Error && error.message !== 'Share canceled') {
-        this.logger.error('Share failed', error);
-      }
+    if (result.completed) {
+      this.logger.info('Team shared', { teamSlug: team.slug, method: result.activityType });
     }
   }
 

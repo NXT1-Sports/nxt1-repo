@@ -15,7 +15,7 @@
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NavController } from '@ionic/angular/standalone';
+import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import {
   ScoutReportsShellComponent,
   ScoutReportsService,
@@ -26,32 +26,44 @@ import type { ScoutReport, ScoutReportCategoryId, ScoutReportFilter } from '@nxt
 @Component({
   selector: 'app-scout-reports',
   standalone: true,
-  imports: [CommonModule, ScoutReportsShellComponent, ScoutReportFilterPanelComponent],
+  imports: [
+    CommonModule,
+    IonHeader,
+    IonContent,
+    IonToolbar,
+    ScoutReportsShellComponent,
+    ScoutReportFilterPanelComponent,
+  ],
   template: `
-    <!-- Scout Reports Shell -->
-    <nxt1-scout-reports-shell
-      [reports]="service.reports()"
-      [isLoading]="service.isLoading()"
-      [isLoadingMore]="service.isLoadingMore()"
-      [totalCount]="service.totalCount()"
-      [error]="service.error()"
-      [hasMore]="service.hasMore()"
-      [activeCategory]="service.activeCategory()"
-      [searchQuery]="service.searchQuery()"
-      [sortOption]="service.sortOption()"
-      [activeFilterCount]="service.activeFilterCount()"
-      (cardClick)="onCardClick($event)"
-      (bookmark)="onBookmark($event)"
-      (loadMore)="onLoadMore()"
-      (retry)="onRetry()"
-      (emptyCta)="onEmptyCta()"
-      (clearAllFilters)="onClearFilters()"
-      (openFilters)="onOpenFilters()"
-      (searchChange)="onSearchChange($event)"
-      (sortChange)="onSortChange($event)"
-      (categoryChange)="onCategoryChange($event)"
-      (refresh)="onRefresh()"
-    />
+    <ion-header class="ion-no-border" [translucent]="true">
+      <ion-toolbar></ion-toolbar>
+    </ion-header>
+    <ion-content [fullscreen]="true">
+      <!-- Scout Reports Shell -->
+      <nxt1-scout-reports-shell
+        [reports]="service.reports()"
+        [isLoading]="service.isLoading()"
+        [isLoadingMore]="service.isLoadingMore()"
+        [totalCount]="service.totalCount()"
+        [error]="service.error()"
+        [hasMore]="service.hasMore()"
+        [activeCategory]="service.activeCategory()"
+        [searchQuery]="service.searchQuery()"
+        [sortOption]="service.sortOption()"
+        [activeFilterCount]="service.activeFilterCount()"
+        (cardClick)="onCardClick($event)"
+        (bookmark)="onBookmark($event)"
+        (loadMore)="onLoadMore()"
+        (retry)="onRetry()"
+        (emptyCta)="onEmptyCta()"
+        (clearAllFilters)="onClearFilters()"
+        (openFilters)="onOpenFilters()"
+        (searchChange)="onSearchChange($event)"
+        (sortChange)="onSortChange($event)"
+        (categoryChange)="onCategoryChange($event)"
+        (refresh)="onRefresh()"
+      />
+    </ion-content>
 
     <!-- Filter Panel -->
     <nxt1-scout-report-filter-panel
@@ -66,6 +78,23 @@ import type { ScoutReport, ScoutReportCategoryId, ScoutReportFilter } from '@nxt
       :host {
         display: block;
         height: 100%;
+      }
+      ion-header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: -1;
+        --background: transparent;
+      }
+      ion-toolbar {
+        --background: transparent;
+        --min-height: 0;
+        --padding-top: 0;
+        --padding-bottom: 0;
+      }
+      ion-content {
+        --background: var(--nxt1-color-bg-primary, #0a0a0a);
       }
     `,
   ],

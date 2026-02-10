@@ -38,7 +38,8 @@ import {
   type ProfileOffer,
   type ProfileEvent,
 } from '@nxt1/core';
-import { NxtPageHeaderComponent, type PageHeaderAction } from '../../components/page-header';
+import { NxtPageHeaderComponent } from '../../components/page-header';
+import { NxtIconComponent } from '../../components/icon';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import {
   NxtOptionScrollerComponent,
@@ -61,6 +62,7 @@ import type { ProfileShellUser } from '../profile-shell.component';
   imports: [
     CommonModule,
     NxtPageHeaderComponent,
+    NxtIconComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
     ProfileHeaderWebComponent,
@@ -72,16 +74,29 @@ import type { ProfileShellUser } from '../profile-shell.component';
   template: `
     <!-- Page header: mobile only (hidden on desktop) -->
     <div class="md:hidden">
-      <nxt1-page-header
-        [title]="headerTitle()"
-        [avatarSrc]="currentUser()?.photoURL"
-        [avatarName]="currentUser()?.displayName"
-        [showBack]="true"
-        [actions]="headerActions()"
-        (avatarClick)="avatarClick.emit()"
-        (backClick)="backClick.emit()"
-        (actionClick)="onHeaderAction($event.id)"
-      />
+      <nxt1-page-header [showBack]="true" (backClick)="backClick.emit()">
+        <!-- Right side: Design token icons only -->
+        <div pageHeaderSlot="end" class="profile-header-actions">
+          @if (profile.isOwnProfile()) {
+            <button
+              type="button"
+              class="profile-header-action-btn"
+              aria-label="Edit profile"
+              (click)="editProfileClick.emit()"
+            >
+              <nxt1-icon name="pencil" [size]="22" />
+            </button>
+          }
+          <button
+            type="button"
+            class="profile-header-action-btn"
+            aria-label="Menu"
+            (click)="menuClick.emit()"
+          >
+            <nxt1-icon name="menu" [size]="22" />
+          </button>
+        </div>
+      </nxt1-page-header>
     </div>
 
     <!-- SEO: Main content area with semantic structure -->
@@ -595,6 +610,44 @@ import type { ProfileShellUser } from '../profile-shell.component';
       .profile-main {
         background: var(--nxt1-color-bg-primary, #0a0a0a);
       }
+
+      /* ============================================
+         HEADER ACTION BUTTONS (Design Token Icons)
+         ============================================ */
+
+      .profile-header-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-1, 4px);
+      }
+
+      .profile-header-action-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        margin: 0;
+        border: none;
+        background: transparent;
+        border-radius: var(--nxt1-radius-full, 50%);
+        color: var(--nxt1-color-text-primary, #ffffff);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition:
+          background-color 0.15s ease,
+          transform 0.1s ease;
+
+        &:hover {
+          background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        }
+
+        &:active {
+          background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.12));
+          transform: scale(0.92);
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -627,6 +680,7 @@ export class ProfileShellWebComponent implements OnInit {
   readonly editProfileClick = output<void>();
   readonly editTeamClick = output<void>();
   readonly shareClick = output<void>();
+  readonly menuClick = output<void>();
   readonly qrCodeClick = output<void>();
   readonly aiSummaryClick = output<void>();
   readonly createPostClick = output<void>();
@@ -635,25 +689,8 @@ export class ProfileShellWebComponent implements OnInit {
   // COMPUTED
   // ============================================
 
-  protected readonly headerTitle = computed(() => {
-    const user = this.profile.user();
-    return (
-      user?.displayName ?? (`${user?.firstName ?? ''} ${user?.lastName ?? ''}`.trim() || 'Profile')
-    );
-  });
-
-  protected readonly headerActions = computed((): PageHeaderAction[] => {
-    if (this.profile.isOwnProfile()) {
-      return [
-        { id: 'qr-code', label: 'QR Code', icon: 'qr-code-outline' },
-        { id: 'share', label: 'Share', icon: 'share-social-outline' },
-      ];
-    }
-    return [
-      { id: 'ai-summary', label: 'AI Summary', icon: 'sparkles-outline' },
-      { id: 'share', label: 'Share', icon: 'share-social-outline' },
-    ];
-  });
+  // No title in header — name is displayed in the profile header section below the banner
+  // Icons use design token system exclusively (NxtIconComponent)
 
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
     const badges = this.profile.tabBadges();
@@ -689,20 +726,6 @@ export class ProfileShellWebComponent implements OnInit {
   // ============================================
   // EVENT HANDLERS
   // ============================================
-
-  protected onHeaderAction(actionId: string): void {
-    switch (actionId) {
-      case 'share':
-        this.shareClick.emit();
-        break;
-      case 'qr-code':
-        this.qrCodeClick.emit();
-        break;
-      case 'ai-summary':
-        this.aiSummaryClick.emit();
-        break;
-    }
-  }
 
   protected onTabChange(event: OptionScrollerChangeEvent): void {
     const tabId = event.option.id as ProfileTabId;

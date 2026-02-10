@@ -29,7 +29,7 @@ import {
 } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
 import { TeamShellComponent, type TeamData } from '@nxt1/ui';
-import { SeoService } from '../../core/services';
+import { SeoService, ShareService } from '../../core/services';
 
 @Component({
   selector: 'app-team',
@@ -50,6 +50,7 @@ export class TeamComponent {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
   private readonly seo = inject(SeoService);
+  private readonly share = inject(ShareService);
 
   // ============================================
   // STATE
@@ -130,37 +131,20 @@ export class TeamComponent {
     }
   }
 
-  protected onShare(): void {
+  protected async onShare(): Promise<void> {
     const team = this.teamData();
     if (!team) return;
 
-    const shareUrl = `${window.location.origin}/team/${team.slug}`;
-    const shareText = `Check out ${team.teamName} on NXT1 Sports!`;
-
-    // Use Web Share API if available
-    if (navigator.share) {
-      navigator
-        .share({
-          title: team.teamName,
-          text: shareText,
-          url: shareUrl,
-        })
-        .catch((error) => {
-          if (error.name !== 'AbortError') {
-            console.error('Error sharing:', error);
-          }
-        });
-    } else {
-      // Fallback: Copy to clipboard
-      navigator.clipboard
-        .writeText(shareUrl)
-        .then(() => {
-          alert('Team link copied to clipboard!');
-        })
-        .catch((error) => {
-          console.error('Failed to copy:', error);
-        });
-    }
+    await this.share.shareTeam({
+      id: team.id,
+      slug: team.slug,
+      teamName: team.teamName,
+      sport: team.sport,
+      location: team.location,
+      logoUrl: team.logoUrl,
+      imageUrl: team.imageUrl,
+      record: team.record,
+    });
   }
 
   protected onRetry(): void {

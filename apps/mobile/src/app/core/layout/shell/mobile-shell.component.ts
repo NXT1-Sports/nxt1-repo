@@ -204,13 +204,16 @@ import { ActivityService } from '../../../features/activity/services/activity.se
         width: 100%;
       }
 
-      /* Position footer at bottom */
+      /* Position footer at bottom - uses component's CSS variables for customization */
       nxt1-mobile-footer {
-        position: fixed;
-        bottom: 20px;
-        left: 16px;
-        right: 16px;
-        z-index: var(--nxt1-z-index-footer, 100);
+        /* Footer component handles positioning via :host styles */
+        /* Override defaults if needed via CSS variables: */
+        --nxt1-footer-bottom: 20px;
+        --nxt1-footer-left: 16px;
+        --nxt1-footer-right: 16px;
+        --nxt1-z-index-footer: 1000;
+        
+        /* Smooth transitions for scroll-hide behavior */
         transition:
           transform var(--nxt1-transition-normal, 300ms)
             var(--nxt1-ease-out, cubic-bezier(0.33, 1, 0.68, 1)),

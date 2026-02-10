@@ -1,6 +1,6 @@
 /**
  * @fileoverview Notification Popover Component - Desktop Web
- * @module @nxt1/web/core/layout
+ * @module @nxt1/web/features/activity
  * @version 2.0.0
  *
  * Professional notification dropdown panel anchored to the header bell icon.

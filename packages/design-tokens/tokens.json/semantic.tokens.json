@@ -1377,6 +1377,758 @@
       }
     },
 
+    "sport-soccer": {
+      "$description": "Soccer theme - Red & black pitch energy",
+
+      "color": {
+        "primary": {
+          "$value": "#e10600",
+          "$type": "color",
+          "$description": "Soccer red"
+        },
+        "primaryLight": {
+          "$value": "#ff4d3d",
+          "$type": "color"
+        },
+        "primaryDark": {
+          "$value": "#a80000",
+          "$type": "color"
+        },
+        "secondary": {
+          "$value": "#111111",
+          "$type": "color",
+          "$description": "Pitch black"
+        },
+        "secondaryLight": {
+          "$value": "#2a2a2a",
+          "$type": "color"
+        },
+        "secondaryDark": {
+          "$value": "#000000",
+          "$type": "color"
+        },
+        "accent": {
+          "$value": "#ffffff",
+          "$type": "color",
+          "$description": "Field lines white"
+        },
+        "accentLight": {
+          "$value": "#ffffff",
+          "$type": "color"
+        },
+        "accentDark": {
+          "$value": "#e8e8e8",
+          "$type": "color"
+        },
+
+        "background": {
+          "primary": { "$value": "#120909", "$type": "color" },
+          "secondary": { "$value": "#1a0d0d", "$type": "color" },
+          "tertiary": { "$value": "#231010", "$type": "color" },
+          "elevated": { "$value": "#2b1414", "$type": "color" },
+          "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
+        },
+
+        "surface": {
+          "100": { "$value": "#140b0b", "$type": "color" },
+          "200": { "$value": "#1a0d0d", "$type": "color" },
+          "300": { "$value": "#221010", "$type": "color" },
+          "400": { "$value": "#2a1414", "$type": "color" },
+          "500": { "$value": "#321818", "$type": "color" }
+        },
+
+        "text": {
+          "primary": { "$value": "#ffffff", "$type": "color" },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.75)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.55)",
+            "$type": "color"
+          },
+          "disabled": {
+            "$value": "rgba(255, 255, 255, 0.35)",
+            "$type": "color"
+          },
+          "inverse": { "$value": "#0d0a0a", "$type": "color" },
+          "onPrimary": { "$value": "#ffffff", "$type": "color" }
+        },
+
+        "border": {
+          "subtle": { "$value": "rgba(255, 255, 255, 0.08)", "$type": "color" },
+          "default": {
+            "$value": "rgba(255, 255, 255, 0.12)",
+            "$type": "color"
+          },
+          "strong": { "$value": "rgba(255, 255, 255, 0.22)", "$type": "color" },
+          "primary": { "$value": "rgba(225, 6, 0, 0.4)", "$type": "color" }
+        },
+
+        "feedback": {
+          "success": { "$value": "#4caf50", "$type": "color" },
+          "successBg": {
+            "$value": "rgba(76, 175, 80, 0.15)",
+            "$type": "color"
+          },
+          "warning": { "$value": "#ff9800", "$type": "color" },
+          "warningBg": {
+            "$value": "rgba(255, 152, 0, 0.15)",
+            "$type": "color"
+          },
+          "error": { "$value": "#f44336", "$type": "color" },
+          "errorBg": { "$value": "rgba(244, 67, 54, 0.15)", "$type": "color" },
+          "info": { "$value": "#29b6f6", "$type": "color" },
+          "infoBg": { "$value": "rgba(41, 182, 246, 0.15)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": { "$value": "rgba(225, 6, 0, 0.10)", "$type": "color" },
+          "pressed": { "$value": "rgba(225, 6, 0, 0.18)", "$type": "color" },
+          "focus": { "$value": "rgba(225, 6, 0, 0.26)", "$type": "color" },
+          "disabled": {
+            "$value": "rgba(255, 255, 255, 0.12)",
+            "$type": "color"
+          }
+        },
+
+        "alpha": {
+          "primary5": { "$value": "rgba(225, 6, 0, 0.05)", "$type": "color" },
+          "primary10": { "$value": "rgba(225, 6, 0, 0.1)", "$type": "color" },
+          "primary20": { "$value": "rgba(225, 6, 0, 0.2)", "$type": "color" },
+          "primary30": { "$value": "rgba(225, 6, 0, 0.3)", "$type": "color" },
+          "primary50": { "$value": "rgba(225, 6, 0, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": {
+            "$value": "rgba(225, 6, 0, 0.5)",
+            "$type": "color"
+          },
+          "ringOffset": {
+            "$value": "#120909",
+            "$type": "color"
+          }
+        },
+
+        "loading": {
+          "spinner": {
+            "$value": "#e10600",
+            "$type": "color"
+          },
+          "skeleton": {
+            "$value": "rgba(255, 255, 255, 0.08)",
+            "$type": "color"
+          },
+          "skeletonShimmer": {
+            "$value": "rgba(255, 255, 255, 0.15)",
+            "$type": "color"
+          }
+        }
+      },
+
+      "shadow": {
+        "xs": { "$value": "0 1px 2px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "sm": { "$value": "0 2px 4px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "xl": { "$value": "0 8px 16px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "2xl": {
+          "$value": "0 16px 32px rgba(0, 0, 0, 0.6)",
+          "$type": "shadow"
+        },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": {
+          "$value": "0 0 8px rgba(225, 6, 0, 0.35)",
+          "$type": "shadow"
+        },
+        "md": {
+          "$value": "0 0 16px rgba(225, 6, 0, 0.45)",
+          "$type": "shadow"
+        },
+        "lg": {
+          "$value": "0 0 24px rgba(225, 6, 0, 0.55)",
+          "$type": "shadow"
+        }
+      }
+    },
+
+    "sport-volleyball": {
+      "$description": "Volleyball theme - Pink & black energy",
+
+      "color": {
+        "primary": {
+          "$value": "#ff4fb3",
+          "$type": "color",
+          "$description": "Volleyball pink"
+        },
+        "primaryLight": {
+          "$value": "#ff80c8",
+          "$type": "color"
+        },
+        "primaryDark": {
+          "$value": "#c2187a",
+          "$type": "color"
+        },
+        "secondary": {
+          "$value": "#111111",
+          "$type": "color",
+          "$description": "Midnight black"
+        },
+        "secondaryLight": {
+          "$value": "#2a2a2a",
+          "$type": "color"
+        },
+        "secondaryDark": {
+          "$value": "#000000",
+          "$type": "color"
+        },
+        "accent": {
+          "$value": "#ffffff",
+          "$type": "color",
+          "$description": "Net & line highlights"
+        },
+        "accentLight": {
+          "$value": "#ffffff",
+          "$type": "color"
+        },
+        "accentDark": {
+          "$value": "#e8e8e8",
+          "$type": "color"
+        },
+
+        "background": {
+          "primary": { "$value": "#140a12", "$type": "color" },
+          "secondary": { "$value": "#1b0f18", "$type": "color" },
+          "tertiary": { "$value": "#23131d", "$type": "color" },
+          "elevated": { "$value": "#2b1622", "$type": "color" },
+          "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
+        },
+
+        "surface": {
+          "100": { "$value": "#1a0d15", "$type": "color" },
+          "200": { "$value": "#20101a", "$type": "color" },
+          "300": { "$value": "#27151f", "$type": "color" },
+          "400": { "$value": "#2e1924", "$type": "color" },
+          "500": { "$value": "#351d29", "$type": "color" }
+        },
+
+        "text": {
+          "primary": { "$value": "#ffffff", "$type": "color" },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.75)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.55)",
+            "$type": "color"
+          },
+          "disabled": {
+            "$value": "rgba(255, 255, 255, 0.35)",
+            "$type": "color"
+          },
+          "inverse": { "$value": "#140a12", "$type": "color" },
+          "onPrimary": { "$value": "#ffffff", "$type": "color" }
+        },
+
+        "border": {
+          "subtle": { "$value": "rgba(255, 255, 255, 0.08)", "$type": "color" },
+          "default": {
+            "$value": "rgba(255, 255, 255, 0.12)",
+            "$type": "color"
+          },
+          "strong": { "$value": "rgba(255, 255, 255, 0.22)", "$type": "color" },
+          "primary": { "$value": "rgba(255, 79, 179, 0.4)", "$type": "color" }
+        },
+
+        "feedback": {
+          "success": { "$value": "#4caf50", "$type": "color" },
+          "successBg": {
+            "$value": "rgba(76, 175, 80, 0.15)",
+            "$type": "color"
+          },
+          "warning": { "$value": "#ff9800", "$type": "color" },
+          "warningBg": {
+            "$value": "rgba(255, 152, 0, 0.15)",
+            "$type": "color"
+          },
+          "error": { "$value": "#f44336", "$type": "color" },
+          "errorBg": { "$value": "rgba(244, 67, 54, 0.15)", "$type": "color" },
+          "info": { "$value": "#29b6f6", "$type": "color" },
+          "infoBg": { "$value": "rgba(41, 182, 246, 0.15)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": { "$value": "rgba(255, 79, 179, 0.10)", "$type": "color" },
+          "pressed": { "$value": "rgba(255, 79, 179, 0.18)", "$type": "color" },
+          "focus": { "$value": "rgba(255, 79, 179, 0.26)", "$type": "color" },
+          "disabled": {
+            "$value": "rgba(255, 255, 255, 0.12)",
+            "$type": "color"
+          }
+        },
+
+        "alpha": {
+          "primary5": {
+            "$value": "rgba(255, 79, 179, 0.05)",
+            "$type": "color"
+          },
+          "primary10": {
+            "$value": "rgba(255, 79, 179, 0.1)",
+            "$type": "color"
+          },
+          "primary20": {
+            "$value": "rgba(255, 79, 179, 0.2)",
+            "$type": "color"
+          },
+          "primary30": {
+            "$value": "rgba(255, 79, 179, 0.3)",
+            "$type": "color"
+          },
+          "primary50": { "$value": "rgba(255, 79, 179, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": {
+            "$value": "rgba(255, 79, 179, 0.5)",
+            "$type": "color"
+          },
+          "ringOffset": {
+            "$value": "#140a12",
+            "$type": "color"
+          }
+        },
+
+        "loading": {
+          "spinner": {
+            "$value": "#ff4fb3",
+            "$type": "color"
+          },
+          "skeleton": {
+            "$value": "rgba(255, 255, 255, 0.08)",
+            "$type": "color"
+          },
+          "skeletonShimmer": {
+            "$value": "rgba(255, 255, 255, 0.15)",
+            "$type": "color"
+          }
+        }
+      },
+
+      "shadow": {
+        "xs": { "$value": "0 1px 2px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "sm": { "$value": "0 2px 4px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "xl": { "$value": "0 8px 16px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "2xl": {
+          "$value": "0 16px 32px rgba(0, 0, 0, 0.6)",
+          "$type": "shadow"
+        },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": {
+          "$value": "0 0 8px rgba(255, 79, 179, 0.35)",
+          "$type": "shadow"
+        },
+        "md": {
+          "$value": "0 0 16px rgba(255, 79, 179, 0.45)",
+          "$type": "shadow"
+        },
+        "lg": {
+          "$value": "0 0 24px rgba(255, 79, 179, 0.55)",
+          "$type": "shadow"
+        }
+      }
+    },
+
+    "sport-lacrosse": {
+      "$description": "Lacrosse theme - Teal & white precision",
+
+      "color": {
+        "primary": {
+          "$value": "#00bcd4",
+          "$type": "color",
+          "$description": "Lacrosse teal"
+        },
+        "primaryLight": {
+          "$value": "#4dd0e1",
+          "$type": "color"
+        },
+        "primaryDark": {
+          "$value": "#008ba3",
+          "$type": "color"
+        },
+        "secondary": {
+          "$value": "#ffffff",
+          "$type": "color",
+          "$description": "Clean white"
+        },
+        "secondaryLight": {
+          "$value": "#ffffff",
+          "$type": "color"
+        },
+        "secondaryDark": {
+          "$value": "#e8e8e8",
+          "$type": "color"
+        },
+        "accent": {
+          "$value": "#ffffff",
+          "$type": "color",
+          "$description": "Field lines"
+        },
+        "accentLight": {
+          "$value": "#ffffff",
+          "$type": "color"
+        },
+        "accentDark": {
+          "$value": "#e8e8e8",
+          "$type": "color"
+        },
+
+        "background": {
+          "primary": { "$value": "#08181c", "$type": "color" },
+          "secondary": { "$value": "#0a1f24", "$type": "color" },
+          "tertiary": { "$value": "#0d262c", "$type": "color" },
+          "elevated": { "$value": "#112d34", "$type": "color" },
+          "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
+        },
+
+        "surface": {
+          "100": { "$value": "#0a1a1f", "$type": "color" },
+          "200": { "$value": "#0d2026", "$type": "color" },
+          "300": { "$value": "#11272e", "$type": "color" },
+          "400": { "$value": "#152e36", "$type": "color" },
+          "500": { "$value": "#19363e", "$type": "color" }
+        },
+
+        "text": {
+          "primary": { "$value": "#ffffff", "$type": "color" },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.75)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.55)",
+            "$type": "color"
+          },
+          "disabled": {
+            "$value": "rgba(255, 255, 255, 0.35)",
+            "$type": "color"
+          },
+          "inverse": { "$value": "#0a1416", "$type": "color" },
+          "onPrimary": { "$value": "#001014", "$type": "color" }
+        },
+
+        "border": {
+          "subtle": { "$value": "rgba(255, 255, 255, 0.08)", "$type": "color" },
+          "default": {
+            "$value": "rgba(255, 255, 255, 0.12)",
+            "$type": "color"
+          },
+          "strong": { "$value": "rgba(255, 255, 255, 0.22)", "$type": "color" },
+          "primary": { "$value": "rgba(0, 188, 212, 0.4)", "$type": "color" }
+        },
+
+        "feedback": {
+          "success": { "$value": "#4caf50", "$type": "color" },
+          "successBg": {
+            "$value": "rgba(76, 175, 80, 0.15)",
+            "$type": "color"
+          },
+          "warning": { "$value": "#ff9800", "$type": "color" },
+          "warningBg": {
+            "$value": "rgba(255, 152, 0, 0.15)",
+            "$type": "color"
+          },
+          "error": { "$value": "#f44336", "$type": "color" },
+          "errorBg": { "$value": "rgba(244, 67, 54, 0.15)", "$type": "color" },
+          "info": { "$value": "#29b6f6", "$type": "color" },
+          "infoBg": { "$value": "rgba(41, 182, 246, 0.15)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": { "$value": "rgba(0, 188, 212, 0.10)", "$type": "color" },
+          "pressed": { "$value": "rgba(0, 188, 212, 0.18)", "$type": "color" },
+          "focus": { "$value": "rgba(0, 188, 212, 0.26)", "$type": "color" },
+          "disabled": {
+            "$value": "rgba(255, 255, 255, 0.12)",
+            "$type": "color"
+          }
+        },
+
+        "alpha": {
+          "primary5": { "$value": "rgba(0, 188, 212, 0.05)", "$type": "color" },
+          "primary10": { "$value": "rgba(0, 188, 212, 0.1)", "$type": "color" },
+          "primary20": { "$value": "rgba(0, 188, 212, 0.2)", "$type": "color" },
+          "primary30": { "$value": "rgba(0, 188, 212, 0.3)", "$type": "color" },
+          "primary50": { "$value": "rgba(0, 188, 212, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": {
+            "$value": "rgba(0, 188, 212, 0.5)",
+            "$type": "color"
+          },
+          "ringOffset": {
+            "$value": "#08181c",
+            "$type": "color"
+          }
+        },
+
+        "loading": {
+          "spinner": {
+            "$value": "#00bcd4",
+            "$type": "color"
+          },
+          "skeleton": {
+            "$value": "rgba(255, 255, 255, 0.08)",
+            "$type": "color"
+          },
+          "skeletonShimmer": {
+            "$value": "rgba(255, 255, 255, 0.15)",
+            "$type": "color"
+          }
+        }
+      },
+
+      "shadow": {
+        "xs": { "$value": "0 1px 2px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "sm": { "$value": "0 2px 4px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "xl": { "$value": "0 8px 16px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "2xl": {
+          "$value": "0 16px 32px rgba(0, 0, 0, 0.6)",
+          "$type": "shadow"
+        },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": {
+          "$value": "0 0 8px rgba(0, 188, 212, 0.35)",
+          "$type": "shadow"
+        },
+        "md": {
+          "$value": "0 0 16px rgba(0, 188, 212, 0.45)",
+          "$type": "shadow"
+        },
+        "lg": {
+          "$value": "0 0 24px rgba(0, 188, 212, 0.55)",
+          "$type": "shadow"
+        }
+      }
+    },
+
+    "sport-track": {
+      "$description": "Track & field theme - Purple speed",
+
+      "color": {
+        "primary": {
+          "$value": "#7c4dff",
+          "$type": "color",
+          "$description": "Track purple"
+        },
+        "primaryLight": {
+          "$value": "#b388ff",
+          "$type": "color"
+        },
+        "primaryDark": {
+          "$value": "#4a23cc",
+          "$type": "color"
+        },
+        "secondary": {
+          "$value": "#111111",
+          "$type": "color",
+          "$description": "Track black"
+        },
+        "secondaryLight": {
+          "$value": "#2a2a2a",
+          "$type": "color"
+        },
+        "secondaryDark": {
+          "$value": "#000000",
+          "$type": "color"
+        },
+        "accent": {
+          "$value": "#ffffff",
+          "$type": "color",
+          "$description": "Lane highlights"
+        },
+        "accentLight": {
+          "$value": "#ffffff",
+          "$type": "color"
+        },
+        "accentDark": {
+          "$value": "#e8e8e8",
+          "$type": "color"
+        },
+
+        "background": {
+          "primary": { "$value": "#120a1c", "$type": "color" },
+          "secondary": { "$value": "#180e26", "$type": "color" },
+          "tertiary": { "$value": "#1f1230", "$type": "color" },
+          "elevated": { "$value": "#26163a", "$type": "color" },
+          "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
+        },
+
+        "surface": {
+          "100": { "$value": "#160d22", "$type": "color" },
+          "200": { "$value": "#1b1029", "$type": "color" },
+          "300": { "$value": "#201430", "$type": "color" },
+          "400": { "$value": "#261837", "$type": "color" },
+          "500": { "$value": "#2c1c3e", "$type": "color" }
+        },
+
+        "text": {
+          "primary": { "$value": "#ffffff", "$type": "color" },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.75)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.55)",
+            "$type": "color"
+          },
+          "disabled": {
+            "$value": "rgba(255, 255, 255, 0.35)",
+            "$type": "color"
+          },
+          "inverse": { "$value": "#120a1c", "$type": "color" },
+          "onPrimary": { "$value": "#ffffff", "$type": "color" }
+        },
+
+        "border": {
+          "subtle": { "$value": "rgba(255, 255, 255, 0.08)", "$type": "color" },
+          "default": {
+            "$value": "rgba(255, 255, 255, 0.12)",
+            "$type": "color"
+          },
+          "strong": { "$value": "rgba(255, 255, 255, 0.22)", "$type": "color" },
+          "primary": { "$value": "rgba(124, 77, 255, 0.4)", "$type": "color" }
+        },
+
+        "feedback": {
+          "success": { "$value": "#4caf50", "$type": "color" },
+          "successBg": {
+            "$value": "rgba(76, 175, 80, 0.15)",
+            "$type": "color"
+          },
+          "warning": { "$value": "#ff9800", "$type": "color" },
+          "warningBg": {
+            "$value": "rgba(255, 152, 0, 0.15)",
+            "$type": "color"
+          },
+          "error": { "$value": "#f44336", "$type": "color" },
+          "errorBg": { "$value": "rgba(244, 67, 54, 0.15)", "$type": "color" },
+          "info": { "$value": "#29b6f6", "$type": "color" },
+          "infoBg": { "$value": "rgba(41, 182, 246, 0.15)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": { "$value": "rgba(124, 77, 255, 0.10)", "$type": "color" },
+          "pressed": { "$value": "rgba(124, 77, 255, 0.18)", "$type": "color" },
+          "focus": { "$value": "rgba(124, 77, 255, 0.26)", "$type": "color" },
+          "disabled": {
+            "$value": "rgba(255, 255, 255, 0.12)",
+            "$type": "color"
+          }
+        },
+
+        "alpha": {
+          "primary5": {
+            "$value": "rgba(124, 77, 255, 0.05)",
+            "$type": "color"
+          },
+          "primary10": {
+            "$value": "rgba(124, 77, 255, 0.1)",
+            "$type": "color"
+          },
+          "primary20": {
+            "$value": "rgba(124, 77, 255, 0.2)",
+            "$type": "color"
+          },
+          "primary30": {
+            "$value": "rgba(124, 77, 255, 0.3)",
+            "$type": "color"
+          },
+          "primary50": { "$value": "rgba(124, 77, 255, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": {
+            "$value": "rgba(124, 77, 255, 0.5)",
+            "$type": "color"
+          },
+          "ringOffset": {
+            "$value": "#120a1c",
+            "$type": "color"
+          }
+        },
+
+        "loading": {
+          "spinner": {
+            "$value": "#7c4dff",
+            "$type": "color"
+          },
+          "skeleton": {
+            "$value": "rgba(255, 255, 255, 0.08)",
+            "$type": "color"
+          },
+          "skeletonShimmer": {
+            "$value": "rgba(255, 255, 255, 0.15)",
+            "$type": "color"
+          }
+        }
+      },
+
+      "shadow": {
+        "xs": { "$value": "0 1px 2px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "sm": { "$value": "0 2px 4px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "xl": { "$value": "0 8px 16px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "2xl": {
+          "$value": "0 16px 32px rgba(0, 0, 0, 0.6)",
+          "$type": "shadow"
+        },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": {
+          "$value": "0 0 8px rgba(124, 77, 255, 0.35)",
+          "$type": "shadow"
+        },
+        "md": {
+          "$value": "0 0 16px rgba(124, 77, 255, 0.45)",
+          "$type": "shadow"
+        },
+        "lg": {
+          "$value": "0 0 24px rgba(124, 77, 255, 0.55)",
+          "$type": "shadow"
+        }
+      }
+    },
+
     "sport-softball": {
       "$description": "Softball theme - Yellow ball & red accents aesthetic",
 
