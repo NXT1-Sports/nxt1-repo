@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace "com.nxt1sports.app.twa"
+    namespace "com.nxt1sports.nxt1"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.nxt1sports.app.twa"
+        applicationId "com.nxt1sports.nxt1"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -2,13 +2,13 @@
 
 ## Priority 1 (This Week)
 
-- Verify Firebase Analytics share events on real iOS and Android devices.
+- Verify Firebase Analytics share events on real iOS and Android devices. ✅
 - Deep linking setup:
-  - Confirm production domain(s).
-  - Confirm iOS Team ID + bundle ID.
-  - Confirm Android package name + SHA-256 cert fingerprint(s).
-  - Add Apple App Site Association (AASA) and Android Asset Links files.
-  - Wire app link routing in mobile deep link service.
+  - Confirm production domain(s). ✅
+  - Confirm iOS Team ID + bundle ID. ✅
+  - Confirm Android package name + SHA-256 cert fingerprint(s). ✅
+  - Add Apple App Site Association (AASA) and Android Asset Links files. ✅
+  - Wire app link routing in mobile deep link service. ✅
 
 ## Priority 2 (Next Sprint)
 

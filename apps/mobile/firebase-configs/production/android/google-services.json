@@ -1,19 +1,4 @@
 {
-  "_comment": [
-    "PRODUCTION Firebase Configuration for NXT1 Sports Android App",
-    "",
-    "⚠️ IMPORTANT: This is a PLACEHOLDER file!",
-    "",
-    "To get the actual production config:",
-    "1. Go to Firebase Console: https://console.firebase.google.com/project/nxt-1-de054/settings/general",
-    "2. Select the Android app (com.nxt1.sports)",
-    "3. Click 'Download google-services.json'",
-    "4. Replace this file with the downloaded one",
-    "",
-    "This file is for the PRODUCTION Firebase project: nxt-1-de054",
-    "- Crashlytics reports will appear in the production dashboard",
-    "- Use this for Play Store releases ONLY"
-  ],
   "project_info": {
     "project_number": "574223545656",
     "project_id": "nxt-1-de054",
@@ -22,20 +7,46 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:574223545656:android:REPLACE_WITH_ACTUAL_VALUE",
+        "mobilesdk_app_id": "1:574223545656:android:9963cf1fed990f6c45bdcd",
         "android_client_info": {
-          "package_name": "com.nxt1.sports"
+          "package_name": "com.nxt1sports.nxt1"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "574223545656-r12erga3prnneajq5n5db741iv03ufoe.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nxt1sports.nxt1",
+            "certificate_hash": "05f79531c9a5d9949fb5ed3d336b9f17277d7b9f"
+          }
+        },
+        {
+          "client_id": "574223545656-od13fibpirieo8hqmlk1ajhpvqs9vp60.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
-          "current_key": "AIzaSyCFhuwGzzza5VbrXCJ_5_l8EisCkZKzoow"
+          "current_key": "AIzaSyB5-Pm2cVsLFNB30TK94qVw2YFLfYY0E-c"
         }
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "574223545656-28mo74lpv42cmbbdfgjmcjqk96vprou9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "574223545656-tck87oq7lbaj219p2pi1b4fo62g2r294.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.nxt1sports.nxt1",
+                "app_store_id": "6446410344"
+              }
+            }
+          ]
         }
       }
     }

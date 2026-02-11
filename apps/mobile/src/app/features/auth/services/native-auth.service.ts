@@ -220,7 +220,7 @@ export class NativeAuthService {
       const hashedNonce = await this.sha256(rawNonce);
       // Configure Apple Sign-In options
       const options: SignInWithAppleOptions = {
-        clientId: 'com.nxt1.sports', // Your app bundle ID
+        clientId: 'com.nxt1sports.nxt1', // Your app bundle ID (matches Xcode project)
         redirectURI: 'https://nxt1.app/__/auth/handler', // Firebase auth handler
         scopes: 'email name', // Request email and name
         state: Math.random().toString(36).substring(2, 15), // Random state for security

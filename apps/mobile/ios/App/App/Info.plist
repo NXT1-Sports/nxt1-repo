@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>NXT 1 Sports</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -76,7 +76,7 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.455734259010-qagtsakkvchuf3tnbgjgitjj80e740ib</string>
+				<string>com.googleusercontent.apps.455734259010-hi7stcq2qk5jan5md5k4cqnvaj3u94gu</string>
 			</array>
 			<key>CFBundleURLName</key>
 			<string>Google Sign-In</string>

@@ -345,28 +345,34 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   // ============================================
 
   /**
-   * User data for sidenav header - hybrid approach with fallback.
+   * User data for sidenav header - hybrid approach with intelligent avatar fallback.
+   *
+   * ⭐ Avatar Priority Logic (Fixed for Google Sign-In) ⭐
+   * 1. Custom profileImg (if user uploaded one)
+   * 2. Google photoURL (from social sign-in)
+   * 3. Fallback to initials (handled by nxt1-avatar component)
    *
    * ⭐ Uses ProfileService (full User data) when available ⭐
    * Falls back to AuthUser (persisted) for immediate display on app resume.
    * This ensures sidenav always has data even before ProfileService loads.
    */
   readonly sidenavUser = computed<SidenavUserData | null>(() => {
-    // Try ProfileService first (full User data)
+    // Get both data sources for intelligent avatar fallback
     const profile = this.profileService.user();
+    const authUser = this.authFlow.user();
 
     if (profile) {
       // Get primary sport using order === 0 (User model uses 'order', not 'isPrimary')
       const primarySport = profile.sports?.find((s) => s.order === 0) ?? profile.sports?.[0];
       const position = primarySport?.positions?.[0] ?? '';
       const displayName = `${profile.firstName} ${profile.lastName}`.trim();
-
+      const avatarUrl = profile.profileImg || authUser?.photoURL || undefined;
       return {
         name: displayName || 'User',
         subtitle: position ? `${primarySport?.sport ?? ''} • ${position}` : profile.email,
-        avatarUrl: profile.profileImg ?? undefined,
+        avatarUrl,
         initials: this.getInitials(displayName || profile.email || 'U'),
-        verified: false, // TODO: Get from backend profile
+        verified: false,
         isPremium: this.profileService.isPremium(),
         userId: profile.id,
         sportProfiles: (profile.sports ?? []).map((s, index: number) => ({
@@ -384,7 +390,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     }
 
     // Fallback to AuthUser (persisted, available immediately on app resume)
-    const authUser = this.authFlow.user();
     if (!authUser) return null;
 
     return {
