@@ -1,6 +1,6 @@
 {
-  "appId": "com.nxt1.sports",
-  "appName": "NXT1 Sports (Staging)",
+  "appId": "com.nxt1sports.nxt1",
+  "appName": "NXT1 Sports",
   "webDir": "www/browser",
   "bundledWebRuntime": false,
   "server": {
@@ -44,6 +44,6 @@
   "android": {
     "allowMixedContent": false,
     "captureInput": true,
-    "webContentsDebuggingEnabled": true
+    "webContentsDebuggingEnabled": false
   }
 }

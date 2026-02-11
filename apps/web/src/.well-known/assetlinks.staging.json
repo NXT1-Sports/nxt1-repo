@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.nxt1.sports",
+      "sha256_cert_fingerprints": [
+        "75:a0:b2:86:f2:ee:0f:9b:b1:52:e7:63:a7:2b:04:23:26:c5:6a:fc:20:45:ce:43:b1:11:2f:92:3c:ed:1c:7a"
+      ]
+    }
+  }
+]

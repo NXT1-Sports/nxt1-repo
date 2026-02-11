@@ -1,10 +1,10 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace "com.nxt1sports.app.twa"
+    namespace "com.nxt1.sports"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.nxt1sports.app.twa"
+        applicationId "com.nxt1.sports"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -16,6 +16,22 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    
+    flavorDimensions "environment"
+    productFlavors {
+        staging {
+            dimension "environment"
+            applicationId "com.nxt1.sports"
+            versionNameSuffix "-staging"
+            resValue "string", "app_name", "NXT1 Sports (Staging)"
+        }
+        production {
+            dimension "environment"
+            applicationId "com.nxt1sports.nxt1"
+            resValue "string", "app_name", "NXT1 Sports"
+        }
+    }
+    
     buildTypes {
         release {
             minifyEnabled false
