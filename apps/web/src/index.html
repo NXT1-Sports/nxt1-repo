@@ -5,10 +5,13 @@
     <title>NXT1 Sports - The Sports Content Platform | Discover, Watch & Share Athletic Content</title>
     <base href="/" />
 
+    <!-- Theme color must be early so the script below can update it -->
+    <meta name="theme-color" content="#0a0a0a" />
+
     <!-- 
       CRITICAL: Theme initialization script
       This MUST run before any CSS/JS to prevent flash of wrong theme.
-      Sets data-theme attribute and color-scheme before first paint.
+      Sets data-theme attribute, color-scheme, background, and theme-color meta tag.
     -->
     <script>
       (function () {
@@ -17,9 +20,58 @@
         if (pref === "system") {
           theme = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
         }
-        document.documentElement.setAttribute("data-theme", theme);
+
+        // Check for sport theme override (validate against known sports)
+        var sportTheme = localStorage.getItem("nxt1-sport-theme");
+        var validSports = [
+          "football",
+          "basketball",
+          "baseball",
+          "softball",
+          "soccer",
+          "volleyball",
+          "lacrosse",
+          "track",
+        ];
+        if (sportTheme && validSports.indexOf(sportTheme) === -1) sportTheme = null;
+        var dataTheme = sportTheme ? "sport-" + sportTheme : theme;
+
+        // Background colors for each theme
+        var bgColors = {
+          light: "#ffffff",
+          dark: "#0a0a0a",
+          "sport-football": "#0d1a0f",
+          "sport-basketball": "#3d2000",
+          "sport-baseball": "#1a1424",
+          "sport-softball": "#1a1818",
+          "sport-soccer": "#120909",
+          "sport-volleyball": "#140a12",
+          "sport-lacrosse": "#08181c",
+          "sport-track": "#120a1c",
+        };
+
+        var bgColor = bgColors[dataTheme] || bgColors[theme] || "#0a0a0a";
+
+        // Apply theme to document (html and body)
+        document.documentElement.setAttribute("data-theme", dataTheme);
+        document.documentElement.setAttribute("data-base-theme", theme);
         document.documentElement.style.colorScheme = theme;
-        document.documentElement.style.backgroundColor = theme === "dark" ? "#0a0a0a" : "#ffffff";
+        document.documentElement.style.backgroundColor = bgColor;
+
+        // Also set body background when DOM is ready (for sport themes)
+        if (document.body) {
+          document.body.style.backgroundColor = bgColor;
+        } else {
+          document.addEventListener("DOMContentLoaded", function () {
+            document.body.style.backgroundColor = bgColor;
+          });
+        }
+
+        // Update theme-color meta tag for browser chrome
+        var metaThemeColor = document.querySelector('meta[name="theme-color"]');
+        if (metaThemeColor) {
+          metaThemeColor.setAttribute("content", bgColor);
+        }
       })();
     </script>
 
@@ -28,20 +80,67 @@
       These styles prevent layout shift (CLS) during SSR hydration.
       They apply to Custom Elements BEFORE they are defined by Ionic.
       Once hydrated, Ionic's internal styles take over.
+      
+      IMPORTANT: Colors must match theme set by inline script above!
     -->
     <style>
+      /* Theme-aware backgrounds for pre-hydration (matches inline script) */
+      :root {
+        --prehydration-bg: #0a0a0a; /* dark default */
+        --prehydration-text: rgba(255, 255, 255, 0.87);
+      }
+
+      html[data-theme="light"] {
+        --prehydration-bg: #ffffff;
+        --prehydration-text: rgba(0, 0, 0, 0.87);
+      }
+
+      /* Sport theme backgrounds (all dark-based) */
+      html[data-theme="sport-football"] {
+        --prehydration-bg: #0d1a0f;
+      }
+      html[data-theme="sport-basketball"] {
+        --prehydration-bg: #3d2000;
+      }
+      html[data-theme="sport-baseball"] {
+        --prehydration-bg: #1a1424;
+      }
+      html[data-theme="sport-softball"] {
+        --prehydration-bg: #1a1818;
+      }
+      html[data-theme="sport-soccer"] {
+        --prehydration-bg: #120909;
+      }
+      html[data-theme="sport-volleyball"] {
+        --prehydration-bg: #140a12;
+      }
+      html[data-theme="sport-lacrosse"] {
+        --prehydration-bg: #08181c;
+      }
+      html[data-theme="sport-track"] {
+        --prehydration-bg: #120a1c;
+      }
+
+      /* Ensure body also has correct background */
+      body {
+        background-color: var(--prehydration-bg);
+        margin: 0;
+      }
+
       /* Pre-hydration: Give Ionic components dimensions before they're defined */
       ion-content:not(:defined) {
         display: block;
         width: 100%;
         min-height: 100vh;
-        background-color: #ffffff;
+        background-color: var(--prehydration-bg);
+        color: var(--prehydration-text);
       }
 
       ion-header:not(:defined),
       ion-toolbar:not(:defined) {
         display: block;
         width: 100%;
+        background-color: var(--prehydration-bg);
       }
 
       ion-button:not(:defined) {
@@ -65,6 +164,7 @@
         justify-content: center;
         width: 100%;
         min-height: 100vh;
+        background-color: var(--prehydration-bg);
       }
     </style>
 
@@ -112,7 +212,6 @@
 
     <!-- PWA Manifest -->
     <link rel="manifest" href="manifest.webmanifest" />
-    <meta name="theme-color" content="#ffffff" />
     <meta name="color-scheme" content="light dark" />
 
     <!-- Apple Touch Icon -->
@@ -121,7 +220,7 @@
     <!-- Analytics: Firebase SDK handles analytics - no gtag.js needed -->
   </head>
 
-  <body>
+  <body style="background-color: #0a0a0a; margin: 0">
     <app-root></app-root>
   </body>
 </html>

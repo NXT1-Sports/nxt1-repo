@@ -10,7 +10,7 @@
  * - All authenticated routes are children of MobileShellComponent
  * - Footer persists across tab navigation (no re-render)
  * - Each page owns its header via NxtPageHeaderComponent
- * - NO /tabs/ prefix — clean, semantic URLs matching web
+ * - No tabs prefix — clean, semantic URLs matching web
  */
 
 import { Routes } from '@angular/router';
@@ -120,6 +120,12 @@ export const routes: Routes = [
           import('./features/scout-reports/scout-reports.routes').then(
             (m) => m.SCOUT_REPORTS_ROUTES
           ),
+      },
+
+      // Usage - Payment Usage Dashboard
+      {
+        path: 'usage',
+        loadChildren: () => import('./features/usage/usage.routes').then((m) => m.USAGE_ROUTES),
       },
 
       // Help Center - Support & FAQ

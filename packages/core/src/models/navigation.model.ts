@@ -1166,6 +1166,12 @@ export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
     id: 'support',
     items: [
       {
+        id: 'usage',
+        label: 'Usage',
+        icon: 'creditCard',
+        route: '/usage',
+      },
+      {
         id: 'settings',
         label: 'Settings',
         icon: 'settings',

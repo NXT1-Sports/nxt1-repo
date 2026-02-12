@@ -407,7 +407,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
 
   /**
    * Sidenav sections (using defaults from @nxt1/core)
-   * Both web and mobile now use clean URLs (no /tabs/ prefix)
+   * Both web and mobile now use clean URLs (no tabs prefix)
    */
   readonly sidenavSections: SidenavSection[] = DEFAULT_SIDENAV_ITEMS;
 

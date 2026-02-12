@@ -16,7 +16,7 @@
  * - Native share functionality
  *
  * Routes:
- * - /tabs/team/:slug — View team by slug
+ * - /team/:slug — View team by slug
  */
 
 import {

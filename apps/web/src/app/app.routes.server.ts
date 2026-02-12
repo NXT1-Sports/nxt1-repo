@@ -186,6 +186,14 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
+    path: 'usage',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'usage/**',
+    renderMode: RenderMode.Server,
+  },
+  {
     path: 'manage-team',
     renderMode: RenderMode.Server,
   },

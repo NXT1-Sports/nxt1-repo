@@ -974,41 +974,32 @@ export {
 } from './manage-team';
 
 // ============================================
-// WALLET (Credit Wallet & Purchases - Shared Web & Mobile)
+// USAGE (Usage Dashboard & Billing - Shared Web & Mobile)
 // ============================================
 export {
-  // Shell Component (main container)
-  WalletShellComponent,
-  type WalletCloseEvent,
-  // Services
-  WalletService,
-  WalletBottomSheetService,
-  WalletModalComponent,
-  type WalletSheetOptions,
-  type WalletSheetResult,
+  // Shell Components
+  UsageShellComponent, // Mobile (Ionic)
+  UsageShellWebComponent, // Web SSR (zero Ionic)
+  type UsageUser,
   // Skeleton
-  WalletSkeletonComponent,
+  UsageSkeletonComponent,
+  // Services
+  UsageService,
+  UsageBottomSheetService,
+  type UsageBottomSheetResult,
+  // Navigation
+  type UsageSection,
+  type UsageSectionNav,
+  USAGE_SECTION_NAVS,
   // Section Components (for custom layouts)
-  WalletBalanceSectionComponent,
-  WalletBundlesSectionComponent,
-  WalletHistorySectionComponent,
-  WalletSettingsSectionComponent,
-  // Types
-  type WalletSectionId,
-  type WalletBalance,
-  type WalletBundle,
-  type WalletTransaction,
-  type WalletSection,
-  type WalletAutoReload,
-  // Mock Data (Development Only)
-  MOCK_WALLET_BALANCE,
-  MOCK_WALLET_BUNDLES,
-  MOCK_WALLET_TRANSACTIONS,
-  MOCK_WALLET_AUTO_RELOAD,
-  WALLET_SECTIONS,
-  MOCK_EMPTY_WALLET_BALANCE,
-  MOCK_EMPTY_WALLET_TRANSACTIONS,
-} from './wallet';
+  UsageOverviewComponent,
+  UsageSubscriptionsComponent,
+  UsageChartComponent,
+  UsageBreakdownTableComponent,
+  UsagePaymentHistoryComponent,
+  UsagePaymentInfoComponent,
+  UsageBudgetsComponent,
+} from './usage';
 
 // ============================================
 // INVITE (Referral & Sharing - Shared Web & Mobile)

@@ -1,0 +1,36 @@
+/**
+ * @fileoverview Barrel export for @nxt1/ui usage feature.
+ * @module @nxt1/ui/usage
+ */
+
+// Shell Components
+/** Mobile shell (Ionic) — For web SSR, use UsageShellWebComponent instead */
+export { UsageShellComponent, type UsageUser } from './usage-shell.component';
+
+// Web-optimized shell (semantic HTML, design tokens, Grade A+ SEO)
+export { UsageShellWebComponent } from './web/usage-shell-web.component';
+
+// Skeleton
+export { UsageSkeletonComponent } from './usage-skeleton.component';
+
+// Help Content
+export { UsageHelpContentComponent } from './usage-help-content.component';
+
+// Service
+export { UsageService, USAGE_SECTION_NAVS } from './usage.service';
+export type { UsageSection, UsageSectionNav } from './usage.service';
+
+// Bottom Sheet
+export { UsageBottomSheetService } from './usage-bottom-sheet.service';
+export type { UsageBottomSheetResult } from './usage-bottom-sheet.service';
+
+// Section Components
+export {
+  UsageOverviewComponent,
+  UsageSubscriptionsComponent,
+  UsageChartComponent,
+  UsageBreakdownTableComponent,
+  UsagePaymentHistoryComponent,
+  UsagePaymentInfoComponent,
+  UsageBudgetsComponent,
+} from './sections';

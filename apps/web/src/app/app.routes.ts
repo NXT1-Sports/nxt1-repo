@@ -21,24 +21,10 @@ import { Routes } from '@angular/router';
  * - WebShellComponent wraps main routes (provides navigation)
  * - Auth routes are standalone (different layout)
  * - Uses lazy loading for optimal performance
- * - NO /tabs/ prefix — clean, semantic URLs
+ * - No tabs prefix — clean, semantic URLs
  */
 
 export const routes: Routes = [
-  // ============================================
-  // DEV/TEST ROUTES (Remove before production)
-  // ============================================
-
-  /**
-   * Wallet UI Test Page
-   * ⚠️ DEVELOPMENT ONLY — Remove before production
-   * Example: http://localhost:4200/dev/wallet
-   */
-  {
-    path: 'dev/wallet',
-    loadComponent: () => import('./dev/wallet-test.component').then((m) => m.WalletTestComponent),
-  },
-
   // ============================================
   // PUBLIC LANDING PAGE (Marketing/Welcome)
   // ============================================
@@ -71,41 +57,15 @@ export const routes: Routes = [
   // Legacy profile redirect — direct /profile goes to shell's /profile route
   // (No redirect needed, handled by the main shell at path: '')
 
-  {
-    path: 'analytics',
-    redirectTo: 'tabs/analytics',
-    pathMatch: 'prefix',
-  },
-  {
-    path: 'settings',
-    redirectTo: 'tabs/settings',
-    pathMatch: 'prefix',
-  },
-  {
-    path: 'xp',
-    redirectTo: 'tabs/xp',
-    pathMatch: 'prefix',
-  },
-  {
-    path: 'scout-reports',
-    redirectTo: 'tabs/scout-reports',
-    pathMatch: 'prefix',
-  },
-  {
-    path: 'invite',
-    redirectTo: 'tabs/invite',
-    pathMatch: 'prefix',
-  },
-
   // Authenticated Routes with Web Shell (Desktop Nav)
-  // Uses /tabs/* pattern for cross-platform compatibility with mobile
+  // Clean URLs (no tabs prefix)
   {
-    path: 'tabs',
+    path: '',
     loadComponent: () =>
       import('./core/layout/shell/web-shell.component').then((m) => m.WebShellComponent),
 
     children: [
-      // Default tab redirect
+      // Default shell redirect
       {
         path: '',
         pathMatch: 'full',
@@ -170,6 +130,11 @@ export const routes: Routes = [
       {
         path: 'invite',
         loadChildren: () => import('./features/invite/invite.routes'),
+      },
+      // Usage - Payment Usage Dashboard
+      {
+        path: 'usage',
+        loadChildren: () => import('./features/usage/usage.routes'),
       },
     ],
   },
@@ -313,6 +278,11 @@ export const routes: Routes = [
       {
         path: 'invite',
         loadChildren: () => import('./features/invite/invite.routes'),
+      },
+      // Usage - Payment Usage Dashboard
+      {
+        path: 'usage',
+        loadChildren: () => import('./features/usage/usage.routes'),
       },
 
       // Manage Team - Team Management

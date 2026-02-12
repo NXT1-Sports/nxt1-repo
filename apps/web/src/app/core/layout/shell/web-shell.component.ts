@@ -132,7 +132,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         activeIcon: 'compassFilled',
         route: '/explore',
       },
-      { id: 'agent', label: 'Agent X', icon: 'sparkles', route: '/agent' },
+      { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
     ],
   },
   {
@@ -170,6 +170,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'footer',
     items: [
+      { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
       { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
       { id: 'help', label: 'Help Center', icon: 'help', route: '/help-center' },
     ],

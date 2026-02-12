@@ -39,19 +39,19 @@ echo -e "Twitter Card: ${GREEN}$AUTH_TWITTER${NC}"
 echo ""
 
 # Test Home Page (Protected - should still render)
-echo -e "${BLUE}📄 Testing /tabs/home page:${NC}"
+echo -e "${BLUE}📄 Testing /home page:${NC}"
 echo "-----------------------------------"
-HOME_TITLE=$(curl -s $SERVER_URL/tabs/home | grep -o '<title>[^<]*</title>' | sed 's/<title>\(.*\)<\/title>/\1/')
+HOME_TITLE=$(curl -s $SERVER_URL/home | grep -o '<title>[^<]*</title>' | sed 's/<title>\(.*\)<\/title>/\1/')
 echo -e "Title: ${GREEN}$HOME_TITLE${NC}"
 echo ""
 
 # Test Explore Page
-echo -e "${BLUE}📄 Testing /tabs/explore page:${NC}"
+echo -e "${BLUE}📄 Testing /explore page:${NC}"
 echo "-----------------------------------"
-EXPLORE_TITLE=$(curl -s $SERVER_URL/tabs/explore | grep -o '<title>[^<]*</title>' | sed 's/<title>\(.*\)<\/title>/\1/')
+EXPLORE_TITLE=$(curl -s $SERVER_URL/explore | grep -o '<title>[^<]*</title>' | sed 's/<title>\(.*\)<\/title>/\1/')
 echo -e "Title: ${GREEN}$EXPLORE_TITLE${NC}"
 
-EXPLORE_OG_TITLE=$(curl -s $SERVER_URL/tabs/explore | grep 'og:title' | grep -o 'content="[^"]*"' | sed 's/content="\(.*\)"/\1/')
+EXPLORE_OG_TITLE=$(curl -s $SERVER_URL/explore | grep 'og:title' | grep -o 'content="[^"]*"' | sed 's/content="\(.*\)"/\1/')
 echo -e "OG Title: ${GREEN}$EXPLORE_OG_TITLE${NC}"
 echo ""
 

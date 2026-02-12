@@ -16,7 +16,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
-import { IonHeader, IonContent, IonToolbar } from '@ionic/angular/standalone';
+import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import {
   AgentXShellComponent,
   NxtSidenavService,
@@ -75,6 +75,7 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
 export class AgentXComponent {
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
+  private readonly navController = inject(NavController);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
 
   /**

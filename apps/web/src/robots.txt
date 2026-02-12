@@ -5,7 +5,7 @@ Allow: /
 # Block admin and API endpoints from search engines
 Disallow: /api/
 Disallow: /auth/
-Disallow: /tabs/settings/
+Disallow: /settings/
 
 # Sitemaps
 Sitemap: https://nxt1sports.com/sitemap.xml

@@ -74,8 +74,11 @@ import {
   OnDestroy,
   booleanAttribute,
   numberAttribute,
+  ElementRef,
+  PLATFORM_ID,
+  afterNextRender,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import {
   IonContent,
   IonRefresher,
@@ -171,38 +174,45 @@ export const DEFAULT_REFRESH_CONFIG: Required<RefreshContainerConfig> = {
   standalone: true,
   imports: [CommonModule, IonRefresher, IonRefresherContent],
   template: `
-    <ion-refresher
-      slot="fixed"
-      [pullFactor]="pullFactor"
-      [pullMin]="pullMin"
-      [pullMax]="pullMax"
-      [closeDuration]="closeDuration"
-      [snapbackDuration]="snapbackDuration"
-      [disabled]="disabled || isInCooldown()"
-      [attr.aria-label]="ariaLabel"
-      role="status"
-      [attr.aria-busy]="isRefreshing()"
-      (ionStart)="onPullStart()"
-      (ionPull)="onPull($event)"
-      (ionRefresh)="onRefreshTriggered($event)"
-    >
-      <!-- 
-        CRITICAL: For native iOS/Android refreshers, we must NOT set pullingIcon 
-        or refreshingSpinner at all. Only bind them when custom values are provided.
-      -->
-      @if (pullingIcon || refreshingSpinner) {
-        <!-- Custom spinner mode (non-native) -->
-        <ion-refresher-content
-          [pullingIcon]="pullingIcon"
-          [pullingText]="pullingText"
-          [refreshingSpinner]="refreshingSpinner"
-          [refreshingText]="refreshingText"
-        />
-      } @else {
-        <!-- Native refresher mode (iOS rubber-band / Android Material) -->
-        <ion-refresher-content [pullingText]="pullingText" [refreshingText]="refreshingText" />
-      }
-    </ion-refresher>
+    <!-- 
+      CRITICAL: ion-refresher MUST be inside ion-content.
+      On web shells without ion-content, this component renders nothing.
+      This prevents the "ion-refresher must be used inside ion-content" error.
+    -->
+    @if (isInsideIonContent()) {
+      <ion-refresher
+        slot="fixed"
+        [pullFactor]="pullFactor"
+        [pullMin]="pullMin"
+        [pullMax]="pullMax"
+        [closeDuration]="closeDuration"
+        [snapbackDuration]="snapbackDuration"
+        [disabled]="disabled || isInCooldown()"
+        [attr.aria-label]="ariaLabel"
+        role="status"
+        [attr.aria-busy]="isRefreshing()"
+        (ionStart)="onPullStart()"
+        (ionPull)="onPull($event)"
+        (ionRefresh)="onRefreshTriggered($event)"
+      >
+        <!-- 
+          CRITICAL: For native iOS/Android refreshers, we must NOT set pullingIcon 
+          or refreshingSpinner at all. Only bind them when custom values are provided.
+        -->
+        @if (pullingIcon || refreshingSpinner) {
+          <!-- Custom spinner mode (non-native) -->
+          <ion-refresher-content
+            [pullingIcon]="pullingIcon"
+            [pullingText]="pullingText"
+            [refreshingSpinner]="refreshingSpinner"
+            [refreshingText]="refreshingText"
+          />
+        } @else {
+          <!-- Native refresher mode (iOS rubber-band / Android Material) -->
+          <ion-refresher-content [pullingText]="pullingText" [refreshingText]="refreshingText" />
+        }
+      </ion-refresher>
+    }
   `,
   styles: `
     /* Accessibility: Respect reduced motion preferences */
@@ -222,9 +232,34 @@ export const DEFAULT_REFRESH_CONFIG: Required<RefreshContainerConfig> = {
 })
 export class NxtRefresherComponent implements OnDestroy {
   private readonly haptics = inject(HapticsService);
+  private readonly elementRef = inject(ElementRef);
+  private readonly platformId = inject(PLATFORM_ID);
   private timeoutId: ReturnType<typeof setTimeout> | null = null;
   private refresherElement: HTMLIonRefresherElement | null = null;
   private lastRefreshEndTime = 0;
+
+  /**
+   * Whether this component is inside an ion-content element.
+   * ion-refresher REQUIRES ion-content to function properly.
+   * On web shells without ion-content, this will be false and nothing renders.
+   */
+  readonly isInsideIonContent = signal<boolean>(false);
+
+  constructor() {
+    // Detect if inside ion-content on client-side
+    afterNextRender(() => {
+      if (isPlatformBrowser(this.platformId)) {
+        const element = this.elementRef.nativeElement as HTMLElement;
+        const ionContent = element.closest('ion-content');
+        this.isInsideIonContent.set(ionContent !== null);
+
+        if (!ionContent) {
+          // Silent noop - web shells don't have ion-content and that's fine
+          // Pull-to-refresh is a mobile pattern primarily
+        }
+      }
+    });
+  }
 
   // ============================================
   // INPUTS - Behavior

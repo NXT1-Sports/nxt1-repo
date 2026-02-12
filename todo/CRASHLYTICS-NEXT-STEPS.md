@@ -230,7 +230,7 @@ adb logcat -s FirebaseCrashlytics
 
 ## 📱 Dev Settings Page Features
 
-Access at: `/dev-settings` or `/tabs/dev-settings`
+Access at: `/dev-settings`
 
 ### Test Actions
 

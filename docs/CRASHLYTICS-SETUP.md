@@ -541,7 +541,7 @@ async onUserAuthenticated(user: User) {
 NXT1 includes a built-in Developer Settings page for testing Crashlytics:
 
 ```
-Navigate to: /dev-settings (or /tabs/dev-settings)
+Navigate to: /dev-settings
 ```
 
 This page provides:

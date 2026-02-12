@@ -80,7 +80,7 @@ export class DeepLinkService {
   /**
    * Map of URL patterns to app routes
    * Order matters - first match wins
-   * Uses clean URLs (no /tabs/ prefix) matching web platform
+   * Uses clean URLs (no tabs prefix) matching web platform
    */
   private readonly routeMap: DeepLinkRoute[] = [
     // Profile pages

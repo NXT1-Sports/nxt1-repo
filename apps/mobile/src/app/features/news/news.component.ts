@@ -99,6 +99,6 @@ export class NewsComponent {
   protected async onXpBadgeClick(): Promise<void> {
     this.logger.debug('News XP badge clicked');
     // Future: Show XP breakdown modal or navigate to XP page
-    // await this.navController.navigateForward('/tabs/xp');
+    // await this.navController.navigateForward('/xp');
   }
 }

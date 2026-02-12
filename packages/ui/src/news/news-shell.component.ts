@@ -76,7 +76,7 @@ addIcons({
       <!-- Feed View -->
       <div class="news-shell">
         <!-- Header -->
-        <nxt1-page-header title="News" subtitle="Latest in sports recruiting">
+        <nxt1-page-header title="News">
           <div headerActions class="news-shell__actions">
             <!-- XP Badge -->
             <button

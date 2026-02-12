@@ -934,6 +934,14 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Credit Card / Billing icon */
+  creditCard: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M1 4h22v16H1z' }, { d: 'M1 10h22' }],
+  },
+
   /** School/Education icon */
   school: {
     viewBox: '0 0 24 24',

@@ -57,8 +57,6 @@ import {
   input,
   output,
   computed,
-  signal,
-  HostBinding,
   ElementRef,
   viewChild,
 } from '@angular/core';
@@ -77,6 +75,13 @@ export interface SearchBarSubmitEvent {
   selector: 'nxt1-search-bar',
   standalone: true,
   imports: [NxtIconComponent],
+  host: {
+    '[class.nxt1-nav-search]': 'true',
+    '[class.mobile]': "variant() === 'mobile'",
+    '[class.desktop]': "variant() === 'desktop'",
+    '[class.desktop-centered]': "variant() === 'desktop-centered'",
+    '[class.mobile--focused]': "variant() === 'mobile' && focused()",
+  },
   template: `
     <form class="search-form relative flex items-center" (submit)="onSubmit($event)">
       <!-- Search Icon -->
@@ -147,7 +152,8 @@ export interface SearchBarSubmitEvent {
 
       /* Focused: expand width and left-align content */
       :host(.mobile.mobile--focused) .search-form {
-        width: 100%;
+        width: calc(100% - 24px);
+        margin: 0 12px;
         justify-content: flex-start;
       }
 
@@ -229,15 +235,6 @@ export class NxtSearchBarComponent {
 
   /** Whether the mobile variant is currently focused (drives expand animation) */
   readonly focused = input(false);
-
-  // ─── Host bindings ────────────────────────────────────────
-  /** Apply .nxt1-nav-search + variant class + focused modifier */
-  @HostBinding('class')
-  get hostClass(): string {
-    const v = this.variant();
-    const focusedClass = v === 'mobile' && this.isMobileFocused() ? ' mobile--focused' : '';
-    return `nxt1-nav-search ${v}${focusedClass}`;
-  }
 
   /** Reference to native input for programmatic focus */
   private readonly inputRef = viewChild<ElementRef<HTMLInputElement>>('searchInput');

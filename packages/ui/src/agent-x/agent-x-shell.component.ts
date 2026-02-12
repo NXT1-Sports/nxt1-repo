@@ -116,21 +116,21 @@ export interface AgentXUser {
         @if (!agentX.isEmpty()) {
           <nxt1-agent-x-chat [messages]="agentX.messages()" />
         }
-
-        <!-- Bottom Input Area -->
-        <nxt1-agent-x-input
-          [hasMessages]="!agentX.isEmpty()"
-          [selectedTask]="agentX.selectedTask()"
-          [isLoading]="agentX.isLoading()"
-          [canSend]="agentX.canSend()"
-          [userMessage]="agentX.getUserMessage()"
-          (messageChange)="agentX.setUserMessage($event)"
-          (send)="onSendMessage()"
-          (removeTask)="agentX.clearTask()"
-          (toggleTasks)="onToggleTasks()"
-        />
       </div>
     </ion-content>
+
+    <!-- Input Bar — OUTSIDE ion-content so it's fixed above the footer -->
+    <nxt1-agent-x-input
+      [hasMessages]="!agentX.isEmpty()"
+      [selectedTask]="agentX.selectedTask()"
+      [isLoading]="agentX.isLoading()"
+      [canSend]="agentX.canSend()"
+      [userMessage]="agentX.getUserMessage()"
+      (messageChange)="agentX.setUserMessage($event)"
+      (send)="onSendMessage()"
+      (removeTask)="agentX.clearTask()"
+      (toggleTasks)="onToggleTasks()"
+    />
   `,
   styles: [
     `
@@ -181,8 +181,15 @@ export interface AgentXUser {
       .agent-x-container {
         display: flex;
         flex-direction: column;
-        height: 100%;
-        padding-bottom: env(safe-area-inset-bottom, 0);
+        min-height: 100%;
+        /* Reserve space at the bottom for the fixed input bar + footer */
+        padding-bottom: calc(80px + env(safe-area-inset-bottom, 0));
+      }
+
+      @media (max-width: 767px) {
+        .agent-x-container {
+          padding-bottom: calc(160px + env(safe-area-inset-bottom, 0));
+        }
       }
     `,
   ],

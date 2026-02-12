@@ -1,0 +1,128 @@
+/**
+ * @fileoverview Usage Help Modal/Sheet Global Styles
+ * @module @nxt1/ui/styles/features/usage-help
+ * @version 1.0.0
+ *
+ * Global styles for Usage Help modal (desktop) and bottom sheet (mobile).
+ * Uses 100% NXT1 design tokens for full theme awareness.
+ */
+
+/* ============================================
+ * Usage Help - Mobile Sheet
+ * Drag-up sheet with 90% height
+ * ============================================ */
+.usage-help-sheet {
+  --background: transparent;
+  --box-shadow: none;
+}
+
+.usage-help-sheet::part(content) {
+  border-radius: var(--nxt1-radius-2xl, 24px) var(--nxt1-radius-2xl, 24px) 0 0;
+  background: var(--nxt1-color-surface-200, #1c1c1e);
+  max-height: 92vh;
+  overflow: hidden;
+}
+
+.usage-help-sheet::part(backdrop) {
+  background: var(--nxt1-color-bg-overlay, rgba(0, 0, 0, 0.6));
+  backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
+  -webkit-backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
+}
+
+.usage-help-sheet::part(handle) {
+  background: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.15));
+  width: 36px;
+  height: 5px;
+  border-radius: 3px;
+  margin-top: var(--nxt1-spacing-2, 8px);
+}
+
+/* iOS blur effect */
+@supports (backdrop-filter: blur(40px)) {
+  .usage-help-sheet::part(content) {
+    background: var(--nxt1-color-surface-glass, rgba(28, 28, 30, 0.92));
+    backdrop-filter: blur(var(--nxt1-blur-xl, 40px));
+    -webkit-backdrop-filter: blur(var(--nxt1-blur-xl, 40px));
+  }
+}
+
+/* ============================================
+ * Usage Help - Desktop Modal
+ * Centered card with max dimensions
+ * ============================================ */
+.usage-help-modal {
+  --background: transparent;
+  --box-shadow: none;
+  --width: 560px;
+  --max-width: 90vw;
+  --height: auto;
+  --max-height: 85vh;
+
+  align-items: center;
+  justify-content: center;
+}
+
+.usage-help-modal::part(content) {
+  border-radius: var(--nxt1-radius-2xl, 24px);
+  background: var(--nxt1-color-surface-200, #1c1c1e);
+  box-shadow: var(--nxt1-shadow-2xl, 0 25px 50px -12px rgba(0, 0, 0, 0.5));
+  overflow: hidden;
+  max-height: 85vh;
+}
+
+.usage-help-modal::part(backdrop) {
+  background: var(--nxt1-color-bg-overlay, rgba(0, 0, 0, 0.6));
+  backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
+  -webkit-backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
+}
+
+/* Desktop blur effect */
+@supports (backdrop-filter: blur(40px)) {
+  .usage-help-modal::part(content) {
+    background: var(--nxt1-color-surface-glass, rgba(28, 28, 30, 0.95));
+    backdrop-filter: blur(var(--nxt1-blur-xl, 40px));
+    -webkit-backdrop-filter: blur(var(--nxt1-blur-xl, 40px));
+  }
+}
+
+/* ============================================
+ * Light Mode Overrides
+ * ============================================ */
+.light .usage-help-sheet::part(content),
+.light .usage-help-modal::part(content),
+[data-theme='light'] .usage-help-sheet::part(content),
+[data-theme='light'] .usage-help-modal::part(content) {
+  background: var(--nxt1-color-surface-200, #ffffff);
+}
+
+.light .usage-help-sheet::part(handle),
+[data-theme='light'] .usage-help-sheet::part(handle) {
+  background: var(--nxt1-color-border-default, rgba(0, 0, 0, 0.15));
+}
+
+@supports (backdrop-filter: blur(40px)) {
+  .light .usage-help-sheet::part(content),
+  .light .usage-help-modal::part(content),
+  [data-theme='light'] .usage-help-sheet::part(content),
+  [data-theme='light'] .usage-help-modal::part(content) {
+    background: var(--nxt1-color-surface-glass, rgba(255, 255, 255, 0.92));
+  }
+}
+
+/* ============================================
+ * Animation Timing
+ * ============================================ */
+.usage-help-sheet,
+.usage-help-modal {
+  --animation-timing-function: var(--nxt1-easing-spring, cubic-bezier(0.32, 0.72, 0, 1));
+}
+
+/* ============================================
+ * Accessibility: Reduced Motion
+ * ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  .usage-help-sheet,
+  .usage-help-modal {
+    --animation-duration: 0.01ms !important;
+  }
+}

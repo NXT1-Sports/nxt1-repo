@@ -229,7 +229,7 @@ export const SETTINGS_BILLING_ITEMS: readonly SettingsItem[] = [
     label: 'Current Plan',
     description: 'View and upgrade your subscription',
     icon: 'star-outline',
-    route: '/settings/subscription',
+    route: '/usage',
     displayValue: 'Free',
   },
   {
@@ -239,7 +239,7 @@ export const SETTINGS_BILLING_ITEMS: readonly SettingsItem[] = [
     label: 'Payment Methods',
     description: 'Manage cards and payment options',
     icon: 'card-outline',
-    route: '/settings/payment-methods',
+    route: '/usage',
   },
   {
     id: 'billingHistory',
@@ -248,7 +248,7 @@ export const SETTINGS_BILLING_ITEMS: readonly SettingsItem[] = [
     label: 'Billing History',
     description: 'View past invoices and receipts',
     icon: 'receipt-outline',
-    route: '/settings/billing-history',
+    route: '/usage',
   },
   {
     id: 'usage',
@@ -257,7 +257,7 @@ export const SETTINGS_BILLING_ITEMS: readonly SettingsItem[] = [
     label: 'Usage & Limits',
     description: 'View your current usage statistics',
     icon: 'trending-up-outline',
-    route: '/settings/usage',
+    route: '/usage',
   },
 ] as const;
 

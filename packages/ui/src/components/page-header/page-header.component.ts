@@ -259,13 +259,15 @@ addIcons({
       <ion-toolbar [class.toolbar--transparent]="variant() === 'transparent'">
         <!-- Left Side: Avatar (Twitter/X style), Back Button, or Custom Start Content -->
         <ion-buttons slot="start" class="start-buttons">
-          @if (showAvatar()) {
-            <!-- Avatar rendered only when visible (removed from DOM when hideAvatar=true) -->
+          @if (shouldRenderAvatar()) {
+            <!-- Avatar always in DOM to preserve layout; hideAvatar makes it invisible -->
             <button
               type="button"
               class="avatar-button"
+              [class.avatar-button--hidden]="hideAvatar()"
               (click)="onAvatarClick()"
               [attr.aria-label]="avatarName() || 'Open profile'"
+              [attr.tabindex]="hideAvatar() ? -1 : 0"
             >
               <nxt1-avatar
                 [src]="avatarSrc()"
@@ -308,8 +310,10 @@ addIcons({
         } @else if (title()) {
           <ion-title [size]="titleSize()" class="header-title">{{ title() }}</ion-title>
         } @else {
-          <!-- Custom title content (searchbars, etc.) - direct in toolbar for proper Ionic layout -->
-          <ng-content select="[pageHeaderSlot=title]" />
+          <!-- Custom title content (searchbars, etc.) - centered like ion-title -->
+          <div class="header-custom-title" [class.header-custom-title--expanded]="hideAvatar()">
+            <ng-content select="[pageHeaderSlot=title]" />
+          </div>
         }
 
         <!-- Right Side: Action Buttons -->
@@ -419,11 +423,14 @@ addIcons({
         -webkit-backdrop-filter: var(--header-glass-backdrop);
       }
 
-      /* Toolbar base - Inherits from header */
+      /* Toolbar base - Fixed height for consistent layout
+         regardless of whether avatar, back button, or nothing is in slots.
+         Height accommodates md avatar (40px) + padding (8px) + breathing room.
+         Uses !important to prevent parent CSS variable cascade from overriding. */
       ion-toolbar {
         --padding-start: var(--nxt1-spacing-2, 8px);
         --padding-end: var(--nxt1-spacing-2, 8px);
-        --min-height: 56px;
+        --min-height: 56px !important;
         height: 56px;
         --background: inherit;
       }
@@ -448,6 +455,9 @@ addIcons({
         bottom: 0;
         width: 100%;
         height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         text-align: center;
         font-family: var(--nxt1-font-family-brand, var(--ion-font-family));
         font-weight: var(--nxt1-font-weight-semibold, 600);
@@ -497,6 +507,42 @@ addIcons({
       }
 
       /* ============================================
+         CUSTOM TITLE - Searchbars, etc.
+         Vertically centered like ion-title
+         ============================================ */
+
+      .header-custom-title {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding-inline: var(--nxt1-spacing-14, 56px);
+        z-index: 0;
+        transition: padding 0.25s ease;
+      }
+
+      /* Direct child wrapper must also center its content */
+      .header-custom-title > * {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        pointer-events: auto;
+      }
+
+      /* Expanded state: reduce left padding when avatar is hidden */
+      .header-custom-title--expanded {
+        padding-inline-start: var(--nxt1-spacing-4, 16px);
+        padding-inline-end: var(--nxt1-spacing-4, 16px);
+      }
+
+      /* ============================================
          LOGO - Twitter/X Style Home Header
          Uses NxtLogoComponent for theme-aware switching
          ============================================ */
@@ -533,12 +579,19 @@ addIcons({
       .start-buttons {
         position: relative;
         z-index: 1;
-        min-height: 44px;
+        height: 56px;
         display: flex;
         align-items: center;
       }
 
-      /* Avatar button (Twitter/X style) */
+      /* Raise back button and other items up to align with title */
+      .start-buttons > nxt1-back-button,
+      .start-buttons > ion-button,
+      .start-buttons > [pageHeaderSlot] {
+        transform: translateY(-3px);
+      }
+
+      /* Avatar button (Twitter/X style) - stays centered, no transform */
       .avatar-button {
         display: flex;
         align-items: center;
@@ -550,18 +603,29 @@ addIcons({
         border-radius: var(--nxt1-radius-full, 9999px);
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
-        transition: opacity var(--nxt1-transition-fast, 150ms) ease;
+        transition:
+          opacity 0.15s ease,
+          width 0.25s ease,
+          margin 0.25s ease;
       }
 
       .avatar-button:active {
         opacity: 0.7;
       }
 
-      /* Hidden state: invisible but preserves space (no layout shift) */
+      /* Hidden state: collapsed to allow search bar to expand */
       .avatar-button--hidden {
         opacity: 0;
         visibility: hidden;
         pointer-events: none;
+        width: 0;
+        padding: 0;
+        margin: 0;
+        overflow: hidden;
+        transition:
+          width 0.25s ease,
+          opacity 0.15s ease,
+          margin 0.25s ease;
       }
 
       /* ============================================
@@ -571,6 +635,14 @@ addIcons({
       .end-buttons {
         position: relative;
         z-index: 1;
+        height: 56px;
+        display: flex;
+        align-items: center;
+      }
+
+      /* Raise all items in end slot up to align with title */
+      .end-buttons > * {
+        transform: translateY(-3px);
       }
 
       .end-buttons ion-button {

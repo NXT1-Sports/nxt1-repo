@@ -41,7 +41,7 @@ import { AboutContentShellComponent } from '@nxt1/ui';
     <ion-header>
       <ion-toolbar>
         <ion-buttons slot="start">
-          <ion-back-button defaultHref="/tabs/settings"></ion-back-button>
+          <ion-back-button defaultHref="/settings"></ion-back-button>
         </ion-buttons>
         <ion-title>About NXT1 Sports</ion-title>
       </ion-toolbar>

@@ -41,7 +41,7 @@ import { TermsContentShellComponent } from '@nxt1/ui';
     <ion-header>
       <ion-toolbar>
         <ion-buttons slot="start">
-          <ion-back-button defaultHref="/tabs/settings"></ion-back-button>
+          <ion-back-button defaultHref="/settings"></ion-back-button>
         </ion-buttons>
         <ion-title>Terms of Service</ion-title>
       </ion-toolbar>

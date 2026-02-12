@@ -690,7 +690,7 @@ export class NxtThemeService {
    * Load saved preference from storage.
    */
   private loadPreference(): ThemePreference {
-    if (!this.isBrowser) return 'system';
+    if (!this.isBrowser) return 'dark';
 
     try {
       const saved = localStorage.getItem(THEME_STORAGE_KEY);
@@ -702,7 +702,8 @@ export class NxtThemeService {
       console.warn('[NxtThemeService] Could not access localStorage');
     }
 
-    return 'system';
+    // Default to 'dark' — must match the inline script in index.html
+    return 'dark';
   }
 
   /**
@@ -726,7 +727,9 @@ export class NxtThemeService {
 
     try {
       const saved = localStorage.getItem(SPORT_STORAGE_KEY);
-      if (saved && ['football', 'basketball', 'baseball', 'softball'].includes(saved)) {
+      // Validate against ALL supported sport themes
+      const validSports: readonly string[] = SPORT_THEME_OPTIONS.map((opt) => opt.id);
+      if (saved && validSports.includes(saved)) {
         return saved as SportTheme;
       }
     } catch {
