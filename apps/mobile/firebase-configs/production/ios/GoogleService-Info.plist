@@ -1,28 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!--
-  PRODUCTION Firebase Configuration for NXT1 Sports iOS App
-  
-  ⚠️ IMPORTANT: This is a PLACEHOLDER file!
-  
-  To get the actual production config:
-  1. Go to Firebase Console: https://console.firebase.google.com/project/nxt-1-de054/settings/general
-  2. Select the iOS app (com.nxt1.sports)
-  3. Click "Download GoogleService-Info.plist"
-  4. Replace this file with the downloaded one
-  
-  This file is for the PRODUCTION Firebase project: nxt-1-de054
-  - Crashlytics reports will appear in the production dashboard
-  - Use this for App Store releases ONLY
--->
 <plist version="1.0">
 <dict>
 	<key>CLIENT_ID</key>
-	<string>574223545656-REPLACE_WITH_ACTUAL_VALUE.apps.googleusercontent.com</string>
+	<string>574223545656-u8o0mv59tnbtd66te7lp12bto9f50uid.apps.googleusercontent.com</string>
 	<key>REVERSED_CLIENT_ID</key>
-	<string>com.googleusercontent.apps.574223545656-REPLACE_WITH_ACTUAL_VALUE</string>
+	<string>com.googleusercontent.apps.574223545656-u8o0mv59tnbtd66te7lp12bto9f50uid</string>
 	<key>API_KEY</key>
-	<string>AIzaSyCFhuwGzzza5VbrXCJ_5_l8EisCkZKzoow</string>
+	<string>AIzaSyDvaPjlLXECjcPuwCPHbJ1uV4S8zGEWyxI</string>
 	<key>GCM_SENDER_ID</key>
 	<string>574223545656</string>
 	<key>PLIST_VERSION</key>
@@ -36,7 +21,7 @@
 	<key>IS_ADS_ENABLED</key>
 	<false></false>
 	<key>IS_ANALYTICS_ENABLED</key>
-	<true></true>
+	<false></false>
 	<key>IS_APPINVITE_ENABLED</key>
 	<true></true>
 	<key>IS_GCM_ENABLED</key>
@@ -44,6 +29,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:574223545656:ios:REPLACE_WITH_ACTUAL_VALUE</string>
+	<string>1:574223545656:ios:59960b003ce26cd245bdcd</string>
 </dict>
 </plist>

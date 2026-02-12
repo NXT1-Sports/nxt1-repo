@@ -14,7 +14,7 @@ import {
   withHashLocation,
 } from '@angular/router';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
-import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
+import { provideAnimations } from '@angular/platform-browser/animations';
 import { provideIonicAngular, IonicRouteStrategy } from '@ionic/angular/standalone';
 
 // Firebase
@@ -79,7 +79,7 @@ export const appConfig: ApplicationConfig = {
       ])
     ),
 
-    provideAnimationsAsync(),
+    provideAnimations(),
 
     // Ionic Configuration
     // - iOS mode for consistent horizontal slide animations across all platforms

@@ -3,23 +3,21 @@
 <plist version="1.0">
 <dict>
 	<key>CLIENT_ID</key>
-	<string>455734259010-hi7stcq2qk5jan5md5k4cqnvaj3u94gu.apps.googleusercontent.com</string>
+	<string>574223545656-u8o0mv59tnbtd66te7lp12bto9f50uid.apps.googleusercontent.com</string>
 	<key>REVERSED_CLIENT_ID</key>
-	<string>com.googleusercontent.apps.455734259010-hi7stcq2qk5jan5md5k4cqnvaj3u94gu</string>
-	<key>ANDROID_CLIENT_ID</key>
-	<string>455734259010-0h2go359hoo3vlchsqaova93ck3vn300.apps.googleusercontent.com</string>
+	<string>com.googleusercontent.apps.574223545656-u8o0mv59tnbtd66te7lp12bto9f50uid</string>
 	<key>API_KEY</key>
-	<string>AIzaSyByV6jZgZAhPig3wAwnGnBWIWa7pSMRBKY</string>
+	<string>AIzaSyDvaPjlLXECjcPuwCPHbJ1uV4S8zGEWyxI</string>
 	<key>GCM_SENDER_ID</key>
-	<string>455734259010</string>
+	<string>574223545656</string>
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
 	<string>com.nxt1sports.nxt1</string>
 	<key>PROJECT_ID</key>
-	<string>nxt-1-staging</string>
+	<string>nxt-1-de054</string>
 	<key>STORAGE_BUCKET</key>
-	<string>nxt-1-staging.appspot.com</string>
+	<string>nxt-1-de054.appspot.com</string>
 	<key>IS_ADS_ENABLED</key>
 	<false></false>
 	<key>IS_ANALYTICS_ENABLED</key>
@@ -31,6 +29,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:455734259010:ios:40e486dff661b6155a6cdb</string>
+	<string>1:574223545656:ios:59960b003ce26cd245bdcd</string>
 </dict>
 </plist>
