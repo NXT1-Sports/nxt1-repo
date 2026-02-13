@@ -26,12 +26,7 @@ import {
   PLATFORM_ID,
 } from '@angular/core';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
-import {
-  type ExploreItem,
-  type ExploreTabId,
-  EXPLORE_EMPTY_STATES,
-  EXPLORE_INITIAL_STATES,
-} from '@nxt1/core';
+import { type ExploreItem, type ExploreTabId, EXPLORE_EMPTY_STATES } from '@nxt1/core';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { ExploreSkeletonComponent } from '../explore-skeleton.component';
 import { ExploreItemWebComponent } from './explore-item-web.component';
@@ -61,18 +56,6 @@ const STATE_ICON_PATHS: Record<string, string> = {
   ticket:
     'M22 10V6c0-1.11-.9-2-2-2H4c-1.1 0-1.99.89-1.99 2v4c1.1 0 1.99.9 1.99 2s-.89 2-2 2v4c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2v-4c-1.1 0-2-.9-2-2s.9-2 2-2zm-2-1.46c-1.19.69-2 1.99-2 3.46s.81 2.77 2 3.46V18H4v-2.54c1.19-.69 2-1.99 2-3.46 0-1.48-.81-2.77-2-3.46V6h16v2.54z',
 } as const;
-
-/** Map ExploreTabId → icon key for initial state illustration */
-const TAB_ICON_MAP: Record<ExploreTabId, string> = {
-  colleges: 'school',
-  athletes: 'person',
-  teams: 'people',
-  videos: 'play-circle',
-  leaderboards: 'trophy',
-  'scout-reports': 'clipboard',
-  camps: 'calendar',
-  events: 'ticket',
-};
 
 @Component({
   selector: 'nxt1-explore-list-web',
@@ -117,19 +100,6 @@ const TAB_ICON_MAP: Record<ExploreTabId, string> = {
         </div>
         <h3 class="state-title">{{ emptyState().title }}</h3>
         <p class="state-message">{{ emptyState().message }}</p>
-      </div>
-    }
-
-    <!-- Initial State (no search yet) -->
-    @else if (isEmpty() && !hasQuery()) {
-      <div class="explore-list__initial">
-        <div class="state-icon">
-          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path [attr.d]="initialIconPath()" />
-          </svg>
-        </div>
-        <h3 class="state-title">{{ initialState().title }}</h3>
-        <p class="state-message">{{ initialState().message }}</p>
       </div>
     }
 
@@ -184,8 +154,7 @@ const TAB_ICON_MAP: Record<ExploreTabId, string> = {
          ============================================ */
 
       .explore-list__error,
-      .explore-list__empty,
-      .explore-list__initial {
+      .explore-list__empty {
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -327,12 +296,6 @@ export class ExploreListWebComponent {
   // ============================================
 
   protected readonly emptyState = computed(() => EXPLORE_EMPTY_STATES[this.activeTab()]);
-
-  protected readonly initialState = computed(() => EXPLORE_INITIAL_STATES[this.activeTab()]);
-
-  protected readonly initialIconPath = computed(
-    () => STATE_ICON_PATHS[TAB_ICON_MAP[this.activeTab()] ?? 'search'] ?? STATE_ICON_PATHS['search']
-  );
 
   // ============================================
   // LIFECYCLE — IntersectionObserver for infinite scroll

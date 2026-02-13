@@ -888,10 +888,16 @@ export class WebShellComponent {
   }
 
   /**
-   * Handle logo click - navigate to home
+   * Handle logo click with auth-aware destination.
+   * Authenticated users go to /home, guests go to root landing (/).
    */
   onLogoClick(): void {
-    this.router.navigate(['/home']);
+    if (this.authFlow.isAuthenticated()) {
+      this.router.navigate(['/home']);
+      return;
+    }
+
+    this.router.navigate(['/']);
   }
 
   // ============================================

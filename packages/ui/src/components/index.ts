@@ -277,6 +277,8 @@ export {
   type HeroAudienceCardClickEvent,
 } from './hero-header';
 
+export { NxtAgentXWelcomeHeaderComponent } from './agent-x-welcome-header';
+
 // ============================================
 // PARTNER MARQUEE (Infinite Logo Scroll)
 // ============================================
@@ -286,6 +288,8 @@ export {
   type MarqueeDirection,
   type MarqueeVariant,
 } from './partner-marquee';
+
+export { NxtFaqSectionComponent, type FaqItem } from './faq-section';
 
 // ============================================
 // APP DOWNLOAD BAR

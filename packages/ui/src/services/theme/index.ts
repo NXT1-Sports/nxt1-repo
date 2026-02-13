@@ -81,7 +81,14 @@ export type SportTheme =
   | 'soccer'
   | 'volleyball'
   | 'lacrosse'
-  | 'track';
+  | 'track'
+  | 'ice-hockey'
+  | 'tennis'
+  | 'golf'
+  | 'swimming-diving'
+  | 'wrestling'
+  | 'gymnastics'
+  | 'rowing';
 
 /** Theme change event */
 export interface ThemeChangeEvent {
@@ -221,6 +228,55 @@ export const SPORT_THEME_OPTIONS: readonly SportThemeOption[] = [
     primaryColor: '#7c4dff',
     description: 'Purple speed',
   },
+  {
+    id: 'ice-hockey',
+    label: 'Ice Hockey',
+    icon: 'sports',
+    primaryColor: '#6ea8fe',
+    description: 'Ice blue intensity',
+  },
+  {
+    id: 'tennis',
+    label: 'Tennis',
+    icon: 'sports',
+    primaryColor: '#c0ca33',
+    description: 'Court green precision',
+  },
+  {
+    id: 'golf',
+    label: 'Golf',
+    icon: 'sports',
+    primaryColor: '#1f7a4c',
+    description: 'Augusta green classic',
+  },
+  {
+    id: 'swimming-diving',
+    label: 'Swimming & Diving',
+    icon: 'sports',
+    primaryColor: '#14b8a6',
+    description: 'Aquatic cyan flow',
+  },
+  {
+    id: 'wrestling',
+    label: 'Wrestling',
+    icon: 'sports',
+    primaryColor: '#d81b60',
+    description: 'Crimson championship grit',
+  },
+  {
+    id: 'gymnastics',
+    label: 'Gymnastics',
+    icon: 'sports',
+    primaryColor: '#5e35b1',
+    description: 'Violet elegance',
+  },
+  {
+    id: 'rowing',
+    label: 'Rowing',
+    icon: 'sports',
+    primaryColor: '#ff7043',
+    description: 'River blue rhythm',
+  },
 ] as const;
 
 /** Background colors for each theme (for flash prevention) */
@@ -235,6 +291,13 @@ const THEME_BG_COLORS: Record<string, string> = {
   'sport-volleyball': '#140a12',
   'sport-lacrosse': '#08181c',
   'sport-track': '#120a1c',
+  'sport-ice-hockey': '#0c1426',
+  'sport-tennis': '#1e230e',
+  'sport-golf': '#0f1c14',
+  'sport-swimming-diving': '#071d1d',
+  'sport-wrestling': '#1f0b15',
+  'sport-gymnastics': '#140f24',
+  'sport-rowing': '#2a120c',
 };
 
 // ============================================

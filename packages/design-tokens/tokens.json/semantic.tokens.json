@@ -2316,6 +2316,657 @@
       }
     },
 
+    "sport-ice-hockey": {
+      "$description": "Ice hockey theme - Ice blue with deep navy contrast",
+
+      "color": {
+        "primary": { "$value": "#6ea8fe", "$type": "color" },
+        "primaryLight": { "$value": "#a9c7ff", "$type": "color" },
+        "primaryDark": { "$value": "#2f6ed4", "$type": "color" },
+        "secondary": { "$value": "#2b3a67", "$type": "color" },
+        "accent": { "$value": "#dbeafe", "$type": "color" },
+
+        "background": {
+          "primary": { "$value": "#0c1426", "$type": "color" },
+          "secondary": { "$value": "#111d33", "$type": "color" },
+          "tertiary": { "$value": "#172740", "$type": "color" },
+          "elevated": { "$value": "#1e324d", "$type": "color" },
+          "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
+        },
+
+        "surface": {
+          "100": { "$value": "#14203a", "$type": "color" },
+          "200": { "$value": "#1b2946", "$type": "color" },
+          "300": { "$value": "#233354", "$type": "color" },
+          "400": { "$value": "#2b3d62", "$type": "color" },
+          "500": { "$value": "#334770", "$type": "color" }
+        },
+
+        "text": {
+          "primary": { "$value": "#ffffff", "$type": "color" },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.75)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.55)",
+            "$type": "color"
+          },
+          "onPrimary": { "$value": "#001018", "$type": "color" }
+        },
+
+        "border": {
+          "primary": { "$value": "rgba(110, 168, 254, 0.4)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": { "$value": "rgba(110, 168, 254, 0.10)", "$type": "color" },
+          "pressed": {
+            "$value": "rgba(110, 168, 254, 0.18)",
+            "$type": "color"
+          },
+          "focus": { "$value": "rgba(110, 168, 254, 0.26)", "$type": "color" }
+        },
+
+        "alpha": {
+          "primary10": {
+            "$value": "rgba(110, 168, 254, 0.1)",
+            "$type": "color"
+          },
+          "primary20": {
+            "$value": "rgba(110, 168, 254, 0.2)",
+            "$type": "color"
+          },
+          "primary30": {
+            "$value": "rgba(110, 168, 254, 0.3)",
+            "$type": "color"
+          },
+          "primary50": {
+            "$value": "rgba(110, 168, 254, 0.5)",
+            "$type": "color"
+          }
+        },
+
+        "focus": {
+          "ring": { "$value": "rgba(110, 168, 254, 0.5)", "$type": "color" },
+          "ringOffset": { "$value": "#0c1426", "$type": "color" }
+        },
+
+        "loading": {
+          "spinner": { "$value": "#6ea8fe", "$type": "color" }
+        }
+      },
+
+      "shadow": {
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": {
+          "$value": "0 0 8px rgba(110, 168, 254, 0.35)",
+          "$type": "shadow"
+        },
+        "md": {
+          "$value": "0 0 16px rgba(110, 168, 254, 0.45)",
+          "$type": "shadow"
+        }
+      }
+    },
+
+    "sport-tennis": {
+      "$description": "Tennis theme - Neon court green with clean contrast",
+
+      "color": {
+        "primary": { "$value": "#c0ca33", "$type": "color" },
+        "primaryLight": { "$value": "#e6ee9c", "$type": "color" },
+        "primaryDark": { "$value": "#8c9900", "$type": "color" },
+        "secondary": { "$value": "#6d4c41", "$type": "color" },
+        "accent": { "$value": "#fefce8", "$type": "color" },
+
+        "background": {
+          "primary": { "$value": "#1e230e", "$type": "color" },
+          "secondary": { "$value": "#2a3114", "$type": "color" },
+          "tertiary": { "$value": "#353f1b", "$type": "color" },
+          "elevated": { "$value": "#414c22", "$type": "color" },
+          "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
+        },
+
+        "surface": {
+          "100": { "$value": "#262b15", "$type": "color" },
+          "200": { "$value": "#30361b", "$type": "color" },
+          "300": { "$value": "#3b4222", "$type": "color" },
+          "400": { "$value": "#464f29", "$type": "color" },
+          "500": { "$value": "#525c31", "$type": "color" }
+        },
+
+        "text": {
+          "primary": { "$value": "#ffffff", "$type": "color" },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.75)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.55)",
+            "$type": "color"
+          },
+          "onPrimary": { "$value": "#1b2107", "$type": "color" }
+        },
+
+        "border": {
+          "primary": { "$value": "rgba(192, 202, 51, 0.4)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": { "$value": "rgba(192, 202, 51, 0.10)", "$type": "color" },
+          "pressed": { "$value": "rgba(192, 202, 51, 0.18)", "$type": "color" },
+          "focus": { "$value": "rgba(192, 202, 51, 0.26)", "$type": "color" }
+        },
+
+        "alpha": {
+          "primary10": {
+            "$value": "rgba(192, 202, 51, 0.1)",
+            "$type": "color"
+          },
+          "primary20": {
+            "$value": "rgba(192, 202, 51, 0.2)",
+            "$type": "color"
+          },
+          "primary30": {
+            "$value": "rgba(192, 202, 51, 0.3)",
+            "$type": "color"
+          },
+          "primary50": { "$value": "rgba(192, 202, 51, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": { "$value": "rgba(192, 202, 51, 0.5)", "$type": "color" },
+          "ringOffset": { "$value": "#1e230e", "$type": "color" }
+        },
+
+        "loading": {
+          "spinner": { "$value": "#c0ca33", "$type": "color" }
+        }
+      },
+
+      "shadow": {
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": {
+          "$value": "0 0 8px rgba(192, 202, 51, 0.35)",
+          "$type": "shadow"
+        },
+        "md": {
+          "$value": "0 0 16px rgba(192, 202, 51, 0.45)",
+          "$type": "shadow"
+        }
+      }
+    },
+
+    "sport-golf": {
+      "$description": "Golf theme - Augusta green with elegant gold accents",
+
+      "color": {
+        "primary": { "$value": "#1f7a4c", "$type": "color" },
+        "primaryLight": { "$value": "#4ea673", "$type": "color" },
+        "primaryDark": { "$value": "#0f5532", "$type": "color" },
+        "secondary": { "$value": "#c89b3c", "$type": "color" },
+        "accent": { "$value": "#f7f3e8", "$type": "color" },
+
+        "background": {
+          "primary": { "$value": "#0f1c14", "$type": "color" },
+          "secondary": { "$value": "#16261c", "$type": "color" },
+          "tertiary": { "$value": "#1e3124", "$type": "color" },
+          "elevated": { "$value": "#263b2c", "$type": "color" },
+          "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
+        },
+
+        "surface": {
+          "100": { "$value": "#132219", "$type": "color" },
+          "200": { "$value": "#1a2c21", "$type": "color" },
+          "300": { "$value": "#223729", "$type": "color" },
+          "400": { "$value": "#294132", "$type": "color" },
+          "500": { "$value": "#314c3a", "$type": "color" }
+        },
+
+        "text": {
+          "primary": { "$value": "#ffffff", "$type": "color" },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.75)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.55)",
+            "$type": "color"
+          },
+          "onPrimary": { "$value": "#04120b", "$type": "color" }
+        },
+
+        "border": {
+          "primary": { "$value": "rgba(31, 122, 76, 0.4)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": { "$value": "rgba(31, 122, 76, 0.10)", "$type": "color" },
+          "pressed": { "$value": "rgba(31, 122, 76, 0.18)", "$type": "color" },
+          "focus": { "$value": "rgba(31, 122, 76, 0.26)", "$type": "color" }
+        },
+
+        "alpha": {
+          "primary10": { "$value": "rgba(31, 122, 76, 0.1)", "$type": "color" },
+          "primary20": { "$value": "rgba(31, 122, 76, 0.2)", "$type": "color" },
+          "primary30": { "$value": "rgba(31, 122, 76, 0.3)", "$type": "color" },
+          "primary50": { "$value": "rgba(31, 122, 76, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": { "$value": "rgba(31, 122, 76, 0.5)", "$type": "color" },
+          "ringOffset": { "$value": "#0f1c14", "$type": "color" }
+        },
+
+        "loading": {
+          "spinner": { "$value": "#1f7a4c", "$type": "color" }
+        }
+      },
+
+      "shadow": {
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": {
+          "$value": "0 0 8px rgba(31, 122, 76, 0.35)",
+          "$type": "shadow"
+        },
+        "md": {
+          "$value": "0 0 16px rgba(31, 122, 76, 0.45)",
+          "$type": "shadow"
+        }
+      }
+    },
+
+    "sport-swimming-diving": {
+      "$description": "Swimming & diving theme - Aquatic cyan and deep-water navy",
+
+      "color": {
+        "primary": { "$value": "#14b8a6", "$type": "color" },
+        "primaryLight": { "$value": "#5eead4", "$type": "color" },
+        "primaryDark": { "$value": "#0f766e", "$type": "color" },
+        "secondary": { "$value": "#0f3a5f", "$type": "color" },
+        "accent": { "$value": "#e6fffb", "$type": "color" },
+
+        "background": {
+          "primary": { "$value": "#071d1d", "$type": "color" },
+          "secondary": { "$value": "#0b2828", "$type": "color" },
+          "tertiary": { "$value": "#103434", "$type": "color" },
+          "elevated": { "$value": "#154141", "$type": "color" },
+          "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
+        },
+
+        "surface": {
+          "100": { "$value": "#0f2222", "$type": "color" },
+          "200": { "$value": "#142d2d", "$type": "color" },
+          "300": { "$value": "#1a3939", "$type": "color" },
+          "400": { "$value": "#204545", "$type": "color" },
+          "500": { "$value": "#265151", "$type": "color" }
+        },
+
+        "text": {
+          "primary": { "$value": "#ffffff", "$type": "color" },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.75)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.55)",
+            "$type": "color"
+          },
+          "onPrimary": { "$value": "#022220", "$type": "color" }
+        },
+
+        "border": {
+          "primary": { "$value": "rgba(20, 184, 166, 0.4)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": { "$value": "rgba(20, 184, 166, 0.10)", "$type": "color" },
+          "pressed": { "$value": "rgba(20, 184, 166, 0.18)", "$type": "color" },
+          "focus": { "$value": "rgba(20, 184, 166, 0.26)", "$type": "color" }
+        },
+
+        "alpha": {
+          "primary10": {
+            "$value": "rgba(20, 184, 166, 0.1)",
+            "$type": "color"
+          },
+          "primary20": {
+            "$value": "rgba(20, 184, 166, 0.2)",
+            "$type": "color"
+          },
+          "primary30": {
+            "$value": "rgba(20, 184, 166, 0.3)",
+            "$type": "color"
+          },
+          "primary50": { "$value": "rgba(20, 184, 166, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": { "$value": "rgba(20, 184, 166, 0.5)", "$type": "color" },
+          "ringOffset": { "$value": "#071d1d", "$type": "color" }
+        },
+
+        "loading": {
+          "spinner": { "$value": "#14b8a6", "$type": "color" }
+        }
+      },
+
+      "shadow": {
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": {
+          "$value": "0 0 8px rgba(20, 184, 166, 0.35)",
+          "$type": "shadow"
+        },
+        "md": {
+          "$value": "0 0 16px rgba(20, 184, 166, 0.45)",
+          "$type": "shadow"
+        }
+      }
+    },
+
+    "sport-wrestling": {
+      "$description": "Wrestling theme - Championship crimson and strong graphite",
+
+      "color": {
+        "primary": { "$value": "#d81b60", "$type": "color" },
+        "primaryLight": { "$value": "#ff5c8d", "$type": "color" },
+        "primaryDark": { "$value": "#9b0037", "$type": "color" },
+        "secondary": { "$value": "#607d8b", "$type": "color" },
+        "accent": { "$value": "#fff1f2", "$type": "color" },
+
+        "background": {
+          "primary": { "$value": "#1f0b15", "$type": "color" },
+          "secondary": { "$value": "#2a101d", "$type": "color" },
+          "tertiary": { "$value": "#351525", "$type": "color" },
+          "elevated": { "$value": "#401a2d", "$type": "color" },
+          "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
+        },
+
+        "surface": {
+          "100": { "$value": "#25111c", "$type": "color" },
+          "200": { "$value": "#2f1624", "$type": "color" },
+          "300": { "$value": "#391b2d", "$type": "color" },
+          "400": { "$value": "#442136", "$type": "color" },
+          "500": { "$value": "#4e273f", "$type": "color" }
+        },
+
+        "text": {
+          "primary": { "$value": "#ffffff", "$type": "color" },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.75)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.55)",
+            "$type": "color"
+          },
+          "onPrimary": { "$value": "#ffffff", "$type": "color" }
+        },
+
+        "border": {
+          "primary": { "$value": "rgba(216, 27, 96, 0.4)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": { "$value": "rgba(216, 27, 96, 0.10)", "$type": "color" },
+          "pressed": { "$value": "rgba(216, 27, 96, 0.18)", "$type": "color" },
+          "focus": { "$value": "rgba(216, 27, 96, 0.26)", "$type": "color" }
+        },
+
+        "alpha": {
+          "primary10": { "$value": "rgba(216, 27, 96, 0.1)", "$type": "color" },
+          "primary20": { "$value": "rgba(216, 27, 96, 0.2)", "$type": "color" },
+          "primary30": { "$value": "rgba(216, 27, 96, 0.3)", "$type": "color" },
+          "primary50": { "$value": "rgba(216, 27, 96, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": { "$value": "rgba(216, 27, 96, 0.5)", "$type": "color" },
+          "ringOffset": { "$value": "#1f0b15", "$type": "color" }
+        },
+
+        "loading": {
+          "spinner": { "$value": "#d81b60", "$type": "color" }
+        }
+      },
+
+      "shadow": {
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": {
+          "$value": "0 0 8px rgba(216, 27, 96, 0.35)",
+          "$type": "shadow"
+        },
+        "md": {
+          "$value": "0 0 16px rgba(216, 27, 96, 0.45)",
+          "$type": "shadow"
+        }
+      }
+    },
+
+    "sport-gymnastics": {
+      "$description": "Gymnastics theme - Violet energy with polished contrast",
+
+      "color": {
+        "primary": { "$value": "#5e35b1", "$type": "color" },
+        "primaryLight": { "$value": "#9575cd", "$type": "color" },
+        "primaryDark": { "$value": "#4527a0", "$type": "color" },
+        "secondary": { "$value": "#f6c344", "$type": "color" },
+        "accent": { "$value": "#f5f3ff", "$type": "color" },
+
+        "background": {
+          "primary": { "$value": "#140f24", "$type": "color" },
+          "secondary": { "$value": "#1b1530", "$type": "color" },
+          "tertiary": { "$value": "#231b3c", "$type": "color" },
+          "elevated": { "$value": "#2b2248", "$type": "color" },
+          "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
+        },
+
+        "surface": {
+          "100": { "$value": "#1b1630", "$type": "color" },
+          "200": { "$value": "#241d3b", "$type": "color" },
+          "300": { "$value": "#2d2547", "$type": "color" },
+          "400": { "$value": "#362d53", "$type": "color" },
+          "500": { "$value": "#3f365f", "$type": "color" }
+        },
+
+        "text": {
+          "primary": { "$value": "#ffffff", "$type": "color" },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.75)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.55)",
+            "$type": "color"
+          },
+          "onPrimary": { "$value": "#ffffff", "$type": "color" }
+        },
+
+        "border": {
+          "primary": { "$value": "rgba(94, 53, 177, 0.4)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": { "$value": "rgba(94, 53, 177, 0.10)", "$type": "color" },
+          "pressed": { "$value": "rgba(94, 53, 177, 0.18)", "$type": "color" },
+          "focus": { "$value": "rgba(94, 53, 177, 0.26)", "$type": "color" }
+        },
+
+        "alpha": {
+          "primary10": { "$value": "rgba(94, 53, 177, 0.1)", "$type": "color" },
+          "primary20": { "$value": "rgba(94, 53, 177, 0.2)", "$type": "color" },
+          "primary30": { "$value": "rgba(94, 53, 177, 0.3)", "$type": "color" },
+          "primary50": { "$value": "rgba(94, 53, 177, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": { "$value": "rgba(94, 53, 177, 0.5)", "$type": "color" },
+          "ringOffset": { "$value": "#140f24", "$type": "color" }
+        },
+
+        "loading": {
+          "spinner": { "$value": "#5e35b1", "$type": "color" }
+        }
+      },
+
+      "shadow": {
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": {
+          "$value": "0 0 8px rgba(94, 53, 177, 0.35)",
+          "$type": "shadow"
+        },
+        "md": {
+          "$value": "0 0 16px rgba(94, 53, 177, 0.45)",
+          "$type": "shadow"
+        }
+      }
+    },
+
+    "sport-rowing": {
+      "$description": "Rowing theme - River blue with metallic slate accents",
+
+      "color": {
+        "primary": { "$value": "#ff7043", "$type": "color" },
+        "primaryLight": { "$value": "#ffab91", "$type": "color" },
+        "primaryDark": { "$value": "#d84315", "$type": "color" },
+        "secondary": { "$value": "#4e6e81", "$type": "color" },
+        "accent": { "$value": "#fff3e0", "$type": "color" },
+
+        "background": {
+          "primary": { "$value": "#2a120c", "$type": "color" },
+          "secondary": { "$value": "#34180f", "$type": "color" },
+          "tertiary": { "$value": "#3f1f13", "$type": "color" },
+          "elevated": { "$value": "#4b2617", "$type": "color" },
+          "overlay": { "$value": "rgba(0, 0, 0, 0.85)", "$type": "color" }
+        },
+
+        "surface": {
+          "100": { "$value": "#321811", "$type": "color" },
+          "200": { "$value": "#3d1f15", "$type": "color" },
+          "300": { "$value": "#48261a", "$type": "color" },
+          "400": { "$value": "#542d1f", "$type": "color" },
+          "500": { "$value": "#5f3524", "$type": "color" }
+        },
+
+        "text": {
+          "primary": { "$value": "#ffffff", "$type": "color" },
+          "secondary": {
+            "$value": "rgba(255, 255, 255, 0.75)",
+            "$type": "color"
+          },
+          "tertiary": {
+            "$value": "rgba(255, 255, 255, 0.55)",
+            "$type": "color"
+          },
+          "onPrimary": { "$value": "#2e1206", "$type": "color" }
+        },
+
+        "border": {
+          "primary": { "$value": "rgba(255, 112, 67, 0.4)", "$type": "color" }
+        },
+
+        "state": {
+          "hover": { "$value": "rgba(255, 112, 67, 0.10)", "$type": "color" },
+          "pressed": { "$value": "rgba(255, 112, 67, 0.18)", "$type": "color" },
+          "focus": { "$value": "rgba(255, 112, 67, 0.26)", "$type": "color" }
+        },
+
+        "alpha": {
+          "primary10": {
+            "$value": "rgba(255, 112, 67, 0.1)",
+            "$type": "color"
+          },
+          "primary20": {
+            "$value": "rgba(255, 112, 67, 0.2)",
+            "$type": "color"
+          },
+          "primary30": {
+            "$value": "rgba(255, 112, 67, 0.3)",
+            "$type": "color"
+          },
+          "primary50": { "$value": "rgba(255, 112, 67, 0.5)", "$type": "color" }
+        },
+
+        "focus": {
+          "ring": { "$value": "rgba(255, 112, 67, 0.5)", "$type": "color" },
+          "ringOffset": { "$value": "#2a120c", "$type": "color" }
+        },
+
+        "loading": {
+          "spinner": { "$value": "#ff7043", "$type": "color" }
+        }
+      },
+
+      "shadow": {
+        "md": { "$value": "0 4px 6px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "lg": { "$value": "0 6px 12px rgba(0, 0, 0, 0.6)", "$type": "shadow" },
+        "inner": {
+          "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)",
+          "$type": "shadow"
+        }
+      },
+
+      "glow": {
+        "sm": {
+          "$value": "0 0 8px rgba(255, 112, 67, 0.35)",
+          "$type": "shadow"
+        },
+        "md": {
+          "$value": "0 0 16px rgba(255, 112, 67, 0.45)",
+          "$type": "shadow"
+        }
+      }
+    },
+
     "team": {
       "$description": "Team theme - Dynamic team branding (uses CSS custom properties for runtime customization)",
 

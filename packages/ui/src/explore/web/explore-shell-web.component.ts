@@ -28,18 +28,10 @@ import {
   type ExploreTabId,
   type ExploreItem,
   type ScoutReport,
-  EXPLORE_TABS,
   EXPLORE_SEARCH_CONFIG,
 } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../../components/page-header';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
-import { NxtOptionScrollerWebComponent } from '../../components/option-scroller-web';
-import { NxtHeroHeaderComponent } from '../../components/hero-header';
-import { NxtPartnerMarqueeComponent } from '../../components/partner-marquee';
-import type {
-  OptionScrollerItem,
-  OptionScrollerChangeEvent,
-} from '../../components/option-scroller/option-scroller.types';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { ExploreService } from '../explore.service';
@@ -56,9 +48,6 @@ import type { ExploreUser } from '../explore-shell.component';
     FormsModule,
     NxtPageHeaderComponent,
     NxtDesktopPageHeaderComponent,
-    NxtOptionScrollerWebComponent,
-    NxtHeroHeaderComponent,
-    NxtPartnerMarqueeComponent,
     ExploreListWebComponent,
     ExploreSkeletonComponent,
     ScoutReportsContentComponent,
@@ -133,36 +122,6 @@ import type { ExploreUser } from '../explore-shell.component';
           />
         }
 
-        <!-- Audience + Trust Sections (moved from Home) -->
-        @if (!explore.isSearchFocused() && !explore.hasQuery()) {
-          <nxt1-hero-header
-            [showLogo]="false"
-            [showPrimaryCta]="true"
-            [showAnimatedBg]="true"
-            [showTrustBadges]="true"
-            [showAppBadges]="false"
-          />
-
-          <nxt1-partner-marquee
-            title="Trusted By Leading Organizations"
-            subtitle="Partnering with the best to power the future of sports recruiting"
-            label="Our Partners"
-            [showLabel]="true"
-          />
-        }
-
-        <!-- Tab Navigation (web-native, zero Ionic) -->
-        @if (!explore.isSearchFocused() || explore.hasQuery()) {
-          <nav aria-label="Explore categories">
-            <nxt1-option-scroller-web
-              [options]="tabOptions()"
-              [selectedId]="explore.activeTab()"
-              [stretchToFill]="false"
-              [showDivider]="true"
-              (selectionChange)="onTabChange($event)"
-            />
-          </nav>
-        }
         <!-- Search Suggestions Overlay -->
         @if (explore.isSearchFocused() && !explore.hasQuery()) {
           <section class="search-suggestions px-4 py-4" aria-labelledby="suggestions-heading">
@@ -340,7 +299,6 @@ export class ExploreShellWebComponent implements OnInit {
 
   // Outputs
   readonly avatarClick = output<void>();
-  readonly tabChange = output<ExploreTabId>();
   readonly itemClick = output<ExploreItem>();
   readonly scoutReportSelect = output<ScoutReport>();
   readonly scoutReportFiltersOpen = output<void>();
@@ -351,15 +309,6 @@ export class ExploreShellWebComponent implements OnInit {
 
   // Computed
   protected readonly displayName = computed(() => this.user()?.displayName ?? 'User');
-
-  protected readonly tabOptions = computed((): OptionScrollerItem[] => {
-    const counts = this.explore.tabCounts();
-    return EXPLORE_TABS.map((tab) => ({
-      id: tab.id,
-      label: tab.label,
-      badge: counts[tab.id] > 0 ? counts[tab.id] : undefined,
-    }));
-  });
 
   ngOnInit(): void {
     this.logger.info('Explore shell (web) initialized');
@@ -403,13 +352,6 @@ export class ExploreShellWebComponent implements OnInit {
     await this.haptics.impact('light');
     this.searchValue.set(query);
     await this.explore.search(query);
-  }
-
-  protected async onTabChange(event: OptionScrollerChangeEvent): Promise<void> {
-    await this.haptics.impact('light');
-    const tabId = event.option.id as ExploreTabId;
-    this.explore.switchTab(tabId);
-    this.tabChange.emit(tabId);
   }
 
   protected async onLoadMore(): Promise<void> {

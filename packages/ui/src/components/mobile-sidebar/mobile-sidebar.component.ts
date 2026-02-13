@@ -950,7 +950,7 @@ export class NxtMobileSidebarComponent implements OnDestroy {
 
     // Exact match for home, prefix match for others
     if (item.route === '/home') {
-      return currentPath === '/home' || currentPath === '/';
+      return currentPath === '/home';
     }
 
     return currentPath.startsWith(item.route);
@@ -1007,7 +1007,6 @@ export class NxtMobileSidebarComponent implements OnDestroy {
 
   onLogoClick(event: Event): void {
     this.haptics.impact('light');
-    this.router.navigate(['/home']);
     this.logoClick.emit(event);
     this.close();
   }

@@ -144,6 +144,8 @@ export {
   type HeroAudienceCardClickEvent,
 } from './components/hero-header';
 
+export { NxtAgentXWelcomeHeaderComponent } from './components/agent-x-welcome-header';
+
 // ============================================
 // PARTNER MARQUEE (Infinite Logo Scroll)
 // ============================================
@@ -153,6 +155,8 @@ export {
   type MarqueeDirection,
   type MarqueeVariant,
 } from './components/partner-marquee';
+
+export { NxtFaqSectionComponent, type FaqItem } from './components/faq-section';
 
 // ============================================
 // AVATAR COMPONENT (Professional Avatar with Status/Badges)

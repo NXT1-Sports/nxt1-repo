@@ -841,7 +841,7 @@ export class NxtDesktopSidebarComponent {
 
     // Exact match for home, prefix match for others
     if (item.route === '/home') {
-      return currentPath === '/home' || currentPath === '/';
+      return currentPath === '/home';
     }
 
     return currentPath.startsWith(item.route);
@@ -920,7 +920,6 @@ export class NxtDesktopSidebarComponent {
   }
 
   onLogoClick(event: Event): void {
-    this.router.navigate(['/home']);
     this.logoClick.emit(event);
   }
 

@@ -36,7 +36,8 @@ export const routes: Routes = [
    */
   {
     path: 'welcome',
-    loadChildren: () => import('./features/landing/landing.routes'),
+    pathMatch: 'full',
+    redirectTo: '',
   },
 
   // ============================================
@@ -68,8 +69,7 @@ export const routes: Routes = [
       // Default shell redirect
       {
         path: '',
-        pathMatch: 'full',
-        redirectTo: 'home',
+        loadChildren: () => import('./features/landing/landing.routes'),
       },
       // Home Page
       {
@@ -182,8 +182,7 @@ export const routes: Routes = [
       // Default route → Home
       {
         path: '',
-        pathMatch: 'full',
-        redirectTo: 'home',
+        loadChildren: () => import('./features/landing/landing.routes'),
       },
 
       // Home Page (Dashboard)

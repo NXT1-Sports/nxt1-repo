@@ -24,7 +24,7 @@ import {
   NxtPlatformService,
   type ExploreUser,
 } from '@nxt1/ui';
-import type { ExploreTabId, ExploreItem, ScoutReport } from '@nxt1/core';
+import type { ExploreItem, ScoutReport } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 
@@ -37,7 +37,6 @@ import { SeoService } from '../../core/services';
       [user]="userInfo()"
       [hideHeader]="isDesktop()"
       (avatarClick)="onAvatarClick()"
-      (tabChange)="onTabChange($event)"
       (itemClick)="onItemClick($event)"
       (scoutReportSelect)="onScoutReportSelect($event)"
       (scoutReportFiltersOpen)="onScoutReportFiltersOpen()"
@@ -82,15 +81,6 @@ export class ExploreComponent {
    */
   protected onAvatarClick(): void {
     this.sidenavService.open();
-  }
-
-  /**
-   * Handle tab changes for analytics/logging.
-   */
-  protected onTabChange(tab: ExploreTabId): void {
-    this.logger.debug('Explore tab changed', { tab });
-    // In production: track analytics event
-    // this.analytics.track('explore_tab_change', { tab });
   }
 
   /**

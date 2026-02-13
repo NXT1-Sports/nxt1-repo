@@ -163,7 +163,8 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
       }
 
       <div
-        class="hero-content mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-20"
+        class="hero-content mx-auto w-full px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-20"
+        style="max-width: var(--nxt1-root-shell-max-width, 80rem)"
       >
         <!-- SEO H1 (screen reader only) -->
         <h1 class="sr-only">NXT1 — The Future of Sports Recruiting</h1>

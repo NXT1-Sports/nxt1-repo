@@ -88,46 +88,56 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
       [attr.aria-label]="title"
       role="region"
     >
-      <!-- Section Header -->
-      <div class="partner-marquee__header">
-        @if (showLabel) {
-          <span class="partner-marquee__label">{{ label }}</span>
-        }
-        <h2 class="partner-marquee__title">{{ title }}</h2>
-        @if (subtitle) {
-          <p class="partner-marquee__subtitle">{{ subtitle }}</p>
-        }
-      </div>
+      <div class="partner-marquee__container">
+        <!-- Section Header -->
+        <div class="partner-marquee__header">
+          @if (showLabel) {
+            <span class="partner-marquee__label">{{ label }}</span>
+          }
+          <h2 class="partner-marquee__title">{{ title }}</h2>
+          @if (subtitle) {
+            <p class="partner-marquee__subtitle">{{ subtitle }}</p>
+          }
+        </div>
 
-      <!-- Marquee Track -->
-      <div
-        class="partner-marquee__viewport"
-        [attr.aria-label]="'Scrolling list of ' + partners().length + ' partner logos'"
-        role="marquee"
-      >
-        <!-- Edge fade masks (left + right) -->
-        <div class="partner-marquee__fade partner-marquee__fade--left" aria-hidden="true"></div>
-        <div class="partner-marquee__fade partner-marquee__fade--right" aria-hidden="true"></div>
-
-        <!-- Infinite scroll track — the row is duplicated for seamless looping -->
+        <!-- Marquee Track -->
         <div
-          class="partner-marquee__track"
-          [class.partner-marquee__track--reverse]="direction === 'right'"
-          [style.--marquee-duration]="animationDuration()"
-          [style.--marquee-gap]="gap + 'px'"
+          class="partner-marquee__viewport"
+          [attr.aria-label]="'Scrolling list of ' + partners().length + ' partner logos'"
+          role="marquee"
         >
-          <!-- First set -->
-          @for (partner of partners(); track partner.id) {
-            <div class="partner-marquee__item" [attr.aria-label]="partner.name">
-              @if (partner.logoUrl) {
-                @if (partner.href) {
-                  <a
-                    [href]="partner.href"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="partner-marquee__link"
-                    [attr.aria-label]="'Visit ' + partner.name"
-                  >
+          <!-- Edge fade masks (left + right) -->
+          <div class="partner-marquee__fade partner-marquee__fade--left" aria-hidden="true"></div>
+          <div class="partner-marquee__fade partner-marquee__fade--right" aria-hidden="true"></div>
+
+          <!-- Infinite scroll track — the row is duplicated for seamless looping -->
+          <div
+            class="partner-marquee__track"
+            [class.partner-marquee__track--reverse]="direction === 'right'"
+            [style.--marquee-duration]="animationDuration()"
+            [style.--marquee-gap]="gap + 'px'"
+          >
+            <!-- First set -->
+            @for (partner of partners(); track partner.id) {
+              <div class="partner-marquee__item" [attr.aria-label]="partner.name">
+                @if (partner.logoUrl) {
+                  @if (partner.href) {
+                    <a
+                      [href]="partner.href"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="partner-marquee__link"
+                      [attr.aria-label]="'Visit ' + partner.name"
+                    >
+                      <img
+                        [src]="partner.logoUrl"
+                        [alt]="partner.name + ' logo'"
+                        class="partner-marquee__logo"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    </a>
+                  } @else {
                     <img
                       [src]="partner.logoUrl"
                       [alt]="partner.name + ' logo'"
@@ -135,93 +145,89 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
                       loading="lazy"
                       decoding="async"
                     />
-                  </a>
+                  }
                 } @else {
-                  <img
-                    [src]="partner.logoUrl"
-                    [alt]="partner.name + ' logo'"
-                    class="partner-marquee__logo"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                }
-              } @else {
-                <!-- Placeholder logo -->
-                <div class="partner-marquee__placeholder" [attr.aria-label]="partner.name">
-                  <div class="partner-marquee__placeholder-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <rect
-                        x="3"
-                        y="3"
-                        width="18"
-                        height="18"
-                        rx="4"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        opacity="0.4"
-                      />
-                      <path d="M8 17l3-4 2 2 3-4 4 6H4l4-0z" fill="currentColor" opacity="0.2" />
-                      <circle cx="9" cy="9" r="2" fill="currentColor" opacity="0.3" />
-                    </svg>
+                  <!-- Placeholder logo -->
+                  <div class="partner-marquee__placeholder" [attr.aria-label]="partner.name">
+                    <div class="partner-marquee__placeholder-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect
+                          x="3"
+                          y="3"
+                          width="18"
+                          height="18"
+                          rx="4"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                          opacity="0.4"
+                        />
+                        <path d="M8 17l3-4 2 2 3-4 4 6H4l4-0z" fill="currentColor" opacity="0.2" />
+                        <circle cx="9" cy="9" r="2" fill="currentColor" opacity="0.3" />
+                      </svg>
+                    </div>
+                    <span class="partner-marquee__placeholder-name">{{ partner.name }}</span>
                   </div>
-                  <span class="partner-marquee__placeholder-name">{{ partner.name }}</span>
-                </div>
-              }
-            </div>
-          }
+                }
+              </div>
+            }
 
-          <!-- Duplicate set (for seamless infinite loop) -->
-          @for (partner of partners(); track 'dup-' + partner.id) {
-            <div class="partner-marquee__item" [attr.aria-label]="partner.name" aria-hidden="true">
-              @if (partner.logoUrl) {
-                @if (partner.href) {
-                  <a
-                    [href]="partner.href"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="partner-marquee__link"
-                    tabindex="-1"
-                  >
+            <!-- Duplicate set (for seamless infinite loop) -->
+            @for (partner of partners(); track 'dup-' + partner.id) {
+              <div
+                class="partner-marquee__item"
+                [attr.aria-label]="partner.name"
+                aria-hidden="true"
+              >
+                @if (partner.logoUrl) {
+                  @if (partner.href) {
+                    <a
+                      [href]="partner.href"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="partner-marquee__link"
+                      tabindex="-1"
+                    >
+                      <img
+                        [src]="partner.logoUrl"
+                        [alt]="''"
+                        class="partner-marquee__logo"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    </a>
+                  } @else {
                     <img
                       [src]="partner.logoUrl"
-                      [alt]="''"
+                      alt=""
                       class="partner-marquee__logo"
                       loading="lazy"
                       decoding="async"
                     />
-                  </a>
+                  }
                 } @else {
-                  <img
-                    [src]="partner.logoUrl"
-                    alt=""
-                    class="partner-marquee__logo"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                }
-              } @else {
-                <div class="partner-marquee__placeholder">
-                  <div class="partner-marquee__placeholder-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <rect
-                        x="3"
-                        y="3"
-                        width="18"
-                        height="18"
-                        rx="4"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        opacity="0.4"
-                      />
-                      <path d="M8 17l3-4 2 2 3-4 4 6H4l4-0z" fill="currentColor" opacity="0.2" />
-                      <circle cx="9" cy="9" r="2" fill="currentColor" opacity="0.3" />
-                    </svg>
+                  <div class="partner-marquee__placeholder">
+                    <div class="partner-marquee__placeholder-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect
+                          x="3"
+                          y="3"
+                          width="18"
+                          height="18"
+                          rx="4"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                          opacity="0.4"
+                        />
+                        <path d="M8 17l3-4 2 2 3-4 4 6H4l4-0z" fill="currentColor" opacity="0.2" />
+                        <circle cx="9" cy="9" r="2" fill="currentColor" opacity="0.3" />
+                      </svg>
+                    </div>
+                    <span class="partner-marquee__placeholder-name">{{ partner.name }}</span>
                   </div>
-                  <span class="partner-marquee__placeholder-name">{{ partner.name }}</span>
-                </div>
-              }
-            </div>
-          }
+                }
+              </div>
+            }
+          </div>
         </div>
       </div>
     </section>
@@ -250,6 +256,14 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
         overflow: hidden;
       }
 
+      .partner-marquee__container {
+        width: 100%;
+        max-width: var(--nxt1-root-shell-max-width, 88rem);
+        margin: 0 auto;
+        padding: 0 var(--nxt1-spacing-4, 1rem);
+        box-sizing: border-box;
+      }
+
       .partner-marquee--minimal {
         padding: var(--nxt1-spacing-12, 3rem) 0;
       }
@@ -265,7 +279,7 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
       .partner-marquee__header {
         text-align: center;
         margin-bottom: var(--nxt1-spacing-10, 2.5rem);
-        padding: 0 var(--nxt1-spacing-4, 1rem);
+        padding: 0;
       }
 
       .partner-marquee__label {
