@@ -22,6 +22,7 @@
 // ============================================
 
 export { XpShellComponent } from './xp-shell.component';
+export { XpShellWebComponent } from './web';
 export { XpProgressComponent } from './xp-progress.component';
 export { XpCategoryComponent } from './xp-category.component';
 export { XpItemComponent } from './xp-item.component';

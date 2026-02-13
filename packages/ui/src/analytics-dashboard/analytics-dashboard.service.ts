@@ -76,10 +76,11 @@ export class AnalyticsDashboardService implements OnDestroy {
   private readonly _activeTab = signal<AnalyticsTabId>(ANALYTICS_DEFAULT_TAB);
   private readonly _selectedPeriod = signal<AnalyticsPeriod>(ANALYTICS_DEFAULT_PERIOD);
   private readonly _userRole = signal<AnalyticsUserRole>('athlete');
-  private readonly _isLoading = signal(false);
+  private readonly _isLoading = signal(true);
   private readonly _isRefreshing = signal(false);
   private readonly _error = signal<string | null>(null);
   private readonly _lastRefresh = signal<Date | null>(null);
+  private readonly _initialized = signal(false);
 
   // Cache management
   private _cacheTimestamp = 0;
@@ -114,8 +115,8 @@ export class AnalyticsDashboardService implements OnDestroy {
   /** Last refresh timestamp */
   readonly lastRefresh = computed(() => this._lastRefresh());
 
-  /** Whether data is empty */
-  readonly isEmpty = computed(() => !this._report() && !this._isLoading());
+  /** Whether data is empty (only after first load attempt completes) */
+  readonly isEmpty = computed(() => this._initialized() && !this._report() && !this._isLoading());
 
   /** Available tabs based on user role */
   readonly availableTabs = computed(() => {
@@ -237,6 +238,7 @@ export class AnalyticsDashboardService implements OnDestroy {
       this.toast.error('Failed to load analytics. Please try again.');
     } finally {
       this._isLoading.set(false);
+      this._initialized.set(true);
     }
   }
 
@@ -301,10 +303,11 @@ export class AnalyticsDashboardService implements OnDestroy {
     this._report.set(null);
     this._activeTab.set(ANALYTICS_DEFAULT_TAB);
     this._selectedPeriod.set(ANALYTICS_DEFAULT_PERIOD);
-    this._isLoading.set(false);
+    this._isLoading.set(true);
     this._isRefreshing.set(false);
     this._error.set(null);
     this._lastRefresh.set(null);
+    this._initialized.set(false);
     this.clearCache();
     this.logger.debug('Analytics state reset');
   }

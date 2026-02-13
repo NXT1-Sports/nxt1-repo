@@ -33,11 +33,13 @@ import {
   input,
   output,
   computed,
+  signal,
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonContent } from '@ionic/angular/standalone';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
+import { NxtDesktopPageHeaderComponent } from '../components/desktop-page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
@@ -54,6 +56,9 @@ import type {
   SettingsSelectEvent,
   SettingsCopyEvent,
 } from './settings-item.component';
+import { NxtSectionNavWebComponent } from '../components/section-nav-web';
+import type { SectionNavItem, SectionNavChangeEvent } from '../components/section-nav-web';
+import type { SettingsSectionId } from '@nxt1/core';
 
 /**
  * User info for header display.
@@ -70,6 +75,8 @@ export interface SettingsUser {
     CommonModule,
     IonContent,
     NxtPageHeaderComponent,
+    NxtDesktopPageHeaderComponent,
+    NxtSectionNavWebComponent,
     NxtRefresherComponent,
     SettingsSectionComponent,
     SettingsSkeletonComponent,
@@ -91,31 +98,59 @@ export interface SettingsUser {
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="settings-container">
-        <!-- Loading State -->
-        @if (settings.isLoading()) {
-          <nxt1-settings-skeleton [sectionCount]="3" [itemsPerSection]="4" />
-        } @else {
-          <!-- Settings Sections -->
-          <div class="settings-sections">
-            @for (section of settings.sections(); track section.id) {
-              <nxt1-settings-section
-                [section]="section"
-                (sectionToggle)="onSectionToggle($event)"
-                (toggle)="onToggle($event)"
-                (navigate)="onNavigate($event)"
-                (action)="onAction($event)"
-                (select)="onSelect($event)"
-                (copy)="onCopy($event)"
+        <!-- Desktop Page Header (when mobile page header is hidden) -->
+        @if (!showPageHeader()) {
+          <nxt1-desktop-page-header
+            title="Settings"
+            subtitle="Manage your account preferences and configuration."
+          />
+        }
+
+        <div class="settings-layout" [class.settings-layout--desktop]="!showPageHeader()">
+          @if (!showPageHeader()) {
+            <nxt1-section-nav-web
+              [items]="sectionNavItems()"
+              [activeId]="activeSectionId()"
+              ariaLabel="Settings sections"
+              (selectionChange)="onSectionNavChange($event)"
+            />
+          }
+
+          <div
+            class="settings-content-panel"
+            [attr.id]="'section-' + activeSectionId()"
+            role="tabpanel"
+          >
+            <!-- Loading State -->
+            @if (settings.isLoading()) {
+              <nxt1-settings-skeleton
+                [sectionCount]="showPageHeader() ? 3 : 1"
+                [itemsPerSection]="showPageHeader() ? 4 : 6"
               />
+            } @else {
+              <!-- Settings Sections -->
+              <div class="settings-sections">
+                @for (section of visibleSections(); track section.id) {
+                  <nxt1-settings-section
+                    [section]="section"
+                    (sectionToggle)="onSectionToggle($event)"
+                    (toggle)="onToggle($event)"
+                    (navigate)="onNavigate($event)"
+                    (action)="onAction($event)"
+                    (select)="onSelect($event)"
+                    (copy)="onCopy($event)"
+                  />
+                }
+              </div>
+
+              <!-- Footer -->
+              <footer class="settings-footer">
+                <p class="settings-footer__text">Made with ❤️ by NXT1 Sports</p>
+                <p class="settings-footer__version">Version {{ appVersion }}</p>
+              </footer>
             }
           </div>
-
-          <!-- Footer -->
-          <footer class="settings-footer">
-            <p class="settings-footer__text">Made with ❤️ by NXT1 Sports</p>
-            <p class="settings-footer__version">Version {{ appVersion }}</p>
-          </footer>
-        }
+        </div>
       </div>
     </ion-content>
   `,
@@ -150,7 +185,23 @@ export interface SettingsUser {
 
       .settings-container {
         min-height: 100%;
+        padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-4, 16px);
         padding-bottom: calc(80px + env(safe-area-inset-bottom, 0));
+      }
+
+      .settings-layout {
+        display: block;
+      }
+
+      .settings-layout--desktop {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        gap: var(--nxt1-spacing-8, 32px);
+        align-items: start;
+      }
+
+      .settings-content-panel {
+        min-width: 0;
       }
 
       /* ============================================
@@ -158,7 +209,7 @@ export interface SettingsUser {
        ============================================ */
 
       .settings-sections {
-        padding: 16px 16px 0 16px;
+        padding: 0;
       }
 
       /* ============================================
@@ -198,6 +249,13 @@ export interface SettingsUser {
       :host-context([data-theme='light']) .settings-footer__version {
         color: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.3));
       }
+
+      @media (max-width: 768px) {
+        .settings-layout--desktop {
+          grid-template-columns: 1fr;
+          gap: var(--nxt1-spacing-4, 16px);
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -206,6 +264,7 @@ export class SettingsShellComponent implements OnInit {
   protected readonly settings = inject(SettingsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('SettingsShellComponent');
+  private readonly _activeSection = signal<SettingsSectionId | null>(null);
 
   // ============================================
   // INPUTS
@@ -250,6 +309,39 @@ export class SettingsShellComponent implements OnInit {
   // ============================================
 
   protected readonly headerActions = computed<PageHeaderAction[]>(() => []);
+
+  protected readonly sectionNavItems = computed((): readonly SectionNavItem[] =>
+    this.settings.sections().map((section) => ({
+      id: section.id,
+      label: section.title,
+    }))
+  );
+
+  protected readonly activeSectionId = computed<SettingsSectionId>(() => {
+    const sections = this.settings.sections();
+    const selected = this._activeSection();
+
+    if (selected && sections.some((section) => section.id === selected)) {
+      return selected;
+    }
+
+    return (sections[0]?.id ?? 'account') as SettingsSectionId;
+  });
+
+  protected readonly visibleSections = computed(() => {
+    const sections = this.settings.sections();
+
+    if (this.showPageHeader()) {
+      return sections;
+    }
+
+    const activeSection = this.activeSectionId();
+    return sections.filter((section) => section.id === activeSection);
+  });
+
+  protected onSectionNavChange(event: SectionNavChangeEvent): void {
+    this._activeSection.set(event.id as SettingsSectionId);
+  }
 
   // ============================================
   // LIFECYCLE

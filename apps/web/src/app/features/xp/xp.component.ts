@@ -17,7 +17,7 @@
 
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import {
-  XpShellComponent,
+  XpShellWebComponent,
   NxtLoggingService,
   NxtSidenavService,
   NxtPlatformService,
@@ -29,9 +29,9 @@ import { SeoService } from '../../core/services';
 @Component({
   selector: 'app-xp',
   standalone: true,
-  imports: [XpShellComponent],
+  imports: [XpShellWebComponent],
   template: `
-    <nxt1-xp-shell
+    <nxt1-xp-shell-web
       [userRole]="userRole()"
       [avatarSrc]="avatarSrc()"
       [avatarName]="avatarName()"

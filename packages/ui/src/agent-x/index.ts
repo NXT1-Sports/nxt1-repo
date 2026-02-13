@@ -16,3 +16,12 @@ export { AgentXShellComponent, type AgentXUser } from './agent-x-shell.component
 export { AgentXWelcomeComponent } from './agent-x-welcome.component';
 export { AgentXChatComponent } from './agent-x-chat.component';
 export { AgentXInputComponent } from './agent-x-input.component';
+
+// Mode Content (shared between web & mobile)
+export {
+  AgentXModeContentComponent,
+  AgentXDraftsComponent,
+  AgentXTemplateGridComponent,
+  AgentXBundlesComponent,
+  AgentXTaskListComponent,
+} from './modes';

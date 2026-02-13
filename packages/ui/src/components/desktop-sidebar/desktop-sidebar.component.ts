@@ -235,7 +235,28 @@ import {
           </div>
         }
 
-        <!-- User Section -->
+        <!-- Sign In Prompt (unauthenticated) -->
+        @if (config().showSignIn !== false && !user()) {
+          <div class="sidebar__signin">
+            @if (!isCollapsed() || isHoverExpanded()) {
+              <a class="sidebar__signin-btn" routerLink="/auth" aria-label="Sign in"> Sign In </a>
+            } @else {
+              <button
+                type="button"
+                class="sidebar__item sidebar__item--collapsed sidebar__item--signin"
+                (click)="onSignInClick($event)"
+                aria-label="Sign in"
+              >
+                <span class="sidebar__item-icon">
+                  <nxt1-icon name="person" [size]="22" />
+                </span>
+                <span class="sidebar__tooltip">Sign in</span>
+              </button>
+            }
+          </div>
+        }
+
+        <!-- User Section (authenticated) -->
         @if (config().showUserSection !== false && user()) {
           <div class="sidebar__user">
             <button
@@ -660,6 +681,59 @@ import {
         color: var(--sidebar-text-tertiary);
         flex-shrink: 0;
       }
+
+      /* ============================================
+       SIGN IN PROMPT
+       ============================================ */
+      .sidebar__signin {
+        padding: 8px;
+        border-top: 1px solid var(--sidebar-border);
+      }
+
+      .sidebar__signin-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 36px;
+        padding: 0 20px;
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-ui-text-inverse, #000000);
+        border: none;
+        border-radius: 9999px;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        box-shadow: var(--nxt1-glow-md);
+        transition:
+          background-color var(--sidebar-transition),
+          transform var(--sidebar-transition),
+          box-shadow var(--sidebar-transition);
+      }
+
+      .sidebar__signin-btn:hover {
+        background: var(--nxt1-color-primary-dark, var(--nxt1-color-primary));
+        transform: translateY(-1px);
+      }
+
+      .sidebar__signin-btn:active {
+        transform: translateY(0);
+        box-shadow: var(--nxt1-glow-sm);
+      }
+
+      .sidebar__signin-btn:focus-visible {
+        outline: 2px solid var(--sidebar-accent);
+        outline-offset: 2px;
+      }
+
+      .sidebar__item--signin {
+        color: var(--nxt1-color-primary);
+      }
+
+      .sidebar__item--signin:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nxt1-color-primary) 10%, transparent);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -695,6 +769,9 @@ export class NxtDesktopSidebarComponent {
 
   /** Emitted when logo is clicked */
   readonly logoClick = output<Event>();
+
+  /** Emitted when sign-in is clicked */
+  readonly signInClick = output<Event>();
 
   /** Emitted when collapse state changes */
   readonly collapseChange = output<boolean>();
@@ -845,6 +922,11 @@ export class NxtDesktopSidebarComponent {
   onLogoClick(event: Event): void {
     this.router.navigate(['/home']);
     this.logoClick.emit(event);
+  }
+
+  onSignInClick(event: Event): void {
+    this.router.navigate(['/auth']);
+    this.signInClick.emit(event);
   }
 
   toggleTheme(event: Event): void {

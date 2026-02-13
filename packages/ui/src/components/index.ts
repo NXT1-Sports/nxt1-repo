@@ -135,6 +135,8 @@ export {
   type PageHeaderAction,
 } from './page-header';
 
+export { NxtDesktopPageHeaderComponent } from './desktop-page-header';
+
 export {
   // Component
   NxtHeaderComponent,

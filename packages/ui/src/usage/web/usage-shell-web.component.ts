@@ -41,6 +41,9 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtPageHeaderComponent } from '../../components/page-header';
+import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
+import { NxtSectionNavWebComponent } from '../../components/section-nav-web';
+import type { SectionNavChangeEvent } from '../../components/section-nav-web';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
@@ -67,6 +70,8 @@ export type { UsageUser };
   imports: [
     CommonModule,
     NxtPageHeaderComponent,
+    NxtDesktopPageHeaderComponent,
+    NxtSectionNavWebComponent,
     NxtRefresherComponent,
     UsageSkeletonComponent,
     UsageOverviewComponent,
@@ -99,34 +104,13 @@ export type { UsageUser };
       <div class="usage-dashboard">
         <!-- Desktop Page Title (visible when page header is hidden) -->
         @if (hideHeader()) {
-          <header class="dashboard-header">
-            <div class="header-row">
-              <div class="header-text">
-                <h1 class="dashboard-title">Billing & Usage</h1>
-                <p class="dashboard-subtitle">
-                  Manage your billing, usage, and payment details for your account.
-                </p>
-              </div>
-              <button type="button" class="help-btn" (click)="showHelpDialog()">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                  <line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
-                <span>How it works</span>
-              </button>
-            </div>
-          </header>
+          <nxt1-desktop-page-header
+            title="Billing & Usage"
+            subtitle="Manage your billing, usage, and payment details for your account."
+            actionLabel="How it works"
+            actionIcon="help-circle-outline"
+            (actionClick)="showHelpDialog()"
+          />
         }
 
         @if (svc.isLoading() && !hasData()) {
@@ -142,20 +126,12 @@ export type { UsageUser };
         } @else {
           <div class="dashboard-layout">
             <!-- Side Navigation (Desktop) / Scroll Tabs (Mobile) -->
-            <nav class="section-nav" role="tablist" aria-label="Billing sections">
-              @for (nav of sectionNavs; track nav.id) {
-                <button
-                  class="nav-item"
-                  [class.nav-item--active]="svc.activeSection() === nav.id"
-                  role="tab"
-                  [attr.aria-selected]="svc.activeSection() === nav.id"
-                  [attr.aria-controls]="'section-' + nav.id"
-                  (click)="svc.setActiveSection(nav.id)"
-                >
-                  {{ nav.label }}
-                </button>
-              }
-            </nav>
+            <nxt1-section-nav-web
+              [items]="sectionNavs"
+              [activeId]="svc.activeSection()"
+              ariaLabel="Billing sections"
+              (selectionChange)="onSectionNavChange($event)"
+            />
 
             <!-- Content Panel -->
             <section
@@ -285,74 +261,8 @@ export type { UsageUser };
       }
 
       .usage-dashboard {
-        max-width: 1120px;
-        margin: 0 auto;
         padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
         padding-bottom: var(--nxt1-spacing-16);
-      }
-
-      /* ==============================
-       DESKTOP PAGE TITLE
-       (Only shown when page header is hidden)
-       ============================== */
-
-      .dashboard-header {
-        margin-bottom: var(--nxt1-spacing-6);
-        padding-bottom: var(--nxt1-spacing-6);
-        border-bottom: 1px solid var(--nxt1-color-border-default);
-      }
-
-      .header-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: var(--nxt1-spacing-4);
-      }
-
-      .header-text {
-        flex: 1;
-      }
-
-      .help-btn {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-1-5);
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
-        color: var(--nxt1-color-text-secondary);
-        background: var(--nxt1-color-surface-100);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-lg, 12px);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-medium);
-        cursor: pointer;
-        transition: all var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out);
-        white-space: nowrap;
-      }
-
-      .help-btn:hover {
-        color: var(--nxt1-color-text-primary);
-        background: var(--nxt1-color-surface-200);
-        border-color: var(--nxt1-color-border-default);
-      }
-
-      .help-btn svg {
-        flex-shrink: 0;
-      }
-
-      .dashboard-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-3xl);
-        font-weight: var(--nxt1-fontWeight-bold);
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-1) 0;
-        line-height: var(--nxt1-lineHeight-tight);
-      }
-
-      .dashboard-subtitle {
-        font-size: var(--nxt1-fontSize-base);
-        color: var(--nxt1-color-text-secondary);
-        margin: 0;
-        line-height: var(--nxt1-lineHeight-normal);
       }
 
       /* ==============================
@@ -366,46 +276,7 @@ export type { UsageUser };
         align-items: start;
       }
 
-      /* ==============================
-       SIDE NAV
-       ============================== */
-
-      .section-nav {
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-0-5);
-        position: sticky;
-        top: var(--nxt1-spacing-6);
-      }
-
-      .nav-item {
-        display: block;
-        width: 100%;
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-normal);
-        color: var(--nxt1-color-text-secondary);
-        background: transparent;
-        border: none;
-        border-radius: var(--nxt1-radius-lg, 12px);
-        cursor: pointer;
-        text-align: left;
-        transition:
-          color var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out),
-          background var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out);
-        line-height: var(--nxt1-lineHeight-normal);
-      }
-
-      .nav-item:hover {
-        color: var(--nxt1-color-text-primary);
-        background: var(--nxt1-color-state-hover);
-      }
-
-      .nav-item--active {
-        color: var(--nxt1-color-text-primary);
-        font-weight: var(--nxt1-fontWeight-medium);
-        background: var(--nxt1-color-surface-200);
-      }
+      /* Side nav styles are handled by NxtSectionNavWebComponent */
 
       /* ==============================
        CONTENT PANEL
@@ -471,55 +342,9 @@ export type { UsageUser };
           padding-bottom: var(--nxt1-spacing-16);
         }
 
-        .dashboard-header {
-          margin-bottom: var(--nxt1-spacing-4);
-          padding-bottom: var(--nxt1-spacing-4);
-        }
-
-        .dashboard-title {
-          font-size: var(--nxt1-fontSize-2xl);
-        }
-
         .dashboard-layout {
           grid-template-columns: 1fr;
           gap: var(--nxt1-spacing-4);
-        }
-
-        .section-nav {
-          flex-direction: row;
-          overflow-x: auto;
-          gap: var(--nxt1-spacing-2);
-          position: static;
-          padding-bottom: var(--nxt1-spacing-3);
-          border-bottom: 1px solid var(--nxt1-color-border-subtle);
-          -webkit-overflow-scrolling: touch;
-          scrollbar-width: none;
-        }
-
-        .section-nav::-webkit-scrollbar {
-          display: none;
-        }
-
-        .nav-item {
-          flex-shrink: 0;
-          white-space: nowrap;
-          padding: var(--nxt1-spacing-1-5) var(--nxt1-spacing-3);
-          border-radius: var(--nxt1-radius-full);
-          font-size: var(--nxt1-fontSize-xs);
-          background: var(--nxt1-color-surface-100);
-          border: 1px solid var(--nxt1-color-border-subtle);
-          color: var(--nxt1-color-text-secondary);
-        }
-
-        .nav-item:hover {
-          background: var(--nxt1-color-surface-200);
-          color: var(--nxt1-color-text-primary);
-        }
-
-        .nav-item--active {
-          background: var(--nxt1-color-surface-300);
-          border-color: var(--nxt1-color-primary);
-          color: var(--nxt1-color-text-primary);
         }
       }
 
@@ -675,6 +500,10 @@ export class UsageShellWebComponent implements OnInit {
   // ============================================
   // EVENT HANDLERS
   // ============================================
+
+  protected onSectionNavChange(event: SectionNavChangeEvent): void {
+    this.svc.setActiveSection(event.id as any);
+  }
 
   protected onManageSubscriptions(): void {
     // Navigate to subscription management

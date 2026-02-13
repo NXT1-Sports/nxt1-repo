@@ -88,7 +88,7 @@ export interface ExploreUser {
         [hideAvatar]="explore.isSearchFocused()"
         (avatarClick)="onAvatarClick()"
       >
-        <div pageHeaderSlot="title">
+        <div pageHeaderSlot="inline-search">
           <nxt1-search-bar
             variant="mobile"
             placeholder="Search"

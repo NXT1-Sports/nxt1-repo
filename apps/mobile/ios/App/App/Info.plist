@@ -79,11 +79,14 @@
 	<!-- URL Schemes for OAuth Callbacks (Google Sign-In, Deep Links) -->
 	<key>CFBundleURLTypes</key>
 	<array>
-		<!-- Google Sign-In URL Scheme (REVERSED_CLIENT_ID from GoogleService-Info.plist) -->
+		<!-- Google Sign-In URL Schemes (REVERSED_CLIENT_ID for both staging and production) -->
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<!-- Staging: nxt-1-staging -->
 				<string>com.googleusercontent.apps.455734259010-hi7stcq2qk5jan5md5k4cqnvaj3u94gu</string>
+				<!-- Production: nxt-1-de054 -->
+				<string>com.googleusercontent.apps.574223545656-u8o0mv59tnbtd66te7lp12bto9f50uid</string>
 			</array>
 			<key>CFBundleURLName</key>
 			<string>Google Sign-In</string>

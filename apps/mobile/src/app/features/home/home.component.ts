@@ -22,10 +22,11 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
+import { IonContent, NavController } from '@ionic/angular/standalone';
 import {
   NxtPageHeaderComponent,
   NxtOptionScrollerComponent,
+  NxtRefresherComponent,
   NxtSidenavService,
   NxtLoggingService,
   HapticsService,
@@ -35,6 +36,7 @@ import {
   type PageHeaderAction,
   type OptionScrollerItem,
   type OptionScrollerChangeEvent,
+  type RefreshEvent,
 } from '@nxt1/ui';
 import { type FeedPost, type FeedAuthor } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
@@ -45,36 +47,35 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
   standalone: true,
   imports: [
     CommonModule,
-    IonHeader,
     IonContent,
-    IonToolbar,
     NxtPageHeaderComponent,
     NxtOptionScrollerComponent,
+    NxtRefresherComponent,
     NewsContentComponent,
     FeedListComponent,
   ],
   template: `
-    <ion-header class="ion-no-border" [translucent]="true">
-      <ion-toolbar></ion-toolbar>
-    </ion-header>
-    <ion-content [fullscreen]="true">
-      <!-- Professional Page Header with Logo (Twitter/X style) -->
-      <nxt1-page-header
-        [showLogo]="true"
-        [avatarSrc]="photoURL()"
-        [avatarName]="displayName()"
-        [actions]="headerActions()"
-        (avatarClick)="onAvatarClick()"
-        (actionClick)="onHeaderAction($event)"
-      />
+    <!-- Professional Page Header with Logo (Twitter/X style) -->
+    <nxt1-page-header
+      [showLogo]="true"
+      [avatarSrc]="photoURL()"
+      [avatarName]="displayName()"
+      [actions]="headerActions()"
+      (avatarClick)="onAvatarClick()"
+      (actionClick)="onHeaderAction($event)"
+    />
 
-      <!-- Twitter/TikTok Style Feed Selector -->
-      <nxt1-option-scroller
-        [options]="feedOptions()"
-        [selectedId]="selectedFeed()"
-        [config]="{ scrollable: false, stretchToFill: true }"
-        (selectionChange)="onFeedChange($event)"
-      />
+    <!-- Twitter/TikTok Style Feed Selector (fixed below header) -->
+    <nxt1-option-scroller
+      [options]="feedOptions()"
+      [selectedId]="selectedFeed()"
+      [config]="{ scrollable: false, stretchToFill: true }"
+      (selectionChange)="onFeedChange($event)"
+    />
+
+    <ion-content [fullscreen]="true">
+      <!-- Pull-to-refresh -->
+      <nxt-refresher (onRefresh)="onRefresh($event)" />
 
       @switch (selectedFeed()) {
         @case ('news') {
@@ -123,28 +124,17 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
   styles: [
     `
       :host {
-        display: block;
         height: 100%;
-      }
-      ion-header {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        z-index: -1;
-        --background: transparent;
-      }
-      ion-toolbar {
-        --background: transparent;
-        --min-height: 0;
-        --padding-top: 0;
-        --padding-bottom: 0;
+        background: var(--nxt1-color-bg-primary, #0a0a0a);
       }
       ion-content {
         --background: var(--nxt1-color-bg-primary, #0a0a0a);
       }
 
       /* Light theme support */
+      :host-context([data-theme='light']) {
+        background: var(--nxt1-color-bg-primary, #ffffff);
+      }
       :host-context([data-theme='light']) ion-content {
         --background: var(--nxt1-color-bg-primary, #ffffff);
       }
@@ -260,6 +250,22 @@ export class HomeComponent implements OnInit {
     // Reload feed when switching between home/following
     if (event.option.id === 'home' || event.option.id === 'following') {
       this.feedService.loadFeed();
+    }
+  }
+
+  /**
+   * Handle pull-to-refresh
+   */
+  async onRefresh(event: RefreshEvent): Promise<void> {
+    this.logger.debug('Pull-to-refresh triggered');
+    await this.haptics.impact('light');
+
+    try {
+      await this.feedService.refresh();
+      event.complete();
+    } catch (error) {
+      this.logger.error('Failed to refresh feed', { error });
+      event.cancel();
     }
   }
 

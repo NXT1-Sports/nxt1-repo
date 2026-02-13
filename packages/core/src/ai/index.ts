@@ -23,6 +23,19 @@ export type {
   AgentXState,
 } from './agent-x.types';
 
+// Content types (mode-specific)
+export type {
+  AgentXDraftStatus,
+  AgentXDraft,
+  AgentXTemplateCategory,
+  AgentXTemplate,
+  AgentXBundle,
+  AgentXTaskPriority,
+  AgentXTaskItem,
+  AgentXCreativeModeContent,
+  AgentXActionModeContent,
+} from './agent-x-content.types';
+
 // Constants
 export {
   AGENT_X_CONFIG,
@@ -37,6 +50,19 @@ export {
   AGENT_X_CACHE_KEYS,
   AGENT_X_CACHE_TTL,
 } from './agent-x.constants';
+
+// Content constants (mode-specific)
+export {
+  HIGHLIGHT_CATEGORIES,
+  GRAPHIC_CATEGORIES,
+  HIGHLIGHT_TEMPLATES,
+  GRAPHIC_TEMPLATES,
+  AGENT_X_BUNDLES,
+  RECRUITING_TASKS,
+  EVALUATION_TASKS,
+  MOCK_HIGHLIGHT_DRAFTS,
+  MOCK_GRAPHIC_DRAFTS,
+} from './agent-x-content.constants';
 
 // API
 export { createAgentXApi, type AgentXApi } from './agent-x.api';

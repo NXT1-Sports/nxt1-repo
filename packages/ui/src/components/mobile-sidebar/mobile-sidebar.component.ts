@@ -115,17 +115,13 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
         <!-- Sign In Prompt (unauthenticated) -->
         @if (config().showSignIn !== false && !user()) {
           <div class="mobile-sidebar__signin">
-            <p class="mobile-sidebar__signin-text">
-              Sign in to like videos, comment, and subscribe.
-            </p>
             <a
               class="mobile-sidebar__signin-btn"
               routerLink="/auth"
               (click)="close()"
               aria-label="Sign in"
             >
-              <nxt1-icon name="person" [size]="18" />
-              <span>Sign in</span>
+              Sign In
             </a>
           </div>
         }
@@ -482,40 +478,45 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
          SIGN-IN PROMPT
          ============================================ */
       .mobile-sidebar__signin {
-        padding: var(--nxt1-spacing-4, 1rem) var(--nxt1-spacing-4, 1rem) var(--nxt1-spacing-4, 1rem);
+        padding: var(--nxt1-spacing-4, 1rem);
         border-bottom: 1px solid var(--mobile-sidebar-border);
       }
 
-      .mobile-sidebar__signin-text {
-        font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        font-weight: var(--nxt1-fontWeight-regular, 400);
-        color: var(--mobile-sidebar-text-secondary);
-        line-height: var(--nxt1-lineHeight-normal, 1.5);
-        margin: 0 0 var(--nxt1-spacing-3, 0.75rem) 0;
-      }
-
       .mobile-sidebar__signin-btn {
-        display: inline-flex;
+        display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-2, 0.5rem);
-        padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-4, 1rem);
-        background: transparent;
-        border: 1px solid var(--mobile-sidebar-accent);
+        justify-content: center;
+        width: 100%;
+        height: 36px;
+        padding: 0 var(--nxt1-spacing-5, 1.25rem);
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-ui-text-inverse, #000000);
+        border: none;
         border-radius: var(--nxt1-borderRadius-full, 9999px);
-        color: var(--mobile-sidebar-accent);
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        font-weight: var(--nxt1-fontWeight-medium, 500);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
         text-decoration: none;
         cursor: pointer;
-        transition: all var(--mobile-sidebar-transition-fast);
+        box-shadow: var(--nxt1-glow-md);
+        transition:
+          background-color var(--mobile-sidebar-transition-fast),
+          transform var(--mobile-sidebar-transition-fast),
+          box-shadow var(--mobile-sidebar-transition-fast);
       }
 
       .mobile-sidebar__signin-btn:hover {
-        background: var(--nxt1-color-alpha-primary4);
+        background: var(--nxt1-color-primary-dark, var(--nxt1-color-primary));
+        transform: translateY(-1px);
       }
 
       .mobile-sidebar__signin-btn:active {
-        transform: scale(var(--mobile-sidebar-press-scale));
+        transform: translateY(0);
+        box-shadow: var(--nxt1-glow-sm);
+      }
+
+      .mobile-sidebar__signin-btn:focus-visible {
+        outline: 2px solid var(--mobile-sidebar-accent);
+        outline-offset: 2px;
       }
 
       /* ============================================

@@ -124,7 +124,6 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
     items: [
-      { id: 'home', label: 'Home', icon: 'home', activeIcon: 'homeFilled', route: '/home' },
       {
         id: 'explore',
         label: 'Explore',
@@ -132,6 +131,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         activeIcon: 'compassFilled',
         route: '/explore',
       },
+      { id: 'home', label: 'Home', icon: 'home', activeIcon: 'homeFilled', route: '/home' },
       { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
     ],
   },
@@ -158,13 +158,6 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
       { id: 'xp', label: 'XP', icon: 'sparkles', route: '/xp' },
       { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
       { id: 'messages', label: 'Messages', icon: 'messages', route: '/messages', badge: 0 },
-      {
-        id: 'notifications',
-        label: 'Notifications',
-        icon: 'bell',
-        route: '/notifications',
-        badge: 0,
-      },
     ],
   },
   {

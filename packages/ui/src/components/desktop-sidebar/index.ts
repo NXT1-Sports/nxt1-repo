@@ -28,7 +28,12 @@ export type {
 export {
   DEFAULT_DESKTOP_SIDEBAR_CONFIG,
   DEFAULT_DESKTOP_SIDEBAR_SECTIONS,
+  LOGGED_IN_SIDEBAR_SECTIONS,
+  LOGGED_OUT_SIDEBAR_SECTIONS,
   SIDEBAR_BREAKPOINTS,
   SIDEBAR_WIDTHS,
   createDesktopSidebarConfig,
+  getSidebarSections,
 } from './desktop-sidebar.types';
+
+export type { GetSidebarSectionsOptions } from './desktop-sidebar.types';

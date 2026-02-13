@@ -11,40 +11,19 @@
 
 import { Component, ChangeDetectionStrategy, inject, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
 import { HelpCenterService } from '../_shared/help-center.service';
 import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-help-category-detail-web',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, NxtDesktopPageHeaderComponent],
   template: `
-    <!-- Page Header -->
-    <header
-      class="bg-bg-primary/95 border-border-subtle sticky top-0 z-10 border-b backdrop-blur-sm"
-    >
-      <div class="mx-auto flex max-w-4xl items-center gap-4 px-4 py-4">
-        <button
-          type="button"
-          (click)="back.emit()"
-          class="bg-surface-100 hover:bg-surface-200 text-text-secondary hover:text-text-primary flex h-10 w-10 items-center justify-center rounded-full transition-colors"
-          aria-label="Go back"
-        >
-          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
-        </button>
-        <h1 class="text-text-primary text-xl font-semibold">{{ categoryTitle() }}</h1>
-      </div>
-    </header>
-
     <!-- Main Content -->
     <main class="mx-auto max-w-4xl px-4 py-6 pb-24">
+      <!-- Desktop Page Header -->
+      <nxt1-desktop-page-header [title]="categoryTitle()" />
       <!-- Category Description -->
       @if (category()?.description) {
         <div class="mb-6">

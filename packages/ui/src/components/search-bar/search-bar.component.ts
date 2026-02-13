@@ -139,7 +139,8 @@ export interface SearchBarSubmitEvent {
       }
 
       :host(.mobile) .search-form {
-        width: min(100%, 220px);
+        width: 220px;
+        max-width: 100%;
         margin: 0 auto;
         height: var(--nxt1-ui-btn-height-md);
         padding: 0 var(--nxt1-spacing-3, 12px);
@@ -147,31 +148,37 @@ export interface SearchBarSubmitEvent {
         gap: var(--nxt1-spacing-2, 8px);
         background: var(--nxt1-color-surface-200, #1f1f1f);
         border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        transition: width 0.25s var(--nxt1-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+        transition:
+          width 0.25s var(--nxt1-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+          max-width 0.25s var(--nxt1-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
+          margin 0.25s var(--nxt1-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
       }
 
-      /* Focused: expand width and left-align content */
+      /* Focused: fill entire available width */
       :host(.mobile.mobile--focused) .search-form {
-        width: calc(100% - 24px);
-        margin: 0 12px;
+        width: 100%;
+        max-width: 100%;
+        margin: 0;
         justify-content: flex-start;
       }
 
-      /* Input: centered by default, flexible so it absorbs extra space on expand */
+      /* Input: natural width so icon + placeholder stay together as a centered unit */
       :host(.mobile) .search-input {
         min-width: 0;
-        flex: 1 1 auto;
+        flex: 0 1 auto;
+        width: 5ch;
         font-size: var(--nxt1-fontSize-sm, 0.9375rem);
-        text-align: center;
+        text-align: left;
         padding: 0;
         letter-spacing: var(--nxt1-letterSpacing-tight, 0.01em);
         -webkit-appearance: none;
         appearance: none;
       }
 
-      /* Focused: left-align input text */
+      /* Focused: expand input to fill available space */
       :host(.mobile.mobile--focused) .search-input {
-        text-align: left;
+        flex: 1 1 auto;
+        width: auto;
       }
 
       :host(.mobile) .search-input:focus {

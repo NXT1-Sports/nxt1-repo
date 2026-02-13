@@ -35,8 +35,17 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonContent } from '@ionic/angular/standalone';
-import type { AgentXQuickTask, AgentXMode } from '@nxt1/core';
+import type {
+  AgentXQuickTask,
+  AgentXMode,
+  AgentXDraft,
+  AgentXTemplateCategory,
+  AgentXTemplate,
+  AgentXBundle,
+  AgentXTaskItem,
+} from '@nxt1/core';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
+import { NxtDesktopPageHeaderComponent } from '../components/desktop-page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import {
   NxtOptionScrollerComponent,
@@ -44,6 +53,7 @@ import {
   type OptionScrollerChangeEvent,
 } from '../components/option-scroller';
 import { AgentXService } from './agent-x.service';
+import { AgentXModeContentComponent } from './modes';
 import { AgentXWelcomeComponent } from './agent-x-welcome.component';
 import { AgentXChatComponent } from './agent-x-chat.component';
 import { AgentXInputComponent } from './agent-x-input.component';
@@ -67,9 +77,10 @@ export interface AgentXUser {
     FormsModule,
     IonContent,
     NxtPageHeaderComponent,
+    NxtDesktopPageHeaderComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
-    AgentXWelcomeComponent,
+    AgentXModeContentComponent,
     AgentXChatComponent,
     AgentXInputComponent,
   ],
@@ -87,6 +98,16 @@ export interface AgentXUser {
       />
     }
 
+    <!-- Desktop Page Header (when mobile page header is hidden) -->
+    @if (hideHeader()) {
+      <div class="desktop-header-wrapper">
+        <nxt1-desktop-page-header
+          title="Agent X"
+          subtitle="Your AI-powered recruiting assistant."
+        />
+      </div>
+    }
+
     <!-- Twitter/TikTok Style Mode Selector -->
     <nxt1-option-scroller
       [options]="modeOptions"
@@ -100,15 +121,17 @@ export interface AgentXUser {
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="agent-x-container">
-        <!-- Welcome Screen (shown when no messages) -->
+        <!-- Mode Content (shown when no messages) -->
         @if (agentX.isEmpty()) {
-          <nxt1-agent-x-welcome
-            [currentTitle]="agentX.currentTitle()"
-            [showAthleteTasks]="showAthleteTasks()"
-            [showCoachTasks]="showCoachTasks()"
-            [showCollegeTasks]="showCollegeTasks()"
-            [isLoggedOut]="!user()"
-            (taskSelected)="onTaskSelected($event)"
+          <nxt1-agent-x-mode-content
+            [mode]="agentX.selectedMode()"
+            (draftSelected)="onDraftSelected($event)"
+            (viewAllDrafts)="onViewAllDrafts()"
+            (createNewDraft)="onCreateNewDraft()"
+            (categorySelected)="onCategorySelected($event)"
+            (templateSelected)="onTemplateSelected($event)"
+            (bundleSelected)="onBundleSelected($event)"
+            (taskSelected)="onModeTaskSelected($event)"
           />
         }
 
@@ -178,10 +201,15 @@ export interface AgentXUser {
         --background: var(--agent-bg);
       }
 
+      .desktop-header-wrapper {
+        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4) 0;
+      }
+
       .agent-x-container {
         display: flex;
         flex-direction: column;
         min-height: 100%;
+        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
         /* Reserve space at the bottom for the fixed input bar + footer */
         padding-bottom: calc(80px + env(safe-area-inset-bottom, 0));
       }
@@ -227,29 +255,6 @@ export class AgentXShellComponent {
   /** Display name for header */
   protected displayName(): string {
     return this.user()?.displayName ?? 'User';
-  }
-
-  /** Show athlete tasks based on user role */
-  protected showAthleteTasks(): boolean {
-    const user = this.user();
-    if (!user) return true; // Show all when logged out
-    return user.role === 'athlete';
-  }
-
-  /** Show coach tasks based on user role */
-  protected showCoachTasks(): boolean {
-    const user = this.user();
-    if (!user) return true;
-    return user.role === 'coach' || user.role === 'parent';
-  }
-
-  /** Show college tasks based on user role */
-  protected showCollegeTasks(): boolean {
-    const user = this.user();
-    if (!user) return true;
-    return (
-      user.role === 'college-coach' || user.role === 'scout' || user.role === 'recruiting-service'
-    );
   }
 
   // ============================================
@@ -304,7 +309,61 @@ export class AgentXShellComponent {
   }
 
   /**
-   * Handle task selection.
+   * Handle draft selection from mode content.
+   */
+  protected async onDraftSelected(draft: AgentXDraft): Promise<void> {
+    await this.haptics.impact('light');
+    this.toast.info(`Opening draft: ${draft.title}`);
+  }
+
+  /**
+   * Handle view all drafts action.
+   */
+  protected onViewAllDrafts(): void {
+    this.toast.info('View all drafts coming soon');
+  }
+
+  /**
+   * Handle create new draft action.
+   */
+  protected onCreateNewDraft(): void {
+    this.toast.info('Create new draft coming soon');
+  }
+
+  /**
+   * Handle template category selection.
+   */
+  protected async onCategorySelected(category: AgentXTemplateCategory): Promise<void> {
+    await this.haptics.impact('light');
+    this.agentX.setUserMessage(`Create a ${category.label.toLowerCase()}`);
+  }
+
+  /**
+   * Handle template card selection (Canva-style).
+   */
+  protected async onTemplateSelected(template: AgentXTemplate): Promise<void> {
+    await this.haptics.impact('medium');
+    this.agentX.setUserMessage(`Create using the "${template.title}" template`);
+  }
+
+  /**
+   * Handle bundle selection.
+   */
+  protected async onBundleSelected(bundle: AgentXBundle): Promise<void> {
+    await this.haptics.impact('medium');
+    this.agentX.setUserMessage(`Start the ${bundle.title}`);
+  }
+
+  /**
+   * Handle task selection from mode content.
+   */
+  protected async onModeTaskSelected(task: AgentXTaskItem): Promise<void> {
+    await this.haptics.impact('light');
+    this.agentX.setUserMessage(task.title);
+  }
+
+  /**
+   * Handle quick task selection (legacy).
    */
   protected async onTaskSelected(task: AgentXQuickTask): Promise<void> {
     await this.agentX.selectTask(task);

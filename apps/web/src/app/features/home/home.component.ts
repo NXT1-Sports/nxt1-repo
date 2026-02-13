@@ -20,18 +20,17 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router, RouterModule } from '@angular/router';
+import { Router } from '@angular/router';
 import {
-  NxtOptionScrollerComponent,
+  NxtSectionNavWebComponent,
+  NxtDesktopPageHeaderComponent,
+  NxtPlatformService,
   NxtLoggingService,
   NewsContentComponent,
   FeedListComponent,
   FeedService,
-  NxtHeroHeaderComponent,
-  NxtPartnerMarqueeComponent,
-  type OptionScrollerItem,
-  type OptionScrollerChangeEvent,
-  type HeroAudienceCardClickEvent,
+  type SectionNavItem,
+  type SectionNavChangeEvent,
 } from '@nxt1/ui';
 import { type FeedPost, type FeedAuthor } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -43,83 +42,73 @@ import { SeoService, AnalyticsService } from '../../core/services';
   standalone: true,
   imports: [
     CommonModule,
-    RouterModule,
-    NxtOptionScrollerComponent,
+    NxtSectionNavWebComponent,
+    NxtDesktopPageHeaderComponent,
     NewsContentComponent,
     FeedListComponent,
-    NxtHeroHeaderComponent,
-    NxtPartnerMarqueeComponent,
   ],
   template: `
-    <!-- Hero Header Section -->
-    <nxt1-hero-header
-      [showLogo]="false"
-      [showPrimaryCta]="true"
-      [showAnimatedBg]="true"
-      [showTrustBadges]="true"
-      [showAppBadges]="false"
-      (cardClick)="onHeroCardClick($event)"
-    />
-
-    <!-- Partners Section -->
-    <nxt1-partner-marquee
-      title="Trusted By Leading Organizations"
-      subtitle="Partnering with the best to power the future of sports recruiting"
-      label="Our Partners"
-      [showLabel]="true"
-    />
-
-    <!-- Twitter/TikTok Style Feed Selector -->
-    <nxt1-option-scroller
-      [options]="feedOptions()"
-      [selectedId]="selectedFeed()"
-      [config]="{ scrollable: false, stretchToFill: true }"
-      (selectionChange)="onFeedChange($event)"
-    />
-
-    <main class="feed-content">
-      @switch (selectedFeed()) {
-        @case ('news') {
-          <nxt1-news-content
-            (articleSelect)="onNewsArticleSelect($event)"
-            (xpBadgeClick)="onXpBadgeClick()"
-          />
-        }
-        @case ('following') {
-          <nxt1-feed-list
-            [posts]="feedService.posts()"
-            [isLoading]="feedService.isLoading()"
-            [isLoadingMore]="feedService.isLoadingMore()"
-            [error]="feedService.error()"
-            [filterType]="'following'"
-            (postClick)="onPostSelect($event)"
-            (authorClick)="onAuthorSelect($event)"
-            (likeClick)="onLikeClick($event)"
-            (commentClick)="onCommentClick($event)"
-            (shareClick)="onShareClick($event)"
-            (bookmarkClick)="onBookmarkClick($event)"
-            (loadMore)="onLoadMore()"
-            (retry)="onRetry()"
-          />
-        }
-        @default {
-          <nxt1-feed-list
-            [posts]="feedService.posts()"
-            [isLoading]="feedService.isLoading()"
-            [isLoadingMore]="feedService.isLoadingMore()"
-            [error]="feedService.error()"
-            [filterType]="'for-you'"
-            (postClick)="onPostSelect($event)"
-            (authorClick)="onAuthorSelect($event)"
-            (likeClick)="onLikeClick($event)"
-            (commentClick)="onCommentClick($event)"
-            (shareClick)="onShareClick($event)"
-            (bookmarkClick)="onBookmarkClick($event)"
-            (loadMore)="onLoadMore()"
-            (retry)="onRetry()"
-          />
-        }
+    <main class="home-main" role="main">
+      @if (isDesktop()) {
+        <nxt1-desktop-page-header
+          title="Home Feed"
+          subtitle="Your personalized feed of highlights, updates, and sports news."
+        />
       }
+
+      <div class="home-layout">
+        <nxt1-section-nav-web
+          [items]="feedTabs()"
+          [activeId]="selectedFeed()"
+          ariaLabel="Home feed sections"
+          (selectionChange)="onFeedChange($event)"
+        />
+
+        <section class="feed-content" [attr.id]="'section-' + selectedFeed()" role="tabpanel">
+          @switch (selectedFeed()) {
+            @case ('news') {
+              <nxt1-news-content
+                (articleSelect)="onNewsArticleSelect($event)"
+                (xpBadgeClick)="onXpBadgeClick()"
+              />
+            }
+            @case ('following') {
+              <nxt1-feed-list
+                [posts]="feedService.posts()"
+                [isLoading]="feedService.isLoading()"
+                [isLoadingMore]="feedService.isLoadingMore()"
+                [error]="feedService.error()"
+                [filterType]="'following'"
+                (postClick)="onPostSelect($event)"
+                (authorClick)="onAuthorSelect($event)"
+                (likeClick)="onLikeClick($event)"
+                (commentClick)="onCommentClick($event)"
+                (shareClick)="onShareClick($event)"
+                (bookmarkClick)="onBookmarkClick($event)"
+                (loadMore)="onLoadMore()"
+                (retry)="onRetry()"
+              />
+            }
+            @default {
+              <nxt1-feed-list
+                [posts]="feedService.posts()"
+                [isLoading]="feedService.isLoading()"
+                [isLoadingMore]="feedService.isLoadingMore()"
+                [error]="feedService.error()"
+                [filterType]="'for-you'"
+                (postClick)="onPostSelect($event)"
+                (authorClick)="onAuthorSelect($event)"
+                (likeClick)="onLikeClick($event)"
+                (commentClick)="onCommentClick($event)"
+                (shareClick)="onShareClick($event)"
+                (bookmarkClick)="onBookmarkClick($event)"
+                (loadMore)="onLoadMore()"
+                (retry)="onRetry()"
+              />
+            }
+          }
+        </section>
+      </div>
     </main>
   `,
   styles: [
@@ -129,13 +118,36 @@ import { SeoService, AnalyticsService } from '../../core/services';
         flex-direction: column;
         flex: 1;
         background: var(--nxt1-color-bg-primary);
-        overflow-y: auto;
+      }
+
+      .home-main {
+        flex: 1;
+        min-height: 100%;
+        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
+        padding-bottom: var(--nxt1-spacing-16);
+      }
+
+      .home-layout {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        gap: var(--nxt1-spacing-8);
+        align-items: start;
       }
 
       .feed-content {
-        flex: 1;
-        padding: var(--nxt1-spacing-4);
-        background: var(--nxt1-color-bg-primary);
+        min-width: 0;
+      }
+
+      @media (max-width: 768px) {
+        .home-main {
+          padding: var(--nxt1-spacing-4) var(--nxt1-spacing-3);
+          padding-bottom: var(--nxt1-spacing-16);
+        }
+
+        .home-layout {
+          grid-template-columns: 1fr;
+          gap: var(--nxt1-spacing-4);
+        }
       }
     `,
   ],
@@ -147,7 +159,11 @@ export class HomeComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('HomeComponent');
   private readonly seo = inject(SeoService);
   private readonly analytics = inject(AnalyticsService);
+  private readonly platform = inject(NxtPlatformService);
   protected readonly feedService = inject(FeedService);
+
+  /** Desktop detection for showing desktop page header */
+  protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
 
   ngOnInit(): void {
     this.seo.updatePage({
@@ -165,8 +181,8 @@ export class HomeComponent implements OnInit {
   /** Current authenticated user */
   readonly user = computed(() => this.authFlow.user());
 
-  /** Feed navigation options (Twitter/TikTok style) */
-  readonly feedOptions = signal<OptionScrollerItem[]>([
+  /** Feed section tabs */
+  readonly feedTabs = signal<readonly SectionNavItem[]>([
     { id: 'home', label: 'Home' },
     { id: 'following', label: 'Following' },
     { id: 'news', label: 'News' },
@@ -178,15 +194,15 @@ export class HomeComponent implements OnInit {
   /**
    * Handle feed tab change - swaps inline content (no navigation)
    */
-  onFeedChange(event: OptionScrollerChangeEvent): void {
-    this.selectedFeed.set(event.option.id);
+  onFeedChange(event: SectionNavChangeEvent): void {
+    this.selectedFeed.set(event.id);
     this.logger.debug('Feed changed', {
-      feed: event.option.label,
-      via: event.fromSwipe ? 'swipe' : 'tap',
+      feed: event.item.label,
+      via: 'tap',
     });
 
     // Reload feed when switching between home/following
-    if (event.option.id === 'home' || event.option.id === 'following') {
+    if (event.id === 'home' || event.id === 'following') {
       this.feedService.loadFeed();
     }
   }
@@ -297,13 +313,5 @@ export class HomeComponent implements OnInit {
    */
   onRetry(): void {
     this.feedService.loadFeed();
-  }
-
-  /**
-   * Handle hero audience card click
-   */
-  onHeroCardClick(event: HeroAudienceCardClickEvent): void {
-    this.logger.debug('Hero card clicked', { cardId: event.card.id });
-    // Navigation is handled by routerLink in the component
   }
 }

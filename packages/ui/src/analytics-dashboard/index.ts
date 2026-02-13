@@ -25,6 +25,12 @@ export {
 } from './analytics-dashboard-shell.component';
 
 // ============================================
+// WEB COMPONENTS (Zero Ionic)
+// ============================================
+
+export { AnalyticsDashboardShellWebComponent } from './web';
+
+// ============================================
 // SERVICES
 // ============================================
 

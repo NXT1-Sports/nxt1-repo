@@ -316,6 +316,11 @@ addIcons({
           </div>
         }
 
+        <!-- Inline search: uses toolbar-content flow layout -->
+        <div class="header-inline-search">
+          <ng-content select="[pageHeaderSlot=inline-search]" />
+        </div>
+
         <!-- Right Side: Action Buttons -->
         <ion-buttons slot="end" class="end-buttons">
           <!-- Configured actions using Ionicons -->
@@ -366,6 +371,9 @@ addIcons({
          ============================================ */
 
       :host {
+        display: block;
+        width: 100%;
+
         /* Map to glass tokens for consistency with footer */
         --header-glass-bg: var(--nxt1-glass-bg);
         --header-glass-bgSolid: var(--nxt1-glass-bgSolid);
@@ -423,15 +431,17 @@ addIcons({
         -webkit-backdrop-filter: var(--header-glass-backdrop);
       }
 
-      /* Toolbar base - Fixed height for consistent layout
+      /* Toolbar base - Minimum height for consistent layout
          regardless of whether avatar, back button, or nothing is in slots.
-         Height accommodates md avatar (40px) + padding (8px) + breathing room.
-         Uses !important to prevent parent CSS variable cascade from overriding. */
+         Min-height accommodates md avatar (40px) + padding (8px) + breathing room.
+         Uses !important to prevent parent CSS variable cascade from overriding.
+         NOTE: Do NOT set explicit height — Ionic adds padding-top for iOS
+         safe area (status bar/Dynamic Island ~47px) to the first toolbar
+         in ion-header. A fixed height squeezes content to near-zero. */
       ion-toolbar {
         --padding-start: var(--nxt1-spacing-2, 8px);
         --padding-end: var(--nxt1-spacing-2, 8px);
         --min-height: 56px !important;
-        height: 56px;
         --background: inherit;
       }
 
@@ -522,7 +532,8 @@ addIcons({
         display: flex;
         align-items: center;
         justify-content: center;
-        padding-inline: var(--nxt1-spacing-14, 56px);
+        padding-inline-start: var(--nxt1-header-title-padding-start, 56px);
+        padding-inline-end: var(--nxt1-header-title-padding-end, 12px);
         z-index: 0;
         transition: padding 0.25s ease;
       }
@@ -579,16 +590,8 @@ addIcons({
       .start-buttons {
         position: relative;
         z-index: 1;
-        height: 56px;
         display: flex;
         align-items: center;
-      }
-
-      /* Raise back button and other items up to align with title */
-      .start-buttons > nxt1-back-button,
-      .start-buttons > ion-button,
-      .start-buttons > [pageHeaderSlot] {
-        transform: translateY(-3px);
       }
 
       /* Avatar button (Twitter/X style) - stays centered, no transform */
@@ -635,14 +638,8 @@ addIcons({
       .end-buttons {
         position: relative;
         z-index: 1;
-        height: 56px;
         display: flex;
         align-items: center;
-      }
-
-      /* Raise all items in end slot up to align with title */
-      .end-buttons > * {
-        transform: translateY(-3px);
       }
 
       .end-buttons ion-button {
@@ -717,6 +714,34 @@ addIcons({
         border-radius: var(--nxt1-radius-full, 9999px);
         --background: var(--nxt1-color-error, #ff3b30);
         --color: var(--nxt1-color-text-inverse, white);
+      }
+
+      /* ============================================
+         INLINE SEARCH - Flow-based layout in toolbar
+         Uses toolbar-content's natural width (between start/end buttons)
+         NOT absolutely positioned — adapts as avatar collapses
+         ============================================ */
+
+      .header-inline-search {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        min-height: var(--nxt1-inline-search-min-height, 40px);
+        z-index: 0;
+      }
+
+      .header-inline-search > * {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        pointer-events: auto;
+      }
+
+      /* Hide container when empty (no projected content) */
+      .header-inline-search:empty {
+        display: none;
       }
 
       /* Search toolbar */

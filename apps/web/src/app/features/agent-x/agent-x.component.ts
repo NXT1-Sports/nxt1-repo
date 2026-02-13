@@ -17,7 +17,7 @@
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import {
-  AgentXShellComponent,
+  AgentXShellWebComponent,
   NxtSidenavService,
   NxtLoggingService,
   NxtPlatformService,
@@ -30,9 +30,9 @@ import { SeoService } from '../../core/services';
 @Component({
   selector: 'app-agent-x',
   standalone: true,
-  imports: [AgentXShellComponent],
+  imports: [AgentXShellWebComponent],
   template: `
-    <nxt1-agent-x-shell
+    <nxt1-agent-x-shell-web
       [user]="userInfo()"
       [hideHeader]="isDesktop()"
       (avatarClick)="onAvatarClick()"

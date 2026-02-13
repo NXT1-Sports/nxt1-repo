@@ -1,23 +1,15 @@
 /**
- * @fileoverview Explore Shell Component - Web (Tailwind SSR)
+ * @fileoverview Explore Shell Component — Web (Zero Ionic)
  * @module @nxt1/ui/explore/web
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Web-optimized Explore Shell using pure Tailwind CSS.
+ * Web-optimized Explore Shell using design token CSS.
  * 100% SSR-safe with semantic HTML for Grade A+ SEO.
+ * Zero Ionic components — pure Angular + design tokens.
  *
- * ⭐ WEB ONLY - Pure Tailwind, Zero Ionic, SSR-optimized ⭐
+ * ⭐ WEB ONLY — Pure HTML/CSS, Zero Ionic, SSR-optimized ⭐
  *
- * SEO Features:
- * - Semantic HTML structure (<main>, <section>, <nav>)
- * - Native search input for better accessibility
- * - Proper heading hierarchy
- * - Fast LCP with SSR
- *
- * Design Token Integration:
- * - Uses @nxt1/design-tokens CSS custom properties
- * - Tailwind classes map to design tokens via preset
- * - Dark/light mode via [data-theme] attribute
+ * For mobile app, use ExploreShellComponent (Ionic variant) instead.
  */
 
 import {
@@ -40,16 +32,18 @@ import {
   EXPLORE_SEARCH_CONFIG,
 } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../../components/page-header';
-import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
-import {
-  NxtOptionScrollerComponent,
-  type OptionScrollerItem,
-  type OptionScrollerChangeEvent,
-} from '../../components/option-scroller';
+import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
+import { NxtOptionScrollerWebComponent } from '../../components/option-scroller-web';
+import { NxtHeroHeaderComponent } from '../../components/hero-header';
+import { NxtPartnerMarqueeComponent } from '../../components/partner-marquee';
+import type {
+  OptionScrollerItem,
+  OptionScrollerChangeEvent,
+} from '../../components/option-scroller/option-scroller.types';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { ExploreService } from '../explore.service';
-import { ExploreListComponent } from '../explore-list.component';
+import { ExploreListWebComponent } from './explore-list-web.component';
 import { ExploreSkeletonComponent } from '../explore-skeleton.component';
 import { ScoutReportsContentComponent } from '../../scout-reports/scout-reports-content.component';
 import type { ExploreUser } from '../explore-shell.component';
@@ -61,9 +55,11 @@ import type { ExploreUser } from '../explore-shell.component';
     CommonModule,
     FormsModule,
     NxtPageHeaderComponent,
-    NxtRefresherComponent,
-    NxtOptionScrollerComponent,
-    ExploreListComponent,
+    NxtDesktopPageHeaderComponent,
+    NxtOptionScrollerWebComponent,
+    NxtHeroHeaderComponent,
+    NxtPartnerMarqueeComponent,
+    ExploreListWebComponent,
     ExploreSkeletonComponent,
     ScoutReportsContentComponent,
   ],
@@ -126,24 +122,47 @@ import type { ExploreUser } from '../explore-shell.component';
       </nxt1-page-header>
     }
 
-    <!-- Tab Navigation -->
-    @if (!explore.isSearchFocused() || explore.hasQuery()) {
-      <nav aria-label="Explore categories">
-        <nxt1-option-scroller
-          [options]="tabOptions()"
-          [selectedId]="explore.activeTab()"
-          [config]="{ scrollable: true, stretchToFill: false, showDivider: true }"
-          (selectionChange)="onTabChange($event)"
-        />
-      </nav>
-    }
-
     <!-- SEO: Main content area with semantic structure -->
-    <main class="explore-main bg-bg-primary min-h-screen">
-      <!-- Pull-to-Refresh -->
-      <nxt-refresher (onRefresh)="handleRefresh($event)" />
+    <main class="explore-main">
+      <div class="explore-dashboard">
+        <!-- Desktop Page Header (visible when page header is hidden) -->
+        @if (hideHeader()) {
+          <nxt1-desktop-page-header
+            title="Explore"
+            subtitle="Discover athletes, teams, colleges, and more."
+          />
+        }
 
-      <div class="explore-container mx-auto max-w-4xl pb-20">
+        <!-- Audience + Trust Sections (moved from Home) -->
+        @if (!explore.isSearchFocused() && !explore.hasQuery()) {
+          <nxt1-hero-header
+            [showLogo]="false"
+            [showPrimaryCta]="true"
+            [showAnimatedBg]="true"
+            [showTrustBadges]="true"
+            [showAppBadges]="false"
+          />
+
+          <nxt1-partner-marquee
+            title="Trusted By Leading Organizations"
+            subtitle="Partnering with the best to power the future of sports recruiting"
+            label="Our Partners"
+            [showLabel]="true"
+          />
+        }
+
+        <!-- Tab Navigation (web-native, zero Ionic) -->
+        @if (!explore.isSearchFocused() || explore.hasQuery()) {
+          <nav aria-label="Explore categories">
+            <nxt1-option-scroller-web
+              [options]="tabOptions()"
+              [selectedId]="explore.activeTab()"
+              [stretchToFill]="false"
+              [showDivider]="true"
+              (selectionChange)="onTabChange($event)"
+            />
+          </nav>
+        }
         <!-- Search Suggestions Overlay -->
         @if (explore.isSearchFocused() && !explore.hasQuery()) {
           <section class="search-suggestions px-4 py-4" aria-labelledby="suggestions-heading">
@@ -259,7 +278,7 @@ import type { ExploreUser } from '../explore-shell.component';
             />
           } @else {
             @defer (on viewport; prefetch on idle) {
-              <nxt1-explore-list
+              <nxt1-explore-list-web
                 [items]="explore.items()"
                 [activeTab]="explore.activeTab()"
                 [isLoading]="explore.isLoading()"
@@ -284,16 +303,25 @@ import type { ExploreUser } from '../explore-shell.component';
   `,
   styles: [
     `
-      /* Host styling */
+      /* ============================================
+         EXPLORE SHELL (WEB) — Design Token CSS
+         Zero Ionic, SSR-safe, fills web shell layout
+         ============================================ */
+
       :host {
         display: block;
         height: 100%;
         width: 100%;
       }
 
-      /* Main content background */
       .explore-main {
-        background: var(--nxt1-color-bg-primary, #0a0a0a);
+        background: var(--nxt1-color-bg-primary);
+        min-height: 100%;
+      }
+
+      .explore-dashboard {
+        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
+        padding-bottom: var(--nxt1-spacing-16);
       }
     `,
   ],
@@ -382,14 +410,6 @@ export class ExploreShellWebComponent implements OnInit {
     const tabId = event.option.id as ExploreTabId;
     this.explore.switchTab(tabId);
     this.tabChange.emit(tabId);
-  }
-
-  protected async handleRefresh(event: RefreshEvent): Promise<void> {
-    try {
-      await this.explore.refresh();
-    } finally {
-      event.complete();
-    }
   }
 
   protected async onLoadMore(): Promise<void> {

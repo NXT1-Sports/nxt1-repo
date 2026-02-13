@@ -254,6 +254,7 @@ export {
   type PageHeaderConfig,
   type PageHeaderAction,
 } from './components/page-header';
+export { NxtDesktopPageHeaderComponent } from './components/desktop-page-header';
 
 // ============================================
 // OPTION SCROLLER (Twitter/TikTok Style Tab Selector)
@@ -271,6 +272,20 @@ export {
 } from './components/option-scroller';
 
 // ============================================
+// OPTION SCROLLER WEB (Zero Ionic, SSR-safe)
+// ============================================
+export { NxtOptionScrollerWebComponent } from './components/option-scroller-web';
+
+// ============================================
+// SECTION NAV WEB (Vertical Side-Nav for Two-Column Layouts)
+// ============================================
+export {
+  NxtSectionNavWebComponent,
+  type SectionNavItem,
+  type SectionNavChangeEvent,
+} from './components/section-nav-web';
+
+// ============================================
 // AGENT X (AI Assistant - Shared Web & Mobile)
 // ============================================
 export {
@@ -281,9 +296,20 @@ export {
   AgentXWelcomeComponent,
   AgentXChatComponent,
   AgentXInputComponent,
+  // Mode Content (shared web & mobile)
+  AgentXModeContentComponent,
+  AgentXDraftsComponent,
+  AgentXTemplateGridComponent,
+  AgentXBundlesComponent,
+  AgentXTaskListComponent,
   // Types
   type AgentXUser,
 } from './agent-x';
+
+// ============================================
+// AGENT X WEB (Zero Ionic, SSR-safe)
+// ============================================
+export { AgentXShellWebComponent, AgentXWelcomeWebComponent } from './agent-x/web';
 
 // ============================================
 // CREATE POST (Post Creation - Shared Web & Mobile)
@@ -336,11 +362,15 @@ export {
 export {
   // Service
   ExploreService,
-  // Components
+  // Mobile (Ionic)
   ExploreShellComponent,
-  ExploreShellWebComponent,
   ExploreListComponent,
   ExploreItemComponent,
+  // Web (Zero Ionic)
+  ExploreShellWebComponent,
+  ExploreListWebComponent,
+  ExploreItemWebComponent,
+  // Shared
   ExploreSkeletonComponent,
   // Types
   type ExploreUser,
@@ -450,13 +480,17 @@ export {
   type DesktopSidebarItem,
   type DesktopSidebarUserData,
   type DesktopSidebarSelectEvent,
+  type GetSidebarSectionsOptions,
   // Constants
   DEFAULT_DESKTOP_SIDEBAR_CONFIG,
   DEFAULT_DESKTOP_SIDEBAR_SECTIONS,
+  LOGGED_IN_SIDEBAR_SECTIONS,
+  LOGGED_OUT_SIDEBAR_SECTIONS,
   SIDEBAR_BREAKPOINTS,
   SIDEBAR_WIDTHS,
   // Factory
   createDesktopSidebarConfig,
+  getSidebarSections,
 } from './components/desktop-sidebar';
 
 // ============================================
@@ -785,8 +819,10 @@ export {
 export {
   // Service
   AnalyticsDashboardService,
-  // Components
+  // Components (Ionic — Mobile)
   AnalyticsDashboardShellComponent,
+  // Components (Web — Zero Ionic)
+  AnalyticsDashboardShellWebComponent,
   // Types
   type AnalyticsUser,
   // Mock Data (Development Only)
@@ -802,6 +838,7 @@ export {
   XpService,
   // Components
   XpShellComponent,
+  XpShellWebComponent,
   XpProgressComponent,
   XpCategoryComponent,
   XpItemComponent,

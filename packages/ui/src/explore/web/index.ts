@@ -1,15 +1,14 @@
 /**
- * @fileoverview Explore Web Components - Barrel Export
+ * @fileoverview Explore Web Components — Barrel Export
  * @module @nxt1/ui/explore/web
+ * @version 2.0.0
  *
- * Web-optimized explore components using pure Tailwind CSS.
- * 100% SSR-safe with semantic HTML for Grade A+ SEO.
+ * Web-optimized explore components. Zero Ionic dependencies,
+ * SSR-safe, design token CSS.
  *
- * Usage:
- * ```typescript
- * // In web app (SSR)
- * import { ExploreShellWebComponent } from '@nxt1/ui/explore/web';
- * ```
+ * ⭐ WEB ONLY — Use explore/index.ts for mobile (Ionic) ⭐
  */
 
 export { ExploreShellWebComponent } from './explore-shell-web.component';
+export { ExploreListWebComponent } from './explore-list-web.component';
+export { ExploreItemWebComponent } from './explore-item-web.component';

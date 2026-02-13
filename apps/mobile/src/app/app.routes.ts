@@ -35,12 +35,6 @@ export const routes: Routes = [
       import('./features/create-post/create-post.routes').then((m) => m.CREATE_POST_ROUTES),
   },
 
-  // Profile (outside shell - no tabs)
-  {
-    path: 'profile',
-    loadChildren: () => import('./features/profile/profile.routes').then((m) => m.PROFILE_ROUTES),
-  },
-
   // ============================================
   // AUTHENTICATED ROUTES (With Mobile Shell)
   // ============================================
@@ -158,6 +152,13 @@ export const routes: Routes = [
       {
         path: 'team/:slug',
         loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
+      },
+
+      // Profile - User profiles (inside shell for swipe-back gesture)
+      {
+        path: 'profile',
+        loadChildren: () =>
+          import('./features/profile/profile.routes').then((m) => m.PROFILE_ROUTES),
       },
 
       // Developer Settings (non-production only)

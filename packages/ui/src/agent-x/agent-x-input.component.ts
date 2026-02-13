@@ -89,8 +89,8 @@ import type { AgentXQuickTask } from '@nxt1/core';
       :host {
         display: block;
         position: fixed;
-        left: 0;
-        right: 0;
+        left: var(--agent-input-left, 0);
+        right: var(--agent-input-right, 0);
         /* Desktop: sit comfortably above page bottom */
         bottom: 24px;
         z-index: var(--nxt1-z-index-fixed, 999);
@@ -109,7 +109,8 @@ import type { AgentXQuickTask } from '@nxt1/core';
       /* Desktop: offset left edge past sidebar so pill centers in content area */
       @media (min-width: 768px) {
         :host {
-          left: var(--nxt1-sidebar-width, 280px);
+          left: var(--agent-input-desktop-left, var(--nxt1-sidebar-width, 280px));
+          right: var(--agent-input-desktop-right, 0);
         }
       }
 
@@ -126,7 +127,7 @@ import type { AgentXQuickTask } from '@nxt1/core';
         border: none;
         display: flex;
         flex-direction: column;
-        align-items: center;
+        align-items: var(--agent-input-align-items, center);
         gap: 0.5rem;
         pointer-events: auto;
       }
@@ -183,7 +184,7 @@ import type { AgentXQuickTask } from '@nxt1/core';
         backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         position: relative;
-        width: min(100%, 560px);
+        width: min(100%, var(--agent-input-max-width, 560px));
         transition:
           border-color 0.2s ease,
           box-shadow 0.2s ease,

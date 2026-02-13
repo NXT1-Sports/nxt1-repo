@@ -1,12 +1,12 @@
 /**
  * @fileoverview Analytics Dashboard Page - Web App Wrapper
  * @module @nxt1/web/features/analytics-dashboard
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Thin wrapper component that imports the shared Analytics Dashboard shell
- * from @nxt1/ui and wires up platform-specific concerns.
+ * Thin wrapper component that imports the web-optimized Analytics Dashboard
+ * shell from @nxt1/ui (zero Ionic) and wires up platform-specific concerns.
  *
- * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
+ * ⭐ USES WEB SHELL — Zero Ionic, SSR-safe, design token CSS ⭐
  *
  * The actual UI and logic live in @nxt1/ui (shared package).
  * This wrapper only handles:
@@ -19,7 +19,7 @@
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import {
-  AnalyticsDashboardShellComponent,
+  AnalyticsDashboardShellWebComponent,
   NxtSidenavService,
   NxtLoggingService,
   NxtPlatformService,
@@ -38,9 +38,9 @@ import { SeoService } from '../../core/services';
 @Component({
   selector: 'app-analytics-dashboard',
   standalone: true,
-  imports: [AnalyticsDashboardShellComponent],
+  imports: [AnalyticsDashboardShellWebComponent],
   template: `
-    <nxt1-analytics-dashboard-shell
+    <nxt1-analytics-dashboard-shell-web
       [user]="userInfo()"
       [role]="userRole()"
       [hideHeader]="isDesktop()"

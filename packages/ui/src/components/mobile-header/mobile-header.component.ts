@@ -135,8 +135,7 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
           <!-- Sign In Button (unauthenticated) -->
           @if (config().showSignIn !== false && !user()) {
             <a class="mobile-header__signin-btn" routerLink="/auth" aria-label="Sign in">
-              <nxt1-icon name="person" [size]="18" />
-              <span class="mobile-header__signin-label">Sign in</span>
+              Sign In
             </a>
           }
 
@@ -353,27 +352,34 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
       .mobile-header__signin-btn {
         display: inline-flex;
         align-items: center;
-        gap: var(--nxt1-spacing-1_5, 0.375rem);
-        padding: var(--nxt1-spacing-1_5, 0.375rem) var(--nxt1-spacing-3, 0.75rem);
-        background: transparent;
-        border: 1px solid var(--mobile-header-accent);
+        justify-content: center;
+        height: var(--nxt1-ui-btn-height-sm, 32px);
+        padding: 0 var(--nxt1-spacing-4, 1rem);
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-ui-text-inverse, #000000);
+        border: none;
         border-radius: var(--nxt1-borderRadius-full, 9999px);
-        color: var(--mobile-header-accent);
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        font-weight: var(--nxt1-fontWeight-medium, 500);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
         text-decoration: none;
         cursor: pointer;
         white-space: nowrap;
+        box-shadow: var(--nxt1-glow-md);
         -webkit-tap-highlight-color: transparent;
-        transition: all var(--mobile-header-transition);
+        transition:
+          background-color var(--mobile-header-transition),
+          transform var(--mobile-header-transition),
+          box-shadow var(--mobile-header-transition);
       }
 
       .mobile-header__signin-btn:hover {
-        background: var(--nxt1-color-alpha-primary4);
+        background: var(--nxt1-color-primary-dark, var(--nxt1-color-primary));
+        transform: translateY(-1px);
       }
 
       .mobile-header__signin-btn:active {
-        transform: scale(var(--mobile-header-press-scale-lg));
+        transform: translateY(0);
+        box-shadow: var(--nxt1-glow-sm);
       }
 
       .mobile-header__signin-btn:focus-visible {

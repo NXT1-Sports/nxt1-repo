@@ -14,9 +14,20 @@
  * - Dark/light mode via [data-theme] attribute
  */
 
-import { Component, ChangeDetectionStrategy, inject, output, input } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  output,
+  input,
+  signal,
+  computed,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
+import { NxtSectionNavWebComponent } from '../../components/section-nav-web';
+import type { SectionNavItem, SectionNavChangeEvent } from '../../components/section-nav-web';
 import { HelpCenterService } from '../_shared/help-center.service';
 import type { HelpArticle, HelpCategoryId, HelpCategory } from '@nxt1/core';
 
@@ -30,290 +41,53 @@ export interface HelpNavigateEvent {
 @Component({
   selector: 'nxt1-help-center-shell-web',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, NxtDesktopPageHeaderComponent, NxtSectionNavWebComponent],
   template: `
-    <!-- Page Header -->
-    <header
-      class="bg-bg-primary/95 border-border-subtle sticky top-0 z-10 border-b backdrop-blur-sm"
-    >
-      <div class="mx-auto flex max-w-4xl items-center gap-4 px-4 py-4">
-        @if (showBack()) {
-          <button
-            type="button"
-            (click)="back.emit()"
-            class="bg-surface-100 hover:bg-surface-200 text-text-secondary hover:text-text-primary flex h-10 w-10 items-center justify-center rounded-full transition-colors"
-            aria-label="Go back"
-          >
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <!-- Main Content -->
+    <main class="help-main">
+      <div class="help-dashboard">
+        <!-- Desktop Page Header -->
+        <nxt1-desktop-page-header
+          title="Help Center"
+          subtitle="Find answers, guides, and support for your account."
+        />
+        <!-- Search Bar -->
+        <div class="mb-8">
+          <div class="relative">
+            <svg
+              class="text-text-tertiary absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
               <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
                 stroke-width="2"
-                d="M15 19l-7-7 7-7"
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
               />
             </svg>
-          </button>
-        }
-        <h1 class="text-text-primary text-xl font-semibold">Help Center</h1>
-      </div>
-    </header>
-
-    <!-- Main Content -->
-    <main class="mx-auto max-w-4xl px-4 py-6 pb-24">
-      <!-- Search Bar -->
-      <div class="mb-8">
-        <div class="relative">
-          <svg
-            class="text-text-tertiary absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            <input
+              type="search"
+              [ngModel]="helpService.searchQuery()"
+              (ngModelChange)="onSearch($event)"
+              placeholder="Search help articles..."
+              class="bg-surface-100 border-border-subtle text-text-primary placeholder:text-text-tertiary focus:ring-primary/30 focus:border-primary h-12 w-full rounded-xl border pr-4 pl-12 transition-all duration-200 focus:ring-2 focus:outline-none"
             />
-          </svg>
-          <input
-            type="search"
-            [ngModel]="helpService.searchQuery()"
-            (ngModelChange)="onSearch($event)"
-            placeholder="Search help articles..."
-            class="bg-surface-100 border-border-subtle text-text-primary placeholder:text-text-tertiary focus:ring-primary/30 focus:border-primary h-12 w-full rounded-xl border pr-4 pl-12 transition-all duration-200 focus:ring-2 focus:outline-none"
-          />
+          </div>
         </div>
-      </div>
 
-      <!-- Search Results -->
-      @if (helpService.isSearching()) {
-        <section class="mb-8">
-          <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide uppercase">
-            Search Results
-          </h2>
-
-          @if (helpService.filteredArticles().length === 0) {
-            <div class="bg-surface-100 rounded-xl p-8 text-center">
-              <svg
-                class="text-text-tertiary mx-auto mb-3 h-12 w-12"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="1.5"
-                  d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M12 2a10 10 0 100 20 10 10 0 000-20z"
-                />
-              </svg>
-              <p class="text-text-secondary">No articles found for your search.</p>
-              <button
-                type="button"
-                (click)="helpService.clearSearch()"
-                class="text-primary hover:text-primary-400 mt-4 font-medium transition-colors"
-              >
-                Clear search
-              </button>
-            </div>
-          } @else {
-            <div class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl">
-              @for (article of helpService.filteredArticles(); track article.id) {
-                <button
-                  type="button"
-                  (click)="onArticleClick(article)"
-                  class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
-                >
-                  <div
-                    class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors"
-                  >
-                    <svg
-                      class="text-text-secondary h-5 w-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      @switch (article.type) {
-                        @case ('video') {
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                          />
-                        }
-                        @case ('guide') {
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-                          />
-                        }
-                        @case ('tutorial') {
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M12 14l9-5-9-5-9 5 9 5zm0 7l9-5-9-5-9 5 9 5z"
-                          />
-                        }
-                        @default {
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                          />
-                        }
-                      }
-                    </svg>
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <h3 class="text-text-primary truncate text-base font-medium">
-                      {{ article.title }}
-                    </h3>
-                    <p class="text-text-secondary line-clamp-1 text-sm">{{ article.excerpt }}</p>
-                  </div>
-                  <svg
-                    class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M9 5l7 7-7 7"
-                    />
-                  </svg>
-                </button>
-              }
-            </div>
-          }
-        </section>
-      } @else {
-        <!-- Featured Articles -->
-        @if (helpService.featuredArticles().length > 0) {
+        <!-- Search Results -->
+        @if (helpService.isSearching()) {
           <section class="mb-8">
             <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide uppercase">
-              Featured
+              Search Results
             </h2>
-            <div class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl">
-              @for (article of helpService.featuredArticles(); track article.id) {
-                <button
-                  type="button"
-                  (click)="onArticleClick(article)"
-                  class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
-                >
-                  <div
-                    class="bg-primary/10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
-                  >
-                    <svg
-                      class="text-primary h-5 w-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      @switch (article.type) {
-                        @case ('video') {
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
-                          />
-                        }
-                        @case ('guide') {
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-                          />
-                        }
-                        @case ('tutorial') {
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M12 14l9-5-9-5-9 5 9 5zm0 7l9-5-9-5-9 5 9 5z"
-                          />
-                        }
-                        @default {
-                          <path
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            stroke-width="2"
-                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                          />
-                        }
-                      }
-                    </svg>
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-2">
-                      <h3 class="text-text-primary truncate text-base font-medium">
-                        {{ article.title }}
-                      </h3>
-                      @if (article.isNew) {
-                        <span
-                          class="bg-primary text-text-inverse flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold"
-                        >
-                          New
-                        </span>
-                      }
-                    </div>
-                    <p class="text-text-secondary line-clamp-1 text-sm">{{ article.excerpt }}</p>
-                  </div>
-                  <svg
-                    class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M9 5l7 7-7 7"
-                    />
-                  </svg>
-                </button>
-              }
-            </div>
-          </section>
-        }
 
-        <!-- Categories -->
-        <section class="mb-8">
-          <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide uppercase">
-            Browse by Topic
-          </h2>
-          <div class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl">
-            @for (category of helpService.categories(); track category.id) {
-              <button
-                type="button"
-                (click)="onCategoryClick(category.id)"
-                class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
-              >
-                <div
-                  class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors"
-                >
-                  <span class="text-lg" [innerHTML]="getCategoryIcon(category)"></span>
-                </div>
-                <div class="min-w-0 flex-1">
-                  <h3 class="text-text-primary text-base font-medium">{{ category.label }}</h3>
-                  @if (category.description) {
-                    <p class="text-text-secondary line-clamp-1 text-sm">
-                      {{ category.description }}
-                    </p>
-                  }
-                </div>
+            @if (helpService.filteredArticles().length === 0) {
+              <div class="bg-surface-100 rounded-xl p-8 text-center">
                 <svg
-                  class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
+                  class="text-text-tertiary mx-auto mb-3 h-12 w-12"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -321,33 +95,80 @@ export interface HelpNavigateEvent {
                   <path
                     stroke-linecap="round"
                     stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M9 5l7 7-7 7"
+                    stroke-width="1.5"
+                    d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M12 2a10 10 0 100 20 10 10 0 000-20z"
                   />
                 </svg>
-              </button>
-            }
-          </div>
-        </section>
-
-        <!-- Popular Questions -->
-        @if (helpService.popularFaqs().length > 0) {
-          <section class="mb-8">
-            <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide uppercase">
-              Popular Questions
-            </h2>
-            <div class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl">
-              @for (faq of helpService.popularFaqs(); track faq.id) {
+                <p class="text-text-secondary">No articles found for your search.</p>
                 <button
                   type="button"
-                  (click)="onFaqClick(faq.id)"
-                  class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
+                  (click)="helpService.clearSearch()"
+                  class="text-primary hover:text-primary-400 mt-4 font-medium transition-colors"
                 >
-                  <div
-                    class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors"
+                  Clear search
+                </button>
+              </div>
+            } @else {
+              <div class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl">
+                @for (article of helpService.filteredArticles(); track article.id) {
+                  <button
+                    type="button"
+                    (click)="onArticleClick(article)"
+                    class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
                   >
+                    <div
+                      class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors"
+                    >
+                      <svg
+                        class="text-text-secondary h-5 w-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        @switch (article.type) {
+                          @case ('video') {
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                            />
+                          }
+                          @case ('guide') {
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+                            />
+                          }
+                          @case ('tutorial') {
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M12 14l9-5-9-5-9 5 9 5zm0 7l9-5-9-5-9 5 9 5z"
+                            />
+                          }
+                          @default {
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                            />
+                          }
+                        }
+                      </svg>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                      <h3 class="text-text-primary truncate text-base font-medium">
+                        {{ article.title }}
+                      </h3>
+                      <p class="text-text-secondary line-clamp-1 text-sm">{{ article.excerpt }}</p>
+                    </div>
                     <svg
-                      class="text-text-secondary h-5 w-5"
+                      class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -356,92 +177,300 @@ export interface HelpNavigateEvent {
                         stroke-linecap="round"
                         stroke-linejoin="round"
                         stroke-width="2"
-                        d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        d="M9 5l7 7-7 7"
                       />
                     </svg>
-                  </div>
-                  <div class="min-w-0 flex-1">
-                    <h3 class="text-text-primary text-base font-medium">{{ faq.question }}</h3>
-                  </div>
-                  <svg
-                    class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M9 5l7 7-7 7"
-                    />
-                  </svg>
-                </button>
-              }
-            </div>
+                  </button>
+                }
+              </div>
+            }
           </section>
+        } @else {
+          <div class="help-layout">
+            <nxt1-section-nav-web
+              [items]="sectionNavItems()"
+              [activeId]="activeSection()"
+              ariaLabel="Help center sections"
+              (selectionChange)="onSectionNavChange($event)"
+            />
+
+            <section
+              class="help-section-content"
+              [attr.id]="'section-' + activeSection()"
+              role="tabpanel"
+            >
+              @switch (activeSection()) {
+                @case ('featured') {
+                  <section class="mb-8">
+                    <h2
+                      class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide uppercase"
+                    >
+                      Features
+                    </h2>
+                    <div
+                      class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl"
+                    >
+                      @for (article of helpService.featuredArticles(); track article.id) {
+                        <button
+                          type="button"
+                          (click)="onArticleClick(article)"
+                          class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
+                        >
+                          <div
+                            class="bg-primary/10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
+                          >
+                            <svg
+                              class="text-primary h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              @switch (article.type) {
+                                @case ('video') {
+                                  <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                                  />
+                                }
+                                @case ('guide') {
+                                  <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+                                  />
+                                }
+                                @case ('tutorial') {
+                                  <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M12 14l9-5-9-5-9 5 9 5zm0 7l9-5-9-5-9 5 9 5z"
+                                  />
+                                }
+                                @default {
+                                  <path
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                    stroke-width="2"
+                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                  />
+                                }
+                              }
+                            </svg>
+                          </div>
+                          <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2">
+                              <h3 class="text-text-primary truncate text-base font-medium">
+                                {{ article.title }}
+                              </h3>
+                              @if (article.isNew) {
+                                <span
+                                  class="bg-primary text-text-inverse flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold"
+                                >
+                                  New
+                                </span>
+                              }
+                            </div>
+                            <p class="text-text-secondary line-clamp-1 text-sm">
+                              {{ article.excerpt }}
+                            </p>
+                          </div>
+                          <svg
+                            class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M9 5l7 7-7 7"
+                            />
+                          </svg>
+                        </button>
+                      }
+                    </div>
+                  </section>
+                }
+
+                @case ('categories') {
+                  <section class="mb-8">
+                    <h2
+                      class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide uppercase"
+                    >
+                      Browse by Topic
+                    </h2>
+                    <div
+                      class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl"
+                    >
+                      @for (category of helpService.categories(); track category.id) {
+                        <button
+                          type="button"
+                          (click)="onCategoryClick(category.id)"
+                          class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
+                        >
+                          <div
+                            class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors"
+                          >
+                            <span class="text-lg" [innerHTML]="getCategoryIcon(category)"></span>
+                          </div>
+                          <div class="min-w-0 flex-1">
+                            <h3 class="text-text-primary text-base font-medium">
+                              {{ category.label }}
+                            </h3>
+                            @if (category.description) {
+                              <p class="text-text-secondary line-clamp-1 text-sm">
+                                {{ category.description }}
+                              </p>
+                            }
+                          </div>
+                          <svg
+                            class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M9 5l7 7-7 7"
+                            />
+                          </svg>
+                        </button>
+                      }
+                    </div>
+                  </section>
+                }
+
+                @case ('popular') {
+                  <section class="mb-8">
+                    <h2
+                      class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide uppercase"
+                    >
+                      Popular Questions
+                    </h2>
+                    <div
+                      class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl"
+                    >
+                      @for (faq of helpService.popularFaqs(); track faq.id) {
+                        <button
+                          type="button"
+                          (click)="onFaqClick(faq.id)"
+                          class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
+                        >
+                          <div
+                            class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors"
+                          >
+                            <svg
+                              class="text-text-secondary h-5 w-5"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                              />
+                            </svg>
+                          </div>
+                          <div class="min-w-0 flex-1">
+                            <h3 class="text-text-primary text-base font-medium">
+                              {{ faq.question }}
+                            </h3>
+                          </div>
+                          <svg
+                            class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M9 5l7 7-7 7"
+                            />
+                          </svg>
+                        </button>
+                      }
+                    </div>
+                  </section>
+                }
+
+                @case ('support') {
+                  <section class="mb-8">
+                    <h2
+                      class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide uppercase"
+                    >
+                      Need More Help?
+                    </h2>
+                    <div class="bg-surface-100 overflow-hidden rounded-xl">
+                      <button
+                        type="button"
+                        (click)="onContactClick()"
+                        class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
+                      >
+                        <div
+                          class="bg-primary/10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
+                        >
+                          <svg
+                            class="text-primary h-5 w-5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              stroke-width="2"
+                              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                            />
+                          </svg>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                          <h3 class="text-text-primary text-base font-medium">Contact Support</h3>
+                          <p class="text-text-secondary text-sm">Get help from our team</p>
+                        </div>
+                        <svg
+                          class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M9 5l7 7-7 7"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  </section>
+                }
+              }
+            </section>
+          </div>
         }
 
-        <!-- Contact Support -->
-        <section class="mb-8">
-          <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide uppercase">
-            Need More Help?
-          </h2>
-          <div class="bg-surface-100 overflow-hidden rounded-xl">
-            <button
-              type="button"
-              (click)="onContactClick()"
-              class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
-            >
-              <div
-                class="bg-primary/10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
-              >
-                <svg
-                  class="text-primary h-5 w-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                  />
-                </svg>
-              </div>
-              <div class="min-w-0 flex-1">
-                <h3 class="text-text-primary text-base font-medium">Contact Support</h3>
-                <p class="text-text-secondary text-sm">Get help from our team</p>
-              </div>
-              <svg
-                class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M9 5l7 7-7 7"
-                />
-              </svg>
-            </button>
-          </div>
-        </section>
-      }
-
-      <!-- Footer -->
-      <footer class="py-8 text-center">
-        <p class="text-text-tertiary text-sm">Can't find what you're looking for?</p>
-        <a
-          href="mailto:support@nxt1sports.com"
-          class="text-primary hover:text-primary-400 text-sm font-medium transition-colors"
-        >
-          support&#64;nxt1sports.com
-        </a>
-      </footer>
+        <!-- Footer -->
+        <footer class="py-8 text-center">
+          <p class="text-text-tertiary text-sm">Can't find what you're looking for?</p>
+          <a
+            href="mailto:support@nxt1sports.com"
+            class="text-primary hover:text-primary-400 text-sm font-medium transition-colors"
+          >
+            support&#64;nxt1sports.com
+          </a>
+        </footer>
+      </div>
     </main>
   `,
   styles: [
@@ -456,6 +485,39 @@ export interface HelpNavigateEvent {
         min-height: 100%;
         background-color: var(--nxt1-color-bg-primary);
         color: var(--nxt1-color-text-primary);
+      }
+
+      .help-main {
+        background: var(--nxt1-color-bg-primary);
+        min-height: 100%;
+      }
+
+      .help-dashboard {
+        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
+        padding-bottom: var(--nxt1-spacing-16);
+      }
+
+      .help-layout {
+        display: grid;
+        grid-template-columns: 200px 1fr;
+        gap: var(--nxt1-spacing-8);
+        align-items: start;
+      }
+
+      .help-section-content {
+        min-width: 0;
+      }
+
+      @media (max-width: 768px) {
+        .help-dashboard {
+          padding: var(--nxt1-spacing-4) var(--nxt1-spacing-3);
+          padding-bottom: var(--nxt1-spacing-16);
+        }
+
+        .help-layout {
+          grid-template-columns: 1fr;
+          gap: var(--nxt1-spacing-4);
+        }
       }
 
       /* Line clamp utility */
@@ -485,10 +547,41 @@ export interface HelpNavigateEvent {
 })
 export class HelpCenterShellWebComponent {
   protected readonly helpService = inject(HelpCenterService);
+  private readonly _activeSection = signal<'featured' | 'categories' | 'popular' | 'support'>(
+    'featured'
+  );
 
   readonly showBack = input(true);
   readonly back = output<void>();
   readonly navigate = output<HelpNavigateEvent>();
+
+  protected readonly sectionNavItems = computed((): readonly SectionNavItem[] => {
+    const items: SectionNavItem[] = [];
+
+    if (this.helpService.featuredArticles().length > 0) {
+      items.push({ id: 'featured', label: 'Features' });
+    }
+
+    items.push({ id: 'categories', label: 'Browse by Topic' });
+
+    if (this.helpService.popularFaqs().length > 0) {
+      items.push({ id: 'popular', label: 'Popular Questions' });
+    }
+
+    items.push({ id: 'support', label: 'Support' });
+
+    return items;
+  });
+
+  protected readonly activeSection = computed(() => {
+    const selected = this._activeSection();
+    const items = this.sectionNavItems();
+    return items.some((item) => item.id === selected) ? selected : (items[0]?.id ?? 'categories');
+  });
+
+  protected onSectionNavChange(event: SectionNavChangeEvent): void {
+    this._activeSection.set(event.id as 'featured' | 'categories' | 'popular' | 'support');
+  }
 
   protected onSearch(query: string): void {
     this.helpService.setSearchQuery(query);

@@ -110,6 +110,9 @@ export interface DesktopSidebarConfig {
   /** Whether to show user section at bottom */
   readonly showUserSection?: boolean;
 
+  /** Whether to show sign-in prompt for unauthenticated users */
+  readonly showSignIn?: boolean;
+
   /** Whether to show theme toggle */
   readonly showThemeToggle?: boolean;
 
@@ -176,6 +179,7 @@ export const DEFAULT_DESKTOP_SIDEBAR_CONFIG: DesktopSidebarConfig = {
   expandOnHover: true,
   showLogo: true,
   showUserSection: true,
+  showSignIn: true,
   showThemeToggle: true,
   persistState: true,
   storageKey: 'nxt1_sidebar_collapsed',
@@ -226,6 +230,146 @@ export const DEFAULT_DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] 
     ],
   },
 ];
+
+// ============================================
+// AUTH-AWARE SECTION CONFIGURATIONS
+// ============================================
+
+/**
+ * Sidebar sections visible to logged-OUT users.
+ * Only public discovery pages — no personal/authenticated content.
+ */
+export const LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
+  {
+    id: 'main',
+    items: [
+      { id: 'home', label: 'Home', icon: 'home', route: '/home' },
+      { id: 'explore', label: 'Explore', icon: 'compass', route: '/explore' },
+      { id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
+    ],
+  },
+  {
+    id: 'recruiting',
+    label: 'Recruiting',
+    items: [
+      { id: 'colleges', label: 'Colleges', icon: 'graduationCap', route: '/colleges' },
+      { id: 'teams', label: 'Teams', icon: 'users', route: '/teams' },
+    ],
+  },
+  {
+    id: 'footer',
+    items: [{ id: 'help', label: 'Help & Support', icon: 'help', route: '/help' }],
+  },
+];
+
+/**
+ * Sidebar sections visible to logged-IN users.
+ * Full navigation including personal and authenticated content.
+ */
+export const LOGGED_IN_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
+  {
+    id: 'main',
+    items: [
+      { id: 'home', label: 'Home', icon: 'home', route: '/home' },
+      { id: 'explore', label: 'Explore', icon: 'compass', route: '/explore' },
+      { id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
+    ],
+  },
+  {
+    id: 'recruiting',
+    label: 'Recruiting',
+    items: [
+      { id: 'colleges', label: 'Colleges', icon: 'graduationCap', route: '/colleges' },
+      {
+        id: 'scout-reports',
+        label: 'Scout Reports',
+        icon: 'documentText',
+        route: '/scout-reports',
+      },
+      { id: 'teams', label: 'Teams', icon: 'users', route: '/teams' },
+    ],
+  },
+  {
+    id: 'you',
+    label: 'You',
+    items: [
+      { id: 'profile', label: 'My Profile', icon: 'person', route: '/profile' },
+      { id: 'messages', label: 'Messages', icon: 'messages', route: '/messages' },
+      { id: 'notifications', label: 'Notifications', icon: 'bell', route: '/notifications' },
+    ],
+  },
+  {
+    id: 'footer',
+    items: [
+      { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
+      { id: 'help', label: 'Help & Support', icon: 'help', route: '/help' },
+    ],
+  },
+];
+
+// ============================================
+// AUTH-AWARE FACTORY FUNCTIONS
+// ============================================
+
+/**
+ * Options for building auth-aware sidebar sections.
+ * Role-based filtering is supported but optional (future-ready).
+ */
+export interface GetSidebarSectionsOptions {
+  /** Whether the user is currently authenticated */
+  readonly isAuthenticated: boolean;
+
+  /**
+   * User role for role-based filtering (optional, future-ready).
+   * When provided, sections can be filtered by role.
+   * Example: 'athlete' | 'coach' | 'parent' | 'fan' | 'admin'
+   */
+  readonly role?: string;
+
+  /**
+   * Custom sections to merge/override defaults (optional).
+   * Allows app-level customization without modifying library defaults.
+   */
+  readonly overrides?: readonly DesktopSidebarSection[];
+}
+
+/**
+ * Get the correct sidebar sections based on authentication state.
+ * Pure function — 100% portable, no side effects.
+ *
+ * Usage in shell component:
+ * ```typescript
+ * sidebarSections = computed(() =>
+ *   getSidebarSections({ isAuthenticated: this.authService.isAuthenticated() })
+ * );
+ * ```
+ *
+ * Future role-based usage:
+ * ```typescript
+ * sidebarSections = computed(() =>
+ *   getSidebarSections({
+ *     isAuthenticated: true,
+ *     role: this.authService.userRole(),
+ *   })
+ * );
+ * ```
+ */
+export function getSidebarSections(
+  options: GetSidebarSectionsOptions
+): readonly DesktopSidebarSection[] {
+  const { isAuthenticated, overrides } = options;
+
+  // Select base sections by auth state
+  const baseSections = isAuthenticated ? LOGGED_IN_SIDEBAR_SECTIONS : LOGGED_OUT_SIDEBAR_SECTIONS;
+
+  // If overrides provided, merge them (override by section id)
+  if (overrides && overrides.length > 0) {
+    const overrideMap = new Map(overrides.map((s) => [s.id, s]));
+    return baseSections.map((section) => overrideMap.get(section.id) ?? section);
+  }
+
+  return baseSections;
+}
 
 // ============================================
 // FACTORY FUNCTIONS
