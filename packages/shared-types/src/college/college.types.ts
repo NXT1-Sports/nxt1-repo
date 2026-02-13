@@ -1,0 +1,106 @@
+/**
+ * @fileoverview College Domain Types
+ * @module @nxt1/shared-types/college
+ * @version 1.0.0
+ *
+ * Shared type definitions for College entities across frontend and backend.
+ */
+
+/**
+ * Sport-specific information for a college
+ */
+export interface CollegeSportInfo {
+  conference?: string;
+  division?: string;
+  questionnaire?: string;
+  sportLandingUrl?: string;
+  twitter?: string;
+  conferenceId?: string;
+  name?: string;
+  camp?: string;
+}
+
+/**
+ * Complete college entity
+ */
+export interface College {
+  _id: string;
+  name: string;
+  'IPEDS/NCES_ID': string;
+  city: string;
+  state: string;
+  sportInfo: Record<string, CollegeSportInfo>;
+  logoUrl?: string;
+  acceptanceRate?: string;
+  averageGPA?: string;
+  compositeACT?: string;
+  female?: string;
+  male?: string;
+  hbcu?: boolean;
+  landingUrl?: string;
+  majorsOffered?: string;
+  mathSAT?: string;
+  public?: boolean;
+  readingSAT?: string;
+  religious_affiliation?: string;
+  sport?: string[];
+  totalCost?: string;
+  undergradsNo?: string;
+  women_only?: boolean;
+  сommunity_сollege?: boolean;
+  contacts?: string[]; // Contact IDs
+}
+
+/**
+ * Lightweight college projection for list views
+ */
+export interface CollegeListItem {
+  _id: string;
+  name: string;
+  'IPEDS/NCES_ID': string;
+  city: string;
+  state: string;
+  sportInfo: Record<string, CollegeSportInfo>;
+  logoUrl?: string;
+}
+
+/**
+ * College filter criteria
+ */
+export interface CollegeFilterCriteria {
+  sport: string;
+  state?: string;
+  division?: string | string[];
+  conference?: string;
+  name?: string | string[];
+  text?: string;
+}
+
+/**
+ * Paginated college list response
+ */
+export interface CollegeListResponse {
+  colleges: CollegeListItem[];
+  total?: number;
+  page?: number;
+  limit?: number;
+}
+
+/**
+ * Conference with sport information
+ */
+export interface ConferenceInfo {
+  sports: string[];
+  conference: string;
+}
+
+/**
+ * Division with associated colleges
+ */
+export interface DivisionWithColleges {
+  division: string;
+  colleges: Array<{
+    _id: string;
+    name: string;
+  }>;
+}

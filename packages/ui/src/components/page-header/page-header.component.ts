@@ -732,6 +732,14 @@ addIcons({
         z-index: 0;
       }
 
+      /* Projected content with pageHeaderSlot="inline-search" attribute */
+      .header-inline-search ::ng-deep [pageHeaderSlot='inline-search'],
+      .header-inline-search ::ng-deep [pageheaderslot='inline-search'] {
+        width: 100%;
+        display: flex;
+        align-items: center;
+      }
+
       .header-inline-search > * {
         width: 100%;
         display: flex;

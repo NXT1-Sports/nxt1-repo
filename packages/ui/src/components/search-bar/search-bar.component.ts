@@ -139,7 +139,6 @@ export interface SearchBarSubmitEvent {
       }
 
       :host(.mobile) .search-form {
-        width: 220px;
         max-width: 100%;
         margin: 0 auto;
         height: var(--nxt1-ui-btn-height-md);

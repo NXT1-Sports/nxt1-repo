@@ -15,6 +15,12 @@ import { requestTracker, notFoundHandler, createErrorHandler } from '@nxt1/core/
 // Import logger
 import { logger } from './utils/logger.js';
 
+// Import database configuration
+import { connectToMongoDB } from './config/database.config.js';
+
+// Import cache service
+import { initializeCacheService } from './services/cache.service.js';
+
 // Middleware
 import { firebaseContext } from './middleware/firebase-context.middleware.js';
 
@@ -103,7 +109,7 @@ app.use('/api/v1/agent-x', agentXRoutes);
 app.use('/api/v1/users', usersRoutes);
 app.use('/api/v1/locations', locationsRoutes);
 app.use('/api/v1/follow', followRoutes);
-// Detail routes
+// Detail routes - College uses MongoDB + Redis cache
 app.use('/api/v1/colleges', collegesRoutes);
 app.use('/api/v1/athletes', athletesRoutes);
 app.use('/api/v1/teams', teamsRoutes);
@@ -135,7 +141,7 @@ app.use('/api/v1/staging/agent-x', agentXRoutes);
 app.use('/api/v1/staging/users', usersRoutes);
 app.use('/api/v1/staging/locations', locationsRoutes);
 app.use('/api/v1/staging/follow', followRoutes);
-// Detail routes
+// Detail routes - College uses MongoDB + Redis cache
 app.use('/api/v1/staging/colleges', collegesRoutes);
 app.use('/api/v1/staging/athletes', athletesRoutes);
 app.use('/api/v1/staging/teams', teamsRoutes);
@@ -161,14 +167,37 @@ app.use(
 );
 
 // ============================================================================
+// Initialize Services
+// ============================================================================
+async function initializeServices() {
+  try {
+    // 1. Initialize cache service (Redis + Memory fallback)
+    await initializeCacheService();
+    logger.info('✅ Cache service initialized');
+
+    // 2. Connect to MongoDB
+    await connectToMongoDB();
+    logger.info('✅ MongoDB connected');
+
+    logger.info('✅ All services initialized successfully');
+  } catch (error) {
+    logger.error('❌ Failed to initialize services:', { error });
+    // MongoDB errors are critical for college routes
+    throw error;
+  }
+}
+
+// ============================================================================
 // Start Server
 // ============================================================================
-app.listen(PORT, () => {
-  logger.info(`Backend server running on port ${PORT}`);
-  logger.info(`Environment: ${process.env['NODE_ENV'] || 'development'}`);
-  logger.info(`API Endpoints:`);
-  logger.info(`   Production: /api/v1/*`);
-  logger.info(`   Staging:    /api/v1/staging/*`);
+initializeServices().then(() => {
+  app.listen(PORT, () => {
+    logger.info(`Backend server running on port ${PORT}`);
+    logger.info(`Environment: ${process.env['NODE_ENV'] || 'development'}`);
+    logger.info(`API Endpoints:`);
+    logger.info(`   Production: /api/v1/*`);
+    logger.info(`   Staging:    /api/v1/staging/*`);
+  });
 });
 
 export default app;

@@ -1,0 +1,24 @@
+{
+  "name": "@nxt1/cache",
+  "version": "1.0.0",
+  "description": "Cache abstraction with Redis and in-memory fallback",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "redis": "^4.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

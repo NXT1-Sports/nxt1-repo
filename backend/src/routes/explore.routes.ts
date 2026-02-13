@@ -26,56 +26,72 @@ import type {
   ExploreTabCounts,
 } from '@nxt1/core';
 import { logger } from '../utils/logger.js';
+import { getCacheService } from '../services/cache.service.js';
 
 const router: ExpressRouter = Router();
 
 // ============================================
-// CACHE CONFIGURATION
+// CACHE CONFIGURATION (Redis-based)
 // ============================================
 
-interface CacheEntry<T> {
-  data: T;
-  timestamp: number;
-  ttl: number;
-}
-
-const searchCache = new Map<string, CacheEntry<ExploreSearchResponse>>();
-const countsCache = new Map<string, CacheEntry<ExploreTabCounts>>();
-const suggestionsCache = new Map<string, CacheEntry<readonly string[]>>();
-
 const CACHE_TTL = {
-  search: 5 * 60 * 1000, // 5 minutes
-  counts: 60 * 1000, // 1 minute
-  suggestions: 10 * 60 * 1000, // 10 minutes
-  trending: 30 * 60 * 1000, // 30 minutes
+  search: 5 * 60, // 5 minutes (in seconds)
+  counts: 60, // 1 minute
+  suggestions: 10 * 60, // 10 minutes
+  trending: 30 * 60, // 30 minutes
 } as const;
 
 /**
- * Get cached data if valid
+ * Redis Cache Helper for Explore Module
  */
-function getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | null {
-  const entry = cache.get(key);
-  if (!entry) return null;
+class ExploreCacheHelper {
+  private readonly prefix = 'explore:';
 
-  const now = Date.now();
-  if (now - entry.timestamp > entry.ttl) {
-    cache.delete(key);
-    return null;
+  /**
+   * Get cached data from Redis
+   */
+  async get<T>(namespace: string, key: string): Promise<T | null> {
+    try {
+      const cache = getCacheService();
+      const cacheKey = `${this.prefix}${namespace}:${key}`;
+      const cached = await cache.get<T>(cacheKey);
+
+      if (cached) {
+        logger.debug(`[ExploreCacheHelper] Cache HIT: ${cacheKey}`);
+      } else {
+        logger.debug(`[ExploreCacheHelper] Cache MISS: ${cacheKey}`);
+      }
+
+      return cached;
+    } catch (error) {
+      logger.error('[ExploreCacheHelper] Cache get error:', { error });
+      return null;
+    }
   }
 
-  return entry.data;
+  /**
+   * Set cache data in Redis
+   */
+  async set<T>(namespace: string, key: string, data: T, ttl: number): Promise<void> {
+    try {
+      const cache = getCacheService();
+      const cacheKey = `${this.prefix}${namespace}:${key}`;
+      await cache.set(cacheKey, data, { ttl });
+      logger.debug(`[ExploreCacheHelper] Cache SET: ${cacheKey} (TTL: ${ttl}s)`);
+    } catch (error) {
+      logger.error('[ExploreCacheHelper] Cache set error:', { error });
+    }
+  }
+
+  /**
+   * Build cache key from search parameters
+   */
+  buildKey(params: Partial<ExploreSearchQuery>): string {
+    return JSON.stringify(params);
+  }
 }
 
-/**
- * Set cache data
- */
-function setCache<T>(cache: Map<string, CacheEntry<T>>, key: string, data: T, ttl: number): void {
-  cache.set(key, {
-    data,
-    timestamp: Date.now(),
-    ttl,
-  });
-}
+const cacheHelper = new ExploreCacheHelper();
 
 // ============================================
 // COLLECTION NAMES
@@ -101,13 +117,6 @@ const COLLECTIONS = {
  */
 function normalizeQuery(query: string): string {
   return query.toLowerCase().trim();
-}
-
-/**
- * Build cache key from search parameters
- */
-function buildCacheKey(params: Partial<ExploreSearchQuery>): string {
-  return JSON.stringify(params);
 }
 
 /**
@@ -591,8 +600,8 @@ router.get('/search', async (req: Request, res: Response) => {
     }
 
     // Check cache first (cache-first architecture)
-    const cacheKey = buildCacheKey({ query, tab, page, limit });
-    const cached = getCached(searchCache, cacheKey);
+    const cacheKey = cacheHelper.buildKey({ query, tab, page, limit });
+    const cached = await cacheHelper.get<ExploreSearchResponse>('search', cacheKey);
     if (cached) {
       logger.info('Search cache hit', { query, tab });
       return res.json(cached);
@@ -628,7 +637,7 @@ router.get('/search', async (req: Request, res: Response) => {
     };
 
     // Cache the result
-    setCache(searchCache, cacheKey, response, CACHE_TTL.search);
+    await cacheHelper.set('search', cacheKey, response, CACHE_TTL.search);
 
     return res.json(response);
   } catch (error) {
@@ -662,7 +671,7 @@ router.get('/suggestions', async (req: Request, res: Response) => {
 
     // Check cache
     const cacheKey = `${query}:${limit}`;
-    const cached = getCached(suggestionsCache, cacheKey);
+    const cached = await cacheHelper.get<readonly string[]>('suggestions', cacheKey);
     if (cached) {
       return res.json({
         success: true,
@@ -709,7 +718,7 @@ router.get('/suggestions', async (req: Request, res: Response) => {
     const uniqueSuggestions = [...new Set(suggestions)].slice(0, limit);
 
     // Cache
-    setCache(suggestionsCache, cacheKey, uniqueSuggestions, CACHE_TTL.suggestions);
+    await cacheHelper.set('suggestions', cacheKey, uniqueSuggestions, CACHE_TTL.suggestions);
 
     return res.json({
       success: true,
@@ -801,7 +810,7 @@ router.get('/counts', async (req: Request, res: Response) => {
 
     // Check cache
     const cacheKey = query;
-    const cached = getCached(countsCache, cacheKey);
+    const cached = await cacheHelper.get<ExploreTabCounts>('counts', cacheKey);
     if (cached) {
       return res.json({
         success: true,
@@ -818,7 +827,7 @@ router.get('/counts', async (req: Request, res: Response) => {
     const counts = await getTabCounts(db, query);
 
     // Cache
-    setCache(countsCache, cacheKey, counts, CACHE_TTL.counts);
+    await cacheHelper.set('counts', cacheKey, counts, CACHE_TTL.counts);
 
     return res.json({
       success: true,

@@ -92,9 +92,10 @@ import type { AgentXQuickTask } from '@nxt1/core';
         left: var(--agent-input-left, 0);
         right: var(--agent-input-right, 0);
         /* Desktop: sit comfortably above page bottom */
-        bottom: 24px;
+        bottom: calc(24px + var(--keyboard-offset, 0px));
         z-index: var(--nxt1-z-index-fixed, 999);
         pointer-events: none;
+        transition: bottom 0.3s ease-out;
 
         --agent-input-bg: var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8));
         --agent-input-border: var(--nxt1-glass-borderSubtle, rgba(255, 255, 255, 0.08));
@@ -117,7 +118,7 @@ import type { AgentXQuickTask } from '@nxt1/core';
       /* Mobile: position above the fixed footer pill bar */
       @media (max-width: 767px) {
         :host {
-          bottom: calc(88px + env(safe-area-inset-bottom, 0));
+          bottom: calc(88px + env(safe-area-inset-bottom, 0) + var(--keyboard-offset, 0px));
         }
       }
 

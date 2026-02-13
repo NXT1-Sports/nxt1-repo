@@ -1,0 +1,26 @@
+{
+  "name": "@nxt1/shared-types",
+  "version": "1.0.0",
+  "description": "Shared TypeScript types for NXT1 monorepo",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./college": {
+      "types": "./dist/college/index.d.ts",
+      "default": "./dist/college/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

@@ -52,8 +52,6 @@ export class KeyboardService {
       // Enable auto-scroll when input is focused
       await Keyboard.setScroll({ isDisabled: false });
 
-      console.debug('[KeyboardService] Keyboard configured successfully');
-
       // Listen to keyboard events
       await this.setupListeners();
     } catch (error) {
@@ -67,11 +65,15 @@ export class KeyboardService {
   private async setupListeners(): Promise<void> {
     // Keyboard will show event
     const showListener = await Keyboard.addListener('keyboardWillShow', async (info) => {
-      console.debug('[KeyboardService] Keyboard will show:', info.keyboardHeight);
       try {
         const height = info?.keyboardHeight ?? 0;
         const focused = document.activeElement as HTMLElement | null;
-        const ionContent = focused?.closest('ion-content') as HTMLIonContentElement | null;
+        document.documentElement.style.setProperty('--keyboard-offset', `${height}px`);
+
+        let ionContent = focused?.closest('ion-content') as HTMLIonContentElement | null;
+        if (!ionContent) {
+          ionContent = document.querySelector('ion-content') as HTMLIonContentElement | null;
+        }
 
         // Prefer applying padding to the actual scrollable element inside ion-content
         if (ionContent && typeof ionContent.getScrollElement === 'function') {
@@ -80,11 +82,6 @@ export class KeyboardService {
             if (scrollEl) {
               scrollEl.style.setProperty('--keyboard-offset', `${height}px`);
               scrollEl.style.paddingBottom = `${height}px`;
-              console.debug(
-                '[KeyboardService] Applied padding to ion-content scrollEl',
-                scrollEl,
-                height
-              );
               return;
             }
           } catch (inner) {
@@ -92,33 +89,26 @@ export class KeyboardService {
           }
         }
 
-        // Fallback: set padding on ion-content element itself
         if (ionContent) {
           (ionContent as HTMLElement).style.setProperty('--keyboard-offset', `${height}px`);
           (ionContent as HTMLElement).style.paddingBottom = `${height}px`;
-          console.debug('[KeyboardService] Applied padding to ion-content', ionContent, height);
           return;
         }
 
-        // Final fallback: set padding on body
         document.body.style.paddingBottom = `${height}px`;
-        console.debug('[KeyboardService] Applied padding to body', height);
       } catch (e) {
         console.debug('[KeyboardService] Failed to apply keyboard padding', e);
       }
     });
 
-    // Keyboard did show event
-    const didShowListener = await Keyboard.addListener('keyboardDidShow', (info) => {
-      console.debug('[KeyboardService] Keyboard did show:', info.keyboardHeight);
+    const didShowListener = await Keyboard.addListener('keyboardDidShow', (_) => {
       this.scrollActiveInputIntoView();
     });
 
-    // Keyboard will hide event
     const hideListener = await Keyboard.addListener('keyboardWillHide', async () => {
-      console.debug('[KeyboardService] Keyboard will hide');
       try {
-        // Remove keyboard padding from any scrollable elements inside ion-content
+        document.documentElement.style.removeProperty('--keyboard-offset');
+
         const ionContents = Array.from(
           document.querySelectorAll('ion-content')
         ) as HTMLIonContentElement[];
@@ -135,23 +125,20 @@ export class KeyboardService {
             console.debug('[KeyboardService] Failed to clean scrollEl for ion-content', inner);
           }
 
-          // Also attempt to remove from the ion-content element itself
           try {
             (ic as HTMLElement).style.removeProperty('--keyboard-offset');
             (ic as HTMLElement).style.removeProperty('padding-bottom');
           } catch {
-            // Ignore - element may not support style manipulation
+            console.log('Error');
           }
         }
 
-        // Remove body padding fallback
         document.body.style.removeProperty('padding-bottom');
       } catch (e) {
         console.debug('[KeyboardService] Failed to remove keyboard padding', e);
       }
     });
 
-    // Save cleanup functions
     this.listeners.push(
       () => showListener.remove(),
       () => didShowListener.remove(),
@@ -170,7 +157,6 @@ export class KeyboardService {
 
     // Try to get the focused native input element, handling ion-input shadow DOM
     const activeElement = document.activeElement as HTMLElement | null;
-
     const findNativeInput = (
       el: HTMLElement | null
     ): HTMLInputElement | HTMLTextAreaElement | null => {
@@ -218,11 +204,13 @@ export class KeyboardService {
       return;
     }
 
-    // If inside an IonContent, prefer using its getScrollElement for reliable scrolling
-    const ionContentEl = nativeInput.closest('ion-content') as HTMLIonContentElement | null;
+    let ionContentEl = nativeInput.closest('ion-content') as HTMLIonContentElement | null;
+    if (!ionContentEl) {
+      ionContentEl = document.querySelector('ion-content') as HTMLIonContentElement | null;
+    }
+
     if (ionContentEl) {
       try {
-        // getScrollElement() returns the actual scrollable element inside ion-content
         const scrollEl: HTMLElement | null =
           typeof ionContentEl.getScrollElement === 'function'
             ? await ionContentEl.getScrollElement()
@@ -249,9 +237,6 @@ export class KeyboardService {
 
           // If the input bottom is already above the visible bottom (with margin), skip scrolling
           if (inputBottomInScroll <= visibleBottom - margin) {
-            console.debug(
-              '[KeyboardService] Input already visible above keyboard, skipping scroll'
-            );
             this.lastHandledInput = nativeInput;
             this.lastHandledAt = Date.now();
             return;
@@ -259,22 +244,9 @@ export class KeyboardService {
 
           const targetScroll = Math.max(0, inputBottomInScroll - visibleArea + margin);
 
-          console.debug('[KeyboardService] scrollCalc', {
-            offsetInScroll,
-            inputBottomInScroll,
-            scrollRectHeight: scrollRect.height,
-            paddingBottom,
-            visibleArea,
-            targetScroll,
-          });
-
-          // If we've recently handled this input and the change is tiny, avoid re-forcing scroll
           const timeSince = Date.now() - this.lastHandledAt;
           const smallDelta = Math.abs((scrollEl.scrollTop || 0) - targetScroll) <= 4;
           if (this.lastHandledInput === nativeInput && timeSince < 1500 && smallDelta) {
-            console.debug(
-              '[KeyboardService] Recent small adjustment already applied, skipping fallback'
-            );
             return;
           }
 
@@ -292,7 +264,6 @@ export class KeyboardService {
                 // Ignore - scrollTop may be read-only in some contexts
               }
             }, 350);
-            console.debug('[KeyboardService] Scrolled using scrollToPoint', targetScroll);
             this.lastHandledInput = nativeInput;
             this.lastHandledAt = Date.now();
             return;
@@ -308,7 +279,6 @@ export class KeyboardService {
               // Ignore - scrollTop may be read-only in some contexts
             }
           }, 350);
-          console.debug('[KeyboardService] Scrolled using scrollEl.scrollTo', targetScroll);
           this.lastHandledInput = nativeInput;
           this.lastHandledAt = Date.now();
           return;
@@ -321,7 +291,6 @@ export class KeyboardService {
     // Final fallback: native scrollIntoView
     try {
       nativeInput.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-      console.debug('[KeyboardService] Used scrollIntoView fallback');
     } catch (e) {
       console.debug('[KeyboardService] scrollIntoView failed', e);
     }
@@ -357,6 +326,5 @@ export class KeyboardService {
   cleanup(): void {
     this.listeners.forEach((remove) => remove());
     this.listeners = [];
-    console.debug('[KeyboardService] Listeners cleaned up');
   }
 }
