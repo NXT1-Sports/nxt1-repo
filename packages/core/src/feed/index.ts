@@ -37,6 +37,13 @@ export {
   type FeedResponse,
   type FeedPostResponse,
   type FeedActionResponse,
+  // Extended types
+  type FeedPostWithMetadata,
+  // Query types
+  type GetFeedQuery,
+  type GetCommentsQuery,
+  type FeedCursor,
+  type CommentsCursor,
   // Comment types
   type FeedCommentAuthor,
   type FeedComment,

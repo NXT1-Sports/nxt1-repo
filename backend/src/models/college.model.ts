@@ -6,7 +6,7 @@
  */
 
 import { model, Schema, Model, Types } from 'mongoose';
-import type { College, CollegeSportInfo } from '@nxt1/shared-types/college';
+import type { College, CollegeSportInfo } from '@nxt1/core/models';
 
 // Sport Information sub-schema (used in sportInfo Map below)
 

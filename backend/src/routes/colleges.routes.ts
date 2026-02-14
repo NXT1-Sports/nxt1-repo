@@ -9,7 +9,7 @@ import { Router, type Router as ExpressRouter, Request, Response } from 'express
 import { CollegeModel } from '../models/college.model.js';
 import { getCacheService } from '../services/cache.service.js';
 import { logger } from '../utils/logger.js';
-import { College } from '@nxt1/shared-types/college';
+import { College } from '@nxt1/core/models';
 
 const router: ExpressRouter = Router();
 const CACHE_TTL = 86400; // 24 hours
@@ -43,7 +43,8 @@ router.get('/filter', async (req: Request, res: Response) => {
     const cached = await cache.get<{ colleges: College[] }>(cacheKey);
     if (cached) {
       logger.info('[Colleges] Cache HIT:', { sport, text });
-      return res.json(cached);
+      res.set('X-Cache-Status', 'HIT');
+      return res.json({ ...cached, cached: true });
     }
 
     logger.info('[Colleges] Cache MISS:', { sport, text });
@@ -186,7 +187,8 @@ router.get('/filter', async (req: Request, res: Response) => {
     // Cache the result
     await cache.set(cacheKey, result, { ttl: CACHE_TTL });
 
-    return res.json(result);
+    res.set('X-Cache-Status', 'MISS');
+    return res.json({ ...result, cached: false });
   } catch (error) {
     logger.error('[Colleges] Filter error:', { error });
     return res.status(500).json({

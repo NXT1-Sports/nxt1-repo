@@ -26,6 +26,9 @@ export * from './validation.constants';
 // API constants
 export * from './api.constants';
 
+// Posts constants
+export * from './posts.constants';
+
 // User analytics constants (stored engagement data - profile views, traffic sources, etc.)
 export * from './user-analytics.constants';
 

@@ -362,6 +362,66 @@ export interface FeedActionResponse {
 }
 
 // ============================================
+// EXTENDED POST TYPES
+// ============================================
+
+/**
+ * Post with user-specific metadata (for authenticated users)
+ */
+export interface FeedPostWithMetadata extends FeedPost {
+  /** Whether current user has liked this post */
+  readonly likedByCurrentUser?: boolean;
+}
+
+// ============================================
+// QUERY & CURSOR TYPES
+// ============================================
+
+/**
+ * Feed query parameters
+ */
+export interface GetFeedQuery {
+  /** Visibility filter */
+  readonly visibility?: FeedPostVisibility | string;
+  /** Team ID filter */
+  readonly teamId?: string;
+  /** Items per page */
+  readonly limit?: string | number;
+  /** Pagination cursor */
+  readonly cursor?: string;
+}
+
+/**
+ * Comments query parameters
+ */
+export interface GetCommentsQuery {
+  /** Items per page */
+  readonly limit?: string | number;
+  /** Pagination cursor */
+  readonly cursor?: string;
+}
+
+/**
+ * Feed pagination cursor data
+ */
+export interface FeedCursor {
+  /** Last post created timestamp (ISO string) */
+  readonly lastCreatedAt: string;
+  /** Last post ID */
+  readonly lastPostId: string;
+}
+
+/**
+ * Comments pagination cursor data
+ */
+export interface CommentsCursor {
+  /** Last comment created timestamp (ISO string) */
+  readonly lastCreatedAt: string;
+  /** Last comment ID */
+  readonly lastCommentId: string;
+}
+
+// ============================================
 // COMMENT TYPES
 // ============================================
 

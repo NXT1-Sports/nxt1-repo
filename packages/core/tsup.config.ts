@@ -19,6 +19,8 @@ export default defineConfig({
     'src/testing/index.ts', // Shared testing infrastructure
     'src/geolocation/index.ts', // Geolocation helpers
     'src/crashlytics/index.ts', // Firebase Crashlytics adapter
+    'src/feed/index.ts', // Feed types and interfaces
+    'src/create-post/index.ts', // Create post types and interfaces
   ],
   format: ['cjs', 'esm'],
   dts: {

@@ -53,6 +53,9 @@ import videosRoutes from './routes/videos.routes.js';
 import leaderboardsRoutes from './routes/leaderboards.routes.js';
 import campsRoutes from './routes/camps.routes.js';
 import eventsRoutes from './routes/events.routes.js';
+// Billing routes
+import billingRoutes from './routes/billing.routes.js';
+import webhookRoutes from './routes/webhook.routes.js';
 
 const { json, urlencoded } = bodyParser;
 
@@ -117,6 +120,9 @@ app.use('/api/v1/videos', videosRoutes);
 app.use('/api/v1/leaderboards', leaderboardsRoutes);
 app.use('/api/v1/camps', campsRoutes);
 app.use('/api/v1/events', eventsRoutes);
+// Billing routes
+app.use('/api/v1/billing', billingRoutes);
+app.use('/api/v1/billing', webhookRoutes);
 
 app.use('/api/v1/ssr', ssrRoutes);
 
@@ -146,6 +152,9 @@ app.use('/api/v1/staging/colleges', collegesRoutes);
 app.use('/api/v1/staging/athletes', athletesRoutes);
 app.use('/api/v1/staging/teams', teamsRoutes);
 app.use('/api/v1/staging/videos', videosRoutes);
+// Billing routes (staging)
+app.use('/api/v1/staging/billing', billingRoutes);
+app.use('/api/v1/staging/billing', webhookRoutes);
 app.use('/api/v1/staging/leaderboards', leaderboardsRoutes);
 app.use('/api/v1/staging/camps', campsRoutes);
 app.use('/api/v1/staging/events', eventsRoutes);

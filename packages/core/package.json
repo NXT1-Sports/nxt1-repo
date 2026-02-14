@@ -95,6 +95,16 @@
       "types": "./dist/performance/index.d.ts",
       "import": "./dist/performance/index.mjs",
       "require": "./dist/performance/index.js"
+    },
+    "./feed": {
+      "types": "./dist/feed/index.d.ts",
+      "import": "./dist/feed/index.mjs",
+      "require": "./dist/feed/index.js"
+    },
+    "./create-post": {
+      "types": "./dist/create-post/index.d.ts",
+      "import": "./dist/create-post/index.mjs",
+      "require": "./dist/create-post/index.js"
     }
   },
   "files": [

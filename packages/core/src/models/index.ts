@@ -9,6 +9,17 @@
  * @version 2.0.0
  */
 
+// College model
+export type {
+  CollegeSportInfo,
+  College,
+  CollegeListItem,
+  CollegeFilterCriteria,
+  CollegeListResponse,
+  ConferenceInfo,
+  DivisionWithColleges,
+} from './college.types';
+
 // Network model
 export { type ConnectionType, type NetworkStatus, type NetworkChangeEvent } from './network.model';
 

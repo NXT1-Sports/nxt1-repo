@@ -1,9 +1,10 @@
 /**
  * @fileoverview College Domain Types
- * @module @nxt1/shared-types/college
+ * @module @nxt1/core/models/college
  * @version 1.0.0
  *
- * Shared type definitions for College entities across frontend and backend.
+ * Shared type definitions for College entities across web, mobile, and backend.
+ * 100% portable - no framework dependencies.
  */
 
 /**

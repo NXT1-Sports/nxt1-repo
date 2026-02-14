@@ -34,6 +34,11 @@ declare global {
        * True for /staging/ routes, false for production routes.
        */
       isStaging: boolean;
+
+      /**
+       * Raw body for Stripe webhook signature verification
+       */
+      rawBody?: string;
     }
   }
 }

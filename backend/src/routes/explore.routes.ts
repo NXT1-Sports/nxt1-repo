@@ -604,7 +604,8 @@ router.get('/search', async (req: Request, res: Response) => {
     const cached = await cacheHelper.get<ExploreSearchResponse>('search', cacheKey);
     if (cached) {
       logger.info('Search cache hit', { query, tab });
-      return res.json(cached);
+      res.set('X-Cache-Status', 'HIT');
+      return res.json({ ...cached, cached: true });
     }
 
     // Get Firestore instance
@@ -639,7 +640,8 @@ router.get('/search', async (req: Request, res: Response) => {
     // Cache the result
     await cacheHelper.set('search', cacheKey, response, CACHE_TTL.search);
 
-    return res.json(response);
+    res.set('X-Cache-Status', 'MISS');
+    return res.json({ ...response, cached: false });
   } catch (error) {
     logger.error('Search error', { error: error instanceof Error ? error.message : String(error) });
     return res.status(500).json({
@@ -673,9 +675,11 @@ router.get('/suggestions', async (req: Request, res: Response) => {
     const cacheKey = `${query}:${limit}`;
     const cached = await cacheHelper.get<readonly string[]>('suggestions', cacheKey);
     if (cached) {
+      res.set('X-Cache-Status', 'HIT');
       return res.json({
         success: true,
         suggestions: cached,
+        cached: true,
       });
     }
 
@@ -720,9 +724,11 @@ router.get('/suggestions', async (req: Request, res: Response) => {
     // Cache
     await cacheHelper.set('suggestions', cacheKey, uniqueSuggestions, CACHE_TTL.suggestions);
 
+    res.set('X-Cache-Status', 'MISS');
     return res.json({
       success: true,
       suggestions: uniqueSuggestions,
+      cached: false,
     });
   } catch (error) {
     logger.error('Suggestions error', {
@@ -812,9 +818,11 @@ router.get('/counts', async (req: Request, res: Response) => {
     const cacheKey = query;
     const cached = await cacheHelper.get<ExploreTabCounts>('counts', cacheKey);
     if (cached) {
+      res.set('X-Cache-Status', 'HIT');
       return res.json({
         success: true,
         counts: cached,
+        cached: true,
       });
     }
 
@@ -829,9 +837,11 @@ router.get('/counts', async (req: Request, res: Response) => {
     // Cache
     await cacheHelper.set('counts', cacheKey, counts, CACHE_TTL.counts);
 
+    res.set('X-Cache-Status', 'MISS');
     return res.json({
       success: true,
       counts,
+      cached: false,
     });
   } catch (error) {
     logger.error('Counts error', { error: error instanceof Error ? error.message : String(error) });

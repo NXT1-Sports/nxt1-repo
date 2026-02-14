@@ -27,15 +27,12 @@
         "../packages/core/dist/*.d.ts"
       ],
       "@nxt1/cache": ["../packages/cache/dist/index.d.ts"],
-      "@nxt1/cache/*": ["../packages/cache/dist/*.d.ts"],
-      "@nxt1/shared-types": ["../packages/shared-types/dist/index.d.ts"],
-      "@nxt1/shared-types/*": ["../packages/shared-types/dist/*/index.d.ts"]
+      "@nxt1/cache/*": ["../packages/cache/dist/*.d.ts"]
     }
   },
   "references": [
     { "path": "../packages/core" },
-    { "path": "../packages/cache" },
-    { "path": "../packages/shared-types" }
+    { "path": "../packages/cache" }
   ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]
