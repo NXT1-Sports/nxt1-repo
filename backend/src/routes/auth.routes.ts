@@ -229,7 +229,7 @@ function getPrimaryPositions(sports?: SportProfile[]): string[] | undefined {
 router.get(
   '/validate-team-code',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase;
+    const { db } = req.firebase!;
     const code = req.query['teamCode'] as string;
 
     if (!code || !isValidTeamCode(code)) {
@@ -279,7 +279,7 @@ router.get(
 router.get(
   '/team-code/validate/:code',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase;
+    const { db } = req.firebase!;
     const code = req.params['code'] as string;
 
     if (!code || !isValidTeamCode(code)) {
@@ -369,7 +369,7 @@ router.post(
 router.post(
   '/create-user',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase;
+    const { db } = req.firebase!;
     const { uid, email, teamCode, referralId } = req.body as CreateUserRequest;
 
     logger.debug('[NXT1-REPO BACKEND] Create user request:', {
@@ -567,7 +567,7 @@ router.post(
 router.post(
   '/join-team',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase;
+    const { db } = req.firebase!;
     const { userId, code } = req.body;
 
     // Validation
@@ -672,7 +672,7 @@ router.post(
 router.get(
   '/check-username',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase;
+    const { db } = req.firebase!;
     const { username } = req.query;
 
     if (!username || typeof username !== 'string') {
@@ -705,7 +705,7 @@ router.get(
 router.get(
   '/profile/:uid',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase;
+    const { db } = req.firebase!;
     const uid = req.params['uid'] as string;
 
     if (!uid) {
@@ -778,7 +778,7 @@ router.get(
 router.post(
   '/profile/onboarding',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase;
+    const { db } = req.firebase!;
     const { userId, ...profileData } = req.body;
 
     logger.debug('[POST /profile/onboarding] Request:', { userId, keys: Object.keys(profileData) });
@@ -949,7 +949,7 @@ router.post(
 router.post(
   '/profile/onboarding-step',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase;
+    const { db } = req.firebase!;
     const { userId, stepId, stepData } = req.body;
 
     // Validate required fields
@@ -1193,7 +1193,7 @@ router.post(
 router.post(
   '/profile/complete-onboarding',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase;
+    const { db } = req.firebase!;
     const { userId } = req.body as { userId: string };
 
     if (!userId) {
@@ -1246,7 +1246,7 @@ router.post(
 router.post(
   '/analytics/hear-about',
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase;
+    const { db } = req.firebase!;
     const { userId, source, details, clubName, otherSpecify } = req.body as {
       userId: string;
       source: string;
@@ -1356,7 +1356,7 @@ router.post(
 
       // Check if user exists, create if not
       try {
-        await req.firebase.auth.getUser(firebaseUid);
+        await req.firebase!.auth.getUser(firebaseUid);
       } catch (error: unknown) {
         if (
           error &&
@@ -1365,7 +1365,7 @@ router.post(
           error.code === 'auth/user-not-found'
         ) {
           logger.debug('[Microsoft Custom Token] Creating new Firebase user');
-          await req.firebase.auth.createUser({
+          await req.firebase!.auth.createUser({
             uid: firebaseUid,
             email: email,
             displayName: name,
@@ -1377,7 +1377,7 @@ router.post(
       }
 
       // Create Firebase custom token
-      const firebaseToken = await req.firebase.auth.createCustomToken(firebaseUid, {
+      const firebaseToken = await req.firebase!.auth.createCustomToken(firebaseUid, {
         provider: 'microsoft.com',
         email: email,
         name: name,

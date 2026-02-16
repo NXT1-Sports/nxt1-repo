@@ -21,6 +21,8 @@ import {
   type ActivitySummary,
 } from '@nxt1/core';
 import { environment } from '../../../../environments/environment';
+import { PerformanceService } from '../../../core/services/performance.service';
+import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
 
 /**
  * Injection token for API base URL.
@@ -43,6 +45,7 @@ export const ACTIVITY_API_BASE_URL = new InjectionToken<string>('ACTIVITY_API_BA
 export class ActivityApiService implements ActivityApi {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(ACTIVITY_API_BASE_URL);
+  private readonly performance = inject(PerformanceService);
 
   private readonly api = createActivityApi(
     {
@@ -56,38 +59,90 @@ export class ActivityApiService implements ActivityApi {
   );
 
   // ============================================
-  // DELEGATE TO PURE API
+  // DELEGATE TO PURE API WITH PERFORMANCE TRACING
   // ============================================
 
   getFeed(filter?: ActivityFilter): Promise<ActivityFeedResponse> {
-    return this.api.getFeed(filter);
+    return this.performance.trace(TRACE_NAMES.FEED_LOAD, () => this.api.getFeed(filter), {
+      attributes: {
+        [ATTRIBUTE_NAMES.FEATURE_NAME]: 'activity_feed',
+        feed_tab: filter?.tab || 'all',
+        has_filter: filter ? 'true' : 'false',
+      },
+      onSuccess: async (feed, trace) => {
+        await trace.putMetric(METRIC_NAMES.ITEMS_LOADED, feed.items?.length || 0);
+      },
+    });
   }
 
   getItem(id: string): Promise<ActivityItem | null> {
-    return this.api.getItem(id);
+    return this.performance.trace(TRACE_NAMES.ACTIVITY_ITEM_LOAD, () => this.api.getItem(id), {
+      attributes: {
+        [ATTRIBUTE_NAMES.FEATURE_NAME]: 'activity_feed',
+        item_id: id,
+      },
+    });
   }
 
   markRead(ids: string[]): Promise<ActivityMarkReadResponse> {
-    return this.api.markRead(ids);
+    return this.performance.trace(TRACE_NAMES.ACTIVITY_MARK_READ, () => this.api.markRead(ids), {
+      attributes: {
+        [ATTRIBUTE_NAMES.FEATURE_NAME]: 'activity_feed',
+      },
+      metrics: {
+        items_marked: ids.length,
+      },
+    });
   }
 
   markAllRead(tab: ActivityTabId): Promise<ActivityMarkReadResponse> {
-    return this.api.markAllRead(tab);
+    return this.performance.trace(
+      TRACE_NAMES.ACTIVITY_MARK_ALL_READ,
+      () => this.api.markAllRead(tab),
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'activity_feed',
+          tab: tab,
+        },
+      }
+    );
   }
 
   getBadges(): Promise<Record<ActivityTabId, number>> {
-    return this.api.getBadges();
+    return this.performance.trace(TRACE_NAMES.ACTIVITY_BADGES_LOAD, () => this.api.getBadges(), {
+      attributes: {
+        [ATTRIBUTE_NAMES.FEATURE_NAME]: 'activity_feed',
+      },
+    });
   }
 
   getSummary(): Promise<ActivitySummary> {
-    return this.api.getSummary();
+    return this.performance.trace(TRACE_NAMES.ACTIVITY_SUMMARY_LOAD, () => this.api.getSummary(), {
+      attributes: {
+        [ATTRIBUTE_NAMES.FEATURE_NAME]: 'activity_feed',
+      },
+    });
   }
 
   archive(ids: string[]): Promise<{ success: boolean; count: number }> {
-    return this.api.archive(ids);
+    return this.performance.trace(TRACE_NAMES.ACTIVITY_ARCHIVE, () => this.api.archive(ids), {
+      attributes: {
+        [ATTRIBUTE_NAMES.FEATURE_NAME]: 'activity_feed',
+      },
+      metrics: {
+        items_archived: ids.length,
+      },
+    });
   }
 
   restore(ids: string[]): Promise<{ success: boolean; count: number }> {
-    return this.api.restore(ids);
+    return this.performance.trace(TRACE_NAMES.ACTIVITY_RESTORE, () => this.api.restore(ids), {
+      attributes: {
+        [ATTRIBUTE_NAMES.FEATURE_NAME]: 'activity_feed',
+      },
+      metrics: {
+        items_restored: ids.length,
+      },
+    });
   }
 }

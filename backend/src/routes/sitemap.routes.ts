@@ -47,7 +47,7 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
 
     logger.info(`[${requestId}] Generating fresh sitemap`);
 
-    const { db } = req.firebase;
+    const { db } = req.firebase!;
     const baseUrl = process.env['PUBLIC_URL'] || 'https://nxt1sports.com';
 
     // Collect all sitemap entries
@@ -72,7 +72,7 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
 
       logger.info(`[${requestId}] Found ${usersSnapshot.size} user profiles`);
 
-      usersSnapshot.forEach((doc) => {
+      usersSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
         const data = doc.data();
         const userId = doc.id;
         const updatedAt = data['updatedAt'];

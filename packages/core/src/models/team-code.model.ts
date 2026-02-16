@@ -19,6 +19,12 @@ import type { ContactInfo, SocialLinks } from './user.model';
 
 /**
  * Team member roles within an organization
+ *
+ * Unicode generation logic:
+ * - admin: Team creator, team gets 6-digit unicode (e.g., "980718")
+ * - athlete: Member unicode = team_unicode + "01" (e.g., "98071801")
+ * - coach: Member unicode = team_unicode + "02" (e.g., "98071802")
+ * - media: Member unicode = team_unicode + "03" (e.g., "98071803")
  */
 export enum ROLE {
   admin = 'Administrative',
@@ -124,3 +130,111 @@ export interface Code {
 }
 
 export type TeamCode = Code;
+
+// ============================================
+// TEAM CODE API INPUT TYPES
+// ============================================
+
+/**
+ * Input for creating a new team code
+ */
+export interface CreateTeamCodeInput {
+  teamCode: string;
+  teamName: string;
+  teamType: TeamType | TeamTypeApi;
+  sportName: string;
+  state: string;
+  city: string;
+  athleteMember: number;
+  panelMember: number;
+  packageId: string;
+  createdBy: string; // User ID (owner)
+  teamLogoImg?: string;
+  teamColor1?: string;
+  teamColor2?: string;
+  mascot?: string;
+  unicode?: string;
+  division?: string;
+  conference?: string;
+  expireAt?: Date;
+}
+
+/**
+ * Input for updating team code
+ */
+export interface UpdateTeamCodeInput {
+  teamName?: string;
+  teamType?: TeamType | TeamTypeApi;
+  sportName?: string;
+  state?: string;
+  city?: string;
+  athleteMember?: number;
+  panelMember?: number;
+  isActive?: boolean;
+  teamLogoImg?: string;
+  teamColor1?: string;
+  teamColor2?: string;
+  mascot?: string;
+  unicode?: string;
+  division?: string;
+  conference?: string;
+  expireAt?: Date;
+}
+
+/**
+ * Input for user joining a team
+ */
+export interface JoinTeamInput {
+  userId: string;
+  teamCode: string;
+  role?: ROLE;
+  userProfile: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phoneNumber?: string;
+  };
+}
+
+/**
+ * Input for inviting a member to team
+ */
+export interface InviteMemberInput {
+  teamId: string;
+  userId: string;
+  role: ROLE;
+  invitedBy: string;
+  userProfile: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phoneNumber?: string;
+  };
+}
+
+/**
+ * Input for updating member role
+ */
+export interface UpdateMemberRoleInput {
+  teamId: string;
+  userId: string;
+  newRole: ROLE;
+  updatedBy: string;
+}
+
+/**
+ * Input for bulk member role update
+ */
+export interface BulkUpdateMemberInput {
+  userId: string;
+  newRole: ROLE;
+}
+
+/**
+ * Result of bulk member role update
+ */
+export interface BulkUpdateResult {
+  successCount: number;
+  failedCount: number;
+  errors: Array<{ userId: string; error: string }>;
+}

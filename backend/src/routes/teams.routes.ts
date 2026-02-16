@@ -1,23 +1,572 @@
 /**
- * @fileoverview Team Detail Routes
+ * @fileoverview Team Management Routes (Firebase TeamCodes)
  * @module @nxt1/backend/routes/teams
  *
- * Team detail routes matching EXPLORE_API_ENDPOINTS from @nxt1/core/explore/constants.
+ * Complete team management with Firebase Firestore TeamCodes:
+ * - TeamCode CRUD operations
+ * - Role-based membership (Administrative, Coach, Athlete, Media)
+ * - Bulk operations
+ * - Redis cache integration
+ * - Production/Staging Firebase support
  */
 
-import { Router, type Router as ExpressRouter, Request, Response } from 'express';
+import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
+import { appGuard, type AuthenticatedUser } from '../middleware/auth.middleware.js';
+import { asyncHandler, sendSuccess } from '@nxt1/core/errors/express';
+import { validationError } from '@nxt1/core/errors';
+import { ROLE } from '@nxt1/core/models';
+import * as teamCodeService from '../services/team-code.service.js';
+import { logger } from '../utils/logger.js';
+import type { Firestore } from 'firebase-admin/firestore';
+import { performanceMiddleware, testPerformance } from '../middleware/performance.middleware.js';
 
 const router: ExpressRouter = Router();
 
+// Add performance tracking to all routes
+router.use(performanceMiddleware);
+
+// Extend Express Request with user and Firebase
+declare module 'express' {
+  interface Request {
+    user?: AuthenticatedUser;
+    firebase?: {
+      db: Firestore;
+      auth: any;
+      storage: any;
+    };
+    isStaging?: boolean;
+  }
+}
+
+// ============================================
+// VALIDATION HELPERS
+// ============================================
+
+function validateRequired(value: unknown, fieldName: string): void {
+  if (!value || (typeof value === 'string' && value.trim() === '')) {
+    throw validationError([
+      { field: fieldName, message: `${fieldName} is required`, rule: 'required' },
+    ]);
+  }
+}
+
+function validateRole(role: string): void {
+  const validRoles = Object.values(ROLE);
+  if (!validRoles.includes(role as ROLE)) {
+    throw validationError([
+      {
+        field: 'role',
+        message: `Role must be one of: ${validRoles.join(', ')}`,
+        rule: 'enum',
+      },
+    ]);
+  }
+}
+
+// ============================================
+// TEAM CODE CRUD ROUTES
+// ============================================
+
 /**
- * Get team details by ID
+ * Get all teams with pagination
+ * GET /api/v1/teams?limit=20&offset=0&sportName=Football&state=CA&search=Lakers&sortBy=traffic
+ */
+router.get(
+  '/',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const db = req.firebase!.db;
+    const { limit, offset, sportName, state, search, sortBy, sortOrder } = req.query;
+
+    const result = await teamCodeService.getAllTeams(db, {
+      limit: limit ? parseInt(String(limit), 10) : undefined,
+      offset: offset ? parseInt(String(offset), 10) : undefined,
+      sportName: sportName ? String(sportName) : undefined,
+      state: state ? String(state) : undefined,
+      search: search ? String(search) : undefined,
+      sortBy: sortBy as 'name' | 'traffic' | 'created' | 'members' | undefined,
+      sortOrder: sortOrder as 'asc' | 'desc' | undefined,
+    });
+
+    logger.info('[Teams API] Fetched teams with pagination', {
+      count: result.teams.length,
+      total: result.total,
+      offset: result.offset,
+      limit: result.limit,
+      cached: result.cached,
+    });
+
+    sendSuccess(res, result, { cached: result.cached });
+  })
+);
+
+/**
+ * Get all teams without pagination (cached)
+ * GET /api/v1/teams/all?maxLimit=500
+ * Returns cached list of all active teams (max 1000)
+ */
+router.get(
+  '/all',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const db = req.firebase!.db;
+    const { maxLimit } = req.query;
+
+    const { teams, cached } = await teamCodeService.getAllTeamsData(db, {
+      useCache: true,
+      maxLimit: maxLimit ? parseInt(String(maxLimit), 10) : undefined,
+    });
+
+    logger.info('[Teams API] Fetched all teams', { count: teams.length, cached });
+
+    sendSuccess(res, { teams, total: teams.length }, { cached });
+  })
+);
+
+/**
+ * Test performance monitoring
+ * GET /api/v1/teams/debug/performance
+ * Returns performance stats and recent metrics
+ */
+router.get(
+  '/debug/performance',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const result = await testPerformance();
+    sendSuccess(res, result);
+  })
+);
+
+/**
+ * Create a new TeamCode
+ * POST /api/v1/teams
+ */
+router.post(
+  '/',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const {
+      teamCode,
+      teamName,
+      teamType,
+      sportName,
+      state,
+      city,
+      athleteMember,
+      panelMember,
+      packageId,
+      teamLogoImg,
+      teamColor1,
+      teamColor2,
+      mascot,
+      unicode,
+      division,
+      conference,
+      expireAt,
+    } = req.body;
+
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(teamCode, 'teamCode');
+    validateRequired(teamName, 'teamName');
+    validateRequired(teamType, 'teamType');
+    validateRequired(sportName, 'sportName');
+    validateRequired(state, 'state');
+    validateRequired(city, 'city');
+    validateRequired(packageId, 'packageId');
+
+    const team = await teamCodeService.createTeamCode(db, {
+      teamCode: teamCode.trim(),
+      teamName: teamName.trim(),
+      teamType,
+      sportName: sportName.trim(),
+      state: state.trim(),
+      city: city.trim(),
+      athleteMember: parseInt(athleteMember, 10) || 0,
+      panelMember: parseInt(panelMember, 10) || 0,
+      packageId: packageId.trim(),
+      createdBy: userId,
+      teamLogoImg: teamLogoImg?.trim(),
+      teamColor1: teamColor1?.trim(),
+      teamColor2: teamColor2?.trim(),
+      mascot: mascot?.trim(),
+      unicode: unicode?.trim(),
+      division: division?.trim(),
+      conference: conference?.trim(),
+      expireAt: expireAt ? new Date(expireAt) : undefined,
+    });
+
+    logger.info('[Teams API] TeamCode created', { teamId: team.id, userId });
+
+    res.status(201);
+    sendSuccess(res, team);
+  })
+);
+
+/**
+ * Get team by ID
  * GET /api/v1/teams/:id
  */
-router.get('/:id', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
+router.get(
+  '/:id',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { id } = req.params;
+    const db = req.firebase!.db;
+
+    validateRequired(id, 'Team ID');
+
+    const { team, cached } = await teamCodeService.getTeamCodeById(db, String(id));
+
+    sendSuccess(res, team, { cached });
+  })
+);
+
+/**
+ * Get team by teamCode
+ * GET /api/v1/teams/code/:teamCode
+ */
+router.get(
+  '/code/:teamCode',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { teamCode } = req.params;
+    const db = req.firebase!.db;
+
+    validateRequired(teamCode, 'Team code');
+
+    const { team, cached } = await teamCodeService.getTeamCodeByCode(db, String(teamCode));
+
+    if (!team) {
+      res.status(404).json({
+        success: false,
+        error: 'Team not found',
+      });
+      return;
+    }
+
+    sendSuccess(res, team, { cached });
+  })
+);
+
+/**
+ * Get team by unicode (URL slug)
+ * GET /api/v1/teams/unicode/:unicode
+ */
+router.get(
+  '/unicode/:unicode',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { unicode } = req.params;
+    const db = req.firebase!.db;
+
+    validateRequired(unicode, 'Unicode');
+
+    const { team, cached } = await teamCodeService.getTeamCodeByUnicode(db, String(unicode));
+
+    if (!team) {
+      res.status(404).json({
+        success: false,
+        error: 'Team not found',
+      });
+      return;
+    }
+
+    sendSuccess(res, team, { cached });
+  })
+);
+
+/**
+ * Update team
+ * PATCH /api/v1/teams/:id
+ */
+router.patch(
+  '/:id',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const {
+      teamName,
+      teamType,
+      sportName,
+      state,
+      city,
+      athleteMember,
+      panelMember,
+      isActive,
+      teamLogoImg,
+      teamColor1,
+      teamColor2,
+      mascot,
+      unicode,
+      division,
+      conference,
+      expireAt,
+    } = req.body;
+
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(id, 'Team ID');
+
+    const team = await teamCodeService.updateTeamCode(db, String(id), userId, {
+      teamName: teamName?.trim(),
+      teamType,
+      sportName: sportName?.trim(),
+      state: state?.trim(),
+      city: city?.trim(),
+      athleteMember: athleteMember !== undefined ? parseInt(athleteMember, 10) : undefined,
+      panelMember: panelMember !== undefined ? parseInt(panelMember, 10) : undefined,
+      isActive,
+      teamLogoImg: teamLogoImg?.trim(),
+      teamColor1: teamColor1?.trim(),
+      teamColor2: teamColor2?.trim(),
+      mascot: mascot?.trim(),
+      unicode: unicode?.trim(),
+      division: division?.trim(),
+      conference: conference?.trim(),
+      expireAt: expireAt ? new Date(expireAt) : undefined,
+    });
+
+    logger.info('[Teams API] TeamCode updated', { teamId: id, userId });
+
+    sendSuccess(res, team);
+  })
+);
+
+/**
+ * Delete team (soft delete)
+ * DELETE /api/v1/teams/:id
+ */
+router.delete(
+  '/:id',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(id, 'Team ID');
+
+    await teamCodeService.deleteTeamCode(db, String(id), userId);
+
+    logger.info('[Teams API] TeamCode deleted', { teamId: id, userId });
+
+    sendSuccess(res, { message: 'Team deleted successfully' });
+  })
+);
+
+// ============================================
+// MEMBERSHIP ROUTES
+// ============================================
+
+/**
+ * Join team by teamCode
+ * POST /api/v1/teams/:teamCode/join
+ */
+router.post(
+  '/:teamCode/join',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { teamCode } = req.params;
+    const { role, firstName, lastName, email, phoneNumber } = req.body;
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(teamCode, 'Team code');
+    validateRequired(firstName, 'firstName');
+    validateRequired(lastName, 'lastName');
+    validateRequired(email, 'email');
+
+    if (role) {
+      validateRole(role);
+    }
+
+    const team = await teamCodeService.joinTeam(db, {
+      userId,
+      teamCode: String(teamCode),
+      role: role as ROLE,
+      userProfile: {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        phoneNumber: phoneNumber?.trim(),
+      },
+    });
+
+    logger.info('[Teams API] User joined team', { teamCode, userId });
+
+    res.status(201);
+    sendSuccess(res, team);
+  })
+);
+
+/**
+ * Invite member to team
+ * POST /api/v1/teams/:id/invite
+ */
+router.post(
+  '/:id/invite',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { userId: targetUserId, role, firstName, lastName, email, phoneNumber } = req.body;
+    const inviterId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(id, 'Team ID');
+    validateRequired(targetUserId, 'User ID');
+    validateRequired(role, 'Role');
+    validateRequired(firstName, 'firstName');
+    validateRequired(lastName, 'lastName');
+    validateRequired(email, 'email');
+
+    validateRole(role);
+
+    const team = await teamCodeService.inviteMember(db, {
+      teamId: String(id),
+      userId: targetUserId,
+      role: role as ROLE,
+      invitedBy: inviterId,
+      userProfile: {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.trim(),
+        phoneNumber: phoneNumber?.trim(),
+      },
+    });
+
+    logger.info('[Teams API] Member invited', { teamId: id, targetUserId, role });
+
+    res.status(201);
+    sendSuccess(res, team);
+  })
+);
+
+/**
+ * Remove member from team
+ * DELETE /api/v1/teams/:id/members/:userId
+ */
+router.delete(
+  '/:id/members/:userId',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id, userId: targetUserId } = req.params;
+    const removerId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(id, 'Team ID');
+    validateRequired(targetUserId, 'User ID');
+
+    await teamCodeService.removeMember(db, String(id), String(targetUserId), removerId);
+
+    logger.info('[Teams API] Member removed', { teamId: id, targetUserId });
+
+    sendSuccess(res, { message: 'Member removed successfully' });
+  })
+);
+
+/**
+ * Update member role
+ * PATCH /api/v1/teams/:id/members/:userId/role
+ */
+router.patch(
+  '/:id/members/:userId/role',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id, userId: targetUserId } = req.params;
+    const { role } = req.body;
+    const updaterId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(id, 'Team ID');
+    validateRequired(targetUserId, 'User ID');
+    validateRequired(role, 'Role');
+
+    validateRole(role);
+
+    const team = await teamCodeService.updateMemberRole(db, {
+      teamId: String(id),
+      userId: String(targetUserId),
+      newRole: role as ROLE,
+      updatedBy: updaterId,
+    });
+
+    logger.info('[Teams API] Member role updated', { teamId: id, targetUserId, role });
+
+    sendSuccess(res, team);
+  })
+);
+
+/**
+ * Bulk update member roles
+ * PATCH /api/v1/teams/:id/members/bulk
+ */
+router.patch(
+  '/:id/members/bulk',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const { updates } = req.body;
+    const updaterId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(id, 'Team ID');
+    validateRequired(updates, 'Updates');
+
+    if (!Array.isArray(updates)) {
+      throw validationError([
+        { field: 'updates', message: 'Updates must be an array', rule: 'type' },
+      ]);
+    }
+
+    // Validate all roles in updates
+    for (const update of updates) {
+      if (update.newRole) {
+        validateRole(update.newRole);
+      }
+    }
+
+    const result = await teamCodeService.bulkUpdateMemberRoles(db, String(id), updates, updaterId);
+
+    logger.info('[Teams API] Bulk member role update', {
+      teamId: id,
+      successCount: result.successCount,
+      failedCount: result.failedCount,
+    });
+
+    sendSuccess(res, result);
+  })
+);
+
+/**
+ * Get user's teams
+ * GET /api/v1/teams/user/my-teams
+ */
+router.get(
+  '/user/my-teams',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    const { teams, cached } = await teamCodeService.getUserTeams(db, userId);
+
+    sendSuccess(res, { teams }, { cached });
+  })
+);
+
+/**
+ * Increment team page view
+ * POST /api/v1/teams/:id/view
+ */
+router.post(
+  '/:id/view',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const db = req.firebase!.db;
+
+    validateRequired(id, 'Team ID');
+
+    await teamCodeService.incrementTeamPageView(db, String(id));
+
+    sendSuccess(res, { message: 'View recorded' });
+  })
+);
 
 export default router;

@@ -310,7 +310,7 @@ async function invalidateCommentsCache(postId: string): Promise<void> {
 router.get('/feed', optionalAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const query = req.query as GetFeedQuery;
-    const db = req.firebase.db;
+    const db = req.firebase!.db;
     const currentUserId = req.user?.uid;
 
     // Parse and validate query params
@@ -504,7 +504,7 @@ router.post('/media', (_req: Request, res: Response) => {
  */
 router.post('/', appGuard, async (req: Request, res: Response): Promise<void> => {
   try {
-    const db = req.firebase.db;
+    const db = req.firebase!.db;
     const userId = req.user!.uid;
 
     // Validate request
@@ -618,7 +618,7 @@ router.post('/', appGuard, async (req: Request, res: Response): Promise<void> =>
  */
 router.get('/:id', optionalAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const db = req.firebase.db;
+    const db = req.firebase!.db;
     const postId = String(req.params['id']);
     const currentUserId = req.user?.uid;
 
@@ -732,7 +732,7 @@ router.put('/:id', (_req: Request, res: Response) => {
  */
 router.delete('/:id', appGuard, async (req: Request, res: Response): Promise<void> => {
   try {
-    const db = req.firebase.db;
+    const db = req.firebase!.db;
     const postId = String(req.params['id']);
     const userId = req.user!.uid;
 
@@ -810,7 +810,7 @@ router.delete('/:id/pin', (_req: Request, res: Response) => {
  */
 router.post('/:id/like', appGuard, async (req: Request, res: Response): Promise<void> => {
   try {
-    const db = req.firebase.db;
+    const db = req.firebase!.db;
     const postId = String(req.params['id']);
     const userId = req.user!.uid;
 
@@ -861,7 +861,7 @@ router.post('/:id/like', appGuard, async (req: Request, res: Response): Promise<
  */
 router.delete('/:id/like', appGuard, async (req: Request, res: Response): Promise<void> => {
   try {
-    const db = req.firebase.db;
+    const db = req.firebase!.db;
     const postId = String(req.params['id']);
     const userId = req.user!.uid;
 
@@ -912,7 +912,7 @@ router.delete('/:id/like', appGuard, async (req: Request, res: Response): Promis
  */
 router.post('/:id/comments', appGuard, async (req: Request, res: Response): Promise<void> => {
   try {
-    const db = req.firebase.db;
+    const db = req.firebase!.db;
     const postId = String(req.params['id']);
     const userId = req.user!.uid;
 
@@ -991,7 +991,7 @@ router.post('/:id/comments', appGuard, async (req: Request, res: Response): Prom
  */
 router.get('/:id/comments', optionalAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const db = req.firebase.db;
+    const db = req.firebase!.db;
     const postId = String(req.params['id']);
     const query = req.query as GetCommentsQuery;
 
@@ -1093,7 +1093,7 @@ router.delete(
   appGuard,
   async (req: Request, res: Response): Promise<void> => {
     try {
-      const db = req.firebase.db;
+      const db = req.firebase!.db;
       const commentId = String(req.params['commentId']);
       const userId = req.user!.uid;
 

@@ -17,6 +17,8 @@ import { AngularHttpAdapter } from '../../../core/infrastructure';
 import { environment } from '../../../../environments/environment';
 import { NxtLoggingService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
+import { PerformanceService } from '../../../core/services/performance.service';
+import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
 
 /**
  * Angular service wrapper for @nxt1/core Auth API
@@ -39,6 +41,7 @@ import type { ILogger } from '@nxt1/core/logging';
 export class AuthApiService {
   private readonly http = inject(AngularHttpAdapter);
   private readonly logger: ILogger = inject(NxtLoggingService).child('AuthApiService');
+  private readonly performance = inject(PerformanceService);
   private _api: AuthApi | null = null;
 
   private get api(): AuthApi {
@@ -56,28 +59,47 @@ export class AuthApiService {
    * Create a new user in the backend after Firebase Auth signup
    */
   createUser(...args: Parameters<AuthApi['createUser']>): ReturnType<AuthApi['createUser']> {
-    return this.api.createUser(...args);
+    return this.performance.trace(
+      TRACE_NAMES.AUTH_USER_CREATE,
+      () => this.api.createUser(...args),
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'auth_signup',
+        },
+      }
+    );
   }
 
   /**
    * Get user profile by UID
    */
   async getUserProfile(uid: string): Promise<User> {
-    try {
-      const response = await this.http.get(`${environment.apiURL}/auth/profile/${uid}`, {
-        timeout: 3000, // 3 second timeout for faster failure when backend is down
-      });
-      const profile = response as User;
-      return profile;
-    } catch (error) {
-      console.error('❌ [AuthApi] Failed to fetch user profile', {
-        uid,
-        error,
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
-      this.logger.error('Failed to fetch user profile', error);
-      throw error;
-    }
+    return this.performance.trace(
+      TRACE_NAMES.PROFILE_LOAD,
+      async () => {
+        try {
+          const response = await this.http.get(`${environment.apiURL}/auth/profile/${uid}`, {
+            timeout: 3000, // 3 second timeout for faster failure when backend is down
+          });
+          const profile = response as User;
+          return profile;
+        } catch (error) {
+          console.error('❌ [AuthApi] Failed to fetch user profile', {
+            uid,
+            error,
+            errorMessage: error instanceof Error ? error.message : String(error),
+          });
+          this.logger.error('Failed to fetch user profile', error);
+          throw error;
+        }
+      },
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'auth_profile',
+          user_id: uid,
+        },
+      }
+    );
   }
 
   // ============================================
@@ -90,14 +112,22 @@ export class AuthApiService {
   validateTeamCode(
     ...args: Parameters<AuthApi['validateTeamCode']>
   ): ReturnType<AuthApi['validateTeamCode']> {
-    return this.api.validateTeamCode(...args);
+    return this.performance.trace('team_code_validate', () => this.api.validateTeamCode(...args), {
+      attributes: {
+        [ATTRIBUTE_NAMES.FEATURE_NAME]: 'team_code',
+      },
+    });
   }
 
   /**
    * Join a team with code
    */
   joinTeam(...args: Parameters<AuthApi['joinTeam']>): ReturnType<AuthApi['joinTeam']> {
-    return this.api.joinTeam(...args);
+    return this.performance.trace(TRACE_NAMES.TEAM_JOIN, () => this.api.joinTeam(...args), {
+      attributes: {
+        [ATTRIBUTE_NAMES.FEATURE_NAME]: 'team_code',
+      },
+    });
   }
 
   // ============================================
@@ -110,7 +140,15 @@ export class AuthApiService {
   saveOnboardingStep(
     ...args: Parameters<AuthApi['saveOnboardingStep']>
   ): ReturnType<AuthApi['saveOnboardingStep']> {
-    return this.api.saveOnboardingStep(...args);
+    return this.performance.trace(
+      TRACE_NAMES.ONBOARDING_STEP_SAVE,
+      () => this.api.saveOnboardingStep(...args),
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'onboarding',
+        },
+      }
+    );
   }
 
   /**
@@ -119,7 +157,15 @@ export class AuthApiService {
   saveOnboardingProfile(
     ...args: Parameters<AuthApi['saveOnboardingProfile']>
   ): ReturnType<AuthApi['saveOnboardingProfile']> {
-    return this.api.saveOnboardingProfile(...args);
+    return this.performance.trace(
+      TRACE_NAMES.ONBOARDING_PROFILE_SAVE,
+      () => this.api.saveOnboardingProfile(...args),
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'onboarding',
+        },
+      }
+    );
   }
 
   /**
@@ -128,7 +174,15 @@ export class AuthApiService {
   completeOnboarding(
     ...args: Parameters<AuthApi['completeOnboarding']>
   ): ReturnType<AuthApi['completeOnboarding']> {
-    return this.api.completeOnboarding(...args);
+    return this.performance.trace(
+      TRACE_NAMES.ONBOARDING_COMPLETE,
+      () => this.api.completeOnboarding(...args),
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'onboarding',
+        },
+      }
+    );
   }
 
   // ============================================
@@ -139,7 +193,15 @@ export class AuthApiService {
    * Update user role
    */
   updateRole(...args: Parameters<AuthApi['updateRole']>): ReturnType<AuthApi['updateRole']> {
-    return this.api.updateRole(...args);
+    return this.performance.trace(
+      TRACE_NAMES.AUTH_ROLE_UPDATE,
+      () => this.api.updateRole(...args),
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'auth_profile_update',
+        },
+      }
+    );
   }
 
   /**
@@ -148,14 +210,30 @@ export class AuthApiService {
   updatePersonalInfo(
     ...args: Parameters<AuthApi['updatePersonalInfo']>
   ): ReturnType<AuthApi['updatePersonalInfo']> {
-    return this.api.updatePersonalInfo(...args);
+    return this.performance.trace(
+      TRACE_NAMES.AUTH_PERSONAL_INFO_UPDATE,
+      () => this.api.updatePersonalInfo(...args),
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'auth_profile_update',
+        },
+      }
+    );
   }
 
   /**
    * Update school info
    */
   updateSchool(...args: Parameters<AuthApi['updateSchool']>): ReturnType<AuthApi['updateSchool']> {
-    return this.api.updateSchool(...args);
+    return this.performance.trace(
+      TRACE_NAMES.AUTH_SCHOOL_UPDATE,
+      () => this.api.updateSchool(...args),
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'auth_profile_update',
+        },
+      }
+    );
   }
 
   // ============================================
@@ -168,6 +246,14 @@ export class AuthApiService {
   saveReferralSource(
     ...args: Parameters<AuthApi['saveReferralSource']>
   ): ReturnType<AuthApi['saveReferralSource']> {
-    return this.api.saveReferralSource(...args);
+    return this.performance.trace(
+      TRACE_NAMES.REFERRAL_SOURCE_SAVE,
+      () => this.api.saveReferralSource(...args),
+      {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'referrals',
+        },
+      }
+    );
   }
 }

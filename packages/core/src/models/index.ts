@@ -23,7 +23,7 @@ export type {
 // Network model
 export { type ConnectionType, type NetworkStatus, type NetworkChangeEvent } from './network.model';
 
-// Team code model
+// Team code model (legacy Firebase)
 export {
   ROLE,
   type TeamTypeApi,
@@ -31,6 +31,14 @@ export {
   type TeamAnalytics,
   type Code,
   type TeamCode,
+  // API Input Types
+  type CreateTeamCodeInput,
+  type UpdateTeamCodeInput,
+  type JoinTeamInput,
+  type InviteMemberInput,
+  type UpdateMemberRoleInput,
+  type BulkUpdateMemberInput,
+  type BulkUpdateResult,
 } from './team-code.model';
 
 // User model - Core types (use these)

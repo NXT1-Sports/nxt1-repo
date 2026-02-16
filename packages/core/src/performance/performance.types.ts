@@ -226,14 +226,66 @@ export const TRACE_NAMES = {
   AUTH_LOGOUT: 'auth_logout',
   AUTH_TOKEN_REFRESH: 'auth_token_refresh',
   AUTH_SOCIAL_SIGN_IN: 'auth_social_sign_in',
+  AUTH_USER_CREATE: 'auth_user_create',
+  AUTH_ROLE_UPDATE: 'auth_role_update',
+  AUTH_PERSONAL_INFO_UPDATE: 'auth_personal_info_update',
+  AUTH_SCHOOL_UPDATE: 'auth_school_update',
 
   // Data loading traces
   FEED_LOAD: 'feed_load',
   PROFILE_LOAD: 'profile_load',
   TEAM_LOAD: 'team_load',
   COLLEGE_LIST_LOAD: 'college_list_load',
+  COLLEGE_DETAIL_LOAD: 'college_detail_load',
+  VIDEO_DETAIL_LOAD: 'video_detail_load',
   SEARCH_EXECUTE: 'search_execute',
+  SEARCH_SUGGESTIONS: 'search_suggestions',
+  SEARCH_TAB_COUNTS: 'search_tab_counts',
+  TRENDING_SEARCHES_LOAD: 'trending_searches_load',
+  LOCATION_SEARCH: 'location_search',
   RANKINGS_LOAD: 'rankings_load',
+
+  // Activity traces
+  ACTIVITY_ITEM_LOAD: 'activity_item_load',
+  ACTIVITY_MARK_READ: 'activity_mark_read',
+  ACTIVITY_MARK_ALL_READ: 'activity_mark_all_read',
+  ACTIVITY_BADGES_LOAD: 'activity_badges_load',
+  ACTIVITY_SUMMARY_LOAD: 'activity_summary_load',
+  ACTIVITY_ARCHIVE: 'activity_archive',
+  ACTIVITY_RESTORE: 'activity_restore',
+
+  // Profile traces
+  PROFILE_UPDATE: 'profile_update',
+  PROFILE_SPORT_UPDATE: 'profile_sport_update',
+  PROFILE_SPORT_ADD: 'profile_sport_add',
+  PROFILE_SPORT_REMOVE: 'profile_sport_remove',
+  PROFILE_FOLLOW: 'profile_follow',
+  PROFILE_UNFOLLOW: 'profile_unfollow',
+  PROFILE_FOLLOWERS_LOAD: 'profile_followers_load',
+  PROFILE_FOLLOWING_LOAD: 'profile_following_load',
+  PROFILE_ANALYTICS_LOAD: 'profile_analytics_load',
+  PROFILE_VIEW_TRACK: 'profile_view_track',
+
+  // Post traces
+  POST_CREATE: 'post_create',
+  DRAFT_LOAD: 'draft_load',
+  DRAFT_SAVE: 'draft_save',
+  DRAFT_DELETE: 'draft_delete',
+
+  // Team traces
+  TEAM_JOIN: 'team_join',
+  TEAM_CODE_VALIDATE: 'team_code_validate',
+
+  // Onboarding traces
+  ONBOARDING_STEP_SAVE: 'onboarding_step_save',
+  ONBOARDING_PROFILE_SAVE: 'onboarding_profile_save',
+  ONBOARDING_COMPLETE: 'onboarding_complete',
+
+  // XP traces
+  XP_PREVIEW_LOAD: 'xp_preview_load',
+
+  // Referral traces
+  REFERRAL_SOURCE_SAVE: 'referral_source_save',
 
   // Media traces
   IMAGE_UPLOAD: 'image_upload',
@@ -247,8 +299,6 @@ export const TRACE_NAMES = {
 
   // Form traces
   FORM_SUBMISSION: 'form_submission',
-  PROFILE_UPDATE: 'profile_update',
-  POST_CREATE: 'post_create',
 
   // Payment traces
   PAYMENT_INIT: 'payment_init',

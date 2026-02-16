@@ -23,6 +23,7 @@ import { initializeCacheService } from './services/cache.service.js';
 
 // Middleware
 import { firebaseContext } from './middleware/firebase-context.middleware.js';
+import { performanceMiddleware, testPerformance } from './middleware/performance.middleware.js';
 
 // Routes
 import authRoutes from './routes/auth.routes.js';
@@ -75,6 +76,9 @@ app.use(requestTracker);
 // Attach Firebase context to all requests
 app.use(firebaseContext);
 
+// Performance monitoring for all requests
+app.use(performanceMiddleware);
+
 // ============================================================================
 // Health Checks
 // ============================================================================
@@ -84,6 +88,26 @@ app.get('/health', (_req, res) => {
 
 app.get('/staging/health', (_req, res) => {
   res.json({ status: 'Staging OK', timestamp: new Date().toISOString() });
+});
+
+// ============================================================================
+// Global Performance Debug Endpoint
+// ============================================================================
+app.get('/api/v1/debug/performance', async (_req, res) => {
+  try {
+    const result = await testPerformance();
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: {
+        message: error.message || 'Failed to get performance stats',
+      },
+    });
+  }
 });
 
 // ============================================================================
