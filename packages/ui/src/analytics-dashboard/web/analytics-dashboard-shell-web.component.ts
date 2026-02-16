@@ -44,6 +44,7 @@ import { NxtToastService } from '../../services/toast/toast.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { AnalyticsDashboardService } from '../analytics-dashboard.service';
+import { AnalyticsDashboardSkeletonComponent } from '../analytics-dashboard-skeleton.component';
 import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
 
 @Component({
@@ -55,6 +56,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
     NxtDesktopPageHeaderComponent,
     NxtSectionNavWebComponent,
     NxtIconComponent,
+    AnalyticsDashboardSkeletonComponent,
   ],
   template: `
     <!-- Page Header (hidden on desktop when sidebar provides navigation) -->
@@ -133,38 +135,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
           >
             <!-- Loading State -->
             @if (analytics.isLoading()) {
-              <div class="analytics-skeleton" aria-label="Loading analytics data">
-                <!-- Metric Cards Skeleton -->
-                <div class="skeleton-section">
-                  <div class="skeleton-grid">
-                    @for (i of skeletonCards; track i) {
-                      <div class="skeleton-card">
-                        <div class="skeleton-icon"></div>
-                        <div class="skeleton-value"></div>
-                        <div class="skeleton-label"></div>
-                        <div class="skeleton-trend"></div>
-                      </div>
-                    }
-                  </div>
-                </div>
-
-                <!-- Chart Skeleton -->
-                <div class="skeleton-section">
-                  <div class="skeleton-chart">
-                    <div class="skeleton-chart-header"></div>
-                    <div class="skeleton-chart-area"></div>
-                  </div>
-                </div>
-
-                <!-- Insights Skeleton -->
-                <div class="skeleton-section">
-                  <div class="skeleton-list">
-                    @for (i of skeletonList; track i) {
-                      <div class="skeleton-list-item"></div>
-                    }
-                  </div>
-                </div>
-              </div>
+              <nxt1-analytics-dashboard-skeleton />
             }
 
             <!-- Error State -->
@@ -533,7 +504,8 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
       .period-bar {
         display: flex;
         align-items: center;
-        justify-content: space-between;
+        justify-content: flex-end;
+        gap: var(--nxt1-spacing-3);
         margin-bottom: var(--nxt1-spacing-4);
       }
 
@@ -553,7 +525,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
         appearance: none;
         background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-md);
+        border-radius: var(--nxt1-borderRadius-md);
         color: var(--nxt1-color-text-primary);
         font-size: var(--nxt1-fontSize-sm);
         font-weight: 500;
@@ -605,7 +577,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
       .metric-card {
         background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-lg);
+        border-radius: var(--nxt1-borderRadius-lg);
         padding: var(--nxt1-spacing-4);
         display: flex;
         flex-direction: column;
@@ -623,7 +595,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
       .metric-icon {
         width: 40px;
         height: 40px;
-        border-radius: var(--nxt1-radius-sm);
+        border-radius: var(--nxt1-borderRadius-sm);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -640,17 +612,17 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
 
       .metric-card--success .metric-icon {
         background: rgba(34, 197, 94, 0.12);
-        color: var(--nxt1-color-feedback-success);
+        color: var(--nxt1-color-success);
       }
 
       .metric-card--warning .metric-icon {
         background: rgba(245, 158, 11, 0.12);
-        color: var(--nxt1-color-feedback-warning);
+        color: var(--nxt1-color-warning);
       }
 
       .metric-card--info .metric-icon {
         background: rgba(59, 130, 246, 0.12);
-        color: var(--nxt1-color-feedback-info);
+        color: var(--nxt1-color-info);
       }
 
       .metric-value {
@@ -675,11 +647,11 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
         margin-top: var(--nxt1-spacing-1);
 
         &.trend-up {
-          color: var(--nxt1-color-feedback-success);
+          color: var(--nxt1-color-success);
         }
 
         &.trend-down {
-          color: var(--nxt1-color-feedback-error);
+          color: var(--nxt1-color-error);
         }
 
         &.trend-stable {
@@ -733,21 +705,21 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
         gap: var(--nxt1-spacing-4);
         background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-md);
+        border-radius: var(--nxt1-borderRadius-md);
         padding: var(--nxt1-spacing-4);
 
         &.insight--positive .insight-icon {
-          color: var(--nxt1-color-feedback-success);
+          color: var(--nxt1-color-success);
           background: rgba(34, 197, 94, 0.12);
         }
 
         &.insight--negative .insight-icon {
-          color: var(--nxt1-color-feedback-error);
+          color: var(--nxt1-color-error);
           background: rgba(239, 68, 68, 0.12);
         }
 
         &.insight--neutral .insight-icon {
-          color: var(--nxt1-color-feedback-info);
+          color: var(--nxt1-color-info);
           background: rgba(59, 130, 246, 0.12);
         }
 
@@ -760,7 +732,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
       .insight-icon {
         width: 36px;
         height: 36px;
-        border-radius: var(--nxt1-radius-sm);
+        border-radius: var(--nxt1-borderRadius-sm);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -793,7 +765,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
         font-size: 12px;
         font-weight: 600;
         padding: 6px 12px;
-        border-radius: var(--nxt1-radius-sm);
+        border-radius: var(--nxt1-borderRadius-sm);
         cursor: pointer;
         white-space: nowrap;
         transition: background 0.15s ease;
@@ -823,7 +795,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
         gap: var(--nxt1-spacing-4);
         background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-md);
+        border-radius: var(--nxt1-borderRadius-md);
         padding: var(--nxt1-spacing-4);
       }
 
@@ -843,17 +815,17 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
 
       .recommendation--high .priority-badge {
         background: rgba(239, 68, 68, 0.12);
-        color: var(--nxt1-color-feedback-error);
+        color: var(--nxt1-color-error);
       }
 
       .recommendation--medium .priority-badge {
         background: rgba(245, 158, 11, 0.12);
-        color: var(--nxt1-color-feedback-warning);
+        color: var(--nxt1-color-warning);
       }
 
       .recommendation--low .priority-badge {
         background: rgba(34, 197, 94, 0.12);
-        color: var(--nxt1-color-feedback-success);
+        color: var(--nxt1-color-success);
       }
 
       .recommendation-content {
@@ -897,7 +869,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
         font-size: 12px;
         font-weight: 600;
         padding: 8px 14px;
-        border-radius: var(--nxt1-radius-sm);
+        border-radius: var(--nxt1-borderRadius-sm);
         cursor: pointer;
         white-space: nowrap;
         transition: opacity 0.15s ease;
@@ -905,110 +877,6 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
         &:hover {
           opacity: 0.9;
         }
-      }
-
-      /* ============================================
-         SKELETON LOADING
-         ============================================ */
-
-      .analytics-skeleton {
-        animation: analytics-pulse 1.5s infinite ease-in-out;
-      }
-
-      @keyframes analytics-pulse {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.5;
-        }
-      }
-
-      .skeleton-section {
-        margin-bottom: var(--nxt1-spacing-6);
-      }
-
-      .skeleton-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: var(--nxt1-spacing-4);
-      }
-
-      @media (min-width: 768px) {
-        .skeleton-grid {
-          grid-template-columns: repeat(4, 1fr);
-        }
-      }
-
-      .skeleton-card {
-        background: var(--nxt1-color-surface-100);
-        border-radius: var(--nxt1-radius-lg);
-        padding: var(--nxt1-spacing-4);
-      }
-
-      .skeleton-icon {
-        width: 40px;
-        height: 40px;
-        background: var(--nxt1-color-surface-200);
-        border-radius: var(--nxt1-radius-sm);
-        margin-bottom: var(--nxt1-spacing-2);
-      }
-
-      .skeleton-value {
-        width: 60%;
-        height: 28px;
-        background: var(--nxt1-color-surface-200);
-        border-radius: 4px;
-        margin-bottom: var(--nxt1-spacing-1);
-      }
-
-      .skeleton-label {
-        width: 80%;
-        height: 14px;
-        background: var(--nxt1-color-surface-200);
-        border-radius: 4px;
-        margin-bottom: var(--nxt1-spacing-1);
-      }
-
-      .skeleton-trend {
-        width: 50%;
-        height: 12px;
-        background: var(--nxt1-color-surface-200);
-        border-radius: 4px;
-      }
-
-      .skeleton-chart {
-        background: var(--nxt1-color-surface-100);
-        border-radius: var(--nxt1-radius-lg);
-        padding: var(--nxt1-spacing-4);
-      }
-
-      .skeleton-chart-header {
-        width: 40%;
-        height: 20px;
-        background: var(--nxt1-color-surface-200);
-        border-radius: 4px;
-        margin-bottom: var(--nxt1-spacing-4);
-      }
-
-      .skeleton-chart-area {
-        width: 100%;
-        height: 200px;
-        background: var(--nxt1-color-surface-200);
-        border-radius: var(--nxt1-radius-md);
-      }
-
-      .skeleton-list {
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-2);
-      }
-
-      .skeleton-list-item {
-        height: 72px;
-        background: var(--nxt1-color-surface-100);
-        border-radius: var(--nxt1-radius-md);
       }
 
       /* ============================================
@@ -1032,7 +900,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
       .error-svg {
         width: 64px;
         height: 64px;
-        color: var(--nxt1-color-feedback-error);
+        color: var(--nxt1-color-error);
         opacity: 0.8;
       }
 
@@ -1060,7 +928,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
         font-size: var(--nxt1-fontSize-sm);
         font-weight: 500;
         padding: 12px 20px;
-        border-radius: var(--nxt1-radius-md);
+        border-radius: var(--nxt1-borderRadius-md);
         cursor: pointer;
         transition:
           background 0.15s ease,
@@ -1132,7 +1000,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
         min-height: 200px;
         background: var(--nxt1-color-surface-100);
         border: 1px dashed var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-lg);
+        border-radius: var(--nxt1-borderRadius-lg);
         color: var(--nxt1-color-text-tertiary);
 
         h3 {
@@ -1224,12 +1092,6 @@ export class AnalyticsDashboardShellWebComponent implements OnInit {
 
   /** Available time periods */
   protected readonly periods = ANALYTICS_PERIODS;
-
-  /** Skeleton card placeholder indices */
-  protected readonly skeletonCards = [1, 2, 3, 4] as const;
-
-  /** Skeleton list placeholder indices */
-  protected readonly skeletonList = [1, 2, 3] as const;
 
   // ============================================
   // COMPUTED PROPERTIES

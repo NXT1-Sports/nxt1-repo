@@ -1131,6 +1131,210 @@ export const UI_ICONS = {
       { d: 'M9 18v.01' },
     ],
   },
+
+  /** Shield icon - for security, privacy, protection */
+  shield: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' }],
+  },
+
+  /** Shield with checkmark icon - for verified security */
+  shieldCheck: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z' }, { d: 'M9 12l2 2 4-4' }],
+  },
+
+  /** Calendar icon - for dates, events, scheduling */
+  calendar: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7z' },
+      { d: 'M16 3v4' },
+      { d: 'M8 3v4' },
+      { d: 'M4 11h16' },
+    ],
+  },
+
+  /** Link icon - for URLs, connections, sharing */
+  link: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71' },
+      { d: 'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71' },
+    ],
+  },
+
+  /** Credit card icon - for payments, billing */
+  card: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z' },
+      { d: 'M2 10h20' },
+    ],
+  },
+
+  /** Wallet icon - for finances, billing, subscriptions */
+  wallet: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7z' },
+      { d: 'M2 7l16-2' },
+      { d: 'M17 13.5a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1z' },
+    ],
+  },
+
+  /** Receipt icon - for transactions, invoices */
+  receipt: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M4 2v20l3-2 3 2 3-2 3 2V2l-3 2-3-2-3 2-3-2z' },
+      { d: 'M8 10h8' },
+      { d: 'M8 14h4' },
+    ],
+  },
+
+  /** Pie chart icon - for analytics, data visualization */
+  pieChart: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M21.21 15.89A10 10 0 1 1 8 2.83' }, { d: 'M22 12A10 10 0 0 0 12 2v10z' }],
+  },
+
+  /** Gift/Present icon - for rewards, free tiers, offers */
+  gift: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M3 8h18v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8z' },
+      { d: 'M12 8V22' },
+      { d: 'M3 12h18' },
+      { d: 'M19 8H5a4 4 0 0 1 3.5-4C10 4 12 8 12 8s2-4 3.5-4A4 4 0 0 1 19 8z' },
+    ],
+  },
+
+  /** Funnel/Filter icon - for filtering, sorting */
+  funnel: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M22 3H2l8 9.46V19l4 2v-8.54L22 3z' }],
+  },
+
+  /** Lightbulb icon - for insights, ideas, tips */
+  bulb: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M9 18h6' },
+      { d: 'M10 22h4' },
+      { d: 'M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z' },
+    ],
+  },
+
+  /** Rocket icon - for launch, growth, progress */
+  rocket: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      {
+        d: 'M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z',
+      },
+      {
+        d: 'M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z',
+      },
+      { d: 'M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0' },
+      { d: 'M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5' },
+    ],
+  },
+
+  /** Sun icon - for brightness, energy, streak */
+  sunny: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z' },
+      { d: 'M12 2v2' },
+      { d: 'M12 20v2' },
+      { d: 'M4.93 4.93l1.41 1.41' },
+      { d: 'M17.66 17.66l1.41 1.41' },
+      { d: 'M2 12h2' },
+      { d: 'M20 12h2' },
+      { d: 'M6.34 17.66l-1.41 1.41' },
+      { d: 'M19.07 4.93l-1.41 1.41' },
+    ],
+  },
+
+  /** Clock/Time icon - for scheduling and timestamps */
+  time: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z' }, { d: 'M12 6v6l4 2' }],
+  },
+
+  /** List icon - for ordered/unordered lists */
+  list: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M8 6h13' },
+      { d: 'M8 12h13' },
+      { d: 'M8 18h13' },
+      { d: 'M3 6h.01' },
+      { d: 'M3 12h.01' },
+      { d: 'M3 18h.01' },
+    ],
+  },
+
+  /** Clipboard icon - for evaluation/scouting reports */
+  clipboard: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2' },
+      { d: 'M15 2H9a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1z' },
+    ],
+  },
+
+  /** Notifications/Bell icon - for alerts and notifications */
+  notifications: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9' },
+      { d: 'M13.73 21a2 2 0 0 1-3.46 0' },
+    ],
+  },
+
+  /** Chevron forward icon - for right-pointing navigation */
+  chevronForward: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M9 18l6-6-6-6' }],
+  },
 } as const;
 
 // ============================================
@@ -1475,7 +1679,41 @@ export const ALIAS_ICONS = {
   'sparkles-outline': UI_ICONS.sparkles,
   'football-outline': UI_ICONS.football,
 
+  // ---- Security / Privacy ----
+  'shield-outline': UI_ICONS.shield,
+  'shield-checkmark-outline': UI_ICONS.shieldCheck,
+
+  // ---- Scheduling ----
+  'calendar-outline': UI_ICONS.calendar,
+
+  // ---- Charts / Analytics ----
+  'stats-chart-outline': UI_ICONS.barChart,
+  'pie-chart-outline': UI_ICONS.pieChart,
+
+  // ---- Commerce / Payments ----
+  'card-outline': UI_ICONS.card,
+  'wallet-outline': UI_ICONS.wallet,
+  'receipt-outline': UI_ICONS.receipt,
+
+  // ---- Misc UI ----
+  'color-palette-outline': UI_ICONS.colorPalette,
+  'link-outline': UI_ICONS.link,
+  'briefcase-outline': UI_ICONS.business,
+  'person-circle-outline': UI_ICONS.person,
+  'search-outline': UI_ICONS.search,
+  'mail-outline': UI_ICONS.mail,
+  'person-outline': UI_ICONS.person,
+  'funnel-outline': UI_ICONS.funnel,
+  'gift-outline': UI_ICONS.gift,
+
+  // ---- Ideas / Growth ----
+  'bulb-outline': UI_ICONS.bulb,
+  'rocket-outline': UI_ICONS.rocket,
+  'flame-outline': UI_ICONS.flame,
+
   // ---- Semantic aliases (camelCase alternatives) ----
+  /** Checkmark circle alias (without -outline suffix) */
+  'checkmark-circle': UI_ICONS.checkmarkCircle,
   /** Sports icon → athlete role icon (for avatar badges) */
   sports: ROLE_ICONS.athlete,
   /** People icon → users UI icon (for avatar badges) */
@@ -1484,6 +1722,14 @@ export const ALIAS_ICONS = {
   analytics: UI_ICONS.barChart,
   /** Flash icon → bolt UI icon */
   flash: UI_ICONS.bolt,
+
+  // ---- Persona Landing Page Icons ----
+  'whistle-outline': UI_ICONS.whistle,
+  'time-outline': UI_ICONS.time,
+  'list-outline': UI_ICONS.list,
+  'clipboard-outline': UI_ICONS.clipboard,
+  'notifications-outline': UI_ICONS.notifications,
+  'chevron-forward-outline': UI_ICONS.chevronForward,
 } as const;
 
 // ============================================

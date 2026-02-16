@@ -43,6 +43,11 @@
               },
               {
                 "glob": "**/*",
+                "input": "../../packages/design-tokens/assets/images",
+                "output": "/assets/shared/images"
+              },
+              {
+                "glob": "**/*",
                 "input": "src/.well-known",
                 "output": "/.well-known"
               },

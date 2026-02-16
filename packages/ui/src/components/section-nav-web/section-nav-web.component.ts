@@ -73,6 +73,8 @@ export interface SectionNavChangeEvent {
 
       :host {
         display: block;
+        /* Stretch to fill grid/flex parent height so sticky has room to scroll */
+        align-self: stretch;
       }
 
       .section-nav {

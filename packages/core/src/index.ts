@@ -1196,3 +1196,9 @@ export * from './manage-team';
 // ============================================
 
 export * from './usage';
+
+// ============================================
+// SPORT LANDING (Sport-Vertical Marketing Pages)
+// ============================================
+
+export * from './sport-landing';

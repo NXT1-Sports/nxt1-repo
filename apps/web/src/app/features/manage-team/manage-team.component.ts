@@ -1,59 +1,91 @@
 /**
- * @fileoverview Manage Team Page - Web App Wrapper
+ * @fileoverview Manage Team Page — Auth-Aware Dual State
  * @module @nxt1/web/features/manage-team
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Thin wrapper component that imports the shared Manage Team shell
- * from @nxt1/ui and wires up platform-specific concerns.
+ * Root component for the `/manage-team` route.
+ * Implements the professional dual-state pattern (LinkedIn/Strava/GitHub):
  *
- * ⭐ FOLLOWS THE EDIT-PROFILE PATTERN ⭐
+ * - **Logged out** → Marketing landing page with feature showcase & dashboard preview
+ * - **Logged in** → Actual team management dashboard (shell)
  *
- * The actual UI and logic live in @nxt1/ui (shared package).
- * This wrapper only handles:
- * - Platform-specific routing/navigation
- * - Team context from route params
+ * Same URL, different experience. SEO-optimized for both states.
+ * SSR-safe with proper meta tags regardless of auth state.
+ *
+ * Architecture:
+ * - Reads auth state via AUTH_SERVICE injection token (Signal-based)
+ * - Landing page content is indexable; dashboard is noindex
  */
 
-import {
-  Component,
-  ChangeDetectionStrategy,
-  inject,
-  OnInit,
-  computed,
-  signal,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, OnInit, computed } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
+import { Location } from '@angular/common';
 import {
   ManageTeamShellComponent,
   ManageTeamService,
+  ManageTeamSkeletonComponent,
+  NxtManageTeamLandingComponent,
   NxtLoggingService,
   NxtToastService,
 } from '@nxt1/ui';
 import type { ManageTeamCloseEvent } from '@nxt1/ui';
+import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-manage-team',
   standalone: true,
-  imports: [ManageTeamShellComponent],
+  imports: [ManageTeamShellComponent, ManageTeamSkeletonComponent, NxtManageTeamLandingComponent],
   template: `
-    <nxt1-manage-team-shell
-      [mode]="'full'"
-      [showHeader]="true"
-      [title]="pageTitle()"
-      (close)="onClose($event)"
-    />
+    <!-- Loading: Auth state initializing -->
+    @if (isAuthLoading()) {
+      <nxt1-manage-team-skeleton />
+    }
+
+    <!-- Authenticated: Show actual team management dashboard -->
+    @else if (isAuthenticated()) {
+      <nxt1-manage-team-shell
+        [mode]="'full'"
+        [showHeader]="true"
+        [title]="pageTitle()"
+        (close)="onClose($event)"
+      />
+    }
+
+    <!-- Unauthenticated: Show marketing landing page -->
+    @else {
+      <nxt1-manage-team-landing />
+    }
   `,
+  styles: [
+    `
+      :host {
+        display: block;
+        min-height: 100vh;
+        background: var(--nxt1-color-bg-primary);
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ManageTeamComponent implements OnInit {
+  private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly router = inject(Router);
+  private readonly location = inject(Location);
   private readonly route = inject(ActivatedRoute);
   private readonly manageTeamService = inject(ManageTeamService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ManageTeamComponent');
+  private readonly seo = inject(SeoService);
+
+  /** Auth state signals */
+  protected readonly isAuthenticated = this.authService.isAuthenticated;
+  protected readonly isAuthLoading = computed(
+    () => !this.authService.isInitialized() || this.authService.isLoading()
+  );
 
   /** Team ID from route parameter */
-  private readonly _teamId = signal<string | null>(null);
+  private _teamId: string | null = null;
 
   /** Page title */
   protected readonly pageTitle = computed(() => {
@@ -62,18 +94,39 @@ export class ManageTeamComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    // Get team ID from route params
-    const teamId = this.route.snapshot.paramMap.get('teamId');
-    this._teamId.set(teamId);
+    // SEO — set meta tags based on auth state
+    if (this.isAuthenticated()) {
+      this.seo.updatePage({
+        title: 'Manage Team',
+        description: 'Manage your team roster, schedule, stats, and staff.',
+        keywords: ['manage team', 'roster', 'schedule', 'coaching dashboard'],
+        noIndex: true,
+      });
 
-    this.logger.info('Manage Team page initialized', { teamId });
+      // Load team data for authenticated users
+      const teamId = this.route.snapshot.paramMap.get('teamId');
+      this._teamId = teamId;
+      this.logger.info('Manage Team page initialized', { teamId });
 
-    // Load team data
-    if (teamId) {
-      this.manageTeamService.loadTeam(teamId);
+      if (teamId) {
+        this.manageTeamService.loadTeam(teamId);
+      } else {
+        this.manageTeamService.loadCurrentUserTeam();
+      }
     } else {
-      // Load current user's team
-      this.manageTeamService.loadCurrentUserTeam();
+      this.seo.updatePage({
+        title: 'Team Management — Run Your Program Like a Pro | NXT1',
+        description:
+          'Manage your roster, schedule, stats, staff, and sponsors from one powerful coaching dashboard. Built for head coaches, assistants, and athletic directors.',
+        keywords: [
+          'team management',
+          'coaching dashboard',
+          'roster management',
+          'sports scheduling',
+          'team stats',
+          'NXT1 coaching',
+        ],
+      });
     }
   }
 
@@ -87,11 +140,7 @@ export class ManageTeamComponent implements OnInit {
       this.toast.success('Team saved successfully');
     }
 
-    // Navigate back
-    if (window.history.length > 1) {
-      window.history.back();
-    } else {
-      this.router.navigate(['/home']);
-    }
+    // Navigate back (SSR-safe)
+    this.location.back();
   }
 }

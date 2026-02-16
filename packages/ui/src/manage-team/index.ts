@@ -32,6 +32,10 @@ export {
 // Service
 export { ManageTeamService } from './manage-team.service';
 
+// Landing Page (public marketing)
+export { NxtManageTeamLandingComponent } from './manage-team-landing.component';
+export { NxtManageTeamDashboardPreviewComponent } from './manage-team-dashboard-preview.component';
+
 // Skeleton
 export { ManageTeamSkeletonComponent } from './manage-team-skeleton.component';
 

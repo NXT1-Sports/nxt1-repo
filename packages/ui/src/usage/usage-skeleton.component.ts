@@ -20,46 +20,35 @@ import { CommonModule } from '@angular/common';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="skeleton-layout" aria-hidden="true" role="presentation">
-      <!-- Sidebar Nav Skeleton (Desktop) / Tab Nav Skeleton (Mobile) -->
-      <nav class="skeleton-nav">
-        @for (i of [1, 2, 3, 4, 5, 6]; track i) {
-          <div class="skeleton-nav-item shimmer" [style.animation-delay]="i * 0.05 + 's'">
-            <div class="skel skel--nav-label" [style.width.%]="navWidths[i - 1]"></div>
+    <!-- Content Panel Skeleton (nav tabs render immediately via shell) -->
+    <div class="skeleton-content" aria-hidden="true" role="presentation">
+      <!-- Overview Cards (3 cards) -->
+      <div class="skeleton-overview">
+        @for (i of [1, 2, 3]; track i) {
+          <div class="skeleton-card" [style.animation-delay]="i * 0.1 + 's'">
+            <div class="skel skel--label shimmer"></div>
+            <div class="skel skel--value shimmer"></div>
+            <div class="skel skel--meta shimmer"></div>
+            <div class="skel skel--link shimmer"></div>
           </div>
         }
-      </nav>
+      </div>
 
-      <!-- Content Panel Skeleton -->
-      <div class="skeleton-content">
-        <!-- Overview Cards (3 cards) -->
-        <div class="skeleton-overview">
-          @for (i of [1, 2, 3]; track i) {
-            <div class="skeleton-card" [style.animation-delay]="i * 0.1 + 's'">
-              <div class="skel skel--label shimmer"></div>
-              <div class="skel skel--value shimmer"></div>
-              <div class="skel skel--meta shimmer"></div>
-              <div class="skel skel--link shimmer"></div>
+      <!-- Subscriptions Section -->
+      <div class="skeleton-section" style="animation-delay: 0.4s">
+        <div class="skel skel--section-title shimmer"></div>
+        <div class="skeleton-sub-cards">
+          @for (i of [1, 2]; track i) {
+            <div class="skeleton-sub-card" [style.animation-delay]="0.45 + i * 0.1 + 's'">
+              <div class="skeleton-sub-header">
+                <div class="skel skel--sub-name shimmer"></div>
+                <div class="skel skel--sub-badge shimmer"></div>
+              </div>
+              <div class="skel skel--sub-price shimmer"></div>
+              <div class="skel skel--sub-detail shimmer"></div>
+              <div class="skel skel--sub-link shimmer"></div>
             </div>
           }
-        </div>
-
-        <!-- Subscriptions Section -->
-        <div class="skeleton-section" style="animation-delay: 0.4s">
-          <div class="skel skel--section-title shimmer"></div>
-          <div class="skeleton-sub-cards">
-            @for (i of [1, 2]; track i) {
-              <div class="skeleton-sub-card" [style.animation-delay]="0.45 + i * 0.1 + 's'">
-                <div class="skeleton-sub-header">
-                  <div class="skel skel--sub-name shimmer"></div>
-                  <div class="skel skel--sub-badge shimmer"></div>
-                </div>
-                <div class="skel skel--sub-price shimmer"></div>
-                <div class="skel skel--sub-detail shimmer"></div>
-                <div class="skel skel--sub-link shimmer"></div>
-              </div>
-            }
-          </div>
         </div>
       </div>
     </div>
@@ -81,14 +70,12 @@ import { CommonModule } from '@angular/common';
       }
 
       /* ==============================
-       TWO-PANEL LAYOUT (matches shell)
+       CONTENT PANEL SKELETON
+       (nav tabs render immediately via shell)
        ============================== */
 
-      .skeleton-layout {
-        display: grid;
-        grid-template-columns: 200px 1fr;
-        gap: var(--nxt1-spacing-8);
-        align-items: start;
+      .skeleton-content {
+        display: block;
       }
 
       /* ==============================
@@ -106,27 +93,6 @@ import { CommonModule } from '@angular/common';
         background-size: 200% 100%;
         animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s)
           var(--nxt1-skeleton-animation-timing, ease-in-out) infinite;
-      }
-
-      /* ==============================
-       SIDEBAR NAV SKELETON
-       ============================== */
-
-      .skeleton-nav {
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-0-5);
-        position: sticky;
-        top: var(--nxt1-spacing-6);
-      }
-
-      .skeleton-nav-item {
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
-        border-radius: var(--nxt1-radius-md, 8px);
-      }
-
-      .skel--nav-label {
-        height: var(--nxt1-skeleton-height-sm, 14px);
       }
 
       /* ==============================
@@ -234,38 +200,10 @@ import { CommonModule } from '@angular/common';
       }
 
       /* ==============================
-       MOBILE: Horizontal tabs + stacked
+       MOBILE: Stacked cards
        ============================== */
 
       @media (max-width: 768px) {
-        .skeleton-layout {
-          grid-template-columns: 1fr;
-          gap: var(--nxt1-spacing-4);
-        }
-
-        .skeleton-nav {
-          flex-direction: row;
-          overflow-x: auto;
-          gap: var(--nxt1-spacing-2);
-          position: static;
-          padding-bottom: var(--nxt1-spacing-3);
-          border-bottom: 1px solid var(--nxt1-color-border-subtle);
-          scrollbar-width: none;
-        }
-
-        .skeleton-nav::-webkit-scrollbar {
-          display: none;
-        }
-
-        .skeleton-nav-item {
-          flex-shrink: 0;
-          width: var(--nxt1-spacing-24);
-          padding: var(--nxt1-spacing-1-5) var(--nxt1-spacing-3);
-          border-radius: var(--nxt1-radius-full, 9999px);
-          background: var(--nxt1-color-surface-100);
-          border: 1px solid var(--nxt1-color-border-subtle);
-        }
-
         .skeleton-overview {
           grid-template-columns: 1fr;
         }
@@ -285,7 +223,4 @@ import { CommonModule } from '@angular/common';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class UsageSkeletonComponent {
-  /** Nav label widths for visual variety (percentages) */
-  protected readonly navWidths = [65, 80, 55, 90, 70, 75];
-}
+export class UsageSkeletonComponent {}

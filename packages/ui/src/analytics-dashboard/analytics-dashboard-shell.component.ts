@@ -57,6 +57,7 @@ import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { AnalyticsDashboardService } from './analytics-dashboard.service';
+import { AnalyticsDashboardSkeletonComponent } from './analytics-dashboard-skeleton.component';
 
 /**
  * User info for header display.
@@ -78,6 +79,7 @@ export interface AnalyticsUser {
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
     NxtIconComponent,
+    AnalyticsDashboardSkeletonComponent,
   ],
   template: `
     <!-- Professional Page Header -->
@@ -126,38 +128,7 @@ export interface AnalyticsUser {
       <div class="analytics-container">
         <!-- Loading State -->
         @if (analytics.isLoading()) {
-          <div class="analytics-skeleton">
-            <!-- Metric Cards Skeleton -->
-            <div class="skeleton-section">
-              <div class="skeleton-grid">
-                @for (i of [1, 2, 3, 4]; track i) {
-                  <div class="skeleton-card">
-                    <div class="skeleton-icon"></div>
-                    <div class="skeleton-value"></div>
-                    <div class="skeleton-label"></div>
-                    <div class="skeleton-trend"></div>
-                  </div>
-                }
-              </div>
-            </div>
-
-            <!-- Chart Skeleton -->
-            <div class="skeleton-section">
-              <div class="skeleton-chart">
-                <div class="skeleton-chart-header"></div>
-                <div class="skeleton-chart-area"></div>
-              </div>
-            </div>
-
-            <!-- Insights Skeleton -->
-            <div class="skeleton-section">
-              <div class="skeleton-list">
-                @for (i of [1, 2, 3]; track i) {
-                  <div class="skeleton-list-item"></div>
-                }
-              </div>
-            </div>
-          </div>
+          <nxt1-analytics-dashboard-skeleton />
         }
 
         <!-- Error State -->
@@ -340,65 +311,38 @@ export interface AnalyticsUser {
     `
       /* ============================================
          ANALYTICS DASHBOARD SHELL
-         iOS 26 Liquid Glass Design System
-         100% Theme Aware (Light + Dark Mode)
+         100% Design Token Architecture (2026)
+         Theme-Aware · Sport-Aware · SSR-Safe
          ============================================ */
 
       :host {
         display: block;
         height: 100%;
         width: 100%;
-
-        /* Theme-aware CSS Variables (Design Token Integration) */
-        --analytics-bg: var(--nxt1-color-bg-primary, var(--ion-background-color, #0a0a0a));
-        --analytics-surface: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
-        --analytics-surface-elevated: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
-        --analytics-border: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-        --analytics-border-strong: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        --analytics-text-primary: var(--nxt1-color-text-primary, #ffffff);
-        --analytics-text-secondary: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        --analytics-text-tertiary: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
-        --analytics-primary: var(--nxt1-color-primary, #ccff00);
-        --analytics-success: var(--nxt1-color-feedback-success, #22c55e);
-        --analytics-warning: var(--nxt1-color-feedback-warning, #f59e0b);
-        --analytics-error: var(--nxt1-color-feedback-error, #ef4444);
-        --analytics-info: var(--nxt1-color-feedback-info, #3b82f6);
-
-        /* Spacing */
-        --analytics-spacing-xs: 4px;
-        --analytics-spacing-sm: 8px;
-        --analytics-spacing-md: 16px;
-        --analytics-spacing-lg: 24px;
-        --analytics-spacing-xl: 32px;
-
-        /* Border Radius */
-        --analytics-radius-sm: 8px;
-        --analytics-radius-md: 12px;
-        --analytics-radius-lg: 16px;
-        --analytics-radius-xl: 20px;
       }
 
       /* Period Selector */
       .period-selector {
         ion-select {
-          --padding-start: 12px;
-          --padding-end: 8px;
-          font-size: 14px;
-          font-weight: 500;
+          --padding-start: var(--nxt1-spacing-3);
+          --padding-end: var(--nxt1-spacing-2);
+          font-family: var(--nxt1-fontFamily-system);
+          font-size: var(--nxt1-fontSize-sm);
+          font-weight: var(--nxt1-fontWeight-medium);
           min-width: 90px;
-          color: var(--analytics-text-secondary);
+          color: var(--nxt1-color-text-secondary);
         }
       }
 
       /* Content Area */
       .analytics-content {
-        --background: var(--analytics-bg);
+        --background: var(--nxt1-color-bg-primary);
       }
 
       .analytics-container {
         min-height: 100%;
-        padding: var(--analytics-spacing-md);
-        padding-bottom: calc(80px + env(safe-area-inset-bottom, 0));
+        padding: var(--nxt1-spacing-4);
+        padding-bottom: calc(var(--nxt1-spacing-20) + env(safe-area-inset-bottom, 0));
       }
 
       /* ============================================
@@ -408,8 +352,8 @@ export interface AnalyticsUser {
       .metrics-grid {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
-        gap: var(--analytics-spacing-md);
-        margin-bottom: var(--analytics-spacing-lg);
+        gap: var(--nxt1-spacing-4);
+        margin-bottom: var(--nxt1-spacing-6);
       }
 
       @media (min-width: 768px) {
@@ -419,91 +363,96 @@ export interface AnalyticsUser {
       }
 
       .metric-card {
-        background: var(--analytics-surface);
-        border: 1px solid var(--analytics-border);
-        border-radius: var(--analytics-radius-lg);
-        padding: var(--analytics-spacing-md);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: var(--nxt1-borderRadius-xl);
+        padding: var(--nxt1-spacing-4);
         display: flex;
         flex-direction: column;
-        gap: var(--analytics-spacing-xs);
-        transition: all 0.2s ease;
+        gap: var(--nxt1-spacing-1);
+        transition:
+          background var(--nxt1-motion-duration-fast) var(--nxt1-motion-easing-inOut),
+          border-color var(--nxt1-motion-duration-fast) var(--nxt1-motion-easing-inOut);
 
         &:hover {
-          background: var(--analytics-surface-elevated);
-          border-color: var(--analytics-border-strong);
+          background: var(--nxt1-color-surface-200);
+          border-color: var(--nxt1-color-border-default);
         }
       }
 
       .metric-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: var(--analytics-radius-sm);
+        width: var(--nxt1-spacing-10);
+        height: var(--nxt1-spacing-10);
+        border-radius: var(--nxt1-borderRadius-md);
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--analytics-surface-elevated);
-        color: var(--analytics-primary);
-        margin-bottom: var(--analytics-spacing-xs);
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-primary);
+        margin-bottom: var(--nxt1-spacing-1);
       }
 
       /* Card color variants */
       .metric-card--primary .metric-icon {
-        background: rgba(204, 255, 0, 0.15);
-        color: var(--analytics-primary);
+        background: var(--nxt1-color-alpha-primary15);
+        color: var(--nxt1-color-primary);
       }
 
       .metric-card--success .metric-icon {
-        background: rgba(34, 197, 94, 0.15);
-        color: var(--analytics-success);
+        background: var(--nxt1-color-successBg);
+        color: var(--nxt1-color-success);
       }
 
       .metric-card--warning .metric-icon {
-        background: rgba(245, 158, 11, 0.15);
-        color: var(--analytics-warning);
+        background: var(--nxt1-color-warningBg);
+        color: var(--nxt1-color-warning);
       }
 
       .metric-card--info .metric-icon {
-        background: rgba(59, 130, 246, 0.15);
-        color: var(--analytics-info);
+        background: var(--nxt1-color-infoBg);
+        color: var(--nxt1-color-info);
       }
 
       .metric-value {
-        font-size: 28px;
-        font-weight: 700;
-        color: var(--analytics-text-primary);
-        line-height: 1.1;
+        font-family: var(--nxt1-fontFamily-display);
+        font-size: var(--nxt1-fontSize-2xl);
+        font-weight: var(--nxt1-fontWeight-bold);
+        color: var(--nxt1-color-text-primary);
+        line-height: var(--nxt1-lineHeight-tight);
       }
 
       .metric-label {
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--analytics-text-secondary);
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-medium);
+        color: var(--nxt1-color-text-secondary);
       }
 
       .metric-trend {
         display: flex;
         align-items: center;
-        gap: var(--analytics-spacing-xs);
-        font-size: 12px;
-        font-weight: 600;
-        margin-top: var(--analytics-spacing-xs);
+        gap: var(--nxt1-spacing-1);
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        margin-top: var(--nxt1-spacing-1);
 
         &.trend-up {
-          color: var(--analytics-success);
+          color: var(--nxt1-color-success);
         }
 
         &.trend-down {
-          color: var(--analytics-error);
+          color: var(--nxt1-color-error);
         }
 
         &.trend-stable {
-          color: var(--analytics-text-tertiary);
+          color: var(--nxt1-color-text-tertiary);
         }
       }
 
       .trend-label {
-        font-weight: 400;
-        color: var(--analytics-text-tertiary);
+        font-weight: var(--nxt1-fontWeight-regular);
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* ============================================
@@ -511,14 +460,15 @@ export interface AnalyticsUser {
          ============================================ */
 
       .analytics-section {
-        padding-bottom: var(--analytics-spacing-lg);
+        padding-bottom: var(--nxt1-spacing-6);
       }
 
       .section-title {
-        font-size: 18px;
-        font-weight: 600;
-        color: var(--analytics-text-primary);
-        margin: 0 0 var(--analytics-spacing-md) 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-lg);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        color: var(--nxt1-color-text-primary);
+        margin: 0 0 var(--nxt1-spacing-4) 0;
       }
 
       /* ============================================
@@ -526,49 +476,49 @@ export interface AnalyticsUser {
          ============================================ */
 
       .insights-section {
-        margin-bottom: var(--analytics-spacing-lg);
+        margin-bottom: var(--nxt1-spacing-6);
       }
 
       .insights-list {
         display: flex;
         flex-direction: column;
-        gap: var(--analytics-spacing-sm);
+        gap: var(--nxt1-spacing-2);
       }
 
       .insight-card {
         display: flex;
         align-items: flex-start;
-        gap: var(--analytics-spacing-md);
-        background: var(--analytics-surface);
-        border: 1px solid var(--analytics-border);
-        border-radius: var(--analytics-radius-md);
-        padding: var(--analytics-spacing-md);
+        gap: var(--nxt1-spacing-4);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: var(--nxt1-borderRadius-lg);
+        padding: var(--nxt1-spacing-4);
 
         &.insight--positive .insight-icon {
-          color: var(--analytics-success);
-          background: rgba(34, 197, 94, 0.15);
+          color: var(--nxt1-color-success);
+          background: var(--nxt1-color-successBg);
         }
 
         &.insight--negative .insight-icon {
-          color: var(--analytics-error);
-          background: rgba(239, 68, 68, 0.15);
+          color: var(--nxt1-color-error);
+          background: var(--nxt1-color-errorBg);
         }
 
         &.insight--neutral .insight-icon {
-          color: var(--analytics-info);
-          background: rgba(59, 130, 246, 0.15);
+          color: var(--nxt1-color-info);
+          background: var(--nxt1-color-infoBg);
         }
 
         &.insight--opportunity .insight-icon {
-          color: var(--analytics-primary);
-          background: rgba(204, 255, 0, 0.15);
+          color: var(--nxt1-color-primary);
+          background: var(--nxt1-color-alpha-primary15);
         }
       }
 
       .insight-icon {
-        width: 36px;
-        height: 36px;
-        border-radius: var(--analytics-radius-sm);
+        width: var(--nxt1-spacing-9);
+        height: var(--nxt1-spacing-9);
+        border-radius: var(--nxt1-borderRadius-md);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -581,33 +531,36 @@ export interface AnalyticsUser {
       }
 
       .insight-title {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--analytics-text-primary);
-        margin: 0 0 4px 0;
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        color: var(--nxt1-color-text-primary);
+        margin: 0 0 var(--nxt1-spacing-1) 0;
       }
 
       .insight-description {
-        font-size: 13px;
-        color: var(--analytics-text-secondary);
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-xs);
+        color: var(--nxt1-color-text-secondary);
         margin: 0;
-        line-height: 1.4;
+        line-height: var(--nxt1-lineHeight-relaxed);
       }
 
       .insight-action {
         background: transparent;
-        border: 1px solid var(--analytics-primary);
-        color: var(--analytics-primary);
-        font-size: 12px;
-        font-weight: 600;
-        padding: 6px 12px;
-        border-radius: var(--analytics-radius-sm);
+        border: 1px solid var(--nxt1-color-primary);
+        color: var(--nxt1-color-primary);
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
+        border-radius: var(--nxt1-borderRadius-md);
         cursor: pointer;
         white-space: nowrap;
-        transition: all 0.2s ease;
+        transition: background var(--nxt1-motion-duration-fast) var(--nxt1-motion-easing-inOut);
 
         &:hover {
-          background: rgba(204, 255, 0, 0.1);
+          background: var(--nxt1-color-alpha-primary10);
         }
       }
 
@@ -616,23 +569,23 @@ export interface AnalyticsUser {
          ============================================ */
 
       .recommendations-section {
-        margin-bottom: var(--analytics-spacing-lg);
+        margin-bottom: var(--nxt1-spacing-6);
       }
 
       .recommendations-list {
         display: flex;
         flex-direction: column;
-        gap: var(--analytics-spacing-sm);
+        gap: var(--nxt1-spacing-2);
       }
 
       .recommendation-card {
         display: flex;
         align-items: flex-start;
-        gap: var(--analytics-spacing-md);
-        background: var(--analytics-surface);
-        border: 1px solid var(--analytics-border);
-        border-radius: var(--analytics-radius-md);
-        padding: var(--analytics-spacing-md);
+        gap: var(--nxt1-spacing-4);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: var(--nxt1-borderRadius-lg);
+        padding: var(--nxt1-spacing-4);
       }
 
       .recommendation-priority {
@@ -641,27 +594,28 @@ export interface AnalyticsUser {
 
       .priority-badge {
         display: inline-block;
-        font-size: 10px;
-        font-weight: 700;
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-bold);
         text-transform: uppercase;
-        padding: 4px 8px;
-        border-radius: 4px;
-        letter-spacing: 0.5px;
+        padding: var(--nxt1-spacing-1) var(--nxt1-spacing-2);
+        border-radius: var(--nxt1-borderRadius-sm);
+        letter-spacing: var(--nxt1-letterSpacing-wide);
       }
 
       .recommendation--high .priority-badge {
-        background: rgba(239, 68, 68, 0.15);
-        color: var(--analytics-error);
+        background: var(--nxt1-color-errorBg);
+        color: var(--nxt1-color-error);
       }
 
       .recommendation--medium .priority-badge {
-        background: rgba(245, 158, 11, 0.15);
-        color: var(--analytics-warning);
+        background: var(--nxt1-color-warningBg);
+        color: var(--nxt1-color-warning);
       }
 
       .recommendation--low .priority-badge {
-        background: rgba(34, 197, 94, 0.15);
-        color: var(--analytics-success);
+        background: var(--nxt1-color-successBg);
+        color: var(--nxt1-color-success);
       }
 
       .recommendation-content {
@@ -670,147 +624,47 @@ export interface AnalyticsUser {
       }
 
       .recommendation-title {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--analytics-text-primary);
-        margin: 0 0 4px 0;
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        color: var(--nxt1-color-text-primary);
+        margin: 0 0 var(--nxt1-spacing-1) 0;
       }
 
       .recommendation-description {
-        font-size: 13px;
-        color: var(--analytics-text-secondary);
-        margin: 0 0 8px 0;
-        line-height: 1.4;
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-xs);
+        color: var(--nxt1-color-text-secondary);
+        margin: 0 0 var(--nxt1-spacing-2) 0;
+        line-height: var(--nxt1-lineHeight-relaxed);
       }
 
       .recommendation-impact {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
-        font-size: 11px;
-        font-weight: 500;
-        color: var(--analytics-primary);
+        gap: var(--nxt1-spacing-1);
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-medium);
+        color: var(--nxt1-color-primary);
       }
 
       .recommendation-action {
-        background: var(--analytics-primary);
+        background: var(--nxt1-color-primary);
         border: none;
-        color: #000;
-        font-size: 12px;
-        font-weight: 600;
-        padding: 8px 14px;
-        border-radius: var(--analytics-radius-sm);
+        color: var(--nxt1-color-on-primary);
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        border-radius: var(--nxt1-borderRadius-md);
         cursor: pointer;
         white-space: nowrap;
-        transition: all 0.2s ease;
+        transition: opacity var(--nxt1-motion-duration-fast) var(--nxt1-motion-easing-inOut);
 
         &:hover {
           opacity: 0.9;
         }
-      }
-
-      /* ============================================
-         SKELETON LOADING
-         ============================================ */
-
-      .analytics-skeleton {
-        animation: pulse 1.5s infinite ease-in-out;
-      }
-
-      @keyframes pulse {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.5;
-        }
-      }
-
-      .skeleton-section {
-        margin-bottom: var(--analytics-spacing-lg);
-      }
-
-      .skeleton-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: var(--analytics-spacing-md);
-      }
-
-      @media (min-width: 768px) {
-        .skeleton-grid {
-          grid-template-columns: repeat(4, 1fr);
-        }
-      }
-
-      .skeleton-card {
-        background: var(--analytics-surface);
-        border-radius: var(--analytics-radius-lg);
-        padding: var(--analytics-spacing-md);
-      }
-
-      .skeleton-icon {
-        width: 40px;
-        height: 40px;
-        background: var(--analytics-surface-elevated);
-        border-radius: var(--analytics-radius-sm);
-        margin-bottom: var(--analytics-spacing-sm);
-      }
-
-      .skeleton-value {
-        width: 60%;
-        height: 28px;
-        background: var(--analytics-surface-elevated);
-        border-radius: 4px;
-        margin-bottom: var(--analytics-spacing-xs);
-      }
-
-      .skeleton-label {
-        width: 80%;
-        height: 14px;
-        background: var(--analytics-surface-elevated);
-        border-radius: 4px;
-        margin-bottom: var(--analytics-spacing-xs);
-      }
-
-      .skeleton-trend {
-        width: 50%;
-        height: 12px;
-        background: var(--analytics-surface-elevated);
-        border-radius: 4px;
-      }
-
-      .skeleton-chart {
-        background: var(--analytics-surface);
-        border-radius: var(--analytics-radius-lg);
-        padding: var(--analytics-spacing-md);
-      }
-
-      .skeleton-chart-header {
-        width: 40%;
-        height: 20px;
-        background: var(--analytics-surface-elevated);
-        border-radius: 4px;
-        margin-bottom: var(--analytics-spacing-md);
-      }
-
-      .skeleton-chart-area {
-        width: 100%;
-        height: 200px;
-        background: var(--analytics-surface-elevated);
-        border-radius: var(--analytics-radius-md);
-      }
-
-      .skeleton-list {
-        display: flex;
-        flex-direction: column;
-        gap: var(--analytics-spacing-sm);
-      }
-
-      .skeleton-list-item {
-        height: 72px;
-        background: var(--analytics-surface);
-        border-radius: var(--analytics-radius-md);
       }
 
       /* ============================================
@@ -823,47 +677,52 @@ export interface AnalyticsUser {
         align-items: center;
         justify-content: center;
         text-align: center;
-        padding: var(--analytics-spacing-xl) var(--analytics-spacing-md);
+        padding: var(--nxt1-spacing-8) var(--nxt1-spacing-4);
         min-height: 300px;
       }
 
       .error-icon {
-        color: var(--analytics-error);
-        margin-bottom: var(--analytics-spacing-md);
+        color: var(--nxt1-color-error);
+        margin-bottom: var(--nxt1-spacing-4);
         opacity: 0.8;
       }
 
       .error-title {
-        font-size: 18px;
-        font-weight: 600;
-        color: var(--analytics-text-primary);
-        margin: 0 0 var(--analytics-spacing-sm) 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-lg);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        color: var(--nxt1-color-text-primary);
+        margin: 0 0 var(--nxt1-spacing-2) 0;
       }
 
       .error-message {
-        font-size: 14px;
-        color: var(--analytics-text-secondary);
-        margin: 0 0 var(--analytics-spacing-lg) 0;
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-secondary);
+        margin: 0 0 var(--nxt1-spacing-6) 0;
         max-width: 280px;
       }
 
       .error-retry {
         display: inline-flex;
         align-items: center;
-        gap: var(--analytics-spacing-sm);
-        background: var(--analytics-surface);
-        border: 1px solid var(--analytics-border);
-        color: var(--analytics-text-primary);
-        font-size: 14px;
-        font-weight: 500;
-        padding: 12px 20px;
-        border-radius: var(--analytics-radius-md);
+        gap: var(--nxt1-spacing-2);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        color: var(--nxt1-color-text-primary);
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-5);
+        border-radius: var(--nxt1-borderRadius-lg);
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition:
+          background var(--nxt1-motion-duration-fast) var(--nxt1-motion-easing-inOut),
+          border-color var(--nxt1-motion-duration-fast) var(--nxt1-motion-easing-inOut);
 
         &:hover {
-          background: var(--analytics-surface-elevated);
-          border-color: var(--analytics-border-strong);
+          background: var(--nxt1-color-surface-200);
+          border-color: var(--nxt1-color-border-default);
         }
       }
 
@@ -877,29 +736,31 @@ export interface AnalyticsUser {
         align-items: center;
         justify-content: center;
         text-align: center;
-        padding: var(--analytics-spacing-xl) var(--analytics-spacing-md);
+        padding: var(--nxt1-spacing-8) var(--nxt1-spacing-4);
         min-height: 300px;
       }
 
       .empty-icon {
-        color: var(--analytics-text-tertiary);
-        margin-bottom: var(--analytics-spacing-md);
+        color: var(--nxt1-color-text-tertiary);
+        margin-bottom: var(--nxt1-spacing-4);
         opacity: 0.6;
       }
 
       .empty-title {
-        font-size: 18px;
-        font-weight: 600;
-        color: var(--analytics-text-primary);
-        margin: 0 0 var(--analytics-spacing-sm) 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-lg);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        color: var(--nxt1-color-text-primary);
+        margin: 0 0 var(--nxt1-spacing-2) 0;
       }
 
       .empty-message {
-        font-size: 14px;
-        color: var(--analytics-text-secondary);
+        font-family: var(--nxt1-fontFamily-system);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-secondary);
         margin: 0;
         max-width: 280px;
-        line-height: 1.5;
+        line-height: var(--nxt1-lineHeight-relaxed);
       }
 
       /* ============================================
@@ -912,23 +773,35 @@ export interface AnalyticsUser {
         align-items: center;
         justify-content: center;
         text-align: center;
-        padding: var(--analytics-spacing-xl) var(--analytics-spacing-md);
+        padding: var(--nxt1-spacing-8) var(--nxt1-spacing-4);
         min-height: 200px;
-        background: var(--analytics-surface);
-        border: 1px dashed var(--analytics-border);
-        border-radius: var(--analytics-radius-lg);
-        color: var(--analytics-text-tertiary);
+        background: var(--nxt1-color-surface-100);
+        border: 1px dashed var(--nxt1-color-border-subtle);
+        border-radius: var(--nxt1-borderRadius-xl);
+        color: var(--nxt1-color-text-tertiary);
 
         h3 {
-          font-size: 16px;
-          font-weight: 600;
-          color: var(--analytics-text-secondary);
-          margin: var(--analytics-spacing-md) 0 var(--analytics-spacing-xs) 0;
+          font-family: var(--nxt1-fontFamily-brand);
+          font-size: var(--nxt1-fontSize-base);
+          font-weight: var(--nxt1-fontWeight-semibold);
+          color: var(--nxt1-color-text-secondary);
+          margin: var(--nxt1-spacing-4) 0 var(--nxt1-spacing-1) 0;
         }
 
         p {
-          font-size: 13px;
+          font-family: var(--nxt1-fontFamily-system);
+          font-size: var(--nxt1-fontSize-xs);
           margin: 0;
+        }
+      }
+
+      /* Reduced motion */
+      @media (prefers-reduced-motion: reduce) {
+        .metric-card,
+        .insight-action,
+        .recommendation-action,
+        .error-retry {
+          transition: none;
         }
       }
     `,

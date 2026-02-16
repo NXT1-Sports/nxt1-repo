@@ -297,7 +297,7 @@ export const MOCK_VIEWS_CHART: ChartConfig = {
         { label: 'Sun', value: 427 },
       ],
       color: 'var(--nxt1-color-primary)',
-      fillColor: 'var(--nxt1-color-primary-alpha-10)',
+      fillColor: 'var(--nxt1-color-alpha-primary10)',
     },
   ],
   showLegend: false,

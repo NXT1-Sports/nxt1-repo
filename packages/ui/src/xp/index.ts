@@ -33,6 +33,10 @@ export {
   XpItemSkeletonComponent,
 } from './xp-skeleton.component';
 
+// Landing Page (Public marketing)
+export { NxtXpLandingComponent } from './xp-landing.component';
+export { NxtXpDashboardPreviewComponent } from './xp-dashboard-preview.component';
+
 // ============================================
 // SERVICES
 // ============================================

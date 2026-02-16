@@ -49,6 +49,12 @@ export interface DesktopSidebarItem {
 
   /** Whether this is a divider (visual separator) */
   readonly divider?: boolean;
+
+  /** Nested child items (renders as expandable sub-list) */
+  readonly children?: readonly DesktopSidebarItem[];
+
+  /** Whether children are initially expanded (defaults to false) */
+  readonly expanded?: boolean;
 }
 
 /**

@@ -103,6 +103,7 @@ import {
 } from '@nxt1/ui';
 import { AuthFlowService } from '../../../features/auth/services';
 import { NotificationPopoverComponent } from '../../../features/activity/components';
+import { SPORT_LANDING_CONFIGS } from '@nxt1/core';
 
 // ============================================
 // NAVIGATION CONFIGURATION
@@ -120,6 +121,31 @@ const FOLLOW_US_ITEMS: readonly DesktopSidebarItem[] = DEFAULT_SOCIAL_LINKS.map(
   ariaLabel: social.ariaLabel ?? `Follow NXT1 on ${social.label}`,
 }));
 
+/**
+ * Sport child items — derived from SPORT_LANDING_CONFIGS.
+ * Adding a new sport config to @nxt1/core automatically adds it here.
+ */
+const SPORT_CHILD_ITEMS: readonly DesktopSidebarItem[] = Object.values(SPORT_LANDING_CONFIGS).map(
+  (config) => ({
+    id: `sport-${config.slug}`,
+    label: config.displayName,
+    icon: config.heroBadgeIcon,
+    route: `/${config.slug}`,
+  })
+);
+
+/**
+ * "Sports" expandable item — used inside sidebar sections.
+ * Click toggles the sport list open/closed.
+ */
+const SPORTS_NAV_ITEM: DesktopSidebarItem = {
+  id: 'sports',
+  label: 'Sports',
+  icon: 'trophy',
+  children: SPORT_CHILD_ITEMS,
+  expanded: true,
+};
+
 const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
@@ -132,22 +158,8 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         route: '/explore',
       },
       { id: 'home', label: 'Home', icon: 'home', activeIcon: 'homeFilled', route: '/home' },
+      { id: 'news', label: 'News', icon: 'newspaper', route: '/news' },
       { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
-    ],
-  },
-  {
-    id: 'recruiting',
-    label: 'Recruiting',
-    items: [
-      { id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
-      { id: 'colleges', label: 'Colleges', icon: 'graduationCap', route: '/colleges' },
-      {
-        id: 'scout-reports',
-        label: 'Scout Reports',
-        icon: 'documentText',
-        route: '/scout-reports',
-      },
-      { id: 'teams', label: 'Teams', icon: 'users', route: '/teams' },
     ],
   },
   {
@@ -157,6 +169,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
       { id: 'profile', label: 'My Profile', icon: 'person', route: '/profile' },
       { id: 'xp', label: 'XP', icon: 'sparkles', route: '/xp' },
       { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
+      { id: 'manage-team', label: 'Manage Team', icon: 'users', route: '/manage-team' },
       { id: 'messages', label: 'Messages', icon: 'messages', route: '/messages', badge: 0 },
     ],
   },
@@ -174,6 +187,147 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
     items: FOLLOW_US_ITEMS,
   },
 ];
+
+/**
+ * Logged-out variant — Profile routes to /athlete-profiles with public label.
+ * Auth-required items (Settings, Usage) use `action` instead of direct navigation
+ * so the web-shell can present the sign-in modal before routing.
+ * Named WEB_* to avoid shadowing the @nxt1/ui LOGGED_OUT_SIDEBAR_SECTIONS export.
+ */
+const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] =
+  DESKTOP_SIDEBAR_SECTIONS.map((section) => {
+    // Auth-gate footer items that require a session
+    if (section.id === 'footer') {
+      return {
+        ...section,
+        items: section.items.map((item) => {
+          if (item.id === 'settings') {
+            return { ...item, action: 'settings' as const };
+          }
+          if (item.id === 'usage') {
+            return { ...item, action: 'custom' as const };
+          }
+          return item;
+        }),
+      };
+    }
+
+    if (section.id !== 'you') return section;
+    return {
+      ...section,
+      label: 'For You',
+      items: [
+        {
+          id: 'persona-athletes',
+          label: 'For Athletes',
+          icon: 'athlete',
+          expanded: false,
+          children: [
+            {
+              id: 'athlete-platform',
+              label: 'Athlete Platform',
+              icon: 'athlete',
+              route: '/athletes',
+            },
+            {
+              id: 'athlete-profiles',
+              label: 'Athlete Profiles',
+              icon: 'person',
+              route: '/athlete-profiles',
+            },
+            { id: 'athlete-xp', label: 'XP', icon: 'sparkles', route: '/xp' },
+            { id: 'athlete-analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
+          ],
+        },
+        {
+          id: 'persona-college-coaches',
+          label: 'For College Coaches',
+          icon: 'whistle',
+          expanded: false,
+          children: [
+            {
+              id: 'coach-platform',
+              label: 'Coach Platform',
+              icon: 'whistle',
+              route: '/college-coaches',
+            },
+            { id: 'coach-rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
+            { id: 'coach-explore', label: 'Explore Athletes', icon: 'compass', route: '/explore' },
+          ],
+        },
+        {
+          id: 'persona-team-coaches',
+          label: 'For Team Coaches',
+          icon: 'users',
+          expanded: false,
+          children: [
+            {
+              id: 'team-platform',
+              label: 'Team Platform',
+              icon: 'users',
+              route: '/manage-team',
+            },
+            { id: 'team-manage', label: 'Manage Team', icon: 'users', route: '/manage-team' },
+            {
+              id: 'team-analytics',
+              label: 'Team Analytics',
+              icon: 'barChart',
+              route: '/analytics',
+            },
+          ],
+        },
+        {
+          id: 'persona-parents',
+          label: 'For Parents',
+          icon: 'parent',
+          expanded: false,
+          children: [
+            {
+              id: 'parent-platform',
+              label: 'Parent Platform',
+              icon: 'parent',
+              route: '/parents',
+            },
+            {
+              id: 'parent-profiles',
+              label: 'Athlete Profiles',
+              icon: 'person',
+              route: '/athlete-profiles',
+            },
+            {
+              id: 'parent-recruiting',
+              label: 'College Search',
+              icon: 'graduationCap',
+              route: '/colleges',
+            },
+          ],
+        },
+        {
+          id: 'persona-scouts',
+          label: 'For Scouts',
+          icon: 'search',
+          expanded: false,
+          children: [
+            {
+              id: 'scout-platform',
+              label: 'Scout Platform',
+              icon: 'search',
+              route: '/scouts',
+            },
+            { id: 'scout-rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
+            {
+              id: 'scout-reports',
+              label: 'Scout Reports',
+              icon: 'documentText',
+              route: '/scout-reports',
+            },
+            { id: 'scout-explore', label: 'Explore Athletes', icon: 'compass', route: '/explore' },
+          ],
+        },
+        SPORTS_NAV_ITEM,
+      ],
+    };
+  });
 
 /**
  * Desktop header navigation items (empty - sidebar has main nav).
@@ -216,7 +370,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
       @if (!isMobileView()) {
         <!-- Fixed Desktop Sidebar -->
         <nxt1-desktop-sidebar
-          [sections]="sidebarSections"
+          [sections]="sidebarSections()"
           [user]="sidebarUserData()"
           [config]="sidebarConfig()"
           (itemSelect)="onSidebarItemSelect($event)"
@@ -270,7 +424,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
 
         <!-- Mobile Slide-Out Sidebar Drawer -->
         <nxt1-mobile-sidebar
-          [sections]="mobileSidebarSections"
+          [sections]="mobileSidebarSections()"
           [user]="sidebarUserData()"
           [config]="mobileSidebarConfig()"
           [open]="mobileSidebarOpen()"
@@ -454,8 +608,13 @@ export class WebShellComponent {
   // SIDEBAR CONFIGURATION (Desktop/Tablet)
   // ============================================
 
-  /** Desktop sidebar sections */
-  readonly sidebarSections = DESKTOP_SIDEBAR_SECTIONS;
+  /** Base sidebar sections — auth-aware (Profile → /athlete-profiles when logged out) */
+  private readonly _baseSidebarSections = computed(() =>
+    this.authFlow.isAuthenticated() ? DESKTOP_SIDEBAR_SECTIONS : WEB_LOGGED_OUT_SIDEBAR_SECTIONS
+  );
+
+  /** Desktop sidebar sections — computed from auth state */
+  readonly sidebarSections = this._baseSidebarSections;
 
   /** Sidebar configuration - responsive based on viewport */
   readonly sidebarConfig = computed<DesktopSidebarConfig>(() => {
@@ -604,10 +763,12 @@ export class WebShellComponent {
   // ============================================
 
   /**
-   * Mobile sidebar sections — same navigation structure as desktop sidebar
-   * but filtered to remove the "follow-us" section (social links) for mobile.
+   * Mobile sidebar sections — auth-aware, same as desktop but
+   * filtered to remove the "follow-us" section (social links) for mobile.
    */
-  readonly mobileSidebarSections = DESKTOP_SIDEBAR_SECTIONS.filter((s) => s.id !== 'follow-us');
+  readonly mobileSidebarSections = computed(() =>
+    this._baseSidebarSections().filter((s) => s.id !== 'follow-us')
+  );
 
   /** Mobile sidebar configuration */
   readonly mobileSidebarConfig = computed<MobileSidebarConfig>(() => {
@@ -668,14 +829,26 @@ export class WebShellComponent {
   // ============================================
 
   /**
-   * Handle sidebar item selection
+   * Handle sidebar item selection.
+   *
+   * Auth-gated items (Settings, Usage) use `action` to prevent the sidebar from
+   * navigating directly. Instead, the auth modal is presented first.
+   * On success the user is routed to the intended page.
    */
-  onSidebarItemSelect(event: DesktopSidebarSelectEvent): void {
+  async onSidebarItemSelect(event: DesktopSidebarSelectEvent): Promise<void> {
     const { item } = event;
 
-    // Handle special actions
+    // Handle sign-out
     if (item.action === 'logout') {
       this.signOut();
+      return;
+    }
+
+    // Auth-gated sidebar items — show sign-in modal for logged-out users
+    if ((item.action === 'settings' || item.action === 'custom') && item.route) {
+      const authenticated = await this.requireAuthentication(`access ${item.label.toLowerCase()}`);
+      if (!authenticated) return;
+      this.router.navigate([item.route]);
       return;
     }
 
@@ -741,12 +914,20 @@ export class WebShellComponent {
   /**
    * Handle mobile sidebar item selection
    */
-  onMobileSidebarItemSelect(event: MobileSidebarSelectEvent): void {
+  async onMobileSidebarItemSelect(event: MobileSidebarSelectEvent): Promise<void> {
     const { item } = event;
 
-    // Handle special actions
+    // Handle sign-out
     if (item.action === 'logout') {
       this.signOut();
+      return;
+    }
+
+    // Auth-gated sidebar items — show sign-in modal for logged-out users
+    if ((item.action === 'settings' || item.action === 'custom') && item.route) {
+      const authenticated = await this.requireAuthentication(`access ${item.label.toLowerCase()}`);
+      if (!authenticated) return;
+      this.router.navigate([item.route]);
       return;
     }
 
@@ -833,22 +1014,8 @@ export class WebShellComponent {
    */
   async onNotificationsClick(): Promise<void> {
     // Gated feature: require authentication
-    if (!this.authFlow.isAuthenticated()) {
-      const result = await this.authModal.presentSignInToContinue('view your notifications', {
-        onGoogle: () => this.authFlow.signInWithGoogle(),
-        onApple: () => this.authFlow.signInWithApple(),
-        onEmailAuth: (mode, data) =>
-          mode === 'login'
-            ? this.authFlow.signInWithEmail(data)
-            : this.authFlow.signUpWithEmail(data),
-        onForgotPassword: () => this.router.navigate(['/auth/forgot-password']),
-      });
-
-      // User dismissed without authenticating
-      if (!result.authenticated) return;
-
-      // Auth succeeded — fall through to show notifications
-    }
+    const authenticated = await this.requireAuthentication('view your notifications');
+    if (!authenticated) return;
 
     // Authenticated: show notifications
     if (this.isMobileView()) {
@@ -870,19 +1037,8 @@ export class WebShellComponent {
    * Gated behind auth — logged out users see the auth modal first.
    */
   async onCreateClick(): Promise<void> {
-    if (!this.authFlow.isAuthenticated()) {
-      const result = await this.authModal.presentSignInToContinue('create a post', {
-        onGoogle: () => this.authFlow.signInWithGoogle(),
-        onApple: () => this.authFlow.signInWithApple(),
-        onEmailAuth: (mode, data) =>
-          mode === 'login'
-            ? this.authFlow.signInWithEmail(data)
-            : this.authFlow.signUpWithEmail(data),
-        onForgotPassword: () => this.router.navigate(['/auth/forgot-password']),
-      });
-
-      if (!result.authenticated) return;
-    }
+    const authenticated = await this.requireAuthentication('create a post');
+    if (!authenticated) return;
 
     this.router.navigate(['/create-post']);
   }
@@ -975,6 +1131,32 @@ export class WebShellComponent {
     } catch (err) {
       this.logger.error('Sign out failed', err);
     }
+  }
+
+  /**
+   * Require authentication before proceeding.
+   *
+   * Presents the "Sign in to continue" modal when the user is logged out.
+   * Returns `true` if already authenticated or if the user successfully signs in.
+   * Returns `false` if the user dismisses the modal without authenticating.
+   *
+   * Follows the same production pattern used by the notification bell and
+   * create button (Twitter/X, Reddit, Instagram style).
+   */
+  private async requireAuthentication(featureDescription: string): Promise<boolean> {
+    if (this.authFlow.isAuthenticated()) return true;
+
+    const result = await this.authModal.presentSignInToContinue(featureDescription, {
+      onGoogle: () => this.authFlow.signInWithGoogle(),
+      onApple: () => this.authFlow.signInWithApple(),
+      onEmailAuth: (mode, data) =>
+        mode === 'login'
+          ? this.authFlow.signInWithEmail(data)
+          : this.authFlow.signUpWithEmail(data),
+      onForgotPassword: () => this.router.navigate(['/auth/forgot-password']),
+    });
+
+    return result.authenticated;
   }
 }
 

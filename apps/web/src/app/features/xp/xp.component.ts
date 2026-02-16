@@ -1,23 +1,27 @@
 /**
- * @fileoverview XP Page - Web App Wrapper
+ * @fileoverview XP Root Page — Auth-Aware Dual State
  * @module @nxt1/web/features/xp
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Thin wrapper component that imports the shared XP shell
- * from @nxt1/ui and wires up platform-specific concerns.
+ * Root component for the `/xp` route.
+ * Implements the professional dual-state pattern (LinkedIn/Strava/GitHub):
  *
- * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
+ * - **Logged out** → Marketing landing page with feature showcase & preview
+ * - **Logged in** → Actual XP dashboard with missions, progress, badges
  *
- * The actual UI and logic live in @nxt1/ui (shared package).
- * This wrapper only handles:
- * - Platform-specific routing/navigation
- * - User context from AuthService
- * - Role determination for XP task type
+ * Same URL, different experience. SEO-optimized for both states.
+ * SSR-safe with proper meta tags regardless of auth state.
+ *
+ * Architecture:
+ * - Reads auth state via AUTH_SERVICE injection token (Signal-based)
+ * - Landing page content is indexable; dashboard is noindex
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import {
   XpShellWebComponent,
+  NxtXpLandingComponent,
+  XpSkeletonComponent,
   NxtLoggingService,
   NxtSidenavService,
   NxtPlatformService,
@@ -29,78 +33,106 @@ import { SeoService } from '../../core/services';
 @Component({
   selector: 'app-xp',
   standalone: true,
-  imports: [XpShellWebComponent],
+  imports: [XpShellWebComponent, NxtXpLandingComponent, XpSkeletonComponent],
   template: `
-    <nxt1-xp-shell-web
-      [userRole]="userRole()"
-      [avatarSrc]="avatarSrc()"
-      [avatarName]="avatarName()"
-      [hideHeader]="isDesktop()"
-      (avatarClick)="onAvatarClick()"
-    />
+    <!-- Loading: Auth state initializing -->
+    @if (isAuthLoading()) {
+      <nxt1-xp-skeleton />
+    }
+
+    <!-- Authenticated: Show actual XP dashboard -->
+    @else if (isAuthenticated()) {
+      <nxt1-xp-shell-web
+        [userRole]="userRole()"
+        [avatarSrc]="avatarSrc()"
+        [avatarName]="avatarName()"
+        [hideHeader]="isDesktop()"
+        (avatarClick)="onAvatarClick()"
+      />
+    }
+
+    <!-- Unauthenticated: Show marketing landing page -->
+    @else {
+      <nxt1-xp-landing />
+    }
   `,
   styles: [
     `
       :host {
         display: block;
-        height: 100%;
+        min-height: 100vh;
+        background: var(--nxt1-color-bg-primary);
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class XpComponent {
+export class XpComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly sidenavService = inject(NxtSidenavService);
-  // Logger prepared for debugging and error tracking
   private readonly _logger = inject(NxtLoggingService).child('XpComponent');
+  private readonly seo = inject(SeoService);
   private readonly platform = inject(NxtPlatformService);
+
+  /** Auth state signals */
+  protected readonly isAuthenticated = this.authService.isAuthenticated;
+  protected readonly isAuthLoading = computed(
+    () => !this.authService.isInitialized() || this.authService.isLoading()
+  );
 
   /** Desktop detection for hiding redundant page header (sidebar provides nav) */
   protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
+
+  ngOnInit(): void {
+    if (this.isAuthenticated()) {
+      this.seo.updatePage({
+        title: 'XP & Missions',
+        description: 'Complete missions, earn XP, and level up your recruiting journey.',
+        keywords: ['xp', 'missions', 'achievements', 'badges', 'gamification'],
+        noIndex: true,
+      });
+    } else {
+      this.seo.updatePage({
+        title: 'XP & Missions — Level Up Your Recruiting Game | NXT1',
+        description:
+          'Complete guided missions, earn XP, collect badges, and advance through 5 levels. A gamified recruiting journey for athletes and coaches on NXT1.',
+        keywords: [
+          'sports gamification',
+          'recruiting missions',
+          'athlete xp',
+          'achievement badges',
+          'daily streaks',
+          'NXT1 xp',
+        ],
+      });
+    }
+  }
 
   /**
    * Determine user role for XP task type.
    * Defaults to 'athlete' if user is not authenticated.
    */
   protected readonly userRole = computed<MissionUserRole>(() => {
-    const user = this.authService.user();
-    if (!user) return 'athlete';
-
-    // Check user roles/permissions to determine if coach or athlete
-    // For now, check if user has coach-related properties
-    const userObj = user as unknown as Record<string, unknown>;
-    const role = userObj['role'];
-    if (role === 'coach' || role === 'admin') {
-      return 'coach';
-    }
-
-    return 'athlete';
+    const role = this.authService.userRole();
+    if (!role) return 'athlete';
+    return role === 'coach' ? 'coach' : 'athlete';
   });
 
-  /**
-   * Avatar source URL for page header
-   */
+  /** Avatar source URL for page header */
   protected readonly avatarSrc = computed(() => {
     const user = this.authService.user();
     if (!user) return undefined;
-    const userObj = user as unknown as Record<string, unknown>;
-    return userObj['photoURL'] as string | undefined;
+    return user.photoURL ?? undefined;
   });
 
-  /**
-   * Avatar display name for page header
-   */
+  /** Avatar display name for page header */
   protected readonly avatarName = computed(() => {
     const user = this.authService.user();
     if (!user) return '';
-    const userObj = user as unknown as Record<string, unknown>;
-    return (userObj['displayName'] as string) ?? '';
+    return user.displayName ?? '';
   });
 
-  /**
-   * Handle avatar click - open sidenav
-   */
+  /** Handle avatar click — open sidenav */
   onAvatarClick(): void {
     this.sidenavService.open();
   }

@@ -10,12 +10,12 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
-import { RouterModule } from '@angular/router';
+import { NxtCtaButtonComponent } from '../cta-button';
 
 @Component({
   selector: 'nxt1-agent-x-welcome-header',
   standalone: true,
-  imports: [CommonModule, RouterModule],
+  imports: [CommonModule, NxtCtaButtonComponent],
   template: `
     <section class="agentx-shell" aria-labelledby="agentx-title">
       <div class="agentx-header">
@@ -34,8 +34,8 @@ import { RouterModule } from '@angular/router';
             </p>
 
             <div class="agentx-actions">
-              <a class="agentx-btn agentx-btn--primary" routerLink="/agent-x">Meet Agent X</a>
-              <a class="agentx-btn agentx-btn--secondary" routerLink="/explore">Explore Platform</a>
+              <nxt1-cta-button label="Meet Agent X" route="/agent-x" variant="primary" />
+              <nxt1-cta-button label="Explore Platform" route="/explore" variant="ghost" />
             </div>
           </div>
 
@@ -192,38 +192,6 @@ import { RouterModule } from '@angular/router';
         gap: var(--nxt1-spacing-3);
       }
 
-      .agentx-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-5);
-        border-radius: var(--nxt1-borderRadius-xl);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        text-decoration: none;
-        transition:
-          transform var(--nxt1-duration-fast) ease,
-          box-shadow var(--nxt1-duration-fast) ease,
-          background-color var(--nxt1-duration-fast) ease,
-          color var(--nxt1-duration-fast) ease;
-      }
-
-      .agentx-btn:hover {
-        transform: translateY(-1px);
-      }
-
-      .agentx-btn--primary {
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-inverse);
-        box-shadow: 0 10px 24px color-mix(in srgb, var(--nxt1-color-primary) 28%, transparent);
-      }
-
-      .agentx-btn--secondary {
-        border: 1px solid var(--nxt1-color-border-default);
-        color: var(--nxt1-color-text-primary);
-        background: color-mix(in srgb, var(--nxt1-color-surface-200) 85%, transparent);
-      }
-
       .agentx-header__visual {
         display: flex;
         justify-content: center;
@@ -265,10 +233,6 @@ import { RouterModule } from '@angular/router';
         .agentx-logo-shell,
         .agentx-cursor {
           animation: none;
-        }
-
-        .agentx-btn {
-          transition: none;
         }
       }
 

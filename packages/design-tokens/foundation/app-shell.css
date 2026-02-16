@@ -52,6 +52,14 @@
   --nxt1-content-max-width: 1440px;
   --nxt1-content-padding-x: var(--nxt1-spacing-4, 16px);
   --nxt1-content-padding-y: var(--nxt1-spacing-4, 16px);
+
+  /* Section Containers — Unified landing/marketing section sizing */
+  --nxt1-section-max-width: 80rem; /* 1280px — standard section width */
+  --nxt1-section-max-width-narrow: 64rem; /* 1024px — focused content (CTA, audience) */
+  --nxt1-section-max-width-wide: 88rem; /* 1408px — full-bleed marketing sections */
+  --nxt1-section-padding-x: var(--nxt1-spacing-4);
+  --nxt1-section-padding-y: var(--nxt1-spacing-16);
+  --nxt1-section-subtitle-max-width: 40rem; /* 640px — readable line length for subtitles */
 }
 
 /* Medium screens */
@@ -256,6 +264,41 @@
 .nxt1-content__inner--full {
   max-width: none;
   padding: 0;
+}
+
+/* ============================================
+   5a. SECTION CONTAINERS (Landing / Marketing)
+   ============================================ */
+
+/**
+ * Unified section container for landing and marketing pages.
+ * Provides consistent max-width, centering, and responsive padding.
+ *
+ * Usage:
+ *   .my-section { /* inherits via CSS custom properties * / }
+ *
+ * Or apply directly in component styles:
+ *   max-width: var(--nxt1-section-max-width);
+ *   margin: 0 auto;
+ *   padding: var(--nxt1-section-padding-y) var(--nxt1-section-padding-x);
+ *
+ * Variants:
+ *   --narrow: 64rem (CTA, audience, focused content)
+ *   --wide:   88rem (full-bleed hero, marquee)
+ */
+.nxt1-section {
+  max-width: var(--nxt1-section-max-width);
+  margin-left: auto;
+  margin-right: auto;
+  padding: var(--nxt1-section-padding-y) var(--nxt1-section-padding-x);
+}
+
+.nxt1-section--narrow {
+  max-width: var(--nxt1-section-max-width-narrow);
+}
+
+.nxt1-section--wide {
+  max-width: var(--nxt1-section-max-width-wide);
 }
 
 /* ============================================

@@ -37,6 +37,7 @@
     "@angular/common": "^21.1.4",
     "@angular/compiler": "^21.1.4",
     "@angular/core": "^21.1.4",
+    "@angular/fire": "^21.0.0-rc.0",
     "@angular/forms": "^21.1.4",
     "@angular/platform-browser": "^21.1.4",
     "@angular/platform-browser-dynamic": "^21.1.4",

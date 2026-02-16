@@ -10,6 +10,10 @@ export { UsageShellComponent, type UsageUser } from './usage-shell.component';
 // Web-optimized shell (semantic HTML, design tokens, Grade A+ SEO)
 export { UsageShellWebComponent } from './web/usage-shell-web.component';
 
+// Landing Page (public marketing)
+export { NxtUsageLandingComponent } from './usage-landing.component';
+export { NxtUsageDashboardPreviewComponent } from './usage-dashboard-preview.component';
+
 // Skeleton
 export { UsageSkeletonComponent } from './usage-skeleton.component';
 

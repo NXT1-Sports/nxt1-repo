@@ -112,8 +112,8 @@
     "src"
   ],
   "scripts": {
-    "build": "tsup",
-    "dev": "tsup --watch",
+    "build": "NODE_OPTIONS=--max-old-space-size=8192 tsup && rm -f dist/.tsbuildinfo && tsc --emitDeclarationOnly --declaration --declarationMap --project tsconfig.json",
+    "dev": "NODE_OPTIONS=--max-old-space-size=8192 tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -128,7 +128,7 @@
   "devDependencies": {
     "@types/node": "^25.2.3",
     "@vitest/coverage-v8": "^4.0.18",
-    "firebase": "^11.10.0",
+    "firebase": "^12.9.0",
     "typescript": "~5.9.3",
     "vitest": "^4.0.18"
   },

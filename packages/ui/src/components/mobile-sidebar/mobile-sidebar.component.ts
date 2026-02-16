@@ -172,12 +172,16 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
                         type="button"
                         class="mobile-sidebar__item"
                         [class.mobile-sidebar__item--active]="isActiveItem(item)"
+                        [class.mobile-sidebar__item--expandable]="!!item.children?.length"
                         [class.mobile-sidebar__item--disabled]="item.disabled"
                         [disabled]="item.disabled"
                         [attr.aria-current]="isActiveItem(item) ? 'page' : null"
+                        [attr.aria-expanded]="
+                          item.children?.length ? isItemExpanded(item.id) : null
+                        "
                         [attr.aria-label]="item.ariaLabel ?? item.label"
                         role="menuitem"
-                        (click)="onItemClick(item, section.id, $event)"
+                        (click)="onExpandableItemClick(item, section.id, $event)"
                       >
                         <!-- Icon -->
                         <span
@@ -212,6 +216,16 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
                         <!-- Label -->
                         <span class="mobile-sidebar__item-label">{{ item.label }}</span>
 
+                        <!-- Expand chevron for items with children -->
+                        @if (item.children?.length) {
+                          <nxt1-icon
+                            name="chevronDown"
+                            [size]="16"
+                            class="mobile-sidebar__item-chevron"
+                            [class.mobile-sidebar__item-chevron--expanded]="isItemExpanded(item.id)"
+                          />
+                        }
+
                         <!-- Badge -->
                         @if (item.badge && item.badge > 0) {
                           <span class="mobile-sidebar__item-badge">
@@ -219,6 +233,39 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
                           </span>
                         }
                       </button>
+
+                      <!-- Child items (expandable sub-list) -->
+                      @if (item.children?.length) {
+                        <ul
+                          class="mobile-sidebar__children"
+                          [class.mobile-sidebar__children--collapsed]="!isItemExpanded(item.id)"
+                          role="group"
+                          [attr.aria-label]="item.label"
+                        >
+                          @for (child of item.children; track child.id) {
+                            @if (!child.hidden) {
+                              <li role="none">
+                                <button
+                                  type="button"
+                                  class="mobile-sidebar__item mobile-sidebar__item--child"
+                                  [class.mobile-sidebar__item--active]="isActiveItem(child)"
+                                  [class.mobile-sidebar__item--disabled]="child.disabled"
+                                  [disabled]="child.disabled"
+                                  [attr.aria-current]="isActiveItem(child) ? 'page' : null"
+                                  [attr.aria-label]="child.ariaLabel ?? child.label"
+                                  role="menuitem"
+                                  (click)="onItemClick(child, section.id, $event)"
+                                >
+                                  <span class="mobile-sidebar__item-icon">
+                                    <nxt1-icon [name]="child.icon" [size]="18" />
+                                  </span>
+                                  <span class="mobile-sidebar__item-label">{{ child.label }}</span>
+                                </button>
+                              </li>
+                            }
+                          }
+                        </ul>
+                      }
                     </li>
                   }
                 }
@@ -487,7 +534,7 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
         align-items: center;
         justify-content: center;
         width: 100%;
-        height: 36px;
+        height: var(--nxt1-spacing-9, 2.25rem);
         padding: 0 var(--nxt1-spacing-5, 1.25rem);
         background: var(--nxt1-color-primary);
         color: var(--nxt1-ui-text-inverse, #000000);
@@ -658,15 +705,15 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
 
       /* Agent X Logo - larger size (matches footer FAB) */
       .mobile-sidebar__item-icon--agent-x {
-        width: 24px;
-        height: 24px;
+        width: var(--nxt1-spacing-6, 1.5rem);
+        height: var(--nxt1-spacing-6, 1.5rem);
         overflow: visible;
       }
 
       .mobile-sidebar__item-icon .agent-x-logo {
         display: block;
-        width: 40px;
-        height: 40px;
+        width: var(--nxt1-spacing-10, 2.5rem);
+        height: var(--nxt1-spacing-10, 2.5rem);
         margin-left: -2px;
       }
 
@@ -689,6 +736,61 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
         font-weight: var(--nxt1-fontWeight-bold, 700);
         border-radius: var(--nxt1-borderRadius-full, 9999px);
         line-height: 1;
+      }
+
+      /* ============================================
+         EXPANDABLE ITEM (Children / Sub-list)
+         ============================================ */
+      .mobile-sidebar__item--expandable {
+        cursor: pointer;
+      }
+
+      .mobile-sidebar__item-chevron {
+        flex-shrink: 0;
+        color: var(--mobile-sidebar-text-tertiary);
+        transition: transform var(--mobile-sidebar-transition-fast);
+        transform: rotate(0deg);
+        margin-left: auto;
+      }
+
+      .mobile-sidebar__item-chevron--expanded {
+        transform: rotate(180deg);
+      }
+
+      .mobile-sidebar__children {
+        list-style: none;
+        margin: 0;
+        padding: var(--nxt1-spacing-1, 0.25rem) 0 var(--nxt1-spacing-1, 0.25rem)
+          var(--nxt1-spacing-4, 1rem);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-0_5, 0.125rem);
+        transition:
+          max-height 250ms cubic-bezier(0.4, 0, 0.2, 1),
+          padding 250ms cubic-bezier(0.4, 0, 0.2, 1),
+          opacity 200ms cubic-bezier(0.4, 0, 0.2, 1);
+        max-height: 500px;
+        opacity: 1;
+      }
+
+      .mobile-sidebar__children--collapsed {
+        max-height: 0;
+        padding-top: 0;
+        padding-bottom: 0;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .mobile-sidebar__item--child {
+        padding: var(--nxt1-spacing-2_5, 0.625rem) var(--nxt1-spacing-6, 1.5rem);
+        gap: var(--nxt1-spacing-4, 1rem);
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+      }
+
+      .mobile-sidebar__item--child .mobile-sidebar__item-icon {
+        width: var(--nxt1-spacing-5, 1.25rem);
+        height: var(--nxt1-spacing-5, 1.25rem);
       }
 
       /* ============================================
@@ -825,6 +927,8 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
         .mobile-sidebar-overlay,
         .mobile-sidebar,
         .mobile-sidebar__item,
+        .mobile-sidebar__item-chevron,
+        .mobile-sidebar__children,
         .mobile-sidebar__signin-btn,
         .mobile-sidebar__logo-btn,
         .mobile-sidebar__user-btn {
@@ -890,6 +994,9 @@ export class NxtMobileSidebarComponent implements OnDestroy {
   /** Current route path */
   private readonly _currentRoute = signal('/');
 
+  /** Tracks expanded state for items with children (by item ID) */
+  private readonly _expandedItems = signal<ReadonlySet<string>>(new Set<string>());
+
   /** Internal open state (synced with input) */
   readonly isOpen = computed(() => this.open());
 
@@ -907,6 +1014,9 @@ export class NxtMobileSidebarComponent implements OnDestroy {
   constructor() {
     // Initialize route tracking
     this._currentRoute.set(this.router.url);
+
+    // Initialize expanded items from section defaults
+    this.initExpandedItems();
 
     // Track route changes
     this.router.events
@@ -966,6 +1076,44 @@ export class NxtMobileSidebarComponent implements OnDestroy {
     return agentIcons.includes(icon);
   }
 
+  /**
+   * Check if an expandable item is currently expanded.
+   */
+  isItemExpanded(itemId: string): boolean {
+    return this._expandedItems().has(itemId);
+  }
+
+  /**
+   * Toggle an expandable item's children visibility.
+   */
+  toggleItem(itemId: string): void {
+    this.haptics.impact('light');
+    this._expandedItems.update((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  }
+
+  /**
+   * Handle click on an item that may have children.
+   * Items with children: toggle expand only (never navigate).
+   * Items without children: normal navigation.
+   */
+  onExpandableItemClick(item: MobileSidebarItem, sectionId: string, event: Event): void {
+    if (item.children?.length) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.toggleItem(item.id);
+    } else {
+      this.onItemClick(item, sectionId, event);
+    }
+  }
+
   // ============================================
   // EVENT HANDLERS
   // ============================================
@@ -1014,6 +1162,22 @@ export class NxtMobileSidebarComponent implements OnDestroy {
   // ============================================
   // PRIVATE METHODS
   // ============================================
+
+  /**
+   * Initialize _expandedItems from item.expanded defaults.
+   * Items with expanded: true are pre-opened.
+   */
+  private initExpandedItems(): void {
+    const expanded = new Set<string>();
+    for (const section of this.sections()) {
+      for (const item of section.items) {
+        if (item.children && item.expanded) {
+          expanded.add(item.id);
+        }
+      }
+    }
+    this._expandedItems.set(expanded);
+  }
 
   /**
    * Lock/unlock body scroll when sidebar opens/closes.

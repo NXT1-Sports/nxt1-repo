@@ -113,9 +113,7 @@ export type { UsageUser };
           />
         }
 
-        @if (svc.isLoading() && !hasData()) {
-          <nxt1-usage-skeleton />
-        } @else if (svc.error() && !hasData()) {
+        @if (svc.error() && !hasData()) {
           <section class="error-state" aria-label="Error">
             <div class="error-card">
               <h3 class="error-title">Unable to load usage data</h3>
@@ -139,76 +137,81 @@ export type { UsageUser };
               [attr.id]="'section-' + svc.activeSection()"
               role="tabpanel"
             >
-              @switch (svc.activeSection()) {
-                @case ('overview') {
-                  <nxt1-usage-overview
-                    [data]="svc.overview()"
-                    (viewDetails)="svc.setActiveSection('breakdown')"
-                    (viewPaymentHistory)="svc.setActiveSection('payment-history')"
-                  />
+              <!-- Loading State -->
+              @if (svc.isLoading() && !hasData()) {
+                <nxt1-usage-skeleton />
+              } @else {
+                @switch (svc.activeSection()) {
+                  @case ('overview') {
+                    <nxt1-usage-overview
+                      [data]="svc.overview()"
+                      (viewDetails)="svc.setActiveSection('breakdown')"
+                      (viewPaymentHistory)="svc.setActiveSection('payment-history')"
+                    />
 
-                  @if (svc.subscriptions().length > 0) {
-                    <nxt1-usage-subscriptions
-                      [subscriptions]="svc.subscriptions()"
-                      (manage)="onManageSubscriptions()"
+                    @if (svc.subscriptions().length > 0) {
+                      <nxt1-usage-subscriptions
+                        [subscriptions]="svc.subscriptions()"
+                        (manage)="onManageSubscriptions()"
+                      />
+                    }
+                  }
+
+                  @case ('metered-usage') {
+                    <nxt1-usage-chart
+                      [chartData]="svc.chartData()"
+                      [productTabs]="svc.productDetails()"
+                      [activeTab]="svc.activeProductTab()"
+                      [topItems]="svc.topItems()"
+                      [timeframe]="svc.timeframe()"
+                      [yLabels]="svc.chartYLabels()"
+                      (tabChange)="svc.setActiveProductTab($event)"
+                      (timeframeChange)="svc.setTimeframe($event)"
+                      (viewBreakdown)="svc.setActiveSection('breakdown')"
+                      (manageBudgets)="svc.setActiveSection('budgets')"
                     />
                   }
-                }
 
-                @case ('metered-usage') {
-                  <nxt1-usage-chart
-                    [chartData]="svc.chartData()"
-                    [productTabs]="svc.productDetails()"
-                    [activeTab]="svc.activeProductTab()"
-                    [topItems]="svc.topItems()"
-                    [timeframe]="svc.timeframe()"
-                    [yLabels]="svc.chartYLabels()"
-                    (tabChange)="svc.setActiveProductTab($event)"
-                    (timeframeChange)="svc.setTimeframe($event)"
-                    (viewBreakdown)="svc.setActiveSection('breakdown')"
-                    (manageBudgets)="svc.setActiveSection('budgets')"
-                  />
-                }
+                  @case ('breakdown') {
+                    <nxt1-usage-breakdown-table
+                      [rows]="svc.filteredBreakdownRows()"
+                      [expandedRow]="svc.expandedBreakdownRow()"
+                      [periodLabel]="svc.periodLabel()"
+                      [timeframe]="svc.timeframe()"
+                      (toggleRow)="svc.toggleBreakdownRow($event)"
+                      (timeframeChange)="svc.setTimeframe($event)"
+                    />
+                  }
 
-                @case ('breakdown') {
-                  <nxt1-usage-breakdown-table
-                    [rows]="svc.filteredBreakdownRows()"
-                    [expandedRow]="svc.expandedBreakdownRow()"
-                    [periodLabel]="svc.periodLabel()"
-                    [timeframe]="svc.timeframe()"
-                    (toggleRow)="svc.toggleBreakdownRow($event)"
-                    (timeframeChange)="svc.setTimeframe($event)"
-                  />
-                }
+                  @case ('payment-history') {
+                    <nxt1-usage-payment-history
+                      [records]="svc.filteredPaymentHistory()"
+                      [hasMore]="svc.historyHasMore()"
+                      (downloadReceipt)="onDownloadReceipt($event)"
+                      (downloadInvoice)="onDownloadInvoice($event)"
+                      (loadMore)="svc.loadMoreHistory()"
+                    />
+                  }
 
-                @case ('payment-history') {
-                  <nxt1-usage-payment-history
-                    [records]="svc.filteredPaymentHistory()"
-                    [hasMore]="svc.historyHasMore()"
-                    (downloadReceipt)="onDownloadReceipt($event)"
-                    (downloadInvoice)="onDownloadInvoice($event)"
-                    (loadMore)="svc.loadMoreHistory()"
-                  />
-                }
+                  @case ('budgets') {
+                    <nxt1-usage-budgets
+                      [budgets]="svc.budgets()"
+                      (createBudget)="onCreateBudget()"
+                      (editBudget)="onEditBudget($event)"
+                    />
+                  }
 
-                @case ('budgets') {
-                  <nxt1-usage-budgets
-                    [budgets]="svc.budgets()"
-                    (createBudget)="onCreateBudget()"
-                    (editBudget)="onEditBudget($event)"
-                  />
-                }
-
-                @case ('payment-info') {
-                  <nxt1-usage-payment-info
-                    [billingInfo]="svc.billingInfo()"
-                    [paymentMethods]="svc.paymentMethods()"
-                    [coupon]="svc.coupon()"
-                    (editBilling)="onEditBilling()"
-                    (editPayment)="onEditPayment()"
-                    (redeemCoupon)="onRedeemCoupon()"
-                    (editAdditional)="onEditAdditional()"
-                  />
+                  @case ('payment-info') {
+                    <nxt1-usage-payment-info
+                      [billingInfo]="svc.billingInfo()"
+                      [paymentMethods]="svc.paymentMethods()"
+                      [coupon]="svc.coupon()"
+                      (editBilling)="onEditBilling()"
+                      (editPayment)="onEditPayment()"
+                      (redeemCoupon)="onRedeemCoupon()"
+                      (editAdditional)="onEditAdditional()"
+                    />
+                  }
                 }
               }
             </section>

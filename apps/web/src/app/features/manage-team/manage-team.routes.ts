@@ -12,10 +12,12 @@ export const MANAGE_TEAM_ROUTES: Routes = [
   {
     path: '',
     loadComponent: () => import('./manage-team.component').then((m) => m.ManageTeamComponent),
+    title: 'Manage Team | NXT1',
   },
   {
     path: ':teamId',
     loadComponent: () => import('./manage-team.component').then((m) => m.ManageTeamComponent),
+    title: 'Manage Team | NXT1',
   },
 ];
 

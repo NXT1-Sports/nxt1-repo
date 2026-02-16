@@ -23,13 +23,7 @@ export default defineConfig({
     'src/create-post/index.ts', // Create post types and interfaces
   ],
   format: ['cjs', 'esm'],
-  dts: {
-    compilerOptions: {
-      composite: false,
-      incremental: false,
-      isolatedModules: false,
-    },
-  },
+  dts: false,
   // Enable splitting to deduplicate shared code across entry points
   // This prevents dual-package issues where classes like NxtApiError
   // get bundled multiple times causing instanceof checks to fail

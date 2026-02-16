@@ -289,6 +289,59 @@ export const routes: Routes = [
         path: 'manage-team',
         loadChildren: () => import('./features/manage-team/manage-team.routes'),
       },
+
+      // Athlete Profiles - Public Directory & Marketing
+      {
+        path: 'athlete-profiles',
+        loadChildren: () => import('./features/athlete-profiles/athlete-profiles.routes'),
+      },
+
+      // ---- Persona-Specific Marketing Pages ----
+
+      // Athletes - Student-Athlete Recruiting
+      {
+        path: 'athletes',
+        loadChildren: () => import('./features/athletes/athletes.routes'),
+      },
+
+      // College Coaches - Coach Recruiting Tools (canonical)
+      {
+        path: 'college-coaches',
+        loadChildren: () => import('./features/coaches/coaches.routes'),
+      },
+
+      // Legacy alias
+      {
+        path: 'coaches',
+        pathMatch: 'full',
+        redirectTo: 'college-coaches',
+      },
+
+      // Parents - Family Recruiting Dashboard
+      {
+        path: 'parents',
+        loadChildren: () => import('./features/parents/parents.routes'),
+      },
+
+      // Scouts - Scouting & Evaluation Tools
+      {
+        path: 'scouts',
+        loadChildren: () => import('./features/scouts/scouts.routes'),
+      },
+
+      // ---- Sport-Vertical Marketing Pages ----
+      // Single component, config-driven: /football, /basketball, etc.
+
+      {
+        path: 'football',
+        data: { sport: 'football' },
+        loadChildren: () => import('./features/sport-landing/sport-landing.routes'),
+      },
+      {
+        path: 'basketball',
+        data: { sport: 'basketball' },
+        loadChildren: () => import('./features/sport-landing/sport-landing.routes'),
+      },
     ],
   },
 

@@ -11,7 +11,7 @@ import { chromium } from 'playwright';
 
 const CONFIG = {
   username: 'nxt1sports',
-  scrollCount: 250, // Number of times to scroll (loads ~300-500 users)
+  scrollCount: 300, // Number of times to scroll (loads ~300-500 users)
   maxUnfollows: 200, // Max unfollows per run (be conservative)
   delayMin: 1000, // Min delay between unfollows (ms)
   delayMax: 3000, // Max delay between unfollows (ms)

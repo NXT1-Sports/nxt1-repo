@@ -159,6 +159,28 @@ export {
 export { NxtFaqSectionComponent, type FaqItem } from './components/faq-section';
 
 // ============================================
+// REUSABLE LANDING / MARKETING SECTIONS
+// ============================================
+export { NxtStatsBarComponent, type StatsBarItem } from './components/stats-bar';
+export {
+  NxtFeatureShowcaseComponent,
+  type FeatureShowcaseItem,
+} from './components/feature-showcase';
+export { NxtAudienceSectionComponent, type AudienceSegment } from './components/audience-section';
+export { NxtCtaBannerComponent, type CtaBannerVariant } from './components/cta-banner';
+export {
+  NxtCtaButtonComponent,
+  type CtaButtonVariant,
+  type CtaButtonSize,
+} from './components/cta-button';
+export { NxtHeroSectionComponent, type HeroLayout } from './components/hero-section';
+export {
+  NxtSiteFooterComponent,
+  type SiteFooterLink,
+  type SiteFooterLinkGroup,
+} from './components/site-footer';
+
+// ============================================
 // AVATAR COMPONENT (Professional Avatar with Status/Badges)
 // ============================================
 export {
@@ -827,6 +849,12 @@ export {
   AnalyticsDashboardShellComponent,
   // Components (Web — Zero Ionic)
   AnalyticsDashboardShellWebComponent,
+  // Skeleton Loading
+  AnalyticsDashboardSkeletonComponent,
+  // Landing Page (Auth-aware marketing page)
+  NxtAnalyticsLandingComponent,
+  // Dashboard Preview (Interactive mockup)
+  NxtAnalyticsDashboardPreviewComponent,
   // Types
   type AnalyticsUser,
   // Mock Data (Development Only)
@@ -851,6 +879,9 @@ export {
   XpSkeletonComponent,
   XpProgressSkeletonComponent,
   XpItemSkeletonComponent,
+  // Landing Page (Public marketing)
+  NxtXpLandingComponent,
+  NxtXpDashboardPreviewComponent,
   // Mock Data (Development Only)
   MOCK_ATHLETE_XP_TASKS,
   MOCK_COACH_XP_TASKS,
@@ -1002,6 +1033,9 @@ export {
   type ManageTeamSheetResult,
   // Skeleton
   ManageTeamSkeletonComponent,
+  // Landing Page (Public Marketing)
+  NxtManageTeamLandingComponent,
+  NxtManageTeamDashboardPreviewComponent,
   // Section Components (for custom layouts)
   ManageTeamInfoSectionComponent,
   ManageTeamRosterSectionComponent,
@@ -1024,6 +1058,9 @@ export {
   type UsageUser,
   // Skeleton
   UsageSkeletonComponent,
+  // Landing Page (Public Marketing)
+  NxtUsageLandingComponent,
+  NxtUsageDashboardPreviewComponent,
   // Services
   UsageService,
   UsageBottomSheetService,
@@ -1095,3 +1132,30 @@ export {
   NxtAppDownloadBarService,
   type AppDownloadBarConfig,
 } from './components/app-download-bar';
+
+// ============================================
+// ATHLETE PROFILES (Public Directory & Marketing)
+// ============================================
+export {
+  NxtAthleteProfilesLandingComponent,
+  NxtAthleteProfilesPreviewComponent,
+} from './athlete-profiles';
+
+// ============================================
+// PERSONA PAGES (Athletes, Coaches, Parents, Scouts)
+// ============================================
+export {
+  NxtAthletesLandingComponent,
+  NxtAthletesPreviewComponent,
+  NxtCoachesLandingComponent,
+  NxtCoachesPreviewComponent,
+  NxtParentsLandingComponent,
+  NxtParentsPreviewComponent,
+  NxtScoutsLandingComponent,
+  NxtScoutsPreviewComponent,
+} from './personas';
+
+// ============================================
+// SPORT LANDING PAGES (Football, Basketball, …)
+// ============================================
+export { NxtSportLandingComponent, NxtSportLandingPreviewComponent } from './sport-landing';

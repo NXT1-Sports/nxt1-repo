@@ -202,6 +202,75 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
+    path: 'athlete-profiles',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'athlete-profiles/**',
+    renderMode: RenderMode.Server,
+  },
+
+  // Persona-Specific Marketing Pages
+  {
+    path: 'athletes',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'athletes/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'coaches',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'coaches/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'college-coaches',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'college-coaches/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'parents',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'parents/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'scouts',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'scouts/**',
+    renderMode: RenderMode.Server,
+  },
+
+  // Sport-Vertical Marketing Pages
+  {
+    path: 'football',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'football/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'basketball',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'basketball/**',
+    renderMode: RenderMode.Server,
+  },
+
+  {
     path: 'create-post',
     renderMode: RenderMode.Server,
   },
