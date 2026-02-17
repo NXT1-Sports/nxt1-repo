@@ -102,7 +102,7 @@ describe('Usage Service', () => {
     });
 
     it('should create usage event when not exists', async () => {
-      const { mockDb, mockDoc, mockSnapshot } = createMockFirestore();
+      const { mockDb, mockDoc: _mockDoc, mockSnapshot } = createMockFirestore();
       mockSnapshot.empty = true; // Event doesn't exist
 
       // Mock publishUsageEvent

@@ -32,7 +32,7 @@ let sitemapCache: { xml: string; timestamp: number } | null = null;
  * Generate and serve dynamic sitemap
  */
 router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> => {
-  const requestId = (req as any).traceId || 'sitemap';
+  const requestId = (req as { traceId?: string }).traceId || 'sitemap';
 
   try {
     // Check cache

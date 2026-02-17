@@ -9,6 +9,8 @@
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { appGuard, optionalAuth } from '../middleware/auth.middleware.js';
+import { validateBody } from '../middleware/validation.middleware.js';
+import { CreatePostDto, CreateCommentDto } from '../dtos/common.dto.js';
 import { logger } from '../utils/logger.js';
 
 // Import from @nxt1/core
@@ -26,13 +28,7 @@ import type {
   FeedPost,
   FeedComment,
 } from '@nxt1/core/feed';
-import {
-  validateCreatePost,
-  validateComment,
-  sanitizeContent,
-  extractHashtags,
-  extractMentions,
-} from '@nxt1/core/validation';
+import { sanitizeContent, extractHashtags, extractMentions } from '@nxt1/core/validation';
 import { getCacheService } from '../services/cache.service.js';
 import type {
   FirestorePostDoc,
@@ -502,111 +498,105 @@ router.post('/media', (_req: Request, res: Response) => {
  * Create a new post
  * POST /api/v1/posts
  */
-router.post('/', appGuard, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const db = req.firebase!.db;
-    const userId = req.user!.uid;
+router.post(
+  '/',
+  appGuard,
+  validateBody(CreatePostDto),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const db = req.firebase!.db;
+      const userId = req.user!.uid;
 
-    // Validate request
-    const validation = validateCreatePost(req.body);
-    if (!validation.success) {
-      const errorMessages =
-        validation.errors?.map((e) => `${e.field}: ${e.message}`).join('; ') || 'Invalid input';
-      const error = validationError([
-        {
-          field: 'body',
-          message: errorMessages,
-          rule: 'validation',
-        },
-      ]);
-      res.status(error.statusCode).json(error.toResponse());
-      return;
-    }
+      // Request is already validated and typed as CreatePostDto
+      const request = req.body as CreatePostDto;
 
-    const request = validation.data!;
+      // Sanitize content
+      const sanitizedContent = sanitizeContent(request.content);
 
-    // Sanitize content
-    const sanitizedContent = sanitizeContent(request.content);
+      // Extract hashtags and mentions if not provided
+      const hashtags = extractHashtags(request.content);
+      const mentions = extractMentions(request.content);
 
-    // Extract hashtags and mentions if not provided
-    const hashtags = extractHashtags(request.content);
-    const mentions = extractMentions(request.content);
+      // Process poll if exists
+      let pollData: FirestorePostDoc['poll'] | undefined;
+      if (request.poll) {
+        pollData = {
+          question: request.poll.question,
+          options: [...request.poll.options],
+          durationHours: request.poll.durationHours,
+          endAt: Timestamp.fromMillis(Date.now() + request.poll.durationHours * 60 * 60 * 1000),
+          votes: {},
+        };
+      }
 
-    // Process poll if exists
-    let pollData: FirestorePostDoc['poll'] | undefined;
-    if (request.poll) {
-      pollData = {
-        question: request.poll.question,
-        options: [...request.poll.options],
-        durationHours: request.poll.durationHours,
-        endAt: Timestamp.fromMillis(Date.now() + request.poll.durationHours * 60 * 60 * 1000),
-        votes: {},
+      // Process scheduled date
+      let scheduledTimestamp: Timestamp | undefined;
+      if (request.scheduledFor) {
+        scheduledTimestamp = Timestamp.fromDate(new Date(request.scheduledFor));
+      }
+
+      // Convert privacy to visibility (core uses 'privacy', backend uses 'visibility')
+      const visibilityMap: Record<string, PostVisibility> = {
+        public: PostVisibility.PUBLIC,
+        followers: PostVisibility.FOLLOWERS,
+        team: PostVisibility.TEAM,
+        private: PostVisibility.PRIVATE,
       };
+      // Handle both privacy and visibility fields, with fallback to visibility
+      const privacyValue = request.privacy || request.visibility;
+      const visibility = privacyValue
+        ? visibilityMap[privacyValue] || PostVisibility.PUBLIC
+        : PostVisibility.PUBLIC;
+
+      // Create post document
+      const now = Timestamp.now();
+      const postData: Omit<FirestorePostDoc, 'id'> = {
+        userId,
+        content: sanitizedContent,
+        type: request.type,
+        visibility,
+        teamId: request.locationId, // locationId can be used as teamId
+        images: [], // mediaIds would need to be resolved to URLs
+        videoUrl: undefined,
+        externalLinks: [],
+        mentions,
+        hashtags,
+        location: request.locationId,
+        poll: pollData,
+        scheduledFor: scheduledTimestamp,
+        isPinned: false,
+        commentsDisabled: false,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: undefined,
+        stats: {
+          likes: 0,
+          comments: 0,
+          shares: 0,
+          views: 0,
+        },
+      };
+
+      const docRef = await db.collection(POSTS_COLLECTIONS.POSTS).add(postData);
+
+      // Invalidate feed caches
+      await invalidateFeedCaches(visibility);
+
+      res.status(201).json({
+        success: true,
+        data: {
+          postId: docRef.id,
+        },
+      });
+    } catch (error) {
+      logger.error('[Posts] Failed to create post', { error });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to create post',
+      });
     }
-
-    // Process scheduled date
-    let scheduledTimestamp: Timestamp | undefined;
-    if (request.scheduledFor) {
-      scheduledTimestamp = Timestamp.fromDate(new Date(request.scheduledFor));
-    }
-
-    // Convert privacy to visibility (core uses 'privacy', backend uses 'visibility')
-    const visibilityMap: Record<string, PostVisibility> = {
-      public: PostVisibility.PUBLIC,
-      followers: PostVisibility.FOLLOWERS,
-      team: PostVisibility.TEAM,
-      private: PostVisibility.PRIVATE,
-    };
-    const visibility = visibilityMap[request.privacy] || PostVisibility.PUBLIC;
-
-    // Create post document
-    const now = Timestamp.now();
-    const postData: Omit<FirestorePostDoc, 'id'> = {
-      userId,
-      content: sanitizedContent,
-      type: request.type,
-      visibility,
-      teamId: request.locationId, // locationId can be used as teamId
-      images: [], // mediaIds would need to be resolved to URLs
-      videoUrl: undefined,
-      externalLinks: [],
-      mentions,
-      hashtags,
-      location: request.locationId,
-      poll: pollData,
-      scheduledFor: scheduledTimestamp,
-      isPinned: false,
-      commentsDisabled: false,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: undefined,
-      stats: {
-        likes: 0,
-        comments: 0,
-        shares: 0,
-        views: 0,
-      },
-    };
-
-    const docRef = await db.collection(POSTS_COLLECTIONS.POSTS).add(postData);
-
-    // Invalidate feed caches
-    await invalidateFeedCaches(visibility);
-
-    res.status(201).json({
-      success: true,
-      data: {
-        postId: docRef.id,
-      },
-    });
-  } catch (error) {
-    logger.error('[Posts] Failed to create post', { error });
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create post',
-    });
   }
-});
+);
 
 // ============================================
 // POST MANAGEMENT
@@ -910,80 +900,71 @@ router.delete('/:id/like', appGuard, async (req: Request, res: Response): Promis
  * Create a comment on post
  * POST /api/v1/posts/:id/comments
  */
-router.post('/:id/comments', appGuard, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const db = req.firebase!.db;
-    const postId = String(req.params['id']);
-    const userId = req.user!.uid;
+router.post(
+  '/:id/comments',
+  appGuard,
+  validateBody(CreateCommentDto),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const db = req.firebase!.db;
+      const postId = String(req.params['id']);
+      const userId = req.user!.uid;
 
-    // Validate comment
-    const validation = validateComment(req.body.content);
-    if (!validation.success) {
-      const errorMessages = validation.errors?.map((e) => e.message).join('; ') || 'Invalid input';
-      const error = validationError([
-        {
-          field: 'content',
-          message: errorMessages,
-          rule: 'validation',
-        },
-      ]);
-      res.status(error.statusCode).json(error.toResponse());
-      return;
-    }
+      // Request is already validated and typed as CreateCommentDto
+      const { content } = req.body as CreateCommentDto;
 
-    const content = validation.data!.content;
+      // Sanitize content
+      const sanitizedContent = sanitizeContent(content);
 
-    // Sanitize content
-    const sanitizedContent = sanitizeContent(content);
-
-    // Create comment document
-    const now = Timestamp.now();
-    const commentData: Omit<FirestoreCommentDoc, 'id'> = {
-      postId,
-      userId,
-      content: sanitizedContent,
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: undefined,
-    };
-
-    // Use transaction to create comment and increment counter
-    let commentId: string;
-    await db.runTransaction(async (transaction) => {
-      const commentRef = db.collection(POSTS_COLLECTIONS.POST_COMMENTS).doc();
-      commentId = commentRef.id;
-      const postRef = db.collection(POSTS_COLLECTIONS.POSTS).doc(postId);
-
-      transaction.set(commentRef, commentData);
-      transaction.update(postRef, {
-        'stats.comments': FieldValue.increment(1),
+      // Create comment document
+      const now = Timestamp.now();
+      const commentData: Omit<FirestoreCommentDoc, 'id'> = {
+        postId,
+        userId,
+        content: sanitizedContent,
+        createdAt: now,
         updatedAt: now,
+        deletedAt: undefined,
+      };
+
+      // Use transaction to create comment and increment counter
+      let commentId: string;
+      await db.runTransaction(async (transaction) => {
+        const commentRef = db.collection(POSTS_COLLECTIONS.POST_COMMENTS).doc();
+        commentId = commentRef.id;
+        const postRef = db.collection(POSTS_COLLECTIONS.POSTS).doc(postId);
+
+        transaction.set(commentRef, commentData);
+        transaction.update(postRef, {
+          'stats.comments': FieldValue.increment(1),
+          updatedAt: now,
+        });
       });
-    });
 
-    // Get author info
-    const author = await getUserInfo(db, userId);
+      // Get author info
+      const author = await getUserInfo(db, userId);
 
-    // Invalidate caches
-    await invalidatePostCache(postId);
-    await invalidateCommentsCache(postId);
+      // Invalidate caches
+      await invalidatePostCache(postId);
+      await invalidateCommentsCache(postId);
 
-    res.status(201).json({
-      success: true,
-      data: {
-        ...commentData,
-        id: commentId!,
-        userProfile: author || undefined,
-      },
-    });
-  } catch (error) {
-    logger.error('[Posts] Failed to create comment', { error });
-    res.status(500).json({
-      success: false,
-      error: 'Failed to create comment',
-    });
+      res.status(201).json({
+        success: true,
+        data: {
+          ...commentData,
+          id: commentId!,
+          userProfile: author || undefined,
+        },
+      });
+    } catch (error) {
+      logger.error('[Posts] Failed to create comment', { error });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to create comment',
+      });
+    }
   }
-});
+);
 
 /**
  * Get comments for a post
@@ -1138,16 +1119,17 @@ router.delete(
         success: true,
         message: 'Comment deleted successfully',
       });
-    } catch (error: any) {
-      logger.error('[Posts] Failed to delete comment', { error });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      logger.error('[Posts] Failed to delete comment', { error: errorMessage });
 
-      if (error.message === 'Comment not found') {
+      if (error instanceof Error && error.message === 'Comment not found') {
         const err = notFoundError('comment');
         res.status(err.statusCode).json(err.toResponse());
         return;
       }
 
-      if (error.message === 'Not authorized to delete this comment') {
+      if (error instanceof Error && error.message === 'Not authorized to delete this comment') {
         const err = forbiddenError('owner');
         res.status(err.statusCode).json(err.toResponse());
         return;

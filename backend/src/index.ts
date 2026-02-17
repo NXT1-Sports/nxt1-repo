@@ -5,6 +5,9 @@
  * Express server using shared @nxt1/core types and unified error handling.
  */
 
+// Import reflect-metadata first - required for class-validator/class-transformer decorators
+import 'reflect-metadata';
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -24,6 +27,11 @@ import { initializeCacheService } from './services/cache.service.js';
 // Middleware
 import { firebaseContext } from './middleware/firebase-context.middleware.js';
 import { performanceMiddleware, testPerformance } from './middleware/performance.middleware.js';
+import { getRedisRateLimiter } from './middleware/redis-rate-limit.middleware.js';
+import {
+  cacheStatusMiddleware,
+  createCacheMiddleware,
+} from './middleware/cache-status.middleware.js';
 
 // Routes
 import authRoutes from './routes/auth.routes.js';
@@ -63,7 +71,7 @@ const PORT = process.env['PORT'] || 3000;
 const REQUEST_TIMEOUT_MS = 30_000; // 30 seconds
 
 // ============================================================================
-// Global Middleware
+// Application Setup Function (Async)
 // ============================================================================
 
 // Security headers
@@ -110,110 +118,197 @@ app.use((_req, res, next) => {
   });
   next();
 });
+async function setupApplication() {
+  // ============================================================================
+  // Global Middleware
+  // ============================================================================
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Add request tracking (trace IDs, timing)
-app.use(requestTracker);
+  // Add request tracking (trace IDs, timing)
+  app.use(requestTracker);
 
-// Attach Firebase context to all requests
-app.use(firebaseContext);
+  // Attach Firebase context to all requests
+  app.use(firebaseContext);
 
-// Performance monitoring for all requests
-app.use(performanceMiddleware);
+  // Performance monitoring for all requests
+  app.use(performanceMiddleware);
 
-// ============================================================================
-// Health Checks
-// ============================================================================
-app.get('/health', (_req, res) => {
-  res.json({ status: 'Production OK', timestamp: new Date().toISOString() });
-});
+  // Cache status tracking for all requests
+  app.use(createCacheMiddleware('redis'));
+  app.use(cacheStatusMiddleware);
 
-app.get('/staging/health', (_req, res) => {
-  res.json({ status: 'Staging OK', timestamp: new Date().toISOString() });
-});
+  // Global Redis-based rate limiting
+  app.use(await getRedisRateLimiter('api'));
 
-// ============================================================================
-// Global Performance Debug Endpoint
-// ============================================================================
-app.get('/api/v1/debug/performance', async (_req, res) => {
-  try {
-    const result = await testPerformance();
-    res.json({
-      success: true,
-      data: result,
-    });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to get performance stats';
-    res.status(500).json({
-      success: false,
-      error: {
-        message,
-      },
-    });
+  // ============================================================================
+  // Health Checks
+  // ============================================================================
+  app.get('/health', (_req, res) => {
+    res.json({ status: 'Production OK', timestamp: new Date().toISOString() });
+  });
+
+  app.get('/staging/health', (_req, res) => {
+    res.json({ status: 'Staging OK', timestamp: new Date().toISOString() });
+  });
+
+  // ============================================================================
+  // Global Performance Debug Endpoint (with rate limiting)
+  // ============================================================================
+  app.get('/api/v1/debug/performance', await getRedisRateLimiter('api'), async (_req, res) => {
+    try {
+      const result = await testPerformance();
+      res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to get performance stats';
+      res.status(500).json({
+        success: false,
+        error: {
+          message: errorMessage,
+        },
+      });
+    }
+  });
+
+  // ============================================================================
+  // Rate Limiting Audit Endpoint (with rate limiting)
+  // ============================================================================
+  app.get('/api/v1/debug/rate-limits', await getRedisRateLimiter('api'), async (_req, res) => {
+    try {
+      const { generateAuditReport, getCoverageStats, validateCoverage } =
+        await import('./utils/rate-limiting-audit.js');
+
+      const stats = getCoverageStats();
+      const validation = validateCoverage();
+      const report = generateAuditReport();
+
+      res.json({
+        success: true,
+        data: {
+          stats,
+          validation,
+          report: report.split('\n'), // Return as array for easier frontend consumption
+        },
+      });
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Failed to get rate limiting audit';
+      res.status(500).json({
+        success: false,
+        error: {
+          message: errorMessage,
+        },
+      });
+    }
+  });
+
+  // ============================================================================
+  // Public Routes (with lenient rate limiting for SEO crawlers)
+  // ============================================================================
+  app.use('/', await getRedisRateLimiter('lenient'), sitemapRoutes);
+
+  /**
+   * Rate limiting types for different endpoint categories
+   */
+  type RateLimitType = 'auth' | 'upload' | 'email' | 'api' | 'search' | 'billing' | 'lenient';
+
+  /**
+   * Route configuration interface
+   */
+  interface RouteConfig {
+    path: string;
+    rateLimitType: RateLimitType;
+    handler: ReturnType<typeof express.Router>;
   }
-});
 
-// ============================================================================
-// Public Routes (no /api prefix for SEO)
-// ============================================================================
-app.use('/', sitemapRoutes);
+  /**
+   * Route configuration for both production and staging
+   */
+  const routeConfigs: Array<RouteConfig> = [
+    // Auth routes with strict rate limiting
+    { path: '/auth', rateLimitType: 'auth', handler: authRoutes },
+    { path: '/upload', rateLimitType: 'upload', handler: uploadRoutes },
+    { path: '/invite', rateLimitType: 'email', handler: inviteRoutes },
+    // Content routes with standard API rate limiting
+    { path: '/feed', rateLimitType: 'api', handler: feedRoutes },
+    { path: '/explore', rateLimitType: 'api', handler: exploreRoutes },
+    { path: '/activity', rateLimitType: 'api', handler: activityRoutes },
+    { path: '/posts', rateLimitType: 'api', handler: postsRoutes },
+    { path: '/scout-reports', rateLimitType: 'api', handler: scoutReportsRoutes },
+    { path: '/analytics', rateLimitType: 'api', handler: analyticsRoutes },
+    { path: '/news', rateLimitType: 'api', handler: newsRoutes },
+    { path: '/missions', rateLimitType: 'api', handler: missionsRoutes },
+    { path: '/settings', rateLimitType: 'api', handler: settingsRoutes },
+    { path: '/help-center', rateLimitType: 'api', handler: helpCenterRoutes },
+    { path: '/profile', rateLimitType: 'api', handler: editProfileRoutes },
+    { path: '/agent-x', rateLimitType: 'api', handler: agentXRoutes },
+    { path: '/users', rateLimitType: 'api', handler: usersRoutes },
+    { path: '/locations', rateLimitType: 'api', handler: locationsRoutes },
+    { path: '/follow', rateLimitType: 'api', handler: followRoutes },
+    // Search/Discovery routes with search-specific rate limiting
+    { path: '/colleges', rateLimitType: 'search', handler: collegesRoutes },
+    { path: '/athletes', rateLimitType: 'search', handler: athletesRoutes },
+    { path: '/teams', rateLimitType: 'api', handler: teamsRoutes },
+    { path: '/videos', rateLimitType: 'upload', handler: videosRoutes },
+    { path: '/leaderboards', rateLimitType: 'search', handler: leaderboardsRoutes },
+    { path: '/camps', rateLimitType: 'api', handler: campsRoutes },
+    { path: '/events', rateLimitType: 'api', handler: eventsRoutes },
+    // Billing routes with strict rate limiting
+    { path: '/billing', rateLimitType: 'billing', handler: billingRoutes },
+    { path: '/webhook', rateLimitType: 'billing', handler: webhookRoutes },
+    // SSR routes with lighter limits (for SEO crawlers)
+    { path: '/ssr', rateLimitType: 'api', handler: ssrRoutes },
+  ];
 
-// ============================================================================
-// API Routes — register once for both production and staging prefixes
-// ============================================================================
-const API_ROUTES: Array<{ path: string; router: ReturnType<typeof express.Router> }> = [
-  { path: '/auth', router: authRoutes },
-  { path: '/upload', router: uploadRoutes },
-  { path: '/feed', router: feedRoutes },
-  { path: '/explore', router: exploreRoutes },
-  { path: '/activity', router: activityRoutes },
-  { path: '/posts', router: postsRoutes },
-  { path: '/scout-reports', router: scoutReportsRoutes },
-  { path: '/analytics', router: analyticsRoutes },
-  { path: '/news', router: newsRoutes },
-  { path: '/invite', router: inviteRoutes },
-  { path: '/missions', router: missionsRoutes },
-  { path: '/settings', router: settingsRoutes },
-  { path: '/help-center', router: helpCenterRoutes },
-  { path: '/profile', router: editProfileRoutes },
-  { path: '/agent-x', router: agentXRoutes },
-  { path: '/users', router: usersRoutes },
-  { path: '/locations', router: locationsRoutes },
-  { path: '/follow', router: followRoutes },
-  { path: '/colleges', router: collegesRoutes },
-  { path: '/athletes', router: athletesRoutes },
-  { path: '/teams', router: teamsRoutes },
-  { path: '/videos', router: videosRoutes },
-  { path: '/leaderboards', router: leaderboardsRoutes },
-  { path: '/camps', router: campsRoutes },
-  { path: '/events', router: eventsRoutes },
-  { path: '/billing', router: billingRoutes },
-  { path: '/billing', router: webhookRoutes },
-  { path: '/ssr', router: ssrRoutes },
-];
-
-for (const prefix of ['/api/v1', '/api/v1/staging']) {
-  for (const { path, router } of API_ROUTES) {
-    app.use(`${prefix}${path}`, router);
+  /**
+   * Setup routes for production and staging environments
+   */
+  async function setupRoutes(prefix: string, configs: Array<RouteConfig>): Promise<void> {
+    for (const { path, rateLimitType, handler } of configs) {
+      const rateLimiter = await getRedisRateLimiter(rateLimitType);
+      app.use(`${prefix}${path}`, rateLimiter, handler);
+    }
   }
+
+  // Setup production routes: /api/v1/*
+  await setupRoutes('/api/v1', routeConfigs);
+
+  // Setup staging routes: /api/v1/staging/*
+  await setupRoutes('/api/v1/staging', routeConfigs);
+
+  // Log all protected endpoints
+  logger.info('🛡️ Rate Limiting Coverage:');
+  logger.info(`   Health checks: SKIPPED (automatic)`);
+  logger.info(`   Sitemap (SEO): lenient (200/15min)`);
+  logger.info(`   Debug endpoint: api (100/15min)`);
+  logger.info(`   Production routes (${routeConfigs.length}): /api/v1/*`);
+  logger.info(`   Staging routes (${routeConfigs.length}): /api/v1/staging/*`);
+  logger.info(`   Total protected endpoints: ${routeConfigs.length * 2 + 2}`); // production + staging + debug + sitemap
+
+  // ============================================================================
+  // Error Handling (must be last)
+  // ============================================================================
+
+  // 404 handler for unmatched routes
+  app.use(notFoundHandler);
+
+  // Unified error handler with logging
+  app.use(
+    createErrorHandler({
+      includeStackTrace: process.env['NODE_ENV'] !== 'production',
+      logErrors: true,
+    })
+  );
+
+  logger.info('✅ Application routes and middleware configured with Redis-based rate limiting');
 }
 
 // ============================================================================
-// Error Handling (must be last)
-// ============================================================================
-
-// 404 handler for unmatched routes
-app.use(notFoundHandler);
-
-// Unified error handler with logging
-app.use(
-  createErrorHandler({
-    includeStackTrace: process.env['NODE_ENV'] !== 'production',
-    logErrors: true,
-  })
-);
-
-// ============================================================================
-// Initialize Services
+// Initialize Services and Application
 // ============================================================================
 async function initializeServices() {
   try {
@@ -225,10 +320,13 @@ async function initializeServices() {
     await connectToMongoDB();
     logger.info('✅ MongoDB connected');
 
+    // 3. Setup application routes and middleware (requires Redis for rate limiting)
+    await setupApplication();
+
     logger.info('✅ All services initialized successfully');
   } catch (error) {
     logger.error('❌ Failed to initialize services:', { error });
-    // MongoDB errors are critical for college routes
+    // MongoDB and Redis errors are critical
     throw error;
   }
 }
@@ -247,7 +345,6 @@ initializeServices().then(() => {
     logger.info(`   Staging:    /api/v1/staging/*`);
   });
 });
-
 // ============================================================================
 // Graceful Shutdown
 // ============================================================================

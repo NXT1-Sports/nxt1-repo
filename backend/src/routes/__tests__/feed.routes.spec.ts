@@ -3,7 +3,7 @@
  * @module @nxt1/backend/routes/__tests__/feed
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll as _beforeAll, afterAll as _afterAll } from 'vitest';
 import request from 'supertest';
 import app from '../../index.js';
 

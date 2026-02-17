@@ -9,6 +9,13 @@ import { Router, type Router as ExpressRouter, Request, Response } from 'express
 import { CollegeModel } from '../models/college.model.js';
 import { getCacheService } from '../services/cache.service.js';
 import { logger } from '../utils/logger.js';
+
+// Define interface for requests with cache helpers
+interface ValidatedRequest extends Request {
+  markCacheHit?: (source: string, key: string) => void;
+  markCacheMiss?: () => void;
+}
+
 import { College } from '@nxt1/core/models';
 
 const router: ExpressRouter = Router();
@@ -43,8 +50,10 @@ router.get('/filter', async (req: Request, res: Response) => {
     const cached = await cache.get<{ colleges: College[] }>(cacheKey);
     if (cached) {
       logger.info('[Colleges] Cache HIT:', { sport, text });
+      // Mark as cache hit for middleware
+      (req as ValidatedRequest).markCacheHit?.('redis', cacheKey);
       res.set('X-Cache-Status', 'HIT');
-      return res.json({ ...cached, cached: true });
+      return res.json(cached);
     }
 
     logger.info('[Colleges] Cache MISS:', { sport, text });
@@ -187,8 +196,10 @@ router.get('/filter', async (req: Request, res: Response) => {
     // Cache the result
     await cache.set(cacheKey, result, { ttl: CACHE_TTL });
 
+    // Mark as cache miss for middleware
+    (req as ValidatedRequest).markCacheMiss?.();
     res.set('X-Cache-Status', 'MISS');
-    return res.json({ ...result, cached: false });
+    return res.json(result);
   } catch (error) {
     logger.error('[Colleges] Filter error:', { error });
     return res.status(500).json({

@@ -12,6 +12,8 @@
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
 import { appGuard } from '../middleware/auth.middleware.js';
+import { validateBody, validateQuery } from '../middleware/validation.middleware.js';
+import { CreateTeamDto, GetTeamsDto, TeamType } from '../dtos/common.dto.js';
 import { asyncHandler, sendSuccess } from '@nxt1/core/errors/express';
 import { validationError } from '@nxt1/core/errors';
 import { ROLE } from '@nxt1/core/models';
@@ -20,6 +22,12 @@ import { logger } from '../utils/logger.js';
 import { performanceMiddleware, testPerformance } from '../middleware/performance.middleware.js';
 
 const router: ExpressRouter = Router();
+
+// Define interface for requests with cache helpers
+interface ValidatedRequest extends Request {
+  markCacheHit?: (source: string, key: string) => void;
+  markCacheMiss?: () => void;
+}
 
 // Add performance tracking to all routes
 router.use(performanceMiddleware);
@@ -59,18 +67,19 @@ function validateRole(role: string): void {
  */
 router.get(
   '/',
+  validateQuery(GetTeamsDto),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const db = req.firebase!.db;
-    const { limit, offset, sportName, state, search, sortBy, sortOrder } = req.query;
+    const query = req.query as GetTeamsDto;
 
     const result = await teamCodeService.getAllTeams(db, {
-      limit: limit ? parseInt(String(limit), 10) : undefined,
-      offset: offset ? parseInt(String(offset), 10) : undefined,
-      sportName: sportName ? String(sportName) : undefined,
-      state: state ? String(state) : undefined,
-      search: search ? String(search) : undefined,
-      sortBy: sortBy as 'name' | 'traffic' | 'created' | 'members' | undefined,
-      sortOrder: sortOrder as 'asc' | 'desc' | undefined,
+      limit: query.limit,
+      offset: query.page ? (query.page - 1) * (query.limit || 20) : 0,
+      sportName: query.sportName,
+      state: query.state,
+      search: query.search,
+      sortBy: query.sortBy,
+      sortOrder: query.sortOrder,
     });
 
     logger.info('[Teams API] Fetched teams with pagination', {
@@ -101,9 +110,16 @@ router.get(
       maxLimit: maxLimit ? parseInt(String(maxLimit), 10) : undefined,
     });
 
+    // Mark cache status for middleware
+    if (cached) {
+      (req as ValidatedRequest).markCacheHit?.('redis', `teams:all:${maxLimit || 'default'}`);
+    } else {
+      (req as ValidatedRequest).markCacheMiss?.();
+    }
+
     logger.info('[Teams API] Fetched all teams', { count: teams.length, cached });
 
-    sendSuccess(res, { teams, total: teams.length }, { cached });
+    sendSuccess(res, { teams, total: teams.length });
   })
 );
 
@@ -127,57 +143,31 @@ router.get(
 router.post(
   '/',
   appGuard,
+  validateBody(CreateTeamDto),
   asyncHandler(async (req: Request, res: Response) => {
-    const {
-      teamCode,
-      teamName,
-      teamType,
-      sportName,
-      state,
-      city,
-      athleteMember,
-      panelMember,
-      packageId,
-      teamLogoImg,
-      teamColor1,
-      teamColor2,
-      mascot,
-      unicode,
-      division,
-      conference,
-      expireAt,
-    } = req.body;
-
+    const teamData = req.body as CreateTeamDto;
     const userId = req.user!.uid;
     const db = req.firebase!.db;
 
-    validateRequired(teamCode, 'teamCode');
-    validateRequired(teamName, 'teamName');
-    validateRequired(teamType, 'teamType');
-    validateRequired(sportName, 'sportName');
-    validateRequired(state, 'state');
-    validateRequired(city, 'city');
-    validateRequired(packageId, 'packageId');
-
     const team = await teamCodeService.createTeamCode(db, {
-      teamCode: teamCode.trim(),
-      teamName: teamName.trim(),
-      teamType,
-      sportName: sportName.trim(),
-      state: state.trim(),
-      city: city.trim(),
-      athleteMember: parseInt(athleteMember, 10) || 0,
-      panelMember: parseInt(panelMember, 10) || 0,
-      packageId: packageId.trim(),
+      teamCode: teamData.code.trim(),
+      teamName: teamData.name.trim(),
+      teamType: TeamType.CLUB, // Default to club type
+      sportName: teamData.sport.trim(),
+      state: teamData.state?.trim() || '',
+      city: teamData.city?.trim() || '',
+      athleteMember: 0, // Default values - these would come from package
+      panelMember: 0,
+      packageId: 'default', // Default package
       createdBy: userId,
-      teamLogoImg: teamLogoImg?.trim(),
-      teamColor1: teamColor1?.trim(),
-      teamColor2: teamColor2?.trim(),
-      mascot: mascot?.trim(),
-      unicode: unicode?.trim(),
-      division: division?.trim(),
-      conference: conference?.trim(),
-      expireAt: expireAt ? new Date(expireAt) : undefined,
+      teamLogoImg: teamData.logoUrl?.trim(),
+      teamColor1: undefined,
+      teamColor2: undefined,
+      mascot: undefined,
+      unicode: undefined,
+      division: undefined,
+      conference: undefined,
+      expireAt: undefined, // No expiration by default
     });
 
     logger.info('[Teams API] TeamCode created', { teamId: team.id, userId });

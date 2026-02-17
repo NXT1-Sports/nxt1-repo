@@ -138,6 +138,7 @@ describe('Stripe Service', () => {
         throw new Error('Stripe API error');
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       vi.mocked(Stripe).mockImplementationOnce(mockStripeError as any);
 
       const result = await createInvoiceItem(
