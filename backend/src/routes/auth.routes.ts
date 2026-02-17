@@ -224,13 +224,13 @@ function getPrimaryPositions(sports?: SportProfile[]): string[] | undefined {
  * Validate a team code for registration
  *
  * This endpoint matches the @nxt1/core API expectation.
+ * Also available via query param: GET /validate-team-code?teamCode=CODE
  */
-// Alias for backward compatibility with core API
 router.get(
-  '/validate-team-code',
+  ['/validate-team-code', '/team-code/validate/:code'],
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { db } = req.firebase!;
-    const code = req.query['teamCode'] as string;
+    const code = (req.params['code'] || req.query['teamCode']) as string;
 
     if (!code || !isValidTeamCode(code)) {
       const error = validationError([
@@ -263,63 +263,13 @@ router.get(
         id: doc.id,
         code: data?.['teamCode'] as string,
         teamName: data?.['teamName'] as string,
-        teamType: data?.['teamType'] as TeamTypeApi,
+        teamType: ((data?.['teamType'] as string)?.toLowerCase().replace(' ', '-') ||
+          'high-school') as TeamTypeApi,
         sport: data?.['sportName'] as string,
         isFreeTrial: (data?.['isFreeTrial'] as boolean) || false,
         trialDays: data?.['trialDays'] as number | undefined,
         memberCount: (data?.['members'] as unknown[])?.length || 0,
         maxMembers: data?.['maxMembers'] as number | undefined,
-      },
-    };
-
-    res.json(response);
-  })
-);
-
-router.get(
-  '/team-code/validate/:code',
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase!;
-    const code = req.params['code'] as string;
-
-    if (!code || !isValidTeamCode(code)) {
-      const error = validationError([
-        { field: 'code', message: 'Invalid team code format', rule: 'format' },
-      ]);
-      sendError(res, error);
-      return;
-    }
-
-    // Query Firestore - automatically uses staging or prod based on route
-    const snapshot = await db
-      .collection('TeamCodes')
-      .where('teamCode', '==', code.toUpperCase())
-      .where('isActive', '==', true)
-      .limit(1)
-      .get();
-
-    if (snapshot.empty) {
-      const error = notFoundError('team-code');
-      sendError(res, error);
-      return;
-    }
-
-    const doc = snapshot.docs[0];
-    const teamCode = doc.data();
-
-    const response: ValidateTeamCodeResponse = {
-      valid: true,
-      teamCode: {
-        id: doc.id,
-        code: teamCode['teamCode'] as string,
-        teamName: teamCode['teamName'] as string,
-        teamType: ((teamCode['teamType'] as string)?.toLowerCase().replace(' ', '-') ||
-          'high-school') as TeamTypeApi,
-        sport: teamCode['sportName'] as string,
-        isFreeTrial: (teamCode['isFreeTrial'] as boolean) || false,
-        trialDays: teamCode['trialDays'] as number | undefined,
-        memberCount: (teamCode['members'] as unknown[])?.length || 0,
-        maxMembers: teamCode['maxMembers'] as number | undefined,
       },
     };
 

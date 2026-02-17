@@ -154,10 +154,12 @@ import { POST_MAX_CHARACTERS } from '@nxt1/core';
         min-height: 120px;
         max-height: 400px;
         padding: 16px;
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
-        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        -webkit-appearance: none;
+        appearance: none;
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-default);
         border-radius: var(--nxt1-radius-xl, 16px);
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
         font-size: var(--nxt1-fontSize-base, 1rem);
         font-family: inherit;
         line-height: 1.5;
@@ -168,13 +170,13 @@ import { POST_MAX_CHARACTERS } from '@nxt1/core';
       }
 
       .editor__textarea::placeholder {
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* Focus state */
       .editor--focused .editor__textarea {
-        border-color: var(--nxt1-color-primary, #ccff00);
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        border-color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-surface-200);
         box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
       }
 
@@ -219,7 +221,7 @@ import { POST_MAX_CHARACTERS } from '@nxt1/core';
 
       .editor__char-ring {
         --progress: 0;
-        --ring-color: var(--nxt1-color-primary, #ccff00);
+        --ring-color: var(--nxt1-color-primary);
         width: 24px;
         height: 24px;
       }
@@ -232,7 +234,7 @@ import { POST_MAX_CHARACTERS } from '@nxt1/core';
 
       .editor__char-ring-bg {
         fill: none;
-        stroke: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
+        stroke: var(--nxt1-color-surface-300);
         stroke-width: 3;
       }
 
@@ -249,7 +251,7 @@ import { POST_MAX_CHARACTERS } from '@nxt1/core';
       .editor__char-text {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
         font-variant-numeric: tabular-nums;
         min-width: 36px;
         text-align: right;
@@ -275,7 +277,7 @@ import { POST_MAX_CHARACTERS } from '@nxt1/core';
 
       .editor__hint {
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
-        color: var(--nxt1-color-text-quaternary, rgba(255, 255, 255, 0.3));
+        color: var(--nxt1-color-text-quaternary);
       }
 
       /* ============================================

@@ -232,16 +232,16 @@ addIcons({
         align-items: center;
         gap: 6px;
         padding: 8px 14px;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-200);
+        border: 1px solid var(--nxt1-color-border-subtle);
         border-radius: var(--nxt1-radius-full, 9999px);
         transition: all var(--nxt1-duration-normal, 200ms) var(--nxt1-easing-out, ease-out);
         overflow: hidden;
       }
 
       .xp-indicator:hover .xp-badge {
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
-        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-surface-300);
+        border-color: var(--nxt1-color-border-default);
       }
 
       .xp-indicator--preview .xp-badge {
@@ -308,13 +308,13 @@ addIcons({
       .xp-label {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
       }
 
       .xp-value {
         font-size: var(--nxt1-fontSize-lg, 1.125rem);
         font-weight: 700;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
         min-width: 24px;
         text-align: center;
       }
@@ -330,7 +330,7 @@ addIcons({
       .xp-suffix {
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
         text-transform: uppercase;
         letter-spacing: 0.5px;
       }
@@ -366,7 +366,7 @@ addIcons({
 
       .xp-expand-icon {
         font-size: 14px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
         transition: transform var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         margin-left: 2px;
       }
@@ -417,8 +417,8 @@ addIcons({
         right: 0;
         min-width: 220px;
         padding: 16px;
-        background: var(--nxt1-color-surface-elevated, #1a1a1a);
-        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-surface-elevated);
+        border: 1px solid var(--nxt1-color-border-default);
         border-radius: var(--nxt1-radius-xl, 16px);
         box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
         z-index: 100;
@@ -431,13 +431,13 @@ addIcons({
         justify-content: space-between;
         margin-bottom: 12px;
         padding-bottom: 8px;
-        border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
       }
 
       .xp-breakdown__title {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
       }
 
       .xp-breakdown__badge {
@@ -466,18 +466,18 @@ addIcons({
         align-items: center;
         gap: 6px;
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
       }
 
       .xp-breakdown__item-label ion-icon {
         font-size: 14px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       .xp-breakdown__item-value {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
       }
 
       .xp-breakdown__item-value--bonus {
@@ -494,13 +494,13 @@ addIcons({
         justify-content: space-between;
         margin-top: 12px;
         padding-top: 12px;
-        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border-top: 1px solid var(--nxt1-color-border-subtle);
       }
 
       .xp-breakdown__total-label {
         font-size: var(--nxt1-fontSize-base, 1rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
       }
 
       .xp-breakdown__total-value {

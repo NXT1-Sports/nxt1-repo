@@ -1,23 +1,28 @@
 /**
  * @fileoverview Agent X Page - Web App Wrapper
  * @module @nxt1/web/features/agent-x
- * @version 1.0.0
+ * @version 2.0.0
  *
  * Thin wrapper component that imports the shared Agent X shell
  * from @nxt1/ui and wires up platform-specific concerns.
  *
- * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
+ * ⭐ LANDING STATE PATTERN (2026) ⭐
+ * When logged OUT: Shows the live Agent X shell at top, then fades
+ * into marketing landing sections below (stats, features, FAQ, etc.)
+ * When logged IN: Shows only the full Agent X shell — no landing content.
  *
  * The actual UI and logic live in @nxt1/ui (shared package).
  * This wrapper only handles:
  * - Platform-specific routing/navigation
  * - Sidenav integration
  * - User context from AuthFlowService
+ * - Auth-gated landing section visibility
  */
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import {
   AgentXShellWebComponent,
+  NxtAgentXLandingComponent,
   NxtSidenavService,
   NxtLoggingService,
   NxtPlatformService,
@@ -30,20 +35,80 @@ import { SeoService } from '../../core/services';
 @Component({
   selector: 'app-agent-x',
   standalone: true,
-  imports: [AgentXShellWebComponent],
+  imports: [AgentXShellWebComponent, NxtAgentXLandingComponent],
   template: `
-    <nxt1-agent-x-shell-web
-      [user]="userInfo()"
-      [hideHeader]="isDesktop()"
-      (avatarClick)="onAvatarClick()"
-      (modeChange)="onModeChange($event)"
-    />
+    <!-- Agent X Shell — always visible (both logged-in and logged-out) -->
+    <div class="agent-shell-wrapper" [class.agent-shell-wrapper--preview]="isLoggedOut()">
+      <nxt1-agent-x-shell-web
+        [user]="userInfo()"
+        [hideHeader]="isDesktop()"
+        (avatarClick)="onAvatarClick()"
+        (modeChange)="onModeChange($event)"
+      />
+
+      <!-- Fade overlay — masks bottom of shell when logged-out -->
+      @if (isLoggedOut()) {
+        <div class="agent-fade-overlay" aria-hidden="true"></div>
+      }
+    </div>
+
+    <!-- Landing Sections — only when logged-out -->
+    @if (isLoggedOut()) {
+      <nxt1-agent-x-landing />
+    }
   `,
   styles: [
     `
       :host {
         display: block;
         height: 100%;
+      }
+
+      /* ============================================
+         SHELL WRAPPER — Live preview container
+         When logged out, clips to a fixed height and
+         adds a gradient fade at the bottom.
+         When logged in, takes full height (normal).
+         ============================================ */
+      .agent-shell-wrapper {
+        position: relative;
+      }
+
+      .agent-shell-wrapper--preview {
+        max-height: 82vh;
+        overflow: hidden;
+      }
+
+      /* Gradient fade overlay — bottom-to-top transparent-to-bg */
+      .agent-fade-overlay {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 24%;
+        background: linear-gradient(
+          to bottom,
+          transparent 0%,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 22%, transparent) 42%,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 58%, transparent) 70%,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 86%, transparent) 88%,
+          var(--nxt1-color-bg-primary) 100%
+        );
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      /* ============================================
+         RESPONSIVE — Mobile adjustments
+         ============================================ */
+      @media (max-width: 768px) {
+        .agent-shell-wrapper--preview {
+          max-height: 66vh;
+        }
+
+        .agent-fade-overlay {
+          height: 30%;
+        }
       }
     `,
   ],
@@ -59,13 +124,18 @@ export class AgentXComponent implements OnInit {
   /** Desktop detection for hiding redundant page header (sidebar provides nav) */
   protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
 
+  /** Auth state — drives landing section visibility */
+  protected readonly isLoggedOut = computed(() => !this.authFlow.isAuthenticated());
+
   ngOnInit(): void {
+    const isAuthenticated = this.authFlow.isAuthenticated();
+
     this.seo.updatePage({
-      title: 'Agent X - AI Assistant',
+      title: 'Agent X - AI Assistant | NXT1',
       description:
-        'Your AI-powered recruiting assistant. Get personalized insights, analysis, and recommendations.',
-      keywords: ['ai', 'agent x', 'assistant', 'recruiting', 'insights'],
-      noIndex: true, // Protected page - don't index
+        'Your AI-powered recruiting assistant. Create highlight films, recruiting graphics, draft coach emails, and get evaluations — all through a simple conversation.',
+      keywords: ['ai', 'agent x', 'assistant', 'recruiting', 'highlights', 'graphics', 'nxt1'],
+      noIndex: isAuthenticated, // Index for logged-out (SEO landing), noindex for logged-in
     });
   }
 
@@ -95,7 +165,5 @@ export class AgentXComponent implements OnInit {
    */
   protected onModeChange(mode: AgentXMode): void {
     this.logger.debug('Agent X mode changed', { mode });
-    // In production: track analytics event
-    // this.analytics.track('agent_x_mode_change', { mode });
   }
 }

@@ -6,6 +6,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
+import { appGuard } from '../middleware/auth.middleware.js';
 import { logger } from '../utils/logger.js';
 import {
   recordUsageEvent,
@@ -29,7 +30,7 @@ const router = Router();
  *   metadata?: object
  * }
  */
-router.post('/usage', async (req: Request, res: Response) => {
+router.post('/usage', appGuard, async (req: Request, res: Response) => {
   try {
     const { feature, quantity, jobId, metadata } = req.body;
 
@@ -48,15 +49,9 @@ router.post('/usage', async (req: Request, res: Response) => {
       });
     }
 
-    // Get user from request (assumes auth middleware)
-    const userId = req.user?.uid;
-    const teamId = (req.user as any)?.teamId || userId; // Fallback to userId
-
-    if (!userId) {
-      return res.status(401).json({
-        error: 'Unauthorized - user ID required',
-      });
-    }
+    // User is guaranteed by appGuard
+    const userId = req.user!.uid;
+    const teamId = userId; // Teams resolved server-side
 
     // Get Firebase context
     const db = req.firebase?.db;
@@ -111,15 +106,9 @@ router.post('/usage', async (req: Request, res: Response) => {
  * GET /api/v1/billing/usage/me
  * Get current user's usage events
  */
-router.get('/usage/me', async (req: Request, res: Response) => {
+router.get('/usage/me', appGuard, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.uid;
-
-    if (!userId) {
-      return res.status(401).json({
-        error: 'Unauthorized',
-      });
-    }
+    const userId = req.user!.uid;
 
     const db = req.firebase?.db;
 
@@ -151,19 +140,9 @@ router.get('/usage/me', async (req: Request, res: Response) => {
  * GET /api/v1/billing/usage/team/:teamId
  * Get team's usage events (requires team admin)
  */
-router.get('/usage/team/:teamId', async (req: Request, res: Response) => {
+router.get('/usage/team/:teamId', appGuard, async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.uid;
     const teamId = req.params['teamId'] as string;
-
-    if (!userId) {
-      return res.status(401).json({
-        error: 'Unauthorized',
-      });
-    }
-
-    // TODO: Check if user is team admin
-    // For now, allow any authenticated user
 
     const db = req.firebase?.db;
 

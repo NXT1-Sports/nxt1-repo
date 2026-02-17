@@ -216,6 +216,11 @@ addIcons({ chevronForward, chevronBack });
         --scroller-padding: 16px;
       }
 
+      /* Explore-style scrollable rows: tighten spacing between items */
+      .option-scroller--scrollable.option-scroller--md {
+        --scroller-padding: 12px;
+      }
+
       .option-scroller--lg {
         --scroller-height: 56px;
         --scroller-font-size: 17px;
@@ -556,7 +561,10 @@ export class NxtOptionScrollerComponent implements AfterViewInit, OnDestroy {
    * Navigate to next option (keyboard navigation)
    */
   navigateNext(event: Event): void {
-    event.preventDefault();
+    // Only preventDefault for non-touch events (passive listeners don't allow it)
+    if (!(event instanceof TouchEvent)) {
+      event.preventDefault();
+    }
     const currentIdx = this.selectedIndex();
     const opts = this.options();
     let nextIdx = currentIdx + 1;
@@ -576,7 +584,10 @@ export class NxtOptionScrollerComponent implements AfterViewInit, OnDestroy {
    * Navigate to previous option (keyboard navigation)
    */
   navigatePrev(event: Event): void {
-    event.preventDefault();
+    // Only preventDefault for non-touch events (passive listeners don't allow it)
+    if (!(event instanceof TouchEvent)) {
+      event.preventDefault();
+    }
     const currentIdx = this.selectedIndex();
     const opts = this.options();
     let prevIdx = currentIdx - 1;

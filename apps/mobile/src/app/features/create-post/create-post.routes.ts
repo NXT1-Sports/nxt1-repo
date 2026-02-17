@@ -12,7 +12,7 @@ export const CREATE_POST_ROUTES: Routes = [
   {
     path: '',
     loadComponent: () => import('./create-post.component').then((m) => m.CreatePostComponent),
-    title: 'Create Post',
+    title: 'Create/Add',
   },
 ];
 

@@ -73,10 +73,7 @@ export const serverRoutes: ServerRoute[] = [
     path: '',
     renderMode: RenderMode.Server,
   },
-  {
-    path: 'home',
-    renderMode: RenderMode.Server,
-  },
+  // Home redirects to /explore (backward compat — no dedicated render mode needed)
   {
     path: 'explore',
     renderMode: RenderMode.Server,
@@ -270,6 +267,14 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
 
+  {
+    path: 'create',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'create/**',
+    renderMode: RenderMode.Server,
+  },
   {
     path: 'create-post',
     renderMode: RenderMode.Server,

@@ -42,6 +42,7 @@ import {
   EXPLORE_PAGINATION_DEFAULTS,
   EXPLORE_SEARCH_CONFIG,
   EXPLORE_INITIAL_TAB_COUNTS,
+  isFeedTab,
 } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
@@ -214,7 +215,10 @@ export class ExploreService {
     this._activeTab.set(tab);
     await this.haptics.impact('light');
 
-    // Re-search with current query
+    // Feed tabs (feed, following, news) are handled by their own components/services
+    if (isFeedTab(tab)) return;
+
+    // Re-search with current query for discovery tabs
     const query = this._query();
     await this.search(query);
   }

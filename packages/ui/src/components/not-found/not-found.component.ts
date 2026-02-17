@@ -16,7 +16,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, PLATFORM_ID } from '@angular/core';
-import { CommonModule, isPlatformBrowser } from '@angular/common';
+import { CommonModule, isPlatformBrowser, Location } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 import { DEFAULT_FOOTER_TABS, DEFAULT_USER_MENU_ITEMS } from '@nxt1/core';
 import { NxtLogoComponent } from '../logo/logo.component';
@@ -287,6 +287,7 @@ import { NxtIconComponent } from '../icon/icon.component';
 })
 export class NotFoundComponent {
   private readonly router = inject(Router);
+  private readonly location = inject(Location);
   private readonly platformId = inject(PLATFORM_ID);
 
   /** Derive routes from shared @nxt1/core navigation constants — zero hardcoding */
@@ -296,14 +297,13 @@ export class NotFoundComponent {
     DEFAULT_USER_MENU_ITEMS.find((m) => m.id === 'help')?.route ?? '/help-center';
 
   goBack(): void {
-    const navigation = this.router.getCurrentNavigation();
     const isBrowser = isPlatformBrowser(this.platformId);
-    const hasHistory = isBrowser && window.history.length > 2;
+    const hasHistory = isBrowser && window.history.length > 1;
 
-    if (hasHistory && navigation?.previousNavigation) {
-      window.history.back();
+    if (hasHistory) {
+      this.location.back();
     } else {
-      this.router.navigate(['/']);
+      void this.router.navigate([this.homeRoute]);
     }
   }
 }

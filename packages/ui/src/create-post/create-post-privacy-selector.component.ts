@@ -171,9 +171,12 @@ addIcons({
         gap: 8px;
         padding: 8px 12px;
         min-width: 140px;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        -webkit-appearance: none;
+        appearance: none;
+        background: var(--nxt1-color-surface-200);
+        border: 1px solid var(--nxt1-color-border-subtle);
         border-radius: var(--nxt1-radius-lg, 12px);
+        color: inherit;
         cursor: pointer;
         transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         position: relative;
@@ -182,13 +185,13 @@ addIcons({
       }
 
       .privacy-trigger:hover {
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
-        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-surface-300);
+        border-color: var(--nxt1-color-border-default);
       }
 
       .privacy-trigger--open {
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
-        border-color: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-surface-300);
+        border-color: var(--nxt1-color-primary);
       }
 
       .privacy-trigger__content {
@@ -199,18 +202,18 @@ addIcons({
 
       .privacy-trigger__content ion-icon {
         font-size: 18px;
-        color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary);
       }
 
       .privacy-trigger__label {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
       }
 
       .privacy-trigger__chevron {
         font-size: 16px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
         transition: transform var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
       }
 
@@ -243,7 +246,7 @@ addIcons({
         width: 100%;
         max-width: 400px;
         max-height: 60vh;
-        background: var(--nxt1-color-surface-elevated, #1a1a1a);
+        background: var(--nxt1-color-surface-300);
         border-radius: var(--nxt1-radius-2xl, 24px) var(--nxt1-radius-2xl, 24px) 0 0;
         overflow: hidden;
         animation: panel-slide-up 0.3s ease-out;
@@ -273,13 +276,13 @@ addIcons({
 
       .privacy-dropdown__header {
         padding: 16px 20px 12px;
-        border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
       }
 
       .privacy-dropdown__title {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
       }
 
       .privacy-dropdown__options {
@@ -297,8 +300,11 @@ addIcons({
         gap: 12px;
         width: 100%;
         padding: 14px 20px;
+        -webkit-appearance: none;
+        appearance: none;
         background: transparent;
         border: none;
+        color: inherit;
         cursor: pointer;
         transition: background var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         position: relative;
@@ -308,7 +314,7 @@ addIcons({
       }
 
       .privacy-option:hover {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
       }
 
       .privacy-option--selected {
@@ -325,14 +331,14 @@ addIcons({
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-300);
         border-radius: 50%;
         flex-shrink: 0;
       }
 
       .privacy-option__icon ion-icon {
         font-size: 20px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
       }
 
       .privacy-option--selected .privacy-option__icon {
@@ -340,7 +346,7 @@ addIcons({
       }
 
       .privacy-option--selected .privacy-option__icon ion-icon {
-        color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary);
       }
 
       .privacy-option__content {
@@ -357,11 +363,11 @@ addIcons({
         gap: 8px;
         font-size: var(--nxt1-fontSize-base, 1rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
       }
 
       .privacy-option--selected .privacy-option__label {
-        color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary);
       }
 
       .privacy-option__badge {
@@ -375,7 +381,7 @@ addIcons({
 
       .privacy-option__description {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       .privacy-option__check {
@@ -389,7 +395,7 @@ addIcons({
 
       .privacy-option__check ion-icon {
         font-size: 20px;
-        color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary);
       }
 
       /* ============================================

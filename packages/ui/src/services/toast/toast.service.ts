@@ -12,7 +12,7 @@
  * - Action buttons support
  * - Automatic dismissal
  * - SSR-safe implementation
- * - Swipe-to-dismiss using Ionic GestureController (2026 best practice)
+ * - Tap-to-dismiss anywhere on toast
  * - Design token integration for theme-aware colors
  *
  * @example
@@ -39,7 +39,7 @@
  */
 
 import { Injectable, inject, signal, computed, NgZone } from '@angular/core';
-import { ToastController, GestureController, Gesture } from '@ionic/angular/standalone';
+import { ToastController } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { checkmarkCircle, alertCircle, warning, informationCircle, close } from 'ionicons/icons';
 
@@ -47,12 +47,10 @@ import { NxtPlatformService } from '../platform';
 import { HapticsService } from '../haptics';
 import {
   ToastType,
-  ToastPosition,
   ToastOptions,
   QueuedToast,
   DEFAULT_DURATIONS,
   DEFAULT_ICONS,
-  SWIPE_CONFIG,
 } from './toast.types';
 
 // Re-export types for consumers
@@ -70,7 +68,6 @@ addIcons({
 @Injectable({ providedIn: 'root' })
 export class NxtToastService {
   private readonly toastController = inject(ToastController);
-  private readonly gestureCtrl = inject(GestureController);
   private readonly platform = inject(NxtPlatformService);
   private readonly haptics = inject(HapticsService);
   private readonly ngZone = inject(NgZone);
@@ -91,8 +88,8 @@ export class NxtToastService {
   /** Processing flag to prevent race conditions */
   private isProcessing = false;
 
-  /** Active swipe gesture instance */
-  private swipeGesture: Gesture | null = null;
+  /** Cleanup function for tap-to-dismiss listener */
+  private tapDismissCleanup: (() => void) | null = null;
 
   /** Track if currently dismissing to prevent double-dismiss */
   private isDismissing = false;
@@ -277,8 +274,7 @@ export class NxtToastService {
 
       // Handle dismiss
       this.activeToast.onDidDismiss().then(() => {
-        // Clean up gesture
-        this.destroySwipeGesture();
+        this.destroyTapDismissListener();
 
         this._currentToast.set(null);
         this.activeToast = null;
@@ -297,9 +293,9 @@ export class NxtToastService {
         this.provideHapticFeedback(nextToast.type);
       }
 
-      // Setup swipe-to-dismiss if enabled (using Ionic GestureController)
-      if (nextToast.swipeToDismiss && this.activeToast) {
-        this.setupSwipeGesture(this.activeToast, nextToast.position);
+      // Dismiss on tap anywhere on toast container
+      if (this.activeToast) {
+        this.setupTapToDismiss(this.activeToast);
       }
     } finally {
       this.isProcessing = false;
@@ -327,162 +323,34 @@ export class NxtToastService {
   }
 
   /**
-   * Setup swipe-to-dismiss using Ionic GestureController (2026 best practice)
-   *
-   * Benefits over raw touch events:
-   * - Built-in velocity tracking
-   * - Proper gesture priority handling
-   * - Better integration with Ionic's animation system
-   * - Handles edge cases automatically
+   * Setup tap-to-dismiss for entire toast container
    */
-  private setupSwipeGesture(toastEl: HTMLIonToastElement, position: ToastPosition): void {
-    // Wait for toast to be fully rendered
+  private setupTapToDismiss(toastEl: HTMLIonToastElement): void {
     requestAnimationFrame(() => {
-      // Find the toast wrapper within shadow DOM
       const wrapper = toastEl.shadowRoot?.querySelector('.toast-wrapper') as HTMLElement | null;
       if (!wrapper) return;
 
-      // Determine swipe direction based on position
-      // Bottom toast: swipe down to dismiss
-      // Top toast: swipe up to dismiss
-      const dismissDirection = position === 'top' ? -1 : 1;
+      const onTap = () => {
+        if (this.isDismissing) return;
 
-      let startTranslateY = 0;
-      let currentTranslateY = 0;
+        this.ngZone.run(() => {
+          void this.dismiss();
+        });
+      };
 
-      this.swipeGesture = this.gestureCtrl.create({
-        el: wrapper,
-        gestureName: 'toast-swipe-dismiss',
-        gesturePriority: 100, // High priority to capture gesture
-        threshold: 0, // Start tracking immediately for responsiveness
-        direction: 'y', // Vertical swipe only
-
-        onStart: () => {
-          // Add swiping class for CSS
-          toastEl.classList.add('nxt-toast-swiping');
-          startTranslateY = currentTranslateY;
-
-          // Disable toast auto-dismiss timer during gesture
-          wrapper.style.transition = 'none';
-        },
-
-        onMove: (detail) => {
-          const deltaY = detail.deltaY;
-
-          // Check if swiping in valid direction
-          const isValidDirection =
-            (dismissDirection > 0 && deltaY > 0) ||
-            (dismissDirection < 0 && deltaY < 0) ||
-            position === 'middle';
-
-          if (isValidDirection) {
-            // Natural movement in dismiss direction
-            currentTranslateY = startTranslateY + deltaY;
-          } else {
-            // Apply strong resistance when swiping wrong way
-            currentTranslateY = startTranslateY + deltaY * SWIPE_CONFIG.RESISTANCE;
-          }
-
-          // Apply transform
-          wrapper.style.transform = `translateY(${currentTranslateY}px)`;
-
-          // Calculate opacity based on progress (fade out as user swipes)
-          const progress = Math.abs(currentTranslateY) / SWIPE_CONFIG.DISMISS_THRESHOLD;
-          const opacity = Math.max(0.3, 1 - progress * 0.7);
-          wrapper.style.opacity = String(opacity);
-        },
-
-        onEnd: (detail) => {
-          toastEl.classList.remove('nxt-toast-swiping');
-
-          const deltaY = detail.deltaY;
-          const velocityY = detail.velocityY;
-          const absVelocity = Math.abs(velocityY);
-
-          // Check if should dismiss based on distance OR velocity
-          const isValidDirection =
-            (dismissDirection > 0 && deltaY > 0) ||
-            (dismissDirection < 0 && deltaY < 0) ||
-            position === 'middle';
-
-          const passedThreshold = Math.abs(deltaY) > SWIPE_CONFIG.DISMISS_THRESHOLD;
-          const hasFlickVelocity =
-            absVelocity > SWIPE_CONFIG.VELOCITY_THRESHOLD && isValidDirection;
-
-          if ((passedThreshold && isValidDirection) || hasFlickVelocity) {
-            // Dismiss with animation
-            this.ngZone.run(() => {
-              this.animateAndDismiss(wrapper, position, velocityY);
-            });
-          } else {
-            // Snap back to original position with spring animation
-            wrapper.style.transition =
-              'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease-out';
-            wrapper.style.transform = 'translateY(0)';
-            wrapper.style.opacity = '1';
-            currentTranslateY = 0;
-
-            // Light haptic to indicate snap back
-            this.haptics.impact('light');
-
-            // Clean up transition after animation
-            setTimeout(() => {
-              if (wrapper) wrapper.style.transition = '';
-            }, 300);
-          }
-        },
-      });
-
-      // Enable the gesture
-      this.swipeGesture.enable(true);
+      wrapper.addEventListener('click', onTap, { passive: true });
+      this.tapDismissCleanup = () => {
+        wrapper.removeEventListener('click', onTap);
+        this.tapDismissCleanup = null;
+      };
     });
   }
 
   /**
-   * Animate toast off-screen and dismiss
+   * Clean up tap-to-dismiss listener
    */
-  private async animateAndDismiss(
-    wrapper: HTMLElement,
-    position: ToastPosition,
-    velocityY: number
-  ): Promise<void> {
-    if (this.isDismissing) return;
-    this.isDismissing = true;
-
-    // Add dismissing class
-    this.activeToast?.classList.add('nxt-toast-dismissing');
-
-    // Calculate animation duration based on velocity (faster swipe = faster dismiss)
-    const baseDuration = 200;
-    const velocityFactor = Math.min(1, Math.abs(velocityY) / 2);
-    const duration = Math.max(100, baseDuration * (1 - velocityFactor * 0.5));
-
-    // Calculate final position (off-screen)
-    const finalY = position === 'top' ? -200 : 200;
-
-    // Animate out with easing
-    wrapper.style.transition = `transform ${duration}ms ease-out, opacity ${duration}ms ease-out`;
-    wrapper.style.transform = `translateY(${finalY}px)`;
-    wrapper.style.opacity = '0';
-
-    // Haptic feedback on successful dismiss
-    this.haptics.impact('medium');
-
-    // Wait for animation then dismiss
-    await new Promise((resolve) => setTimeout(resolve, duration));
-
-    // Dismiss the toast
-    await this.dismiss();
-  }
-
-  /**
-   * Clean up and destroy swipe gesture
-   */
-  private destroySwipeGesture(): void {
-    if (this.swipeGesture) {
-      this.swipeGesture.destroy();
-      this.swipeGesture = null;
-    }
+  private destroyTapDismissListener(): void {
+    this.tapDismissCleanup?.();
   }
 
   /**

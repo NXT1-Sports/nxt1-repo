@@ -212,10 +212,10 @@ addIcons({
       }
 
       .preview {
-        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        border: 1px solid var(--nxt1-color-border-default);
         border-radius: var(--nxt1-radius-xl, 16px);
         overflow: hidden;
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
+        background: var(--nxt1-color-surface-100);
       }
 
       /* ============================================
@@ -228,8 +228,11 @@ addIcons({
         align-items: center;
         justify-content: space-between;
         padding: 12px 16px;
+        -webkit-appearance: none;
+        appearance: none;
         background: transparent;
         border: none;
+        color: inherit;
         cursor: pointer;
         position: relative;
         overflow: hidden;
@@ -237,18 +240,18 @@ addIcons({
       }
 
       .preview__header:hover {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
       }
 
       .preview__header-text {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
       }
 
       .preview__header ion-icon {
         font-size: 18px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* ============================================
@@ -264,7 +267,7 @@ addIcons({
          ============================================ */
 
       .preview__card {
-        background: var(--nxt1-color-surface-elevated, #1a1a1a);
+        background: var(--nxt1-color-surface-200);
         border-radius: var(--nxt1-radius-lg, 12px);
         overflow: hidden;
       }
@@ -283,7 +286,7 @@ addIcons({
         border-radius: 50%;
         overflow: hidden;
         flex-shrink: 0;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-300);
       }
 
       .preview__avatar img {
@@ -300,7 +303,7 @@ addIcons({
         justify-content: center;
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
         background: var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.2));
       }
 
@@ -313,7 +316,7 @@ addIcons({
       .preview__user-name {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -328,16 +331,16 @@ addIcons({
 
       .preview__time {
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       .preview__dot {
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       .preview__meta ion-icon {
         font-size: 12px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* Text content */
@@ -348,14 +351,14 @@ addIcons({
       .preview__text p {
         margin: 0;
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
         line-height: 1.5;
         white-space: pre-wrap;
         word-wrap: break-word;
       }
 
       .preview__more {
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
         font-weight: 500;
       }
 
@@ -369,12 +372,12 @@ addIcons({
 
       .preview__location ion-icon {
         font-size: 14px;
-        color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary);
       }
 
       .preview__location span {
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
       }
 
       /* ============================================
@@ -412,7 +415,7 @@ addIcons({
       .preview__media-item {
         position: relative;
         aspect-ratio: 16/9;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-300);
         overflow: hidden;
       }
 
@@ -436,7 +439,7 @@ addIcons({
       .preview__media-placeholder {
         width: 100%;
         height: 100%;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-300);
       }
 
       .preview__video-badge {
@@ -485,8 +488,8 @@ addIcons({
       .preview__poll-option {
         position: relative;
         padding: 12px;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
-        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-surface-200);
+        border: 1px solid var(--nxt1-color-border-default);
         border-radius: var(--nxt1-radius-md, 8px);
         overflow: hidden;
       }
@@ -503,7 +506,7 @@ addIcons({
       .preview__poll-option span {
         position: relative;
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
       }
 
       /* ============================================
@@ -514,7 +517,7 @@ addIcons({
         display: flex;
         align-items: center;
         padding: 8px 12px;
-        border-top: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        border-top: 1px solid var(--nxt1-color-border-default);
       }
 
       .preview__action {
@@ -524,8 +527,11 @@ addIcons({
         justify-content: center;
         gap: 6px;
         padding: 8px;
+        -webkit-appearance: none;
+        appearance: none;
         background: transparent;
         border: none;
+        color: inherit;
         cursor: not-allowed;
         opacity: 0.6;
       }
@@ -536,12 +542,12 @@ addIcons({
 
       .preview__action ion-icon {
         font-size: 18px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       .preview__action span {
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* ============================================
@@ -552,7 +558,7 @@ addIcons({
         margin-top: 12px;
         text-align: center;
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
-        color: var(--nxt1-color-text-quaternary, rgba(255, 255, 255, 0.3));
+        color: var(--nxt1-color-text-quaternary);
       }
     `,
   ],

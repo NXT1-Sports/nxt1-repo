@@ -251,7 +251,7 @@ export const SPORT_THEME_OPTIONS: readonly SportThemeOption[] = [
   },
   {
     id: 'swimming-diving',
-    label: 'Swimming & Diving',
+    label: 'S&D',
     icon: 'sports',
     primaryColor: '#14b8a6',
     description: 'Aquatic cyan flow',
@@ -587,7 +587,8 @@ export class NxtThemeService {
     effect(
       () => {
         const theme = this.effectiveTheme();
-        void this.syncStatusBar(theme);
+        const sportTheme = this._sportTheme();
+        void this.syncStatusBar(theme, sportTheme);
       },
       { injector: this.injector }
     );
@@ -597,22 +598,26 @@ export class NxtThemeService {
    * Manually sync the status bar with the current theme.
    * Usually not needed if enableStatusBarSync() has been called.
    */
-  async syncStatusBar(theme?: EffectiveTheme): Promise<void> {
+  async syncStatusBar(theme?: EffectiveTheme, sportTheme?: SportTheme | null): Promise<void> {
     if (!this.isBrowser) return;
 
     const effectiveTheme = theme ?? this.effectiveTheme();
+    const activeSportTheme = sportTheme ?? this._sportTheme();
+    const useDarkStatusBarContent = effectiveTheme === 'light' && activeSportTheme === null;
 
     try {
       const { StatusBar, Style } = await import('@capacitor/status-bar');
 
-      // Dark theme = light/white status bar icons (Style.Dark)
-      // Light theme = dark/black status bar icons (Style.Light)
-      const style = effectiveTheme === 'dark' ? Style.Dark : Style.Light;
+      // Light base theme = dark status bar content
+      // Dark base theme OR any sport theme = light status bar content
+      const style = useDarkStatusBarContent ? Style.Dark : Style.Light;
       await StatusBar.setStyle({ style });
 
       // On Android, also set the background color
       try {
-        const bgColor = effectiveTheme === 'dark' ? '#0a0a0a' : '#ffffff';
+        const activeTheme = activeSportTheme ? `sport-${activeSportTheme}` : effectiveTheme;
+        const bgColor =
+          THEME_BG_COLORS[activeTheme] ?? THEME_BG_COLORS[effectiveTheme] ?? '#0a0a0a';
         await StatusBar.setBackgroundColor({ color: bgColor });
       } catch {
         // setBackgroundColor throws on iOS - expected behavior

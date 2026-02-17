@@ -50,8 +50,8 @@ export class ActivityComponent implements OnInit {
   ngOnInit(): void {
     this.seo.updatePage({
       title: 'Activity',
-      description: 'Stay updated with notifications, messages, and activity from your network.',
-      keywords: ['activity', 'notifications', 'messages', 'updates'],
+      description: 'Stay updated with notifications, deals, and activity from your network.',
+      keywords: ['activity', 'notifications', 'deals', 'updates'],
       noIndex: true, // Protected page - don't index
     });
   }

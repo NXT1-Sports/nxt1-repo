@@ -1,110 +1,69 @@
 /**
- * @fileoverview Messages Page Component
+ * @fileoverview Messages Page - Web App Wrapper
  * @module @nxt1/web/features/messages
+ * @version 2.0.0
  *
- * Displays user conversations and direct messages.
- * Backend-first: All messages fetched from API with real-time updates.
+ * Thin wrapper component that imports the shared Messages shell
+ * from @nxt1/ui and wires up platform-specific concerns.
+ *
+ * ⭐ USES WEB-OPTIMIZED SHELL FOR SSR & SEO ⭐
+ *
+ * The actual UI and logic live in @nxt1/ui (shared package).
+ * This wrapper only handles:
+ * - Platform-specific routing/navigation
+ * - Sidenav integration
+ * - User context from AuthService
  */
 
-import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { NxtLoggingService } from '@nxt1/ui';
-import { SeoService } from '../../core/services/seo.service';
+import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import { Router } from '@angular/router';
+import {
+  MessagesShellWebComponent,
+  NxtSidenavService,
+  NxtLoggingService,
+  NxtPlatformService,
+  type MessagesUser,
+} from '@nxt1/ui';
+import type { Conversation } from '@nxt1/core';
+import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { SeoService } from '../../core/services';
 
 @Component({
   selector: 'app-messages',
   standalone: true,
-  imports: [CommonModule],
+  imports: [MessagesShellWebComponent],
   template: `
-    <div class="messages-page">
-      <header class="page-header">
-        <h1 class="page-title">Messages</h1>
-        <p class="page-subtitle">Your conversations</p>
-      </header>
-
-      <main class="page-content">
-        <!-- Messages content will be implemented with shared @nxt1/ui components -->
-        <div class="coming-soon">
-          <div class="coming-soon-icon">💬</div>
-          <h2>Messages Coming Soon</h2>
-          <p>
-            We're building a secure messaging system to connect athletes, coaches, and recruiters.
-            Check back soon!
-          </p>
-        </div>
-      </main>
-    </div>
+    <nxt1-messages-shell-web
+      [user]="userInfo()"
+      [hideHeader]="isDesktop()"
+      (avatarClick)="onAvatarClick()"
+      (conversationClick)="onConversationClick($event)"
+      (compose)="onCompose()"
+    />
   `,
-  styles: [
-    `
-      :host {
-        display: flex;
-        flex-direction: column;
-        flex: 1;
-        background: var(--nxt1-color-bg-primary);
-      }
-
-      .messages-page {
-        flex: 1;
-        padding: var(--nxt1-spacing-6);
-        max-width: 1200px;
-        margin: 0 auto;
-        width: 100%;
-      }
-
-      .page-header {
-        margin-bottom: var(--nxt1-spacing-8);
-      }
-
-      .page-title {
-        font-size: var(--nxt1-font-size-3xl);
-        font-weight: var(--nxt1-font-weight-bold);
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-2);
-      }
-
-      .page-subtitle {
-        font-size: var(--nxt1-font-size-lg);
-        color: var(--nxt1-color-text-secondary);
-        margin: 0;
-      }
-
-      .coming-soon {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        text-align: center;
-        padding: var(--nxt1-spacing-16);
-        background: var(--nxt1-color-bg-secondary);
-        border-radius: var(--nxt1-radius-lg);
-      }
-
-      .coming-soon-icon {
-        font-size: 4rem;
-        margin-bottom: var(--nxt1-spacing-4);
-      }
-
-      .coming-soon h2 {
-        font-size: var(--nxt1-font-size-xl);
-        font-weight: var(--nxt1-font-weight-semibold);
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-2);
-      }
-
-      .coming-soon p {
-        font-size: var(--nxt1-font-size-base);
-        color: var(--nxt1-color-text-secondary);
-        max-width: 400px;
-        margin: 0;
-      }
-    `,
-  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class MessagesComponent implements OnInit {
+  private readonly authService = inject(AUTH_SERVICE) as IAuthService;
+  private readonly sidenavService = inject(NxtSidenavService);
+  private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('MessagesComponent');
   private readonly seo = inject(SeoService);
+  private readonly platform = inject(NxtPlatformService);
+
+  /** Desktop detection for hiding redundant page header (sidebar provides nav) */
+  protected readonly isDesktop = computed(() => this.platform.isDesktop());
+
+  /** Transform auth user to MessagesUser interface */
+  protected readonly userInfo = computed<MessagesUser | null>(() => {
+    const user = this.authService.user();
+    if (!user) return null;
+
+    return {
+      photoURL: user.photoURL,
+      displayName: user.displayName,
+    };
+  });
 
   ngOnInit(): void {
     this.seo.updatePage({
@@ -112,10 +71,27 @@ export class MessagesComponent implements OnInit {
       description:
         'View and manage your conversations with coaches, recruiters, and teammates on NXT1.',
       keywords: ['messages', 'chat', 'conversations', 'recruiting', 'coaches'],
-      noIndex: true, // Protected page - don't index
+      noIndex: true,
       canonicalUrl: '/messages',
     });
 
     this.logger.debug('Messages page initialized');
+  }
+
+  /** Open sidenav (Twitter/X pattern) */
+  protected onAvatarClick(): void {
+    this.sidenavService.open();
+  }
+
+  /** Navigate to conversation thread */
+  protected onConversationClick(conversation: Conversation): void {
+    this.logger.debug('Conversation selected', { conversationId: conversation.id });
+    this.router.navigate(['/messages', conversation.id]);
+  }
+
+  /** Navigate to compose new message */
+  protected onCompose(): void {
+    this.logger.debug('Compose new message');
+    this.router.navigate(['/messages', 'new']);
   }
 }

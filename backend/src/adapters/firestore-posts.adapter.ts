@@ -7,7 +7,16 @@
  */
 
 import type { Timestamp } from 'firebase-admin/firestore';
-import type { FeedPost, FeedComment, FeedAuthor, FeedCommentAuthor } from '@nxt1/core/feed';
+import type {
+  FeedPost,
+  FeedComment,
+  FeedAuthor,
+  FeedCommentAuthor,
+  FeedPostType,
+  FeedPostVisibility,
+  FeedAuthorRole,
+  FeedVerificationStatus,
+} from '@nxt1/core/feed';
 import type { PostType } from '@nxt1/core/create-post';
 import type { PostVisibility } from '@nxt1/core/constants';
 
@@ -106,6 +115,31 @@ export function timestampToISO(timestamp: Timestamp | undefined): string {
  * Convert user profile to FeedAuthor
  */
 export function userProfileToFeedAuthor(profile: UserProfile): FeedAuthor {
+  const validRoles: readonly FeedAuthorRole[] = [
+    'athlete',
+    'coach',
+    'team',
+    'college_coach',
+    'fan',
+    'parent',
+    'official',
+  ];
+  const validStatuses: readonly FeedVerificationStatus[] = [
+    'unverified',
+    'pending',
+    'verified',
+    'premium',
+  ];
+
+  const role: FeedAuthorRole = validRoles.includes(profile.role as FeedAuthorRole)
+    ? (profile.role as FeedAuthorRole)
+    : 'athlete';
+  const verificationStatus: FeedVerificationStatus = validStatuses.includes(
+    profile.verificationStatus as FeedVerificationStatus
+  )
+    ? (profile.verificationStatus as FeedVerificationStatus)
+    : 'unverified';
+
   return {
     uid: profile.uid,
     profileCode: profile.profileCode || profile.uid,
@@ -113,8 +147,8 @@ export function userProfileToFeedAuthor(profile: UserProfile): FeedAuthor {
     firstName: profile.firstName || profile.displayName.split(' ')[0] || '',
     lastName: profile.lastName || profile.displayName.split(' ').slice(1).join(' ') || '',
     avatarUrl: profile.photoURL,
-    role: (profile.role as any) || 'athlete',
-    verificationStatus: (profile.verificationStatus as any) || 'unverified',
+    role,
+    verificationStatus,
     isVerified: profile.isVerified || false,
     sport: profile.sport,
     position: profile.position,
@@ -210,8 +244,8 @@ export function firestoreCommentToFeedComment(
 /**
  * Map backend PostType to FeedPostType
  */
-function mapPostTypeToFeedType(type: PostType): any {
-  const mapping: Record<string, any> = {
+function mapPostTypeToFeedType(type: PostType): FeedPostType {
+  const mapping: Record<string, FeedPostType> = {
     text: 'text',
     photo: 'image',
     video: 'video',
@@ -227,8 +261,8 @@ function mapPostTypeToFeedType(type: PostType): any {
 /**
  * Map backend PostVisibility to FeedPostVisibility
  */
-function mapPostVisibilityToFeedVisibility(visibility: PostVisibility): any {
-  const mapping: Record<string, any> = {
+function mapPostVisibilityToFeedVisibility(visibility: PostVisibility): FeedPostVisibility {
+  const mapping: Record<string, FeedPostVisibility> = {
     PUBLIC: 'public',
     FOLLOWERS: 'followers',
     TEAM: 'team',
@@ -247,7 +281,18 @@ function mapPostVisibilityToFeedVisibility(visibility: PostVisibility): any {
 export async function batchConvertPosts(
   posts: Array<{ id: string; data: FirestorePostDoc }>,
   getUserProfile: (userId: string) => Promise<UserProfile | null>,
-  getUserEngagement?: (postId: string, userId: string) => Promise<any>
+  getUserEngagement?: (
+    postId: string,
+    userId: string
+  ) => Promise<
+    | {
+        isLiked?: boolean;
+        isBookmarked?: boolean;
+        isReposted?: boolean;
+        isFollowingAuthor?: boolean;
+      }
+    | undefined
+  >
 ): Promise<FeedPost[]> {
   const feedPosts: FeedPost[] = [];
 

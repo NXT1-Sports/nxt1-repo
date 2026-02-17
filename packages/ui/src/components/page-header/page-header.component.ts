@@ -317,7 +317,7 @@ addIcons({
         }
 
         <!-- Inline search: uses toolbar-content flow layout -->
-        <div class="header-inline-search">
+        <div class="header-inline-search" [class.header-inline-search--expanded]="hideAvatar()">
           <ng-content select="[pageHeaderSlot=inline-search]" />
         </div>
 
@@ -380,6 +380,12 @@ addIcons({
         --header-glass-border: var(--nxt1-glass-border);
         --header-glass-shadow: var(--nxt1-glass-shadow);
         --header-glass-backdrop: var(--nxt1-glass-backdrop);
+
+        /* Optical vertical-center correction for toolbar control lane */
+        --nxt1-header-control-lane-offset-y: 4px;
+        --nxt1-header-control-size: 40px;
+        --nxt1-header-control-padding-x: var(--nxt1-spacing-1, 4px);
+        --nxt1-header-edge-inset: var(--nxt1-header-control-padding-x);
 
         /* Solid navigation tokens (from design tokens) */
         --header-solid-bg: var(--nxt1-nav-bgSolid);
@@ -475,6 +481,7 @@ addIcons({
         letter-spacing: var(--nxt1-letter-spacing-tight, -0.01em);
         padding-inline: var(--nxt1-spacing-16, 64px);
         pointer-events: none;
+        transform: translateY(var(--nxt1-header-control-lane-offset-y));
       }
 
       /* Custom title content (searchbars, etc.) - direct in toolbar default slot */
@@ -489,6 +496,7 @@ addIcons({
         font-weight: var(--nxt1-font-weight-bold, 700);
         letter-spacing: var(--nxt1-letter-spacing-tighter, -0.02em);
         padding-inline: var(--nxt1-spacing-4, 16px);
+        transform: translateY(var(--nxt1-header-control-lane-offset-y));
       }
 
       /* ============================================
@@ -536,6 +544,7 @@ addIcons({
         padding-inline-end: var(--nxt1-header-title-padding-end, 12px);
         z-index: 0;
         transition: padding 0.25s ease;
+        transform: translateY(var(--nxt1-header-control-lane-offset-y));
       }
 
       /* Direct child wrapper must also center its content */
@@ -568,6 +577,7 @@ addIcons({
         align-items: center;
         justify-content: center;
         pointer-events: none;
+        transform: translateY(var(--nxt1-header-control-lane-offset-y));
       }
 
       /* Style the nxt1-logo component within the container */
@@ -592,6 +602,9 @@ addIcons({
         z-index: 1;
         display: flex;
         align-items: center;
+        margin: 0;
+        padding-inline-start: var(--nxt1-header-edge-inset);
+        padding-inline-end: 0;
       }
 
       /* Avatar button (Twitter/X style) - stays centered, no transform */
@@ -599,14 +612,18 @@ addIcons({
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: var(--nxt1-spacing-1, 4px);
-        margin-left: var(--nxt1-spacing-2, 8px);
+        width: var(--nxt1-header-control-size);
+        height: var(--nxt1-header-control-size);
+        padding: var(--nxt1-header-control-padding-x);
+        margin-left: calc(var(--nxt1-header-edge-inset) + 1px);
         background: transparent;
         border: none;
         border-radius: var(--nxt1-radius-full, 9999px);
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
+        transform: translateY(var(--nxt1-header-control-lane-offset-y));
         transition:
+          transform 0.15s ease,
           opacity 0.15s ease,
           width 0.25s ease,
           margin 0.25s ease;
@@ -621,14 +638,7 @@ addIcons({
         opacity: 0;
         visibility: hidden;
         pointer-events: none;
-        width: 0;
-        padding: 0;
-        margin: 0;
-        overflow: hidden;
-        transition:
-          width 0.25s ease,
-          opacity 0.15s ease,
-          margin 0.25s ease;
+        transition: opacity 0.15s ease;
       }
 
       /* ============================================
@@ -640,13 +650,20 @@ addIcons({
         z-index: 1;
         display: flex;
         align-items: center;
+        margin: 0;
+        padding-inline-start: 0;
+        padding-inline-end: var(--nxt1-header-edge-inset);
       }
 
       .end-buttons ion-button {
         --color: var(--nxt1-color-primary, #a3e635);
-        --padding-start: var(--nxt1-spacing-2, 8px);
-        --padding-end: var(--nxt1-spacing-2, 8px);
+        --padding-start: var(--nxt1-header-control-padding-x);
+        --padding-end: var(--nxt1-header-control-padding-x);
+        --min-width: var(--nxt1-header-control-size);
+        --min-height: var(--nxt1-header-control-size);
+        margin: 0;
         position: relative;
+        transform: translateY(calc(var(--nxt1-header-control-lane-offset-y) - 3px));
       }
 
       /* ============================================
@@ -661,12 +678,13 @@ addIcons({
         width: 40px;
         height: 40px;
         padding: 0;
-        margin: 0 2px;
+        margin: 0;
         border: none;
         background: transparent;
         border-radius: var(--nxt1-radius-full, 50%);
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
+        transform: translateY(calc(var(--nxt1-header-control-lane-offset-y) - 3px));
         transition:
           background-color 0.15s ease,
           transform 0.1s ease,
@@ -679,7 +697,7 @@ addIcons({
 
       .action-button:active:not(.action-button--disabled) {
         background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.12));
-        transform: scale(0.92);
+        transform: translateY(calc(var(--nxt1-header-control-lane-offset-y) - 3px)) scale(0.92);
       }
 
       .action-button--disabled {
@@ -723,13 +741,23 @@ addIcons({
          ============================================ */
 
       .header-inline-search {
+        position: absolute;
+        top: var(--ion-safe-area-top, 0px);
+        left: 0;
+        right: 0;
+        bottom: 0;
         display: flex;
         align-items: center;
         justify-content: center;
         width: 100%;
         height: 100%;
         min-height: var(--nxt1-inline-search-min-height, 40px);
+        padding-inline: var(--nxt1-spacing-16, 64px);
         z-index: 0;
+      }
+
+      .header-inline-search--expanded {
+        padding-inline: var(--nxt1-spacing-4, 16px);
       }
 
       /* Projected content with pageHeaderSlot="inline-search" attribute */

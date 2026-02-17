@@ -25,3 +25,6 @@ export {
   AgentXBundlesComponent,
   AgentXTaskListComponent,
 } from './modes';
+
+// Landing Page
+export { NxtAgentXLandingComponent } from './agent-x-landing.component';

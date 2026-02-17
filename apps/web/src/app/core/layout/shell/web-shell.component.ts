@@ -157,8 +157,6 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         activeIcon: 'compassFilled',
         route: '/explore',
       },
-      { id: 'home', label: 'Home', icon: 'home', activeIcon: 'homeFilled', route: '/home' },
-      { id: 'news', label: 'News', icon: 'newspaper', route: '/news' },
       { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
     ],
   },
@@ -190,7 +188,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
 
 /**
  * Logged-out variant — Profile routes to /athlete-profiles with public label.
- * Auth-required items (Settings, Usage) use `action` instead of direct navigation
+ * Auth-required items (Settings) use `action` instead of direct navigation
  * so the web-shell can present the sign-in modal before routing.
  * Named WEB_* to avoid shadowing the @nxt1/ui LOGGED_OUT_SIDEBAR_SECTIONS export.
  */
@@ -203,9 +201,6 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] =
         items: section.items.map((item) => {
           if (item.id === 'settings') {
             return { ...item, action: 'settings' as const };
-          }
-          if (item.id === 'usage') {
-            return { ...item, action: 'custom' as const };
           }
           return item;
         }),
@@ -788,10 +783,10 @@ export class WebShellComponent {
   // ============================================
 
   /** Current route for active state detection */
-  private readonly _currentRoute = signal('/home');
+  private readonly _currentRoute = signal('/explore');
 
   /** Active tab ID for mobile footer */
-  private readonly _activeTabId = signal<string | null>('home');
+  private readonly _activeTabId = signal<string | null>('explore');
   readonly activeTabId = computed(() => this._activeTabId());
 
   /** Sidebar collapsed state (persisted) */
@@ -831,7 +826,7 @@ export class WebShellComponent {
   /**
    * Handle sidebar item selection.
    *
-   * Auth-gated items (Settings, Usage) use `action` to prevent the sidebar from
+   * Auth-gated items (Settings) use `action` to prevent the sidebar from
    * navigating directly. Instead, the auth modal is presented first.
    * On success the user is routed to the intended page.
    */
@@ -845,7 +840,7 @@ export class WebShellComponent {
     }
 
     // Auth-gated sidebar items — show sign-in modal for logged-out users
-    if ((item.action === 'settings' || item.action === 'custom') && item.route) {
+    if (item.action === 'settings' && item.route) {
       const authenticated = await this.requireAuthentication(`access ${item.label.toLowerCase()}`);
       if (!authenticated) return;
       this.router.navigate([item.route]);
@@ -924,7 +919,7 @@ export class WebShellComponent {
     }
 
     // Auth-gated sidebar items — show sign-in modal for logged-out users
-    if ((item.action === 'settings' || item.action === 'custom') && item.route) {
+    if (item.action === 'settings' && item.route) {
       const authenticated = await this.requireAuthentication(`access ${item.label.toLowerCase()}`);
       if (!authenticated) return;
       this.router.navigate([item.route]);
@@ -1040,16 +1035,16 @@ export class WebShellComponent {
     const authenticated = await this.requireAuthentication('create a post');
     if (!authenticated) return;
 
-    this.router.navigate(['/create-post']);
+    this.router.navigate(['/create']);
   }
 
   /**
    * Handle logo click with auth-aware destination.
-   * Authenticated users go to /home, guests go to root landing (/).
+   * Authenticated users go to /explore, guests go to root landing (/).
    */
   onLogoClick(): void {
     if (this.authFlow.isAuthenticated()) {
-      this.router.navigate(['/home']);
+      this.router.navigate(['/explore']);
       return;
     }
 

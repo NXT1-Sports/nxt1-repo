@@ -200,7 +200,6 @@ export const DEFAULT_DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] 
   {
     id: 'main',
     items: [
-      { id: 'home', label: 'Home', icon: 'home', route: '/home' },
       { id: 'explore', label: 'Explore', icon: 'compass', route: '/explore' },
       { id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
     ],
@@ -249,7 +248,6 @@ export const LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
     items: [
-      { id: 'home', label: 'Home', icon: 'home', route: '/home' },
       { id: 'explore', label: 'Explore', icon: 'compass', route: '/explore' },
       { id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
     ],
@@ -276,7 +274,6 @@ export const LOGGED_IN_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
     id: 'main',
     items: [
-      { id: 'home', label: 'Home', icon: 'home', route: '/home' },
       { id: 'explore', label: 'Explore', icon: 'compass', route: '/explore' },
       { id: 'rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
     ],

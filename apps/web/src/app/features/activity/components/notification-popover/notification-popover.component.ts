@@ -8,7 +8,7 @@
  *
  * Features:
  * - Anchored popover positioned below the header
- * - Tab-based filtering (All, Inbox, Notifications, etc.)
+ * - Tab-based filtering (All, Notifications, Deals, etc.)
  * - Activity list with skeletons, empty, and error states
  * - Mark all read action
  * - Click backdrop or Escape to close

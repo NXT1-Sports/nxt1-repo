@@ -45,8 +45,7 @@ import { ActivityApiService } from './activity-api.service';
 
 /** Mock badge counts for development */
 const MOCK_BADGE_COUNTS: Record<ActivityTabId, number> = {
-  all: 12,
-  inbox: 3,
+  all: 9,
   notifications: 5,
   deals: 2,
   mentions: 1,

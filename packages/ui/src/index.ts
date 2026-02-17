@@ -330,6 +330,8 @@ export {
   AgentXTaskListComponent,
   // Types
   type AgentXUser,
+  // Landing
+  NxtAgentXLandingComponent,
 } from './agent-x';
 
 // ============================================
@@ -381,6 +383,33 @@ export {
   // Types
   type ActivityUser,
 } from './activity';
+
+// ============================================
+// MESSAGES (Shared Web & Mobile)
+// ============================================
+export {
+  // Service
+  MessagesService,
+  // Mobile (Ionic)
+  MessagesShellComponent,
+  // Web (SSR-safe, zero Ionic)
+  MessagesShellWebComponent,
+  // Shared Components
+  MessagesListComponent,
+  MessagesItemComponent,
+  MessagesSkeletonComponent,
+  // Types
+  type MessagesUser,
+  // Legacy (placeholder — kept for backward compatibility)
+  MessagesPlaceholderComponent,
+  // Conversation — Thread/chat view
+  ConversationShellComponent,
+  ConversationShellWebComponent,
+  ConversationHeaderComponent,
+  MessageBubbleComponent,
+  MessageInputComponent,
+  ConversationService,
+} from './messages';
 
 // ============================================
 // EXPLORE (Search & Discovery)

@@ -26,6 +26,8 @@ export type {
 // Constants
 export {
   EXPLORE_TABS,
+  EXPLORE_FEED_TAB_IDS,
+  isFeedTab,
   EXPLORE_DEFAULT_TAB,
   EXPLORE_SORT_OPTIONS,
   EXPLORE_DEFAULT_SORT,

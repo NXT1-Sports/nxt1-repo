@@ -24,7 +24,7 @@ import {
   NxtPlatformService,
   type ExploreUser,
 } from '@nxt1/ui';
-import type { ExploreItem, ScoutReport } from '@nxt1/core';
+import type { ExploreItem, ExploreTabId, ScoutReport, FeedPost, FeedAuthor } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 
@@ -37,9 +37,14 @@ import { SeoService } from '../../core/services';
       [user]="userInfo()"
       [hideHeader]="isDesktop()"
       (avatarClick)="onAvatarClick()"
+      (tabChange)="onTabChange($event)"
       (itemClick)="onItemClick($event)"
       (scoutReportSelect)="onScoutReportSelect($event)"
       (scoutReportFiltersOpen)="onScoutReportFiltersOpen()"
+      (postSelect)="onPostSelect($event)"
+      (authorSelect)="onAuthorSelect($event)"
+      (newsArticleSelect)="onNewsArticleSelect($event)"
+      (xpBadgeClick)="onXpBadgeClick()"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -109,5 +114,47 @@ export class ExploreComponent {
   protected onScoutReportFiltersOpen(): void {
     this.logger.debug('Scout report filters opened');
     // TODO: Open filter modal/side panel
+  }
+
+  /**
+   * Handle tab change for analytics/logging.
+   */
+  protected onTabChange(tab: ExploreTabId): void {
+    this.logger.debug('Explore tab changed', { tab });
+  }
+
+  // ── Feed / Following / News Handlers ──
+
+  /**
+   * Handle post selection - navigate to post detail.
+   */
+  protected onPostSelect(post: FeedPost): void {
+    this.logger.debug('Feed post selected', { id: post.id, type: post.type });
+    // Navigate to post detail when ready
+    // void this.router.navigate(['/post', post.id]);
+  }
+
+  /**
+   * Handle author selection - navigate to author profile.
+   */
+  protected onAuthorSelect(author: FeedAuthor): void {
+    this.logger.debug('Author selected', { uid: author.uid, profileCode: author.profileCode });
+    void this.router.navigate(['/profile', author.profileCode]);
+  }
+
+  /**
+   * Handle news article selection - navigate to article page.
+   */
+  protected onNewsArticleSelect(article: { id: string; title: string }): void {
+    this.logger.debug('News article selected', { id: article.id });
+    void this.router.navigate(['/news', article.id]);
+  }
+
+  /**
+   * Handle XP badge click - navigate to XP/rewards.
+   */
+  protected onXpBadgeClick(): void {
+    this.logger.debug('XP badge clicked');
+    void this.router.navigate(['/rewards']);
   }
 }

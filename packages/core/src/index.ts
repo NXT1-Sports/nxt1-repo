@@ -677,6 +677,8 @@ export {
   type ExploreState,
   // Constants
   EXPLORE_TABS,
+  EXPLORE_FEED_TAB_IDS,
+  isFeedTab,
   EXPLORE_DEFAULT_TAB,
   EXPLORE_SORT_OPTIONS,
   EXPLORE_DEFAULT_SORT,
@@ -693,6 +695,43 @@ export {
   createExploreApi,
   type ExploreApi,
 } from './explore';
+
+// ============================================
+// MESSAGES (Conversations & Direct Messages)
+// ============================================
+
+export {
+  // Types
+  type MessageStatus,
+  type ConversationType,
+  type ParticipantRole,
+  type ConversationParticipant,
+  type MessageAttachment,
+  type Message,
+  type Conversation,
+  type MessagesFilterId,
+  type MessagesFilter,
+  type MessagesPagination,
+  type ConversationsResponse,
+  type MessagesThreadResponse,
+  type SendMessageRequest,
+  type CreateConversationRequest,
+  type MessagesState,
+  // Constants
+  MESSAGES_FILTERS,
+  MESSAGES_DEFAULT_FILTER,
+  MESSAGES_PAGINATION_DEFAULTS,
+  MESSAGES_CACHE_KEYS,
+  MESSAGES_CACHE_TTL,
+  MESSAGES_SEARCH_CONFIG,
+  MESSAGES_EMPTY_STATES,
+  MESSAGES_API_ENDPOINTS,
+  MESSAGES_UI_CONFIG,
+  MESSAGES_INITIAL_PAGINATION,
+  // API Factory
+  createMessagesApi,
+  type MessagesApi,
+} from './messages';
 
 // ============================================
 // PROFILE (User Profile Management)

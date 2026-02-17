@@ -35,7 +35,7 @@ import {
   inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon, IonRippleEffect, IonSpinner } from '@ionic/angular/standalone';
+import { IonRippleEffect, IonSpinner } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { closeOutline, sparkles } from 'ionicons/icons';
 import type {
@@ -49,6 +49,7 @@ import type {
 } from '@nxt1/core';
 import { POST_MAX_CHARACTERS, POST_MAX_MEDIA, validatePost } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
+import { NxtPageHeaderComponent } from '../components/page-header';
 import { CreatePostEditorComponent } from './create-post-editor.component';
 import { CreatePostToolbarComponent } from './create-post-toolbar.component';
 import { CreatePostMediaPickerComponent } from './create-post-media-picker.component';
@@ -69,9 +70,9 @@ addIcons({
   standalone: true,
   imports: [
     CommonModule,
-    IonIcon,
     IonRippleEffect,
     IonSpinner,
+    NxtPageHeaderComponent,
     CreatePostEditorComponent,
     CreatePostToolbarComponent,
     CreatePostMediaPickerComponent,
@@ -82,23 +83,20 @@ addIcons({
     CreatePostSkeletonComponent,
   ],
   template: `
-    <div class="shell" [class.shell--submitting]="isSubmitting()">
-      <!-- Header -->
-      <header class="shell__header">
+    <div
+      class="shell"
+      [class.shell--submitting]="isSubmitting()"
+      [class.shell--desktop-modal]="!fullBleed()"
+    >
+      <!-- Shared Header -->
+      <nxt1-page-header
+        [title]="headerTitle()"
+        [avatarSrc]="user()?.photoUrl"
+        [avatarName]="user()?.displayName"
+        (avatarClick)="onAvatarClick()"
+      >
         <button
-          type="button"
-          class="shell__close"
-          (click)="onClose()"
-          [disabled]="isSubmitting()"
-          aria-label="Close"
-        >
-          <ion-ripple-effect></ion-ripple-effect>
-          <ion-icon name="close-outline"></ion-icon>
-        </button>
-
-        <h1 class="shell__title">Create Post</h1>
-
-        <button
+          pageHeaderSlot="end"
           type="button"
           class="shell__submit"
           [class.shell__submit--active]="canSubmit()"
@@ -113,7 +111,7 @@ addIcons({
             <span>Post</span>
           }
         </button>
-      </header>
+      </nxt1-page-header>
 
       <!-- Loading skeleton -->
       @if (loading()) {
@@ -225,7 +223,7 @@ addIcons({
         display: flex;
         flex-direction: column;
         height: 100%;
-        background: var(--nxt1-color-surface-base, #0a0a0a);
+        background: var(--nxt1-color-bg-primary, var(--ion-background-color));
       }
 
       .shell--submitting {
@@ -241,10 +239,10 @@ addIcons({
         align-items: center;
         justify-content: space-between;
         padding: 12px 16px;
-        border-bottom: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        border-bottom: 1px solid var(--nxt1-color-border-default);
         position: sticky;
         top: 0;
-        background: var(--nxt1-color-surface-base, #0a0a0a);
+        background: var(--nxt1-color-bg-primary, var(--ion-background-color));
         z-index: 10;
       }
 
@@ -264,18 +262,18 @@ addIcons({
       }
 
       .shell__close:hover:not(:disabled) {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
       }
 
       .shell__close ion-icon {
         font-size: 24px;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
       }
 
       .shell__title {
         font-size: var(--nxt1-fontSize-lg, 1.125rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
         margin: 0;
       }
 
@@ -286,9 +284,12 @@ addIcons({
         min-width: 80px;
         height: 36px;
         padding: 0 20px;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
+        -webkit-appearance: none;
+        appearance: none;
+        background: var(--nxt1-color-surface-300);
         border: none;
         border-radius: var(--nxt1-radius-full, 9999px);
+        color: inherit;
         cursor: pointer;
         position: relative;
         overflow: hidden;
@@ -299,25 +300,25 @@ addIcons({
       .shell__submit span {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       .shell__submit ion-spinner {
-        --color: var(--nxt1-color-text-on-primary, #000000);
+        --color: var(--nxt1-color-text-onPrimary);
         width: 18px;
         height: 18px;
       }
 
       .shell__submit--active {
-        background: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-primary);
       }
 
       .shell__submit--active span {
-        color: var(--nxt1-color-text-on-primary, #000000);
+        color: var(--nxt1-color-text-onPrimary);
       }
 
       .shell__submit--active:hover:not(:disabled) {
-        background: var(--nxt1-color-primary-hover, #b8e600);
+        background: var(--nxt1-color-primaryLight);
       }
 
       .shell__submit:disabled {
@@ -354,7 +355,7 @@ addIcons({
         border-radius: 50%;
         overflow: hidden;
         flex-shrink: 0;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-300);
       }
 
       .shell__avatar img {
@@ -371,7 +372,7 @@ addIcons({
         justify-content: center;
         font-size: var(--nxt1-fontSize-base, 1rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
         background: var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.2));
       }
 
@@ -386,7 +387,7 @@ addIcons({
       .shell__user-name {
         font-size: var(--nxt1-fontSize-base, 1rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -406,7 +407,7 @@ addIcons({
          ============================================ */
 
       @media (min-width: 640px) {
-        .shell {
+        .shell.shell--desktop-modal {
           max-width: 600px;
           margin: 0 auto;
           border-radius: var(--nxt1-radius-xl, 16px);
@@ -415,7 +416,7 @@ addIcons({
           margin-top: 5vh;
         }
 
-        .shell__header {
+        .shell.shell--desktop-modal .shell__header {
           border-radius: var(--nxt1-radius-xl, 16px) var(--nxt1-radius-xl, 16px) 0 0;
         }
       }
@@ -431,6 +432,9 @@ export class CreatePostShellComponent {
 
   /** Loading state */
   readonly loading = input(false);
+
+  /** Header title */
+  readonly headerTitle = input('Create Post');
 
   /** Is first post */
   readonly isFirstPost = input(false);
@@ -453,8 +457,16 @@ export class CreatePostShellComponent {
   /** Editor placeholder */
   readonly editorPlaceholder = input("What's on your mind?");
 
+  /**
+   * Render as full-bleed page (mobile shell) instead of centered desktop modal card.
+   */
+  readonly fullBleed = input(false);
+
   /** Emitted when close is clicked */
   readonly close = output<void>();
+
+  /** Emitted when avatar is clicked */
+  readonly avatarClick = output<void>();
 
   /** Emitted when post is submitted */
   readonly submit = output<CreatePostState>();
@@ -540,6 +552,14 @@ export class CreatePostShellComponent {
   protected async onClose(): Promise<void> {
     await this.haptics.impact('light');
     this.close.emit();
+  }
+
+  /**
+   * Handle avatar click.
+   */
+  protected async onAvatarClick(): Promise<void> {
+    await this.haptics.impact('light');
+    this.avatarClick.emit();
   }
 
   /**

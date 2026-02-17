@@ -19,10 +19,43 @@ import type {
 // ============================================
 
 /**
+ * Feed tab IDs — content tabs that replaced the standalone /home route.
+ * Used to distinguish feed-style tabs from discovery/search tabs.
+ */
+export const EXPLORE_FEED_TAB_IDS: readonly ExploreTabId[] = ['feed', 'following', 'news'] as const;
+
+/**
+ * Check whether a tab ID is a feed-style tab (feed, following, news)
+ * as opposed to a discovery/search tab (colleges, athletes, etc.).
+ */
+export function isFeedTab(tabId: ExploreTabId): boolean {
+  return (EXPLORE_FEED_TAB_IDS as readonly string[]).includes(tabId);
+}
+
+/**
  * Available explore tabs with display configuration.
  * Order determines display order in tab bar.
+ *
+ * Feed tabs (Feed, Following, News) appear first — they replaced
+ * the former standalone /home page (2026 strategy: everything lives
+ * under /explore).
  */
 export const EXPLORE_TABS: readonly ExploreTab[] = [
+  {
+    id: 'feed',
+    label: 'Feed',
+    icon: 'home-outline',
+  },
+  {
+    id: 'following',
+    label: 'Following',
+    icon: 'people-outline',
+  },
+  {
+    id: 'news',
+    label: 'News',
+    icon: 'newspaper-outline',
+  },
   {
     id: 'colleges',
     label: 'Colleges',
@@ -67,8 +100,9 @@ export const EXPLORE_TABS: readonly ExploreTab[] = [
 
 /**
  * Default selected tab.
+ * Feed is the default — the user's personalized content stream.
  */
-export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'colleges';
+export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'feed';
 
 // ============================================
 // SORT OPTIONS
@@ -78,6 +112,9 @@ export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'colleges';
  * Available sort options per tab.
  */
 export const EXPLORE_SORT_OPTIONS: Record<ExploreTabId, readonly ExploreSortOption[]> = {
+  feed: ['relevance', 'recent', 'popular'],
+  following: ['recent', 'popular'],
+  news: ['recent', 'popular', 'relevance'],
   colleges: ['relevance', 'alphabetical', 'rating', 'distance'],
   athletes: ['relevance', 'recent', 'popular', 'alphabetical'],
   teams: ['relevance', 'alphabetical', 'distance', 'popular'],
@@ -92,6 +129,9 @@ export const EXPLORE_SORT_OPTIONS: Record<ExploreTabId, readonly ExploreSortOpti
  * Default sort option per tab.
  */
 export const EXPLORE_DEFAULT_SORT: Record<ExploreTabId, ExploreSortOption> = {
+  feed: 'relevance',
+  following: 'recent',
+  news: 'recent',
   colleges: 'relevance',
   athletes: 'relevance',
   teams: 'relevance',
@@ -187,6 +227,21 @@ export const EXPLORE_EMPTY_STATES: Record<
     readonly icon: string;
   }
 > = {
+  feed: {
+    title: 'Your feed is empty',
+    message: 'Follow athletes, teams, and coaches to build your personalized feed',
+    icon: 'home-outline',
+  },
+  following: {
+    title: 'No posts from people you follow',
+    message: 'Follow athletes, teams, and coaches to see their latest content here',
+    icon: 'people-outline',
+  },
+  news: {
+    title: 'No news yet',
+    message: 'Check back soon for the latest sports recruiting news and updates',
+    icon: 'newspaper-outline',
+  },
   colleges: {
     title: 'No colleges found',
     message: 'Try adjusting your search or filters',
@@ -239,6 +294,18 @@ export const EXPLORE_INITIAL_STATES: Record<
     readonly message: string;
   }
 > = {
+  feed: {
+    title: 'Your Feed',
+    message: 'Personalized content from athletes, teams, and coaches you care about',
+  },
+  following: {
+    title: 'Following',
+    message: 'Posts from people you follow appear here',
+  },
+  news: {
+    title: 'News',
+    message: 'Latest sports recruiting news, commits, and updates',
+  },
   colleges: {
     title: 'Discover Colleges',
     message: 'Search for colleges by name, state, or division',
@@ -333,6 +400,9 @@ export const EXPLORE_UI_CONFIG = {
  * Initial/default tab counts.
  */
 export const EXPLORE_INITIAL_TAB_COUNTS: ExploreTabCounts = {
+  feed: 0,
+  following: 0,
+  news: 0,
   colleges: 0,
   athletes: 0,
   teams: 0,

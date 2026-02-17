@@ -33,7 +33,11 @@ export type NavIconName =
   | 'bell'
   | 'bellFilled'
   | 'plusCircle'
-  | 'plusCircleFilled';
+  | 'plusCircleFilled'
+  | 'bolt'
+  | 'boltFilled'
+  | 'messages'
+  | 'messagesFilled';
 
 // ============================================
 // FOOTER / TAB BAR TYPES
@@ -176,12 +180,20 @@ export interface FooterScrollToTopEvent {
  */
 export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
   {
-    id: 'home',
-    label: 'Home',
-    icon: 'home',
-    iconActive: 'homeFilled',
-    route: '/home',
-    ariaLabel: 'Go to Home',
+    id: 'explore',
+    label: 'Explore',
+    icon: 'compass',
+    iconActive: 'compassFilled',
+    route: '/explore',
+    ariaLabel: 'Explore athletes and teams',
+  },
+  {
+    id: 'create-post',
+    label: 'Create',
+    icon: 'plusCircle',
+    iconActive: 'plusCircleFilled',
+    route: '/create',
+    ariaLabel: 'Create a new post',
   },
   {
     id: 'ai',
@@ -193,12 +205,12 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Open AI Agent X',
   },
   {
-    id: 'explore',
-    label: 'Explore',
-    icon: 'compass',
-    iconActive: 'compassFilled',
-    route: '/explore',
-    ariaLabel: 'Explore athletes and teams',
+    id: 'messages',
+    label: 'Messages',
+    icon: 'messages',
+    iconActive: 'messagesFilled',
+    route: '/messages',
+    ariaLabel: 'View your messages',
   },
   {
     id: 'activity',
@@ -244,7 +256,13 @@ export const FOOTER_ANIMATION = {
  * Professional pattern: Instagram, Twitter, TikTok all allow sidenav
  * swipe only on root/main pages, not on detail/sub-pages.
  */
-export const MAIN_PAGE_ROUTES = ['/home', '/agent', '/explore', '/activity'] as const;
+export const MAIN_PAGE_ROUTES = [
+  '/explore',
+  '/create',
+  '/agent',
+  '/messages',
+  '/activity',
+] as const;
 
 /**
  * Check if a route is a main page where sidenav swipe should be enabled.
@@ -591,12 +609,6 @@ export interface TopNavSearchEvent {
  * Can be used directly or as a template for customization.
  */
 export const DEFAULT_TOP_NAV_ITEMS: TopNavItem[] = [
-  {
-    id: 'home',
-    label: 'Home',
-    route: '/home',
-    icon: 'home',
-  },
   {
     id: 'explore',
     label: 'Explore',

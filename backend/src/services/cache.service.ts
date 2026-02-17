@@ -1,9 +1,11 @@
 /**
  * Cache Service - Wrapper around @nxt1/cache for backend usage
  *
- * This service provides a singleton cache instance with Redis + Memory fallback
+ * This service provides a singleton cache instance with Redis + Memory fallback.
+ * Uses CACHE_CONFIG from @nxt1/core as the single source of truth for TTL values.
  */
 import { CacheFactory, MemoryCacheService, type CacheService as ICacheService } from '@nxt1/cache';
+import { CACHE_CONFIG } from '@nxt1/core';
 import { logger } from '../utils/logger.js';
 
 // Singleton cache instance
@@ -81,38 +83,46 @@ export function generateCacheKey(prefix: string, params: Record<string, unknown>
 }
 
 /**
- * Cache TTL presets (in seconds)
+ * Convert milliseconds (from @nxt1/core CACHE_CONFIG) to seconds (for Redis TTL).
+ */
+function msToSeconds(ms: number): number {
+  return Math.round(ms / 1000);
+}
+
+/**
+ * Cache TTL presets (in seconds) — derived from @nxt1/core CACHE_CONFIG
  *
  * Choose based on data characteristics:
- * - COLLEGES: Static data, rarely changes → 24 hours
- * - SEARCH: Semi-static results → 15 minutes
- * - PROFILES: User data, can change → 5 minutes
- * - FEED: Dynamic content → 2 minutes
+ * - COLLEGES/DIVISIONS/SPORTS: Static data, rarely changes → EXTENDED_TTL (24 hours)
+ * - RANKINGS/LEADERBOARDS: Semi-static → LONG_TTL (1 hour)
+ * - SEARCH/TRENDING: Semi-static → MEDIUM_TTL (15 minutes)
+ * - PROFILES/FOLLOWERS: User data, can change → DEFAULT_TTL (5 minutes)
+ * - FEED/POSTS/COMMENTS: Fast-changing → SHORT_TTL (1 minute)
  */
 export const CACHE_TTL = {
-  // Static data (admin-managed)
-  COLLEGES: 86400, // 24 hours
-  DIVISIONS: 86400, // 24 hours
-  SPORTS: 86400, // 24 hours
+  // Static data (admin-managed) — 24 hours
+  COLLEGES: msToSeconds(CACHE_CONFIG.EXTENDED_TTL),
+  DIVISIONS: msToSeconds(CACHE_CONFIG.EXTENDED_TTL),
+  SPORTS: msToSeconds(CACHE_CONFIG.EXTENDED_TTL),
 
   // Semi-static (updated periodically)
-  RANKINGS: 21600, // 6 hours
-  LEADERBOARDS: 21600, // 6 hours
-  SEARCH: 900, // 15 minutes
-  TRENDING: 1800, // 30 minutes
+  RANKINGS: msToSeconds(CACHE_CONFIG.LONG_TTL),
+  LEADERBOARDS: msToSeconds(CACHE_CONFIG.LONG_TTL),
+  SEARCH: msToSeconds(CACHE_CONFIG.MEDIUM_TTL),
+  TRENDING: msToSeconds(CACHE_CONFIG.MEDIUM_TTL * 2),
 
   // Dynamic user data
-  PROFILES: 300, // 5 minutes
-  FOLLOWERS: 300, // 5 minutes
+  PROFILES: msToSeconds(CACHE_CONFIG.DEFAULT_TTL),
+  FOLLOWERS: msToSeconds(CACHE_CONFIG.DEFAULT_TTL),
 
   // Fast-changing content
-  FEED: 120, // 2 minutes
-  POSTS: 180, // 3 minutes
-  COMMENTS: 60, // 1 minute
+  FEED: msToSeconds(CACHE_CONFIG.SHORT_TTL * 2),
+  POSTS: msToSeconds(CACHE_CONFIG.SHORT_TTL * 3),
+  COMMENTS: msToSeconds(CACHE_CONFIG.SHORT_TTL),
 
   // Counts/stats
-  COUNTS: 60, // 1 minute
-  STATS: 300, // 5 minutes
+  COUNTS: msToSeconds(CACHE_CONFIG.SHORT_TTL),
+  STATS: msToSeconds(CACHE_CONFIG.DEFAULT_TTL),
 } as const;
 
 /**

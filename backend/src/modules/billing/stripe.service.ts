@@ -38,7 +38,7 @@ export function getStripeClient(environment: 'staging' | 'production'): Stripe {
   }
 
   const stripe = new Stripe(config.secretKey, {
-    apiVersion: '2025-12-15.clover',
+    apiVersion: '2026-01-28.clover',
     typescript: true,
   });
 

@@ -28,7 +28,11 @@ import {
   type ExploreTabId,
   type ExploreItem,
   type ScoutReport,
+  type FeedPost,
+  type FeedAuthor,
+  type FeedFilterType,
   EXPLORE_SEARCH_CONFIG,
+  EXPLORE_TABS,
 } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../../components/page-header';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
@@ -38,6 +42,9 @@ import { ExploreService } from '../explore.service';
 import { ExploreListWebComponent } from './explore-list-web.component';
 import { ExploreSkeletonComponent } from '../explore-skeleton.component';
 import { ScoutReportsContentComponent } from '../../scout-reports/scout-reports-content.component';
+import { NewsContentComponent } from '../../news/news-content.component';
+import { FeedListComponent } from '../../feed/feed-list.component';
+import { FeedService } from '../../feed/feed.service';
 import type { ExploreUser } from '../explore-shell.component';
 
 @Component({
@@ -51,6 +58,8 @@ import type { ExploreUser } from '../explore-shell.component';
     ExploreListWebComponent,
     ExploreSkeletonComponent,
     ScoutReportsContentComponent,
+    NewsContentComponent,
+    FeedListComponent,
   ],
   template: `
     <!-- SEO: Page Header with semantic search -->
@@ -227,10 +236,74 @@ import type { ExploreUser } from '../explore-shell.component';
           </section>
         }
 
-        <!-- Search Results -->
+        <!-- Tab Selector (web uses horizontal pills) -->
         @if (!explore.isSearchFocused() || explore.hasQuery()) {
-          <!-- Scout Reports Tab: Embed dedicated content component -->
-          @if (explore.activeTab() === 'scout-reports' && !explore.hasQuery()) {
+          <nav class="tab-bar" aria-label="Explore tabs">
+            @for (tab of tabOptions(); track tab.id) {
+              <button
+                type="button"
+                class="tab-pill"
+                [class.active]="explore.activeTab() === tab.id"
+                (click)="onTabChange(tab.id)"
+                [attr.aria-current]="explore.activeTab() === tab.id ? 'page' : null"
+              >
+                {{ tab.label }}
+                @if (tab.badge) {
+                  <span class="tab-badge">{{ tab.badge }}</span>
+                }
+              </button>
+            }
+          </nav>
+        }
+
+        <!-- Main Content -->
+        @if (!explore.isSearchFocused() || explore.hasQuery()) {
+          <!-- Feed Tab: Personalized content stream -->
+          @if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
+            <nxt1-feed-list
+              [posts]="feedService.posts()"
+              [isLoading]="feedService.isLoading()"
+              [isLoadingMore]="feedService.isLoadingMore()"
+              [isEmpty]="feedService.isEmpty()"
+              [error]="feedService.error()"
+              [hasMore]="feedService.hasMore()"
+              [filterType]="'for-you'"
+              (postClick)="onPostSelect($event)"
+              (authorClick)="onAuthorSelect($event)"
+              (likeClick)="onLikeClick($event)"
+              (commentClick)="onCommentClick($event)"
+              (shareClick)="onShareClick($event)"
+              (bookmarkClick)="onBookmarkClick($event)"
+              (loadMore)="onFeedLoadMore()"
+              (retry)="onFeedRetry()"
+            />
+          } @else if (explore.activeTab() === 'following' && !explore.hasQuery()) {
+            <!-- Following Tab: Posts from followed users -->
+            <nxt1-feed-list
+              [posts]="feedService.posts()"
+              [isLoading]="feedService.isLoading()"
+              [isLoadingMore]="feedService.isLoadingMore()"
+              [isEmpty]="feedService.isEmpty()"
+              [error]="feedService.error()"
+              [hasMore]="feedService.hasMore()"
+              [filterType]="'following'"
+              (postClick)="onPostSelect($event)"
+              (authorClick)="onAuthorSelect($event)"
+              (likeClick)="onLikeClick($event)"
+              (commentClick)="onCommentClick($event)"
+              (shareClick)="onShareClick($event)"
+              (bookmarkClick)="onBookmarkClick($event)"
+              (loadMore)="onFeedLoadMore()"
+              (retry)="onFeedRetry()"
+            />
+          } @else if (explore.activeTab() === 'news' && !explore.hasQuery()) {
+            <!-- News Tab: Sports recruiting news -->
+            <nxt1-news-content
+              (articleSelect)="onNewsArticleSelect($event)"
+              (xpBadgeClick)="onXpBadgeClick()"
+            />
+          } @else if (explore.activeTab() === 'scout-reports' && !explore.hasQuery()) {
+            <!-- Scout Reports Tab -->
             <nxt1-scout-reports-content
               (reportSelect)="onScoutReportSelect($event)"
               (openFilters)="onScoutReportFiltersOpen()"
@@ -282,12 +355,71 @@ import type { ExploreUser } from '../explore-shell.component';
         padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
         padding-bottom: var(--nxt1-spacing-16);
       }
+
+      /* Tab bar (horizontal pills) */
+      .tab-bar {
+        display: flex;
+        gap: var(--nxt1-spacing-2, 8px);
+        padding: var(--nxt1-spacing-2, 8px) 0 var(--nxt1-spacing-4, 16px) 0;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+
+      .tab-bar::-webkit-scrollbar {
+        display: none;
+      }
+
+      .tab-pill {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-1, 4px);
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-4, 16px);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+        background: transparent;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        white-space: nowrap;
+      }
+
+      .tab-pill:hover {
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+      }
+
+      .tab-pill.active {
+        background: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-on-primary, #000000);
+        border-color: transparent;
+        font-weight: 600;
+      }
+
+      .tab-badge {
+        font-size: 11px;
+        font-weight: 700;
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        padding: 1px 6px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        min-width: 18px;
+        text-align: center;
+      }
+
+      .tab-pill.active .tab-badge {
+        background: rgba(0, 0, 0, 0.15);
+        color: var(--nxt1-color-on-primary, #000000);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExploreShellWebComponent implements OnInit {
   protected readonly explore = inject(ExploreService);
+  protected readonly feedService = inject(FeedService);
   private readonly haptics = inject(HapticsService);
   private readonly logger = inject(NxtLoggingService).child('ExploreShellWeb');
 
@@ -299,19 +431,34 @@ export class ExploreShellWebComponent implements OnInit {
 
   // Outputs
   readonly avatarClick = output<void>();
+  readonly tabChange = output<ExploreTabId>();
   readonly itemClick = output<ExploreItem>();
   readonly scoutReportSelect = output<ScoutReport>();
   readonly scoutReportFiltersOpen = output<void>();
+  readonly postSelect = output<FeedPost>();
+  readonly authorSelect = output<FeedAuthor>();
+  readonly newsArticleSelect = output<{ id: string; title: string }>();
+  readonly xpBadgeClick = output<void>();
 
   // Local state
   protected readonly searchValue = signal('');
-  protected readonly searchPlaceholder = EXPLORE_SEARCH_CONFIG.placeholder;
+  protected readonly searchPlaceholder = 'AI Search';
 
   // Computed
   protected readonly displayName = computed(() => this.user()?.displayName ?? 'User');
 
+  protected readonly tabOptions = computed(() => {
+    const counts = this.explore.tabCounts();
+    return EXPLORE_TABS.map((tab) => ({
+      id: tab.id,
+      label: tab.label,
+      badge: counts[tab.id] > 0 ? counts[tab.id] : undefined,
+    }));
+  });
+
   ngOnInit(): void {
     this.logger.info('Explore shell (web) initialized');
+    void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }
 
   protected onAvatarClick(): void {
@@ -382,5 +529,85 @@ export class ExploreShellWebComponent implements OnInit {
   protected onScoutReportFiltersOpen(): void {
     this.logger.debug('Scout report filters opened');
     this.scoutReportFiltersOpen.emit();
+  }
+
+  // ── Tab Selection ──
+
+  protected async onTabChange(tabId: string): Promise<void> {
+    await this.haptics.impact('light');
+    const id = tabId as ExploreTabId;
+    await this.explore.switchTab(id);
+    await this.ensureFeedLoadedForTab(id);
+    this.tabChange.emit(id);
+  }
+
+  // ── Feed / Following / News Handlers ──
+
+  protected onPostSelect(post: FeedPost): void {
+    this.logger.debug('Post selected', { id: post.id, type: post.type });
+    this.postSelect.emit(post);
+  }
+
+  protected onAuthorSelect(author: FeedAuthor): void {
+    this.logger.debug('Author selected', { uid: author.uid, profileCode: author.profileCode });
+    this.authorSelect.emit(author);
+  }
+
+  protected async onLikeClick(post: FeedPost): Promise<void> {
+    await this.haptics.impact('light');
+    await this.feedService.toggleLike(post);
+  }
+
+  protected async onCommentClick(post: FeedPost): Promise<void> {
+    await this.haptics.impact('light');
+    this.postSelect.emit(post);
+  }
+
+  protected async onShareClick(post: FeedPost): Promise<void> {
+    await this.haptics.impact('medium');
+    await this.feedService.sharePost(post);
+  }
+
+  protected async onBookmarkClick(post: FeedPost): Promise<void> {
+    await this.haptics.impact('light');
+    await this.feedService.toggleBookmark(post);
+  }
+
+  protected async onFeedLoadMore(): Promise<void> {
+    await this.feedService.loadMore();
+  }
+
+  protected async onFeedRetry(): Promise<void> {
+    const tab = this.explore.activeTab();
+    const filterType = this.getFeedFilterType(tab);
+    if (!filterType) return;
+    await this.feedService.loadFeed(filterType);
+  }
+
+  private getFeedFilterType(tab: ExploreTabId): FeedFilterType | null {
+    if (tab === 'feed') return 'for-you';
+    if (tab === 'following') return 'following';
+    return null;
+  }
+
+  private async ensureFeedLoadedForTab(tab: ExploreTabId): Promise<void> {
+    const filterType = this.getFeedFilterType(tab);
+    if (!filterType) return;
+
+    const shouldReload =
+      this.feedService.posts().length === 0 || this.feedService.activeFilter() !== filterType;
+
+    if (!shouldReload) return;
+
+    await this.feedService.loadFeed(filterType);
+  }
+
+  protected onNewsArticleSelect(article: { id: string; title: string }): void {
+    this.logger.debug('News article selected', { id: article.id });
+    this.newsArticleSelect.emit(article);
+  }
+
+  protected onXpBadgeClick(): void {
+    this.xpBadgeClick.emit();
   }
 }

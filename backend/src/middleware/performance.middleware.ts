@@ -2,14 +2,19 @@
  * @fileoverview Performance Monitoring Middleware
  * @module @nxt1/backend/middleware/performance
  *
- * Tracks request duration, response times, and custom metrics
- * Compatible with Firebase Performance Monitoring patterns
+ * Tracks request duration, response times, and custom metrics.
+ * Uses a fixed-size circular buffer to prevent unbounded memory growth.
+ * Metrics are ephemeral (lost on restart) — for persistent monitoring,
+ * integrate with an APM service (e.g., OpenTelemetry, Datadog).
  */
 
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger.js';
 
-// Performance metrics storage (in-memory for now)
+// ============================================
+// TYPES
+// ============================================
+
 interface PerformanceMetric {
   traceName: string;
   duration: number;
@@ -20,8 +25,24 @@ interface PerformanceMetric {
   httpStatus?: number;
 }
 
-const metrics: PerformanceMetric[] = [];
-const MAX_METRICS = 1000; // Keep last 1000 metrics
+interface PerformanceTraceStats {
+  count: number;
+  avgDuration: number;
+  minDuration: number;
+  maxDuration: number;
+  p95Duration: number;
+  successRate: number;
+  cacheHitRate: number;
+}
+
+// ============================================
+// CIRCULAR BUFFER — Fixed-size, zero-allocation after init
+// ============================================
+
+const BUFFER_SIZE = 1024; // power-of-2 for fast modulo
+const buffer: (PerformanceMetric | null)[] = new Array(BUFFER_SIZE).fill(null);
+let writeIndex = 0;
+let totalRecorded = 0;
 
 /**
  * Standard trace names for consistency
@@ -134,15 +155,32 @@ function getTraceNameFromRequest(req: Request): string {
 }
 
 /**
- * Record performance metric
+ * Record performance metric into the circular buffer.
+ * O(1) time and memory — never allocates after init.
  */
 function recordMetric(metric: PerformanceMetric): void {
-  metrics.push(metric);
+  buffer[writeIndex] = metric;
+  writeIndex = (writeIndex + 1) % BUFFER_SIZE;
+  totalRecorded++;
+}
 
-  // Keep only last MAX_METRICS
-  if (metrics.length > MAX_METRICS) {
-    metrics.splice(0, metrics.length - MAX_METRICS);
+/**
+ * Get all recorded metrics (ordered oldest → newest).
+ */
+function getMetrics(): PerformanceMetric[] {
+  const count = Math.min(totalRecorded, BUFFER_SIZE);
+  const result: PerformanceMetric[] = [];
+
+  // If buffer hasn't wrapped, read from 0..writeIndex
+  // If wrapped, read from writeIndex..BUFFER_SIZE, then 0..writeIndex
+  const start = totalRecorded >= BUFFER_SIZE ? writeIndex : 0;
+  for (let i = 0; i < count; i++) {
+    const idx = (start + i) % BUFFER_SIZE;
+    const m = buffer[idx];
+    if (m) result.push(m);
   }
+
+  return result;
 }
 
 /**
@@ -152,19 +190,10 @@ export function getPerformanceStats(): {
   totalRequests: number;
   averageDuration: number;
   successRate: number;
-  byTrace: Record<
-    string,
-    {
-      count: number;
-      avgDuration: number;
-      minDuration: number;
-      maxDuration: number;
-      p95Duration: number;
-      successRate: number;
-      cacheHitRate: number;
-    }
-  >;
+  byTrace: Record<string, PerformanceTraceStats>;
 } {
+  const metrics = getMetrics();
+
   if (metrics.length === 0) {
     return {
       totalRequests: 0,
@@ -184,7 +213,7 @@ export function getPerformanceStats(): {
   });
 
   // Calculate stats per trace
-  const traceStats: Record<string, any> = {};
+  const traceStats: Record<string, PerformanceTraceStats> = {};
   Object.entries(byTrace).forEach(([traceName, traceMetrics]) => {
     const durations = traceMetrics.map((m) => m.duration).sort((a, b) => a - b);
     const successes = traceMetrics.filter((m) => m.success).length;
@@ -223,10 +252,13 @@ export async function testPerformance(): Promise<{
   status: string;
   message: string;
   stats: ReturnType<typeof getPerformanceStats>;
-  recentMetrics: PerformanceMetric[];
+  totalEverRecorded: number;
+  bufferSize: number;
+  recentMetrics: Array<Omit<PerformanceMetric, 'timestamp'> & { timestamp: string }>;
 }> {
   const stats = getPerformanceStats();
-  const recentMetrics = metrics.slice(-10); // Last 10 metrics
+  const metrics = getMetrics();
+  const recentMetrics = metrics.slice(-10);
 
   logger.info('[Performance Test]', {
     totalRequests: stats.totalRequests,
@@ -238,10 +270,12 @@ export async function testPerformance(): Promise<{
     status: 'success',
     message: 'Performance monitoring is working',
     stats,
+    totalEverRecorded: totalRecorded,
+    bufferSize: BUFFER_SIZE,
     recentMetrics: recentMetrics.map((m) => ({
       ...m,
       timestamp: m.timestamp.toISOString(),
-    })) as any,
+    })),
   };
 }
 
@@ -249,6 +283,8 @@ export async function testPerformance(): Promise<{
  * Clear performance metrics (for testing)
  */
 export function clearPerformanceMetrics(): void {
-  metrics.length = 0;
+  buffer.fill(null);
+  writeIndex = 0;
+  totalRecorded = 0;
   logger.info('[Performance] Metrics cleared');
 }

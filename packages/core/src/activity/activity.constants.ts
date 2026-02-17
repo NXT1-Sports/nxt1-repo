@@ -25,11 +25,6 @@ export const ACTIVITY_TABS: readonly ActivityTab[] = [
     icon: 'layers-outline',
   },
   {
-    id: 'inbox',
-    label: 'Inbox',
-    icon: 'mail-outline',
-  },
-  {
     id: 'notifications',
     label: 'Notifications',
     icon: 'notifications-outline',
@@ -74,7 +69,6 @@ export const ACTIVITY_TYPE_ICONS: Record<ActivityType, string> = {
   like: 'heart-outline',
   comment: 'chatbubble-outline',
   mention: 'at-outline',
-  message: 'mail-outline',
   offer: 'trophy-outline',
   deal: 'pricetag-outline',
   announcement: 'megaphone-outline',
@@ -93,7 +87,6 @@ export const ACTIVITY_TYPE_COLORS: Record<ActivityType, string> = {
   like: 'var(--nxt1-color-error)',
   comment: 'var(--nxt1-color-primary)',
   mention: 'var(--nxt1-color-warning)',
-  message: 'var(--nxt1-color-primary)',
   offer: 'var(--nxt1-color-success)',
   deal: 'var(--nxt1-color-warning)',
   announcement: 'var(--nxt1-color-info)',
@@ -173,11 +166,6 @@ export const ACTIVITY_EMPTY_STATES: Record<
     message: "You're up to date. New activity will appear here.",
     icon: 'checkmark-done-outline',
     ctaLabel: 'Explore athletes',
-  },
-  inbox: {
-    title: 'Your inbox is empty',
-    message: 'Messages from coaches and recruiters will appear here.',
-    icon: 'mail-outline',
   },
   notifications: {
     title: 'No notifications yet',

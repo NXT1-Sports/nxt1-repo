@@ -120,9 +120,9 @@ export type CreatePostSkeletonVariant = 'full' | 'compact' | 'media-only';
         flex-direction: column;
         gap: 16px;
         padding: 16px;
-        background: var(--nxt1-color-surface-primary, var(--ion-background-color));
+        background: var(--nxt1-color-bg-primary, var(--ion-background-color));
         border-radius: var(--nxt1-radius-xl, 16px);
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border: 1px solid var(--nxt1-color-border-subtle);
       }
 
       .create-post-skeleton--compact {
@@ -153,9 +153,9 @@ export type CreatePostSkeletonVariant = 'full' | 'compact' | 'media-only';
           --nxt1-skeleton-gradient,
           linear-gradient(
             90deg,
-            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
-            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
-            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+            var(--nxt1-color-loading-skeleton) 25%,
+            var(--nxt1-color-loading-skeletonShimmer) 50%,
+            var(--nxt1-color-loading-skeleton) 75%
           )
         );
         background-size: 200% 100%;
@@ -260,7 +260,7 @@ export type CreatePostSkeletonVariant = 'full' | 'compact' | 'media-only';
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
       }
 
       .skeleton-media-icon {
@@ -275,7 +275,7 @@ export type CreatePostSkeletonVariant = 'full' | 'compact' | 'media-only';
         display: flex;
         align-items: center;
         justify-content: center;
-        border: 2px dashed var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        border: 2px dashed var(--nxt1-color-border-default);
         background: transparent !important;
         animation: none !important;
       }
@@ -295,7 +295,7 @@ export type CreatePostSkeletonVariant = 'full' | 'compact' | 'media-only';
         align-items: center;
         justify-content: space-between;
         padding: 12px 0;
-        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border-top: 1px solid var(--nxt1-color-border-subtle);
       }
 
       .skeleton-toolbar-buttons {
@@ -324,7 +324,7 @@ export type CreatePostSkeletonVariant = 'full' | 'compact' | 'media-only';
         align-items: center;
         justify-content: space-between;
         padding-top: 12px;
-        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border-top: 1px solid var(--nxt1-color-border-subtle);
       }
 
       .skeleton-char-count {
@@ -368,7 +368,7 @@ export type CreatePostSkeletonVariant = 'full' | 'compact' | 'media-only';
         .skeleton-char-count,
         .skeleton-post-btn {
           animation: none;
-          background: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08));
+          background: var(--nxt1-color-loading-skeleton);
         }
       }
     `,

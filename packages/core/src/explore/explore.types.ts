@@ -14,8 +14,15 @@
 /**
  * Explore tab identifiers.
  * Each tab represents a different content category.
+ *
+ * Feed tabs ('feed', 'following', 'news') are content sections
+ * that replaced the standalone /home route. They live as the first
+ * options in the explore option scroller (2026 strategy).
  */
 export type ExploreTabId =
+  | 'feed'
+  | 'following'
+  | 'news'
   | 'colleges'
   | 'athletes'
   | 'teams'
@@ -255,8 +262,12 @@ export interface ExploreSearchResponse<T extends ExploreItem = ExploreItem> {
 
 /**
  * Tab counts response.
+ * Feed tabs (feed, following, news) don't display counts.
  */
 export interface ExploreTabCounts {
+  readonly feed: number;
+  readonly following: number;
+  readonly news: number;
   readonly colleges: number;
   readonly athletes: number;
   readonly teams: number;

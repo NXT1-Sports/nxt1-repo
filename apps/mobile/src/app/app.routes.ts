@@ -25,17 +25,6 @@ export const routes: Routes = [
   },
 
   // ============================================
-  // SPECIAL ROUTES (Outside Shell)
-  // ============================================
-
-  // Create Post (modal-style, outside shell)
-  {
-    path: 'create-post',
-    loadChildren: () =>
-      import('./features/create-post/create-post.routes').then((m) => m.CREATE_POST_ROUTES),
-  },
-
-  // ============================================
   // AUTHENTICATED ROUTES (With Mobile Shell)
   // ============================================
 
@@ -48,24 +37,39 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./core/layout/shell/mobile-shell.component').then((m) => m.MobileShellComponent),
     children: [
-      // Default route → Home
+      // Default route → Explore (unified content hub)
       {
         path: '',
         pathMatch: 'full',
-        redirectTo: 'home',
+        redirectTo: 'explore',
       },
 
-      // Home Tab
+      // Home → Explore redirect (backward compatibility)
       {
         path: 'home',
-        loadChildren: () => import('./features/home/home.routes').then((m) => m.HOME_ROUTES),
+        redirectTo: 'explore',
+        pathMatch: 'full',
       },
 
-      // Explore Tab - Search & Discovery
+      // Explore Tab - Unified Discovery & Feed Hub
       {
         path: 'explore',
         loadChildren: () =>
           import('./features/explore/explore.routes').then((m) => m.EXPLORE_ROUTES),
+      },
+
+      // Create - Inside shell for shared footer + navigation consistency
+      {
+        path: 'create',
+        loadChildren: () =>
+          import('./features/create-post/create-post.routes').then((m) => m.CREATE_POST_ROUTES),
+      },
+
+      // Legacy create-post URL redirect
+      {
+        path: 'create-post',
+        redirectTo: 'create',
+        pathMatch: 'full',
       },
 
       // Agent X Tab - AI Assistant
@@ -86,6 +90,13 @@ export const routes: Routes = [
       {
         path: 'news',
         loadChildren: () => import('./features/news/news.routes').then((m) => m.NEWS_ROUTES),
+      },
+
+      // Messages - User Conversations & Direct Messages
+      {
+        path: 'messages',
+        loadChildren: () =>
+          import('./features/messages/messages.routes').then((m) => m.MESSAGES_ROUTES),
       },
 
       // Analytics Dashboard - User Analytics & Insights
@@ -177,27 +188,6 @@ export const routes: Routes = [
     path: 'dev-settings',
     loadComponent: () =>
       import('./features/dev-settings/dev-settings.component').then((m) => m.DevSettingsComponent),
-  },
-
-  // Legacy /home redirect (for backwards compatibility)
-  {
-    path: 'home',
-    redirectTo: 'tabs/home',
-    pathMatch: 'full',
-  },
-
-  // Legacy /scout-reports redirect
-  {
-    path: 'scout-reports',
-    redirectTo: 'tabs/scout-reports',
-    pathMatch: 'prefix',
-  },
-
-  // Legacy /help-center redirect
-  {
-    path: 'help-center',
-    redirectTo: 'tabs/help-center',
-    pathMatch: 'prefix',
   },
 
   // 404 Not Found Page (catch-all route)

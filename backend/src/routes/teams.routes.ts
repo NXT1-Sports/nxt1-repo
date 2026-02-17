@@ -11,32 +11,18 @@
  */
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
-import { appGuard, type AuthenticatedUser } from '../middleware/auth.middleware.js';
+import { appGuard } from '../middleware/auth.middleware.js';
 import { asyncHandler, sendSuccess } from '@nxt1/core/errors/express';
 import { validationError } from '@nxt1/core/errors';
 import { ROLE } from '@nxt1/core/models';
 import * as teamCodeService from '../services/team-code.service.js';
 import { logger } from '../utils/logger.js';
-import type { Firestore } from 'firebase-admin/firestore';
 import { performanceMiddleware, testPerformance } from '../middleware/performance.middleware.js';
 
 const router: ExpressRouter = Router();
 
 // Add performance tracking to all routes
 router.use(performanceMiddleware);
-
-// Extend Express Request with user and Firebase
-declare module 'express' {
-  interface Request {
-    user?: AuthenticatedUser;
-    firebase?: {
-      db: Firestore;
-      auth: any;
-      storage: any;
-    };
-    isStaging?: boolean;
-  }
-}
 
 // ============================================
 // VALIDATION HELPERS

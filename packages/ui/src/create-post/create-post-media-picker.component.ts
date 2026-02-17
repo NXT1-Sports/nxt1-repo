@@ -267,7 +267,7 @@ addIcons({
         aspect-ratio: 1;
         border-radius: var(--nxt1-radius-lg, 12px);
         overflow: hidden;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
       }
 
       .media-item__thumbnail {
@@ -287,12 +287,12 @@ addIcons({
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-300);
       }
 
       .media-item__placeholder ion-icon {
         font-size: 32px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* Video indicator */
@@ -473,7 +473,7 @@ addIcons({
         align-items: center;
         justify-content: center;
         background: transparent;
-        border: 2px dashed var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        border: 2px dashed var(--nxt1-color-border-default);
         border-radius: var(--nxt1-radius-lg, 12px);
         cursor: pointer;
         transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
@@ -483,13 +483,13 @@ addIcons({
       }
 
       .media-add-btn:hover {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
         border-color: var(--nxt1-color-primary, #ccff00);
       }
 
       .media-add-btn ion-icon {
         font-size: 28px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
         transition: color 0.15s ease;
       }
 
@@ -507,8 +507,8 @@ addIcons({
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
-        border: 2px dashed var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-surface-100);
+        border: 2px dashed var(--nxt1-color-border-default);
         border-radius: var(--nxt1-radius-xl, 16px);
         cursor: pointer;
         transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
@@ -518,7 +518,7 @@ addIcons({
       }
 
       .media-drop-zone:hover {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
         border-color: var(--nxt1-color-primary, #ccff00);
       }
 
@@ -542,14 +542,14 @@ addIcons({
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
         border-radius: 50%;
         margin-bottom: 4px;
       }
 
       .media-drop-zone__icon ion-icon {
         font-size: 28px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       .media-drop-zone:hover .media-drop-zone__icon {
@@ -563,12 +563,12 @@ addIcons({
       .media-drop-zone__title {
         font-size: var(--nxt1-fontSize-base, 1rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
       }
 
       .media-drop-zone__subtitle {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* ============================================
@@ -581,7 +581,7 @@ addIcons({
         right: 0;
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       .media-count--near-limit {

@@ -24,7 +24,7 @@ import {
   NxtLoggingService,
   type ExploreUser,
 } from '@nxt1/ui';
-import type { ExploreTabId, ExploreItem, ScoutReport } from '@nxt1/core';
+import type { ExploreTabId, ExploreItem, ScoutReport, FeedPost, FeedAuthor } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 
 @Component({
@@ -43,6 +43,10 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
         (itemClick)="onItemClick($event)"
         (scoutReportSelect)="onScoutReportSelect($event)"
         (scoutReportFiltersOpen)="onScoutReportFiltersOpen()"
+        (postSelect)="onPostSelect($event)"
+        (authorSelect)="onAuthorSelect($event)"
+        (newsArticleSelect)="onNewsArticleSelect($event)"
+        (xpBadgeClick)="onXpBadgeClick()"
       />
     </ion-content>
   `,
@@ -138,5 +142,40 @@ export class ExploreComponent {
   protected onScoutReportFiltersOpen(): void {
     this.logger.debug('Scout report filters opened');
     // TODO: Open filter modal/bottom sheet
+  }
+
+  // ── Feed / Following / News Handlers ──
+
+  /**
+   * Handle post selection - navigate to post detail.
+   */
+  protected onPostSelect(post: FeedPost): void {
+    this.logger.debug('Feed post selected', { id: post.id, type: post.type });
+    // Navigate to post detail when ready
+    // this.navController.navigateForward(['/post', post.id]);
+  }
+
+  /**
+   * Handle author selection - navigate to author profile.
+   */
+  protected onAuthorSelect(author: FeedAuthor): void {
+    this.logger.debug('Author selected', { uid: author.uid, profileCode: author.profileCode });
+    this.navController.navigateForward(['/profile', author.profileCode]);
+  }
+
+  /**
+   * Handle news article selection - navigate to article page.
+   */
+  protected onNewsArticleSelect(article: { id: string; title: string }): void {
+    this.logger.debug('News article selected', { id: article.id });
+    this.navController.navigateForward(['/news', article.id]);
+  }
+
+  /**
+   * Handle XP badge click - navigate to XP/rewards.
+   */
+  protected onXpBadgeClick(): void {
+    this.logger.debug('XP badge clicked');
+    this.navController.navigateForward(['/rewards']);
   }
 }

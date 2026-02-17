@@ -71,17 +71,18 @@ export const routes: Routes = [
         path: '',
         loadChildren: () => import('./features/landing/landing.routes'),
       },
-      // Home Page
+      // Home → Explore redirect (backward compatibility)
       {
         path: 'home',
-        loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
+        redirectTo: 'explore',
+        pathMatch: 'full',
       },
       // Agent X - AI Assistant
       {
         path: 'agent-x',
         loadChildren: () => import('./features/agent-x/agent-x.routes'),
       },
-      // Explore - Search & Discovery
+      // Explore - Unified Discovery & Feed Hub
       {
         path: 'explore',
         loadChildren: () => import('./features/explore/explore.routes'),
@@ -179,19 +180,20 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./core/layout/shell/web-shell.component').then((m) => m.WebShellComponent),
     children: [
-      // Default route → Home
+      // Default route → Explore (unified content hub)
       {
         path: '',
         loadChildren: () => import('./features/landing/landing.routes'),
       },
 
-      // Home Page (Dashboard)
+      // Home → Explore redirect (backward compatibility)
       {
         path: 'home',
-        loadComponent: () => import('./features/home/home.component').then((m) => m.HomeComponent),
+        redirectTo: 'explore',
+        pathMatch: 'full',
       },
 
-      // Explore - Search & Discovery
+      // Explore - Unified Discovery & Feed Hub
       {
         path: 'explore',
         loadChildren: () => import('./features/explore/explore.routes'),
@@ -349,10 +351,16 @@ export const routes: Routes = [
   // SPECIAL ROUTES (Outside Shell)
   // ============================================
 
-  // Create Post (modal-style, outside main shell for focused experience)
+  // Create (modal-style, outside main shell for focused experience)
+  {
+    path: 'create',
+    loadChildren: () => import('./features/create-post/create-post.routes'),
+  },
+  // Legacy create-post URL redirect
   {
     path: 'create-post',
-    loadChildren: () => import('./features/create-post/create-post.routes'),
+    redirectTo: 'create',
+    pathMatch: 'full',
   },
 
   // 404 Not Found Page (catch-all route)

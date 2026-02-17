@@ -16,14 +16,7 @@
  * Each tab represents a filtered view of the activity feed.
  * 'all' shows combined items from all other tabs.
  */
-export type ActivityTabId =
-  | 'all'
-  | 'inbox'
-  | 'notifications'
-  | 'deals'
-  | 'mentions'
-  | 'system'
-  | 'updates';
+export type ActivityTabId = 'all' | 'notifications' | 'deals' | 'mentions' | 'system' | 'updates';
 
 /**
  * Configuration for an activity tab.
@@ -54,7 +47,6 @@ export type ActivityType =
   | 'like'
   | 'comment'
   | 'mention'
-  | 'message'
   | 'offer'
   | 'deal'
   | 'announcement'

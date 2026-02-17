@@ -181,8 +181,8 @@ export interface UploadingFile {
       }
 
       .progress {
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
-        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-default);
         border-radius: var(--nxt1-radius-xl, 16px);
         padding: 16px;
         animation: fadeIn 0.2s ease;
@@ -226,12 +226,12 @@ export interface UploadingFile {
         gap: 8px;
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 600;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
       }
 
       .progress__title ion-icon {
         font-size: 20px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
       }
 
       .progress__icon--success {
@@ -258,12 +258,12 @@ export interface UploadingFile {
       }
 
       .progress__cancel:hover {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
       }
 
       .progress__cancel ion-icon {
         font-size: 20px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* ============================================
@@ -272,7 +272,7 @@ export interface UploadingFile {
 
       .progress__bar-container {
         height: 6px;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-300);
         border-radius: 3px;
         overflow: hidden;
       }
@@ -318,7 +318,7 @@ export interface UploadingFile {
 
       .progress__eta {
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* ============================================
@@ -339,7 +339,7 @@ export interface UploadingFile {
         align-items: center;
         gap: 12px;
         padding: 10px 12px;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
         border-radius: var(--nxt1-radius-md, 8px);
       }
 
@@ -357,13 +357,13 @@ export interface UploadingFile {
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-300);
         border-radius: var(--nxt1-radius-md, 8px);
       }
 
       .progress__file-icon ion-icon {
         font-size: 18px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
       }
 
       .progress__file-info {
@@ -377,7 +377,7 @@ export interface UploadingFile {
       .progress__file-name {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -385,7 +385,7 @@ export interface UploadingFile {
 
       .progress__file-size {
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
       }
 
       .progress__file-status {
@@ -411,13 +411,13 @@ export interface UploadingFile {
       .progress__file-progress span {
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
         font-variant-numeric: tabular-nums;
       }
 
       .progress__pending {
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
-        color: var(--nxt1-color-text-quaternary, rgba(255, 255, 255, 0.3));
+        color: var(--nxt1-color-text-quaternary);
       }
 
       /* ============================================

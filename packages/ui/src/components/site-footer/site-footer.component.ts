@@ -206,6 +206,12 @@ const DEFAULT_LINK_GROUPS: SiteFooterLinkGroup[] = [
         width: 100%;
       }
 
+      @media (min-width: 768px) {
+        :host {
+          display: none;
+        }
+      }
+
       /* ============================================
          FOOTER CONTAINER
          ============================================ */

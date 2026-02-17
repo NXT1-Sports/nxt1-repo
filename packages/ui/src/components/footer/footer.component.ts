@@ -92,7 +92,7 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
           >
             <!-- Custom NXT1 SVG Icon (same icon, color changes on select) -->
             <div class="tab-icon-wrapper">
-              <nxt1-icon [name]="tab.icon" [size]="26" class="tab-icon" />
+              <nxt1-icon [name]="tab.icon" [size]="24" class="tab-icon" />
 
               <!-- Professional Red Dot Badge (Instagram/Twitter style) -->
               @if (tab.badge && tab.badge > 0) {
@@ -176,10 +176,10 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: var(--nxt1-pill-gap, 4px);
+        gap: var(--nxt1-pill-gap, 3px);
         padding: 0;
         background: transparent;
-        max-width: 360px;
+        max-width: 344px;
         margin: 0 auto;
         pointer-events: auto; /* Re-enable clicks for the actual footer content */
       }
@@ -192,9 +192,9 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         flex: 1;
         border: 1px solid var(--footer-solid-border) !important;
         border-radius: var(--nxt1-pill-radius, 28px);
-        padding: var(--nxt1-pill-padding, 2px);
-        height: var(--nxt1-pill-height, 48px);
-        min-height: var(--nxt1-pill-height, 48px); /* Ensure height is respected */
+        padding: var(--nxt1-pill-padding, 1px);
+        height: var(--nxt1-pill-height, 44px);
+        min-height: var(--nxt1-pill-height, 44px); /* Ensure height is respected */
         box-shadow: var(--footer-solid-shadow);
         background: var(--footer-solid-bg) !important;
         -webkit-backdrop-filter: none !important;
@@ -237,7 +237,7 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         max-width: none;
         flex: 1;
         border-radius: var(--nxt1-tab-radius);
-        margin: 1px;
+        margin: 0;
         transition: background 0.2s ease;
       }
 
@@ -330,10 +330,10 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         display: flex;
         align-items: center;
         justify-content: center;
-        width: var(--nxt1-fab-size, 48px);
-        height: var(--nxt1-fab-size, 48px);
-        min-width: var(--nxt1-fab-size, 48px);
-        min-height: var(--nxt1-fab-size, 48px);
+        width: var(--nxt1-fab-size, 44px);
+        height: var(--nxt1-fab-size, 44px);
+        min-width: var(--nxt1-fab-size, 44px);
+        min-height: var(--nxt1-fab-size, 44px);
         border-radius: var(--nxt1-fab-radius, 50%);
         border: none;
         background: var(--nxt1-color-primary, #ccff00);
@@ -419,8 +419,8 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         fill: currentColor;
         stroke: currentColor;
         display: block;
-        width: 53px;
-        height: 53px;
+        width: 49px;
+        height: 49px;
         transition:
           color 0.2s ease,
           fill 0.2s ease;

@@ -111,7 +111,7 @@ interface ToolbarAction {
         align-items: center;
         justify-content: space-between;
         padding: 12px 0;
-        border-top: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        border-top: 1px solid var(--nxt1-color-border-default);
       }
 
       .toolbar--disabled {
@@ -134,8 +134,11 @@ interface ToolbarAction {
         align-items: center;
         gap: 6px;
         padding: 10px 12px;
+        -webkit-appearance: none;
+        appearance: none;
         background: transparent;
         border: none;
+        color: inherit;
         border-radius: var(--nxt1-radius-lg, 12px);
         cursor: pointer;
         transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
@@ -146,25 +149,25 @@ interface ToolbarAction {
 
       .toolbar__action ion-icon {
         font-size: 22px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
         transition: color 0.15s ease;
       }
 
       .toolbar__action-label {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
         transition: color 0.15s ease;
       }
 
       /* Hover state */
       .toolbar__action:hover:not(:disabled) {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
       }
 
       .toolbar__action:hover:not(:disabled) ion-icon,
       .toolbar__action:hover:not(:disabled) .toolbar__action-label {
-        color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary);
       }
 
       /* Active state */
@@ -174,7 +177,7 @@ interface ToolbarAction {
 
       .toolbar__action--active ion-icon,
       .toolbar__action--active .toolbar__action-label {
-        color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary);
       }
 
       /* Disabled state */
@@ -189,7 +192,7 @@ interface ToolbarAction {
 
       .toolbar__action--disabled:hover ion-icon,
       .toolbar__action--disabled:hover .toolbar__action-label {
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        color: var(--nxt1-color-text-secondary);
       }
 
       /* ============================================
@@ -199,7 +202,7 @@ interface ToolbarAction {
       .toolbar__count {
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
         font-weight: 500;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        color: var(--nxt1-color-text-tertiary);
         font-variant-numeric: tabular-nums;
       }
 

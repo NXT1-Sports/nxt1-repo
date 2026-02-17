@@ -81,6 +81,7 @@ export interface SearchBarSubmitEvent {
     '[class.desktop]': "variant() === 'desktop'",
     '[class.desktop-centered]': "variant() === 'desktop-centered'",
     '[class.mobile--focused]': "variant() === 'mobile' && focused()",
+    '[class.mobile--expanded]': "variant() === 'mobile' && expanded()",
   },
   template: `
     <form class="search-form relative flex items-center" (submit)="onSubmit($event)">
@@ -139,12 +140,13 @@ export interface SearchBarSubmitEvent {
       }
 
       :host(.mobile) .search-form {
+        width: clamp(162px, 44vw, 210px);
         max-width: 100%;
         margin: 0 auto;
         height: var(--nxt1-ui-btn-height-md);
         padding: 0 var(--nxt1-spacing-3, 12px);
         justify-content: center;
-        gap: var(--nxt1-spacing-2, 8px);
+        gap: 2px;
         background: var(--nxt1-color-surface-200, #1f1f1f);
         border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
         transition:
@@ -154,7 +156,8 @@ export interface SearchBarSubmitEvent {
       }
 
       /* Focused: fill entire available width */
-      :host(.mobile.mobile--focused) .search-form {
+      :host(.mobile.mobile--focused) .search-form,
+      :host(.mobile.mobile--expanded) .search-form {
         width: 100%;
         max-width: 100%;
         margin: 0;
@@ -165,9 +168,9 @@ export interface SearchBarSubmitEvent {
       :host(.mobile) .search-input {
         min-width: 0;
         flex: 0 1 auto;
-        width: 5ch;
+        width: 9ch;
         font-size: var(--nxt1-fontSize-sm, 0.9375rem);
-        text-align: left;
+        text-align: center;
         padding: 0;
         letter-spacing: var(--nxt1-letterSpacing-tight, 0.01em);
         -webkit-appearance: none;
@@ -175,9 +178,11 @@ export interface SearchBarSubmitEvent {
       }
 
       /* Focused: expand input to fill available space */
-      :host(.mobile.mobile--focused) .search-input {
+      :host(.mobile.mobile--focused) .search-input,
+      :host(.mobile.mobile--expanded) .search-input {
         flex: 1 1 auto;
         width: auto;
+        text-align: left;
       }
 
       :host(.mobile) .search-input:focus {
@@ -213,6 +218,9 @@ export class NxtSearchBarComponent {
   // ─── Inputs ───────────────────────────────────────────────
   /** Visual variant */
   readonly variant = input<SearchBarVariant>('mobile');
+
+  /** Force mobile variant to stay fully expanded (full-width input) */
+  readonly expanded = input(false);
 
   /** Placeholder text */
   readonly placeholder = input('Search');

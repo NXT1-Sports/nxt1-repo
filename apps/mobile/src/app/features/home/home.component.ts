@@ -358,7 +358,7 @@ export class HomeComponent implements OnInit {
     switch (action.id) {
       case 'create-post':
         await this.haptics.impact('light');
-        await this.navController.navigateForward('/create-post');
+        await this.navController.navigateForward('/create');
         break;
     }
   }

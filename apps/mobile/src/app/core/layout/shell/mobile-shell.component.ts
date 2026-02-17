@@ -78,6 +78,7 @@ import {
   NxtLoggingService,
   NxtScrollService,
   InviteBottomSheetService,
+  MessagesService,
   type FooterTabItem,
   type FooterTabSelectEvent,
   type FooterScrollToTopEvent,
@@ -234,6 +235,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   private readonly haptics = inject(HapticsService);
   private readonly authFlow = inject(AuthFlowService);
   private readonly activityService = inject(ActivityService);
+  private readonly messagesService = inject(MessagesService);
   private readonly scrollService = inject(NxtScrollService);
   private readonly inviteSheet = inject(InviteBottomSheetService);
   private readonly logger = inject(NxtLoggingService).child('MobileShell');
@@ -271,19 +273,27 @@ export class MobileShellComponent implements OnInit, OnDestroy {
 
   /**
    * Tab configuration with reactive badge count for notifications.
-   * Uses computed signal to update the 'activity' tab badge when unread count changes.
+   * Uses computed signal to update footer badges when unread counts change.
    */
   readonly tabs = computed<FooterTabItem[]>(() => {
-    const unreadCount = this.activityService.totalUnread();
-    return updateTabBadge(
+    const activityUnreadCount = this.activityService.totalUnread();
+    const messagesUnreadCount = this.messagesService.totalUnreadCount();
+
+    const tabsWithMessagesBadge = updateTabBadge(
       DEFAULT_FOOTER_TABS,
+      'messages',
+      messagesUnreadCount > 0 ? messagesUnreadCount : undefined
+    );
+
+    return updateTabBadge(
+      tabsWithMessagesBadge,
       'activity',
-      unreadCount > 0 ? unreadCount : undefined
+      activityUnreadCount > 0 ? activityUnreadCount : undefined
     );
   });
 
   /** Currently active tab ID, synced with router (null when on pages not in footer like /settings) */
-  private readonly _activeTabId = signal<string | null>('home');
+  private readonly _activeTabId = signal<string | null>('explore');
   readonly activeTabId = this._activeTabId.asReadonly();
 
   /**
@@ -308,6 +318,15 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       if (!t.isActionButton) position++;
     }
     return position;
+  }
+
+  /**
+   * Get fallback tab ID when active tab is null.
+   * Uses the first regular (non-action) tab to keep animation direction stable.
+   */
+  private getFallbackTabId(): string {
+    const firstRegularTab = this.tabs().find((tab) => !tab.isActionButton);
+    return firstRegularTab?.id ?? 'explore';
   }
 
   /**
@@ -548,13 +567,13 @@ export class MobileShellComponent implements OnInit, OnDestroy {
 
     // Handle action button (Agent X) differently if needed
     if (tab.isActionButton) {
-      this.handleAgentAction(tab, currentTabId ?? 'home');
+      this.handleAgentAction(tab, currentTabId ?? this.getFallbackTabId());
       return;
     }
 
     // Navigate to tab route with directional animation
     if (tab.route) {
-      const direction = this.getAnimationDirection(currentTabId ?? 'home', tab.id);
+      const direction = this.getAnimationDirection(currentTabId ?? this.getFallbackTabId(), tab.id);
       this.navigateToTab(tab.route, direction);
     }
   }

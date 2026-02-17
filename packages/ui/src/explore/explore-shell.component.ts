@@ -30,7 +30,7 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonContent, IonIcon } from '@ionic/angular/standalone';
+import { IonButton, IonContent, IonIcon } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { timeOutline, trendingUpOutline, chevronForwardOutline } from 'ionicons/icons';
 import {
@@ -40,7 +40,9 @@ import {
   EXPLORE_TABS,
   EXPLORE_SEARCH_CONFIG,
 } from '@nxt1/core';
+import type { FeedPost, FeedAuthor, FeedFilterType } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
+import { NxtIconComponent } from '../components/icon';
 import { NxtSearchBarComponent, type SearchBarSubmitEvent } from '../components/search-bar';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import {
@@ -54,6 +56,9 @@ import { ExploreService } from './explore.service';
 import { ExploreListComponent } from './explore-list.component';
 import { ExploreSkeletonComponent } from './explore-skeleton.component';
 import { ScoutReportsContentComponent } from '../scout-reports/scout-reports-content.component';
+import { NewsContentComponent } from '../news/news-content.component';
+import { FeedListComponent } from '../feed/feed-list.component';
+import { FeedService } from '../feed/feed.service';
 
 // Register icons for search suggestions
 addIcons({ timeOutline, trendingUpOutline, chevronForwardOutline });
@@ -69,8 +74,10 @@ export interface ExploreUser {
   standalone: true,
   imports: [
     CommonModule,
+    IonButton,
     IonContent,
     IonIcon,
+    NxtIconComponent,
     NxtSearchBarComponent,
     NxtPageHeaderComponent,
     NxtRefresherComponent,
@@ -78,6 +85,8 @@ export interface ExploreUser {
     ExploreListComponent,
     ExploreSkeletonComponent,
     ScoutReportsContentComponent,
+    NewsContentComponent,
+    FeedListComponent,
   ],
   template: `
     <!-- Professional Page Header with shared Top Nav search styling -->
@@ -88,10 +97,21 @@ export interface ExploreUser {
         [hideAvatar]="explore.isSearchFocused()"
         (avatarClick)="onAvatarClick()"
       >
+        @if (!explore.isSearchFocused()) {
+          <ion-button
+            pageHeaderSlot="end"
+            fill="clear"
+            aria-label="Open filters"
+            (click)="onFilterClick()"
+          >
+            <nxt1-icon name="funnel-outline" [size]="22" />
+          </ion-button>
+        }
+
         <div pageHeaderSlot="inline-search">
           <nxt1-search-bar
             variant="mobile"
-            placeholder="Search"
+            placeholder="AI Search"
             [value]="searchValue()"
             [focused]="explore.isSearchFocused()"
             (searchInput)="onSearchInputFromBar($event)"
@@ -155,8 +175,52 @@ export interface ExploreUser {
 
         <!-- Main Content -->
         @if (!explore.isSearchFocused() || explore.hasQuery()) {
-          <!-- Scout Reports Tab: Embed dedicated content component -->
-          @if (explore.activeTab() === 'scout-reports' && !explore.hasQuery()) {
+          <!-- Feed Tab: Personalized content stream -->
+          @if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
+            <nxt1-feed-list
+              [posts]="feedService.posts()"
+              [isLoading]="feedService.isLoading()"
+              [isLoadingMore]="feedService.isLoadingMore()"
+              [isEmpty]="feedService.isEmpty()"
+              [error]="feedService.error()"
+              [hasMore]="feedService.hasMore()"
+              [filterType]="'for-you'"
+              (postClick)="onPostSelect($event)"
+              (authorClick)="onAuthorSelect($event)"
+              (likeClick)="onLikeClick($event)"
+              (commentClick)="onCommentClick($event)"
+              (shareClick)="onShareClick($event)"
+              (bookmarkClick)="onBookmarkClick($event)"
+              (loadMore)="onFeedLoadMore()"
+              (retry)="onFeedRetry()"
+            />
+          } @else if (explore.activeTab() === 'following' && !explore.hasQuery()) {
+            <!-- Following Tab: Posts from followed users -->
+            <nxt1-feed-list
+              [posts]="feedService.posts()"
+              [isLoading]="feedService.isLoading()"
+              [isLoadingMore]="feedService.isLoadingMore()"
+              [isEmpty]="feedService.isEmpty()"
+              [error]="feedService.error()"
+              [hasMore]="feedService.hasMore()"
+              [filterType]="'following'"
+              (postClick)="onPostSelect($event)"
+              (authorClick)="onAuthorSelect($event)"
+              (likeClick)="onLikeClick($event)"
+              (commentClick)="onCommentClick($event)"
+              (shareClick)="onShareClick($event)"
+              (bookmarkClick)="onBookmarkClick($event)"
+              (loadMore)="onFeedLoadMore()"
+              (retry)="onFeedRetry()"
+            />
+          } @else if (explore.activeTab() === 'news' && !explore.hasQuery()) {
+            <!-- News Tab: Sports recruiting news -->
+            <nxt1-news-content
+              (articleSelect)="onNewsArticleSelect($event)"
+              (xpBadgeClick)="onXpBadgeClick()"
+            />
+          } @else if (explore.activeTab() === 'scout-reports' && !explore.hasQuery()) {
+            <!-- Scout Reports Tab -->
             <nxt1-scout-reports-content
               (reportSelect)="onScoutReportSelect($event)"
               (openFilters)="onScoutReportFiltersOpen()"
@@ -299,6 +363,7 @@ export interface ExploreUser {
 })
 export class ExploreShellComponent implements OnInit {
   protected readonly explore = inject(ExploreService);
+  protected readonly feedService = inject(FeedService);
   private readonly haptics = inject(HapticsService);
   private readonly logger = inject(NxtLoggingService).child('ExploreShell');
 
@@ -314,10 +379,14 @@ export class ExploreShellComponent implements OnInit {
   readonly itemClick = output<ExploreItem>();
   readonly scoutReportSelect = output<ScoutReport>();
   readonly scoutReportFiltersOpen = output<void>();
+  readonly postSelect = output<FeedPost>();
+  readonly authorSelect = output<FeedAuthor>();
+  readonly newsArticleSelect = output<{ id: string; title: string }>();
+  readonly xpBadgeClick = output<void>();
 
   // Local state
   protected readonly searchValue = signal('');
-  protected readonly searchPlaceholder = EXPLORE_SEARCH_CONFIG.placeholder;
+  protected readonly searchPlaceholder = 'AI Search';
 
   // Computed
   protected readonly displayName = computed(() => this.user()?.displayName ?? 'User');
@@ -333,11 +402,18 @@ export class ExploreShellComponent implements OnInit {
 
   ngOnInit(): void {
     this.logger.info('Explore shell initialized');
+    void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }
 
   protected onAvatarClick(): void {
     this.haptics.impact('light');
     this.avatarClick.emit();
+  }
+
+  protected async onFilterClick(): Promise<void> {
+    await this.haptics.impact('light');
+    this.logger.debug('Explore header filter clicked', { tab: this.explore.activeTab() });
+    this.scoutReportFiltersOpen.emit();
   }
 
   protected onSearchFocus(): void {
@@ -394,13 +470,21 @@ export class ExploreShellComponent implements OnInit {
   protected async onTabChange(event: OptionScrollerChangeEvent): Promise<void> {
     await this.haptics.impact('light');
     const tabId = event.option.id as ExploreTabId;
-    this.explore.switchTab(tabId);
+    await this.explore.switchTab(tabId);
+    await this.ensureFeedLoadedForTab(tabId);
     this.tabChange.emit(tabId);
   }
 
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
     try {
-      await this.explore.refresh();
+      const tab = this.explore.activeTab();
+      const filterType = this.getFeedFilterType(tab);
+
+      if (filterType) {
+        await this.feedService.refresh();
+      } else {
+        await this.explore.refresh();
+      }
     } finally {
       event.complete();
     }
@@ -434,5 +518,75 @@ export class ExploreShellComponent implements OnInit {
   protected onScoutReportFiltersOpen(): void {
     this.logger.debug('Scout report filters opened');
     this.scoutReportFiltersOpen.emit();
+  }
+
+  // ── Feed / Following / News Handlers ──
+
+  protected onPostSelect(post: FeedPost): void {
+    this.logger.debug('Post selected', { id: post.id, type: post.type });
+    this.postSelect.emit(post);
+  }
+
+  protected onAuthorSelect(author: FeedAuthor): void {
+    this.logger.debug('Author selected', { uid: author.uid, profileCode: author.profileCode });
+    this.authorSelect.emit(author);
+  }
+
+  protected async onLikeClick(post: FeedPost): Promise<void> {
+    await this.haptics.impact('light');
+    await this.feedService.toggleLike(post);
+  }
+
+  protected async onCommentClick(post: FeedPost): Promise<void> {
+    await this.haptics.impact('light');
+    this.postSelect.emit(post);
+  }
+
+  protected async onShareClick(post: FeedPost): Promise<void> {
+    await this.haptics.impact('medium');
+    await this.feedService.sharePost(post);
+  }
+
+  protected async onBookmarkClick(post: FeedPost): Promise<void> {
+    await this.haptics.impact('light');
+    await this.feedService.toggleBookmark(post);
+  }
+
+  protected async onFeedLoadMore(): Promise<void> {
+    await this.feedService.loadMore();
+  }
+
+  protected async onFeedRetry(): Promise<void> {
+    const tab = this.explore.activeTab();
+    const filterType = this.getFeedFilterType(tab);
+    if (!filterType) return;
+    await this.feedService.loadFeed(filterType);
+  }
+
+  private getFeedFilterType(tab: ExploreTabId): FeedFilterType | null {
+    if (tab === 'feed') return 'for-you';
+    if (tab === 'following') return 'following';
+    return null;
+  }
+
+  private async ensureFeedLoadedForTab(tab: ExploreTabId): Promise<void> {
+    const filterType = this.getFeedFilterType(tab);
+    if (!filterType) return;
+
+    const shouldReload =
+      this.feedService.posts().length === 0 || this.feedService.activeFilter() !== filterType;
+
+    if (!shouldReload) return;
+
+    await this.feedService.loadFeed(filterType);
+  }
+
+  protected onNewsArticleSelect(article: { id: string; title: string }): void {
+    this.logger.debug('News article selected', { id: article.id });
+    this.newsArticleSelect.emit(article);
+  }
+
+  protected onXpBadgeClick(): void {
+    this.xpBadgeClick.emit();
   }
 }

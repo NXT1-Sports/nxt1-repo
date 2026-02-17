@@ -21,16 +21,26 @@ import {
   CreatePostShellComponent,
   CreatePostService,
   CreatePostApiService,
+  NxtPageHeaderComponent,
+  NxtToastService,
   MOCK_CURRENT_USER,
   MOCK_XP_PREVIEW,
 } from '@nxt1/ui';
 import type { CreatePostState, TaggableUser, PostXpBreakdown } from '@nxt1/core';
 import { SeoService } from '../../core/services';
 
+type CreateOptionId = 'post' | 'video' | 'graphic' | 'event';
+
+interface CreateOption {
+  readonly id: CreateOptionId;
+  readonly title: string;
+  readonly description: string;
+}
+
 @Component({
   selector: 'app-create-post',
   standalone: true,
-  imports: [CommonModule, CreatePostShellComponent],
+  imports: [CommonModule, NxtPageHeaderComponent, CreatePostShellComponent],
   template: `
     <div class="create-post-page">
       <!-- Backdrop for modal effect on web -->
@@ -38,19 +48,50 @@ import { SeoService } from '../../core/services';
 
       <!-- Modal container -->
       <div class="create-post-page__modal">
-        <nxt1-create-post-shell
-          [user]="currentUser()"
-          [loading]="loading()"
-          [isFirstPost]="isFirstPost()"
-          [streakDays]="streakDays()"
-          [xpBreakdown]="xpBreakdown()"
-          (close)="onClose()"
-          (submit)="onSubmit($event)"
-          (addMedia)="onAddMedia()"
-          (addTag)="onAddTag()"
-          (addLocation)="onAddLocation()"
-          (addPoll)="onAddPoll()"
-        />
+        @if (viewMode() === 'options') {
+          <section class="create-selection">
+            <nxt1-page-header
+              title="Create/Add"
+              [avatarSrc]="currentUser()?.photoUrl"
+              [avatarName]="currentUser()?.displayName"
+            />
+
+            <div class="create-selection__content">
+              <p class="create-selection__subtitle">Choose what you want to create.</p>
+
+              <div class="create-selection__list">
+                @for (option of createOptions; track option.id) {
+                  <button
+                    type="button"
+                    class="create-selection__item"
+                    (click)="onSelectOption(option.id)"
+                    [attr.aria-label]="option.title"
+                  >
+                    <div class="create-selection__item-body">
+                      <h2 class="create-selection__item-title">{{ option.title }}</h2>
+                      <p class="create-selection__item-description">{{ option.description }}</p>
+                    </div>
+                  </button>
+                }
+              </div>
+            </div>
+          </section>
+        } @else {
+          <nxt1-create-post-shell
+            [user]="currentUser()"
+            [loading]="loading()"
+            [headerTitle]="'Create/Add'"
+            [isFirstPost]="isFirstPost()"
+            [streakDays]="streakDays()"
+            [xpBreakdown]="xpBreakdown()"
+            (close)="onClose()"
+            (submit)="onSubmit($event)"
+            (addMedia)="onAddMedia()"
+            (addTag)="onAddTag()"
+            (addLocation)="onAddLocation()"
+            (addPoll)="onAddPoll()"
+          />
+        }
       </div>
     </div>
   `,
@@ -104,11 +145,72 @@ import { SeoService } from '../../core/services';
         position: relative;
         width: 100%;
         max-width: 600px;
-        background: var(--nxt1-color-surface-base, #0a0a0a);
+        background: var(--nxt1-color-bg-primary, var(--ion-background-color));
         border-radius: var(--nxt1-radius-xl, 16px);
         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
         animation: slideUp 0.3s var(--nxt1-easing-out, ease-out);
         overflow: hidden;
+      }
+
+      .create-selection {
+        min-height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .create-selection__content {
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .create-selection__subtitle {
+        margin: 0;
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .create-selection__list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .create-selection__item {
+        width: 100%;
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-radius-lg, 12px);
+        background: var(--nxt1-color-surface-100);
+        padding: 14px 16px;
+        text-align: left;
+        cursor: pointer;
+        transition: border-color var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
+      }
+
+      .create-selection__item:hover,
+      .create-selection__item:focus-visible {
+        border-color: var(--nxt1-color-primary);
+        outline: none;
+      }
+
+      .create-selection__item-body {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .create-selection__item-title {
+        margin: 0;
+        font-size: var(--nxt1-fontSize-base, 1rem);
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .create-selection__item-description {
+        margin: 0;
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-color-text-secondary);
       }
 
       @keyframes slideUp {
@@ -147,9 +249,33 @@ export class CreatePostComponent implements OnInit, OnDestroy {
   private readonly createPostService = inject(CreatePostService);
   private readonly api = inject(CreatePostApiService);
   private readonly seo = inject(SeoService);
+  private readonly toast = inject(NxtToastService);
 
   // UI State
   protected readonly loading = signal(true);
+  protected readonly viewMode = signal<'options' | 'post'>('options');
+  protected readonly createOptions: readonly CreateOption[] = [
+    {
+      id: 'post',
+      title: 'Create Post',
+      description: 'Share an update, highlight, or recruiting moment.',
+    },
+    {
+      id: 'video',
+      title: 'Create Video',
+      description: 'Start a new video flow for clips or reels.',
+    },
+    {
+      id: 'graphic',
+      title: 'Create Graphic',
+      description: 'Build a branded visual for your profile or feed.',
+    },
+    {
+      id: 'event',
+      title: 'Add New Event',
+      description: 'Add an event to keep your schedule and profile current.',
+    },
+  ];
   protected readonly currentUser = signal<TaggableUser | null>(null);
   protected readonly isFirstPost = signal(false);
   protected readonly streakDays = signal(0);
@@ -157,9 +283,9 @@ export class CreatePostComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.seo.updatePage({
-      title: 'Create Post',
-      description: 'Share your athletic achievements, training sessions, and sports content.',
-      keywords: ['create', 'post', 'share', 'content'],
+      title: 'Create/Add',
+      description: 'Choose what you want to create and publish on NXT1.',
+      keywords: ['create', 'add', 'post', 'video', 'graphic', 'event'],
       noIndex: true, // Protected page - don't index
     });
     this.loadInitialData();
@@ -215,6 +341,19 @@ export class CreatePostComponent implements OnInit, OnDestroy {
   protected onClose(): void {
     // Navigate back or to feed
     this.router.navigate(['/feed']);
+  }
+
+  /**
+   * Handle create option selection.
+   */
+  protected onSelectOption(optionId: CreateOptionId): void {
+    if (optionId === 'post') {
+      this.viewMode.set('post');
+      return;
+    }
+
+    const selectedOption = this.createOptions.find((option) => option.id === optionId);
+    this.toast.info(`${selectedOption?.title ?? 'This option'} is coming soon`);
   }
 
   /**

@@ -18,7 +18,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonIcon, IonSpinner } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
-import { sendOutline, send, sparklesOutline, closeCircleOutline } from 'ionicons/icons';
+import { send, closeCircleOutline, add, micOutline } from 'ionicons/icons';
 import type { AgentXQuickTask } from '@nxt1/core';
 
 @Component({
@@ -43,44 +43,40 @@ import type { AgentXQuickTask } from '@nxt1/core';
       }
 
       <div class="input-wrapper">
-        <!-- Animated gradient glow ring (matches search bar) -->
-        <span class="glow-ring" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="plus-btn"
+          (click)="toggleTasks.emit()"
+          aria-label="Open quick actions"
+        >
+          <ion-icon name="add"></ion-icon>
+        </button>
 
         <textarea
           #messageInput
           [ngModel]="userMessage()"
           (ngModelChange)="onMessageChange($event)"
           (keydown.enter)="onEnterPress($event)"
-          placeholder="Ask anything..."
+          placeholder="Message Agent X"
           rows="1"
           [maxlength]="1000"
           class="message-input"
         ></textarea>
 
-        <div class="input-actions">
-          <button
-            type="button"
-            class="action-btn"
-            (click)="toggleTasks.emit()"
-            aria-label="AI Tasks"
-          >
-            <ion-icon name="sparkles-outline"></ion-icon>
-          </button>
-
-          <button
-            type="button"
-            class="send-btn"
-            (click)="onSend()"
-            [disabled]="!canSend()"
-            aria-label="Send message"
-          >
-            @if (isLoading()) {
-              <ion-spinner name="crescent" class="send-spinner"></ion-spinner>
-            } @else {
-              <ion-icon [name]="canSend() ? 'send' : 'send-outline'"></ion-icon>
-            }
-          </button>
-        </div>
+        <button
+          type="button"
+          class="primary-btn"
+          [class.send]="canSend()"
+          [disabled]="isLoading()"
+          (click)="onPrimaryAction()"
+          [attr.aria-label]="canSend() ? 'Send message' : 'Voice input'"
+        >
+          @if (isLoading()) {
+            <ion-spinner name="crescent" class="send-spinner"></ion-spinner>
+          } @else {
+            <ion-icon [name]="canSend() ? 'send' : 'mic-outline'"></ion-icon>
+          }
+        </button>
       </div>
     </div>
   `,
@@ -91,7 +87,6 @@ import type { AgentXQuickTask } from '@nxt1/core';
         position: fixed;
         left: var(--agent-input-left, 0);
         right: var(--agent-input-right, 0);
-        /* Desktop: sit comfortably above page bottom */
         bottom: calc(24px + var(--keyboard-offset, 0px));
         z-index: var(--nxt1-z-index-fixed, 999);
         pointer-events: none;
@@ -100,11 +95,7 @@ import type { AgentXQuickTask } from '@nxt1/core';
         --agent-input-bg: var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8));
         --agent-input-border: var(--nxt1-glass-borderSubtle, rgba(255, 255, 255, 0.08));
         --agent-input-radius: var(--nxt1-ui-radius-2xl, 20px);
-        --agent-input-shadow:
-          var(--nxt1-glass-shadow, 0 4px 16px rgba(0, 0, 0, 0.16)),
-          0 0 0 1px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
-        --agent-x-tail-size: 14px;
-        --agent-x-tail-offset: 10px;
+        --agent-input-shadow: var(--nxt1-glass-shadow, 0 4px 16px rgba(0, 0, 0, 0.16));
       }
 
       /* Desktop: offset left edge past sidebar so pill centers in content area */
@@ -115,20 +106,22 @@ import type { AgentXQuickTask } from '@nxt1/core';
         }
       }
 
-      /* Mobile: position above the fixed footer pill bar */
       @media (max-width: 767px) {
         :host {
-          bottom: calc(88px + env(safe-area-inset-bottom, 0) + var(--keyboard-offset, 0px));
+          bottom: calc(
+            var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px +
+              var(--keyboard-offset, 0px)
+          );
         }
       }
 
       .input-container {
-        padding: 0 1rem;
+        padding: 0 0.75rem;
         background: transparent;
         border: none;
         display: flex;
         flex-direction: column;
-        align-items: var(--agent-input-align-items, center);
+        align-items: stretch;
         gap: 0.5rem;
         pointer-events: auto;
       }
@@ -142,7 +135,8 @@ import type { AgentXQuickTask } from '@nxt1/core';
         border: 1px solid var(--agent-primary, #ccff00);
         border-radius: 20px;
         margin-bottom: 0.5rem;
-        max-width: fit-content;
+        max-width: 100%;
+        align-self: flex-start;
       }
 
       .task-pill-text {
@@ -172,98 +166,60 @@ import type { AgentXQuickTask } from '@nxt1/core';
         font-size: 1rem;
       }
 
+      .plus-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        flex: 0 0 34px;
+        border-radius: 50%;
+        border: none;
+        background: transparent;
+        color: var(--agent-text-secondary, rgba(255, 255, 255, 0.7));
+        transition:
+          background-color 0.2s ease,
+          color 0.2s ease;
+      }
+
+      .plus-btn ion-icon {
+        font-size: 1.25rem;
+      }
+
+      .plus-btn:active {
+        transform: scale(0.97);
+      }
+
+      .plus-btn:hover {
+        background: var(--agent-surface-hover, rgba(255, 255, 255, 0.04));
+      }
+
       .input-wrapper {
         display: flex;
         align-items: center;
         gap: 0.5rem;
         background: var(--agent-input-bg);
         border: 1px solid var(--agent-input-border);
-        border-radius: var(--agent-input-radius);
-        padding: 0.5rem 0.75rem 0.5rem 1rem;
-        height: var(--nxt1-ui-btn-height-lg, 52px);
+        border-radius: 999px;
+        padding: 0.5rem 0.5rem 0.5rem 0.9rem;
+        min-height: var(--nxt1-ui-btn-height-lg, 52px);
         box-shadow: var(--agent-input-shadow);
         backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         position: relative;
-        width: min(100%, var(--agent-input-max-width, 560px));
+        width: 100%;
         transition:
           border-color 0.2s ease,
-          box-shadow 0.2s ease,
-          transform 0.2s ease;
-      }
-
-      /* Gradient border glow (same as search bar ::after) */
-      .input-wrapper::before {
-        content: '';
-        position: absolute;
-        inset: 0;
-        border-radius: inherit;
-        padding: 1px;
-        background: linear-gradient(
-          135deg,
-          var(--nxt1-color-alpha-primary30, rgba(204, 255, 0, 0.15)),
-          transparent,
-          var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.1))
-        );
-        mask:
-          linear-gradient(#fff 0 0) content-box,
-          linear-gradient(#fff 0 0);
-        mask-composite: exclude;
-        pointer-events: none;
-        opacity: 0.6;
-      }
-
-      /* Animated gradient flow (same as search bar ::before) */
-      .input-wrapper .glow-ring {
-        content: '';
-        position: absolute;
-        inset: -2px;
-        border-radius: inherit;
-        background: linear-gradient(
-          45deg,
-          transparent,
-          var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.1)),
-          transparent,
-          var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.1)),
-          transparent
-        );
-        background-size: 400% 400%;
-        opacity: 0;
-        animation: agent-gradient-flow 3s ease-in-out infinite;
-        pointer-events: none;
-        z-index: -1;
+          box-shadow 0.2s ease;
       }
 
       .input-wrapper:hover {
         border-color: var(--nxt1-glass-border, rgba(255, 255, 255, 0.12));
-        box-shadow:
-          var(--nxt1-glass-shadow, 0 4px 16px rgba(0, 0, 0, 0.16)),
-          0 0 20px var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
       }
 
       .input-wrapper:focus-within {
         border-color: var(--nxt1-color-primary, #ccff00);
-        box-shadow:
-          var(--nxt1-glass-shadow, 0 4px 16px rgba(0, 0, 0, 0.16)),
-          0 0 0 2px var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.1)),
-          0 0 28px var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.1));
-        transform: translateY(-1px);
-      }
-
-      .input-wrapper:focus-within .glow-ring {
-        opacity: 1;
-      }
-
-      @keyframes agent-gradient-flow {
-        0% {
-          background-position: 0% 50%;
-        }
-        50% {
-          background-position: 100% 50%;
-        }
-        100% {
-          background-position: 0% 50%;
-        }
+        box-shadow: 0 0 0 2px var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.1));
       }
 
       .message-input {
@@ -281,6 +237,7 @@ import type { AgentXQuickTask } from '@nxt1/core';
         min-height: 24px;
         padding: 0;
         align-self: center;
+        overflow: hidden;
       }
 
       .message-input:focus {
@@ -295,65 +252,37 @@ import type { AgentXQuickTask } from '@nxt1/core';
         );
       }
 
-      .input-actions {
-        display: flex;
-        align-items: center;
-        gap: 0.25rem;
-      }
-
-      .action-btn {
+      .primary-btn {
         display: flex;
         align-items: center;
         justify-content: center;
         width: 36px;
         height: 36px;
+        flex: 0 0 36px;
         background: transparent;
-        border: none;
-        border-radius: 50%;
-        cursor: pointer;
         color: var(--agent-text-secondary, rgba(255, 255, 255, 0.7));
-        transition: all 0.2s;
-      }
-
-      .action-btn:hover {
-        background: var(--agent-surface-hover, rgba(255, 255, 255, 0.04));
-        color: var(--agent-primary, #ccff00);
-      }
-
-      .action-btn ion-icon {
-        font-size: 1.25rem;
-      }
-
-      .send-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 36px;
-        height: 36px;
-        background: var(--agent-primary, #ccff00);
         border: none;
         border-radius: 50%;
-        cursor: pointer;
-        color: #0a0a0a;
-        transition: all 0.2s;
+        transition:
+          transform 0.2s ease,
+          background-color 0.2s ease,
+          color 0.2s ease;
       }
 
-      .send-btn:disabled {
-        background: var(--agent-surface, rgba(255, 255, 255, 0.02));
-        color: var(--agent-text-muted, rgba(255, 255, 255, 0.5));
-        cursor: not-allowed;
+      .primary-btn.send {
+        background: var(--agent-primary, #ccff00);
+        color: var(--nxt1-color-bg-primary, #0a0a0a);
       }
 
-      .send-btn:not(:disabled):hover {
-        transform: scale(1.05);
-        box-shadow: 0 0 20px var(--agent-primary-glow, rgba(204, 255, 0, 0.3));
+      .primary-btn:disabled {
+        opacity: 0.8;
       }
 
-      .send-btn:not(:disabled):active {
+      .primary-btn:not(:disabled):active {
         transform: scale(0.95);
       }
 
-      .send-btn ion-icon {
+      .primary-btn ion-icon {
         font-size: 1.125rem;
       }
 
@@ -363,64 +292,16 @@ import type { AgentXQuickTask } from '@nxt1/core';
         --color: currentColor;
       }
 
-      /* Mobile polish: pill tail + intro animation */
       @media (max-width: 767px) {
         .input-container {
-          width: 100%;
-          animation: agent-input-enter 520ms cubic-bezier(0.16, 1, 0.3, 1) 60ms both;
-        }
-
-        .input-wrapper {
-          width: min(100%, 420px);
-        }
-
-        .input-wrapper::after {
-          content: '';
-          position: absolute;
-          width: var(--agent-x-tail-size);
-          height: var(--agent-x-tail-size);
-          right: calc(var(--agent-x-tail-offset) + env(safe-area-inset-right, 0));
-          bottom: calc(-0.5 * var(--agent-x-tail-size));
-          background: var(--agent-input-bg);
-          border-right: 1px solid var(--agent-input-border);
-          border-bottom: 1px solid var(--agent-input-border);
-          /* Rotate 55deg to angle the point toward the right (toward FAB) */
-          transform: rotate(55deg) skewX(8deg);
-          border-bottom-right-radius: 3px;
-          filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
-          animation: agent-tail-enter 520ms cubic-bezier(0.16, 1, 0.3, 1) 180ms both;
+          padding: 0 0.75rem;
         }
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .input-container {
-          animation: none;
-        }
-
-        .input-wrapper::after {
-          animation: none;
-        }
-      }
-
-      @keyframes agent-input-enter {
-        0% {
-          opacity: 0;
-          transform: translateY(14px) scale(0.985);
-        }
-        100% {
-          opacity: 1;
-          transform: translateY(0) scale(1);
-        }
-      }
-
-      @keyframes agent-tail-enter {
-        0% {
-          opacity: 0;
-          transform: translateY(6px) rotate(55deg) skewX(8deg) scale(0.6);
-        }
-        100% {
-          opacity: 1;
-          transform: translateY(0) rotate(55deg) skewX(8deg) scale(1);
+        .plus-btn,
+        .primary-btn {
+          transition: none;
         }
       }
     `,
@@ -456,9 +337,9 @@ export class AgentXInputComponent {
   constructor() {
     // Register icons
     addIcons({
-      sendOutline,
       send,
-      sparklesOutline,
+      add,
+      micOutline,
       closeCircleOutline,
     });
   }
@@ -484,6 +365,15 @@ export class AgentXInputComponent {
     if (this.canSend()) {
       this.send.emit();
     }
+  }
+
+  protected onPrimaryAction(): void {
+    if (this.canSend()) {
+      this.onSend();
+      return;
+    }
+
+    this.toggleTasks.emit();
   }
 
   // ============================================

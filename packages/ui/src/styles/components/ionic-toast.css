@@ -11,9 +11,7 @@
  *
  * Features:
  * - Theme-aware colors using design tokens
- * - Swipe-to-dismiss with Ionic GestureController (2026 best practice)
- * - Visual swipe indicator for discoverability
- * - Smooth spring animations
+ * - Tap-to-dismiss compatible styling
  */
 
 /* ============================================
@@ -22,25 +20,14 @@
 
 ion-toast.nxt-toast {
   font-family: var(--nxt1-fontFamily-brand);
-
-  /* Enable smooth transitions for swipe */
-  --toast-transition:
-    transform var(--nxt1-duration-normal) var(--nxt1-easing-out),
-    opacity var(--nxt1-duration-normal) var(--nxt1-easing-out);
 }
 
 /* Toast wrapper (shadow host) */
 ion-toast.nxt-toast::part(container) {
   border-radius: var(--nxt1-borderRadius-lg);
   box-shadow: var(--nxt1-shadow-lg);
-
-  /* Enable gestures - allow vertical panning */
-  touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
-
-  /* Smooth transforms during gesture */
-  will-change: transform, opacity;
 }
 
 /* Toast content */
@@ -76,69 +63,6 @@ ion-toast.nxt-toast::part(button) {
 
 ion-toast.nxt-toast::part(button):hover {
   opacity: 0.8;
-}
-
-/* ============================================
-   SWIPE INDICATOR - Shows toast is swipeable
-   Small pill at top/bottom of toast
-   ============================================ */
-
-/* Bottom toast - indicator at top */
-ion-toast.nxt-toast[position='bottom']::part(container)::before {
-  content: '';
-  position: absolute;
-  top: var(--nxt1-spacing-1_5, 0.375rem);
-  left: 50%;
-  transform: translateX(-50%);
-  width: var(--nxt1-spacing-8, 2rem);
-  height: var(--nxt1-spacing-1, 0.25rem);
-  background: currentColor;
-  opacity: 0.3;
-  border-radius: var(--nxt1-borderRadius-full, 9999px);
-}
-
-/* Top toast - indicator at bottom */
-ion-toast.nxt-toast[position='top']::part(container)::before {
-  content: '';
-  position: absolute;
-  bottom: var(--nxt1-spacing-1_5, 0.375rem);
-  left: 50%;
-  transform: translateX(-50%);
-  width: var(--nxt1-spacing-8, 2rem);
-  height: var(--nxt1-spacing-1, 0.25rem);
-  background: currentColor;
-  opacity: 0.3;
-  border-radius: var(--nxt1-borderRadius-full, 9999px);
-}
-
-/* ============================================
-   SWIPE-TO-DISMISS VISUAL STATES
-   ============================================ */
-
-/* Swiping class applied during gesture - disable transitions for 60fps */
-ion-toast.nxt-toast.nxt-toast-swiping {
-  transition: none !important;
-}
-
-ion-toast.nxt-toast.nxt-toast-swiping::part(container) {
-  transition: none !important;
-  cursor: grabbing;
-}
-
-/* Active state while swiping - subtle scale feedback */
-ion-toast.nxt-toast.nxt-toast-swiping::part(container)::before {
-  opacity: 0.5;
-}
-
-/* Dismiss animation when swiped away */
-ion-toast.nxt-toast.nxt-toast-dismissing {
-  pointer-events: none;
-}
-
-ion-toast.nxt-toast.nxt-toast-dismissing::part(container) {
-  transition:
-    transform var(--nxt1-duration-slow) var(--nxt1-easing-out),
-    opacity var(--nxt1-duration-slow) var(--nxt1-easing-out);
 }
 
 /* ============================================
