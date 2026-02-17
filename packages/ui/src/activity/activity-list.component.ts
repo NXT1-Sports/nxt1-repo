@@ -354,7 +354,7 @@ export class ActivityListComponent {
   readonly hasMore = input(false);
 
   /** Current active tab (for empty state) */
-  readonly activeTab = input<ActivityTabId>('all');
+  readonly activeTab = input<ActivityTabId>('inbox');
 
   // ============================================
   // OUTPUTS
@@ -394,6 +394,6 @@ export class ActivityListComponent {
   /** Empty state config for current tab */
   protected readonly emptyState = computed(() => {
     const tab = this.activeTab();
-    return ACTIVITY_EMPTY_STATES[tab] ?? ACTIVITY_EMPTY_STATES.all;
+    return ACTIVITY_EMPTY_STATES[tab] ?? ACTIVITY_EMPTY_STATES.inbox;
   });
 }

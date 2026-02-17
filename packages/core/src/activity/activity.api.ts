@@ -48,7 +48,7 @@ export type ActivityApi = ReturnType<typeof createActivityApi>;
  * const api = createActivityApi(capacitorHttpAdapter, API_URL);
  *
  * // Usage
- * const feed = await api.getFeed({ tab: 'notifications', limit: 20 });
+ * const feed = await api.getFeed({ tab: 'inbox', limit: 20 });
  * await api.markRead(['id1', 'id2']);
  * ```
  */
