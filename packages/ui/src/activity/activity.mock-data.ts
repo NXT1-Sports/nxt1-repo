@@ -21,6 +21,7 @@ const now = Date.now();
  */
 function getAllItems(): ActivityItem[] {
   const allItems: ActivityItem[] = [
+    ...MOCK_INBOX_ITEMS,
     ...MOCK_NOTIFICATIONS_ITEMS,
     ...MOCK_DEALS_ITEMS,
     ...MOCK_MENTIONS_ITEMS,
@@ -32,6 +33,62 @@ function getAllItems(): ActivityItem[] {
 }
 
 // Individual tab data arrays for reuse
+const MOCK_INBOX_ITEMS: ActivityItem[] = [
+  {
+    id: '1',
+    type: 'message',
+    tab: 'inbox',
+    priority: 'normal',
+    title: 'New message from Coach Thompson',
+    body: 'Hey! I saw your highlight reel from last week. Impressive speed and agility...',
+    timestamp: new Date(now - 1000 * 60 * 5).toISOString(),
+    isRead: false,
+    source: {
+      userId: 'coach-thompson',
+      userName: 'Coach Thompson',
+      avatarUrl: 'https://i.pravatar.cc/150?img=12',
+    },
+    metadata: {
+      sender: 'Coach Thompson',
+      preview: 'Hey! I saw your highlight reel...',
+    },
+  },
+  {
+    id: '2',
+    type: 'message',
+    tab: 'inbox',
+    priority: 'normal',
+    title: 'Coach Davis sent you a message',
+    body: 'Following up on our conversation about your upcoming season goals.',
+    timestamp: new Date(now - 1000 * 60 * 60 * 2).toISOString(),
+    isRead: false,
+    source: {
+      userId: 'coach-davis',
+      userName: 'Coach Davis',
+      avatarUrl: 'https://i.pravatar.cc/150?img=33',
+    },
+    metadata: {
+      sender: 'Coach Davis',
+      preview: 'Following up on our conversation...',
+    },
+  },
+  {
+    id: '3',
+    type: 'message',
+    tab: 'inbox',
+    priority: 'normal',
+    title: 'Team update from Riverside High',
+    body: 'Practice schedule changes for next week.',
+    timestamp: new Date(now - 1000 * 60 * 60 * 5).toISOString(),
+    isRead: true,
+    source: {
+      teamId: 'riverside-high',
+      teamName: 'Riverside High',
+      teamLogoUrl: 'https://i.pravatar.cc/150?img=45',
+    },
+  },
+];
+
 const MOCK_NOTIFICATIONS_ITEMS: ActivityItem[] = [
   {
     id: '4',
@@ -244,6 +301,7 @@ export const MOCK_ACTIVITY_DATA: Record<ActivityTabId, ActivityItem[]> = {
   get all() {
     return getAllItems();
   },
+  inbox: MOCK_INBOX_ITEMS,
   notifications: MOCK_NOTIFICATIONS_ITEMS,
   deals: MOCK_DEALS_ITEMS,
   mentions: MOCK_MENTIONS_ITEMS,
@@ -257,8 +315,11 @@ export const MOCK_ACTIVITY_DATA: Record<ActivityTabId, ActivityItem[]> = {
  */
 export const MOCK_BADGE_COUNTS: Record<ActivityTabId, number> = {
   get all() {
-    return this.notifications + this.deals + this.mentions + this.system + this.updates;
+    return (
+      this.inbox + this.notifications + this.deals + this.mentions + this.system + this.updates
+    );
   },
+  inbox: 2,
   notifications: 3,
   deals: 2,
   mentions: 1,
