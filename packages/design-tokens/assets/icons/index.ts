@@ -624,7 +624,7 @@ export const UI_ICONS = {
     strokeWidth: 2,
     paths: [
       { d: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' },
-      { d: 'M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
+      { d: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z' },
       { d: 'M23 21v-2a4 4 0 0 0-3-3.87' },
       { d: 'M16 3.13a4 4 0 0 1 0 7.75' },
     ],
@@ -789,16 +789,17 @@ export const UI_ICONS = {
     ],
   },
 
-  /** Lacrosse icon - for sport themes */
+  /** Lacrosse icon - lacrosse stick with head/pocket */
   lacrosse: {
     viewBox: '0 0 24 24',
     type: 'stroke' as const,
     strokeWidth: 2,
     paths: [
-      { d: 'M6 20l8-8' },
-      { d: 'M14 12l3 3' },
-      { d: 'M18 6a2 2 0 1 0 0-4a2 2 0 0 0 0 4z' },
-      { d: 'M9 17l3 3' },
+      { d: 'M6 22L14 8' },
+      { d: 'M14 8c0-3.3 2-6 5-6' },
+      { d: 'M19 2c1.5 0 2.5 1.5 2 3s-2.5 3-5 3' },
+      { d: 'M14 8l2-1' },
+      { d: 'M15 5.5l1.5.5' },
     ],
   },
 
@@ -822,6 +823,161 @@ export const UI_ICONS = {
       { d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z' },
       { d: 'M4.93 4.93c1.53 1.53 2.5 3.53 2.5 5.57s-.97 4.04-2.5 5.57' },
       { d: 'M19.07 4.93c-1.53 1.53-2.5 3.53-2.5 5.57s.97 4.04 2.5 5.57' },
+    ],
+  },
+
+  /** Softball icon - softball with underhand pitch motion */
+  softball: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z' },
+      { d: 'M5.3 5.3c1.3 1.8 2 3.8 2 6.2s-.7 4.4-2 6.2' },
+      { d: 'M18.7 5.3c-1.3 1.8-2 3.8-2 6.2s.7 4.4 2 6.2' },
+      { d: 'M8 12h8' },
+    ],
+  },
+
+  /** Golf icon - golf flag on green */
+  golf: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 18V3' },
+      { d: 'M12 3l7 4-7 4' },
+      { d: 'M6 21c0-2 2.7-3.6 6-3.6s6 1.6 6 3.6' },
+    ],
+  },
+
+  /** Cross Country icon - running figure on trail */
+  crossCountry: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M13 4a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z' },
+      { d: 'M7 21l3-7 2.5 2v5' },
+      { d: 'M10 14l-2-2 5-5 3 2-2 3' },
+      { d: 'M2 19c2-1 4.5-1.5 7-1' },
+      { d: 'M15 19c2 0 4.5-.5 7-1.5' },
+    ],
+  },
+
+  /** Field Hockey icon - field hockey stick and ball */
+  fieldHockey: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M6 3l8 14' },
+      { d: 'M14 17c0 1.66-1.34 3-3 3s-3-1.34-3-3h6z' },
+      { d: 'M18 18a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z' },
+    ],
+  },
+
+  /** Ice Hockey icon - hockey stick and puck */
+  iceHockey: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M4 20l10-16' }, { d: 'M14 4l3.5 2' }, { d: 'M4 20h5' }, { d: 'M16 18h4v2h-4z' }],
+  },
+
+  /** Tennis icon - tennis racket */
+  tennis: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14z' },
+      { d: 'M8 10c0-2.2 1.8-4 4-4' },
+      { d: 'M16 10c0 2.2-1.8 4-4 4' },
+      { d: 'M12 17v5' },
+      { d: 'M10 20h4' },
+    ],
+  },
+
+  /** Swimming icon - swimmer in water */
+  swimming: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M2 18c1.3-.7 2.7-.7 4 0s2.7.7 4 0 2.7-.7 4 0 2.7.7 4 0 2.7-.7 4 0' },
+      { d: 'M2 22c1.3-.7 2.7-.7 4 0s2.7.7 4 0 2.7-.7 4 0 2.7.7 4 0 2.7-.7 4 0' },
+      { d: 'M18 4a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
+      { d: 'M6 12l4-3 4 1 4-4' },
+      { d: 'M18 6l-6 7.5L8 12' },
+    ],
+  },
+
+  /** Rowing icon - rowing oar */
+  rowing: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M4 20L18 4' },
+      { d: 'M18 4c1 1 2 3 0 5s-4 1-5 0' },
+      { d: 'M2 18c1.3-.7 2.7-.7 4 0s2.7.7 4 0 2.7-.7 4 0 2.7.7 4 0 2.7-.7 4 0' },
+    ],
+  },
+
+  /** Wrestling icon - two figures grappling */
+  wrestling: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M8 4a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
+      { d: 'M16 4a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
+      { d: 'M6 8l2 4-3 5h4l2-3' },
+      { d: 'M18 8l-2 4 3 5h-4l-2-3' },
+      { d: 'M11 12h2' },
+      { d: 'M4 21h16' },
+    ],
+  },
+
+  /** Gymnastics icon - gymnast on beam */
+  gymnastics: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M14 4a2 2 0 1 0 0-4 2 2 0 0 0 0 4z' },
+      { d: 'M14 4v3l-4 4 2 3v6' },
+      { d: 'M10 11l-4-1' },
+      { d: 'M14 7l3 1' },
+      { d: 'M3 20h18' },
+    ],
+  },
+
+  /** Water Polo icon - ball above water */
+  waterPolo: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z' },
+      { d: 'M8 7l8 0' },
+      { d: 'M12 3v8' },
+      { d: 'M2 16c1.3-.7 2.7-.7 4 0s2.7.7 4 0 2.7-.7 4 0 2.7.7 4 0 2.7-.7 4 0' },
+      { d: 'M2 20c1.3-.7 2.7-.7 4 0s2.7.7 4 0 2.7-.7 4 0 2.7.7 4 0 2.7-.7 4 0' },
+    ],
+  },
+
+  /** Bowling icon - bowling ball with finger holes */
+  bowling: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z' },
+      { d: 'M10 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2z' },
+      { d: 'M14 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2z' },
+      { d: 'M12 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2z' },
     ],
   },
 
@@ -1421,6 +1577,18 @@ export const ROLE_ICONS = {
 
   /** Service - Handshake/business icon */
   service: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M12.22 19.85c-.18.18-.5.21-.71 0L3 11.41V8.59l1.77 1.77 3.54-3.54-2.83-2.83L3 6.47v-.88C3 4.71 3.71 4 4.59 4h4.23c.53 0 1.04.21 1.41.59l1.06 1.06-4.95 4.95 6.24 6.24c.97-.97 2.54-.97 3.54 0l.53-.53L21 20.59v.88c0 .88-.71 1.59-1.59 1.59h-4.23c-.53 0-1.04-.21-1.41-.59l-1.55-1.62z',
+      },
+      { d: 'M21 6.47l-2.48-2.48-3.54 3.54 2.83 2.83L21 7.12V6.47z' },
+    ],
+  },
+
+  /** Handshake - Partnership/deal icon (alias of service) */
+  handshake: {
     viewBox: '0 0 24 24',
     type: 'fill' as const,
     paths: [

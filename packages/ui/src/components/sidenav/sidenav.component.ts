@@ -192,8 +192,6 @@ import type { SidenavItemSelectEvent } from './sidenav.types';
                               class="nxt1-sidenav-sports__avatar"
                             />
                           </div>
-                        } @else {
-                          <div class="nxt1-sidenav-sports__empty">No sport added yet</div>
                         }
 
                         <button

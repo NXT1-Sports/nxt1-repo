@@ -24,6 +24,7 @@ import {
   provideZoneChangeDetection,
   isDevMode,
   ErrorHandler,
+  Injectable,
 } from '@angular/core';
 import {
   provideRouter,
@@ -31,8 +32,10 @@ import {
   withViewTransitions,
   withInMemoryScrolling,
   withPreloading,
-  PreloadAllModules,
+  PreloadingStrategy,
+  Route,
 } from '@angular/router';
+import { Observable } from 'rxjs';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import {
   provideClientHydration,
@@ -68,14 +71,41 @@ import { AnalyticsService } from './core/services/analytics.service';
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
 import { provideAuth, getAuth } from '@angular/fire/auth';
 import { provideFirestore, getFirestore } from '@angular/fire/firestore';
-import { provideAnalytics, getAnalytics } from '@angular/fire/analytics';
 import { provideStorage, getStorage } from '@angular/fire/storage';
-import { providePerformance, getPerformance } from '@angular/fire/performance';
+// NOTE: provideAnalytics and providePerformance removed from eager providers.
+// They are initialized lazily after LCP in AppComponent.initializeBrowserFeatures().
 
 // Auth service with injection token pattern
 import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
 
 import { environment } from '../environments/environment';
+
+/**
+ * Custom preloading strategy that waits until the browser is idle
+ * before preloading lazy routes. This prevents chunk loading from
+ * competing with LCP-critical rendering during the initial load.
+ *
+ * On browsers without requestIdleCallback, falls back to a 3-second delay.
+ */
+@Injectable({ providedIn: 'root' })
+class IdlePreloadStrategy implements PreloadingStrategy {
+  preload(_route: Route, load: () => Observable<unknown>): Observable<unknown> {
+    // Wait for browser idle or 3s timeout, then preload
+    return new Observable((subscriber) => {
+      const callback = () => {
+        load().subscribe(subscriber);
+      };
+
+      if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(callback, { timeout: 5000 });
+      } else {
+        setTimeout(callback, 3000);
+      }
+
+      return () => {}; // No cleanup needed
+    });
+  }
+}
 
 /**
  * Browser Application Configuration
@@ -104,8 +134,9 @@ export const appConfig: ApplicationConfig = {
         scrollPositionRestoration: 'enabled',
         anchorScrolling: 'enabled',
       }),
-      // Preload all lazy routes for faster navigation
-      withPreloading(PreloadAllModules)
+      // Idle-based preloading: defer chunk loading until browser is idle
+      // Prevents preloaded JS from competing with LCP-critical rendering
+      withPreloading(IdlePreloadStrategy)
     ),
 
     // HTTP client with fetch API, error handling, and caching
@@ -159,7 +190,10 @@ export const appConfig: ApplicationConfig = {
     // ============================================
 
     provideIonicAngular({
-      mode: undefined, // Auto-detect platform (ios/md)
+      // Explicitly set 'md' for web to avoid Ionic's platform detection
+      // which triggers forced reflows (reads layout properties synchronously).
+      // Mobile app uses 'ios'/'md' auto-detection via Capacitor.
+      mode: 'md',
       animated: true,
       rippleEffect: true,
     }),
@@ -172,8 +206,10 @@ export const appConfig: ApplicationConfig = {
     provideAuth(() => getAuth()),
     provideFirestore(() => getFirestore()),
     provideStorage(() => getStorage()),
-    provideAnalytics(() => getAnalytics()), // GA4 - Auto-tracks performance & page views
-    providePerformance(() => getPerformance()), // Firebase Performance Monitoring (2026)
+    // NOTE: Firebase Analytics and Performance are initialized lazily
+    // after LCP (via app.component.ts afterNextRender + requestIdleCallback)
+    // to prevent their heavy SDK initialization from blocking the render thread.
+    // See: AppComponent.initializeBrowserFeatures()
 
     // ============================================
     // AUTH SERVICE (Injection Token Pattern)

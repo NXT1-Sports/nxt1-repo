@@ -143,8 +143,16 @@ export {
   type HeroVariant,
   type HeroAudienceCardClickEvent,
 } from './components/hero-header';
+export { NxtEcosystemMapComponent, type EcosystemMapStep } from './components/ecosystem-map';
+export { NxtSectionHeaderComponent, type SectionHeaderLevel } from './components/section-header';
+export { NxtHeaderCardComponent } from './components/header-card';
+export {
+  NxtSuperProfileBreakdownComponent,
+  type SuperProfileHotspot,
+} from './components/super-profile-breakdown';
 
 export { NxtAgentXWelcomeHeaderComponent } from './components/agent-x-welcome-header';
+export { NxtImmersiveHeroComponent, type ImmersiveHeroShot } from './components/immersive-hero';
 
 // ============================================
 // PARTNER MARQUEE (Infinite Logo Scroll)
@@ -156,7 +164,35 @@ export {
   type MarqueeVariant,
 } from './components/partner-marquee';
 
+export {
+  NxtMovementSectionComponent,
+  type MovementActivityItem,
+} from './components/movement-section';
+
 export { NxtFaqSectionComponent, type FaqItem } from './components/faq-section';
+
+// ============================================
+// RECRUITMENT ENGINE (USA Map + Live Activity Pings)
+// ============================================
+export {
+  NxtRecruitmentEngineComponent,
+  type RecruitingActivity,
+  type RecruitingActivityType,
+} from './components/recruitment-engine';
+
+// ============================================
+// COACH ROLODEX (College Network Stats + Logo Marquee)
+// ============================================
+export { NxtCoachRolodexComponent, type CollegeLogo } from './components/coach-rolodex';
+
+// ============================================
+// AGENT X DEMO (AI Creative Director Showcase)
+// ============================================
+export {
+  NxtAgentXDemoComponent,
+  type AgentXDemoChatMessage,
+  type AgentXDemoGraphic,
+} from './components/agent-x-demo';
 
 // ============================================
 // REUSABLE LANDING / MARKETING SECTIONS
@@ -167,13 +203,27 @@ export {
   type FeatureShowcaseItem,
 } from './components/feature-showcase';
 export { NxtAudienceSectionComponent, type AudienceSegment } from './components/audience-section';
-export { NxtCtaBannerComponent, type CtaBannerVariant } from './components/cta-banner';
+export {
+  NxtCtaBannerComponent,
+  type CtaBannerVariant,
+  type CtaAvatarImage,
+} from './components/cta-banner';
 export {
   NxtCtaButtonComponent,
   type CtaButtonVariant,
   type CtaButtonSize,
 } from './components/cta-button';
-export { NxtHeroSectionComponent, type HeroLayout } from './components/hero-section';
+export {
+  NxtHeroSectionComponent,
+  type HeroLayout,
+  type HeadingLevel,
+} from './components/hero-section';
+export { NxtValuePropComparisonComponent } from './components/value-prop-comparison';
+export {
+  NxtUniversalSportsDirectoryComponent,
+  type UniversalSportDirectoryLink,
+} from './components/universal-sports-directory';
+export { NxtSuccessStoriesComponent, type SuccessStoryItem } from './components/success-stories';
 export {
   NxtSiteFooterComponent,
   type SiteFooterLink,
@@ -332,6 +382,11 @@ export {
   type AgentXUser,
   // Landing
   NxtAgentXLandingComponent,
+  // FAB Chat Widget (Web-only, SSR-safe)
+  AgentXFabComponent,
+  AgentXFabChatPanelComponent,
+  AgentXFabService,
+  type FabPanelState,
 } from './agent-x';
 
 // ============================================
@@ -427,8 +482,12 @@ export {
   ExploreItemWebComponent,
   // Shared
   ExploreSkeletonComponent,
+  ExploreFilterModalComponent,
+  ExploreFilterModalService,
   // Types
   type ExploreUser,
+  type ExploreFilterModalConfig,
+  type ExploreFilterModalResult,
 } from './explore';
 
 // ============================================

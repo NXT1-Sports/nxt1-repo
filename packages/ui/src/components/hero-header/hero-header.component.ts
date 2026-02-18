@@ -163,7 +163,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
       }
 
       <div
-        class="hero-content mx-auto w-full px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-20"
+        class="hero-content mx-auto w-full px-4 pt-2 pb-12 sm:px-6 sm:pt-4 sm:pb-16 lg:px-8 lg:pt-6 lg:pb-20"
         style="max-width: var(--nxt1-root-shell-max-width, 80rem)"
       >
         <!-- SEO H1 (screen reader only) -->
@@ -180,7 +180,9 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
         <section class="hero-cards" aria-label="Choose your path">
           <h2 class="sr-only">Who NXT1 is for</h2>
 
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+          <div
+            class="hero-cards__grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6"
+          >
             @for (card of audienceCards(); track card.id) {
               <article
                 class="hero-card group border-border bg-surface-200/80 hover:border-border-primary hover:shadow-glow/10 relative flex flex-col overflow-hidden rounded-2xl border p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-lg"
@@ -443,8 +445,40 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
       @media (max-width: 640px) {
         .hero-header {
           min-height: auto;
-          padding-top: var(--nxt1-spacing-8);
-          padding-bottom: var(--nxt1-spacing-8);
+          padding-top: 0;
+          padding-bottom: 0;
+        }
+
+        .hero-header[data-variant='minimal'] .hero-cards__grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: var(--nxt1-spacing-3);
+        }
+
+        .hero-header[data-variant='minimal'] .hero-card {
+          padding: var(--nxt1-spacing-4);
+          border-radius: var(--nxt1-borderRadius-xl);
+        }
+
+        .hero-header[data-variant='minimal'] .hero-card__icon {
+          width: calc(var(--nxt1-spacing-10) + var(--nxt1-spacing-1));
+          height: calc(var(--nxt1-spacing-10) + var(--nxt1-spacing-1));
+          margin-bottom: var(--nxt1-spacing-3);
+        }
+
+        .hero-header[data-variant='minimal'] .hero-card__title {
+          margin-bottom: var(--nxt1-spacing-1);
+          font-size: var(--nxt1-fontSize-lg);
+          line-height: 1.2;
+        }
+
+        .hero-header[data-variant='minimal'] .hero-card__description {
+          margin-bottom: var(--nxt1-spacing-3);
+          font-size: var(--nxt1-fontSize-xs);
+          line-height: var(--nxt1-lineHeight-normal);
+        }
+
+        .hero-header[data-variant='minimal'] .hero-card__cta {
+          font-size: var(--nxt1-fontSize-xs);
         }
 
         .hero-bg__glow {

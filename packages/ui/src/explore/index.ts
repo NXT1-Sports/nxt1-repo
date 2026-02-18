@@ -28,3 +28,9 @@ export { ExploreItemWebComponent } from './web/explore-item-web.component';
 // ============================================
 export { ExploreSkeletonComponent } from './explore-skeleton.component';
 export { ExploreService } from './explore.service';
+export { ExploreFilterModalComponent } from './explore-filter-modal.component';
+export {
+  ExploreFilterModalService,
+  type ExploreFilterModalConfig,
+  type ExploreFilterModalResult,
+} from './explore-filter-modal.service';

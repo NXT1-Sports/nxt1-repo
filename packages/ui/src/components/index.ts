@@ -41,6 +41,8 @@ export {
   type SearchBarSubmitEvent,
 } from './search-bar';
 
+export { NxtHeaderCardComponent } from './header-card';
+
 // ============================================
 // AVATAR
 // ============================================
@@ -277,7 +279,27 @@ export {
   type HeroAudienceCardClickEvent,
 } from './hero-header';
 
+export { NxtEcosystemMapComponent, type EcosystemMapStep } from './ecosystem-map';
+
+export { NxtValuePropComparisonComponent } from './value-prop-comparison';
+export {
+  NxtUniversalSportsDirectoryComponent,
+  type UniversalSportDirectoryLink,
+} from './universal-sports-directory';
+export { NxtSuccessStoriesComponent, type SuccessStoryItem } from './success-stories';
+export { NxtSectionHeaderComponent, type SectionHeaderLevel } from './section-header';
+export {
+  NxtSuperProfileBreakdownComponent,
+  type SuperProfileHotspot,
+} from './super-profile-breakdown';
+
 export { NxtAgentXWelcomeHeaderComponent } from './agent-x-welcome-header';
+export { NxtImmersiveHeroComponent, type ImmersiveHeroShot } from './immersive-hero';
+export {
+  NxtAgentXDemoComponent,
+  type AgentXDemoChatMessage,
+  type AgentXDemoGraphic,
+} from './agent-x-demo';
 
 // ============================================
 // PARTNER MARQUEE (Infinite Logo Scroll)
@@ -290,6 +312,16 @@ export {
 } from './partner-marquee';
 
 export { NxtFaqSectionComponent, type FaqItem } from './faq-section';
+
+// ============================================
+// RECRUITMENT ENGINE (USA Map + Live Activity Pings)
+// ============================================
+export {
+  NxtRecruitmentEngineComponent,
+  type RecruitingActivity,
+  type RecruitingActivityType,
+  type CollegeLogo,
+} from './recruitment-engine';
 
 // ============================================
 // APP DOWNLOAD BAR

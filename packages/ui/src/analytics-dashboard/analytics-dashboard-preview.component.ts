@@ -23,6 +23,7 @@
 
 import { Component, ChangeDetectionStrategy, input } from '@angular/core';
 import { NxtIconComponent } from '../components/icon';
+import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 
 // ============================================
 // PREVIEW MOCK DATA
@@ -75,10 +76,10 @@ const PREVIEW_CHART_POINTS = [35, 42, 38, 52, 48, 61, 72] as const;
 
 /** Default athlete/coach backdrop images for the landing page. */
 const DEFAULT_ATHLETE_IMAGES = [
-  '/assets/shared/images/analytics/athlete-1.png',
-  '/assets/shared/images/analytics/athlete-2.png',
-  '/assets/shared/images/analytics/athlete-3.png',
-  '/assets/shared/images/analytics/coach-1.png',
+  `/${IMAGE_PATHS.athlete1}`,
+  `/${IMAGE_PATHS.athlete2}`,
+  `/${IMAGE_PATHS.athlete3}`,
+  `/${IMAGE_PATHS.coach1}`,
 ] as const;
 
 @Component({

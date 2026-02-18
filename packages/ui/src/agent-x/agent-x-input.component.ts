@@ -96,6 +96,7 @@ import type { AgentXQuickTask } from '@nxt1/core';
         --agent-input-border: var(--nxt1-glass-borderSubtle, rgba(255, 255, 255, 0.08));
         --agent-input-radius: var(--nxt1-ui-radius-2xl, 20px);
         --agent-input-shadow: var(--nxt1-glass-shadow, 0 4px 16px rgba(0, 0, 0, 0.16));
+        --agent-input-min-height: 48px;
       }
 
       /* Desktop: offset left edge past sidebar so pill centers in content area */
@@ -108,10 +109,18 @@ import type { AgentXQuickTask } from '@nxt1/core';
 
       @media (max-width: 767px) {
         :host {
+          left: var(--nxt1-footer-left, 16px);
+          right: var(--nxt1-footer-right, 16px);
           bottom: calc(
             var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px +
               var(--keyboard-offset, 0px)
           );
+        }
+
+        .input-container {
+          max-width: 344px;
+          margin: 0 auto;
+          padding: 0;
         }
       }
 
@@ -170,9 +179,9 @@ import type { AgentXQuickTask } from '@nxt1/core';
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 34px;
-        height: 34px;
-        flex: 0 0 34px;
+        width: 32px;
+        height: 32px;
+        flex: 0 0 32px;
         border-radius: 50%;
         border: none;
         background: transparent;
@@ -201,8 +210,8 @@ import type { AgentXQuickTask } from '@nxt1/core';
         background: var(--agent-input-bg);
         border: 1px solid var(--agent-input-border);
         border-radius: 999px;
-        padding: 0.5rem 0.5rem 0.5rem 0.9rem;
-        min-height: var(--nxt1-ui-btn-height-lg, 52px);
+        padding: 0.375rem 0.5rem 0.375rem 0.85rem;
+        min-height: var(--agent-input-min-height);
         box-shadow: var(--agent-input-shadow);
         backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
@@ -256,9 +265,9 @@ import type { AgentXQuickTask } from '@nxt1/core';
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 36px;
-        height: 36px;
-        flex: 0 0 36px;
+        width: 34px;
+        height: 34px;
+        flex: 0 0 34px;
         background: transparent;
         color: var(--agent-text-secondary, rgba(255, 255, 255, 0.7));
         border: none;
@@ -294,7 +303,7 @@ import type { AgentXQuickTask } from '@nxt1/core';
 
       @media (max-width: 767px) {
         .input-container {
-          padding: 0 0.75rem;
+          padding: 0;
         }
       }
 

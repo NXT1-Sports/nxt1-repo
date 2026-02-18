@@ -55,7 +55,18 @@
               "src/robots.txt",
               "src/manifest.webmanifest"
             ],
-            "styles": ["src/styles.css"],
+            "styles": [
+              {
+                "input": "src/styles-critical.css",
+                "bundleName": "styles",
+                "inject": true
+              },
+              {
+                "input": "src/styles-deferred.css",
+                "bundleName": "styles-deferred",
+                "inject": true
+              }
+            ],
             "scripts": [],
             "serviceWorker": "ngsw-config.json",
             "optimization": {
@@ -92,9 +103,11 @@
                 "scripts": true,
                 "styles": {
                   "minify": true,
-                  "inlineCritical": false
+                  "inlineCritical": true
                 },
-                "fonts": true
+                "fonts": {
+                  "inline": true
+                }
               }
             },
             "staging": {
@@ -121,9 +134,11 @@
                 "scripts": true,
                 "styles": {
                   "minify": true,
-                  "inlineCritical": false
+                  "inlineCritical": true
                 },
-                "fonts": true
+                "fonts": {
+                  "inline": true
+                }
               }
             },
             "development": {

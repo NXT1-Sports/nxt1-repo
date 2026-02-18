@@ -113,7 +113,9 @@ export const config: ApplicationConfig = {
     // Ionic components are server-rendered via IonicServerModule
     // This provides server-safe implementations of Ionic web components
     provideIonicAngular({
-      mode: undefined, // Auto-detect platform
+      // Use 'md' on server to match client config and avoid
+      // platform detection mismatches during hydration.
+      mode: 'md',
     }),
 
     // ============================================

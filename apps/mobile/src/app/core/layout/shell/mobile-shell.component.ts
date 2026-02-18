@@ -353,7 +353,8 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       enableHaptics: true,
       variant: isIos ? 'default' : 'elevated',
       hidden: false,
-      translucent: isIos,
+      translucent: false,
+      glass: false, // Solid opaque background
       indicatorStyle: 'none',
       scrollToTopOnSameTap: true, // Enable Instagram/Twitter-style scroll-to-top
     };

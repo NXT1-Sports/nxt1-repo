@@ -1,1 +1,5 @@
-export { NxtHeroSectionComponent, type HeroLayout } from './hero-section.component';
+export {
+  NxtHeroSectionComponent,
+  type HeroLayout,
+  type HeadingLevel,
+} from './hero-section.component';

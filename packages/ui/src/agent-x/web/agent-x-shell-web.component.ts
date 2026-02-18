@@ -132,17 +132,19 @@ export interface AgentXUser {
     </main>
 
     <!-- Shared Input Bar (fixed, outside main scroll) -->
-    <nxt1-agent-x-input
-      [hasMessages]="!agentX.isEmpty()"
-      [selectedTask]="agentX.selectedTask()"
-      [isLoading]="agentX.isLoading()"
-      [canSend]="agentX.canSend()"
-      [userMessage]="agentX.getUserMessage()"
-      (messageChange)="agentX.setUserMessage($event)"
-      (send)="onSendMessage()"
-      (removeTask)="agentX.clearTask()"
-      (toggleTasks)="onToggleTasks()"
-    />
+    @if (!hideInput()) {
+      <nxt1-agent-x-input
+        [hasMessages]="!agentX.isEmpty()"
+        [selectedTask]="agentX.selectedTask()"
+        [isLoading]="agentX.isLoading()"
+        [canSend]="agentX.canSend()"
+        [userMessage]="agentX.getUserMessage()"
+        (messageChange)="agentX.setUserMessage($event)"
+        (send)="onSendMessage()"
+        (removeTask)="agentX.clearTask()"
+        (toggleTasks)="onToggleTasks()"
+      />
+    }
   `,
   styles: [
     `
@@ -227,6 +229,9 @@ export class AgentXShellWebComponent {
 
   /** Hide mobile page header (desktop sidebar provides navigation) */
   readonly hideHeader = input(false);
+
+  /** Hide the input bar (e.g. when logged out) */
+  readonly hideInput = input(false);
 
   // ============================================
   // OUTPUTS

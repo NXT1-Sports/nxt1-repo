@@ -294,7 +294,7 @@ export const routes: Routes = [
 
       // Athlete Profiles - Public Directory & Marketing
       {
-        path: 'athlete-profiles',
+        path: 'super-profiles',
         loadChildren: () => import('./features/athlete-profiles/athlete-profiles.routes'),
       },
 

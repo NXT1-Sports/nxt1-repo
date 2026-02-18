@@ -39,6 +39,7 @@ import {
   type ScoutReport,
   EXPLORE_TABS,
   EXPLORE_SEARCH_CONFIG,
+  isFeedTab,
 } from '@nxt1/core';
 import type { FeedPost, FeedAuthor, FeedFilterType } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
@@ -59,6 +60,7 @@ import { ScoutReportsContentComponent } from '../scout-reports/scout-reports-con
 import { NewsContentComponent } from '../news/news-content.component';
 import { FeedListComponent } from '../feed/feed-list.component';
 import { FeedService } from '../feed/feed.service';
+import { ExploreFilterModalService } from './explore-filter-modal.service';
 
 // Register icons for search suggestions
 addIcons({ timeOutline, trendingUpOutline, chevronForwardOutline });
@@ -103,8 +105,12 @@ export interface ExploreUser {
             fill="clear"
             aria-label="Open filters"
             (click)="onFilterClick()"
+            class="header-filter-btn"
           >
             <nxt1-icon name="funnel-outline" [size]="22" />
+            @if (activeFilterCount() > 0) {
+              <span class="header-filter-badge">{{ activeFilterCount() }}</span>
+            }
           </ion-button>
         }
 
@@ -357,6 +363,26 @@ export interface ExploreUser {
         color: var(--explore-text-muted);
         opacity: 0.5;
       }
+
+      .header-filter-btn {
+        position: relative;
+      }
+
+      .header-filter-badge {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        min-width: 14px;
+        height: 14px;
+        padding: 0 3px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 14px;
+        text-align: center;
+        color: var(--nxt1-color-on-primary, #0a0a0a);
+        background: var(--nxt1-color-primary, #ccff00);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -364,6 +390,7 @@ export interface ExploreUser {
 export class ExploreShellComponent implements OnInit {
   protected readonly explore = inject(ExploreService);
   protected readonly feedService = inject(FeedService);
+  private readonly filterModal = inject(ExploreFilterModalService);
   private readonly haptics = inject(HapticsService);
   private readonly logger = inject(NxtLoggingService).child('ExploreShell');
 
@@ -390,6 +417,9 @@ export class ExploreShellComponent implements OnInit {
 
   // Computed
   protected readonly displayName = computed(() => this.user()?.displayName ?? 'User');
+  protected readonly activeFilterCount = computed(() =>
+    this.explore.getActiveFilterCount(this.explore.activeTab())
+  );
 
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
     const counts = this.explore.tabCounts();
@@ -412,8 +442,21 @@ export class ExploreShellComponent implements OnInit {
 
   protected async onFilterClick(): Promise<void> {
     await this.haptics.impact('light');
-    this.logger.debug('Explore header filter clicked', { tab: this.explore.activeTab() });
-    this.scoutReportFiltersOpen.emit();
+    const tab = this.explore.activeTab();
+    this.logger.debug('Explore header filter clicked', { tab });
+
+    const result = await this.filterModal.open({
+      tab,
+      currentFilters: this.explore.getFiltersForTab(tab),
+    });
+
+    if (!result.applied) return;
+
+    this.explore.setFiltersForTab(tab, result.filters);
+
+    if (!isFeedTab(tab)) {
+      await this.explore.refresh();
+    }
   }
 
   protected onSearchFocus(): void {

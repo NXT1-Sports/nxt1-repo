@@ -27,8 +27,8 @@ ion-modal.nxt1-picker-modal {
   --backdrop-opacity: 0.7;
 
   /* Modal surface colors - uses design tokens */
-  --background: var(--nxt1-color-surface-elevated, var(--ion-background-color, #121212));
-  --ion-background-color: var(--nxt1-color-surface-elevated, #121212);
+  --background: var(--nxt1-color-background-primary);
+  --ion-background-color: var(--nxt1-color-background-primary);
 
   /* Border radius for the modal */
   --border-radius: var(--nxt1-borderRadius-2xl, 20px);
@@ -105,13 +105,13 @@ ion-modal.nxt1-picker-modal--centered .modal-wrapper {
 
 /* Modal header */
 ion-modal.nxt1-picker-modal ion-header {
-  --background: var(--nxt1-color-surface-elevated, #121212);
+  --background: var(--nxt1-color-background-primary);
 }
 
 ion-modal.nxt1-picker-modal ion-toolbar {
-  --background: var(--nxt1-color-surface-elevated, #121212);
-  --border-color: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
-  --color: var(--nxt1-color-text-primary, #ffffff);
+  --background: var(--nxt1-color-background-primary);
+  --border-color: var(--nxt1-color-border-subtle);
+  --color: var(--nxt1-color-text-primary);
   --min-height: var(--nxt1-spacing-14, 3.5rem);
 }
 
@@ -147,8 +147,8 @@ ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion-button:disabled {
 
 /* Modal content area */
 ion-modal.nxt1-picker-modal ion-content {
-  --background: var(--nxt1-color-surface-default, #0a0a0a);
-  --color: var(--nxt1-color-text-primary, #ffffff);
+  --background: var(--nxt1-color-background-primary);
+  --color: var(--nxt1-color-text-primary);
 }
 
 /* Input styling inside modal */
@@ -172,15 +172,15 @@ ion-modal.nxt1-picker-modal::part(backdrop) {
    ============================================ */
 
 html[data-theme='light'] ion-modal.nxt1-picker-modal {
-  --background: var(--nxt1-color-surface-elevated, #ffffff);
-  --ion-background-color: var(--nxt1-color-surface-elevated, #ffffff);
+  --background: var(--nxt1-color-background-primary);
+  --ion-background-color: var(--nxt1-color-background-primary);
 }
 
 html[data-theme='light'] ion-modal.nxt1-picker-modal ion-header,
 html[data-theme='light'] ion-modal.nxt1-picker-modal ion-toolbar {
-  --background: var(--nxt1-color-surface-elevated, #ffffff);
-  --color: var(--nxt1-color-text-primary, #212121);
-  --border-color: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.08));
+  --background: var(--nxt1-color-background-primary);
+  --color: var(--nxt1-color-text-primary);
+  --border-color: var(--nxt1-color-border-subtle);
 }
 
 html[data-theme='light'] ion-modal.nxt1-picker-modal ion-title {
@@ -196,8 +196,8 @@ html[data-theme='light'] ion-modal.nxt1-picker-modal ion-buttons[slot='end'] ion
 }
 
 html[data-theme='light'] ion-modal.nxt1-picker-modal ion-content {
-  --background: var(--nxt1-color-surface-default, #fafafa);
-  --color: var(--nxt1-color-text-primary, #212121);
+  --background: var(--nxt1-color-background-primary);
+  --color: var(--nxt1-color-text-primary);
 }
 
 html[data-theme='light'] ion-modal.nxt1-picker-modal--sheet .modal-handle {

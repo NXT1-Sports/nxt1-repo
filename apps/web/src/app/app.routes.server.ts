@@ -199,11 +199,11 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
-    path: 'athlete-profiles',
+    path: 'super-profiles',
     renderMode: RenderMode.Server,
   },
   {
-    path: 'athlete-profiles/**',
+    path: 'super-profiles/**',
     renderMode: RenderMode.Server,
   },
 

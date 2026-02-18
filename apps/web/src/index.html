@@ -127,44 +127,45 @@
         margin: 0;
       }
 
-      /* Pre-hydration: Give Ionic components dimensions before they're defined */
-      ion-content:not(:defined) {
-        display: block;
-        width: 100%;
-        min-height: 100vh;
-        background-color: var(--prehydration-bg);
-        color: var(--prehydration-text);
+      /*
+       * Ionic :not(:defined) CLS guards live in styles-critical.css.
+       * Critters inlines them at build time (inlineCritical: true),
+       * so they are NOT duplicated here—keeps this <style> block lean.
+       *
+       * Only theme-aware backgrounds and responsive nav guards remain
+       * because they must execute before ANY external CSS arrives.
+       */
+
+      /*
+       * CRITICAL: Pre-hydration responsive layout guards
+       * ────────────────────────────────────────────────────
+       * YouTube / LinkedIn / Twitter Pattern (A+ Standard)
+       *
+       * Both desktop and mobile nav components are always in the DOM.
+       * These CSS rules fire BEFORE any JavaScript to ensure the
+       * correct set of navigation is visible on the actual viewport.
+       *
+       * Targets custom element selectors which apply to unknown
+       * elements — works before Angular defines the components.
+       *
+       * Zero-flash, zero-CLS, zero-hydration-mismatch.
+       */
+      @media (max-width: 767.98px) {
+        /* Mobile: column layout, hide desktop nav chrome */
+        nxt1-desktop-sidebar,
+        nxt1-header,
+        app-notification-popover {
+          display: none !important;
+        }
       }
 
-      ion-header:not(:defined),
-      ion-toolbar:not(:defined) {
-        display: block;
-        width: 100%;
-        background-color: var(--prehydration-bg);
-      }
-
-      ion-button:not(:defined) {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 48px;
-      }
-
-      ion-icon:not(:defined) {
-        display: inline-block;
-        width: 24px;
-        height: 24px;
-      }
-
-      /* Auth wrapper - ensure centered content before hydration */
-      .nxt1-auth-wrapper {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
-        min-height: 100vh;
-        background-color: var(--prehydration-bg);
+      @media (min-width: 768px) {
+        /* Desktop / Tablet: hide mobile nav chrome */
+        nxt1-mobile-header,
+        nxt1-mobile-sidebar,
+        nxt1-mobile-footer {
+          display: none !important;
+        }
       }
     </style>
 
@@ -208,7 +209,12 @@
     <meta name="revisit-after" content="7 days" />
 
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+
+    <!-- Resource hints for faster loading -->
     <link rel="preconnect" href="https://storage.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://firebaseinstallations.googleapis.com" crossorigin />
+    <link rel="dns-prefetch" href="https://firestore.googleapis.com" />
+    <link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com" />
 
     <!-- PWA Manifest -->
     <link rel="manifest" href="manifest.webmanifest" />

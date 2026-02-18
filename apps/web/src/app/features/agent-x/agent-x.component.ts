@@ -23,6 +23,7 @@ import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@a
 import {
   AgentXShellWebComponent,
   NxtAgentXLandingComponent,
+  NxtAgentXWelcomeHeaderComponent,
   NxtSidenavService,
   NxtLoggingService,
   NxtPlatformService,
@@ -35,13 +36,14 @@ import { SeoService } from '../../core/services';
 @Component({
   selector: 'app-agent-x',
   standalone: true,
-  imports: [AgentXShellWebComponent, NxtAgentXLandingComponent],
+  imports: [AgentXShellWebComponent, NxtAgentXLandingComponent, NxtAgentXWelcomeHeaderComponent],
   template: `
     <!-- Agent X Shell — always visible (both logged-in and logged-out) -->
     <div class="agent-shell-wrapper" [class.agent-shell-wrapper--preview]="isLoggedOut()">
       <nxt1-agent-x-shell-web
         [user]="userInfo()"
         [hideHeader]="isDesktop()"
+        [hideInput]="isLoggedOut()"
         (avatarClick)="onAvatarClick()"
         (modeChange)="onModeChange($event)"
       />
@@ -52,16 +54,37 @@ import { SeoService } from '../../core/services';
       }
     </div>
 
-    <!-- Landing Sections — only when logged-out -->
+    <!-- Welcome Header + Landing — shown after fade when logged out -->
     @if (isLoggedOut()) {
-      <nxt1-agent-x-landing />
+      <div class="agent-landing-surface">
+        <div class="agent-welcome-wrapper">
+          <nxt1-agent-x-welcome-header />
+        </div>
+
+        <nxt1-agent-x-landing />
+      </div>
     }
   `,
   styles: [
     `
       :host {
         display: block;
-        height: 100%;
+        min-height: 100vh;
+        background: var(--nxt1-color-bg-primary);
+      }
+
+      .agent-landing-surface {
+        position: relative;
+        z-index: 2;
+        background: var(--nxt1-color-bg-primary);
+        padding-top: var(--nxt1-spacing-4);
+      }
+
+      .agent-welcome-wrapper {
+        position: relative;
+        z-index: 10;
+        margin-top: calc(var(--nxt1-spacing-8) * -1);
+        background: var(--nxt1-color-bg-primary);
       }
 
       /* ============================================
@@ -103,11 +126,11 @@ import { SeoService } from '../../core/services';
          ============================================ */
       @media (max-width: 768px) {
         .agent-shell-wrapper--preview {
-          max-height: 66vh;
+          max-height: 72vh;
         }
 
         .agent-fade-overlay {
-          height: 30%;
+          height: 40%;
         }
       }
     `,

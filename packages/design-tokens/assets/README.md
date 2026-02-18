@@ -11,6 +11,11 @@ assets/
 └── logo/             # Logo assets
     ├── nxt1_logo.avif # Main logo (AVIF, ~10KB, modern browsers)
     └── nxt1_icon.png  # NXT1 lightning bolt icon (PNG)
+└── images/           # Shared people images (athletes/coaches)
+  ├── athlete-1.png
+  ├── athlete-2.png
+  ├── athlete-3.png
+  └── coach-1.png
 ```
 
 ## Usage
@@ -51,6 +56,13 @@ import { LOGO_PATHS, LOGO_DIMENSIONS } from '@nxt1/design-tokens/assets';
 const logoSrc = LOGO_PATHS.main; // 'assets/shared/logo/nxt1_logo.avif'
 const iconSrc = LOGO_PATHS.icon; // 'assets/shared/logo/nxt1_icon.png'
 const { width, height } = LOGO_DIMENSIONS.main; // { width: 600, height: 180 }
+```
+
+```typescript
+import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
+
+const athleteImage = IMAGE_PATHS.athlete1; // 'assets/shared/images/athlete-1.png'
+const coachImage = IMAGE_PATHS.coach1; // 'assets/shared/images/coach-1.png'
 ```
 
 ## CSS Classes

@@ -401,23 +401,26 @@ export class SeoService {
    * Update or create a link tag (for canonical URL)
    */
   private updateLinkTag(rel: string, href: string): void {
-    // Only manipulate DOM in browser
-    if (!this.isBrowser) {
-      // For SSR, we need to use a different approach
-      // Angular's Meta service doesn't handle link tags
-      // This will be handled by the initial HTML
+    const head = this.document.head;
+    if (!head) {
       return;
     }
 
-    let link: HTMLLinkElement | null = this.document.querySelector(`link[rel="${rel}"]`);
+    let link = head.querySelector<HTMLLinkElement>(`link[rel="${rel}"][data-nxt1-seo="true"]`);
+
+    if (!link) {
+      link = head.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`);
+    }
 
     if (link) {
       link.href = href;
+      link.setAttribute('data-nxt1-seo', 'true');
     } else {
       link = this.document.createElement('link');
       link.rel = rel;
       link.href = href;
-      this.document.head.appendChild(link);
+      link.setAttribute('data-nxt1-seo', 'true');
+      head.appendChild(link);
     }
   }
 
@@ -425,24 +428,32 @@ export class SeoService {
    * Update JSON-LD structured data
    */
   private updateStructuredData(data: Record<string, unknown>): void {
-    // Only manipulate DOM in browser for non-SSR updates
-    if (!this.isBrowser) {
-      // For SSR, structured data should be in the initial HTML
-      // or handled by a transfer state mechanism
+    const head = this.document.head;
+    if (!head) {
       return;
     }
 
-    // Remove existing JSON-LD script
-    const existingScript = this.document.querySelector('script[type="application/ld+json"]');
+    // Remove existing service-managed JSON-LD script
+    const existingScript = head.querySelector(
+      'script[type="application/ld+json"][data-nxt1-seo="true"]'
+    );
     if (existingScript) {
       existingScript.remove();
     }
 
-    // Create new JSON-LD script
+    // Create JSON-LD script for SSR + client navigations
     const script = this.document.createElement('script');
     script.type = 'application/ld+json';
-    script.textContent = JSON.stringify(data);
-    this.document.head.appendChild(script);
+    script.setAttribute('data-nxt1-seo', 'true');
+    script.text = this.serializeStructuredData(data);
+    head.appendChild(script);
+  }
+
+  /**
+   * Safely serialize JSON-LD to avoid HTML/script parsing issues.
+   */
+  private serializeStructuredData(data: Record<string, unknown>): string {
+    return JSON.stringify(data).replace(/</g, '\\u003c');
   }
 
   /**

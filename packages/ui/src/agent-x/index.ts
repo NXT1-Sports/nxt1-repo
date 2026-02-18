@@ -28,3 +28,8 @@ export {
 
 // Landing Page
 export { NxtAgentXLandingComponent } from './agent-x-landing.component';
+
+// FAB Chat Widget (Web-only, SSR-safe)
+export { AgentXFabComponent } from './fab';
+export { AgentXFabChatPanelComponent } from './fab';
+export { AgentXFabService, type FabPanelState } from './fab';

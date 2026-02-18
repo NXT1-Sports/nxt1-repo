@@ -107,6 +107,7 @@ export type CtaButtonSize = 'default' | 'lg';
         justify-content: center;
         gap: var(--nxt1-spacing-2);
         padding: var(--nxt1-spacing-3) var(--nxt1-spacing-6);
+        min-width: var(--nxt1-cta-btn-min-width, auto);
         border-radius: var(--nxt1-borderRadius-lg);
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-base);
