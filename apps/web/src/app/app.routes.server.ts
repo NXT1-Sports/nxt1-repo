@@ -191,6 +191,14 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
+    path: 'nil',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'nil/**',
+    renderMode: RenderMode.Server,
+  },
+  {
     path: 'manage-team',
     renderMode: RenderMode.Server,
   },
@@ -206,6 +214,14 @@ export const serverRoutes: ServerRoute[] = [
     path: 'super-profiles/**',
     renderMode: RenderMode.Server,
   },
+  {
+    path: 'recruiting-scouts-colleges',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'recruiting-scouts-colleges/**',
+    renderMode: RenderMode.Server,
+  },
 
   // Persona-Specific Marketing Pages
   {
@@ -214,6 +230,22 @@ export const serverRoutes: ServerRoute[] = [
   },
   {
     path: 'athletes/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'recruiting-athletes',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'recruiting-athletes/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'ai-athletes',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'ai-athletes/**',
     renderMode: RenderMode.Server,
   },
   {

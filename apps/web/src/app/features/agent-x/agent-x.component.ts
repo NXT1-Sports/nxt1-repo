@@ -7,9 +7,8 @@
  * from @nxt1/ui and wires up platform-specific concerns.
  *
  * ⭐ LANDING STATE PATTERN (2026) ⭐
- * When logged OUT: Shows the live Agent X shell at top, then fades
- * into marketing landing sections below (stats, features, FAQ, etc.)
- * When logged IN: Shows only the full Agent X shell — no landing content.
+ * When logged OUT: Shows full-screen marketing landing state only.
+ * When logged IN: Shows only the full Agent X shell.
  *
  * The actual UI and logic live in @nxt1/ui (shared package).
  * This wrapper only handles:
@@ -23,6 +22,7 @@ import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@a
 import {
   AgentXShellWebComponent,
   NxtAgentXLandingComponent,
+  NxtAgentXExecutionLayerSectionComponent,
   NxtAgentXWelcomeHeaderComponent,
   NxtSidenavService,
   NxtLoggingService,
@@ -36,29 +36,28 @@ import { SeoService } from '../../core/services';
 @Component({
   selector: 'app-agent-x',
   standalone: true,
-  imports: [AgentXShellWebComponent, NxtAgentXLandingComponent, NxtAgentXWelcomeHeaderComponent],
+  imports: [
+    AgentXShellWebComponent,
+    NxtAgentXLandingComponent,
+    NxtAgentXExecutionLayerSectionComponent,
+    NxtAgentXWelcomeHeaderComponent,
+  ],
   template: `
-    <!-- Agent X Shell — always visible (both logged-in and logged-out) -->
-    <div class="agent-shell-wrapper" [class.agent-shell-wrapper--preview]="isLoggedOut()">
+    @if (isAuthenticated()) {
+      <!-- Authenticated users: full Agent X shell -->
       <nxt1-agent-x-shell-web
         [user]="userInfo()"
         [hideHeader]="isDesktop()"
-        [hideInput]="isLoggedOut()"
+        [hideInput]="false"
         (avatarClick)="onAvatarClick()"
         (modeChange)="onModeChange($event)"
       />
-
-      <!-- Fade overlay — masks bottom of shell when logged-out -->
-      @if (isLoggedOut()) {
-        <div class="agent-fade-overlay" aria-hidden="true"></div>
-      }
-    </div>
-
-    <!-- Welcome Header + Landing — shown after fade when logged out -->
-    @if (isLoggedOut()) {
-      <div class="agent-landing-surface">
+    } @else {
+      <!-- Logged-out users: full-screen landing state only -->
+      <div class="agent-landing-shell">
         <div class="agent-welcome-wrapper">
           <nxt1-agent-x-welcome-header />
+          <nxt1-agent-x-execution-layer-section />
         </div>
 
         <nxt1-agent-x-landing />
@@ -73,65 +72,16 @@ import { SeoService } from '../../core/services';
         background: var(--nxt1-color-bg-primary);
       }
 
-      .agent-landing-surface {
+      .agent-landing-shell {
         position: relative;
-        z-index: 2;
+        min-height: 100vh;
         background: var(--nxt1-color-bg-primary);
-        padding-top: var(--nxt1-spacing-4);
       }
 
       .agent-welcome-wrapper {
         position: relative;
         z-index: 10;
-        margin-top: calc(var(--nxt1-spacing-8) * -1);
         background: var(--nxt1-color-bg-primary);
-      }
-
-      /* ============================================
-         SHELL WRAPPER — Live preview container
-         When logged out, clips to a fixed height and
-         adds a gradient fade at the bottom.
-         When logged in, takes full height (normal).
-         ============================================ */
-      .agent-shell-wrapper {
-        position: relative;
-      }
-
-      .agent-shell-wrapper--preview {
-        max-height: 82vh;
-        overflow: hidden;
-      }
-
-      /* Gradient fade overlay — bottom-to-top transparent-to-bg */
-      .agent-fade-overlay {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 24%;
-        background: linear-gradient(
-          to bottom,
-          transparent 0%,
-          color-mix(in srgb, var(--nxt1-color-bg-primary) 22%, transparent) 42%,
-          color-mix(in srgb, var(--nxt1-color-bg-primary) 58%, transparent) 70%,
-          color-mix(in srgb, var(--nxt1-color-bg-primary) 86%, transparent) 88%,
-          var(--nxt1-color-bg-primary) 100%
-        );
-        pointer-events: none;
-        z-index: 1;
-      }
-
-      /* ============================================
-         RESPONSIVE — Mobile adjustments
-         ============================================ */
-      @media (max-width: 768px) {
-        .agent-shell-wrapper--preview {
-          max-height: 72vh;
-        }
-
-        .agent-fade-overlay {
-          height: 40%;
-        }
       }
     `,
   ],
@@ -147,8 +97,8 @@ export class AgentXComponent implements OnInit {
   /** Desktop detection for hiding redundant page header (sidebar provides nav) */
   protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
 
-  /** Auth state — drives landing section visibility */
-  protected readonly isLoggedOut = computed(() => !this.authFlow.isAuthenticated());
+  /** Auth state — hard-gates shell visibility */
+  protected readonly isAuthenticated = computed(() => this.authFlow.isAuthenticated());
 
   ngOnInit(): void {
     const isAuthenticated = this.authFlow.isAuthenticated();

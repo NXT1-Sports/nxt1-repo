@@ -9,6 +9,7 @@
 
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { NxtSectionHeaderComponent } from '../section-header';
 
 /** Story item for emotional verification case studies. */
 export interface SuccessStoryItem {
@@ -48,19 +49,18 @@ const DEFAULT_STORIES: readonly SuccessStoryItem[] = [
 @Component({
   selector: 'nxt1-success-stories',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, NxtSectionHeaderComponent],
   template: `
     <section class="success-stories" aria-labelledby="success-stories-title">
       <div class="success-stories__header">
-        <p class="success-stories__eyebrow">Success Stories</p>
-        <h2 id="success-stories-title" class="success-stories__title">
-          Emotional Verification.
-          <span class="success-stories__accent">This Could Be You.</span>
-        </h2>
-        <p class="success-stories__subtitle">
-          Real Zero to Hero journeys from athletes and programs using NXT1 to create momentum,
-          trust, and breakthrough recruiting outcomes.
-        </p>
+        <nxt1-section-header
+          titleId="success-stories-title"
+          eyebrow="Success Stories"
+          title="Emotional Verification."
+          accentText="This Could Be You."
+          subtitle="Real Zero to Hero journeys from athletes and programs using NXT1 to create momentum, trust, and breakthrough recruiting outcomes."
+          variant="hero"
+        />
       </div>
 
       <div class="success-stories__grid" role="list" aria-label="NXT1 success story case studies">
@@ -103,42 +103,7 @@ const DEFAULT_STORIES: readonly SuccessStoryItem[] = [
       }
 
       .success-stories__header {
-        display: grid;
-        gap: var(--nxt1-spacing-3);
         margin-bottom: var(--nxt1-spacing-8);
-        max-width: var(--nxt1-section-subtitle-max-width, 56rem);
-      }
-
-      .success-stories__eyebrow {
-        margin: 0;
-        color: var(--nxt1-color-primary);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-xs);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        letter-spacing: var(--nxt1-letterSpacing-wide);
-        text-transform: uppercase;
-      }
-
-      .success-stories__title {
-        margin: 0;
-        color: var(--nxt1-color-text-primary);
-        font-family: var(--nxt1-fontFamily-display);
-        font-size: var(--nxt1-fontSize-2xl);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        line-height: var(--nxt1-lineHeight-tight);
-      }
-
-      .success-stories__accent {
-        color: var(--nxt1-color-primary);
-      }
-
-      .success-stories__subtitle {
-        margin: 0;
-        color: var(--nxt1-color-text-secondary);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
-        font-weight: var(--nxt1-fontWeight-medium);
-        line-height: var(--nxt1-lineHeight-relaxed);
       }
 
       .success-stories__grid {
@@ -273,8 +238,8 @@ const DEFAULT_STORIES: readonly SuccessStoryItem[] = [
       }
 
       @media (max-width: 991px) {
-        .success-stories__title {
-          font-size: var(--nxt1-fontSize-xl);
+        .story-card__media {
+          justify-content: center;
         }
 
         .story-card__title {

@@ -79,7 +79,11 @@ const DEFAULT_HOTSPOTS: readonly SuperProfileHotspot[] = [
       <nxt1-section-header
         titleId="super-profile-breakdown-title"
         eyebrow="Super Profile Breakdown"
-        title="Digital Resume, Not a Bio"
+        [headingLevel]="2"
+        align="center"
+        variant="hero"
+        title="Digital Resume,"
+        accentText=" Not a Bio."
         subtitle="More than a profile. It's your athletic resume, verified."
         support="Recruitment Engine (Live Data): Verified biometrics, embedded transcripts, NIL valuation, and a live highlight feed built for real recruiting decisions."
       />
@@ -158,11 +162,11 @@ const DEFAULT_HOTSPOTS: readonly SuperProfileHotspot[] = [
 
       .breakdown {
         width: 100%;
-        max-width: var(--nxt1-section-max-width, var(--nxt1-content-max-width));
+        max-width: var(--nxt1-section-max-width);
         margin: 0 auto;
-        padding: var(--nxt1-spacing-10) var(--nxt1-section-padding-x, var(--nxt1-spacing-4));
+        padding: var(--nxt1-section-padding-y) var(--nxt1-section-padding-x);
         display: grid;
-        gap: var(--nxt1-spacing-7);
+        gap: var(--nxt1-spacing-8);
         background: transparent;
       }
 

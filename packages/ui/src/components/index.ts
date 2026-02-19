@@ -41,6 +41,15 @@ export {
   type SearchBarSubmitEvent,
 } from './search-bar';
 
+export {
+  NxtCoachAuthorityValidationComponent,
+  type CoachAuthorityQuote,
+} from './coach-authority-validation';
+export {
+  NxtInvisibleAthletePainPointComponent,
+  type InvisibleAthleteSignal,
+} from './invisible-athlete-pain-point';
+
 export { NxtHeaderCardComponent } from './header-card';
 
 // ============================================
@@ -281,7 +290,17 @@ export {
 
 export { NxtEcosystemMapComponent, type EcosystemMapStep } from './ecosystem-map';
 
+export {
+  NxtKillerComparisonComponent,
+  type KillerComparisonRow,
+  KILLER_COMPARISON_DEFAULT_ROWS,
+} from './nxt1-killer-comparison';
 export { NxtValuePropComparisonComponent } from './value-prop-comparison';
+export {
+  NxtEducationalLibraryComponent,
+  type EducationalLibraryItem,
+  EDUCATIONAL_LIBRARY_DEFAULT_ITEMS,
+} from './educational-library';
 export {
   NxtUniversalSportsDirectoryComponent,
   type UniversalSportDirectoryLink,
@@ -292,14 +311,36 @@ export {
   NxtSuperProfileBreakdownComponent,
   type SuperProfileHotspot,
 } from './super-profile-breakdown';
+export {
+  NxtMobileFirstDesignSectionComponent,
+  type DevicePreview,
+} from './mobile-first-design-section';
+export { NxtSeoGoogleSearchSectionComponent } from './seo-google-search-section';
 
 export { NxtAgentXWelcomeHeaderComponent } from './agent-x-welcome-header';
+export {
+  NxtAgentXMoneyballSectionComponent,
+  type MoneyballAthleteProfile,
+  type MoneyballProgressPoint,
+} from './agent-x-moneyball-section';
+export {
+  NxtAgentXExecutionLayerSectionComponent,
+  type ExecutionLayerTask,
+} from './agent-x-execution-layer-section';
+export { NxtAgentXHypeMachineSectionComponent } from './agent-x-hype-machine-section';
 export { NxtImmersiveHeroComponent, type ImmersiveHeroShot } from './immersive-hero';
+export { NxtD1DreamHeroComponent, type D1DreamHeadingLevel } from './d1-dream-hero';
+export { NxtAppStoreBadgesComponent, type AppStoreBadgeLayout } from './app-store-badges';
 export {
   NxtAgentXDemoComponent,
   type AgentXDemoChatMessage,
   type AgentXDemoGraphic,
 } from './agent-x-demo';
+export {
+  NxtTeamBrandArchitectureSectionComponent,
+  type BrandPipelineOutputCard,
+  type BrandPipelineStep,
+} from './team-brand-architecture-section';
 
 // ============================================
 // PARTNER MARQUEE (Infinite Logo Scroll)
@@ -320,8 +361,21 @@ export {
   NxtRecruitmentEngineComponent,
   type RecruitingActivity,
   type RecruitingActivityType,
-  type CollegeLogo,
 } from './recruitment-engine';
+
+export {
+  NxtRecruitingRadarSectionComponent,
+  type RecruitingRadarEvent,
+} from './recruiting-radar-section';
+
+export {
+  NxtRecruitmentPillarsSectionComponent,
+  type RecruitmentPillar,
+} from './recruitment-pillars-section';
+
+export { NxtXpLeaderboardSectionComponent } from './xp-leaderboard-section';
+
+export { NxtNilMonetizationUpsideComponent } from './nil-monetization-upside';
 
 // ============================================
 // APP DOWNLOAD BAR

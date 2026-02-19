@@ -22,6 +22,7 @@
 import { Component, ChangeDetectionStrategy, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../icon';
+import { NxtSectionHeaderComponent } from '../section-header';
 
 // ============================================
 // TYPES
@@ -42,16 +43,18 @@ export interface AudienceSegment {
 @Component({
   selector: 'nxt1-audience-section',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent],
+  imports: [CommonModule, NxtIconComponent, NxtSectionHeaderComponent],
   template: `
     <section class="audience-section" [attr.aria-labelledby]="titleId">
       <!-- Header -->
       @if (title()) {
         <div class="audience-header">
-          <h2 [id]="titleId" class="section-title">{{ title() }}</h2>
-          @if (subtitle()) {
-            <p class="section-subtitle">{{ subtitle() }}</p>
-          }
+          <nxt1-section-header
+            [titleId]="titleId"
+            [title]="title()"
+            [subtitle]="subtitle()"
+            align="center"
+          />
         </div>
       }
 
@@ -71,38 +74,18 @@ export interface AudienceSegment {
   `,
   styles: [
     `
+      :host {
+        display: block;
+      }
+
       .audience-section {
         padding: var(--nxt1-section-padding-y) var(--nxt1-section-padding-x);
-        max-width: var(--nxt1-section-max-width-narrow);
+        max-width: var(--nxt1-section-max-width);
         margin: 0 auto;
       }
 
       .audience-header {
-        text-align: center;
         margin-bottom: var(--nxt1-spacing-10);
-      }
-
-      .section-title {
-        font-family: var(--nxt1-fontFamily-display);
-        font-size: var(--nxt1-fontSize-3xl);
-        font-weight: var(--nxt1-fontWeight-bold);
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-3);
-      }
-
-      @media (min-width: 768px) {
-        .section-title {
-          font-size: var(--nxt1-fontSize-4xl);
-        }
-      }
-
-      .section-subtitle {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-lg);
-        color: var(--nxt1-color-text-secondary);
-        max-width: var(--nxt1-section-subtitle-max-width);
-        margin: 0 auto;
-        line-height: var(--nxt1-lineHeight-relaxed);
       }
 
       /* Grid */

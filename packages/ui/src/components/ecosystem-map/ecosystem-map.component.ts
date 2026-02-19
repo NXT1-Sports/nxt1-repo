@@ -516,7 +516,12 @@ const DEFAULT_STEPS: readonly EcosystemMapStep[] = [
 
         .ecosystem-card {
           width: 100%;
-          min-height: calc(var(--nxt1-spacing-10) * 3);
+          height: calc(
+            (var(--nxt1-spacing-10) * 3) + var(--nxt1-spacing-9) + var(--nxt1-spacing-5)
+          );
+          min-height: calc(
+            (var(--nxt1-spacing-10) * 3) + var(--nxt1-spacing-9) + var(--nxt1-spacing-5)
+          );
           justify-content: center;
           gap: var(--nxt1-spacing-3);
           padding: var(--nxt1-spacing-4);

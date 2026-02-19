@@ -84,6 +84,7 @@ export interface HeroConfig {
 
 /** Hero variant for different page contexts */
 export type HeroVariant = 'default' | 'landing' | 'minimal' | 'compact';
+export type HeroSeoHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
 /** Card click event */
 export interface HeroAudienceCardClickEvent {
@@ -103,7 +104,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     description:
       'Build your recruiting profile, showcase highlights, and connect with college coaches.',
     icon: 'athlete',
-    route: '/auth/register?role=athlete',
+    route: '/auth?role=athlete',
     cta: 'Start Your Journey',
     gradientClass: 'hero-card--athletes',
     ariaLabel: 'Learn about NXT1 for athletes and start your recruiting journey',
@@ -113,7 +114,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     title: 'For HS & Clubs',
     description: 'Manage rosters, promote your program, and help athletes get discovered.',
     icon: 'users',
-    route: '/auth/register?role=coach',
+    route: '/auth?role=coach',
     cta: 'Elevate Your Program',
     gradientClass: 'hero-card--teams',
     ariaLabel: 'Learn about NXT1 for high schools and club teams',
@@ -123,7 +124,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     title: 'For Scouts',
     description: 'Discover top talent, build watch lists, and streamline your recruiting process.',
     icon: 'scout',
-    route: '/auth/register?role=scout',
+    route: '/auth?role=scout',
     cta: 'Find Elite Talent',
     gradientClass: 'hero-card--scouts',
     ariaLabel: 'Learn about NXT1 for college scouts and recruiters',
@@ -133,7 +134,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     title: 'For Fans',
     description: 'Follow rising stars, get insider updates, and support athletes you believe in.',
     icon: 'fan',
-    route: '/auth/register?role=fan',
+    route: '/auth?role=fan',
     cta: 'Join the Community',
     gradientClass: 'hero-card--fans',
     ariaLabel: 'Learn about NXT1 for sports fans and supporters',
@@ -166,8 +167,12 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
         class="hero-content mx-auto w-full px-4 pt-2 pb-12 sm:px-6 sm:pt-4 sm:pb-16 lg:px-8 lg:pt-6 lg:pb-20"
         style="max-width: var(--nxt1-root-shell-max-width, 80rem)"
       >
-        <!-- SEO H1 (screen reader only) -->
-        <h1 class="sr-only">NXT1 — The Future of Sports Recruiting</h1>
+        <!-- SEO heading (screen reader only) -->
+        @if (seoHeadingLevel === 1) {
+          <h1 class="sr-only">NXT1 — The Future of Sports Recruiting</h1>
+        } @else {
+          <h2 class="sr-only">NXT1 — The Future of Sports Recruiting</h2>
+        }
 
         <!-- Brand Logo -->
         @if (showLogo) {
@@ -231,7 +236,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
             class="hero-cta mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row lg:mt-12"
           >
             <a
-              [routerLink]="['/auth/register']"
+              [routerLink]="['/auth']"
               class="btn-hero-primary group bg-primary text-text-inverse hover:bg-primaryLight hover:shadow-glow focus:ring-primary focus:ring-offset-bg-primary inline-flex items-center justify-center gap-2 rounded-xl px-8 py-4 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-xl focus:ring-2 focus:ring-offset-2 focus:outline-none"
             >
               Get Started Free
@@ -525,6 +530,9 @@ export class NxtHeroHeaderComponent {
 
   /** Hero variant for different contexts */
   @Input() variant: HeroVariant = 'default';
+
+  /** Screen-reader-only SEO heading level for this section. */
+  @Input() seoHeadingLevel: HeroSeoHeadingLevel = 1;
 
   /** Show animated background */
   @Input() showAnimatedBg = true;

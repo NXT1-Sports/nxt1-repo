@@ -20,7 +20,7 @@
  *   title="Ready to Get Started?"
  *   subtitle="Create your free account today."
  *   ctaLabel="Sign Up Free"
- *   ctaRoute="/auth/register"
+ *   ctaRoute="/auth"
  * />
  *
  * <!-- Full-width conversion layout -->
@@ -30,7 +30,7 @@
  *   title="Stop Competing. Start Dominating."
  *   subtitle="Build your verified athlete profile."
  *   ctaLabel="Create Your Account"
- *   ctaRoute="/auth/register"
+ *   ctaRoute="/auth"
  *   titleId="landing-final-cta"
  * />
  * ```
@@ -96,6 +96,7 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
                   loading="lazy"
                   decoding="async"
                 />
+                <span class="cta-avatar__dot"></span>
               </div>
             }
           </div>
@@ -156,6 +157,10 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
   `,
   styles: [
     `
+      :host {
+        display: block;
+      }
+
       .cta-section {
         position: relative;
         padding: var(--nxt1-section-padding-y) var(--nxt1-section-padding-x);
@@ -302,6 +307,7 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
 
         .cta-section--conversion .cta-actions {
           justify-content: center;
+          align-items: center;
         }
       }
 
@@ -327,7 +333,6 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
       .cta-avatar {
         position: absolute;
         border-radius: var(--nxt1-borderRadius-full, 50%);
-        overflow: hidden;
         border: 2px solid var(--nxt1-color-alpha-primary20);
         box-shadow: var(--nxt1-shadow-md);
         opacity: 0;
@@ -343,12 +348,146 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
         height: 100%;
         object-fit: cover;
         display: block;
+        border-radius: 50%;
+        overflow: hidden;
       }
 
-      /* ---- Per-avatar size, position & rotation ---- */
-      /* All positioned in the RIGHT half (empty green space around the button).
-         The conversion grid is ~55% text left, ~45% button right.
-         Using right-anchored % so they stay in the green zone. */
+      /* Live-status green dot */
+      .cta-avatar__dot {
+        position: absolute;
+        bottom: 2%;
+        right: 2%;
+        width: 22%;
+        height: 22%;
+        max-width: 0.55rem;
+        max-height: 0.55rem;
+        background: #22c55e;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3);
+        opacity: 0;
+        transition: opacity 300ms ease 600ms;
+      }
+
+      .cta-section--visible .cta-avatar__dot {
+        opacity: 1;
+      }
+
+      /* ============================================
+       * FLOAT KEYFRAMES — 6 unique movement patterns
+       * Each avatar has its own direction, arc & rotation drift.
+       * ============================================ */
+
+      /* 0: Gentle upward bob with slight counter-clockwise drift */
+      @keyframes nxt1-float-0 {
+        0% {
+          transform: translateY(0px) translateX(0px) rotate(-6deg);
+        }
+        35% {
+          transform: translateY(-10px) translateX(3px) rotate(-4deg);
+        }
+        70% {
+          transform: translateY(-5px) translateX(-2px) rotate(-7deg);
+        }
+        100% {
+          transform: translateY(0px) translateX(0px) rotate(-6deg);
+        }
+      }
+
+      /* 1: Short diagonal drift */
+      @keyframes nxt1-float-1 {
+        0% {
+          transform: translateY(0px) translateX(0px) rotate(8deg);
+        }
+        40% {
+          transform: translateY(-8px) translateX(-4px) rotate(6deg);
+        }
+        75% {
+          transform: translateY(-3px) translateX(2px) rotate(10deg);
+        }
+        100% {
+          transform: translateY(0px) translateX(0px) rotate(8deg);
+        }
+      }
+
+      /* 2: Slow gentle sway */
+      @keyframes nxt1-float-2 {
+        0% {
+          transform: translateY(0px) translateX(0px) rotate(4deg);
+        }
+        50% {
+          transform: translateY(-7px) translateX(4px) rotate(6deg);
+        }
+        100% {
+          transform: translateY(0px) translateX(0px) rotate(4deg);
+        }
+      }
+
+      /* 3: Deeper upward bob */
+      @keyframes nxt1-float-3 {
+        0% {
+          transform: translateY(0px) translateX(0px) rotate(-4deg);
+        }
+        30% {
+          transform: translateY(-12px) translateX(-3px) rotate(-2deg);
+        }
+        65% {
+          transform: translateY(-6px) translateX(3px) rotate(-5deg);
+        }
+        100% {
+          transform: translateY(0px) translateX(0px) rotate(-4deg);
+        }
+      }
+
+      /* 4: Small erratic hop */
+      @keyframes nxt1-float-4 {
+        0% {
+          transform: translateY(0px) translateX(0px) rotate(10deg);
+        }
+        25% {
+          transform: translateY(-6px) translateX(3px) rotate(12deg);
+        }
+        60% {
+          transform: translateY(-10px) translateX(-2px) rotate(8deg);
+        }
+        100% {
+          transform: translateY(0px) translateX(0px) rotate(10deg);
+        }
+      }
+
+      /* 5: Slow wide arc */
+      @keyframes nxt1-float-5 {
+        0% {
+          transform: translateY(0px) translateX(0px) rotate(-8deg);
+        }
+        45% {
+          transform: translateY(-9px) translateX(-4px) rotate(-6deg);
+        }
+        80% {
+          transform: translateY(-4px) translateX(3px) rotate(-10deg);
+        }
+        100% {
+          transform: translateY(0px) translateX(0px) rotate(-8deg);
+        }
+      }
+
+      /* 6: Gentle diagonal drift — offset keeps vertical centering intact */
+      @keyframes nxt1-float-6 {
+        0% {
+          transform: translateY(-50%) translateX(0px) rotate(5deg);
+        }
+        35% {
+          transform: translateY(calc(-50% - 9px)) translateX(-3px) rotate(7deg);
+        }
+        70% {
+          transform: translateY(calc(-50% - 4px)) translateX(3px) rotate(3deg);
+        }
+        100% {
+          transform: translateY(-50%) translateX(0px) rotate(5deg);
+        }
+      }
+
+      /* ---- Per-avatar size, position, entrance & float animation ---- */
+      /* All positioned in the RIGHT half (empty green space around the button). */
 
       /* 0: Large — top-right corner */
       .cta-avatar--0 {
@@ -360,9 +499,11 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
       .cta-section--visible .cta-avatar--0 {
         opacity: 1;
         transform: translateY(0) rotate(-6deg);
+        animation: nxt1-float-0 7s ease-in-out infinite;
+        animation-delay: 0.77s; /* entrance 600ms + stagger 0×90ms */
       }
 
-      /* 1: Small — above button, left of center-right */
+      /* 1: Small — above button, left */
       .cta-avatar--1 {
         width: 2.75rem;
         height: 2.75rem;
@@ -372,18 +513,22 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
       .cta-section--visible .cta-avatar--1 {
         opacity: 0.85;
         transform: translateY(0) rotate(8deg);
+        animation: nxt1-float-1 9s ease-in-out infinite;
+        animation-delay: 0.86s; /* entrance + 1×90ms */
       }
 
-      /* 2: Medium — far right, vertically centered */
+      /* 2: Medium — bottom zone, left of center-right */
       .cta-avatar--2 {
         width: 3.25rem;
         height: 3.25rem;
-        top: 42%;
-        right: 1%;
+        bottom: 8%;
+        right: 35%;
       }
       .cta-section--visible .cta-avatar--2 {
         opacity: 0.9;
         transform: translateY(0) rotate(4deg);
+        animation: nxt1-float-2 8.5s ease-in-out infinite;
+        animation-delay: 0.95s; /* entrance + 2×90ms */
       }
 
       /* 3: Medium-large — bottom-right corner */
@@ -396,35 +541,55 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
       .cta-section--visible .cta-avatar--3 {
         opacity: 1;
         transform: translateY(0) rotate(-4deg);
+        animation: nxt1-float-3 6.5s ease-in-out infinite;
+        animation-delay: 1.04s; /* entrance + 3×90ms */
       }
 
-      /* 4: Extra-small — below button, left of center-right */
+      /* 4: Extra-small — centered between bottom avatars */
       .cta-avatar--4 {
         width: 2.5rem;
         height: 2.5rem;
         bottom: 10%;
-        right: 32%;
+        right: 23%;
       }
       .cta-section--visible .cta-avatar--4 {
         opacity: 0.75;
         transform: translateY(0) rotate(10deg);
+        animation: nxt1-float-4 10s ease-in-out infinite;
+        animation-delay: 1.13s; /* entrance + 4×90ms */
       }
 
-      /* 5: Small-medium — left of button, mid-right zone */
+      /* 5: Small-medium — upper green zone */
       .cta-avatar--5 {
         width: 3rem;
         height: 3rem;
-        top: 45%;
-        right: 34%;
+        top: 18%;
+        right: 22%;
       }
       .cta-section--visible .cta-avatar--5 {
         opacity: 0.8;
         transform: translateY(0) rotate(-8deg);
+        animation: nxt1-float-5 7.5s ease-in-out infinite;
+        animation-delay: 1.22s; /* entrance + 5×90ms */
       }
 
-      /* ---- Responsive: stack layout — spread across full width ---- */
+      /* 6: Medium — left side of button, vertically centered */
+      .cta-avatar--6 {
+        width: 3.25rem;
+        height: 3.25rem;
+        top: 50%;
+        right: 32%;
+        transform: translateY(calc(-50% + 3rem));
+      }
+      .cta-section--visible .cta-avatar--6 {
+        opacity: 0.88;
+        transform: translateY(-50%) rotate(5deg);
+        animation: nxt1-float-6 8s ease-in-out infinite;
+        animation-delay: 1.31s;
+      }
+
+      /* ---- Responsive: stack layout — redistribute around card ---- */
       @media (max-width: 991px) {
-        /* When grid collapses to single column, redistribute around card */
         .cta-avatar--0 {
           top: 4%;
           right: 5%;
@@ -438,15 +603,20 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
           display: none;
         }
         .cta-avatar--3 {
-          bottom: 6%;
+          top: calc(100% - (var(--nxt1-spacing-10) * 4) + var(--nxt1-spacing-2));
+          bottom: auto;
           right: 5%;
         }
         .cta-avatar--4 {
-          bottom: 6%;
+          top: calc(100% - (var(--nxt1-spacing-10) * 4) + var(--nxt1-spacing-2));
+          bottom: auto;
           right: auto;
           left: 5%;
         }
         .cta-avatar--5 {
+          display: none;
+        }
+        .cta-avatar--6 {
           display: none;
         }
       }
@@ -470,7 +640,7 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
         }
       }
 
-      /* ---- Reduced motion: instant reveal, no translateY ---- */
+      /* ---- Reduced motion: no float animation, instant reveal ---- */
       @media (prefers-reduced-motion: reduce) {
         .cta-content {
           transition: none;
@@ -479,10 +649,12 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
         .cta-avatar {
           transition: none;
           transform: none !important;
+          animation: none !important;
         }
 
         .cta-section--visible .cta-avatar {
           transform: none !important;
+          animation: none !important;
         }
       }
     `,

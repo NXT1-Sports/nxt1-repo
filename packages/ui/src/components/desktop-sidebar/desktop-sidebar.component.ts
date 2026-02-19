@@ -62,7 +62,6 @@ import {
   DEFAULT_DESKTOP_SIDEBAR_CONFIG,
   DEFAULT_DESKTOP_SIDEBAR_SECTIONS,
   SIDEBAR_WIDTHS,
-  SIDEBAR_BREAKPOINTS,
 } from './desktop-sidebar.types';
 
 @Component({
@@ -326,6 +325,7 @@ import {
             <p class="sidebar__copyright">
               &copy; {{ currentYear }} NXT1 Sports. All rights reserved.
             </p>
+            <p class="sidebar__signature">Made With ❤️ By John Keller</p>
           </footer>
         }
       </nav>
@@ -933,6 +933,15 @@ import {
         flex-shrink: 0;
       }
 
+      .sidebar__signature {
+        margin: var(--nxt1-spacing-2, 0.5rem) 0 0;
+        padding-top: var(--nxt1-spacing-1, 0.25rem);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        line-height: var(--nxt1-lineHeight-normal, 1.5);
+        color: var(--sidebar-text-muted);
+        text-align: center;
+      }
+
       /* ============================================
        SIGN IN PROMPT
        ============================================ */
@@ -1199,6 +1208,13 @@ export class NxtDesktopSidebarComponent {
     if (item.children?.length) {
       event.preventDefault();
       event.stopPropagation();
+
+      // In collapsed mode, open sidebar normally (non-hover) before toggling
+      // so dropdown content opens predictably on tap.
+      if (this.isCollapsed()) {
+        this.setCollapsed(false);
+      }
+
       this.toggleSection(item.id);
     } else {
       this.onItemClick(item, sectionId, event);

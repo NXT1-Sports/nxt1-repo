@@ -54,7 +54,6 @@ import {
 } from '../components/option-scroller';
 import { AgentXService } from './agent-x.service';
 import { AgentXModeContentComponent } from './modes';
-import { AgentXWelcomeComponent } from './agent-x-welcome.component';
 import { AgentXChatComponent } from './agent-x-chat.component';
 import { AgentXInputComponent } from './agent-x-input.component';
 import { HapticsService } from '../services/haptics/haptics.service';

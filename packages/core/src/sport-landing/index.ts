@@ -249,7 +249,7 @@ const FOOTBALL_CONFIG: SportLandingConfig = {
   ctaSubtitle:
     'Join 65,000+ football athletes already using NXT1 to build their recruiting profile and connect with college coaches.',
   ctaLabel: 'Create Free Profile',
-  ctaRoute: '/auth/register',
+  ctaRoute: '/auth',
 
   seoTitle: 'Football Recruiting — Build Your Profile | NXT1',
   seoDescription:
@@ -405,7 +405,7 @@ const BASKETBALL_CONFIG: SportLandingConfig = {
   ctaSubtitle:
     'Join 40,000+ basketball athletes already using NXT1 to build their recruiting profile and connect with college coaches.',
   ctaLabel: 'Create Free Profile',
-  ctaRoute: '/auth/register',
+  ctaRoute: '/auth',
 
   seoTitle: 'Basketball Recruiting — Build Your Profile | NXT1',
   seoDescription:

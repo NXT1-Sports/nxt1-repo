@@ -16,79 +16,47 @@
  *
  * Component architecture:
  * NxtAgentXLandingComponent (orchestrator)
- *   NxtStatsBarComponent        (reusable)
- *   NxtFeatureShowcaseComponent (reusable)
- *   NxtAudienceSectionComponent (reusable)
- *   NxtFaqSectionComponent      (reusable)
- *   NxtCtaBannerComponent       (reusable)
- *   NxtSiteFooterComponent      (reusable)
+ *   NxtAgentXIdentitySectionComponent (agent-x specific)
+ *   NxtFaqSectionComponent            (reusable)
+ *   NxtCtaBannerComponent             (reusable)
+ *   NxtSiteFooterComponent            (reusable)
  */
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { NxtStatsBarComponent, type StatsBarItem } from '../components/stats-bar';
+import { NxtAgentXIdentitySectionComponent } from '../components/agent-x-identity-section/agent-x-identity-section.component';
+import { NxtAgentXMoneyballSectionComponent } from '../components/agent-x-moneyball-section/agent-x-moneyball-section.component';
+import { NxtAgentXDemoComponent } from '../components/agent-x-demo/agent-x-demo.component';
 import {
-  NxtFeatureShowcaseComponent,
-  type FeatureShowcaseItem,
-} from '../components/feature-showcase';
-import { NxtAudienceSectionComponent, type AudienceSegment } from '../components/audience-section';
-import { NxtFaqSectionComponent, type FaqItem } from '../components/faq-section';
-import { NxtCtaBannerComponent } from '../components/cta-banner';
-import { NxtSiteFooterComponent } from '../components/site-footer';
+  NxtAudienceSectionComponent,
+  type AudienceSegment,
+} from '../components/audience-section/audience-section.component';
+
+import { NxtTeamBrandArchitectureSectionComponent } from '../components/team-brand-architecture-section/team-brand-architecture-section.component';
+import {
+  NxtFaqSectionComponent,
+  type FaqItem,
+} from '../components/faq-section/faq-section.component';
+import {
+  NxtCtaBannerComponent,
+  type CtaAvatarImage,
+} from '../components/cta-banner/cta-banner.component';
+import { NxtStatsBarComponent } from '../components/stats-bar/stats-bar.component';
+import { NxtSiteFooterComponent } from '../components/site-footer/site-footer.component';
+import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 
 // ============================================
 // CONSTANTS — Agent X Landing Content
 // ============================================
 
-const AGENT_X_STATS: StatsBarItem[] = [
-  { value: '4', label: 'AI-Powered Modes' },
-  { value: '50K+', label: 'Athletes & Coaches' },
-  { value: '100+', label: 'Pre-Built Templates' },
-];
-
-const AGENT_X_FEATURES: FeatureShowcaseItem[] = [
-  {
-    id: 'highlights',
-    icon: 'videocam-outline',
-    title: 'Highlight Film AI',
-    description:
-      'Transform raw game footage into polished highlight reels. Agent X identifies your best plays, adds music, and creates shareable clips — in minutes, not hours.',
-  },
-  {
-    id: 'graphics',
-    icon: 'image-outline',
-    title: 'Recruiting Graphics',
-    description:
-      'Generate pro-grade recruiting graphics, commitment announcements, and game-day posts. Just describe what you want — Agent X handles the design.',
-  },
-  {
-    id: 'recruiting',
-    icon: 'school-outline',
-    title: 'Smart Recruiting',
-    description:
-      'Get AI-powered college match recommendations, draft outreach emails to coaches, and build a personalized recruiting strategy tailored to your goals.',
-  },
-  {
-    id: 'evaluation',
-    icon: 'clipboard-outline',
-    title: 'Evaluation Engine',
-    description:
-      'Receive detailed AI evaluations of your athletic profile, identify strengths and areas for improvement, and benchmark against peers in your position.',
-  },
-  {
-    id: 'templates',
-    icon: 'grid-outline',
-    title: 'Template Library',
-    description:
-      'Choose from 100+ pre-built templates for every need — recruiting emails, social posts, bios, commitment graphics, and more. Customize with one click.',
-  },
-  {
-    id: 'natural-language',
-    icon: 'chatbubble-outline',
-    title: 'Natural Language',
-    description:
-      "No complicated menus or settings. Just describe what you need in plain English and Agent X delivers. It's like having a personal recruiting assistant on call 24/7.",
-  },
-];
+const AGENT_X_CTA_AVATARS: readonly CtaAvatarImage[] = [
+  { src: `/${IMAGE_PATHS.athlete1}`, alt: 'High school athlete' },
+  { src: `/${IMAGE_PATHS.athlete2}`, alt: 'Club athlete' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Student athlete' },
+  { src: `/${IMAGE_PATHS.athlete4}`, alt: 'Varsity athlete' },
+  { src: `/${IMAGE_PATHS.athlete5}`, alt: 'Travel ball athlete' },
+  { src: `/${IMAGE_PATHS.coach1}`, alt: 'College coach' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Elite recruit' },
+] as const;
 
 const AGENT_X_AUDIENCES: AudienceSegment[] = [
   {
@@ -99,19 +67,25 @@ const AGENT_X_AUDIENCES: AudienceSegment[] = [
     icon: 'flash-outline',
   },
   {
-    id: 'coaches',
-    title: 'Coaches & Programs',
+    id: 'coaches-admin',
+    title: 'Coaches/Admin',
     description:
       "Build scouting reports, generate team graphics, create recruiting content, and streamline your program's digital presence.",
     icon: 'people-outline',
   },
   {
-    id: 'parents',
-    title: 'Parents & Families',
+    id: 'colleges-scouts',
+    title: 'Colleges/Scouts',
     description:
-      'Help your athlete create compelling recruiting materials, draft coach outreach emails, and stay organized throughout the recruiting journey.',
+      'Evaluate athlete fit faster with AI-powered comparisons, organized recruiting intel, and streamlined outreach workflows.',
     icon: 'heart-outline',
   },
+];
+
+const AGENT_X_WINS_TICKER: readonly string[] = [
+  'Generated 14,000 Graphic Edits',
+  'Wrote 500 Recruiting Emails',
+  'Analyzed 2,000 Hours of Film',
 ];
 
 const AGENT_X_FAQS: FaqItem[] = [
@@ -151,29 +125,43 @@ const AGENT_X_FAQS: FaqItem[] = [
   selector: 'nxt1-agent-x-landing',
   standalone: true,
   imports: [
-    NxtStatsBarComponent,
-    NxtFeatureShowcaseComponent,
+    NxtAgentXIdentitySectionComponent,
+    NxtAgentXMoneyballSectionComponent,
+    NxtTeamBrandArchitectureSectionComponent,
+    NxtAgentXDemoComponent,
     NxtAudienceSectionComponent,
+    NxtStatsBarComponent,
     NxtFaqSectionComponent,
     NxtCtaBannerComponent,
     NxtSiteFooterComponent,
   ],
   template: `
-    <!-- Social Proof Stats -->
-    <nxt1-stats-bar [stats]="stats" />
-
-    <!-- Feature Showcase Grid -->
-    <nxt1-feature-showcase
-      title="Your AI-Powered Recruiting Toolkit"
-      subtitle="Four specialized modes. Hundreds of templates. One simple conversation."
-      [features]="features"
-    />
-
     <!-- Audience Segments -->
     <nxt1-audience-section
       title="Built for Every Role"
-      subtitle="Whether you&rsquo;re an athlete, coach, or parent &mdash; Agent X is your edge."
+      subtitle="Whether you&rsquo;re an athlete, coach, or recruiter &mdash; Agent X is your edge."
       [segments]="audiences"
+    />
+
+    <!-- Identity Differentiation -->
+    <nxt1-agent-x-identity-section />
+
+    <!-- Team Brand Architecture (Programs / ADs) -->
+    <nxt1-team-brand-architecture-section />
+
+    <!-- Interactive Demo -->
+    <nxt1-agent-x-demo />
+
+    <!-- Scouts/Recruiters: Moneyball Intelligence -->
+    <nxt1-agent-x-moneyball-section />
+
+    <!-- Live Wins Ticker (Social Proof) -->
+    <nxt1-stats-bar
+      ariaLabel="Agent X live wins ticker"
+      [headline]="'What Agent X Did Today.'"
+      [tickerItems]="winsTicker"
+      [subtext]="'The most hardworking employee in sports.'"
+      [fullWidth]="true"
     />
 
     <!-- FAQ -->
@@ -185,10 +173,14 @@ const AGENT_X_FAQS: FaqItem[] = [
 
     <!-- Final CTA Banner -->
     <nxt1-cta-banner
-      title="Ready to Meet Your AI Assistant?"
-      subtitle="Create a free account and start using Agent X in seconds."
-      ctaLabel="Get Started Free"
-      ctaRoute="/auth/register"
+      variant="conversion"
+      badgeLabel="Agent X"
+      title="Activate Your AI Recruiting Assistant."
+      subtitle="Use Agent X to create highlight films, generate recruiting graphics, draft coach outreach, and get AI-powered evaluations in one conversation."
+      ctaLabel="Start with Agent X"
+      ctaRoute="/auth"
+      titleId="agent-x-final-cta-title"
+      [avatarImages]="ctaAvatars"
     />
 
     <!-- Site Footer (shared component is globally mobile-only) -->
@@ -199,13 +191,24 @@ const AGENT_X_FAQS: FaqItem[] = [
       :host {
         display: block;
       }
+
+      nxt1-stats-bar {
+        display: block;
+        margin-bottom: var(--nxt1-spacing-10);
+      }
+
+      @media (max-width: 767px) {
+        nxt1-stats-bar {
+          margin-bottom: var(--nxt1-spacing-8);
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtAgentXLandingComponent {
-  protected readonly stats = AGENT_X_STATS;
-  protected readonly features = AGENT_X_FEATURES;
   protected readonly audiences = AGENT_X_AUDIENCES;
+  protected readonly winsTicker = AGENT_X_WINS_TICKER;
   protected readonly faqs = AGENT_X_FAQS;
+  protected readonly ctaAvatars = AGENT_X_CTA_AVATARS;
 }

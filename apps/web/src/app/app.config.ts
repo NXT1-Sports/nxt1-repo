@@ -68,12 +68,14 @@ import { CrashlyticsService } from './core/services/crashlytics.service';
 import { AnalyticsService } from './core/services/analytics.service';
 
 // Firebase
+// IMPORTANT: Only import what's actually used in browser bundle
+// - FirebaseApp: Required for Firebase initialization
+// - Auth: Required for authentication (BrowserAuthService uses it)
+// - Firestore: NOT imported - only used in SSR via firebase/firestore SDK
+// - Storage: NOT imported - file uploads go through backend API (security)
+// - Analytics/Performance: Lazy-loaded after LCP (see AppComponent)
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
 import { provideAuth, getAuth } from '@angular/fire/auth';
-import { provideFirestore, getFirestore } from '@angular/fire/firestore';
-import { provideStorage, getStorage } from '@angular/fire/storage';
-// NOTE: provideAnalytics and providePerformance removed from eager providers.
-// They are initialized lazily after LCP in AppComponent.initializeBrowserFeatures().
 
 // Auth service with injection token pattern
 import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
@@ -204,12 +206,10 @@ export const appConfig: ApplicationConfig = {
 
     provideFirebaseApp(() => initializeApp(environment.firebase)),
     provideAuth(() => getAuth()),
-    provideFirestore(() => getFirestore()),
-    provideStorage(() => getStorage()),
-    // NOTE: Firebase Analytics and Performance are initialized lazily
-    // after LCP (via app.component.ts afterNextRender + requestIdleCallback)
-    // to prevent their heavy SDK initialization from blocking the render thread.
-    // See: AppComponent.initializeBrowserFeatures()
+    // NOTE: Firestore and Storage are NOT provided in browser bundle:
+    // - Firestore: Only used during SSR via firebase/firestore SDK (ServerAuthService)
+    // - Storage: File uploads go through backend API for security
+    // - Analytics/Performance: Lazy-loaded after LCP (see AppComponent.initializeBrowserFeatures())
 
     // ============================================
     // AUTH SERVICE (Injection Token Pattern)

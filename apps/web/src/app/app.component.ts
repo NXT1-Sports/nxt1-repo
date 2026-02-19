@@ -21,6 +21,7 @@ import {
 import type { ILogger } from '@nxt1/core/logging';
 import { filter } from 'rxjs/operators';
 import { AnalyticsService } from './core/services/analytics.service';
+import { WebVitalsService } from './core/services/web-vitals.service';
 
 /**
  * Root Application Component
@@ -51,6 +52,7 @@ export class AppComponent implements OnInit {
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
   private readonly analytics = inject(AnalyticsService);
   protected readonly downloadBar = inject(NxtAppDownloadBarService);
+  private readonly webVitals = inject(WebVitalsService);
 
   /** Theme service — injected at root so it initializes on every route (including 404) */
   private readonly theme = inject(NxtThemeService);
@@ -113,6 +115,9 @@ export class AppComponent implements OnInit {
 
     // Initialize app download promotion bar (scroll-triggered)
     this.downloadBar.initialize();
+
+    // Start Core Web Vitals collection (LCP, INP, CLS, FCP, TTFB)
+    this.webVitals.initialize();
 
     // Log app initialization
     this.logger.info('Browser features initialized');

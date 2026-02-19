@@ -20,7 +20,7 @@ test.describe('Login Debug', () => {
     });
 
     // Navigate to login
-    await page.goto('/auth/login');
+    await page.goto('/auth');
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1000);
 

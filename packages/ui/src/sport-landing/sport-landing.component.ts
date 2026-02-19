@@ -50,7 +50,7 @@ import type { SportLandingConfig } from '@nxt1/core';
         [accentText]="c.heroAccent"
         [subtitle]="c.heroSubtitle"
         primaryCtaLabel="Create Free Profile"
-        primaryCtaRoute="/auth/register"
+        primaryCtaRoute="/auth"
         [secondaryCtaLabel]="'Browse ' + c.displayName + ' Athletes'"
         secondaryCtaRoute="/explore"
         [ariaId]="c.slug + '-hero'"

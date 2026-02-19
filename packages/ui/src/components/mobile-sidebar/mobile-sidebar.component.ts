@@ -39,10 +39,8 @@ import {
   output,
   effect,
   PLATFORM_ID,
-  afterNextRender,
   DestroyRef,
   HostBinding,
-  ElementRef,
   OnDestroy,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -57,7 +55,6 @@ import { NxtThemeService } from '../../services/theme';
 import { HapticsService } from '../../services/haptics';
 import type {
   MobileSidebarConfig,
-  MobileSidebarSection,
   MobileSidebarItem,
   MobileSidebarUserData,
   MobileSidebarSelectEvent,
@@ -970,7 +967,6 @@ export class NxtMobileSidebarComponent implements OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly elementRef = inject(ElementRef);
   private readonly haptics = inject(HapticsService);
   protected readonly theme = inject(NxtThemeService);
 

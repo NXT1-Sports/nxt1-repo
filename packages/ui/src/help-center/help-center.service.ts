@@ -10,14 +10,8 @@
  */
 
 import { Injectable, signal, computed } from '@angular/core';
-import type {
-  HelpCategory,
-  HelpArticle,
-  FaqItem,
-  HelpCategoryId,
-  HelpContentType,
-} from '@nxt1/core';
-import { HELP_CATEGORIES, HELP_CONTENT_TYPES } from '@nxt1/core';
+import type { HelpCategory, HelpArticle, FaqItem, HelpCategoryId } from '@nxt1/core';
+import { HELP_CATEGORIES } from '@nxt1/core';
 
 // ============================================
 // MOCK DATA - Professional placeholder content

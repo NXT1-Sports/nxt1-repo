@@ -44,7 +44,7 @@ export interface ImmersiveHeroShot {
       <p nxtHeaderSubtitle class="hook__subtitle">{{ subhead() }}</p>
 
       <div nxtHeaderActions class="hook__actions">
-        <nxt1-cta-button label="Get Started" route="/auth/register" variant="primary" />
+        <nxt1-cta-button label="Get Started" route="/auth" variant="primary" />
         <nxt1-cta-button label="Explore Platform" variant="ghost" (clicked)="openReel()" />
       </div>
 
@@ -199,9 +199,10 @@ export interface ImmersiveHeroShot {
 
       nxt1-header-card {
         --nxt1-header-min-height: calc(var(--nxt1-spacing-10) * 8);
-        --nxt1-header-padding: var(--nxt1-spacing-8) var(--nxt1-spacing-5);
+        --nxt1-header-padding: var(--nxt1-spacing-7) var(--nxt1-spacing-5);
+        --nxt1-header-title-margin: var(--nxt1-spacing-3) 0 var(--nxt1-spacing-2) 0;
         --nxt1-header-title-line-height: 1.05;
-        --nxt1-header-actions-margin-top: var(--nxt1-spacing-1);
+        --nxt1-header-actions-margin-top: var(--nxt1-spacing-5);
       }
 
       /* ─── background root ─── */
@@ -385,7 +386,7 @@ export interface ImmersiveHeroShot {
       }
 
       .hook__proof {
-        margin: var(--nxt1-spacing-1) 0 0;
+        margin: var(--nxt1-spacing-3) 0 0;
         display: inline-flex;
         align-items: center;
         justify-content: center;

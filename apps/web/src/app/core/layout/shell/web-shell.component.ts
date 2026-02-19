@@ -46,6 +46,7 @@ import {
   DestroyRef,
   afterNextRender,
   PLATFORM_ID,
+  ElementRef,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
@@ -262,7 +263,7 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
             id: 'athlete-recruiting',
             label: 'Recruiting',
             icon: 'graduationCap',
-            route: '/recruiting',
+            route: '/recruiting-athletes',
           },
           {
             id: 'athlete-content',
@@ -325,7 +326,7 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
             id: 'scout-recruiting',
             label: 'Recruiting',
             icon: 'graduationCap',
-            route: '/scout-recruiting',
+            route: '/recruiting-scouts-colleges',
           },
         ],
       },
@@ -560,10 +561,17 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
         --shell-bg: var(--nxt1-color-bg-primary);
         --shell-content-bg: var(--nxt1-color-bg-primary);
 
-        display: block;
-        min-height: 100vh;
-        min-height: 100dvh;
+        /*
+         * Fixed positioning takes the shell OUT of document flow.
+         * Body has zero scrollable content → no second scrollbar.
+         * Same pattern as YouTube / Twitter / LinkedIn app shells.
+         */
+        position: fixed;
+        inset: 0;
+        display: flex;
+        overflow: hidden;
         background: var(--shell-bg);
+        z-index: 1;
       }
 
       /* ============================================
@@ -575,8 +583,8 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
       .shell {
         display: flex;
         flex-direction: row;
-        min-height: 100vh;
-        min-height: 100dvh;
+        width: 100%;
+        height: 100%;
       }
 
       /* ============================================
@@ -596,8 +604,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
         display: flex;
         flex-direction: column;
         min-width: 0; /* Prevent flex overflow */
-        height: 100vh;
-        height: 100dvh;
+        min-height: 0; /* Allow flex shrinking for overflow scroll */
       }
 
       /* ============================================
@@ -673,8 +680,6 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
         /* Switch to vertical stack */
         .shell {
           flex-direction: column;
-          height: 100vh;
-          height: 100dvh;
         }
 
         /* Hide desktop navigation chrome */
@@ -686,7 +691,6 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
 
         /* Main fills remaining height below mobile header */
         .shell__main {
-          height: auto;
           flex: 1;
           min-height: 0;
         }
@@ -740,6 +744,7 @@ export class WebShellComponent {
   private readonly activityService = inject(ActivityService);
   private readonly notificationState = inject(NxtNotificationStateService);
   private readonly authModal = inject(AuthModalService);
+  private readonly elementRef = inject(ElementRef);
 
   // ============================================
   // SIDEBAR CONFIGURATION (Desktop/Tablet)
@@ -1113,13 +1118,16 @@ export class WebShellComponent {
   async onScrollToTop(event: FooterScrollToTopEvent): Promise<void> {
     this.logger.debug('Scroll to top triggered', { tabId: event.tab.id, source: event.source });
 
-    // Use the scroll service to scroll to top
-    // On web, we use window scroll (no IonContent)
-    await this.scrollService.scrollToTop({
-      target: 'window',
-      behavior: 'smooth',
-      enableHaptics: false, // Web doesn't have haptics
-    });
+    // Target the shell's own scroll container (.shell__content)
+    const scrollEl = this.getShellContentElement();
+    if (scrollEl) {
+      await this.scrollService.scrollToTop({
+        target: 'custom',
+        scrollElement: scrollEl,
+        behavior: 'smooth',
+        enableHaptics: false,
+      });
+    }
   }
 
   /**
@@ -1217,6 +1225,12 @@ export class WebShellComponent {
       .subscribe((event) => {
         this._currentRoute.set(event.urlAfterRedirects);
         this.syncActiveTabFromRoute(event.urlAfterRedirects);
+
+        // Scroll shell content to top on navigation (replaces window.scrollTo)
+        const scrollEl = this.getShellContentElement();
+        if (scrollEl) {
+          scrollEl.scrollTo({ top: 0, behavior: 'instant' });
+        }
       });
   }
 
@@ -1226,6 +1240,15 @@ export class WebShellComponent {
   private syncActiveTabFromRoute(url: string): void {
     const matchedTab = findTabByRoute(this.footerTabs, url);
     this._activeTabId.set(matchedTab?.id ?? null);
+  }
+
+  /**
+   * Get the shell's main scroll container element (.shell__content).
+   * Used to programmatically scroll on navigation and scroll-to-top events.
+   */
+  private getShellContentElement(): HTMLElement | null {
+    if (!isPlatformBrowser(this.platformId)) return null;
+    return this.elementRef.nativeElement.querySelector('.shell__content') ?? null;
   }
 
   /**

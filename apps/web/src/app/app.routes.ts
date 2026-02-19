@@ -137,6 +137,11 @@ export const routes: Routes = [
         path: 'usage',
         loadChildren: () => import('./features/usage/usage.routes'),
       },
+      // NIL - NIL & Monetization campaign page
+      {
+        path: 'nil',
+        loadChildren: () => import('./features/nil/nil.routes'),
+      },
     ],
   },
 
@@ -285,6 +290,11 @@ export const routes: Routes = [
         path: 'usage',
         loadChildren: () => import('./features/usage/usage.routes'),
       },
+      // NIL - NIL & Monetization campaign page
+      {
+        path: 'nil',
+        loadChildren: () => import('./features/nil/nil.routes'),
+      },
 
       // Manage Team - Team Management
       {
@@ -292,9 +302,15 @@ export const routes: Routes = [
         loadChildren: () => import('./features/manage-team/manage-team.routes'),
       },
 
-      // Athlete Profiles - Public Directory & Marketing
+      // Super Profiles - Interactive Profile Breakdown + Athlete Landing
       {
         path: 'super-profiles',
+        loadChildren: () => import('./features/super-profiles/super-profiles.routes'),
+      },
+
+      // Recruiting Scouts & Colleges - Public Directory & Marketing
+      {
+        path: 'recruiting-scouts-colleges',
         loadChildren: () => import('./features/athlete-profiles/athlete-profiles.routes'),
       },
 
@@ -304,6 +320,18 @@ export const routes: Routes = [
       {
         path: 'athletes',
         loadChildren: () => import('./features/athletes/athletes.routes'),
+      },
+
+      // Recruiting Athletes - Recruiting Radar & Signals
+      {
+        path: 'recruiting-athletes',
+        loadChildren: () => import('./features/recruiting-athletes/recruiting-athletes.routes'),
+      },
+
+      // AI for Athletes - Communication Training & AI Recruiting Tools
+      {
+        path: 'ai-athletes',
+        loadChildren: () => import('./features/ai-athletes/ai-athletes.routes'),
       },
 
       // College Coaches - Coach Recruiting Tools (canonical)

@@ -64,7 +64,44 @@
       }
     }
   ],
-  "dataGroups": [],
+  "dataGroups": [
+    {
+      "name": "api-freshness",
+      "urls": [
+        "/api/v1/feed/**",
+        "/api/v1/activity/**",
+        "/api/v1/notifications/**"
+      ],
+      "cacheConfig": {
+        "strategy": "freshness",
+        "maxSize": 50,
+        "maxAge": "1m",
+        "timeout": "5s"
+      }
+    },
+    {
+      "name": "api-performance-profiles",
+      "urls": ["/api/v1/profile/**", "/api/v1/team/**", "/api/v1/user/**"],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 100,
+        "maxAge": "15m"
+      }
+    },
+    {
+      "name": "api-performance-static",
+      "urls": [
+        "/api/v1/college/**",
+        "/api/v1/explore/**",
+        "/api/v1/sitemap/**"
+      ],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 200,
+        "maxAge": "1h"
+      }
+    }
+  ],
   "navigationUrls": ["/**", "!/**/*.*", "!/**/api/**"],
   "navigationRequestStrategy": "freshness"
 }

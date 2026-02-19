@@ -16,7 +16,7 @@ const SPORT_ROUTE_OVERRIDES: Readonly<Record<string, string>> = {
 
 function formatDirectorySportName(key: string): string {
   if (key === 'track_field') return 'Track & Field';
-  if (key === 'swimming_diving') return 'Swimming & Diving';
+  if (key === 'swimming_diving') return 'Swim & Dive';
 
   const formatted = formatSportDisplayName(key);
   return formatted.replace(/^Mma$/, 'MMA');

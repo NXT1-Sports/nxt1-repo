@@ -1,11 +1,66 @@
+# ============================================
+# NXT1 Sports — robots.txt (2026 A+ SEO)
 # https://www.robotstxt.org/robotstxt.html
+# ============================================
+
+# Default: allow everything, then restrict
 User-agent: *
 Allow: /
 
-# Block admin and API endpoints from search engines
+# SEO-critical public pages (explicitly allowed)
+Allow: /profile/
+Allow: /explore/
+Allow: /colleges/
+Allow: /news/
+Allow: /help-center/
+Allow: /athletes/
+Allow: /coaches/
+Allow: /scouts/
+Allow: /parents/
+Allow: /football/
+Allow: /basketball/
+
+# Block private, auth-gated, and internal paths
 Disallow: /api/
 Disallow: /auth/
 Disallow: /settings/
+Disallow: /onboarding/
+Disallow: /activity/
+Disallow: /analytics/
+Disallow: /usage/
+Disallow: /xp/
+Disallow: /invite/
+Disallow: /create/
+Disallow: /create-post/
+Disallow: /manage-team/
+
+# Block query string duplicates (prevents thin content indexing)
+Disallow: /*?*
+
+# Allow Googlebot to render JS and CSS (required for Angular SSR)
+User-agent: Googlebot
+Allow: /*.js
+Allow: /*.css
+Allow: /*.woff2
+
+# Throttle aggressive SEO crawlers
+User-agent: AhrefsBot
+Crawl-delay: 10
+
+User-agent: SemrushBot
+Crawl-delay: 10
+
+User-agent: MJ12bot
+Crawl-delay: 15
+
+User-agent: DotBot
+Disallow: /
+
+User-agent: BLEXBot
+Disallow: /
 
 # Sitemaps
 Sitemap: https://nxt1sports.com/sitemap.xml
+
+# Preferred host
+Host: https://nxt1sports.com

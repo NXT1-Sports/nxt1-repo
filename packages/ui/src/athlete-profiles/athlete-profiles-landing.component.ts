@@ -168,9 +168,9 @@ const PROFILES_FAQS: FaqItem[] = [
       accentText="Athletic Talent"
       subtitle="Browse thousands of verified athlete profiles across 19 sports. Search by position, class year, location, and academics — find your next recruit in seconds."
       primaryCtaLabel="Get Started Free"
-      primaryCtaRoute="/auth/register"
+      primaryCtaRoute="/auth"
       secondaryCtaLabel="Log In"
-      secondaryCtaRoute="/auth/login"
+      secondaryCtaRoute="/auth"
       ariaId="athlete-profiles-hero-title"
     >
       <nxt1-athlete-profiles-preview />
@@ -206,7 +206,7 @@ const PROFILES_FAQS: FaqItem[] = [
       title="Ready to Get Discovered?"
       subtitle="Create your free athlete profile and start your recruiting journey today."
       ctaLabel="Create Your Profile"
-      ctaRoute="/auth/register"
+      ctaRoute="/auth"
     />
   `,
   styles: [

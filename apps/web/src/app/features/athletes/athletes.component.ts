@@ -15,6 +15,13 @@ import { SeoService } from '../../core/services/seo.service';
   standalone: true,
   imports: [NxtAthletesLandingComponent],
   template: `<nxt1-athletes-landing />`,
+  styles: [
+    `
+      :host {
+        display: block;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AthletesComponent implements OnInit {
@@ -22,9 +29,22 @@ export class AthletesComponent implements OnInit {
 
   ngOnInit(): void {
     this.seo.updatePage({
-      title: 'For Athletes — Build Your Recruiting Profile | NXT1',
+      title: 'For Athletes — D1 Dream Recruiting Platform | NXT1',
       description:
-        'Create a free recruiting profile, upload highlight reels, track analytics, and connect with college coaches. NXT1 is the #1 platform for student-athlete recruiting.',
+        "If they can't find you, they can't sign you. Build a verified NXT1 recruiting profile, publish highlights, earn XP for daily actions, and climb the Risers to Watch leaderboard to get discovered by college coaches.",
+      keywords: [
+        'D1 recruiting',
+        'student athlete recruiting',
+        'college scholarship offers',
+        'athlete highlight reels',
+        'recruiting profile',
+        'recruiting visibility',
+        'athlete leaderboard',
+        'sports gamification',
+        'recruiting XP',
+      ],
+      canonicalUrl: 'https://nxt1sports.com/athletes',
+      image: 'https://nxt1sports.com/assets/shared/images/athlete-1.png',
     });
   }
 }

@@ -27,7 +27,7 @@ interface ShowcaseImage {
   standalone: true,
   imports: [CommonModule, NxtCtaButtonComponent, NxtHeaderCardComponent],
   template: `
-    <nxt1-header-card title="Your Personal Agent" titleId="agentx-title" [mobileFullBleed]="true">
+    <nxt1-header-card title="Your Personal Agent" titleId="agentx-title">
       <div nxtHeaderBackground class="agentx-header__bg">
         <div class="agentx-orb agentx-orb--one"></div>
         <div class="agentx-orb agentx-orb--two"></div>
@@ -93,13 +93,10 @@ interface ShowcaseImage {
 
       nxt1-header-card {
         --nxt1-header-min-height: calc(var(--nxt1-spacing-10) * 8);
-        --nxt1-header-min-height-tablet: calc(var(--nxt1-spacing-10) * 7);
-        --nxt1-header-min-height-mobile: auto;
         --nxt1-header-padding: var(--nxt1-spacing-7) var(--nxt1-spacing-5);
-        --nxt1-header-padding-mobile: var(--nxt1-spacing-7) var(--nxt1-spacing-5)
-          var(--nxt1-spacing-2);
-        --nxt1-header-shell-padding-mobile: 0;
         --nxt1-header-title-margin: var(--nxt1-spacing-3) 0 var(--nxt1-spacing-2) 0;
+        --nxt1-header-title-line-height: 1.05;
+        --nxt1-header-actions-margin-top: var(--nxt1-spacing-5);
       }
 
       .agentx-header__bg {

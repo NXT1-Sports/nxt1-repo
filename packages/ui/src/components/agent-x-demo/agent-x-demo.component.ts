@@ -1,366 +1,286 @@
-/**
- * @fileoverview Agent X Demo Component — "The Magic" Interactive Showcase
- * @module @nxt1/ui/components/agent-x-demo
- * @version 1.0.0
- *
- * Split-screen interactive demo proving "AI Creative Director" capability.
- * Left panel: Simulated chat interface with typewriter effect.
- * Right panel: 3 distinct graphic styles generating in real-time.
- *
- * 100% design-token driven — zero hardcoded colors, fonts, or sizes.
- * SSR-safe, responsive (stacked on mobile), reduced-motion aware.
- * OnPush change detection, signal-based state, standalone component.
- *
- * @example
- * ```html
- * <nxt1-agent-x-demo />
- * ```
- */
-
 import {
-  Component,
   ChangeDetectionStrategy,
-  ElementRef,
-  afterNextRender,
-  signal,
-  computed,
-  input,
+  Component,
   DestroyRef,
-  inject,
+  ElementRef,
   PLATFORM_ID,
+  afterNextRender,
+  computed,
+  inject,
+  input,
+  signal,
 } from '@angular/core';
-import { isPlatformBrowser } from '@angular/common';
-import { CommonModule } from '@angular/common';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { NxtCtaButtonComponent } from '../cta-button';
-import { NxtIconComponent } from '../icon';
+import { NxtSectionHeaderComponent } from '../section-header';
 
-/** Monotonic counter for deterministic, SSR-hydration-safe IDs. */
 let nextDemoId = 0;
 
-// ============================================
-// TYPES
-// ============================================
-
-/** A single chat message in the simulated conversation. */
 export interface AgentXDemoChatMessage {
-  /** Who sent it. */
   readonly role: 'user' | 'agent';
-  /** Full message text (typed character-by-character for user). */
   readonly text: string;
 }
 
-/** A generated graphic card configuration. */
 export interface AgentXDemoGraphic {
-  /** Unique identifier. */
   readonly id: string;
-  /** Style label shown on the card. */
   readonly styleLabel: string;
-  /** Card gradient class suffix. */
   readonly variant: 'bold' | 'clean' | 'editorial';
-  /** Player name displayed. */
   readonly playerName: string;
-  /** Stat line displayed. */
   readonly statLine: string;
-  /** Graphic title. */
   readonly title: string;
 }
 
-/** Phase of the demo animation cycle. */
-type DemoPhase = 'idle' | 'typing' | 'thinking' | 'generating' | 'complete';
+export type AgentXDemoOutputType =
+  | 'highlight-reel'
+  | 'contact-coaches'
+  | 'recruiting-strategy'
+  | 'college-match';
 
-// ============================================
-// DEFAULT DATA
-// ============================================
+export interface AgentXDemoWorkflowStep {
+  readonly id: string;
+  readonly title: string;
+  readonly prompt: string;
+  readonly result: string;
+  readonly outputType: AgentXDemoOutputType;
+}
 
-const DEFAULT_CHAT: readonly AgentXDemoChatMessage[] = [
+const DEFAULT_WORKFLOW: readonly AgentXDemoWorkflowStep[] = [
   {
-    role: 'user',
-    text: 'Agent X, make a "Player of the Game" graphic for John Smith with 28pts, 12reb.',
+    id: 'highlight-reel',
+    title: 'Create a highlight reel',
+    prompt:
+      'Create a 90-second highlight reel from my latest film that coaches can review quickly.',
+    result:
+      'Agent X produces a coach-ready highlight reel package with an optimized sequence and share link.',
+    outputType: 'highlight-reel',
   },
   {
-    role: 'agent',
-    text: 'On it. Generating 3 styles now...',
-  },
-];
-
-const DEFAULT_GRAPHICS: readonly AgentXDemoGraphic[] = [
-  {
-    id: 'bold',
-    styleLabel: 'Bold Impact',
-    variant: 'bold',
-    playerName: 'John Smith',
-    statLine: '28 PTS  ·  12 REB',
-    title: 'PLAYER OF THE GAME',
+    id: 'contact-coaches',
+    title: 'Contact college coaches',
+    prompt:
+      'Find target college programs and generate personalized outreach messages for each staff contact.',
+    result:
+      'Agent X builds the contact pipeline, drafts tailored emails, and prepares follow-up timing automatically.',
+    outputType: 'contact-coaches',
   },
   {
-    id: 'clean',
-    styleLabel: 'Clean Minimal',
-    variant: 'clean',
-    playerName: 'John Smith',
-    statLine: '28 PTS  ·  12 REB',
-    title: 'PLAYER OF THE GAME',
+    id: 'recruiting-strategy',
+    title: 'Build me a recruiting strategy after research',
+    prompt:
+      'Research my profile and position market to generate a recruiting plan for this season.',
+    result:
+      'Agent X returns a structured week-by-week strategy with milestones, outreach windows, and priorities.',
+    outputType: 'recruiting-strategy',
   },
   {
-    id: 'editorial',
-    styleLabel: 'Editorial',
-    variant: 'editorial',
-    playerName: 'John Smith',
-    statLine: '28 PTS  ·  12 REB',
-    title: 'PLAYER OF THE GAME',
+    id: 'college-match',
+    title: 'Match my athlete to colleges',
+    prompt:
+      'Match my athlete profile to schools by roster fit, level, academic requirements, and geography.',
+    result:
+      'Agent X delivers a ranked target list with fit scores and next-step actions for outreach.',
+    outputType: 'college-match',
   },
 ];
 
 @Component({
   selector: 'nxt1-agent-x-demo',
   standalone: true,
-  imports: [CommonModule, NxtCtaButtonComponent, NxtIconComponent],
+  imports: [CommonModule, NxtCtaButtonComponent, NxtSectionHeaderComponent],
   template: `
     <section class="agent-x-demo" [attr.aria-labelledby]="sectionTitleId" role="region">
-      <!-- Section Header -->
-      <div class="demo-header">
-        <div class="demo-badge" aria-hidden="true">
-          <span class="demo-badge__dot"></span>
-          <span class="demo-badge__text">AI-Powered</span>
-        </div>
-        <h2 [id]="sectionTitleId" class="demo-headline">
-          {{ headline() }}
-        </h2>
-        <p class="demo-subtitle">{{ subtitle() }}</p>
-      </div>
-
-      <!-- Split-Screen Module -->
-      <div class="demo-split" [class.demo-split--active]="hasStarted()">
-        <!-- LEFT: Chat Interface -->
-        <div class="demo-chat" role="log" aria-label="Agent X conversation demo" aria-live="polite">
-          <div class="demo-chat__header">
-            <div
-              class="demo-chat__header-dot demo-chat__header-dot--active"
-              aria-hidden="true"
-            ></div>
-            <span class="demo-chat__header-title">Agent X</span>
-            <span class="demo-chat__header-status">
-              @switch (phase()) {
-                @case ('typing') {
-                  Listening...
-                }
-                @case ('thinking') {
-                  Thinking...
-                }
-                @case ('generating') {
-                  Creating...
-                }
-                @case ('complete') {
-                  Done
-                }
-                @default {
-                  Ready
-                }
-              }
-            </span>
-          </div>
-
-          <div class="demo-chat__body">
-            <!--
-              SSR/SEO: When idle (server render), show ALL chat messages statically
-              so crawlers index meaningful content. On client, the animated
-              sequence replaces this with the interactive typewriter flow.
-            -->
-            @if (!hasStarted()) {
-              @for (msg of chatMessages(); track $index) {
-                <div
-                  class="demo-chat__bubble"
-                  [class.demo-chat__bubble--user]="msg.role === 'user'"
-                  [class.demo-chat__bubble--agent]="msg.role === 'agent'"
-                >
-                  @if (msg.role === 'agent') {
-                    <div class="demo-chat__avatar" aria-hidden="true">
-                      <nxt1-icon name="sparkles-outline" size="16" />
-                    </div>
-                  }
-                  <div class="demo-chat__text">{{ msg.text }}</div>
-                </div>
-              }
-            } @else {
-              @for (msg of visibleMessages(); track $index) {
-                <div
-                  class="demo-chat__bubble"
-                  [class.demo-chat__bubble--user]="msg.role === 'user'"
-                  [class.demo-chat__bubble--agent]="msg.role === 'agent'"
-                >
-                  @if (msg.role === 'agent') {
-                    <div class="demo-chat__avatar" aria-hidden="true">
-                      <nxt1-icon name="sparkles-outline" size="16" />
-                    </div>
-                  }
-                  <div class="demo-chat__text">
-                    @if ($index === 0 && phase() === 'typing') {
-                      {{ typedText() }}<span class="demo-chat__cursor" aria-hidden="true"></span>
-                    } @else {
-                      {{ msg.text }}
-                    }
-                  </div>
-                </div>
-              }
-
-              @if (phase() === 'thinking') {
-                <div class="demo-chat__bubble demo-chat__bubble--agent">
-                  <div class="demo-chat__avatar" aria-hidden="true">
-                    <nxt1-icon name="sparkles-outline" size="16" />
-                  </div>
-                  <div class="demo-chat__thinking" aria-label="Agent X is thinking">
-                    <span class="demo-chat__thinking-dot"></span>
-                    <span class="demo-chat__thinking-dot"></span>
-                    <span class="demo-chat__thinking-dot"></span>
-                  </div>
-                </div>
-              }
-            }
-          </div>
-        </div>
-
-        <!-- RIGHT: Generated Graphics -->
-        <div class="demo-output" aria-label="Generated graphics preview">
-          <div class="demo-output__header">
-            <span class="demo-output__header-title">Output Preview</span>
-            <span class="demo-output__header-count">
-              @if (hasStarted() && visibleGraphicCount() > 0) {
-                {{ visibleGraphicCount() }} of {{ graphics().length }}
-              } @else if (!hasStarted()) {
-                {{ graphics().length }} of {{ graphics().length }}
-              }
-            </span>
-          </div>
-
-          <div class="demo-output__grid">
-            @for (graphic of graphics(); track graphic.id; let i = $index) {
-              <article
-                class="demo-graphic"
-                [class]="'demo-graphic demo-graphic--' + graphic.variant"
-                [class.demo-graphic--visible]="!hasStarted() || i < visibleGraphicCount()"
-                [attr.aria-hidden]="hasStarted() && i >= visibleGraphicCount()"
-                role="article"
-                [attr.aria-label]="
-                  graphic.title +
-                  ' — ' +
-                  graphic.playerName +
-                  ' ' +
-                  graphic.statLine +
-                  ' — ' +
-                  graphic.styleLabel +
-                  ' style'
-                "
-              >
-                <div class="demo-graphic__chrome">
-                  <div class="demo-graphic__badge-row">
-                    <span class="demo-graphic__style-chip">{{ graphic.styleLabel }}</span>
-                  </div>
-                  <div class="demo-graphic__content">
-                    <span class="demo-graphic__title">{{ graphic.title }}</span>
-                    <span class="demo-graphic__player">{{ graphic.playerName }}</span>
-                    <span class="demo-graphic__stats">{{ graphic.statLine }}</span>
-                  </div>
-                  <div class="demo-graphic__shimmer" aria-hidden="true"></div>
-                </div>
-              </article>
-            }
-          </div>
-        </div>
-      </div>
-
-      <!-- CTA Row -->
-      <div class="demo-cta">
-        <nxt1-cta-button
-          [label]="primaryCtaLabel()"
-          [route]="primaryCtaRoute()"
-          variant="primary"
-          size="lg"
+      <div class="demo-header-shared">
+        <nxt1-section-header
+          variant="hero"
+          align="center"
+          [titleId]="sectionTitleId"
+          [headingLevel]="2"
+          [title]="headline()"
+          [subtitle]="subtitle()"
         />
-        @if (secondaryCtaLabel()) {
+
+        <div class="demo-cta">
           <nxt1-cta-button
-            [label]="secondaryCtaLabel()!"
-            [route]="secondaryCtaRoute()"
-            variant="ghost"
+            [label]="primaryCtaLabel()"
+            [route]="primaryCtaRoute()"
+            variant="primary"
           />
+          @if (secondaryCtaLabel()) {
+            <nxt1-cta-button
+              [label]="secondaryCtaLabel()!"
+              [route]="secondaryCtaRoute()"
+              variant="ghost"
+            />
+          }
+        </div>
+      </div>
+
+      <div class="workflow-status" aria-live="polite">
+        <span class="workflow-status__pill"
+          >Step {{ activeStepNumber() }} of {{ stepCount() }}</span
+        >
+        <span class="workflow-status__title">{{ activeStepTitle() }}</span>
+      </div>
+
+      <div class="workflow-list" role="list" aria-label="Agent X recruiting workflow">
+        @for (step of workflowSteps(); track step.id; let i = $index) {
+          <article
+            class="workflow-step"
+            [class.workflow-step--active]="activeStepIndex() === i"
+            [class.workflow-step--visible]="visibleStepIndexes().has(i)"
+            [attr.data-step-index]="i"
+            role="listitem"
+            [attr.aria-label]="'Step ' + (i + 1) + ': ' + step.title"
+          >
+            <header class="workflow-step__header">
+              <span class="workflow-step__index">Step {{ i + 1 }}</span>
+              <h3 class="workflow-step__title">{{ step.title }}</h3>
+            </header>
+
+            <div class="workflow-column workflow-column--prompt">
+              <span class="workflow-column__label">Prompt</span>
+              <p class="workflow-column__text">{{ step.prompt }}</p>
+            </div>
+
+            <div class="workflow-column workflow-column--result">
+              <span class="workflow-column__label">Result</span>
+              <p class="workflow-column__text">{{ step.result }}</p>
+
+              <div class="workflow-output" [attr.aria-label]="step.title + ' output preview'">
+                @switch (step.outputType) {
+                  @case ('highlight-reel') {
+                    <div class="output-preview output-preview--highlight">
+                      <div class="output-video">
+                        <span class="output-video__badge">Highlight Reel Placeholder</span>
+                        <span class="output-video__play" aria-hidden="true"></span>
+                      </div>
+                      <div class="output-timeline" role="list" aria-label="Highlight chapters">
+                        <span class="output-chip" role="listitem">Transition Defense</span>
+                        <span class="output-chip" role="listitem">Rim Finish</span>
+                        <span class="output-chip" role="listitem">On-Ball Stop</span>
+                        <span class="output-chip" role="listitem">Assist Creation</span>
+                      </div>
+                    </div>
+                  }
+
+                  @case ('contact-coaches') {
+                    <div class="output-preview output-preview--contacts">
+                      <div class="output-process" role="list" aria-label="Coach outreach process">
+                        <div class="output-process__step output-process__step--1" role="listitem">
+                          <span class="output-process__state" aria-hidden="true">
+                            <span class="output-process__loader"></span>
+                            <span class="output-process__check">✓</span>
+                          </span>
+                          <span>1. Select target programs</span>
+                        </div>
+                        <div class="output-process__step output-process__step--2" role="listitem">
+                          <span class="output-process__state" aria-hidden="true">
+                            <span class="output-process__loader"></span>
+                            <span class="output-process__check">✓</span>
+                          </span>
+                          <span>2. Verify staff contacts</span>
+                        </div>
+                        <div class="output-process__step output-process__step--3" role="listitem">
+                          <span class="output-process__state" aria-hidden="true">
+                            <span class="output-process__loader"></span>
+                            <span class="output-process__check">✓</span>
+                          </span>
+                          <span>3. Generate personalized draft</span>
+                        </div>
+                        <div class="output-process__step output-process__step--4" role="listitem">
+                          <span class="output-process__state" aria-hidden="true">
+                            <span class="output-process__loader"></span>
+                            <span class="output-process__check">✓</span>
+                          </span>
+                          <span>4. Queue follow-up sequence</span>
+                        </div>
+                      </div>
+                      <div class="output-email">
+                        <p class="output-email__title">Draft Email</p>
+                        <p class="output-email__body">
+                          Coach Williams, I’m a 2027 guard from Austin with updated film and
+                          verified metrics, and I believe I can contribute to your pace-and-space
+                          system.
+                        </p>
+                      </div>
+                    </div>
+                  }
+
+                  @case ('recruiting-strategy') {
+                    <div class="output-preview output-preview--strategy">
+                      <div
+                        class="output-board"
+                        role="list"
+                        aria-label="Weekly recruiting strategy board"
+                      >
+                        <div class="output-board__col" role="listitem">
+                          <span class="output-board__label">Week 1</span>
+                          <span class="output-board__item">Film refresh</span>
+                        </div>
+                        <div class="output-board__col" role="listitem">
+                          <span class="output-board__label">Week 2</span>
+                          <span class="output-board__item">Coach outreach</span>
+                        </div>
+                        <div class="output-board__col" role="listitem">
+                          <span class="output-board__label">Week 3</span>
+                          <span class="output-board__item">Campus targeting</span>
+                        </div>
+                        <div class="output-board__col" role="listitem">
+                          <span class="output-board__label">Week 4</span>
+                          <span class="output-board__item">Follow-up cadence</span>
+                        </div>
+                      </div>
+                    </div>
+                  }
+
+                  @case ('college-match') {
+                    <div class="output-preview output-preview--match">
+                      <div class="output-table" role="table" aria-label="College fit matches">
+                        <div class="output-row output-row--head" role="row">
+                          <span role="columnheader">Program</span>
+                          <span role="columnheader">Fit</span>
+                          <span role="columnheader">Action</span>
+                        </div>
+                        <div class="output-row" role="row">
+                          <span role="cell"
+                            ><span class="output-star" aria-hidden="true">★</span> State
+                            University</span
+                          >
+                          <span role="cell">92%</span>
+                          <span role="cell">Priority</span>
+                        </div>
+                        <div class="output-row" role="row">
+                          <span role="cell"
+                            ><span class="output-star" aria-hidden="true">★</span> Metro
+                            College</span
+                          >
+                          <span role="cell">88%</span>
+                          <span role="cell">Outreach</span>
+                        </div>
+                        <div class="output-row" role="row">
+                          <span role="cell"
+                            ><span class="output-star" aria-hidden="true">★</span> Coastal
+                            Tech</span
+                          >
+                          <span role="cell">84%</span>
+                          <span role="cell">Track</span>
+                        </div>
+                      </div>
+                    </div>
+                  }
+                }
+              </div>
+            </div>
+          </article>
         }
       </div>
     </section>
   `,
   styles: [
     `
-      /* ─── KEYFRAMES ─── */
-
-      @keyframes cursor-blink {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0;
-        }
-      }
-
-      @keyframes thinking-bounce {
-        0%,
-        80%,
-        100% {
-          transform: translateY(0);
-          opacity: 0.4;
-        }
-        40% {
-          transform: translateY(-6px);
-          opacity: 1;
-        }
-      }
-
-      @keyframes graphic-enter {
-        from {
-          opacity: 0;
-          transform: translateY(12px) scale(0.96);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0) scale(1);
-        }
-      }
-
-      @keyframes shimmer-slide {
-        0% {
-          transform: translateX(-100%);
-        }
-        100% {
-          transform: translateX(200%);
-        }
-      }
-
-      @keyframes pulse-ring {
-        0% {
-          box-shadow: 0 0 0 0 var(--nxt1-color-alpha-primary30);
-        }
-        70% {
-          box-shadow: 0 0 0 6px transparent;
-        }
-        100% {
-          box-shadow: 0 0 0 0 transparent;
-        }
-      }
-
-      @keyframes badge-glow {
-        0%,
-        100% {
-          opacity: 0.6;
-        }
-        50% {
-          opacity: 1;
-        }
-      }
-
-      /* ─── HOST ─── */
-
       :host {
         display: block;
       }
-
-      /* ─── SECTION SHELL ─── */
 
       .agent-x-demo {
         max-width: var(--nxt1-section-max-width);
@@ -368,451 +288,13 @@ const DEFAULT_GRAPHICS: readonly AgentXDemoGraphic[] = [
         padding: var(--nxt1-spacing-16) var(--nxt1-spacing-4);
       }
 
-      /* ─── HEADER ─── */
-
-      .demo-header {
-        text-align: center;
+      .demo-header-shared {
         margin-bottom: var(--nxt1-spacing-10);
       }
 
-      .demo-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
-        border-radius: var(--nxt1-borderRadius-full);
-        border: 1px solid var(--nxt1-color-border-primary);
-        background: var(--nxt1-color-alpha-primary4);
-        margin-bottom: var(--nxt1-spacing-4);
+      .demo-header-shared .demo-cta {
+        margin-top: var(--nxt1-spacing-6);
       }
-
-      .demo-badge__dot {
-        width: 8px;
-        height: 8px;
-        border-radius: var(--nxt1-borderRadius-full);
-        background: var(--nxt1-color-primary);
-        animation: badge-glow 2s ease-in-out infinite;
-      }
-
-      .demo-badge__text {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-xs);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-primary);
-        text-transform: uppercase;
-        letter-spacing: var(--nxt1-letterSpacing-wide);
-      }
-
-      .demo-headline {
-        margin: 0 0 var(--nxt1-spacing-3);
-        font-family: var(--nxt1-fontFamily-display);
-        font-size: var(--nxt1-fontSize-4xl);
-        font-weight: var(--nxt1-fontWeight-bold);
-        color: var(--nxt1-color-text-primary);
-        line-height: var(--nxt1-lineHeight-tight);
-        text-wrap: balance;
-      }
-
-      .demo-subtitle {
-        margin: 0 auto;
-        max-width: var(--nxt1-section-subtitle-max-width);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-lg);
-        color: var(--nxt1-color-text-secondary);
-        line-height: var(--nxt1-lineHeight-relaxed);
-        text-wrap: pretty;
-      }
-
-      @media (min-width: 768px) {
-        .demo-headline {
-          font-size: var(--nxt1-fontSize-5xl);
-        }
-      }
-
-      /* ─── SPLIT PANEL ─── */
-
-      .demo-split {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: var(--nxt1-spacing-4);
-        margin-bottom: var(--nxt1-spacing-10);
-      }
-
-      @media (min-width: 992px) {
-        .demo-split {
-          grid-template-columns: 1fr 1.2fr;
-          gap: var(--nxt1-spacing-6);
-        }
-      }
-
-      /* ─── CHAT PANEL (LEFT) ─── */
-
-      .demo-chat {
-        display: flex;
-        flex-direction: column;
-        border-radius: var(--nxt1-borderRadius-2xl);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        background: var(--nxt1-color-surface-100);
-        overflow: hidden;
-        min-height: 340px;
-      }
-
-      .demo-chat__header {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
-        border-bottom: 1px solid var(--nxt1-color-border-subtle);
-        background: var(--nxt1-color-surface-200);
-      }
-
-      .demo-chat__header-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: var(--nxt1-borderRadius-full);
-        background: var(--nxt1-color-text-disabled);
-        flex-shrink: 0;
-      }
-
-      .demo-chat__header-dot--active {
-        background: var(--nxt1-color-success);
-        animation: pulse-ring 2s ease-out infinite;
-      }
-
-      .demo-chat__header-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-text-primary);
-      }
-
-      .demo-chat__header-status {
-        margin-left: auto;
-        font-family: var(--nxt1-fontFamily-mono);
-        font-size: var(--nxt1-fontSize-xs);
-        color: var(--nxt1-color-text-tertiary);
-      }
-
-      .demo-chat__body {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-3);
-        padding: var(--nxt1-spacing-4);
-        overflow-y: auto;
-      }
-
-      /* ─── CHAT BUBBLES ─── */
-
-      .demo-chat__bubble {
-        display: flex;
-        gap: var(--nxt1-spacing-2);
-        max-width: 92%;
-        animation: graphic-enter var(--nxt1-motion-duration-slow) var(--nxt1-motion-easing-standard);
-      }
-
-      .demo-chat__bubble--user {
-        align-self: flex-end;
-        flex-direction: row-reverse;
-      }
-
-      .demo-chat__bubble--agent {
-        align-self: flex-start;
-      }
-
-      .demo-chat__avatar {
-        flex-shrink: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: var(--nxt1-spacing-7);
-        height: var(--nxt1-spacing-7);
-        border-radius: var(--nxt1-borderRadius-lg);
-        background: var(--nxt1-color-alpha-primary10);
-        color: var(--nxt1-color-primary);
-      }
-
-      .demo-chat__text {
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
-        border-radius: var(--nxt1-borderRadius-xl);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        line-height: var(--nxt1-lineHeight-relaxed);
-      }
-
-      .demo-chat__bubble--user .demo-chat__text {
-        background: var(--nxt1-color-alpha-primary10);
-        color: var(--nxt1-color-text-primary);
-        border-bottom-right-radius: var(--nxt1-borderRadius-sm);
-      }
-
-      .demo-chat__bubble--agent .demo-chat__text {
-        background: var(--nxt1-color-surface-300);
-        color: var(--nxt1-color-text-primary);
-        border-bottom-left-radius: var(--nxt1-borderRadius-sm);
-      }
-
-      .demo-chat__cursor {
-        display: inline-block;
-        width: 2px;
-        height: 1em;
-        background: var(--nxt1-color-primary);
-        margin-left: 1px;
-        vertical-align: text-bottom;
-        animation: cursor-blink 0.8s step-end infinite;
-      }
-
-      /* ─── THINKING DOTS ─── */
-
-      .demo-chat__thinking {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-1);
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
-        border-radius: var(--nxt1-borderRadius-xl);
-        background: var(--nxt1-color-surface-300);
-        border-bottom-left-radius: var(--nxt1-borderRadius-sm);
-      }
-
-      .demo-chat__thinking-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: var(--nxt1-borderRadius-full);
-        background: var(--nxt1-color-text-tertiary);
-        animation: thinking-bounce 1.4s ease-in-out infinite;
-      }
-
-      .demo-chat__thinking-dot:nth-child(2) {
-        animation-delay: 0.2s;
-      }
-
-      .demo-chat__thinking-dot:nth-child(3) {
-        animation-delay: 0.4s;
-      }
-
-      /* ─── OUTPUT PANEL (RIGHT) ─── */
-
-      .demo-output {
-        display: flex;
-        flex-direction: column;
-        border-radius: var(--nxt1-borderRadius-2xl);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        background: var(--nxt1-color-surface-100);
-        overflow: hidden;
-        min-height: 340px;
-      }
-
-      .demo-output__header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
-        border-bottom: 1px solid var(--nxt1-color-border-subtle);
-        background: var(--nxt1-color-surface-200);
-      }
-
-      .demo-output__header-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-text-primary);
-      }
-
-      .demo-output__header-count {
-        font-family: var(--nxt1-fontFamily-mono);
-        font-size: var(--nxt1-fontSize-xs);
-        color: var(--nxt1-color-text-tertiary);
-      }
-
-      .demo-output__grid {
-        flex: 1;
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: var(--nxt1-spacing-3);
-        padding: var(--nxt1-spacing-4);
-        align-content: start;
-      }
-
-      .demo-output__empty {
-        grid-column: 1 / -1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: var(--nxt1-spacing-2);
-        min-height: 200px;
-        color: var(--nxt1-color-text-disabled);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-      }
-
-      @media (max-width: 575px) {
-        .demo-output__grid {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      @media (min-width: 576px) and (max-width: 991px) {
-        .demo-output__grid {
-          grid-template-columns: repeat(3, 1fr);
-        }
-      }
-
-      /* ─── GRAPHIC CARDS ─── */
-
-      .demo-graphic {
-        position: relative;
-        border-radius: var(--nxt1-borderRadius-xl);
-        overflow: hidden;
-        aspect-ratio: 3 / 4;
-        opacity: 0;
-        transform: translateY(12px) scale(0.96);
-        transition:
-          opacity var(--nxt1-motion-duration-slow) var(--nxt1-motion-easing-standard),
-          transform var(--nxt1-motion-duration-slow) var(--nxt1-motion-easing-standard);
-      }
-
-      .demo-graphic--visible {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-        animation: graphic-enter 0.5s var(--nxt1-motion-easing-standard) both;
-      }
-
-      .demo-graphic__chrome {
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        height: 100%;
-        padding: var(--nxt1-spacing-3);
-        position: relative;
-        z-index: 1;
-      }
-
-      /* ─── GRAPHIC VARIANT: Bold Impact ─── */
-
-      .demo-graphic--bold {
-        background: linear-gradient(
-          160deg,
-          color-mix(in srgb, var(--nxt1-color-primary) 35%, var(--nxt1-color-surface-200)) 0%,
-          var(--nxt1-color-surface-300) 50%,
-          color-mix(in srgb, var(--nxt1-color-primary) 10%, var(--nxt1-color-surface-200)) 100%
-        );
-        border: 1px solid var(--nxt1-color-alpha-primary30);
-      }
-
-      .demo-graphic--bold .demo-graphic__title {
-        color: var(--nxt1-color-primary);
-      }
-
-      /* ─── GRAPHIC VARIANT: Clean Minimal ─── */
-
-      .demo-graphic--clean {
-        background: var(--nxt1-color-surface-200);
-        border: 1px solid var(--nxt1-color-border-default);
-      }
-
-      .demo-graphic--clean .demo-graphic__title {
-        color: var(--nxt1-color-text-primary);
-      }
-
-      /* ─── GRAPHIC VARIANT: Editorial ─── */
-
-      .demo-graphic--editorial {
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--nxt1-color-secondary) 20%, var(--nxt1-color-surface-200)) 0%,
-          var(--nxt1-color-surface-300) 40%,
-          color-mix(in srgb, var(--nxt1-color-primary) 12%, var(--nxt1-color-surface-200)) 100%
-        );
-        border: 1px solid color-mix(in srgb, var(--nxt1-color-secondary) 30%, transparent);
-      }
-
-      .demo-graphic--editorial .demo-graphic__title {
-        color: var(--nxt1-color-secondary);
-      }
-
-      /* ─── GRAPHIC INNER ELEMENTS ─── */
-
-      .demo-graphic__badge-row {
-        display: flex;
-        justify-content: flex-end;
-      }
-
-      .demo-graphic__style-chip {
-        display: inline-flex;
-        align-items: center;
-        padding: var(--nxt1-spacing-1) var(--nxt1-spacing-2);
-        border-radius: var(--nxt1-borderRadius-full);
-        background: color-mix(in srgb, var(--nxt1-color-surface-100) 80%, transparent);
-        backdrop-filter: blur(8px);
-        font-family: var(--nxt1-fontFamily-mono);
-        font-size: 10px;
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-text-secondary);
-        text-transform: uppercase;
-        letter-spacing: var(--nxt1-letterSpacing-wider);
-        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 60%, transparent);
-      }
-
-      .demo-graphic__content {
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-1);
-      }
-
-      .demo-graphic__title {
-        font-family: var(--nxt1-fontFamily-display);
-        font-size: 10px;
-        font-weight: var(--nxt1-fontWeight-bold);
-        text-transform: uppercase;
-        letter-spacing: var(--nxt1-letterSpacing-widest);
-        line-height: var(--nxt1-lineHeight-none);
-      }
-
-      .demo-graphic__player {
-        font-family: var(--nxt1-fontFamily-display);
-        font-size: var(--nxt1-fontSize-xl);
-        font-weight: var(--nxt1-fontWeight-bold);
-        color: var(--nxt1-color-text-primary);
-        line-height: var(--nxt1-lineHeight-tight);
-        text-transform: uppercase;
-      }
-
-      .demo-graphic__stats {
-        font-family: var(--nxt1-fontFamily-mono);
-        font-size: var(--nxt1-fontSize-xs);
-        font-weight: var(--nxt1-fontWeight-medium);
-        color: var(--nxt1-color-text-secondary);
-        letter-spacing: var(--nxt1-letterSpacing-wide);
-      }
-
-      /* Shimmer overlay on cards */
-      .demo-graphic__shimmer {
-        position: absolute;
-        inset: 0;
-        overflow: hidden;
-        pointer-events: none;
-        border-radius: inherit;
-      }
-
-      .demo-graphic--visible .demo-graphic__shimmer::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 50%;
-        height: 100%;
-        background: linear-gradient(
-          105deg,
-          transparent 40%,
-          color-mix(in srgb, var(--nxt1-color-text-primary) 4%, transparent) 45%,
-          color-mix(in srgb, var(--nxt1-color-text-primary) 8%, transparent) 50%,
-          transparent 55%
-        );
-        animation: shimmer-slide 3s ease-in-out 0.8s 1;
-      }
-
-      /* ─── CTA ROW ─── */
 
       .demo-cta {
         display: flex;
@@ -822,28 +304,520 @@ const DEFAULT_GRAPHICS: readonly AgentXDemoGraphic[] = [
         flex-wrap: wrap;
       }
 
-      /* ─── RESPONSIVE ─── */
+      .workflow-status {
+        position: sticky;
+        top: var(--nxt1-spacing-3);
+        z-index: 2;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+        margin-bottom: var(--nxt1-spacing-6);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        border-radius: var(--nxt1-borderRadius-full);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: color-mix(in srgb, var(--nxt1-color-surface-100) 85%, transparent);
+        backdrop-filter: blur(8px);
+      }
+
+      .workflow-status__pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 var(--nxt1-spacing-2);
+        min-height: var(--nxt1-spacing-6);
+        border-radius: var(--nxt1-borderRadius-full);
+        background: var(--nxt1-color-alpha-primary10);
+        color: var(--nxt1-color-primary);
+        font-family: var(--nxt1-fontFamily-mono);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+      }
+
+      .workflow-status__title {
+        color: var(--nxt1-color-text-primary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+      }
+
+      .workflow-list {
+        display: grid;
+        gap: var(--nxt1-spacing-4);
+      }
+
+      .workflow-step {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: var(--nxt1-spacing-3);
+        min-height: min(78vh, 700px);
+        padding: var(--nxt1-spacing-4);
+        border-radius: var(--nxt1-borderRadius-2xl);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-surface-100);
+        opacity: 0.72;
+        transform: translateY(var(--nxt1-spacing-2));
+        transition:
+          opacity var(--nxt1-motion-duration-slow) var(--nxt1-motion-easing-standard),
+          transform var(--nxt1-motion-duration-slow) var(--nxt1-motion-easing-standard),
+          border-color var(--nxt1-motion-duration-fast) var(--nxt1-motion-easing-standard);
+      }
+
+      .workflow-step--visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      .workflow-step--active {
+        border-color: var(--nxt1-color-alpha-primary30);
+      }
+
+      .workflow-step__header {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+      }
+
+      .workflow-step__index {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: var(--nxt1-spacing-6);
+        padding: 0 var(--nxt1-spacing-2);
+        border-radius: var(--nxt1-borderRadius-full);
+        background: var(--nxt1-color-alpha-primary10);
+        color: var(--nxt1-color-primary);
+        font-family: var(--nxt1-fontFamily-mono);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        letter-spacing: var(--nxt1-letterSpacing-wide);
+        text-transform: uppercase;
+      }
+
+      .workflow-step__title {
+        margin: 0;
+        color: var(--nxt1-color-text-primary);
+        font-family: var(--nxt1-fontFamily-display);
+        font-size: clamp(var(--nxt1-fontSize-lg), 1.9vw, var(--nxt1-fontSize-2xl));
+        font-weight: var(--nxt1-fontWeight-bold);
+        line-height: var(--nxt1-lineHeight-tight);
+      }
+
+      .workflow-column {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-3);
+        border-radius: var(--nxt1-borderRadius-xl);
+        padding: var(--nxt1-spacing-4);
+      }
+
+      .workflow-column__label {
+        display: inline-flex;
+        width: fit-content;
+        align-items: center;
+        justify-content: center;
+        min-height: var(--nxt1-spacing-6);
+        padding: 0 var(--nxt1-spacing-2);
+        border-radius: var(--nxt1-borderRadius-full);
+        font-family: var(--nxt1-fontFamily-mono);
+        font-size: var(--nxt1-fontSize-xs);
+        text-transform: uppercase;
+        letter-spacing: var(--nxt1-letterSpacing-wider);
+      }
+
+      .workflow-column--prompt {
+        background: color-mix(in srgb, var(--nxt1-color-primary) 7%, var(--nxt1-color-surface-200));
+        border: 1px solid var(--nxt1-color-alpha-primary30);
+      }
+
+      .workflow-column--prompt .workflow-column__label {
+        background: var(--nxt1-color-alpha-primary10);
+        color: var(--nxt1-color-primary);
+      }
+
+      .workflow-column--result {
+        background: var(--nxt1-color-surface-200);
+        border: 1px solid var(--nxt1-color-border-default);
+      }
+
+      .workflow-column--result .workflow-column__label {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-primary) 20%,
+          var(--nxt1-color-surface-100)
+        );
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .workflow-column__text {
+        margin: 0;
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
+        line-height: var(--nxt1-lineHeight-relaxed);
+        max-width: 68ch;
+      }
+
+      .workflow-output {
+        margin-top: var(--nxt1-spacing-1);
+      }
+
+      .output-preview {
+        display: grid;
+        gap: var(--nxt1-spacing-3);
+        border-radius: var(--nxt1-borderRadius-lg);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-surface-100);
+        padding: var(--nxt1-spacing-3);
+      }
+
+      .output-video {
+        position: relative;
+        min-height: calc(var(--nxt1-spacing-12) * 3 + var(--nxt1-spacing-4));
+        border-radius: var(--nxt1-borderRadius-lg);
+        border: 1px solid var(--nxt1-color-alpha-primary30);
+        background: linear-gradient(
+          145deg,
+          var(--nxt1-color-alpha-primary10),
+          var(--nxt1-color-surface-200)
+        );
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .output-video__badge {
+        position: absolute;
+        top: var(--nxt1-spacing-2);
+        left: var(--nxt1-spacing-2);
+        padding: 0 var(--nxt1-spacing-2);
+        min-height: var(--nxt1-spacing-5);
+        border-radius: var(--nxt1-borderRadius-full);
+        background: var(--nxt1-color-surface-100);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-mono);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        letter-spacing: var(--nxt1-letterSpacing-wide);
+        text-transform: uppercase;
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .output-video__play {
+        width: var(--nxt1-spacing-10);
+        height: var(--nxt1-spacing-10);
+        border-radius: var(--nxt1-borderRadius-full);
+        border: 1px solid var(--nxt1-color-alpha-primary30);
+        background: var(--nxt1-color-surface-100);
+        position: relative;
+      }
+
+      .output-video__play::before {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 52%;
+        transform: translate(-50%, -50%);
+        width: 0;
+        height: 0;
+        border-top: 6px solid transparent;
+        border-bottom: 6px solid transparent;
+        border-left: 10px solid var(--nxt1-color-primary);
+      }
+
+      .output-timeline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--nxt1-spacing-2);
+      }
+
+      .output-chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: var(--nxt1-spacing-6);
+        padding: 0 var(--nxt1-spacing-2);
+        border-radius: var(--nxt1-borderRadius-full);
+        background: var(--nxt1-color-surface-200);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-medium);
+      }
+
+      .output-process {
+        display: grid;
+        gap: var(--nxt1-spacing-2);
+      }
+
+      .output-process__step {
+        position: relative;
+        --process-delay: 0ms;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+        border-radius: var(--nxt1-borderRadius-md);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-surface-200);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-medium);
+      }
+
+      .output-process__step--1 {
+        --process-delay: 0ms;
+      }
+
+      .output-process__step--2 {
+        --process-delay: 480ms;
+      }
+
+      .output-process__step--3 {
+        --process-delay: 960ms;
+      }
+
+      .output-process__step--4 {
+        --process-delay: 1440ms;
+      }
+
+      .output-process__state {
+        position: relative;
+        width: var(--nxt1-spacing-5);
+        height: var(--nxt1-spacing-5);
+        border-radius: var(--nxt1-borderRadius-full);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-surface-100);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+
+      .output-process__loader {
+        width: var(--nxt1-spacing-3);
+        height: var(--nxt1-spacing-3);
+        border-radius: var(--nxt1-borderRadius-full);
+        border: 1px solid transparent;
+        border-top-color: var(--nxt1-color-primary);
+        border-right-color: var(--nxt1-color-primary);
+      }
+
+      .output-process__check {
+        position: absolute;
+        color: var(--nxt1-color-primary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-bold);
+        opacity: 0;
+        transform: scale(0.8);
+      }
+
+      .workflow-step--visible .output-process__step {
+        animation: output-process-complete 900ms ease forwards;
+        animation-delay: var(--process-delay);
+      }
+
+      .workflow-step--visible .output-process__loader {
+        animation:
+          output-loader-spin 0.8s linear infinite,
+          output-loader-hide 900ms ease forwards;
+        animation-delay: 0ms, var(--process-delay);
+      }
+
+      .workflow-step--visible .output-process__check {
+        animation: output-check-in 900ms ease forwards;
+        animation-delay: calc(var(--process-delay) + 420ms);
+      }
+
+      .output-email {
+        border-radius: var(--nxt1-borderRadius-md);
+        border: 1px solid var(--nxt1-color-alpha-primary30);
+        background: var(--nxt1-color-alpha-primary4);
+        padding: var(--nxt1-spacing-3);
+      }
+
+      .output-email__title {
+        margin: 0 0 var(--nxt1-spacing-1);
+        color: var(--nxt1-color-primary);
+        font-family: var(--nxt1-fontFamily-mono);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        text-transform: uppercase;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
+      }
+
+      .output-email__body {
+        margin: 0;
+        color: var(--nxt1-color-text-primary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        line-height: var(--nxt1-lineHeight-relaxed);
+      }
+
+      .output-board {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--nxt1-spacing-2);
+      }
+
+      .output-board__col {
+        display: grid;
+        gap: var(--nxt1-spacing-1);
+        border-radius: var(--nxt1-borderRadius-md);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-surface-200);
+        padding: var(--nxt1-spacing-2);
+      }
+
+      .output-board__label {
+        color: var(--nxt1-color-primary);
+        font-family: var(--nxt1-fontFamily-mono);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        text-transform: uppercase;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
+      }
+
+      .output-board__item {
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-medium);
+      }
+
+      .output-table {
+        display: grid;
+        gap: var(--nxt1-spacing-1_5);
+      }
+
+      .output-row {
+        display: grid;
+        grid-template-columns: 1.3fr 0.6fr 0.8fr;
+        gap: var(--nxt1-spacing-2);
+        border-radius: var(--nxt1-borderRadius-md);
+        border: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-surface-200);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+      }
+
+      .output-row span {
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-medium);
+      }
+
+      .output-star {
+        color: var(--nxt1-color-primary);
+        margin-right: var(--nxt1-spacing-1);
+      }
+
+      .output-row--head {
+        background: var(--nxt1-color-alpha-primary4);
+        border-color: var(--nxt1-color-alpha-primary30);
+      }
+
+      .output-row--head span {
+        color: var(--nxt1-color-primary);
+        font-family: var(--nxt1-fontFamily-mono);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        text-transform: uppercase;
+        letter-spacing: var(--nxt1-letterSpacing-wide);
+      }
+
+      @media (min-width: 992px) {
+        .workflow-step {
+          grid-template-columns: 1fr;
+          gap: var(--nxt1-spacing-3);
+          padding: var(--nxt1-spacing-5);
+        }
+
+        .workflow-column {
+          padding: var(--nxt1-spacing-5);
+        }
+
+        .output-board {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+      }
+
+      @media (min-width: 1200px) {
+        .workflow-status {
+          display: none;
+        }
+
+        .workflow-list {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          align-items: start;
+          gap: var(--nxt1-spacing-3);
+        }
+
+        .workflow-step {
+          min-height: auto;
+          gap: var(--nxt1-spacing-2);
+          padding: var(--nxt1-spacing-3);
+          transform: none;
+        }
+
+        .workflow-step__title {
+          font-size: var(--nxt1-fontSize-xl);
+        }
+
+        .workflow-column {
+          padding: var(--nxt1-spacing-3);
+          gap: var(--nxt1-spacing-2);
+        }
+
+        .workflow-column__text {
+          font-size: var(--nxt1-fontSize-sm);
+        }
+
+        .output-preview {
+          padding: var(--nxt1-spacing-2);
+          gap: var(--nxt1-spacing-2);
+        }
+
+        .output-video {
+          min-height: calc(var(--nxt1-spacing-12) * 3);
+        }
+
+        .output-video__play {
+          width: var(--nxt1-spacing-8);
+          height: var(--nxt1-spacing-8);
+        }
+
+        .output-board {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .output-row {
+          grid-template-columns: 1fr;
+          gap: var(--nxt1-spacing-1);
+        }
+      }
 
       @media (max-width: 767px) {
         .agent-x-demo {
           padding: var(--nxt1-spacing-12) var(--nxt1-spacing-3);
         }
 
-        .demo-headline {
-          font-size: var(--nxt1-fontSize-3xl);
+        .workflow-status {
+          width: 100%;
+          justify-content: space-between;
         }
 
-        .demo-subtitle {
-          font-size: var(--nxt1-fontSize-base);
+        .workflow-step {
+          min-height: 0;
         }
 
-        .demo-chat,
-        .demo-output {
-          min-height: 280px;
-        }
-
-        .demo-graphic__player {
-          font-size: var(--nxt1-fontSize-lg);
+        .output-row {
+          grid-template-columns: 1fr;
+          gap: var(--nxt1-spacing-1);
         }
       }
 
@@ -851,39 +825,75 @@ const DEFAULT_GRAPHICS: readonly AgentXDemoGraphic[] = [
         .agent-x-demo {
           padding: var(--nxt1-spacing-10) var(--nxt1-spacing-2);
         }
+
+        .workflow-column {
+          padding: var(--nxt1-spacing-3);
+        }
       }
 
-      /* ─── REDUCED MOTION ─── */
-
       @media (prefers-reduced-motion: reduce) {
-        .demo-badge__dot {
-          animation: none;
-        }
-
-        .demo-chat__cursor {
-          animation: none;
+        .workflow-step {
+          transition: none;
+          transform: none;
           opacity: 1;
         }
 
-        .demo-chat__thinking-dot {
-          animation: none;
-          opacity: 0.7;
-        }
-
-        .demo-chat__header-dot--active {
+        .output-process__step,
+        .output-process__loader,
+        .output-process__check {
           animation: none;
         }
 
-        .demo-graphic {
-          transition: none;
-        }
-
-        .demo-graphic--visible {
+        .output-process__loader {
+          opacity: 0;
           animation: none;
         }
 
-        .demo-graphic--visible .demo-graphic__shimmer::after {
-          animation: none;
+        .output-process__check {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      @keyframes output-loader-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @keyframes output-process-complete {
+        0% {
+          border-color: var(--nxt1-color-border-subtle);
+          background: var(--nxt1-color-surface-200);
+        }
+        100% {
+          border-color: var(--nxt1-color-alpha-primary30);
+          background: var(--nxt1-color-alpha-primary4);
+        }
+      }
+
+      @keyframes output-loader-hide {
+        0%,
+        50% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+
+      @keyframes output-check-in {
+        0%,
+        40% {
+          opacity: 0;
+          transform: scale(0.8);
+        }
+        100% {
+          opacity: 1;
+          transform: scale(1);
         }
       }
     `,
@@ -891,191 +901,90 @@ const DEFAULT_GRAPHICS: readonly AgentXDemoGraphic[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtAgentXDemoComponent {
-  // ─── Injections ───
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
   private readonly elementRef = inject(ElementRef<HTMLElement>);
 
-  // ─── Inputs ───
-  /** Section headline. */
-  readonly headline = input<string>('Your Personal AI Worker');
-
-  /** Section subtitle. */
+  readonly headline = input<string>('Your Recruiting Partner');
   readonly subtitle = input<string>(
-    'No designer needed. Turn raw stats into ESPN-grade content in seconds.'
+    'From first film to final fit, Agent X helps athletes execute every step of recruiting with clarity and speed.'
   );
-
-  /** Chat messages for the demo. */
-  readonly chatMessages = input<readonly AgentXDemoChatMessage[]>(DEFAULT_CHAT);
-
-  /** Graphics to display in the output panel. */
-  readonly graphics = input<readonly AgentXDemoGraphic[]>(DEFAULT_GRAPHICS);
-
-  /** Primary CTA label. */
+  readonly workflowSteps = input<readonly AgentXDemoWorkflowStep[]>(DEFAULT_WORKFLOW);
   readonly primaryCtaLabel = input<string>('Try Agent X Free');
-
-  /** Primary CTA route. */
-  readonly primaryCtaRoute = input<string>('/auth/register');
-
-  /** Secondary CTA label (empty = hidden). */
+  readonly primaryCtaRoute = input<string>('/auth');
   readonly secondaryCtaLabel = input<string>('See How It Works');
-
-  /** Secondary CTA route. */
   readonly secondaryCtaRoute = input<string>('/agent-x');
 
-  // ─── Internal State ───
-  private readonly _phase = signal<DemoPhase>('idle');
-  private readonly _typedText = signal('');
-  private readonly _visibleMessages = signal<AgentXDemoChatMessage[]>([]);
-  private readonly _visibleGraphicCount = signal(0);
-  private readonly _hasStarted = signal(false);
-  private _timers: ReturnType<typeof setTimeout>[] = [];
-  private _observer: IntersectionObserver | null = null;
-  private _hasPlayed = false;
+  private readonly _activeStepIndex = signal(0);
+  private readonly _visibleStepIndexes = signal(new Set<number>([0]));
 
-  // ─── Protected Computed (template-only access) ───
-  protected readonly phase = computed(() => this._phase());
-  protected readonly typedText = computed(() => this._typedText());
-  protected readonly visibleMessages = computed(() => this._visibleMessages());
-  protected readonly visibleGraphicCount = computed(() => this._visibleGraphicCount());
-  protected readonly hasStarted = computed(() => this._hasStarted());
+  private observer: IntersectionObserver | null = null;
 
-  /** Deterministic, SSR-hydration-safe section title ID. */
   protected readonly sectionTitleId = `agent-x-demo-${nextDemoId++}`;
+  protected readonly activeStepIndex = computed(() => this._activeStepIndex());
+  protected readonly visibleStepIndexes = computed(() => this._visibleStepIndexes());
+  protected readonly stepCount = computed(() => this.workflowSteps().length || 0);
+  protected readonly activeStepNumber = computed(() => this._activeStepIndex() + 1);
+  protected readonly activeStepTitle = computed(() => {
+    const steps = this.workflowSteps();
+    return steps[this._activeStepIndex()]?.title ?? '';
+  });
 
   constructor() {
     afterNextRender({
-      write: () => {
-        this.setupIntersectionObserver();
-      },
+      write: () => this.setupObserver(),
     });
 
-    this.destroyRef.onDestroy(() => this.cleanup());
+    this.destroyRef.onDestroy(() => this.cleanupObserver());
   }
 
-  // ─── Animation Orchestration ───
-
-  /**
-   * Sets up an IntersectionObserver to trigger the animation
-   * when the component scrolls into the viewport (50% visible).
-   */
-  private setupIntersectionObserver(): void {
+  private setupObserver(): void {
     if (!isPlatformBrowser(this.platformId)) return;
 
     const host = this.elementRef.nativeElement;
-    if (!host) return;
+    const sections = host.querySelectorAll('.workflow-step') as NodeListOf<HTMLElement>;
+    if (!sections.length) return;
 
-    this._observer = new IntersectionObserver(
+    this.observer = new IntersectionObserver(
       (entries) => {
-        const entry = entries[0];
-        if (entry?.isIntersecting && !this._hasPlayed) {
-          this._hasPlayed = true;
-          this.startDemo();
-          this._observer?.disconnect();
+        let nextActiveIndex: number | null = null;
+        let highestRatio = 0;
+
+        for (const entry of entries) {
+          const section = entry.target as HTMLElement;
+          const rawIndex = section.dataset['stepIndex'];
+          const sectionIndex = rawIndex ? Number(rawIndex) : NaN;
+          if (Number.isNaN(sectionIndex)) continue;
+
+          if (entry.isIntersecting) {
+            this._visibleStepIndexes.update((current) => {
+              const next = new Set(current);
+              next.add(sectionIndex);
+              return next;
+            });
+
+            if (entry.intersectionRatio >= highestRatio) {
+              highestRatio = entry.intersectionRatio;
+              nextActiveIndex = sectionIndex;
+            }
+          }
+        }
+
+        if (nextActiveIndex !== null) {
+          this._activeStepIndex.set(nextActiveIndex);
         }
       },
-      { threshold: 0.3 }
+      {
+        threshold: [0.25, 0.5, 0.75],
+        rootMargin: '-10% 0px -35% 0px',
+      }
     );
 
-    this._observer.observe(host);
+    sections.forEach((section: HTMLElement) => this.observer?.observe(section));
   }
 
-  /** Runs the full demo animation sequence. */
-  private startDemo(): void {
-    const messages = this.chatMessages();
-    const userMessage = messages[0];
-    const agentMessage = messages[1];
-
-    if (!userMessage) return;
-
-    // Mark as started so template switches from SSR fallback to interactive mode
-    this._hasStarted.set(true);
-
-    // Phase 1: Typewriter effect for user message
-    this._phase.set('typing');
-    this._visibleMessages.set([userMessage]);
-    this.typewriterEffect(userMessage.text, () => {
-      // Phase 2: Brief pause, then "thinking" state
-      this.scheduleTimer(() => {
-        this._phase.set('thinking');
-
-        // Phase 3: Agent responds
-        this.scheduleTimer(() => {
-          this._phase.set('generating');
-          if (agentMessage) {
-            this._visibleMessages.set([userMessage, agentMessage]);
-          }
-
-          // Phase 4: Graphics appear one by one
-          this.revealGraphicsSequentially();
-        }, 1200);
-      }, 400);
-    });
-  }
-
-  /** Types text character-by-character into the chat. */
-  private typewriterEffect(text: string, onComplete: () => void): void {
-    const prefersReducedMotion = this.prefersReducedMotion();
-
-    if (prefersReducedMotion) {
-      this._typedText.set(text);
-      onComplete();
-      return;
-    }
-
-    let index = 0;
-    const speed = 28; // ms per character
-
-    const typeNext = (): void => {
-      if (index <= text.length) {
-        this._typedText.set(text.slice(0, index));
-        index++;
-        this.scheduleTimer(typeNext, speed);
-      } else {
-        onComplete();
-      }
-    };
-
-    typeNext();
-  }
-
-  /** Reveals graphic cards one at a time with staggered delay. */
-  private revealGraphicsSequentially(): void {
-    const total = this.graphics().length;
-    const prefersReducedMotion = this.prefersReducedMotion();
-    const delay = prefersReducedMotion ? 0 : 500;
-
-    for (let i = 0; i < total; i++) {
-      this.scheduleTimer(
-        () => {
-          this._visibleGraphicCount.set(i + 1);
-
-          if (i === total - 1) {
-            this._phase.set('complete');
-          }
-        },
-        delay * (i + 1)
-      );
-    }
-  }
-
-  /** Checks if user prefers reduced motion. */
-  private prefersReducedMotion(): boolean {
-    if (!isPlatformBrowser(this.platformId)) return false;
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  }
-
-  /** Schedules a timer and tracks it for cleanup. */
-  private scheduleTimer(fn: () => void, ms: number): void {
-    const timer = setTimeout(fn, ms);
-    this._timers.push(timer);
-  }
-
-  /** Cleans up all running timers and observer. */
-  private cleanup(): void {
-    this._timers.forEach((t) => clearTimeout(t));
-    this._timers = [];
-    this._observer?.disconnect();
-    this._observer = null;
+  private cleanupObserver(): void {
+    this.observer?.disconnect();
+    this.observer = null;
   }
 }

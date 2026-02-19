@@ -21,6 +21,7 @@ import {
   type AudienceSegment,
 } from '../../components/audience-section';
 import { NxtFaqSectionComponent, type FaqItem } from '../../components/faq-section';
+import { NxtKillerComparisonComponent } from '../../components/nxt1-killer-comparison';
 import { NxtCtaBannerComponent } from '../../components/cta-banner';
 import { NxtParentsPreviewComponent } from './parents-preview.component';
 
@@ -145,6 +146,7 @@ const FAQS: FaqItem[] = [
     NxtStatsBarComponent,
     NxtFeatureShowcaseComponent,
     NxtAudienceSectionComponent,
+    NxtKillerComparisonComponent,
     NxtFaqSectionComponent,
     NxtCtaBannerComponent,
     NxtParentsPreviewComponent,
@@ -157,7 +159,7 @@ const FAQS: FaqItem[] = [
       accentText="Their Journey"
       subtitle="Track your child's recruiting progress, see who's watching, and know exactly what to do next — NXT1 gives parents full visibility into the recruiting process."
       primaryCtaLabel="Create Free Account"
-      primaryCtaRoute="/auth/register"
+      primaryCtaRoute="/auth"
       secondaryCtaLabel="Learn More"
       secondaryCtaRoute="/explore"
       ariaId="parents-hero"
@@ -179,6 +181,8 @@ const FAQS: FaqItem[] = [
       [segments]="audiences"
     />
 
+    <nxt1-killer-comparison />
+
     <nxt1-faq-section
       title="Parent FAQs"
       subtitle="Answers to the questions parents ask most about the recruiting process."
@@ -189,7 +193,7 @@ const FAQS: FaqItem[] = [
       title="Support Your Child's Dream"
       subtitle="Join 85,000+ families using NXT1 to navigate the recruiting process with confidence."
       ctaLabel="Get Started Free"
-      ctaRoute="/auth/register"
+      ctaRoute="/auth"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,

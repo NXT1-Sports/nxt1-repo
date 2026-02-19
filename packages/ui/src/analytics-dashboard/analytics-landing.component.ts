@@ -168,9 +168,9 @@ const ANALYTICS_FAQS: FaqItem[] = [
       accentText="Powered by Data"
       subtitle="Real-time analytics for athletes and coaches. Track profile views, video performance, and recruiting interest — all in one powerful dashboard."
       primaryCtaLabel="Get Started Free"
-      primaryCtaRoute="/auth/register"
+      primaryCtaRoute="/auth"
       secondaryCtaLabel="Log In"
-      secondaryCtaRoute="/auth/login"
+      secondaryCtaRoute="/auth"
       ariaId="analytics-hero-title"
     >
       <nxt1-analytics-dashboard-preview />
@@ -206,7 +206,7 @@ const ANALYTICS_FAQS: FaqItem[] = [
       title="Ready to Unlock Your Recruiting Analytics?"
       subtitle="Join thousands of athletes and coaches using NXT1 to gain a competitive edge."
       ctaLabel="Sign Up Free"
-      ctaRoute="/auth/register"
+      ctaRoute="/auth"
     />
   `,
   styles: [

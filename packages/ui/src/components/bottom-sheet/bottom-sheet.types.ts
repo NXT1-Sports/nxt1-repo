@@ -186,7 +186,7 @@ export interface ContentSheetConfig<T = unknown> {
    * Useful for unsaved changes confirmation.
    * Matches Ionic's ModalOptions.canDismiss signature.
    */
-  canDismiss?: boolean | ((data?: unknown, role?: string) => Promise<boolean>);
+  canDismiss?: boolean | ((data?: T, role?: string) => Promise<boolean>);
 
   /** Additional CSS classes for customization */
   cssClass?: string | string[];

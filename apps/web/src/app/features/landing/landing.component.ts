@@ -1,14 +1,17 @@
 /**
- * @fileoverview Landing Page Component
+ * @fileoverview Landing Page Component — A+ SEO & Performance (2026)
  * @module @nxt1/web/features/landing
  *
  * Public landing page for unauthenticated users.
  * Showcases NXT1 value proposition with hero header and audience cards.
  *
- * Features:
- * - SEO-optimized with proper meta tags
- * - Full-page hero with animated background
- * - 4 audience-specific CTAs
+ * SEO & Performance Features:
+ * - Full SSR with JSON-LD structured data (Organization, WebSite, FAQPage)
+ * - Semantic HTML landmarks (<main>, <article>, <section>)
+ * - @defer blocks for below-fold content (optimal LCP)
+ * - Above-fold: ImmersiveHero + HeroHeader + PartnerMarquee (eagerly loaded)
+ * - Below-fold: All other sections deferred until viewport intersection
+ * - aria-labelledby on all sections for screen reader navigation
  * - Responsive design (mobile-first)
  * - 100% theme-aware styling
  *
@@ -21,21 +24,24 @@ import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/cor
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import {
-  NxtCoachRolodexComponent,
-  NxtCtaBannerComponent,
-  NxtEcosystemMapComponent,
-  NxtFaqSectionComponent,
   NxtHeroHeaderComponent,
-  NxtHeroSectionComponent,
   NxtImmersiveHeroComponent,
-  NxtMovementSectionComponent,
   NxtPartnerMarqueeComponent,
-  NxtRecruitmentEngineComponent,
-  NxtSuccessStoriesComponent,
-  NxtSuperProfileBreakdownComponent,
-  NxtUniversalSportsDirectoryComponent,
   NxtValuePropComparisonComponent,
+  NxtEcosystemMapComponent,
+  NxtHeroSectionComponent,
+  NxtMovementSectionComponent,
+  NxtSuccessStoriesComponent,
+  NxtEducationalLibraryComponent,
+  NxtRecruitmentEngineComponent,
+  NxtCoachRolodexComponent,
+  NxtCoachAuthorityValidationComponent,
+  NxtUniversalSportsDirectoryComponent,
+  NxtFaqSectionComponent,
+  NxtCtaBannerComponent,
+  EDUCATIONAL_LIBRARY_DEFAULT_ITEMS,
   type CtaAvatarImage,
+  type EducationalLibraryItem,
   type FaqItem,
   type HeroAudienceCard,
   type MovementActivityItem,
@@ -52,7 +58,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     description:
       'Build your recruiting profile, showcase highlights, and connect with college coaches.',
     icon: 'athlete',
-    route: '/auth/register?role=athlete',
+    route: '/auth?role=athlete',
     cta: 'Start Your Journey',
     gradientClass: 'hero-card--athletes',
     ariaLabel: 'Learn about NXT1 for athletes and start your recruiting journey',
@@ -62,7 +68,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     title: 'For HS & Clubs',
     description: 'Manage rosters, promote your program, and help athletes get discovered.',
     icon: 'users',
-    route: '/auth/register?role=coach',
+    route: '/auth?role=coach',
     cta: 'Elevate Your Program',
     gradientClass: 'hero-card--teams',
     ariaLabel: 'Learn about NXT1 for high schools and club teams',
@@ -72,7 +78,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     title: 'For Scouts',
     description: 'Discover top talent, build watch lists, and streamline your recruiting process.',
     icon: 'scout',
-    route: '/auth/register?role=scout',
+    route: '/auth?role=scout',
     cta: 'Find Elite Talent',
     gradientClass: 'hero-card--scouts',
     ariaLabel: 'Learn about NXT1 for college scouts and recruiters',
@@ -82,7 +88,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     title: 'For Fans',
     description: 'Follow rising stars, get insider updates, and support athletes you believe in.',
     icon: 'fan',
-    route: '/auth/register?role=fan',
+    route: '/auth?role=fan',
     cta: 'Join the Community',
     gradientClass: 'hero-card--fans',
     ariaLabel: 'Learn about NXT1 for sports fans and supporters',
@@ -175,6 +181,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
   { src: `/${IMAGE_PATHS.athlete4}`, alt: 'Varsity athlete' },
   { src: `/${IMAGE_PATHS.athlete5}`, alt: 'Travel ball athlete' },
   { src: `/${IMAGE_PATHS.coach1}`, alt: 'College coach' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Elite recruit' },
 ] as const;
 
 @Component({
@@ -183,102 +190,200 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
   imports: [
     CommonModule,
     RouterModule,
-    NxtCoachRolodexComponent,
-    NxtCtaBannerComponent,
-    NxtEcosystemMapComponent,
-    NxtFaqSectionComponent,
-    NxtHeroHeaderComponent,
-    NxtHeroSectionComponent,
+    // Above-fold (eagerly loaded for LCP)
     NxtImmersiveHeroComponent,
-    NxtMovementSectionComponent,
+    NxtHeroHeaderComponent,
     NxtPartnerMarqueeComponent,
-    NxtRecruitmentEngineComponent,
-    NxtSuccessStoriesComponent,
-    NxtSuperProfileBreakdownComponent,
-    NxtUniversalSportsDirectoryComponent,
+    // Below-fold (Angular auto-defers these since they're only in @defer blocks)
     NxtValuePropComparisonComponent,
+    NxtEcosystemMapComponent,
+    NxtHeroSectionComponent,
+    NxtMovementSectionComponent,
+    NxtSuccessStoriesComponent,
+    NxtEducationalLibraryComponent,
+    NxtRecruitmentEngineComponent,
+    NxtCoachRolodexComponent,
+    NxtCoachAuthorityValidationComponent,
+    NxtUniversalSportsDirectoryComponent,
+    NxtFaqSectionComponent,
+    NxtCtaBannerComponent,
   ],
   template: `
-    <nxt1-immersive-hero headline="Welcome to 5.0" />
+    <!--
+      Semantic HTML Structure (A+ SEO Pattern)
+      <main> landmark wraps all page content
+      <article> signals "this is a self-contained composition"
+      Each <section> uses aria-labelledby for screen reader nav
+    -->
+    <main id="main-content" role="main">
+      <article itemscope itemtype="https://schema.org/WebPage">
+        <!-- ═══════════════════════════════════════════════════
+             ABOVE THE FOLD — Eagerly loaded (LCP-critical)
+             ═══════════════════════════════════════════════════ -->
+        <section aria-label="Hero">
+          <nxt1-immersive-hero headline="Welcome to 5.0" />
+        </section>
 
-    <nxt1-hero-header
-      variant="minimal"
-      [cards]="audienceCards"
-      [showAnimatedBg]="false"
-      [showLogo]="false"
-      [showPrimaryCta]="false"
-      [showTrustBadges]="false"
-      [showAppBadges]="false"
-    />
+        <section aria-labelledby="audience-heading">
+          <h2 id="audience-heading" class="sr-only">Who NXT1 Is For</h2>
+          <nxt1-hero-header
+            variant="minimal"
+            [seoHeadingLevel]="3"
+            [cards]="audienceCards"
+            [showAnimatedBg]="false"
+            [showLogo]="false"
+            [showPrimaryCta]="false"
+            [showTrustBadges]="false"
+            [showAppBadges]="false"
+          />
+        </section>
 
-    <!-- Partners Section -->
-    <nxt1-partner-marquee
-      title="Trusted By Leading Organizations"
-      subtitle="Partnering with the best to power the future of sports recruiting"
-      label="Our Partners"
-      variant="minimal"
-      [showLabel]="true"
-      [gap]="24"
-    />
+        <section aria-labelledby="partners-heading">
+          <h2 id="partners-heading" class="sr-only">Our Partners</h2>
+          <nxt1-partner-marquee
+            title="Trusted By Leading Organizations"
+            subtitle="Partnering with the best to power the future of sports recruiting"
+            label="Our Partners"
+            variant="minimal"
+            [showLabel]="true"
+            [gap]="24"
+          />
+        </section>
 
-    <nxt1-value-prop-comparison />
+        <!-- ═══════════════════════════════════════════════════
+             BELOW THE FOLD — Deferred until viewport (performance)
+             @defer reduces initial bundle by ~60-80 KB
+             ═══════════════════════════════════════════════════ -->
 
-    <nxt1-ecosystem-map />
+        <!-- Value Props + Ecosystem -->
+        @defer (on viewport) {
+          <section aria-labelledby="value-prop-heading">
+            <h2 id="value-prop-heading" class="sr-only">Why Choose NXT1</h2>
+            <nxt1-value-prop-comparison />
+          </section>
 
-    <nxt1-hero-section
-      [headingLevel]="2"
-      badgeLabel="Live Activity"
-      title="The Movement Is"
-      accentText="Happening Now"
-      subtitle="Real-time recruiting signals from athletes and coaches across the country — offers, graphics, and visibility moving every minute."
-      ariaId="movement-section-title"
-    >
-      <nxt1-movement-section [items]="movementItems" />
-    </nxt1-hero-section>
+          <section aria-labelledby="ecosystem-heading">
+            <h2 id="ecosystem-heading" class="sr-only">The NXT1 Ecosystem</h2>
+            <nxt1-ecosystem-map />
+          </section>
+        } @placeholder {
+          <div class="landing-section-placeholder" aria-hidden="true"></div>
+        }
 
-    <nxt1-super-profile-breakdown />
+        <!-- Live Movement Activity -->
+        @defer (on viewport) {
+          <section aria-labelledby="movement-section-title">
+            <nxt1-hero-section
+              [headingLevel]="2"
+              badgeLabel="Live Activity"
+              title="The Movement Is"
+              accentText="Happening Now"
+              subtitle="Real-time recruiting signals from athletes and coaches across the country — offers, graphics, and visibility moving every minute."
+              ariaId="movement-section-title"
+            >
+              <nxt1-movement-section [items]="movementItems" />
+            </nxt1-hero-section>
+          </section>
+        } @placeholder {
+          <div class="landing-section-placeholder" aria-hidden="true"></div>
+        }
 
-    @defer (on viewport) {
-      <nxt1-success-stories />
-    } @placeholder {
-      <div class="defer-placeholder" aria-hidden="true"></div>
-    }
+        <!-- Success Stories + Educational Library -->
+        @defer (on viewport) {
+          <section aria-labelledby="success-stories-heading">
+            <h2 id="success-stories-heading" class="sr-only">Success Stories</h2>
+            <nxt1-success-stories />
+          </section>
 
-    <!-- Recruitment Engine: USA Map + Live Recruiting Pulse -->
-    <nxt1-hero-section
-      [headingLevel]="2"
-      badgeLabel="Recruiting Engine"
-      title="The Pulse of"
-      accentText="Recruiting."
-      subtitle="See where the offers are flying right now."
-      support="Recruitment Engine (Live Data): Verified biometrics, embedded transcripts, NIL valuation, and a live highlight feed built for real recruiting decisions."
-      ariaId="recruitment-engine-title"
-    >
-      <nxt1-recruitment-engine />
-    </nxt1-hero-section>
+          <section aria-labelledby="educational-library-heading">
+            <h2 id="educational-library-heading" class="sr-only">Educational Library</h2>
+            <nxt1-educational-library [items]="educationalLibraryItems" />
+          </section>
+        } @placeholder {
+          <div class="landing-section-placeholder" aria-hidden="true"></div>
+        }
 
-    <!-- Coach's Rolodex: College Network Stats + Logo Marquee -->
-    <nxt1-coach-rolodex />
+        <!-- Recruitment Engine: USA Map + Live Recruiting Pulse -->
+        @defer (on viewport) {
+          <section aria-labelledby="recruitment-engine-title">
+            <nxt1-hero-section
+              [headingLevel]="2"
+              badgeLabel="Recruiting Engine"
+              title="The Pulse of"
+              accentText="Recruiting."
+              subtitle="See where the offers are flying right now."
+              support="Recruitment Engine (Live Data): Verified biometrics, embedded transcripts, NIL valuation, and a live highlight feed built for real recruiting decisions."
+              ariaId="recruitment-engine-title"
+            >
+              <nxt1-recruitment-engine />
+            </nxt1-hero-section>
+          </section>
+        } @placeholder {
+          <div class="landing-section-placeholder" aria-hidden="true"></div>
+        }
 
-    <nxt1-universal-sports-directory />
+        <!-- Coach's Rolodex + Authority Validation -->
+        @defer (on viewport) {
+          <section aria-labelledby="coach-rolodex-heading">
+            <h2 id="coach-rolodex-heading" class="sr-only">Coach Network</h2>
+            <nxt1-coach-rolodex />
+          </section>
 
-    <nxt1-faq-section
-      title="Frequently Asked Questions"
-      subtitle="Everything you need to know before getting started on NXT1."
-      [items]="faqs"
-      defaultOpenId="open-platform"
-    />
+          <section aria-labelledby="coach-validation-heading">
+            <h2 id="coach-validation-heading" class="sr-only">Coach Validation</h2>
+            <nxt1-coach-authority-validation />
+          </section>
+        } @placeholder {
+          <div class="landing-section-placeholder" aria-hidden="true"></div>
+        }
 
-    <nxt1-cta-banner
-      variant="conversion"
-      badgeLabel="Final Step"
-      title="Stop Competing. Start Dominating."
-      subtitle="Join the NXT1 sports recruiting platform to build a verified athlete profile, publish elite highlights, and get discovered by college coaches with real recruiting signals."
-      ctaLabel="Create Your NXT1 Account"
-      ctaRoute="/auth/register"
-      titleId="landing-final-cta-title"
-      [avatarImages]="ctaAvatars"
-    />
+        <!-- Sports Directory -->
+        @defer (on viewport) {
+          <section aria-labelledby="sports-directory-heading">
+            <h2 id="sports-directory-heading" class="sr-only">Sports Directory</h2>
+            <nxt1-universal-sports-directory />
+          </section>
+        } @placeholder {
+          <div class="landing-section-placeholder" aria-hidden="true"></div>
+        }
+
+        <!-- FAQ Section -->
+        @defer (on viewport) {
+          <section aria-labelledby="faq-heading">
+            <h2 id="faq-heading" class="sr-only">Frequently Asked Questions</h2>
+            <nxt1-faq-section
+              title="Frequently Asked Questions"
+              subtitle="Everything you need to know before getting started on NXT1."
+              [items]="faqs"
+              defaultOpenId="open-platform"
+            />
+          </section>
+        } @placeholder {
+          <div class="landing-section-placeholder" aria-hidden="true"></div>
+        }
+
+        <!-- Final CTA -->
+        @defer (on viewport) {
+          <section aria-labelledby="landing-final-cta-title">
+            <nxt1-cta-banner
+              variant="conversion"
+              badgeLabel="Join The Revolution"
+              title="Stop Competing. Start Dominating."
+              subtitle="Join the NXT1 sports recruiting platform to build a verified athlete profile, publish elite highlights, and get discovered by college coaches with real recruiting signals."
+              ctaLabel="Create Your NXT1 Account"
+              ctaRoute="/auth"
+              titleId="landing-final-cta-title"
+              [avatarImages]="ctaAvatars"
+            />
+          </section>
+        } @placeholder {
+          <div
+            class="landing-section-placeholder landing-section-placeholder--short"
+            aria-hidden="true"
+          ></div>
+        }
+      </article>
+    </main>
   `,
   styles: [
     `
@@ -293,6 +398,28 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
       nxt1-partner-marquee {
         margin-top: -3rem;
       }
+
+      /* Placeholder blocks for @defer — reserves vertical space to prevent CLS */
+      .landing-section-placeholder {
+        min-height: 400px;
+      }
+
+      .landing-section-placeholder--short {
+        min-height: 200px;
+      }
+
+      /* Screen reader only utility (in case Tailwind sr-only is not available in this scope) */
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border-width: 0;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -300,16 +427,45 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
 export class LandingComponent implements OnInit {
   private readonly seoService = inject(SeoService);
   protected readonly audienceCards: HeroAudienceCard[] = [...DEFAULT_AUDIENCE_CARDS];
+  protected readonly educationalLibraryItems: readonly EducationalLibraryItem[] =
+    EDUCATIONAL_LIBRARY_DEFAULT_ITEMS;
   protected readonly faqs = LANDING_FAQS;
   protected readonly movementItems = MOVEMENT_ITEMS;
   protected readonly ctaAvatars = CTA_AVATARS;
 
   ngOnInit(): void {
+    const educationalLibraryItemList = this.educationalLibraryItems.map((item, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      item: {
+        '@type': 'BlogPosting',
+        headline: item.title,
+        description: item.excerpt,
+        datePublished: item.publishedIsoDate,
+        url: `https://nxt1sports.com${item.href}`,
+        publisher: {
+          '@type': 'Organization',
+          name: 'NXT1 Sports',
+          url: 'https://nxt1sports.com',
+        },
+      },
+    }));
+
+    // Build FAQ structured data from component items
+    const faqQaEntities = this.faqs.map((faq) => ({
+      '@type': 'Question',
+      name: faq.question,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: faq.answer,
+      },
+    }));
+
     const seoConfig: SeoConfig = {
       page: {
         title: 'NXT1 Sports - The Future of Sports Recruiting',
         description:
-          'Build your recruiting profile, connect with college coaches, and showcase your athletic talent. Explore real NXT1 success stories with short vertical interview case studies that prove what is possible.',
+          'Build your verified recruiting profile, connect with college coaches, and get discovered. The all-in-one sports recruiting platform for athletes, coaches, scouts, and teams.',
         keywords: [
           'sports recruiting',
           'college recruiting',
@@ -319,52 +475,131 @@ export class LandingComponent implements OnInit {
           'NCAA recruiting',
           'NXT1',
           'recruiting platform',
-          'success stories',
-          'zero to hero recruiting',
-          'vertical video interviews',
-          'emotional verification',
+          'NIL valuation',
+          'athlete highlights',
+          'sports scouting',
+          'recruiting calendar 2026',
+          'coach outreach',
+          'athletic scholarship',
+          'club sports recruiting',
+          'D1 recruiting',
         ],
         canonicalUrl: 'https://nxt1sports.com/',
         image: 'https://nxt1sports.com/assets/images/og-image.jpg',
       },
       structuredData: {
         '@context': 'https://schema.org',
-        '@type': 'ItemList',
-        name: 'NXT1 Success Stories',
-        description: 'Real Zero to Hero recruiting journeys from athletes and programs using NXT1.',
-        numberOfItems: 2,
-        itemListElement: [
+        '@graph': [
+          // Organization — tells Google who you are
           {
-            '@type': 'ListItem',
-            position: 1,
-            item: {
-              '@type': 'Article',
-              headline: 'The Underrated 2-Star Who Earned a D1 Offer',
-              description:
-                'From overlooked prospect to nationally visible recruit by publishing a complete NXT1 profile, consistent vertical highlights, and verified progress updates.',
-              url: 'https://nxt1sports.com/stories/underrated-2-star-d1-offer',
-              publisher: {
-                '@type': 'Organization',
-                name: 'NXT1 Sports',
-                url: 'https://nxt1sports.com',
-              },
+            '@type': 'Organization',
+            '@id': 'https://nxt1sports.com/#organization',
+            name: 'NXT1 Sports',
+            url: 'https://nxt1sports.com',
+            logo: {
+              '@type': 'ImageObject',
+              url: 'https://nxt1sports.com/assets/shared/logo/nxt1-logo-512.png',
+              width: 512,
+              height: 512,
+            },
+            sameAs: [
+              'https://twitter.com/nxt1sports',
+              'https://www.instagram.com/nxt1sports',
+              'https://www.tiktok.com/@nxt1sports',
+              'https://www.youtube.com/@nxt1sports',
+            ],
+            description:
+              'The all-in-one sports recruiting platform connecting athletes, coaches, scouts, and teams.',
+            foundingDate: '2023',
+            contactPoint: {
+              '@type': 'ContactPoint',
+              contactType: 'customer support',
+              url: 'https://nxt1sports.com/help-center',
             },
           },
+
+          // WebSite — enables sitelinks search box in SERP
           {
-            '@type': 'ListItem',
-            position: 2,
-            item: {
-              '@type': 'Article',
-              headline: 'The Small School That Built a National Brand',
-              description:
-                'A local program transformed visibility by standardizing athlete storytelling, posting short interview reels, and showcasing recruiting momentum in one destination.',
-              url: 'https://nxt1sports.com/stories/small-school-national-brand',
-              publisher: {
-                '@type': 'Organization',
-                name: 'NXT1 Sports',
-                url: 'https://nxt1sports.com',
+            '@type': 'WebSite',
+            '@id': 'https://nxt1sports.com/#website',
+            url: 'https://nxt1sports.com',
+            name: 'NXT1 Sports',
+            publisher: { '@id': 'https://nxt1sports.com/#organization' },
+            potentialAction: {
+              '@type': 'SearchAction',
+              target: {
+                '@type': 'EntryPoint',
+                urlTemplate: 'https://nxt1sports.com/explore?q={search_term_string}',
               },
+              'query-input': 'required name=search_term_string',
             },
+          },
+
+          // WebPage — describes this specific page
+          {
+            '@type': 'WebPage',
+            '@id': 'https://nxt1sports.com/#webpage',
+            url: 'https://nxt1sports.com/',
+            name: 'NXT1 Sports - The Future of Sports Recruiting',
+            isPartOf: { '@id': 'https://nxt1sports.com/#website' },
+            about: { '@id': 'https://nxt1sports.com/#organization' },
+            description:
+              'Build your verified recruiting profile, connect with college coaches, and get discovered. The all-in-one sports recruiting platform for athletes, coaches, scouts, and teams.',
+            primaryImageOfPage: {
+              '@type': 'ImageObject',
+              url: 'https://nxt1sports.com/assets/images/og-image.jpg',
+            },
+          },
+
+          // FAQPage — FAQ rich results in Google
+          {
+            '@type': 'FAQPage',
+            mainEntity: faqQaEntities,
+          },
+
+          // Success Stories
+          {
+            '@type': 'ItemList',
+            name: 'NXT1 Success Stories',
+            description:
+              'Real Zero to Hero recruiting journeys from athletes and programs using NXT1.',
+            numberOfItems: 2,
+            itemListElement: [
+              {
+                '@type': 'ListItem',
+                position: 1,
+                item: {
+                  '@type': 'Article',
+                  headline: 'The Underrated 2-Star Who Earned a D1 Offer',
+                  description:
+                    'From overlooked prospect to nationally visible recruit by publishing a complete NXT1 profile, consistent vertical highlights, and verified progress updates.',
+                  url: 'https://nxt1sports.com/stories/underrated-2-star-d1-offer',
+                  publisher: { '@id': 'https://nxt1sports.com/#organization' },
+                },
+              },
+              {
+                '@type': 'ListItem',
+                position: 2,
+                item: {
+                  '@type': 'Article',
+                  headline: 'The Small School That Built a National Brand',
+                  description:
+                    'A local program transformed visibility by standardizing athlete storytelling, posting short interview reels, and showcasing recruiting momentum in one destination.',
+                  url: 'https://nxt1sports.com/stories/small-school-national-brand',
+                  publisher: { '@id': 'https://nxt1sports.com/#organization' },
+                },
+              },
+            ],
+          },
+
+          // Educational Library
+          {
+            '@type': 'ItemList',
+            name: 'Educational Library - SEO Content Hub',
+            description:
+              'Long-form recruiting education covering calendars, coach communication templates, and NIL fundamentals.',
+            numberOfItems: educationalLibraryItemList.length,
+            itemListElement: educationalLibraryItemList,
           },
         ],
       },

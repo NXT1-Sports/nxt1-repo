@@ -83,6 +83,8 @@ export class ManageTeamBottomSheetService {
       component: ManageTeamShellComponent,
       componentProps: {
         teamId,
+        title,
+        showProgress,
       },
       breakpoints,
       initialBreakpoint,

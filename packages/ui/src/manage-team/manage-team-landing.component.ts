@@ -166,9 +166,9 @@ const TEAM_FAQS: FaqItem[] = [
       accentText="Fully Organized"
       subtitle="Manage your roster, schedule, stats, and staff from one powerful dashboard. Everything coaches need to run a winning program."
       primaryCtaLabel="Get Started Free"
-      primaryCtaRoute="/auth/register"
+      primaryCtaRoute="/auth"
       secondaryCtaLabel="Log In"
-      secondaryCtaRoute="/auth/login"
+      secondaryCtaRoute="/auth"
       ariaId="manage-team-hero-title"
     >
       <nxt1-manage-team-dashboard-preview />
@@ -204,7 +204,7 @@ const TEAM_FAQS: FaqItem[] = [
       title="Ready to Organize Your Program?"
       subtitle="Join thousands of coaches managing their teams on NXT1."
       ctaLabel="Sign Up Free"
-      ctaRoute="/auth/register"
+      ctaRoute="/auth"
     />
   `,
   styles: [

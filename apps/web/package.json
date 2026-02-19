@@ -6,8 +6,8 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "dev": "ng serve",
-    "dev:ssr": "ng serve --configuration development",
+    "dev": "NODE_OPTIONS='--max-old-space-size=8192' ng serve",
+    "dev:ssr": "NODE_OPTIONS='--max-old-space-size=8192' ng serve --configuration development",
     "build": "ng build --configuration production",
     "build:dev": "ng build --configuration development",
     "build:staging": "ng build --configuration staging",

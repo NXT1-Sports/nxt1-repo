@@ -23,9 +23,9 @@
  *   subtitle="Real-time analytics for athletes and coaches."
  *   support="Verified metrics and live recruiting activity to help coaches evaluate faster."
  *   primaryCtaLabel="Get Started Free"
- *   primaryCtaRoute="/auth/register"
+ *   primaryCtaRoute="/auth"
  *   secondaryCtaLabel="Log In"
- *   secondaryCtaRoute="/auth/login"
+ *   secondaryCtaRoute="/auth"
  * >
  *   <nxt1-analytics-dashboard-preview />
  * </nxt1-hero-section>
@@ -209,13 +209,13 @@ export class NxtHeroSectionComponent {
   readonly primaryCtaLabel = input<string>();
 
   /** Primary CTA route (defaults to register). */
-  readonly primaryCtaRoute = input<string>('/auth/register');
+  readonly primaryCtaRoute = input<string>('/auth');
 
   /** Secondary CTA button label. Omit to show only the primary CTA. */
   readonly secondaryCtaLabel = input<string>();
 
   /** Secondary CTA route (defaults to login). */
-  readonly secondaryCtaRoute = input<string>('/auth/login');
+  readonly secondaryCtaRoute = input<string>('/auth');
 
   /** Semantic heading level (1-6). Use 2+ when another h1 exists on the page. */
   readonly headingLevel = input<HeadingLevel>(1);

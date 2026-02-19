@@ -15,7 +15,7 @@
  * <!-- Link button -->
  * <nxt1-cta-button
  *   label="Get Started Free"
- *   route="/auth/register"
+ *   route="/auth"
  *   variant="primary"
  * />
  *
@@ -30,7 +30,7 @@
  * <!-- Secondary outline -->
  * <nxt1-cta-button
  *   label="Log In"
- *   route="/auth/login"
+ *   route="/auth"
  *   variant="secondary"
  * />
  *

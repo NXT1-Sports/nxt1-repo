@@ -167,9 +167,9 @@ const XP_FAQS: FaqItem[] = [
       accentText="Recruiting Game"
       subtitle="Complete missions, earn XP, collect badges, and climb the ranks. A gamified path that turns recruiting goals into daily wins."
       primaryCtaLabel="Get Started Free"
-      primaryCtaRoute="/auth/register"
+      primaryCtaRoute="/auth"
       secondaryCtaLabel="Log In"
-      secondaryCtaRoute="/auth/login"
+      secondaryCtaRoute="/auth"
       ariaId="xp-hero-title"
     >
       <nxt1-xp-dashboard-preview />
@@ -205,7 +205,7 @@ const XP_FAQS: FaqItem[] = [
       title="Ready to Start Earning XP?"
       subtitle="Join thousands of athletes and coaches leveling up their recruiting journey."
       ctaLabel="Sign Up Free"
-      ctaRoute="/auth/register"
+      ctaRoute="/auth"
     />
   `,
   styles: [

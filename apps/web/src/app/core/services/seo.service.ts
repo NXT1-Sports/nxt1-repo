@@ -62,7 +62,7 @@ const SITE_NAME = 'NXT1 Sports';
 
 /** Default site description */
 const DEFAULT_DESCRIPTION =
-  'The ultimate sports content platform. Discover amazing athletic highlights, training videos, and sports content from athletes worldwide.';
+  'Build your verified recruiting profile, connect with college coaches, and get discovered. The all-in-one sports recruiting platform for athletes, coaches, scouts, and teams.';
 
 /** Default OG image */
 const DEFAULT_OG_IMAGE = 'https://nxt1sports.com/assets/images/og-image.jpg';
