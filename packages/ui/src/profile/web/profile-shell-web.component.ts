@@ -38,8 +38,10 @@ import {
   PROFILE_EMPTY_STATES,
   type ProfileOffer,
   type ProfileEvent,
+  type AthleticStat,
   type ProfileTeamAffiliation,
   type ProfileTeamType,
+  type NewsArticle,
 } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../../components/page-header';
 import { ProfileDesktopHeaderComponent } from './profile-desktop-header.component';
@@ -63,7 +65,10 @@ import { ICONS, type IconName } from '@nxt1/design-tokens/assets/icons';
 
 import { ProfileTimelineComponent } from '../profile-timeline.component';
 import { ProfileOffersComponent } from '../profile-offers.component';
+import { ProfileRankingsComponent } from '../rankings/profile-rankings.component';
+import { ProfileEventsComponent } from '../profile-events.component';
 import { ProfileSkeletonComponent } from '../profile-skeleton.component';
+import { ProfileNewsWebComponent } from './profile-news-web.component';
 import type { ProfileShellUser } from '../profile-shell.component';
 
 const ARCHETYPE_TOKEN_ICONS: Readonly<Record<string, IconName>> = {
@@ -95,6 +100,14 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
   other: 'shield',
 };
 
+interface StatsComparisonItem {
+  readonly label: string;
+  readonly playerDisplay: string;
+  readonly averageDisplay: string;
+  readonly playerPercent: number;
+  readonly averagePercent: number;
+}
+
 @Component({
   selector: 'nxt1-profile-shell-web',
   standalone: true,
@@ -109,7 +122,10 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
     NxtImageCarouselComponent,
     ProfileTimelineComponent,
     ProfileOffersComponent,
+    ProfileRankingsComponent,
+    ProfileEventsComponent,
     ProfileSkeletonComponent,
+    ProfileNewsWebComponent,
   ],
   template: `
     <main class="profile-main">
@@ -192,16 +208,129 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 
               <!-- Content Area: Side tabs + scrollable content -->
               <div class="madden-content-layer">
-                <!-- LEFT SIDE TABS -->
-                <nxt1-section-nav-web
-                  [items]="sideTabItems()"
-                  [activeId]="activeSideTab()"
-                  ariaLabel="Section navigation"
-                  (selectionChange)="onSectionNavChange($event)"
-                />
+                <!-- LEFT SIDE NAV COLUMN -->
+                <div class="madden-side-nav-column">
+                  <!-- LEFT SIDE TABS -->
+                  <nxt1-section-nav-web
+                    [items]="sideTabItems()"
+                    [activeId]="activeSideTab()"
+                    ariaLabel="Section navigation"
+                    (selectionChange)="onSectionNavChange($event)"
+                  />
+
+                  <!-- ═══ SPORT PROFILE SWITCHER ═══ -->
+                  @if (profile.hasMultipleSports()) {
+                    <div class="sport-switcher" role="group" aria-label="Sport profiles">
+                      <span class="sport-switcher__title">Sport Profiles</span>
+                      <div class="sport-switcher__list">
+                        @for (sport of profile.allSports(); track sport.name; let i = $index) {
+                          <button
+                            type="button"
+                            class="sport-switcher__item"
+                            [class.sport-switcher__item--active]="profile.activeSportIndex() === i"
+                            [attr.aria-selected]="profile.activeSportIndex() === i"
+                            [attr.aria-label]="'Switch to ' + sport.name + ' profile'"
+                            role="tab"
+                            (click)="onSportSwitch(i)"
+                          >
+                            @if (profile.user()?.profileImg) {
+                              <img
+                                class="sport-switcher__avatar"
+                                [src]="profile.user()?.profileImg"
+                                [alt]="sport.name"
+                                loading="lazy"
+                              />
+                            } @else {
+                              <span class="sport-switcher__avatar-fallback" aria-hidden="true">
+                                {{ sport.name.charAt(0) }}
+                              </span>
+                            }
+                            <span class="sport-switcher__sport-name">{{ sport.name }}</span>
+                            @if (profile.activeSportIndex() === i) {
+                              <span class="sport-switcher__active-badge" aria-hidden="true"></span>
+                            }
+                          </button>
+                        }
+                      </div>
+                    </div>
+                  }
+                </div>
 
                 <!-- MAIN CONTENT AREA -->
                 <section class="madden-content-scroll" aria-live="polite">
+                  <!-- ═══ SHARED VERIFICATION BANNER (per-tab provider) ═══ -->
+                  @if (showVerificationBanner()) {
+                    <div class="profile-verification-banner" role="status">
+                      @if (isProfileVerified()) {
+                        @if (verificationProviderUrl(); as providerUrl) {
+                          <a
+                            class="verification-banner__badge verification-banner__badge--link"
+                            [href]="providerUrl"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            [attr.aria-label]="
+                              'Verified by ' +
+                              (verificationProvider() || 'verification provider') +
+                              ' — open source'
+                            "
+                          >
+                            <span class="verification-banner__check" aria-hidden="true">✓</span>
+                            <span class="verification-banner__label">Verified by</span>
+                            @if (verificationProviderLogoSrc(); as logoSrc) {
+                              <span class="verification-banner__logo">
+                                <img
+                                  class="verification-banner__logo-img"
+                                  [src]="logoSrc"
+                                  [alt]="(verificationProvider() || 'provider') + ' logo'"
+                                  loading="lazy"
+                                  decoding="async"
+                                  (error)="onVerificationBannerLogoError($event)"
+                                />
+                              </span>
+                            } @else {
+                              <span class="verification-banner__provider-text">{{
+                                verificationProvider()
+                              }}</span>
+                            }
+                          </a>
+                        } @else {
+                          <span
+                            class="verification-banner__badge"
+                            [attr.aria-label]="
+                              'Verified by ' + (verificationProvider() || 'verification provider')
+                            "
+                          >
+                            <span class="verification-banner__check" aria-hidden="true">✓</span>
+                            <span class="verification-banner__label">Verified by</span>
+                            @if (verificationProviderLogoSrc(); as logoSrc) {
+                              <span class="verification-banner__logo">
+                                <img
+                                  class="verification-banner__logo-img"
+                                  [src]="logoSrc"
+                                  [alt]="(verificationProvider() || 'provider') + ' logo'"
+                                  loading="lazy"
+                                  decoding="async"
+                                  (error)="onVerificationBannerLogoError($event)"
+                                />
+                              </span>
+                            } @else {
+                              <span class="verification-banner__provider-text">{{
+                                verificationProvider()
+                              }}</span>
+                            }
+                          </span>
+                        }
+                      } @else {
+                        <span
+                          class="verification-banner__badge verification-banner__badge--unverified"
+                        >
+                          <nxt1-icon name="alertCircle" [size]="14" />
+                          <span class="verification-banner__label">Not Verified</span>
+                        </span>
+                      }
+                    </div>
+                  }
+
                   @switch (profile.activeTab()) {
                     @case ('overview') {
                       <section
@@ -490,10 +619,10 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                         }
 
                         @if (activeSideTab() === 'player-bio') {
-                          <div class="ov-top-row">
+                          <div class="ov-top-row ov-top-row--single">
                             <div class="ov-section ov-section--profile">
                               <h3 class="ov-section-title ov-overview-title">Player Bio</h3>
-                              <div class="ov-summary-card">
+                              <div class="ov-bio-card">
                                 <nxt1-icon name="person" [size]="18" />
                                 <p>
                                   {{
@@ -558,6 +687,9 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                                             }}</span>
                                           }
                                         </div>
+                                        <span class="ov-history-record">{{
+                                          historyTeamRecord(team) ?? 'N/A'
+                                        }}</span>
                                       </div>
                                     </article>
                                   }
@@ -575,7 +707,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                                 !profile.user()?.gpa &&
                                 !profile.user()?.sat &&
                                 !profile.user()?.act &&
-                                !profile.user()?.classYear &&
                                 !profile.user()?.school?.name
                               ) {
                                 <div class="madden-empty">
@@ -597,7 +728,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                                 </div>
                               } @else {
                                 <div class="madden-stat-group">
-                                  <h3 class="madden-stat-group-title">Academic Profile</h3>
                                   <div class="madden-stat-grid">
                                     @if (profile.user()?.gpa) {
                                       <div class="madden-stat-card">
@@ -621,14 +751,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                                           profile.user()?.act
                                         }}</span>
                                         <span class="madden-stat-label">ACT</span>
-                                      </div>
-                                    }
-                                    @if (profile.user()?.classYear) {
-                                      <div class="madden-stat-card">
-                                        <span class="madden-stat-value">{{
-                                          profile.user()?.classYear
-                                        }}</span>
-                                        <span class="madden-stat-label">Class Year</span>
                                       </div>
                                     }
                                   </div>
@@ -736,19 +858,9 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     }
 
                     @case ('news') {
-                      <nxt1-profile-timeline
-                        [posts]="profile.newsPosts()"
-                        [isLoading]="false"
-                        [isEmpty]="profile.newsPosts().length === 0"
-                        [isOwnProfile]="profile.isOwnProfile()"
-                        emptyIcon="newspaper"
-                        emptyTitle="No news yet"
-                        emptyMessage="News updates, announcements, and media mentions will appear here."
-                        [emptyCta]="profile.isOwnProfile() ? 'Create News Post' : null"
-                        (postClick)="onPostClick($event)"
-                        (likeClick)="onLikePost($event)"
-                        (shareClick)="onSharePost($event)"
-                        (emptyCtaClick)="onCreatePost()"
+                      <nxt1-profile-news-web
+                        (articleClick)="onNewsArticleClick($event)"
+                        (bookmarkToggle)="onNewsBookmarkToggle($event)"
                       />
                     }
 
@@ -770,39 +882,31 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     }
 
                     @case ('offers') {
-                      <nxt1-profile-offers
-                        [offers]="profile.offers()"
-                        [isEmpty]="profile.offers().length === 0"
-                        [isOwnProfile]="profile.isOwnProfile()"
-                        (offerClick)="onOfferClick($event)"
-                        (addOfferClick)="onAddOffer()"
-                      />
+                      @if (activeSideTab() === 'rankings') {
+                        <nxt1-profile-rankings />
+                      } @else {
+                        <nxt1-profile-offers
+                          [offers]="profile.offers()"
+                          [committedOffers]="profile.committedOffers()"
+                          [activeOffers]="profile.activeOffers()"
+                          [interestOffers]="profile.interestOffers()"
+                          [isEmpty]="!profile.hasRecruitingActivity()"
+                          [isOwnProfile]="profile.isOwnProfile()"
+                          [activeSection]="activeSideTab()"
+                          (offerClick)="onOfferClick($event)"
+                          (addOfferClick)="onAddOffer()"
+                          (addCommitmentClick)="onAddOffer()"
+                        />
+                      }
                     }
 
                     @case ('stats') {
-                      <section class="madden-tab-section" aria-labelledby="stats-heading">
+                      <section
+                        class="madden-tab-section stats-board"
+                        aria-labelledby="stats-heading"
+                      >
                         <h2 id="stats-heading" class="sr-only">Athletic Statistics</h2>
-                        <div class="madden-stats-verified">
-                          <a
-                            class="ov-verified-badge ov-verified-link"
-                            [href]="statsVerifiedByUrl"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            aria-label="Open MaxPreps verification source"
-                          >
-                            <span class="ov-verified-label">Verified by</span>
-                            <span class="ov-verified-logo">
-                              <img
-                                class="ov-verified-logo-img"
-                                [src]="statsVerifiedLogoSrc"
-                                alt="MaxPreps logo"
-                                loading="lazy"
-                                decoding="async"
-                                (error)="onStatsProviderLogoError($event)"
-                              />
-                            </span>
-                          </a>
-                        </div>
+
                         @if (profile.athleticStats().length === 0) {
                           <div class="madden-empty">
                             <nxt1-icon name="stats-chart" [size]="48" />
@@ -815,23 +919,117 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                             }
                           </div>
                         } @else {
-                          @for (category of profile.athleticStats(); track category.name) {
-                            <div class="madden-stat-group">
-                              <h3 class="madden-stat-group-title">{{ category.name }}</h3>
-                              <div class="madden-stat-grid">
-                                @for (stat of category.stats; track stat.label) {
-                                  <div class="madden-stat-card">
-                                    <span class="madden-stat-value"
-                                      >{{ stat.value }}{{ stat.unit ?? '' }}</span
-                                    >
-                                    <span class="madden-stat-label">{{ stat.label }}</span>
-                                    @if (stat.verified) {
-                                      <span class="madden-stat-verified">✓</span>
+                          <!-- Category pill tabs -->
+                          <nav class="stats-board__tabs" aria-label="Stat categories">
+                            @for (
+                              category of profile.athleticStats();
+                              track category.name;
+                              let i = $index
+                            ) {
+                              <button
+                                type="button"
+                                class="stats-board__tab"
+                                [class.stats-board__tab--active]="activeStatCategoryIdx() === i"
+                                (click)="onStatCategoryChange(i)"
+                              >
+                                {{ category.name }}
+                              </button>
+                            }
+                          </nav>
+
+                          <!-- Stats table for active category -->
+                          @if (activeStatCategory(); as cat) {
+                            <div class="stats-board__table-wrap">
+                              <table class="stats-board__table" role="grid">
+                                <thead>
+                                  <tr>
+                                    @for (stat of cat.stats; track stat.label) {
+                                      <th scope="col">
+                                        <span class="stats-board__th-label">{{ stat.label }}</span>
+                                      </th>
                                     }
-                                  </div>
-                                }
-                              </div>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  <tr>
+                                    @for (stat of cat.stats; track stat.label) {
+                                      <td>
+                                        <span class="stats-board__cell-value"
+                                          >{{ stat.value }}{{ stat.unit ?? '' }}</span
+                                        >
+                                      </td>
+                                    }
+                                  </tr>
+                                </tbody>
+                              </table>
                             </div>
+
+                            @if (statsComparisonItems().length > 0) {
+                              <section
+                                class="stats-compare"
+                                aria-labelledby="stats-compare-heading"
+                              >
+                                <header class="stats-compare__header">
+                                  <h3 id="stats-compare-heading" class="stats-compare__title">
+                                    Top Stats
+                                  </h3>
+                                  <div
+                                    class="stats-compare__legend"
+                                    role="list"
+                                    aria-label="Comparison legend"
+                                  >
+                                    <span class="stats-compare__legend-item" role="listitem">
+                                      <span
+                                        class="stats-compare__dot stats-compare__dot--player"
+                                        aria-hidden="true"
+                                      ></span>
+                                      <span>{{ profile.user()?.firstName || 'Athlete' }}</span>
+                                    </span>
+                                    <span class="stats-compare__legend-item" role="listitem">
+                                      <span
+                                        class="stats-compare__dot stats-compare__dot--average"
+                                        aria-hidden="true"
+                                      ></span>
+                                      <span>National Average</span>
+                                    </span>
+                                  </div>
+                                </header>
+
+                                <div
+                                  class="stats-compare__grid"
+                                  role="list"
+                                  aria-label="Top stats comparison"
+                                >
+                                  @for (item of statsComparisonItems(); track item.label) {
+                                    <article class="stats-compare__item" role="listitem">
+                                      <div class="stats-compare__values">
+                                        <span
+                                          class="stats-compare__value stats-compare__value--player"
+                                          >{{ item.playerDisplay }}</span
+                                        >
+                                        <span
+                                          class="stats-compare__value stats-compare__value--average"
+                                          >{{ item.averageDisplay }}</span
+                                        >
+                                      </div>
+
+                                      <div class="stats-compare__bar-zone" aria-hidden="true">
+                                        <div
+                                          class="stats-compare__bar stats-compare__bar--player"
+                                          [style.height.%]="item.playerPercent"
+                                        ></div>
+                                        <div
+                                          class="stats-compare__bar stats-compare__bar--average"
+                                          [style.height.%]="item.averagePercent"
+                                        ></div>
+                                      </div>
+
+                                      <span class="stats-compare__label">{{ item.label }}</span>
+                                    </article>
+                                  }
+                                </div>
+                              </section>
+                            }
                           }
                         }
                       </section>
@@ -844,7 +1042,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                           !profile.user()?.gpa &&
                           !profile.user()?.sat &&
                           !profile.user()?.act &&
-                          !profile.user()?.classYear &&
                           !profile.user()?.school?.name
                         ) {
                           <div class="madden-empty">
@@ -865,7 +1062,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                           </div>
                         } @else {
                           <div class="madden-stat-group">
-                            <h3 class="madden-stat-group-title">Academic Profile</h3>
                             <div class="madden-stat-grid">
                               @if (profile.user()?.gpa) {
                                 <div class="madden-stat-card">
@@ -879,14 +1075,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                                   <span class="madden-stat-label">ACT</span>
                                 </div>
                               }
-                              @if (profile.user()?.classYear) {
-                                <div class="madden-stat-card">
-                                  <span class="madden-stat-value">{{
-                                    profile.user()?.classYear
-                                  }}</span>
-                                  <span class="madden-stat-label">Class Year</span>
-                                </div>
-                              }
                             </div>
                           </div>
                         }
@@ -896,104 +1084,32 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     @case ('events') {
                       <section class="madden-tab-section" aria-labelledby="events-heading">
                         <h2 id="events-heading" class="sr-only">Events</h2>
-                        @if (profile.events().length === 0) {
-                          <div class="madden-empty">
-                            <nxt1-icon name="calendar" [size]="48" />
-                            <h3>No events scheduled</h3>
-                            <p>Add upcoming games, camps, and showcases to your calendar.</p>
-                            @if (profile.isOwnProfile()) {
-                              <button type="button" class="madden-cta-btn" (click)="onAddEvent()">
-                                Add Event
-                              </button>
-                            }
-                          </div>
-                        } @else {
-                          @if (profile.upcomingEvents().length > 0) {
-                            <h3 class="madden-section-label">Upcoming Events</h3>
-                            @for (event of profile.upcomingEvents(); track event.id) {
-                              <button
-                                type="button"
-                                class="madden-event-card"
-                                (click)="onEventClick(event)"
-                              >
-                                <time class="madden-event-date">
-                                  <span class="madden-event-month">{{
-                                    formatEventMonth(event.startDate)
-                                  }}</span>
-                                  <span class="madden-event-day">{{
-                                    formatEventDay(event.startDate)
-                                  }}</span>
-                                </time>
-                                <div class="madden-event-info">
-                                  <span class="madden-event-name">{{ event.name }}</span>
-                                  <span class="madden-event-location">{{ event.location }}</span>
-                                </div>
-                                <span class="madden-event-type">{{ event.type }}</span>
-                              </button>
-                            }
-                          }
-                          @if (profile.pastEvents().length > 0) {
-                            <h3 class="madden-section-label madden-section-label--muted">
-                              Past Events
-                            </h3>
-                            @for (event of profile.pastEvents(); track event.id) {
-                              <button
-                                type="button"
-                                class="madden-event-card madden-event-card--past"
-                                (click)="onEventClick(event)"
-                              >
-                                <time class="madden-event-date">
-                                  <span class="madden-event-month">{{
-                                    formatEventMonth(event.startDate)
-                                  }}</span>
-                                  <span class="madden-event-day">{{
-                                    formatEventDay(event.startDate)
-                                  }}</span>
-                                </time>
-                                <div class="madden-event-info">
-                                  <span class="madden-event-name">{{ event.name }}</span>
-                                  @if (event.result) {
-                                    <span class="madden-event-result">{{ event.result }}</span>
-                                  } @else {
-                                    <span class="madden-event-location">{{ event.location }}</span>
-                                  }
-                                </div>
-                              </button>
-                            }
-                          }
-                        }
+                        <nxt1-profile-events
+                          [events]="profile.events()"
+                          [visitEvents]="profile.visitEvents()"
+                          [campEvents]="profile.campEvents()"
+                          [generalEvents]="profile.generalEvents()"
+                          [isLoading]="profile.isLoading()"
+                          [isOwnProfile]="profile.isOwnProfile()"
+                          [activeSection]="activeSideTab()"
+                          (eventClick)="onEventClick($event)"
+                          (addEventClick)="onAddEvent()"
+                        />
                       </section>
                     }
 
                     @case ('schedule') {
-                      <section class="madden-tab-section" aria-labelledby="schedule-heading">
+                      <section
+                        class="madden-tab-section madden-schedule"
+                        aria-labelledby="schedule-heading"
+                      >
                         <h2 id="schedule-heading" class="sr-only">Schedule</h2>
-                        <div class="madden-stats-verified">
-                          <a
-                            class="ov-verified-badge ov-verified-link"
-                            [href]="statsVerifiedByUrl"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            aria-label="Open MaxPreps verification source"
-                          >
-                            <span class="ov-verified-label">Verified by</span>
-                            <span class="ov-verified-logo">
-                              <img
-                                class="ov-verified-logo-img"
-                                [src]="statsVerifiedLogoSrc"
-                                alt="MaxPreps logo"
-                                loading="lazy"
-                                decoding="async"
-                                (error)="onStatsProviderLogoError($event)"
-                              />
-                            </span>
-                          </a>
-                        </div>
-                        @if (profile.events().length === 0) {
+
+                        @if (scheduleEvents().length === 0) {
                           <div class="madden-empty">
                             <nxt1-icon name="calendar" [size]="48" />
                             <h3>No schedule yet</h3>
-                            <p>Add upcoming games, camps, and showcases to your schedule.</p>
+                            <p>Add games and practices to show your full season schedule.</p>
                             @if (profile.isOwnProfile()) {
                               <button type="button" class="madden-cta-btn" (click)="onAddEvent()">
                                 Add Schedule Item
@@ -1001,59 +1117,73 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                             }
                           </div>
                         } @else {
-                          @if (profile.upcomingEvents().length > 0) {
-                            <h3 class="madden-section-label">Upcoming Schedule</h3>
-                            @for (event of profile.upcomingEvents(); track event.id) {
+                          <div class="schedule-board" role="list" aria-label="Team schedule">
+                            @for (row of scheduleRows(); track row.event.id) {
                               <button
                                 type="button"
-                                class="madden-event-card"
-                                (click)="onEventClick(event)"
+                                class="schedule-row"
+                                [class.schedule-row--past]="row.isPast"
+                                role="listitem"
+                                (click)="onEventClick(row.event)"
                               >
-                                <time class="madden-event-date">
-                                  <span class="madden-event-month">{{
-                                    formatEventMonth(event.startDate)
-                                  }}</span>
-                                  <span class="madden-event-day">{{
-                                    formatEventDay(event.startDate)
-                                  }}</span>
-                                </time>
-                                <div class="madden-event-info">
-                                  <span class="madden-event-name">{{ event.name }}</span>
-                                  <span class="madden-event-location">{{ event.location }}</span>
+                                <div class="schedule-row__date">
+                                  <span class="schedule-row__month">{{ row.month }}</span>
+                                  <span class="schedule-row__day">{{ row.day }}</span>
                                 </div>
-                                <span class="madden-event-type">{{ event.type }}</span>
+
+                                <div class="schedule-row__matchup">
+                                  <div class="schedule-row__teams">
+                                    <div class="schedule-row__team schedule-row__team--home">
+                                      <span class="schedule-row__team-name">{{
+                                        row.homeTeam
+                                      }}</span>
+                                      @if (row.homeLogo; as homeLogo) {
+                                        <img
+                                          class="schedule-row__logo"
+                                          [src]="homeLogo"
+                                          [alt]="row.homeTeam + ' logo'"
+                                          loading="lazy"
+                                          decoding="async"
+                                        />
+                                      }
+                                    </div>
+
+                                    <span class="schedule-row__vs">vs</span>
+
+                                    <div class="schedule-row__team schedule-row__team--away">
+                                      <span class="schedule-row__team-name">{{
+                                        row.awayTeam
+                                      }}</span>
+                                      @if (row.awayLogo; as awayLogo) {
+                                        <img
+                                          class="schedule-row__logo"
+                                          [src]="awayLogo"
+                                          [alt]="row.awayTeam + ' logo'"
+                                          loading="lazy"
+                                          decoding="async"
+                                        />
+                                      }
+                                    </div>
+                                  </div>
+
+                                  <div class="schedule-row__meta">
+                                    <span>{{ row.location }}</span>
+                                    <span aria-hidden="true">•</span>
+                                    <span>{{ row.time }}</span>
+                                  </div>
+                                </div>
+
+                                <div class="schedule-row__status">
+                                  <span class="schedule-row__status-label">{{
+                                    row.statusLabel
+                                  }}</span>
+                                  <span class="schedule-row__status-value">{{
+                                    row.statusValue
+                                  }}</span>
+                                </div>
                               </button>
                             }
-                          }
-                          @if (profile.pastEvents().length > 0) {
-                            <h3 class="madden-section-label madden-section-label--muted">
-                              Past Schedule
-                            </h3>
-                            @for (event of profile.pastEvents(); track event.id) {
-                              <button
-                                type="button"
-                                class="madden-event-card madden-event-card--past"
-                                (click)="onEventClick(event)"
-                              >
-                                <time class="madden-event-date">
-                                  <span class="madden-event-month">{{
-                                    formatEventMonth(event.startDate)
-                                  }}</span>
-                                  <span class="madden-event-day">{{
-                                    formatEventDay(event.startDate)
-                                  }}</span>
-                                </time>
-                                <div class="madden-event-info">
-                                  <span class="madden-event-name">{{ event.name }}</span>
-                                  @if (event.result) {
-                                    <span class="madden-event-result">{{ event.result }}</span>
-                                  } @else {
-                                    <span class="madden-event-location">{{ event.location }}</span>
-                                  }
-                                </div>
-                              </button>
-                            }
-                          }
+                          </div>
                         }
                       </section>
                     }
@@ -1773,14 +1903,21 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
       /* ─── TOP TAB BAR ─── */
       .madden-top-tabs {
         padding: 0 8px;
+        margin-top: -6px;
         border-bottom: none;
         background: transparent;
         flex-shrink: 0;
       }
 
-      /* Force option-scroller background transparent & hide badges in profile context */
+      /* Force option-scroller background transparent, compact height & hide badges in profile context */
       .madden-top-tabs ::ng-deep .option-scroller {
         background: transparent !important;
+      }
+      .madden-top-tabs ::ng-deep .option-scroller__container {
+        min-height: 0;
+      }
+      .madden-top-tabs ::ng-deep .option-scroller__option {
+        height: 36px;
       }
       .madden-top-tabs ::ng-deep .option-scroller__badge {
         display: none !important;
@@ -1793,14 +1930,143 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         flex: 1;
         min-height: 0;
         overflow: hidden;
-        padding: 0;
+        padding: 18px 0 0;
         gap: var(--nxt1-spacing-4);
       }
 
       /* ─── SECTION NAV HOST — constrain width ─── */
-      nxt1-section-nav-web {
+      .madden-side-nav-column {
         flex-shrink: 0;
         width: 180px;
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-4);
+        position: sticky;
+        top: var(--nxt1-spacing-6);
+        align-self: stretch;
+        max-height: calc(100vh - 200px);
+        overflow-y: auto;
+        scrollbar-width: none;
+      }
+      .madden-side-nav-column::-webkit-scrollbar {
+        display: none;
+      }
+
+      .madden-side-nav-column nxt1-section-nav-web {
+        width: 100%;
+      }
+
+      /* ─── SPORT PROFILE SWITCHER ─── */
+      .sport-switcher {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding-top: 0;
+        margin-top: auto;
+        margin-bottom: var(--nxt1-spacing-4);
+      }
+
+      .sport-switcher__title {
+        padding: 0 var(--nxt1-spacing-2);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+
+      .sport-switcher__list {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+
+      .sport-switcher__item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px 4px 4px;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: var(--nxt1-radius-full, 999px);
+        cursor: pointer;
+        text-align: left;
+        color: var(--nxt1-color-text-secondary);
+        transition:
+          color 100ms ease-out,
+          background 100ms ease-out,
+          border-color 100ms ease-out;
+      }
+
+      .sport-switcher__item:hover {
+        color: var(--nxt1-color-text-primary);
+        background: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.04));
+      }
+
+      .sport-switcher__item--active {
+        color: var(--nxt1-color-text-primary);
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+        border-color: var(--nxt1-color-primary);
+      }
+
+      .sport-switcher__item--active:hover {
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+      }
+
+      .sport-switcher__item:focus,
+      .sport-switcher__item:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px var(--nxt1-color-primary);
+      }
+
+      .sport-switcher__avatar {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        object-fit: cover;
+        flex-shrink: 0;
+        border: 1.5px solid transparent;
+      }
+
+      .sport-switcher__item--active .sport-switcher__avatar {
+        border-color: var(--nxt1-color-primary);
+      }
+
+      .sport-switcher__avatar-fallback {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
+        color: var(--nxt1-color-text-secondary);
+        font-size: 10px;
+        font-weight: 700;
+        border: 1.5px solid transparent;
+      }
+
+      .sport-switcher__item--active .sport-switcher__avatar-fallback {
+        border-color: var(--nxt1-color-primary);
+      }
+
+      .sport-switcher__sport-name {
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .sport-switcher__active-badge {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--nxt1-color-primary);
+        flex-shrink: 0;
+        margin-left: -2px;
       }
 
       /* ─── MAIN CONTENT SCROLL AREA ─── */
@@ -1889,14 +2155,453 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         margin-top: 24px;
       }
 
-      /* ─── STAT GRID ─── */
-      .madden-stat-group {
-        margin-bottom: 24px;
-      }
-      .madden-stats-verified {
+      /* ═══ SHARED VERIFICATION BANNER ═══ */
+      .profile-verification-banner {
         display: flex;
         align-items: center;
-        margin: 2px 0 14px;
+        padding: 0 0 12px;
+        margin: 0 0 4px;
+        border-bottom: 1px solid color-mix(in srgb, var(--m-border) 50%, transparent);
+      }
+      .verification-banner__badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--m-accent);
+        letter-spacing: 0.01em;
+        border: 1px solid color-mix(in srgb, var(--m-accent) 35%, transparent);
+        background: color-mix(in srgb, var(--m-accent) 8%, transparent);
+        border-radius: 999px;
+        padding: 5px 12px 5px 8px;
+        line-height: 1;
+        transition: all 0.18s ease;
+      }
+      .verification-banner__badge--link {
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .verification-banner__badge--link:hover {
+        border-color: color-mix(in srgb, var(--m-accent) 60%, transparent);
+        background: color-mix(in srgb, var(--m-accent) 14%, transparent);
+      }
+      .verification-banner__badge--unverified {
+        color: var(--m-text-3);
+        border-color: color-mix(in srgb, var(--m-border) 60%, transparent);
+        background: color-mix(in srgb, var(--m-surface-2) 40%, transparent);
+      }
+      .verification-banner__check {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: var(--m-accent);
+        color: #000;
+        font-size: 10px;
+        font-weight: 800;
+        flex-shrink: 0;
+        line-height: 1;
+      }
+      .verification-banner__label {
+        color: var(--m-text-2);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .verification-banner__logo {
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: color-mix(in srgb, var(--m-accent) 20%, transparent);
+        flex-shrink: 0;
+        overflow: hidden;
+      }
+      .verification-banner__logo-img {
+        width: 14px;
+        height: 14px;
+        object-fit: contain;
+        display: block;
+      }
+      .verification-banner__provider-name {
+        font-weight: 700;
+        color: var(--m-accent);
+        white-space: nowrap;
+      }
+      .verification-banner__provider-text {
+        font-weight: 700;
+        color: var(--m-accent);
+        white-space: nowrap;
+        font-size: 12px;
+        letter-spacing: 0.01em;
+      }
+      @media (max-width: 640px) {
+        .profile-verification-banner {
+          padding: 0 0 10px;
+          margin: 0 0 2px;
+        }
+        .verification-banner__badge {
+          font-size: 11px;
+          padding: 4px 10px 4px 6px;
+          gap: 5px;
+        }
+        .verification-banner__check {
+          width: 16px;
+          height: 16px;
+          font-size: 9px;
+        }
+        .verification-banner__logo {
+          width: 18px;
+          height: 18px;
+        }
+        .verification-banner__logo-img {
+          width: 12px;
+          height: 12px;
+        }
+      }
+
+      /* ─── STATS BOARD (Professional Table/Leaderboard) ─── */
+      .stats-board {
+        padding-top: 0;
+      }
+      .stats-board__top-bar {
+        display: flex;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+
+      /* Category pill tabs */
+      .stats-board__tabs {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 0 16px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+      .stats-board__tabs::-webkit-scrollbar {
+        display: none;
+      }
+      .stats-board__tab {
+        flex-shrink: 0;
+        padding: 7px 16px;
+        border-radius: 999px;
+        border: 1px solid var(--m-border);
+        background: transparent;
+        color: var(--m-text-2);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: all 0.18s ease;
+        white-space: nowrap;
+        line-height: 1.2;
+      }
+      .stats-board__tab:hover {
+        background: var(--m-surface-2);
+        color: var(--m-text);
+        border-color: color-mix(in srgb, var(--m-accent) 30%, var(--m-border));
+      }
+      .stats-board__tab--active {
+        background: var(--m-accent);
+        color: #000;
+        border-color: var(--m-accent);
+        font-weight: 700;
+      }
+      .stats-board__tab--active:hover {
+        background: var(--m-accent);
+        color: #000;
+        border-color: var(--m-accent);
+        filter: brightness(1.08);
+      }
+
+      /* Table wrapper — horizontal scroll on small screens */
+      .stats-board__table-wrap {
+        --stats-board-th-pad-y: 10px;
+        --stats-board-th-pad-x: 16px;
+        --stats-board-header-height: calc((var(--stats-board-th-pad-y) * 2) + 14px);
+        position: relative;
+        border-radius: 10px;
+        border: 1px solid var(--m-border);
+        background-color: var(--m-surface);
+        background-image: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--m-accent) 5%, var(--m-surface)),
+          var(--m-surface)
+        );
+        background-repeat: no-repeat;
+        background-size: 100% var(--stats-board-header-height);
+        overflow-x: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--m-surface-2) transparent;
+      }
+      .stats-board__table-wrap::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: var(--stats-board-header-height);
+        border-top: 1px solid var(--m-border);
+        pointer-events: none;
+      }
+      .stats-board__table-wrap--compact {
+        --stats-board-th-pad-y: 8px;
+        --stats-board-th-pad-x: 12px;
+        border-radius: 8px;
+      }
+
+      /* The table itself */
+      .stats-board__table {
+        border-collapse: collapse;
+        table-layout: auto;
+        min-width: max-content;
+      }
+
+      /* Header row */
+      .stats-board__table thead tr {
+        border-bottom: none;
+      }
+      .stats-board__table th {
+        padding: var(--stats-board-th-pad-y) var(--stats-board-th-pad-x);
+        text-align: center;
+        white-space: nowrap;
+        vertical-align: middle;
+        background: transparent;
+      }
+      .stats-board__th-label {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--m-text-3);
+        user-select: none;
+      }
+
+      /* Data cells */
+      .stats-board__table td {
+        padding: 14px 16px;
+        text-align: center;
+        white-space: nowrap;
+        vertical-align: middle;
+        position: relative;
+      }
+      .stats-board__table tbody tr {
+        border-bottom: 1px solid color-mix(in srgb, var(--m-border) 50%, transparent);
+        transition: background 0.12s ease;
+      }
+      .stats-board__table tbody tr:last-child {
+        border-bottom: none;
+      }
+      .stats-board__table tbody tr:hover {
+        background: color-mix(in srgb, var(--m-accent) 4%, transparent);
+      }
+
+      .stats-compare {
+        margin-top: 10px;
+        border: 1px solid var(--m-border);
+        border-radius: 8px;
+        background: var(--m-surface);
+        padding: 12px 12px 8px;
+      }
+      .stats-compare__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 4px;
+      }
+      .stats-compare__title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 800;
+        color: var(--m-text);
+        letter-spacing: -0.01em;
+      }
+      .stats-compare__legend {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .stats-compare__legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--m-text-2);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .stats-compare__dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+      }
+      .stats-compare__dot--player {
+        background: var(--m-accent);
+      }
+      .stats-compare__dot--average {
+        background: color-mix(in srgb, var(--m-text-3) 70%, var(--m-border));
+      }
+      .stats-compare__grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+        gap: 6px;
+      }
+      .stats-compare__item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 0;
+      }
+      .stats-compare__values {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1px;
+        margin-bottom: 5px;
+      }
+      .stats-compare__value {
+        font-variant-numeric: tabular-nums;
+        line-height: 1.04;
+        white-space: nowrap;
+      }
+      .stats-compare__value--player {
+        font-size: 16px;
+        font-weight: 800;
+        color: var(--m-text);
+      }
+      .stats-compare__value--average {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--m-text-3);
+      }
+      .stats-compare__bar-zone {
+        --stats-compare-bar-max-height: 70px;
+        position: relative;
+        width: 100%;
+        height: var(--stats-compare-bar-max-height);
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 6px;
+        border-bottom: 1px solid var(--m-border);
+        margin-bottom: 6px;
+      }
+      .stats-compare__bar {
+        width: 10px;
+        border-radius: 999px 999px 0 0;
+        min-height: 0;
+      }
+      .stats-compare__bar--player {
+        background: var(--m-accent);
+      }
+      .stats-compare__bar--average {
+        background: color-mix(in srgb, var(--m-text-3) 70%, var(--m-border));
+      }
+      .stats-compare__label {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--m-text);
+        text-align: center;
+        letter-spacing: -0.01em;
+        text-transform: uppercase;
+      }
+      .stats-board__cell-value {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--m-text);
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.01em;
+      }
+      .stats-board__verified {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        background: var(--m-accent);
+        color: #000;
+        font-size: 9px;
+        font-weight: 800;
+        margin-left: 5px;
+        vertical-align: middle;
+        line-height: 1;
+      }
+
+      /* Compact variant for overview sidebar */
+      .stats-board__table--compact th {
+        padding: 8px 12px;
+      }
+      .stats-board__table--compact td {
+        padding: 10px 12px;
+      }
+      .stats-board__table--compact .stats-board__cell-value {
+        font-size: 14px;
+      }
+
+      /* Responsive */
+      @media (max-width: 640px) {
+        .stats-board__table-wrap {
+          --stats-board-th-pad-y: 8px;
+          --stats-board-th-pad-x: 10px;
+        }
+        .stats-board__tabs {
+          padding-bottom: 12px;
+        }
+        .stats-board__tab {
+          padding: 6px 12px;
+          font-size: 11px;
+        }
+        .stats-board__table th {
+          padding: var(--stats-board-th-pad-y) var(--stats-board-th-pad-x);
+        }
+        .stats-board__table td {
+          padding: 12px 10px;
+        }
+        .stats-board__cell-value {
+          font-size: 14px;
+        }
+        .stats-board__th-label {
+          font-size: 10px;
+        }
+        .stats-compare {
+          padding: 10px 8px 8px;
+        }
+        .stats-compare__header {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .stats-compare__legend {
+          gap: 10px;
+        }
+        .stats-compare__value--player {
+          font-size: 14px;
+        }
+        .stats-compare__value--average {
+          font-size: 11px;
+        }
+        .stats-compare__bar-zone {
+          --stats-compare-bar-max-height: 56px;
+        }
+        .stats-compare__bar {
+          width: 8px;
+        }
+        .stats-compare__label {
+          font-size: 11px;
+        }
+      }
+
+      /* ─── STAT CARDS (original style for academic/overview) ─── */
+      .madden-stat-group {
+        margin-bottom: 24px;
       }
       .madden-stat-group-title {
         font-size: 12px;
@@ -1908,7 +2613,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
       }
       .madden-stat-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(120px, 160px));
         gap: 10px;
       }
       .madden-stat-card {
@@ -1946,78 +2651,216 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         font-weight: 800;
       }
 
-      /* ─── EVENT CARDS ─── */
-      .madden-event-card {
+      /* ─── SCHEDULE BOARD ─── */
+      .madden-schedule {
+        padding-top: 2px;
+      }
+      .schedule-board {
         display: flex;
-        align-items: center;
-        gap: 14px;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .schedule-row {
         width: 100%;
-        padding: 12px;
-        margin-bottom: 8px;
+        border: 1px solid var(--m-border);
         border-radius: 12px;
         background: var(--m-surface);
-        border: 1px solid var(--m-border);
-        cursor: pointer;
+        color: var(--m-text);
+        display: grid;
+        grid-template-columns: 72px minmax(0, 1fr) 130px;
+        align-items: stretch;
         text-align: left;
-        transition: all 0.15s;
+        overflow: hidden;
+        cursor: pointer;
+        transition:
+          border-color 0.18s ease,
+          transform 0.18s ease,
+          background 0.18s ease;
       }
-      .madden-event-card:hover {
+      .schedule-row:hover {
+        border-color: color-mix(in srgb, var(--m-accent) 20%, var(--m-border));
         background: var(--m-surface-2);
-        border-color: var(--m-accent);
+        transform: translateY(-1px);
       }
-      .madden-event-card--past {
-        opacity: 0.6;
+      .schedule-row:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--m-accent) 50%, transparent);
+        outline-offset: 2px;
       }
-      .madden-event-date {
-        flex-shrink: 0;
-        width: 48px;
-        height: 48px;
-        border-radius: 8px;
-        background: var(--m-accent);
-        color: #000;
+      .schedule-row--past {
+        opacity: 0.88;
+      }
+      .schedule-row--past .schedule-row__status-label {
+        color: var(--m-text-2);
+      }
+
+      .schedule-row__date,
+      .schedule-row__status {
+        background: color-mix(in srgb, var(--m-surface-2) 70%, var(--m-surface));
+      }
+
+      .schedule-row__date {
+        border-right: 1px solid var(--m-border);
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
+        gap: 1px;
+        padding: 8px 6px;
       }
-      .madden-event-month {
+      .schedule-row__month {
         font-size: 10px;
         font-weight: 700;
+        letter-spacing: 0.1em;
         text-transform: uppercase;
-      }
-      .madden-event-day {
-        font-size: 18px;
-        font-weight: 800;
-        line-height: 1;
-      }
-      .madden-event-info {
-        flex: 1;
-        min-width: 0;
-        display: flex;
-        flex-direction: column;
-      }
-      .madden-event-name {
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--m-text);
-      }
-      .madden-event-location {
-        font-size: 13px;
         color: var(--m-text-2);
       }
-      .madden-event-result {
-        font-size: 13px;
-        font-weight: 700;
-        color: var(--m-accent);
+      .schedule-row__day {
+        font-size: 22px;
+        line-height: 1;
+        font-weight: 800;
+        color: var(--m-text);
       }
-      .madden-event-type {
+
+      .schedule-row__matchup {
+        padding: 10px 12px;
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        justify-content: center;
+        gap: 6px;
+      }
+      .schedule-row__teams {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .schedule-row__team {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-width: 0;
+      }
+      .schedule-row__team-name {
+        font-size: 14px;
+        font-weight: 700;
+        line-height: 1.2;
+        letter-spacing: -0.01em;
+        color: var(--m-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .schedule-row__logo {
+        width: 24px;
+        height: 24px;
+        border-radius: 999px;
+        object-fit: cover;
+        border: 1px solid var(--m-border);
+        background: var(--m-surface);
+        flex-shrink: 0;
+      }
+      .schedule-row__vs {
+        flex-shrink: 0;
         font-size: 11px;
         font-weight: 600;
-        padding: 4px 10px;
-        border-radius: 999px;
-        background: rgba(212, 255, 0, 0.1);
-        color: var(--m-accent);
-        text-transform: capitalize;
+        text-transform: lowercase;
+        color: var(--m-text-2);
+      }
+      .schedule-row__meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--m-text-2);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .schedule-row__status {
+        border-left: 1px solid var(--m-border);
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: flex-start;
+        gap: 4px;
+      }
+      .schedule-row__status-label {
+        font-size: 14px;
+        line-height: 1.1;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        color: var(--m-text);
+      }
+      .schedule-row__status-value {
+        font-size: 12px;
+        line-height: 1.25;
+        color: var(--m-text-2);
+      }
+
+      @media (max-width: 1024px) {
+        .schedule-row {
+          grid-template-columns: 68px minmax(0, 1fr) 120px;
+        }
+        .schedule-row__team-name {
+          font-size: 13px;
+        }
+        .schedule-row__status-label {
+          font-size: 13px;
+        }
+        .schedule-row__status-value {
+          font-size: 12px;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .schedule-row {
+          grid-template-columns: 62px minmax(0, 1fr);
+          grid-template-areas:
+            'date matchup'
+            'status status';
+        }
+        .schedule-row__date {
+          grid-area: date;
+        }
+        .schedule-row__matchup {
+          grid-area: matchup;
+          padding: 9px 10px;
+          gap: 6px;
+        }
+        .schedule-row__teams {
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .schedule-row__team-name {
+          font-size: 13px;
+        }
+        .schedule-row__logo {
+          width: 22px;
+          height: 22px;
+        }
+        .schedule-row__meta {
+          font-size: 12px;
+        }
+        .schedule-row__status {
+          grid-area: status;
+          border-left: none;
+          border-top: 1px solid var(--m-border);
+          background: color-mix(in srgb, var(--m-surface-2) 70%, var(--m-surface));
+          padding: 8px 10px;
+          flex-direction: row;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .schedule-row__status-label {
+          font-size: 13px;
+        }
+        .schedule-row__status-value {
+          font-size: 12px;
+          text-align: right;
+        }
       }
 
       /* ─── CONTACT LIST ─── */
@@ -2411,25 +3254,26 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         line-height: 1;
       }
 
-      /* Scouting Summary */
-      .ov-summary-card {
+      /* Player Bio card — matches Player Profile section visual weight */
+      .ov-bio-card {
         display: flex;
         align-items: flex-start;
-        gap: 10px;
+        gap: 12px;
         padding: 14px 16px;
         border-radius: 10px;
         background: var(--m-surface);
         border: 1px solid var(--m-border);
       }
-      .ov-summary-card nxt1-icon {
+      .ov-bio-card nxt1-icon {
         color: var(--m-accent);
         flex-shrink: 0;
         margin-top: 2px;
       }
-      .ov-summary-card p {
-        font-size: 13px;
+      .ov-bio-card p {
+        font-size: 15px;
+        font-weight: 500;
         color: var(--m-text-2);
-        line-height: 1.5;
+        line-height: 1.6;
         margin: 0;
       }
 
@@ -2458,6 +3302,9 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         max-width: 520px;
         min-width: 0;
         justify-self: stretch;
+        display: flex;
+        align-items: center;
+        gap: 12px;
       }
       .ov-history-logo-wrap {
         width: 44px;
@@ -2468,6 +3315,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
       }
       .ov-history-content {
         min-width: 0;
+        flex: 1;
       }
       .ov-history-team {
         line-height: 1.2;
@@ -2477,6 +3325,19 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
       }
       .ov-history-meta {
         margin-top: 0;
+      }
+      .ov-history-record {
+        margin-left: auto;
+        flex-shrink: 0;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--m-accent) 35%, transparent);
+        background: color-mix(in srgb, var(--m-accent) 12%, transparent);
+        color: var(--m-accent);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        line-height: 1;
       }
 
       /* Badges Row (Madden bottom badges) */
@@ -2530,6 +3391,12 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         .madden-right-stack {
           width: 240px;
         }
+        .madden-side-nav-column {
+          width: 160px;
+        }
+        .sport-switcher__sport-name {
+          font-size: 11px;
+        }
       }
       @media (max-width: 768px) {
         .madden-side-tabs {
@@ -2537,6 +3404,8 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         }
         .madden-content-layer {
           padding: 12px;
+          flex-direction: column;
+          gap: 0;
         }
         .madden-content-scroll {
           max-width: 100%;
@@ -2549,6 +3418,32 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         }
         .madden-split-right {
           display: none;
+        }
+        .madden-side-nav-column {
+          width: 100%;
+          position: static;
+          max-height: none;
+          flex-direction: column;
+          gap: var(--nxt1-spacing-3);
+          margin-bottom: var(--nxt1-spacing-3);
+        }
+        /* Sport switcher: horizontal scroll on mobile */
+        .sport-switcher {
+          border-top: none;
+          padding-top: 0;
+          border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+          padding-bottom: var(--nxt1-spacing-3);
+        }
+        .sport-switcher__list {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+        }
+        .sport-switcher__list::-webkit-scrollbar {
+          display: none;
+        }
+        .sport-switcher__sport-name {
+          font-size: 11px;
         }
       }
     `,
@@ -2693,9 +3588,26 @@ export class ProfileShellWebComponent implements OnInit {
         { id: 'training', label: 'Training' },
       ],
       offers: [
-        { id: 'all-offers', label: 'Offers' },
-        { id: 'committed', label: 'Commitment' },
-        { id: 'interests', label: 'Interests' },
+        { id: 'timeline', label: 'Timeline' },
+        {
+          id: 'committed',
+          label: 'Commitment',
+          badge: this.profile.committedOffers().length || undefined,
+        },
+        {
+          id: 'all-offers',
+          label: 'Offers',
+          badge: this.profile.activeOffers().length || undefined,
+        },
+        {
+          id: 'interests',
+          label: 'Interests',
+          badge: this.profile.interestOffers().length || undefined,
+        },
+        {
+          id: 'rankings',
+          label: 'Rankings',
+        },
       ],
       stats: [
         { id: 'career', label: 'Career' },
@@ -2713,8 +3625,10 @@ export class ProfileShellWebComponent implements OnInit {
         { id: 'media-mentions', label: 'Media Mentions' },
       ],
       events: [
-        { id: 'upcoming', label: 'Upcoming' },
-        { id: 'past', label: 'Past Events' },
+        { id: 'timeline', label: 'Timeline' },
+        { id: 'visits', label: 'Visits' },
+        { id: 'camps', label: 'Camps' },
+        { id: 'events', label: 'Events' },
       ],
       contact: [
         { id: 'info', label: 'Contact Info' },
@@ -2735,6 +3649,132 @@ export class ProfileShellWebComponent implements OnInit {
 
   protected onSectionNavChange(event: SectionNavChangeEvent): void {
     this._activeSideTab.set(event.id);
+  }
+
+  /** Handle sport profile switching */
+  protected onSportSwitch(index: number): void {
+    this.profile.setActiveSportIndex(index);
+    this.logger.debug('Sport profile switched', { index, sport: this.profile.activeSport()?.name });
+  }
+
+  /**
+   * Map sport icon key to a valid IconName.
+   * Falls back to 'football' for unrecognized icon keys.
+   */
+  protected getSportIcon(iconKey: string): IconName {
+    const iconMap: Record<string, IconName> = {
+      'american-football': 'football',
+      football: 'football',
+      basketball: 'basketball',
+      soccer: 'soccer',
+      baseball: 'baseball',
+      track: 'bolt',
+      tennis: 'tennis',
+      volleyball: 'football',
+      lacrosse: 'football',
+      swimming: 'swimming',
+      golf: 'golf',
+      hockey: 'football',
+      wrestling: 'barbell',
+      softball: 'baseball',
+    };
+    return iconMap[iconKey] ?? 'football';
+  }
+
+  // Active stat category index for stats tab pill switcher
+  private readonly _activeStatCategoryIdx = signal(0);
+  protected readonly activeStatCategoryIdx = computed(() => this._activeStatCategoryIdx());
+  protected readonly activeStatCategory = computed(() => {
+    const cats = this.profile.athleticStats();
+    const idx = this._activeStatCategoryIdx();
+    return cats[idx] ?? cats[0] ?? null;
+  });
+
+  protected readonly statsComparisonItems = computed<readonly StatsComparisonItem[]>(() => {
+    const category = this.activeStatCategory();
+    if (!category?.stats?.length) return [];
+
+    const comparisonSource = category.stats.slice(0, 4);
+    const parsedValues = comparisonSource.map((stat) => this.parseNumericStatValue(stat.value));
+    const maxValue = Math.max(...parsedValues.filter((value) => value > 0), 1);
+
+    return comparisonSource.map((stat, index) => {
+      const playerNumeric = Math.max(0, this.parseNumericStatValue(stat.value));
+      const averageNumeric = Math.max(
+        0,
+        this.resolveComparisonAverage(stat, playerNumeric, maxValue, index, comparisonSource.length)
+      );
+
+      return {
+        label: stat.label,
+        playerDisplay: `${stat.value}${stat.unit ?? ''}`,
+        averageDisplay: this.formatComparisonAverage(stat, averageNumeric),
+        playerPercent: this.toBarPercent(playerNumeric, maxValue),
+        averagePercent: this.toBarPercent(averageNumeric, maxValue),
+      };
+    });
+  });
+
+  protected onStatCategoryChange(idx: number): void {
+    this._activeStatCategoryIdx.set(idx);
+  }
+
+  private parseNumericStatValue(raw: string | number | null | undefined): number {
+    if (typeof raw === 'number') {
+      return Number.isFinite(raw) ? raw : 0;
+    }
+
+    if (typeof raw !== 'string') return 0;
+
+    const normalized = raw.replace(/,/g, '').trim();
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  private resolveComparisonAverage(
+    stat: AthleticStat,
+    playerNumeric: number,
+    maxValue: number,
+    index: number,
+    total: number
+  ): number {
+    const extendedStat = stat as AthleticStat & {
+      readonly nationalAverage?: string | number;
+      readonly nationalAvg?: string | number;
+      readonly average?: string | number;
+      readonly avg?: string | number;
+      readonly benchmark?: string | number;
+    };
+
+    const explicitAverage =
+      extendedStat.nationalAverage ??
+      extendedStat.nationalAvg ??
+      extendedStat.average ??
+      extendedStat.avg ??
+      extendedStat.benchmark;
+
+    const parsedExplicit = this.parseNumericStatValue(explicitAverage);
+    if (parsedExplicit > 0) return parsedExplicit;
+
+    if (playerNumeric <= 0) return 0;
+
+    const rankFactor = total > 1 ? index / (total - 1) : 0;
+    const maxRelativeFloor = maxValue * (0.014 + rankFactor * 0.01);
+    const valueBased = playerNumeric * 0.02;
+
+    return Math.max(0, Math.min(playerNumeric, Math.max(maxRelativeFloor, valueBased)));
+  }
+
+  private formatComparisonAverage(stat: AthleticStat, value: number): string {
+    const hasDecimal = stat.value.includes('.');
+    const rounded = hasDecimal ? Math.round(value * 10) / 10 : Math.round(value);
+    return `${rounded}${stat.unit ?? ''}`;
+  }
+
+  private toBarPercent(value: number, maxValue: number): number {
+    if (value <= 0 || maxValue <= 0) return 0;
+    const rawPercent = (value / maxValue) * 100;
+    return Math.max(3, Math.min(100, rawPercent));
   }
 
   // ============================================
@@ -2833,6 +3873,18 @@ export class ProfileShellWebComponent implements OnInit {
     this.logger.debug('Post click', { postId: post.id });
   }
 
+  // News article actions
+  protected onNewsArticleClick(article: NewsArticle): void {
+    this.logger.debug('News article click', { articleId: article.id, title: article.title });
+  }
+
+  protected onNewsBookmarkToggle(article: NewsArticle): void {
+    this.logger.debug('News bookmark toggle', {
+      articleId: article.id,
+      bookmarked: article.isBookmarked,
+    });
+  }
+
   protected onLikePost(post: { id: string }): void {
     this.logger.debug('Like post', { postId: post.id });
   }
@@ -2907,6 +3959,121 @@ export class ProfileShellWebComponent implements OnInit {
 
   protected formatEventDay(dateString: string): string {
     return new Date(dateString).getDate().toString();
+  }
+
+  protected isPastEvent(event: ProfileEvent): boolean {
+    return new Date(event.startDate) <= new Date();
+  }
+
+  /**
+   * Pre-computed schedule rows — resolved once per signal change.
+   * Eliminates redundant per-row method calls in template.
+   */
+  protected readonly scheduleEvents = computed(() => {
+    const sorted = [...this.profile.events()].sort(
+      (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
+    );
+
+    const gameSchedule = sorted.filter(
+      (event) => event.type === 'game' || event.type === 'practice'
+    );
+    return gameSchedule.length > 0 ? gameSchedule : sorted;
+  });
+
+  protected readonly scheduleRows = computed(() => {
+    const events = this.scheduleEvents();
+    const user = this.profile.user();
+    const ownTeamName = user?.school?.name?.trim() || user?.displayName?.trim() || 'Team';
+    const ownTeamLogo = user?.school?.logoUrl || user?.teamAffiliations?.[0]?.logoUrl;
+    const now = Date.now();
+
+    return events.map((event) => {
+      const matchup = this.resolveMatchup(event, ownTeamName, ownTeamLogo);
+      const isPast = new Date(event.startDate).getTime() <= now;
+
+      return {
+        event,
+        isPast,
+        month: this.formatEventMonth(event.startDate),
+        day: this.formatEventDay(event.startDate),
+        homeTeam: matchup.homeTeam,
+        awayTeam: matchup.awayTeam,
+        homeLogo: matchup.homeLogo,
+        awayLogo: matchup.awayLogo,
+        location: event.location || 'Location TBA',
+        time: this.resolveTime(event),
+        statusLabel: isPast ? 'Completed' : 'Upcoming',
+        statusValue: event.result?.trim() || (isPast ? 'No score reported' : 'Scheduled'),
+      };
+    });
+  });
+
+  // ── Schedule helpers (private, called only from computed) ──
+
+  private resolveMatchup(
+    event: ProfileEvent,
+    ownTeamName: string,
+    ownTeamLogo: string | undefined
+  ): { homeTeam: string; awayTeam: string; homeLogo?: string; awayLogo?: string } {
+    const opponentName = this.resolveOpponent(event, ownTeamName);
+    const isHome = this.isHomeEvent(event.name, ownTeamName);
+
+    return isHome
+      ? {
+          homeTeam: ownTeamName,
+          awayTeam: opponentName,
+          homeLogo: ownTeamLogo,
+          awayLogo: event.logoUrl,
+        }
+      : {
+          homeTeam: opponentName,
+          awayTeam: ownTeamName,
+          homeLogo: event.logoUrl,
+          awayLogo: ownTeamLogo,
+        };
+  }
+
+  private resolveOpponent(event: ProfileEvent, ownTeamName: string): string {
+    if (event.opponent?.trim()) return event.opponent.trim();
+
+    const parsed = this.parseMatchupTeams(event.name, ownTeamName);
+    return parsed ?? 'Opponent';
+  }
+
+  private resolveTime(event: ProfileEvent): string {
+    if (event.isAllDay) return 'All day';
+    const d = new Date(event.startDate);
+    if (Number.isNaN(d.getTime())) return 'Time TBA';
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  private isHomeEvent(eventName: string, ownTeamName: string): boolean {
+    const name = eventName.toLowerCase();
+    if (name.includes(' @ ')) return !name.startsWith(ownTeamName.toLowerCase());
+    return true;
+  }
+
+  private parseMatchupTeams(eventName: string, ownTeamName: string): string | undefined {
+    const cleaned = eventName.trim();
+    if (!cleaned) return undefined;
+
+    const separator = cleaned.includes(' vs ')
+      ? /\s+vs\.?\s+/i
+      : cleaned.includes(' @ ')
+        ? /\s+@\s+/i
+        : null;
+    if (!separator) return undefined;
+
+    const [left, right] = cleaned.split(separator);
+    if (!left?.trim() || !right?.trim()) return undefined;
+
+    const leftTeam = left.trim();
+    const rightTeam = right.trim();
+    const own = ownTeamName.toLowerCase();
+
+    if (leftTeam.toLowerCase() === own) return rightTeam;
+    if (rightTeam.toLowerCase() === own) return leftTeam;
+    return rightTeam;
   }
 
   protected readonly traitCategoryLabel = computed(() => {
@@ -2988,6 +4155,10 @@ export class ProfileShellWebComponent implements OnInit {
           logoUrl: affiliation.logoUrl,
           teamCode: affiliation.teamCode,
           location: affiliation.location,
+          seasonRecord: affiliation.seasonRecord,
+          wins: affiliation.wins,
+          losses: affiliation.losses,
+          ties: affiliation.ties,
         });
       };
 
@@ -3002,6 +4173,10 @@ export class ProfileShellWebComponent implements OnInit {
           logoUrl: user.school.logoUrl,
           teamCode: user.school.teamCode,
           location: user.school.location,
+          seasonRecord: user.school.seasonRecord,
+          wins: user.school.wins,
+          losses: user.school.losses,
+          ties: user.school.ties,
         });
       }
 
@@ -3038,6 +4213,28 @@ export class ProfileShellWebComponent implements OnInit {
     const endYear = classYearValue - index;
     const startYear = endYear - 1;
     return `${startYear}-${endYear}`;
+  }
+
+  protected historyTeamRecord(team: ProfileTeamAffiliation): string | null {
+    const directRecord = team.seasonRecord?.trim();
+    if (directRecord) return directRecord;
+
+    const wins = this.parseRecordNumber(team.wins);
+    const losses = this.parseRecordNumber(team.losses);
+    const ties = this.parseRecordNumber(team.ties);
+
+    if (wins === null || losses === null) return null;
+    if (ties === null || ties <= 0) return `${wins}-${losses}`;
+    return `${wins}-${losses}-${ties}`;
+  }
+
+  private parseRecordNumber(value: number | string | undefined): number | null {
+    if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
+    if (typeof value === 'string') {
+      const parsed = Number(value.trim());
+      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+    return null;
   }
 
   protected readonly measurablesProviderUrl = computed(() => {
@@ -3081,6 +4278,119 @@ export class ProfileShellWebComponent implements OnInit {
   protected readonly statsVerifiedLogoFallbackSrc =
     'https://www.google.com/s2/favicons?domain=maxpreps.com&sz=64';
 
+  // ============================================
+  // SHARED VERIFICATION BANNER — Per-tab/section provider config
+  // ============================================
+
+  /**
+   * Static provider definitions keyed by name.
+   * Each entry holds the display name, URL, and logo sources.
+   */
+  private static readonly VERIFICATION_PROVIDERS: Readonly<
+    Record<
+      string,
+      { readonly url: string; readonly logoSrc: string; readonly fallbackLogoSrc: string }
+    >
+  > = {
+    maxpreps: {
+      url: 'https://www.maxpreps.com',
+      logoSrc: 'https://logo.clearbit.com/maxpreps.com',
+      fallbackLogoSrc: 'https://www.google.com/s2/favicons?domain=maxpreps.com&sz=64',
+    },
+    rivals: {
+      url: 'https://www.rivals.com',
+      logoSrc: 'https://logo.clearbit.com/rivals.com',
+      fallbackLogoSrc: 'https://www.google.com/s2/favicons?domain=rivals.com&sz=64',
+    },
+    twitter: {
+      url: 'https://x.com',
+      logoSrc: 'https://logo.clearbit.com/x.com',
+      fallbackLogoSrc: 'https://www.google.com/s2/favicons?domain=x.com&sz=64',
+    },
+    transcript: {
+      url: '',
+      logoSrc: '',
+      fallbackLogoSrc: '',
+    },
+  };
+
+  /**
+   * Mapping of tab (+ optional side-tab for overview) → provider key.
+   * If a tab is not listed the banner is hidden.
+   */
+  private static readonly TAB_VERIFICATION_MAP: Readonly<
+    Record<string, string | Readonly<Record<string, string>>>
+  > = {
+    overview: {
+      'player-history': 'rivals',
+      academic: 'transcript',
+      contact: 'twitter',
+    },
+    offers: 'rivals',
+    stats: 'maxpreps',
+    schedule: 'maxpreps',
+  };
+
+  /**
+   * Resolves the active provider key for the current tab + side-tab.
+   * Returns null when the banner should be hidden.
+   */
+  private readonly _activeProviderKey = computed<string | null>(() => {
+    const tab = this.profile.activeTab();
+    const entry = ProfileShellWebComponent.TAB_VERIFICATION_MAP[tab];
+    if (!entry) return null;
+
+    if (typeof entry === 'string') return entry;
+
+    // Overview sub-sections
+    const sideTab = this.activeSideTab();
+    return (entry as Readonly<Record<string, string>>)[sideTab] ?? null;
+  });
+
+  /** Whether the verification banner is visible for this tab/section. */
+  protected readonly showVerificationBanner = computed(() => {
+    if (this.profile.activeTab() === 'offers' && this.activeSideTab() === 'rankings') {
+      return false;
+    }
+
+    return this._activeProviderKey() !== null;
+  });
+
+  /** Display label for the active provider (e.g. "MaxPreps", "Rivals"). */
+  protected readonly verificationProvider = computed<string | null>(() => {
+    const key = this._activeProviderKey();
+    if (!key) return null;
+    // Capitalise first letter for display
+    return key.charAt(0).toUpperCase() + key.slice(1);
+  });
+
+  /** Whether the current section's provider is "verified" (always true when banner is shown). */
+  protected readonly isProfileVerified = computed(() => this._activeProviderKey() !== null);
+
+  /** Resolved URL for the current tab's verification provider. */
+  protected readonly verificationProviderUrl = computed<string | null>(() => {
+    const key = this._activeProviderKey();
+    if (!key) return null;
+    const provider = ProfileShellWebComponent.VERIFICATION_PROVIDERS[key];
+    return provider?.url || null;
+  });
+
+  /** Clearbit logo URL for the current tab's verification provider. */
+  protected readonly verificationProviderLogoSrc = computed<string | null>(() => {
+    const key = this._activeProviderKey();
+    if (!key) return null;
+    const provider = ProfileShellWebComponent.VERIFICATION_PROVIDERS[key];
+    return provider?.logoSrc || null;
+  });
+
+  /** Google favicon fallback logo URL. */
+  protected readonly verificationProviderLogoFallbackSrc = computed<string | null>(() => {
+    const key = this._activeProviderKey();
+    if (!key) return null;
+    const provider = ProfileShellWebComponent.VERIFICATION_PROVIDERS[key];
+    return provider?.fallbackLogoSrc || null;
+  });
+
   protected onProviderLogoError(event: Event): void {
     const img = event.target as HTMLImageElement | null;
     if (!img) return;
@@ -3105,6 +4415,24 @@ export class ProfileShellWebComponent implements OnInit {
 
     img.dataset['fallbackApplied'] = 'true';
     img.src = this.statsVerifiedLogoFallbackSrc;
+  }
+
+  protected onVerificationBannerLogoError(event: Event): void {
+    const img = event.target as HTMLImageElement | null;
+    if (!img) return;
+
+    if (img.dataset['fallbackApplied'] === 'true') {
+      img.src = 'https://www.google.com/s2/favicons?domain=nxt1sports.com&sz=64';
+      return;
+    }
+
+    img.dataset['fallbackApplied'] = 'true';
+    const fallback = this.verificationProviderLogoFallbackSrc();
+    if (fallback) {
+      img.src = fallback;
+    } else {
+      img.src = 'https://www.google.com/s2/favicons?domain=nxt1sports.com&sz=64';
+    }
   }
 
   protected async onSyncNow(): Promise<void> {

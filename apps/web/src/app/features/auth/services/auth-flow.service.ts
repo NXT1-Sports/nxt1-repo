@@ -661,7 +661,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic import for SSR safety
-      const { signInWithEmailAndPassword } = await import('firebase/auth');
+      const { signInWithEmailAndPassword } = await import('@angular/fire/auth');
 
       const result = await signInWithEmailAndPassword(
         this.firebaseAuth,
@@ -831,7 +831,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic imports for SSR safety
-      const { GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
+      const { GoogleAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
 
       const provider = new GoogleAuthProvider();
       // Request email scope explicitly
@@ -979,7 +979,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic imports for SSR safety
-      const { OAuthProvider, signInWithPopup } = await import('firebase/auth');
+      const { OAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
 
       // Microsoft OAuth Provider
       const provider = new OAuthProvider('microsoft.com');
@@ -1046,7 +1046,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic imports for SSR safety
-      const { OAuthProvider, signInWithPopup } = await import('firebase/auth');
+      const { OAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
 
       // Apple OAuth Provider
       const provider = new OAuthProvider('apple.com');
@@ -1172,7 +1172,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic import for SSR safety
-      const { createUserWithEmailAndPassword } = await import('firebase/auth');
+      const { createUserWithEmailAndPassword } = await import('@angular/fire/auth');
 
       // Create Firebase user
       const result = await createUserWithEmailAndPassword(
@@ -1267,7 +1267,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic import for SSR safety
-      const { signOut } = await import('firebase/auth');
+      const { signOut } = await import('@angular/fire/auth');
 
       // Track sign out before clearing user
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_OUT);
@@ -1308,7 +1308,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic import for SSR safety
-      const { sendPasswordResetEmail } = await import('firebase/auth');
+      const { sendPasswordResetEmail } = await import('@angular/fire/auth');
 
       await sendPasswordResetEmail(this.firebaseAuth, email);
 
@@ -1355,7 +1355,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic import for SSR safety
-      const { sendEmailVerification } = await import('firebase/auth');
+      const { sendEmailVerification } = await import('@angular/fire/auth');
 
       await sendEmailVerification(this.firebaseAuth.currentUser);
 
@@ -1389,7 +1389,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic import for SSR safety
-      const { reload } = await import('firebase/auth');
+      const { reload } = await import('@angular/fire/auth');
 
       // Reload user to get fresh data from Firebase
       await reload(this.firebaseAuth.currentUser);

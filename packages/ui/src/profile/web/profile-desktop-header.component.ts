@@ -158,7 +158,12 @@ const ARC_LENGTH = ARC_CIRCUMFERENCE * (ARC_DEGREES / 360); // visible arc ≈ 1
             <div class="mdh-xp-glow"></div>
             <svg class="mdh-xp-ring" viewBox="0 0 96 96" aria-hidden="true">
               <!-- Dark filled circle background -->
-              <circle cx="48" cy="48" r="38" fill="var(--nxt1-color-surface-50, #0a0a0a)" />
+              <circle
+                cx="48"
+                cy="48"
+                r="38"
+                fill="var(--nxt1-color-surface-100, var(--nxt1-color-background-secondary, #161616))"
+              />
               <!-- Track (dim 270° arc with gap at bottom) -->
               <circle
                 cx="48"
@@ -211,7 +216,7 @@ const ARC_LENGTH = ARC_CIRCUMFERENCE * (ARC_DEGREES / 360); // visible arc ≈ 1
         --ovr-accent: var(--nxt1-color-primary);
         --ovr-glow: var(--nxt1-color-alpha-primary20, rgba(206, 255, 0, 0.2));
         --ring-track: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.06));
-        margin-bottom: var(--nxt1-spacing-1);
+        margin-bottom: 0;
       }
 
       /* Tier-based accent colours */

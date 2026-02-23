@@ -1955,6 +1955,8 @@ export const ALIAS_ICONS = {
   analytics: UI_ICONS.barChart,
   /** Flash icon → bolt UI icon */
   flash: UI_ICONS.bolt,
+  /** Walk icon → athlete role icon (running person, for preferred walk-on) */
+  walk: ROLE_ICONS.athlete,
 
   // ---- Persona Landing Page Icons ----
   'whistle-outline': UI_ICONS.whistle,

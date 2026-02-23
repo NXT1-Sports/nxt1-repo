@@ -81,6 +81,12 @@ export const PROFILE_TABS: readonly ProfileTab[] = [
  */
 export const PROFILE_DEFAULT_TAB: ProfileTabId = 'overview';
 
+/**
+ * Tabs where the shared verification banner is hidden by default.
+ * Override by providing a custom set via input if needed.
+ */
+export const PROFILE_VERIFICATION_HIDDEN_TABS: ReadonlySet<ProfileTabId> = new Set(['contact']);
+
 // ============================================
 // POST TYPE CONFIGURATION
 // ============================================
@@ -121,8 +127,6 @@ export const PROFILE_POST_TYPE_LABELS: Record<ProfilePostType, string> = {
 export const OFFER_TYPE_ICONS: Record<OfferType, string> = {
   scholarship: 'school',
   preferred_walk_on: 'walk',
-  camp_invite: 'flag',
-  visit: 'location',
   interest: 'heart',
 } as const;
 
@@ -132,8 +136,6 @@ export const OFFER_TYPE_ICONS: Record<OfferType, string> = {
 export const OFFER_TYPE_LABELS: Record<OfferType, string> = {
   scholarship: 'Scholarship Offer',
   preferred_walk_on: 'Preferred Walk-On',
-  camp_invite: 'Camp Invite',
-  visit: 'Visit Invite',
   interest: 'Interest',
 } as const;
 
@@ -143,8 +145,6 @@ export const OFFER_TYPE_LABELS: Record<OfferType, string> = {
 export const OFFER_TYPE_COLORS: Record<OfferType, string> = {
   scholarship: 'var(--nxt1-color-success)',
   preferred_walk_on: 'var(--nxt1-color-primary)',
-  camp_invite: 'var(--nxt1-color-warning)',
-  visit: 'var(--nxt1-color-info)',
   interest: 'var(--nxt1-color-secondary)',
 } as const;
 

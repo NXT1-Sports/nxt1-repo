@@ -35,7 +35,12 @@ import {
 import { isPlatformBrowser } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ProfileShellWebComponent, type ProfileShellUser } from '@nxt1/ui/profile';
+import {
+  ProfileShellWebComponent,
+  type ProfileShellUser,
+  RelatedAthletesComponent,
+  type RelatedAthlete,
+} from '@nxt1/ui/profile';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -52,7 +57,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 @Component({
   selector: 'app-profile',
   standalone: true,
-  imports: [ProfileShellWebComponent],
+  imports: [ProfileShellWebComponent, RelatedAthletesComponent],
   template: `
     <nxt1-profile-shell-web
       [currentUser]="userInfo()"
@@ -70,6 +75,18 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
       (aiSummaryClick)="onAiSummary()"
       (createPostClick)="onCreatePost()"
     />
+
+    <!-- ═══ RELATED ATHLETES — Discovery Row (below profile shell) ═══ -->
+    @defer (on viewport) {
+      <nxt1-related-athletes
+        [sport]="relatedSport()"
+        [state]="relatedState()"
+        (athleteClick)="onRelatedAthleteClick($event)"
+        (seeAllClick)="onSeeAllRelated()"
+      />
+    } @placeholder {
+      <div style="height: 200px;"></div>
+    }
   `,
   styles: [
     `
@@ -101,6 +118,19 @@ export class ProfileComponent implements OnInit {
 
   /** Desktop detection for hiding redundant page header (sidebar provides nav) */
   protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
+
+  /** Sport context for the Related Athletes section */
+  protected readonly relatedSport = computed<string>(() => {
+    const profile = this.fetchedProfile();
+    const primarySport = profile?.sports?.[profile?.activeSportIndex || 0];
+    return primarySport?.sport || profile?.primarySport || 'Football';
+  });
+
+  /** State/region context for the Related Athletes section */
+  protected readonly relatedState = computed<string>(() => {
+    const profile = this.fetchedProfile();
+    return profile?.location?.state || profile?.state || 'your area';
+  });
 
   /**
    * Profile unicode from route parameter.
@@ -386,5 +416,23 @@ export class ProfileComponent implements OnInit {
   protected onCreatePost(): void {
     this.logger.info('Create post clicked');
     this.router.navigate(['/post/create']);
+  }
+
+  /**
+   * Handle related athlete card click — navigate to their profile.
+   */
+  protected onRelatedAthleteClick(athlete: RelatedAthlete): void {
+    this.logger.info('Related athlete clicked', { unicode: athlete.unicode });
+    this.router.navigate(['/profile', athlete.unicode]);
+  }
+
+  /**
+   * Handle "See All" related athletes — navigate to explore with sport filter.
+   */
+  protected onSeeAllRelated(): void {
+    this.logger.info('See all related athletes clicked');
+    this.router.navigate(['/explore'], {
+      queryParams: { sport: this.relatedSport() },
+    });
   }
 }

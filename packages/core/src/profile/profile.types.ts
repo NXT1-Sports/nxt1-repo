@@ -103,6 +103,12 @@ export interface ProfileTeamAffiliation {
   readonly teamCode?: string;
   /** Location (City, State) */
   readonly location?: string;
+  /** Season record label (for example: "10-2" or "10-2-1") */
+  readonly seasonRecord?: string;
+  /** Optional wins/losses/ties values when no formatted seasonRecord is provided */
+  readonly wins?: number | string;
+  readonly losses?: number | string;
+  readonly ties?: number | string;
 }
 
 /**
@@ -119,6 +125,12 @@ export interface ProfileSchool {
   readonly teamCode?: string;
   /** Location (City, State) */
   readonly location?: string;
+  /** Season record label (for example: "10-2" or "10-2-1") */
+  readonly seasonRecord?: string;
+  /** Optional wins/losses/ties values when no formatted seasonRecord is provided */
+  readonly wins?: number | string;
+  readonly losses?: number | string;
+  readonly ties?: number | string;
 }
 
 /**
@@ -199,6 +211,10 @@ export interface ProfileUser {
   readonly measurablesVerifiedBy?: string;
   /** URL for the verification source */
   readonly measurablesVerifiedUrl?: string;
+  /** Stats verified by source (e.g., "MaxPreps") — powers the shared verification banner */
+  readonly statsVerifiedBy?: string;
+  /** URL for the stats verification source */
+  readonly statsVerifiedUrl?: string;
   /** GPA */
   readonly gpa?: string;
   /** SAT score */
@@ -383,7 +399,7 @@ export interface ProfilePinnedVideo {
 /**
  * Offer type.
  */
-export type OfferType = 'scholarship' | 'preferred_walk_on' | 'camp_invite' | 'visit' | 'interest';
+export type OfferType = 'scholarship' | 'preferred_walk_on' | 'interest';
 
 /**
  * A college offer.
@@ -397,6 +413,8 @@ export interface ProfileOffer {
   readonly collegeName: string;
   /** College logo URL */
   readonly collegeLogoUrl?: string;
+  /** Optional graphic/image URL for the offer card */
+  readonly graphicUrl?: string;
   /** Division (D1, D2, D3, NAIA, etc.) */
   readonly division?: string;
   /** Conference */
@@ -448,6 +466,10 @@ export interface ProfileEvent {
   readonly opponent?: string;
   /** Result (for past games) */
   readonly result?: string;
+  /** Logo/avatar URL for the entity (college logo, camp logo, etc.) */
+  readonly logoUrl?: string;
+  /** Full graphic/banner image URL (event flyer, camp graphic, etc.) */
+  readonly graphicUrl?: string;
 }
 
 // ============================================

@@ -249,10 +249,14 @@ export interface ProfileShellUser {
               @case ('offers') {
                 <nxt1-profile-offers
                   [offers]="profile.offers()"
-                  [isEmpty]="profile.offers().length === 0"
+                  [committedOffers]="profile.committedOffers()"
+                  [activeOffers]="profile.activeOffers()"
+                  [interestOffers]="profile.interestOffers()"
+                  [isEmpty]="!profile.hasRecruitingActivity()"
                   [isOwnProfile]="profile.isOwnProfile()"
                   (offerClick)="onOfferClick($event)"
                   (addOfferClick)="onAddOffer()"
+                  (addCommitmentClick)="onAddOffer()"
                 />
               }
 

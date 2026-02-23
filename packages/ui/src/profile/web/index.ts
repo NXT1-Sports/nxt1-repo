@@ -13,3 +13,5 @@
  */
 
 export { ProfileShellWebComponent } from './profile-shell-web.component';
+export { ProfileNewsWebComponent } from './profile-news-web.component';
+export { RelatedAthletesComponent, type RelatedAthlete } from './related-athletes.component';

@@ -440,3 +440,9 @@ export {
 } from './highlight-engine-action-section';
 
 export { NxtLimitlessBoxSectionComponent, type LimitlessBurstNode } from './limitless-box-section';
+
+// ============================================
+// TIMELINE (Shared vertical-timeline components)
+// ============================================
+export { NxtTimelineCardComponent } from './timeline-card';
+export { NxtTimelineComponent } from './timeline';
