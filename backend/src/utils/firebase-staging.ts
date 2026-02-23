@@ -12,20 +12,23 @@ import type { Storage } from 'firebase-admin/storage';
 let stagingApp: admin.app.App;
 
 if (!admin.apps.find((app) => app?.name === 'staging')) {
-  const serviceAccount = process.env['STAGING_FIREBASE_SERVICE_ACCOUNT']
-    ? JSON.parse(process.env['STAGING_FIREBASE_SERVICE_ACCOUNT'])
-    : undefined;
+  // Staging — nxt-1-staging-v2
+  const projectId = process.env['STAGING_FIREBASE_PROJECT_ID'];
+  const clientEmail = process.env['STAGING_FIREBASE_CLIENT_EMAIL'];
+  const privateKey = process.env['STAGING_FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n');
+  const storageBucket = process.env['STAGING_FIREBASE_STORAGE_BUCKET'];
 
-  if (!serviceAccount) {
-    console.warn('⚠️  STAGING_FIREBASE_SERVICE_ACCOUNT not configured');
+  if (!projectId || !clientEmail || !privateKey) {
+    console.warn('⚠️  STAGING_FIREBASE_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY not configured');
   }
 
   stagingApp = admin.initializeApp(
     {
-      credential: serviceAccount
-        ? admin.credential.cert(serviceAccount)
-        : admin.credential.applicationDefault(),
-      storageBucket: process.env['STAGING_FIREBASE_STORAGE_BUCKET'],
+      credential:
+        projectId && clientEmail && privateKey
+          ? admin.credential.cert({ projectId, clientEmail, privateKey })
+          : admin.credential.applicationDefault(),
+      storageBucket,
     },
     'staging'
   );
@@ -36,5 +39,17 @@ if (!admin.apps.find((app) => app?.name === 'staging')) {
 export const stagingDb: Firestore = stagingApp.firestore();
 export const stagingAuth: Auth = stagingApp.auth();
 export const stagingStorage: Storage = stagingApp.storage();
+
+/**
+ * TASK 5 — Social Login / OAuth configuration (Staging)
+ *
+ * Firebase Console → Authentication → Settings → Authorized domains:
+ *   nxt-1-staging-v2.web.app, nxt-1-staging.firebaseapp.com
+ *
+ * Google OAuth callback URL:
+ *   https://nxt-1-staging-v2.firebaseapp.com/__/auth/handler
+ *
+ * NOTE: Do NOT add production domains (nxt1sports.com) to the staging project.
+ */
 
 export default stagingApp;

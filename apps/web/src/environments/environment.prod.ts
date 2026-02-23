@@ -10,25 +10,22 @@ export const environment = {
 
   // Backend API URLs (Production)
   apiURL: 'https://backend.nxt1sports.com/api/v1',
-  apiPaymentURL: 'https://backend.nxt1sports.com/api/v1',
-  profileSsrUrl: 'https://backend.nxt1sports.com/api/v1/ssr',
-  userPostSsrUrl: 'https://backend.nxt1sports.com/api/v1/ssr',
 
   // Logging Configuration
   loggingEndpoint: 'https://backend.nxt1sports.com/api/v1/logs', // Remote logging endpoint
 
   // Firebase Configuration (Production)
   firebase: {
-    apiKey: 'AIzaSyCFhuwGzzza5VbrXCJ_5_l8EisCkZKzoow',
-    authDomain: 'nxt1sports.com',
-    projectId: 'nxt-1-de054',
-    storageBucket: 'nxt-1-de054.appspot.com',
-    messagingSenderId: '574223545656',
-    appId: '1:574223545656:web:35d717a721f4b84a45bdcd',
-    measurementId: 'G-SNZ2T18P5G',
+    apiKey: 'AIzaSyAg0ln9P4HxZkqRsOi8ceVDNz1YEXhmN9I',
+    authDomain: 'nxt-1-v2.firebaseapp.com',
+    projectId: 'nxt-1-v2',
+    storageBucket: 'nxt-1-v2.firebasestorage.app',
+    messagingSenderId: '112256620070',
+    appId: '1:112256620070:web:6a758d6428d2222f2c78e7',
+    measurementId: 'G-GZGSTY65KQ',
   },
 
   // Third-party API Keys
   removeBgKey: 'sCyRfLKyXDS5ySnuXmEiqXpK',
-  googleClientId: '574223545656-od13fibpirieo8hqmlk1ajhpvqs9vp60.apps.googleusercontent.com',
+  googleClientId: '112256620070-v6sa43846pdd27972btg8o82kj84aoap.apps.googleusercontent.com',
 };

@@ -26,6 +26,21 @@ export function getStripeConfig(environment: 'staging' | 'production'): StripeCo
     logger.warn(`⚠️  Stripe secret key not configured for ${environment} - billing disabled`);
   }
 
+  // Safety check: prevent using live key outside production
+  if (secretKey && process.env['NODE_ENV'] !== 'production' && secretKey.includes('live')) {
+    throw new Error(
+      `❌ STRIPE SAFETY: Live Stripe key detected in non-production environment (${process.env['NODE_ENV']}). ` +
+        'Use STRIPE_TEST_SECRET_KEY for staging/development.'
+    );
+  }
+
+  // Warning: using test key in production
+  if (secretKey && process.env['NODE_ENV'] === 'production' && secretKey.includes('test')) {
+    logger.warn(
+      '⚠️  STRIPE SAFETY: Test Stripe key detected in production environment. Verify this is intentional.'
+    );
+  }
+
   // Get price IDs based on environment
   const pricePrefix = environment === 'staging' ? 'STAGING' : 'PRODUCTION';
 

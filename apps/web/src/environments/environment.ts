@@ -11,26 +11,21 @@ export const environment = {
 
   // Backend API URLs (Local Development)
   apiURL: 'http://localhost:3000/api/v1/staging',
-  apiPaymentURL: 'http://localhost:3000/api/v1/staging',
-  profileSsrUrl: 'http://localhost:3000/api/v1/staging/ssr',
-  userPostSsrUrl: 'http://localhost:3000/api/v1/staging/ssr',
-
-  // Logging Configuration
-  loggingEndpoint: '', // Empty in dev - logs only go to console
   sentryDsn: '', // Empty in dev - no Sentry
+  loggingEndpoint: 'http://localhost:3000/api/v1/staging/logs', // Remote logging endpoint
 
   // Firebase Configuration (Staging)
   firebase: {
-    apiKey: 'AIzaSyDSwJsZTCXeUQ2qPPqrGHQjMwxksQ-fkvE',
-    authDomain: 'nxt-1-staging.firebaseapp.com',
-    projectId: 'nxt-1-staging',
-    storageBucket: 'nxt-1-staging.appspot.com',
-    messagingSenderId: '455734259010',
-    appId: '1:455734259010:web:34d2571568094bb75a6cdb',
-    measurementId: 'G-TH51Q9XZNB',
+    apiKey: 'AIzaSyAibi8BmikNNMLF5Q2jApntx1qrHpQcT9M',
+    authDomain: 'nxt-1-staging-v2.firebaseapp.com',
+    projectId: 'nxt-1-staging-v2',
+    storageBucket: 'nxt-1-staging-v2.firebasestorage.app',
+    messagingSenderId: '1099429444442',
+    appId: '1:1099429444442:web:15c8b8a5d7f26883b09163',
+    measurementId: 'G-7C1JQW72JX',
   },
 
   // Third-party API Keys
   removeBgKey: 'sCyRfLKyXDS5ySnuXmEiqXpK',
-  googleClientId: '574223545656-od13fibpirieo8hqmlk1ajhpvqs9vp60.apps.googleusercontent.com',
+  googleClientId: '1099429444442-v8mlmoiu6kc27nhdl661d12te7cg2j4h.apps.googleusercontent.com',
 };

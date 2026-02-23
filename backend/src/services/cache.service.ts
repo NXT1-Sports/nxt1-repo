@@ -23,7 +23,10 @@ export async function initializeCacheService(): Promise<ICacheService> {
   logger.info('[Cache] Initializing cache service...');
 
   try {
-    const redisUrl = process.env['REDIS_URL'] || 'redis://localhost:6379';
+    // Build Redis URL with optional DB index for environment isolation
+    const redisHost = process.env['REDIS_URL'] || 'redis://localhost:6379';
+    const redisDb = process.env['REDIS_DB'];
+    const redisUrl = redisDb ? `${redisHost.replace(/\/$/, '')}/${redisDb}` : redisHost;
     cacheInstance = await CacheFactory.create(redisUrl);
 
     logger.info('[Cache] ✅ Cache service initialized');

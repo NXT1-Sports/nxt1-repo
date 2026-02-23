@@ -827,8 +827,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     this.logger.info('🎯 Starting Google OAuth (popup)');
 
     try {
-      // Dynamic imports for SSR safety
-      const { GoogleAuthProvider, signInWithPopup } = await import('firebase/auth');
+      // Use @angular/fire/auth to ensure compatibility with AngularFire Auth instance
+      const { GoogleAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
 
       const provider = new GoogleAuthProvider();
       // Request email scope explicitly
@@ -975,8 +975,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     this.authManager.setError(null);
 
     try {
-      // Dynamic imports for SSR safety
-      const { OAuthProvider, signInWithPopup } = await import('firebase/auth');
+      const { OAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
 
       // Microsoft OAuth Provider
       const provider = new OAuthProvider('microsoft.com');
@@ -1042,8 +1041,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     this.logger.info('🍎 Starting Apple OAuth (popup)');
 
     try {
-      // Dynamic imports for SSR safety
-      const { OAuthProvider, signInWithPopup } = await import('firebase/auth');
+      const { OAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
 
       // Apple OAuth Provider
       const provider = new OAuthProvider('apple.com');

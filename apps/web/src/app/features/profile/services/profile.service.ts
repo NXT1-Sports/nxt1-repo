@@ -20,7 +20,7 @@ import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performan
 export class ProfileService {
   private readonly http = inject(HttpClient);
   private readonly api: ProfileApi;
-  private readonly ssrUrl = environment.profileSsrUrl;
+  private readonly ssrUrl = environment.apiURL;
   private readonly performance = inject(PerformanceService);
 
   constructor() {
