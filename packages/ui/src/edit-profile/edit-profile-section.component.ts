@@ -55,27 +55,6 @@ import type { EditProfileSection, EditProfileField, EditProfileSectionId } from 
 import { NxtFormFieldComponent } from '../components/form-field';
 
 // Register icons
-addIcons({
-  chevronDownOutline,
-  chevronUpOutline,
-  checkmarkCircle,
-  checkmarkCircleOutline,
-  sparklesOutline,
-  personOutline,
-  cameraOutline,
-  footballOutline,
-  schoolOutline,
-  fitnessOutline,
-  shareSocialOutline,
-  mailOutline,
-  settingsOutline,
-  locationOutline,
-  logoTwitter,
-  logoInstagram,
-  logoTiktok,
-  logoYoutube,
-});
-
 @Component({
   selector: 'nxt1-edit-profile-section',
   standalone: true,
@@ -584,6 +563,29 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class EditProfileSectionComponent {
+  constructor() {
+    addIcons({
+      chevronDownOutline,
+      chevronUpOutline,
+      checkmarkCircle,
+      checkmarkCircleOutline,
+      sparklesOutline,
+      personOutline,
+      cameraOutline,
+      footballOutline,
+      schoolOutline,
+      fitnessOutline,
+      shareSocialOutline,
+      mailOutline,
+      settingsOutline,
+      locationOutline,
+      logoTwitter,
+      logoInstagram,
+      logoTiktok,
+      logoYoutube,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

@@ -11,46 +11,20 @@
  */
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { NxtOpenDoorsHeroComponent } from '../../components/open-doors-hero';
 import { NxtRecruitingRadarSectionComponent } from '../../components/recruiting-radar-section';
-import {
-  NxtAudienceSectionComponent,
-  type AudienceSegment,
-} from '../../components/audience-section';
 import { NxtFaqSectionComponent, type FaqItem } from '../../components/faq-section';
 import { NxtCtaBannerComponent } from '../../components/cta-banner';
 import { NxtSiteFooterComponent } from '../../components/site-footer';
-import { NxtCoachesNetworkAuthorityComponent } from '../../components/coaches-network-authority';
-import { NxtLockerRoomTalkMarqueeComponent } from '../../components/locker-room-talk-marquee';
+import { NxtCoachRolodexComponent } from '../../components/coach-rolodex';
 import { NxtInvisibleAthletePainPointComponent } from '../../components/invisible-athlete-pain-point';
-import { NxtRecruitmentPillarsSectionComponent } from '../../components/recruitment-pillars-section';
+import { NxtCommunicationCenterSectionComponent } from '../../components/communication-center-section';
+import { NxtRecruitingCommandCenterSectionComponent } from '../../components/recruiting-command-center-section';
+import { NxtLockerRoomTalkMarqueeComponent } from '../../components/locker-room-talk-marquee';
 
 // ============================================
 // PAGE-SPECIFIC CONSTANTS
 // ============================================
-
-const AUDIENCES: AudienceSegment[] = [
-  {
-    id: 'recruiting-high-school',
-    icon: 'football-outline',
-    title: 'High School Recruits',
-    description:
-      'Build your recruiting profile early and track which college programs are watching your highlights, viewing your transcript, and returning for a second look.',
-  },
-  {
-    id: 'recruiting-transfer',
-    icon: 'school-outline',
-    title: 'Transfer Portal Athletes',
-    description:
-      'See real-time interest from new programs. Know which coaches are researching your stats so you can focus outreach on the schools that already want you.',
-  },
-  {
-    id: 'recruiting-club-travel',
-    icon: 'trophy-outline',
-    title: 'Club & Travel Athletes',
-    description:
-      'Showcase performances across club, travel, and AAU seasons. Recruiting Radar captures every program interaction — even the ones you never knew about.',
-  },
-];
 
 const FAQS: FaqItem[] = [
   {
@@ -89,33 +63,44 @@ const FAQS: FaqItem[] = [
   selector: 'nxt1-recruiting-athletes-landing',
   standalone: true,
   imports: [
+    NxtOpenDoorsHeroComponent,
     NxtRecruitingRadarSectionComponent,
-    NxtRecruitmentPillarsSectionComponent,
-    NxtAudienceSectionComponent,
+    NxtRecruitingCommandCenterSectionComponent,
     NxtInvisibleAthletePainPointComponent,
-    NxtCoachesNetworkAuthorityComponent,
+    NxtCommunicationCenterSectionComponent,
+    NxtCoachRolodexComponent,
     NxtLockerRoomTalkMarqueeComponent,
     NxtFaqSectionComponent,
     NxtCtaBannerComponent,
     NxtSiteFooterComponent,
   ],
   template: `
-    <nxt1-invisible-athlete-pain-point />
+    <nxt1-open-doors-hero />
 
-    <nxt1-recruitment-pillars-section />
+    <nxt1-locker-room-talk-marquee />
+
+    <nxt1-invisible-athlete-pain-point />
 
     <!-- ⭐ Centrepiece: Recruiting Radar live activity feed -->
     <nxt1-recruiting-radar-section />
 
-    <nxt1-audience-section
-      title="Built for Every Recruiting Stage"
-      subtitle="Whether you're a freshman prospect or a transfer portal athlete, Recruiting Radar gives you the visibility edge."
-      [segments]="audiences"
-    />
+    @defer (on viewport) {
+      <nxt1-recruiting-command-center-section />
+    } @placeholder {
+      <div style="min-height: 40rem"></div>
+    }
 
-    <nxt1-coaches-network-authority />
+    @defer (on viewport) {
+      <nxt1-communication-center-section />
+    } @placeholder {
+      <div style="min-height: 40rem"></div>
+    }
 
-    <nxt1-locker-room-talk-marquee />
+    @defer (on viewport) {
+      <nxt1-coach-rolodex />
+    } @placeholder {
+      <div style="min-height: 24rem"></div>
+    }
 
     <nxt1-faq-section
       title="Recruiting FAQ"
@@ -124,10 +109,13 @@ const FAQS: FaqItem[] = [
     />
 
     <nxt1-cta-banner
-      title="Start Seeing Who's Watching"
-      subtitle="Join thousands of athletes using NXT1's Recruiting Radar to track real-time college coach interest and take control of their recruiting journey."
-      ctaLabel="Create Your NXT1 Account"
+      variant="conversion"
+      badgeLabel="Open Every Door"
+      title="The Entire NCAA In Your Pocket."
+      subtitle="Direct access to 85,000+ college coaches, real-time Recruiting Radar signals, and one platform that makes you impossible to ignore."
+      ctaLabel="Create Your Free Account"
       ctaRoute="/auth"
+      titleId="recruiting-athletes-final-cta"
     />
 
     <nxt1-site-footer />
@@ -142,6 +130,5 @@ const FAQS: FaqItem[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtRecruitingAthletesLandingComponent {
-  protected readonly audiences = AUDIENCES;
   protected readonly faqs = FAQS;
 }

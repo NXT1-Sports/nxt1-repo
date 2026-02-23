@@ -13,11 +13,13 @@ import {
   NxtPlatformService,
   NxtLoggingService,
   NxtBreadcrumbService,
+  NxtThemeService,
+} from '@nxt1/ui/services';
+import {
   NxtAppDownloadBarComponent,
   NxtAppDownloadBarService,
-  NxtThemeService,
-  AgentXFabComponent,
-} from '@nxt1/ui';
+} from '@nxt1/ui/components/app-download-bar';
+import { AgentXFabComponent } from '@nxt1/ui/agent-x';
 import type { ILogger } from '@nxt1/core/logging';
 import { filter } from 'rxjs/operators';
 import { AnalyticsService } from './core/services/analytics.service';

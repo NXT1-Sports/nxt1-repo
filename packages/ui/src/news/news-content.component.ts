@@ -44,12 +44,6 @@ import { NewsArticleDetailComponent } from './news-article-detail.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  searchOutline,
-  trophyOutline,
-  arrowBack,
-});
-
 @Component({
   selector: 'nxt1-news-content',
   standalone: true,
@@ -216,6 +210,14 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewsContentComponent implements OnInit {
+  constructor() {
+    addIcons({
+      searchOutline,
+      trophyOutline,
+      arrowBack,
+    });
+  }
+
   readonly newsService = inject(NewsService);
   private readonly haptics = inject(HapticsService);
 

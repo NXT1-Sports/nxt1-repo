@@ -67,7 +67,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
     <!-- SEO: Page Header with semantic search -->
     @if (!hideHeader()) {
       <nxt1-page-header
-        [avatarSrc]="user()?.photoURL"
+        [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         (avatarClick)="onAvatarClick()"
       >
@@ -411,7 +411,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
       }
 
       .explore-dashboard {
-        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
+        padding: 0;
         padding-bottom: var(--nxt1-spacing-16);
       }
 

@@ -16,7 +16,11 @@ export { AuthFlowService } from './auth-flow.service';
 export type { SignInCredentials, SignUpCredentials, OAuthOptions } from '@nxt1/core/auth';
 
 // Auth Error Handler - re-export from shared @nxt1/ui package
-export { AuthErrorHandler, type AuthError, type AuthRecoveryAction } from '@nxt1/ui';
+export {
+  AuthErrorHandler,
+  type AuthError,
+  type AuthRecoveryAction,
+} from '@nxt1/ui/services/auth-error';
 
 // Interface and injection token
 export {

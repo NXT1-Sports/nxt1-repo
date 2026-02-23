@@ -85,7 +85,7 @@ async function setupBackendApiRoutes(page: Page): Promise<void> {
           completeSignUp: true,
           isCollegeCoach: false,
           isRecruit: true,
-          profileImg: MOCK_USER.photoURL,
+          profileImg: MOCK_USER.profileImg,
           sports: [{ sport: 'Football', positions: ['Quarterback'], order: 0 }],
         },
       }),

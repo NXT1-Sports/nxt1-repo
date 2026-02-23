@@ -44,20 +44,6 @@ import {
 import type { ScoutReportCategoryId } from '@nxt1/core';
 
 // Register icons
-addIcons({
-  documentTextOutline,
-  bookmarkOutline,
-  footballOutline,
-  basketballOutline,
-  baseballOutline,
-  starOutline,
-  flameOutline,
-  trophyOutline,
-  searchOutline,
-  filterOutline,
-  addOutline,
-});
-
 /**
  * Empty state configuration per category.
  */
@@ -368,6 +354,22 @@ const EMPTY_STATE_CONFIGS: Partial<Record<ScoutReportCategoryId, EmptyStateConfi
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ScoutReportEmptyStateComponent {
+  constructor() {
+    addIcons({
+      documentTextOutline,
+      bookmarkOutline,
+      footballOutline,
+      basketballOutline,
+      baseballOutline,
+      starOutline,
+      flameOutline,
+      trophyOutline,
+      searchOutline,
+      filterOutline,
+      addOutline,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

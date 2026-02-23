@@ -47,7 +47,8 @@ import {
   runInInjectionContext,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { NxtPlatformService, NxtLoggingService } from '@nxt1/ui';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { type ILogger } from '@nxt1/core/logging';
 import { Subscription } from 'rxjs';
 
@@ -55,7 +56,7 @@ import { Subscription } from 'rxjs';
 import type { Auth as FirebaseAuthType, User as FirebaseUser } from '@angular/fire/auth';
 
 import { AuthApiService } from './auth-api.service';
-import { AuthErrorHandler } from '@nxt1/ui';
+import { AuthErrorHandler } from '@nxt1/ui/services/auth-error';
 import { FileUploadService } from '../../../core/services';
 import {
   type UserRole,
@@ -83,7 +84,7 @@ import {
   APP_EVENTS,
 } from '@nxt1/core/analytics';
 import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
-import { GLOBAL_CRASHLYTICS } from '@nxt1/ui';
+import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure/error-handling';
 import { environment } from '../../../../environments/environment';
 
 /**
@@ -509,7 +510,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               completeSignUp: true,
               isCollegeCoach: currentUser.role === 'college-coach',
               isRecruit: currentUser.role === 'athlete',
-              profileImg: currentUser.photoURL ?? null,
+              profileImg: currentUser.profileImg ?? null,
               sports: [],
             };
           }
@@ -532,12 +533,14 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         ...(backendProfile ?? {}),
         uid: firebaseUser.uid,
         email: firebaseUser.email ?? '',
+        // Backend displayName is source of truth; Firebase displayName is fallback
         displayName:
-          firebaseUser.displayName ??
           (backendProfile?.firstName && backendProfile?.lastName
-            ? `${backendProfile.firstName} ${backendProfile.lastName}`
-            : 'User'),
-        photoURL: firebaseUser.photoURL ?? backendProfile?.profileImg ?? undefined,
+            ? `${backendProfile.firstName} ${backendProfile.lastName}`.trim()
+            : undefined) ??
+          firebaseUser.displayName ??
+          'User',
+        profileImg: backendProfile?.profileImg ?? firebaseUser.photoURL ?? undefined,
         role: this.getUserRole(
           backendProfile
             ? {

@@ -20,7 +20,7 @@ import { Injectable, inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser, isPlatformServer } from '@angular/common';
 import { Performance, trace as firebaseTrace } from '@angular/fire/performance';
 import type { PerformanceTrace } from 'firebase/performance';
-import { NxtLoggingService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services';
 
 import type {
   PerformanceAdapter,

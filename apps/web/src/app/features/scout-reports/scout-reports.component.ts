@@ -20,7 +20,7 @@ import {
   ScoutReportsShellComponent,
   ScoutReportsService,
   ScoutReportFilterPanelComponent,
-} from '@nxt1/ui';
+} from '@nxt1/ui/scout-reports';
 import type { ScoutReport, ScoutReportCategoryId, ScoutReportFilter } from '@nxt1/core';
 
 @Component({

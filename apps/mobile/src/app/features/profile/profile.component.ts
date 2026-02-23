@@ -127,7 +127,7 @@ export class ProfileComponent {
     if (!user) return null;
 
     return {
-      photoURL: user.photoURL ?? null,
+      profileImg: user.profileImg ?? null,
       displayName: user.displayName ?? 'User',
     };
   });

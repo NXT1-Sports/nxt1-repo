@@ -30,7 +30,7 @@ import {
   buildPostShareTitle,
   buildPostShareText,
 } from '@nxt1/core/seo';
-import { NxtToastService, NxtLoggingService, ANALYTICS_ADAPTER } from '@nxt1/ui';
+import { NxtToastService, NxtLoggingService, ANALYTICS_ADAPTER } from '@nxt1/ui/services';
 
 // ============================================
 // TYPES

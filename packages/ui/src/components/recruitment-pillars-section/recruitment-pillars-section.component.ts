@@ -200,7 +200,10 @@ let recruitmentPillarsInstanceCounter = 0;
       }
 
       .profile-layer {
+        -webkit-appearance: none;
         appearance: none;
+        font: inherit;
+        color: inherit;
         width: 100%;
         display: grid;
         grid-template-columns: auto 1fr auto;
@@ -211,9 +214,12 @@ let recruitmentPillarsInstanceCounter = 0;
         border: 1px solid transparent;
         background: var(--nxt1-color-surface-primary, var(--nxt1-color-surface-100));
         transition:
-          border-color var(--nxt1-motion-duration-fast) var(--nxt1-motion-easing-standard),
-          box-shadow var(--nxt1-motion-duration-fast) var(--nxt1-motion-easing-standard),
-          background-color var(--nxt1-motion-duration-fast) var(--nxt1-motion-easing-standard);
+          border-color var(--nxt1-motion-duration-fast, 150ms)
+            var(--nxt1-motion-easing-standard, ease),
+          box-shadow var(--nxt1-motion-duration-fast, 150ms)
+            var(--nxt1-motion-easing-standard, ease),
+          background-color var(--nxt1-motion-duration-fast, 150ms)
+            var(--nxt1-motion-easing-standard, ease);
         cursor: pointer;
         text-align: left;
       }
@@ -338,13 +344,9 @@ let recruitmentPillarsInstanceCounter = 0;
         border: 0;
       }
 
-      @media (max-width: 767px) {
-        .profile-anatomy {
-          padding: 0 var(--nxt1-spacing-3_5);
-        }
-
-        .pillar-detail {
-          margin: 0 var(--nxt1-spacing-3_5) var(--nxt1-spacing-3_5);
+      @media (prefers-reduced-motion: reduce) {
+        .profile-layer {
+          transition: none;
         }
       }
     `,
@@ -363,8 +365,8 @@ export class NxtRecruitmentPillarsSectionComponent {
 
   readonly titleId = computed(() => `recruitment-pillars-title-${this.instanceId}`);
   readonly panelTitleId = computed(() => `recruitment-pillars-panel-title-${this.instanceId}`);
-  readonly anatomyLabel = computed(() => `Recruitment profile anatomy ${this.instanceId}`);
-  readonly selectorLabel = computed(() => `Pillar selector ${this.instanceId}`);
+  readonly anatomyLabel = computed(() => 'Recruitment profile anatomy');
+  readonly selectorLabel = computed(() => 'Select a recruiting pillar');
   readonly selectedPillarId = computed(() => this.selected());
 
   readonly activePillar = computed<RecruitmentPillar>(() => {

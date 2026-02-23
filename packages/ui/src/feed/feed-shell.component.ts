@@ -62,17 +62,6 @@ import { FeedListComponent } from './feed-list.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  addOutline,
-  arrowUpOutline,
-  sparklesOutline,
-  peopleOutline,
-  footballOutline,
-  schoolOutline,
-  playCircleOutline,
-  trendingUpOutline,
-});
-
 @Component({
   selector: 'nxt1-feed-shell',
   standalone: true,
@@ -282,6 +271,19 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeedShellComponent implements OnInit {
+  constructor() {
+    addIcons({
+      addOutline,
+      arrowUpOutline,
+      sparklesOutline,
+      peopleOutline,
+      footballOutline,
+      schoolOutline,
+      playCircleOutline,
+      trendingUpOutline,
+    });
+  }
+
   protected readonly feedService = inject(FeedService);
   private readonly haptics = inject(HapticsService);
 

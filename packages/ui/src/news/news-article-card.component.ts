@@ -48,16 +48,6 @@ import { NxtAvatarComponent } from '../components/avatar';
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  bookmarkOutline,
-  bookmark,
-  timeOutline,
-  eyeOutline,
-  flashOutline,
-  sparklesOutline,
-  shareOutline,
-});
-
 @Component({
   selector: 'nxt1-news-article-card',
   standalone: true,
@@ -510,6 +500,18 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewsArticleCardComponent {
+  constructor() {
+    addIcons({
+      bookmarkOutline,
+      bookmark,
+      timeOutline,
+      eyeOutline,
+      flashOutline,
+      sparklesOutline,
+      shareOutline,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   /** Article data to display */

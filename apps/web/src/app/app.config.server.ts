@@ -44,8 +44,8 @@ import { serverRoutes } from './app.routes.server';
 // @ionic/angular-server is installed for its server-safe component implementations
 import { provideIonicAngular } from '@ionic/angular/standalone';
 
-// Shared infrastructure from @nxt1/ui
-import { GLOBAL_CRASHLYTICS } from '@nxt1/ui';
+// Shared infrastructure from @nxt1/ui (granular import)
+import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure';
 
 // Crashlytics service (web uses GA4 fallback, SSR-safe)
 import { CrashlyticsService } from './core/services/crashlytics.service';

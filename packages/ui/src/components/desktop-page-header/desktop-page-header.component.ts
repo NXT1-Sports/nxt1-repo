@@ -139,9 +139,9 @@ import { NxtBackButtonComponent } from '../back-button';
       }
 
       .desktop-page-header {
-        margin-bottom: var(--nxt1-spacing-6);
-        padding-bottom: var(--nxt1-spacing-6);
-        border-bottom: 1px solid var(--nxt1-color-border-default);
+        margin-bottom: var(--nxt1-spacing-1);
+        padding-bottom: 0;
+        border-bottom: none;
       }
 
       .header-row {
@@ -167,7 +167,7 @@ import { NxtBackButtonComponent } from '../back-button';
         font-size: var(--nxt1-fontSize-2xl);
         font-weight: var(--nxt1-fontWeight-bold);
         color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-0-5, 2px) 0;
+        margin: 0 0 var(--nxt1-spacing-0-5) 0;
         line-height: var(--nxt1-lineHeight-tight);
       }
 
@@ -190,12 +190,12 @@ import { NxtBackButtonComponent } from '../back-button';
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
         color: var(--nxt1-color-text-secondary);
         background: var(--nxt1-color-surface-100);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-lg, 12px);
+        border: thin solid var(--nxt1-color-border-subtle);
+        border-radius: var(--nxt1-radius-lg);
         font-size: var(--nxt1-fontSize-sm);
         font-weight: var(--nxt1-fontWeight-medium);
         cursor: pointer;
-        transition: all var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out);
+        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
         white-space: nowrap;
         flex-shrink: 0;
       }
@@ -211,8 +211,9 @@ import { NxtBackButtonComponent } from '../back-button';
       }
 
       .header-action-btn:focus-visible {
-        outline: 2px solid var(--nxt1-color-focus-ring, var(--nxt1-color-primary, #ccff00));
-        outline-offset: 2px;
+        outline: var(--nxt1-spacing-0-5) solid
+          var(--nxt1-color-focus-ring, var(--nxt1-color-primary));
+        outline-offset: var(--nxt1-spacing-0-5);
       }
 
       .header-action-btn svg {

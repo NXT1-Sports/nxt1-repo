@@ -27,7 +27,7 @@ interface ShowcaseImage {
   standalone: true,
   imports: [CommonModule, NxtCtaButtonComponent, NxtHeaderCardComponent],
   template: `
-    <nxt1-header-card title="Your Personal Agent" titleId="agentx-title">
+    <nxt1-header-card title="First of Its Kind" titleId="agentx-title">
       <div nxtHeaderBackground class="agentx-header__bg">
         <div class="agentx-orb agentx-orb--one"></div>
         <div class="agentx-orb agentx-orb--two"></div>
@@ -430,7 +430,7 @@ export class NxtAgentXWelcomeHeaderComponent implements OnInit {
   ] as const;
 
   readonly message = input(
-    "Hi, I'm Agent X — your personal AI recruiting partner for highlights, graphics, and smarter discovery."
+    "Hi, I'm Agent X — the first autonomous AI agent built for athletes and coaches. Highlights, graphics, and smarter recruiting start here."
   );
   readonly typingSpeedMs = input(24);
 

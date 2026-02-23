@@ -144,12 +144,13 @@ packages/ui/src/
 **Import Examples:**
 
 ```typescript
-// Import from main entry
-import { NxtLogoComponent, AuthShellComponent } from '@nxt1/ui';
+// ✅ CORRECT: Granular sub-path imports (optimal code splitting)
+import { AuthShellComponent } from '@nxt1/ui/auth';
+import { AuthEmailFormComponent } from '@nxt1/ui/auth/auth-email-form';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 
-// Import from specific modules
-import { AuthEmailFormComponent } from '@nxt1/ui/auth';
-import { NxtPlatformService } from '@nxt1/ui/services';
+// ❌ AVOID: Root barrel import (defeats code splitting — bundles ALL 700+ symbols)
+import { NxtLogoComponent, AuthShellComponent } from '@nxt1/ui';
 ```
 
 ---
@@ -223,15 +224,18 @@ packages/ui/src/help-center/
 ### Import Patterns
 
 ```typescript
-// Web app — imports web-specific components
+// Web app — imports web-specific components via granular sub-paths
 import {
   HelpCenterService,
   HelpCenterShellWebComponent,
   HelpCategoryDetailWebComponent,
-} from '@nxt1/ui';
+} from '@nxt1/ui/help-center';
 
-// Mobile app — imports mobile-specific components
-import { HelpCenterService, HelpCenterShellMobileComponent } from '@nxt1/ui';
+// Mobile app — imports mobile-specific components via granular sub-paths
+import {
+  HelpCenterService,
+  HelpCenterShellMobileComponent,
+} from '@nxt1/ui/help-center';
 ```
 
 ### Service Pattern (100% Shared)
@@ -472,7 +476,8 @@ Shared UI components that work across web and mobile:
 
 ```typescript
 // Shared auth shell works on web and mobile
-import { AuthShellComponent, AuthEmailFormComponent } from '@nxt1/ui';
+import { AuthShellComponent } from '@nxt1/ui/auth';
+import { AuthEmailFormComponent } from '@nxt1/ui/auth/auth-email-form';
 
 @Component({
   selector: 'app-login',

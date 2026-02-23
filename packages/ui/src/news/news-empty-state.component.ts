@@ -34,18 +34,6 @@ import {
 import { type NewsCategoryId, NEWS_EMPTY_STATES } from '@nxt1/core';
 
 // Register icons
-addIcons({
-  sparklesOutline,
-  peopleOutline,
-  schoolOutline,
-  trophyOutline,
-  videocamOutline,
-  swapHorizontalOutline,
-  checkmarkCircleOutline,
-  bookmarkOutline,
-  newspaperOutline,
-});
-
 @Component({
   selector: 'nxt1-news-empty-state',
   standalone: true,
@@ -158,6 +146,20 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewsEmptyStateComponent {
+  constructor() {
+    addIcons({
+      sparklesOutline,
+      peopleOutline,
+      schoolOutline,
+      trophyOutline,
+      videocamOutline,
+      swapHorizontalOutline,
+      checkmarkCircleOutline,
+      bookmarkOutline,
+      newspaperOutline,
+    });
+  }
+
   /** Current category to show empty state for */
   readonly category = input<NewsCategoryId>('for-you');
 

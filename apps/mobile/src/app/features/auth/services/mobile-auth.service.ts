@@ -67,7 +67,7 @@ export class MobileAuthService implements OnDestroy {
 
   // Additional computed signals
   readonly displayName = computed(() => this.user()?.displayName ?? 'User');
-  readonly photoURL = computed(() => this.user()?.photoURL);
+  readonly profileImg = computed(() => this.user()?.profileImg);
   readonly isPremium = computed(() => this.user()?.isPremium ?? false);
 
   constructor() {
@@ -137,7 +137,7 @@ export class MobileAuthService implements OnDestroy {
       uid: firebaseUser.uid,
       email: firebaseUser.email ?? '',
       displayName: firebaseUser.displayName ?? 'User',
-      photoURL: firebaseUser.photoURL ?? undefined,
+      profileImg: firebaseUser.photoURL ?? undefined,
       role: 'athlete', // Default role - should come from backend
       isPremium: false, // Should come from backend
       hasCompletedOnboarding: false, // Should come from backend

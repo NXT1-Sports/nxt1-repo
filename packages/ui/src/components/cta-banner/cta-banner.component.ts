@@ -54,6 +54,7 @@ import { isPlatformBrowser } from '@angular/common';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { NxtCtaButtonComponent } from '../cta-button';
+import { NxtAppStoreBadgesComponent } from '../app-store-badges';
 
 /** Avatar image descriptor for floating social-proof circles. */
 export interface CtaAvatarImage {
@@ -67,7 +68,7 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
 @Component({
   selector: 'nxt1-cta-banner',
   standalone: true,
-  imports: [CommonModule, RouterModule, NxtCtaButtonComponent],
+  imports: [CommonModule, RouterModule, NxtCtaButtonComponent, NxtAppStoreBadgesComponent],
   template: `
     <section
       class="cta-section"
@@ -113,7 +114,8 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
         }
 
         <div class="cta-actions-wrapper">
-          <div class="cta-actions">
+          <!-- Desktop: Web CTA buttons -->
+          <div class="cta-actions cta-actions--desktop">
             @if (ctaRoute()) {
               <nxt1-cta-button
                 [label]="ctaLabel()"
@@ -147,6 +149,9 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
               }
             }
           </div>
+
+          <!-- Mobile: App store download badges (stacked to fit card width) -->
+          <nxt1-app-store-badges class="cta-actions--mobile" layout="stack" />
         </div>
 
         @if (microcopy()) {
@@ -280,6 +285,27 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
         justify-content: center;
         gap: var(--nxt1-spacing-3);
         flex-wrap: wrap;
+      }
+
+      /* Mobile-first: show app badges, hide web CTAs */
+      .cta-actions--desktop {
+        display: none;
+      }
+
+      .cta-actions--mobile {
+        display: flex;
+        justify-content: center;
+        width: 100%;
+      }
+
+      @media (min-width: 1024px) {
+        .cta-actions--desktop {
+          display: flex;
+        }
+
+        .cta-actions--mobile {
+          display: none;
+        }
       }
 
       .cta-microcopy {

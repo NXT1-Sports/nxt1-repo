@@ -18,15 +18,11 @@
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
-import {
-  InviteShellComponent,
-  InviteService,
-  NxtSidenavService,
-  NxtLoggingService,
-  NxtBottomSheetService,
-  NxtPlatformService,
-  type InviteUser,
-} from '@nxt1/ui';
+import { InviteShellComponent, InviteService, type InviteUser } from '@nxt1/ui/invite';
+import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtBottomSheetService } from '@nxt1/ui/components/bottom-sheet';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import type { InviteChannel, InviteType } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 
@@ -68,7 +64,7 @@ export class InviteComponent implements OnInit {
 
     return {
       displayName: user.displayName || 'NXT1 User',
-      photoURL: user.photoURL,
+      profileImg: user.profileImg,
       referralCode: this.generateReferralCode(user.uid),
     };
   });

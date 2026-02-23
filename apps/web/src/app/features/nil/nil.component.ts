@@ -7,7 +7,7 @@
  */
 
 import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/core';
-import { NxtNilMonetizationUpsideComponent } from '@nxt1/ui';
+import { NxtNilMonetizationUpsideComponent } from '@nxt1/ui/components/nil-monetization-upside';
 import { SeoService } from '../../core/services/seo.service';
 import type { SeoConfig } from '@nxt1/core/seo';
 

@@ -21,8 +21,6 @@ import {
 } from 'ionicons/icons';
 import type { UsageBillingInfo, UsagePaymentMethod, UsageCoupon } from '@nxt1/core';
 
-addIcons({ cardOutline, locationOutline, giftOutline, informationCircleOutline, createOutline });
-
 @Component({
   selector: 'nxt1-usage-payment-info',
   standalone: true,
@@ -327,6 +325,16 @@ addIcons({ cardOutline, locationOutline, giftOutline, informationCircleOutline, 
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsagePaymentInfoComponent {
+  constructor() {
+    addIcons({
+      cardOutline,
+      locationOutline,
+      giftOutline,
+      informationCircleOutline,
+      createOutline,
+    });
+  }
+
   readonly billingInfo = input<UsageBillingInfo | null>(null);
   readonly paymentMethods = input<readonly UsagePaymentMethod[]>([]);
   readonly coupon = input<UsageCoupon | null>(null);

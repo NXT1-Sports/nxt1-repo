@@ -27,7 +27,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
-import { AuthShellComponent } from '@nxt1/ui';
+import { AuthShellComponent } from '@nxt1/ui/auth/auth-shell';
 import { interval, Subscription, takeWhile } from 'rxjs';
 import { AuthFlowService } from '../../services';
 import { AUTH_ROUTES } from '@nxt1/core/constants';

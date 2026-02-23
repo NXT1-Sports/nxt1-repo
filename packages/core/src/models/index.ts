@@ -46,9 +46,6 @@ export {
   USER_SCHEMA_VERSION,
   // Primary types
   type User,
-  type UserUpdate,
-  type UserCreate,
-  type UserSummary,
   // Location & Contact
   type Location,
   type SocialLinks,
@@ -75,57 +72,52 @@ export {
   type NotificationPreferences,
   type UserPreferences,
   type UserCounters,
-  type Referral,
+  // Utility types
+  type UserSummary,
   // Type guards
   isAthlete,
   isCoach,
   isCollegeCoach,
   isOnboarded,
-  isMultiSport,
-  isCommitted,
-  // Sport getters
+  // Helper functions
   getPrimarySport,
   getActiveSport,
   getSportByName,
   playsSport,
   getTotalOffers,
   getAllAwards,
-  // Sport management
-  addSport,
-  updateSport,
-  removeSport,
-  setPrimarySport,
-  setActiveSport,
-  // Factory functions
-  toUserSummary,
-  createDefaultPreferences,
-  createDefaultCounters,
-  createEmptySportProfile,
-  // ====================================
-  // LEGACY TYPES - @deprecated
-  // Exported for backward compatibility only
-  // Will be removed in future version
-  // ====================================
-  type StatData,
-  type SportInfo,
-  type PlayerTag,
-  type primarySportStat,
-  type GameStat,
-  type LegacyCollege,
-  type CollegeVisits,
-  type CollegeCamp,
-  type recentGame,
-  type Event,
-  type Award,
-  type personalBest,
-  type Session,
-  type TeamCustomLink,
-  type OwnTemplate,
-  type OwnMixtape,
-  type OwnProfile,
-  type UserPost,
-  type GameClipsCollection,
+  isMultiSport,
+  isCommitted,
 } from './user.model';
+
+// ====================================
+// LEGACY TYPES - @deprecated
+// Exported for backward compatibility only.
+// New code should NOT import these — see ./legacy/user-legacy.model.ts
+// for migration guidance.
+// ====================================
+export type {
+  StatData,
+  SportInfo,
+  PlayerTag,
+  primarySportStat,
+  GameStat,
+  LegacyCollege,
+  // Note: 'College' is intentionally omitted here — use College from college.types instead
+  CollegeVisits,
+  CollegeCamp,
+  recentGame,
+  Event,
+  Award,
+  personalBest,
+  Session,
+  TeamCustomLink,
+  OwnTemplate,
+  OwnMixtape,
+  OwnProfile,
+  UserPost,
+  GameClipsCollection,
+} from './legacy/user-legacy.model';
 
 // Media model (videos, profile cards, posts)
 export {

@@ -228,9 +228,19 @@
     <link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com" />
     <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
     <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+    <link rel="dns-prefetch" href="https://a.espncdn.com" />
 
-    <!-- Preload critical above-fold image for LCP -->
-    <link rel="preload" href="assets/images/og-image.jpg" as="image" type="image/jpeg" fetchpriority="high" />
+    <!-- Preload deferred styles as non-render-blocking -->
+    <link
+      rel="preload"
+      href="styles-deferred.css"
+      as="style"
+      onload="
+        this.onload = null;
+        this.rel = 'stylesheet';
+      "
+    />
+    <noscript><link rel="stylesheet" href="styles-deferred.css" /></noscript>
 
     <!-- PWA Manifest -->
     <link rel="manifest" href="manifest.webmanifest" />

@@ -22,6 +22,11 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { MOCK_PROFILE_PAGE_DATA, getMockOwnProfileData } from './profile.mock-data';
 
+type ProfileUserTeamExtension = {
+  readonly teamId?: string;
+  readonly managedTeams?: readonly unknown[];
+};
+
 @Injectable({ providedIn: 'root' })
 export class ProfileService {
   private readonly logger = inject(NxtLoggingService).child('ProfileService');
@@ -81,6 +86,26 @@ export class ProfileService {
   /** Events list */
   readonly events = computed(() => this._profileData()?.events ?? []);
 
+  /** Player card data (Agent X / Madden-style) */
+  readonly playerCard = computed(() => this._profileData()?.playerCard ?? null);
+
+  /**
+   * All profile images for carousel display.
+   * Combines profileImg + gallery into a single ordered array.
+   */
+  readonly profileImages = computed<readonly string[]>(() => {
+    const user = this._profileData()?.user;
+    if (!user) return [];
+    const images: string[] = [];
+    if (user.profileImg) images.push(user.profileImg);
+    if (user.gallery?.length) {
+      for (const img of user.gallery) {
+        if (img && !images.includes(img)) images.push(img);
+      }
+    }
+    return images;
+  });
+
   /** Whether viewing own profile */
   readonly isOwnProfile = computed(() => this._profileData()?.isOwnProfile ?? false);
 
@@ -92,9 +117,10 @@ export class ProfileService {
     // Check if user has team in their sports profile
     const user = this._profileData()?.user;
     if (!user) return false;
+    const extendedUser = user as typeof user & ProfileUserTeamExtension;
     // For now, return true for coaches/team managers, or if they have a team association
     // This will be enhanced when backend provides team data
-    return !!(user as any).teamId || !!(user as any).managedTeams?.length;
+    return !!extendedUser.teamId || !!extendedUser.managedTeams?.length;
   });
 
   /** Whether in edit mode */
@@ -124,6 +150,11 @@ export class ProfileService {
     this.allPosts().filter((p: ProfilePost) => p.type === 'video' || p.type === 'highlight')
   );
 
+  /** News posts only */
+  readonly newsPosts = computed(() =>
+    this.allPosts().filter((p: ProfilePost) => p.type === 'news')
+  );
+
   /** Pinned posts */
   readonly pinnedPosts = computed(() => this.allPosts().filter((p: ProfilePost) => p.isPinned));
 
@@ -146,37 +177,37 @@ export class ProfileService {
         key: 'profileViews',
         label: 'Profile Views',
         value: stats.profileViews,
-        icon: 'eye-outline',
+        icon: 'eye',
       },
       {
         key: 'videoViews',
         label: 'Video Views',
         value: stats.videoViews,
-        icon: 'play-circle-outline',
+        icon: 'play-circle',
       },
       {
         key: 'offerCount',
         label: 'Offers',
         value: stats.offerCount,
-        icon: 'trophy-outline',
+        icon: 'trophy',
       },
       {
         key: 'highlightCount',
         label: 'Highlights',
         value: stats.highlightCount,
-        icon: 'videocam-outline',
+        icon: 'videocam',
       },
       {
         key: 'collegeInterestCount',
         label: 'College Interest',
         value: stats.collegeInterestCount,
-        icon: 'school-outline',
+        icon: 'school',
       },
       {
         key: 'shareCount',
         label: 'Shares',
         value: stats.shareCount,
-        icon: 'share-social-outline',
+        icon: 'share-social',
       },
     ];
   });
@@ -187,11 +218,15 @@ export class ProfileService {
     const events = this.events();
 
     return {
+      overview: 0,
       timeline: this.allPosts().length,
+      news: this.newsPosts().length,
       videos: this.videoPosts().length,
       offers: offers.length,
       stats: 0,
+      academic: 0,
       events: events.length,
+      schedule: events.length,
       contact: 0,
     };
   });

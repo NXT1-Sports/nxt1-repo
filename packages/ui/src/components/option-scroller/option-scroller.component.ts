@@ -79,8 +79,6 @@ import type {
 import { DEFAULT_OPTION_SCROLLER_CONFIG } from './option-scroller.types';
 
 // Register icons
-addIcons({ chevronForward, chevronBack });
-
 @Component({
   selector: 'nxt1-option-scroller',
   standalone: true,
@@ -481,6 +479,7 @@ export class NxtOptionScrollerComponent implements AfterViewInit, OnDestroy {
   });
 
   constructor() {
+    addIcons({ chevronForward, chevronBack });
     // Effect to update indicator when selection or options change
     effect(() => {
       // Read signals to establish reactive dependency

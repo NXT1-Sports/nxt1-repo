@@ -27,6 +27,13 @@ export { NxtIconComponent, type IconName, type UIIconName, type BrandIconName } 
 export { NxtBackButtonComponent, type BackButtonSize, type BackButtonVariant } from './back-button';
 
 export {
+  NxtTooltipDirective,
+  type TooltipInput,
+  type TooltipConfig,
+  type TooltipPlacement,
+} from './tooltip';
+
+export {
   NxtShareButtonComponent,
   type ShareButtonSize,
   type ShareButtonVariant,
@@ -45,10 +52,19 @@ export {
   NxtCoachAuthorityValidationComponent,
   type CoachAuthorityQuote,
 } from './coach-authority-validation';
+export { NxtGraphicFactoryHeroComponent } from './graphic-factory-hero';
+export { NxtCoSignCollaborationSectionComponent } from './co-sign-collaboration-section';
+export {
+  NxtSuccessSimulationSectionComponent,
+  type SuccessSimulationScenario,
+} from './success-simulation-section';
 export {
   NxtInvisibleAthletePainPointComponent,
   type InvisibleAthleteSignal,
 } from './invisible-athlete-pain-point';
+export { NxtCoverageGapPainPointComponent, type CoverageGapLayer } from './coverage-gap-pain-point';
+export { NxtNewsletterFeatureSectionComponent } from './newsletter-feature-section';
+export { NxtContentFactoryLandingComponent } from './content-factory';
 
 export { NxtHeaderCardComponent } from './header-card';
 
@@ -295,6 +311,9 @@ export {
   type KillerComparisonRow,
   KILLER_COMPARISON_DEFAULT_ROWS,
 } from './nxt1-killer-comparison';
+export { NxtOpenDoorsHeroComponent } from './open-doors-hero';
+export { NxtMediaEmpireHeroComponent } from './media-empire-hero';
+export { NxtBreakingNewsHeroComponent } from './breaking-news-hero';
 export { NxtValuePropComparisonComponent } from './value-prop-comparison';
 export {
   NxtEducationalLibraryComponent,
@@ -341,6 +360,17 @@ export {
   type BrandPipelineOutputCard,
   type BrandPipelineStep,
 } from './team-brand-architecture-section';
+export { NxtOldVsNewContrastSectionComponent } from './old-vs-new-contrast-section';
+export { NxtBrandKitIntegrationSectionComponent } from './brand-kit-integration-section';
+export {
+  NxtHighlightReelNetworkSectionComponent,
+  type DistributionDestination,
+} from './highlight-reel-network-section';
+
+// ============================================
+// GENESIS MOMENT (Team Platform — Big Bang)
+// ============================================
+export { NxtGenesisMomentComponent } from './genesis-moment';
 
 // ============================================
 // PARTNER MARQUEE (Infinite Logo Scroll)
@@ -369,6 +399,15 @@ export {
 } from './recruiting-radar-section';
 
 export {
+  NxtOpportunityRadarSectionComponent,
+  type OpportunityRadarSchoolMatch,
+} from './opportunity-radar-section';
+
+export { NxtCommunicationCenterSectionComponent } from './communication-center-section';
+
+export { NxtRecruitingCommandCenterSectionComponent } from './recruiting-command-center-section';
+
+export {
   NxtRecruitmentPillarsSectionComponent,
   type RecruitmentPillar,
 } from './recruitment-pillars-section';
@@ -390,3 +429,14 @@ export {
 // UTILITY COMPONENTS
 // ============================================
 export { NxtRefreshContainerComponent, type RefreshEvent } from './refresh-container';
+export {
+  NxtGetItDoneWorkflowSectionComponent,
+  type GetItDoneWorkflow,
+  type GetItDoneWorkflowStep,
+} from './get-it-done-workflow-section';
+export {
+  NxtHighlightEngineActionSectionComponent,
+  type HighlightEngineStep,
+} from './highlight-engine-action-section';
+
+export { NxtLimitlessBoxSectionComponent, type LimitlessBurstNode } from './limitless-box-section';

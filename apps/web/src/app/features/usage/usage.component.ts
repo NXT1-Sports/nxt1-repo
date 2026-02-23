@@ -18,7 +18,11 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
-import { UsageShellWebComponent, UsageSkeletonComponent, NxtUsageLandingComponent } from '@nxt1/ui';
+import {
+  UsageShellWebComponent,
+  UsageSkeletonComponent,
+  NxtUsageLandingComponent,
+} from '@nxt1/ui/usage';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 

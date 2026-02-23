@@ -29,10 +29,12 @@ import {
   NxtFeatureShowcaseComponent,
   type FeatureShowcaseItem,
 } from '../components/feature-showcase';
-import { NxtAudienceSectionComponent, type AudienceSegment } from '../components/audience-section';
 import { NxtCtaBannerComponent } from '../components/cta-banner';
 import { NxtHeroSectionComponent } from '../components/hero-section';
 import { NxtXpDashboardPreviewComponent } from './xp-dashboard-preview.component';
+import { NxtXpEconomyRewardsComponent } from './xp-economy-rewards.component';
+import { NxtXpMultiplierEffectComponent } from './xp-multiplier-effect.component';
+import { NxtXpArenaLeaderboardComponent } from './xp-arena-leaderboard.component';
 
 // ============================================
 // CONSTANTS — Page-Specific Content
@@ -89,30 +91,6 @@ const XP_FEATURES: FeatureShowcaseItem[] = [
   },
 ];
 
-const XP_AUDIENCES: AudienceSegment[] = [
-  {
-    id: 'athletes',
-    title: 'Athletes',
-    description:
-      'Complete recruiting missions, build your profile, and level up your exposure to college coaches.',
-    icon: 'flash-outline',
-  },
-  {
-    id: 'coaches',
-    title: 'Coaches & Programs',
-    description:
-      'Guided tasks for team setup, roster management, and recruiting outreach \u2014 all gamified.',
-    icon: 'people-outline',
-  },
-  {
-    id: 'parents',
-    title: 'Parents & Families',
-    description:
-      'Track your athlete\u2019s mission progress, level, and engagement with the recruiting process.',
-    icon: 'heart-outline',
-  },
-];
-
 const XP_FAQS: FaqItem[] = [
   {
     id: 'what-is-xp',
@@ -152,17 +130,20 @@ const XP_FAQS: FaqItem[] = [
   imports: [
     NxtStatsBarComponent,
     NxtFeatureShowcaseComponent,
-    NxtAudienceSectionComponent,
     NxtFaqSectionComponent,
     NxtCtaBannerComponent,
     NxtHeroSectionComponent,
     NxtXpDashboardPreviewComponent,
+    NxtXpEconomyRewardsComponent,
+    NxtXpMultiplierEffectComponent,
+    NxtXpArenaLeaderboardComponent,
   ],
   template: `
     <!-- Hero Section — uses shared NxtHeroSectionComponent -->
     <nxt1-hero-section
+      layout="split-reverse"
       badgeIcon="rocket-outline"
-      badgeLabel="XP &amp; Missions"
+      badgeLabel="XP"
       title="Level Up Your"
       accentText="Recruiting Game"
       subtitle="Complete missions, earn XP, collect badges, and climb the ranks. A gamified path that turns recruiting goals into daily wins."
@@ -185,16 +166,18 @@ const XP_FAQS: FaqItem[] = [
       [features]="features"
     />
 
-    <!-- Audience Segments -->
-    <nxt1-audience-section
-      title="Built for Every Role"
-      subtitle="Whether you&rsquo;re an athlete building your profile or a coach managing a roster &mdash; XP keeps you on track."
-      [segments]="audiences"
-    />
+    <!-- XP Economy Rewards -->
+    <nxt1-xp-economy-rewards />
+
+    <!-- The Multiplier Effect (Virality) -->
+    <nxt1-xp-multiplier-effect />
+
+    <!-- The Arena (Head-to-Head Leaderboards) -->
+    <nxt1-xp-arena-leaderboard />
 
     <!-- FAQ -->
     <nxt1-faq-section
-      title="XP &amp; Missions FAQ"
+      title="XP FAQ"
       subtitle="Common questions about the NXT1 gamified mission system."
       [items]="faqs"
       defaultOpenId="what-is-xp"
@@ -202,10 +185,13 @@ const XP_FAQS: FaqItem[] = [
 
     <!-- Bottom CTA -->
     <nxt1-cta-banner
-      title="Ready to Start Earning XP?"
-      subtitle="Join thousands of athletes and coaches leveling up their recruiting journey."
+      variant="conversion"
+      badgeLabel="XP"
+      title="Ready to Level Up Your Recruiting Game?"
+      subtitle="Complete missions, earn XP, collect badges, and start climbing the ranks today."
       ctaLabel="Sign Up Free"
       ctaRoute="/auth"
+      titleId="xp-final-cta-title"
     />
   `,
   styles: [
@@ -220,6 +206,5 @@ const XP_FAQS: FaqItem[] = [
 export class NxtXpLandingComponent {
   protected readonly stats = XP_STATS;
   protected readonly features = XP_FEATURES;
-  protected readonly audiences = XP_AUDIENCES;
   protected readonly faqs = XP_FAQS;
 }

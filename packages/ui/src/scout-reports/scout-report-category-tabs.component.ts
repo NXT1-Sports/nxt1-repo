@@ -50,17 +50,6 @@ import {
 import type { ScoutReportCategoryId, ScoutReportCategory } from '@nxt1/core';
 
 // Register icons
-addIcons({
-  appsOutline,
-  flameOutline,
-  starOutline,
-  bookmarkOutline,
-  footballOutline,
-  basketballOutline,
-  baseballOutline,
-  trophyOutline,
-});
-
 @Component({
   selector: 'nxt1-scout-report-category-tabs',
   standalone: true,
@@ -307,6 +296,16 @@ export class ScoutReportCategoryTabsComponent {
   // ============================================
 
   constructor() {
+    addIcons({
+      appsOutline,
+      flameOutline,
+      starOutline,
+      bookmarkOutline,
+      footballOutline,
+      basketballOutline,
+      baseballOutline,
+      trophyOutline,
+    });
     // Scroll active tab into view on init
     afterNextRender(() => {
       this.scrollToActiveTab();

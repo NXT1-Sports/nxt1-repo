@@ -5,97 +5,110 @@
  *
  * Orchestrator for the `/ai-athletes` persona marketing page.
  * Composes shared NXT1 section components with AI-specific athlete
- * content — currently featuring Communication Training (recruited
- * email assistant redline section).
+ * content, including communication training and future success
+ * simulation visuals.
  *
  * 100% design-token driven, SSR-safe, fully accessible.
  */
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { NxtHeroSectionComponent } from '../../components/hero-section';
+import { NxtUnfairAdvantageHeroComponent } from '../../components/unfair-advantage-hero/unfair-advantage-hero.component';
 import { NxtRecruitingEmailAssistantSectionComponent } from '../../components/recruiting-email-assistant-section/recruiting-email-assistant-section.component';
-import { NxtFaqSectionComponent, type FaqItem } from '../../components/faq-section';
-import { NxtCtaBannerComponent } from '../../components/cta-banner';
+import { NxtSuccessSimulationSectionComponent } from '../../components/success-simulation-section/success-simulation-section.component';
+import { NxtGetItDoneWorkflowSectionComponent } from '../../components/get-it-done-workflow-section/get-it-done-workflow-section.component';
+import { NxtOpportunityRadarSectionComponent } from '../../components/opportunity-radar-section';
+import { NxtHighlightEngineActionSectionComponent } from '../../components/highlight-engine-action-section';
+import { NxtLimitlessBoxSectionComponent } from '../../components/limitless-box-section/limitless-box-section.component';
+import { NxtCtaBannerComponent, type CtaAvatarImage } from '../../components/cta-banner';
 import { NxtSiteFooterComponent } from '../../components/site-footer';
+import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 
-// ============================================
-// PAGE-SPECIFIC CONSTANTS
-// ============================================
-
-const FAQS: FaqItem[] = [
-  {
-    id: 'ai-athletes-what',
-    question: 'What is AI for Athletes?',
-    answer:
-      'AI for Athletes is a suite of intelligent tools built into NXT1 that help student-athletes communicate professionally with college coaches, craft recruiting emails, generate highlight reels, and accelerate every step of the recruiting process.',
-  },
-  {
-    id: 'ai-athletes-communication',
-    question: 'How does Communication Training work?',
-    answer:
-      'Agent X reviews your draft emails and messages to college coaches, redlines weak language, and rewrites them into professional, recruiter-ready outreach that earns responses. Think of it as a personal recruiting communication coach available 24/7.',
-  },
-  {
-    id: 'ai-athletes-free',
-    question: 'Is AI for Athletes free?',
-    answer:
-      'Every NXT1 account includes access to AI features with a generous free tier. Premium plans unlock unlimited AI requests, priority processing, and advanced capabilities like batch outreach and custom templates.',
-  },
-  {
-    id: 'ai-athletes-privacy',
-    question: 'Is my data safe?',
-    answer:
-      'Absolutely. All AI processing happens through our secure cloud infrastructure. Your data is never shared with third parties, conversations are encrypted end-to-end, and you own everything the AI creates for you.',
-  },
-  {
-    id: 'ai-athletes-sports',
-    question: 'Does it work for all sports?',
-    answer:
-      'Yes. AI for Athletes supports every sport on the NXT1 platform — football, basketball, baseball, softball, soccer, volleyball, lacrosse, track & field, swimming, and more. The AI adapts its guidance to sport-specific recruiting norms.',
-  },
-];
+const AI_ATHLETES_CTA_AVATARS: readonly CtaAvatarImage[] = [
+  { src: `/${IMAGE_PATHS.athlete1}`, alt: 'AI athlete user' },
+  { src: `/${IMAGE_PATHS.athlete2}`, alt: 'Student athlete using AI tools' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Recruiting athlete profile user' },
+  { src: `/${IMAGE_PATHS.athlete4}`, alt: 'Athlete using communication training' },
+  { src: `/${IMAGE_PATHS.athlete5}`, alt: 'High-performance athlete user' },
+  { src: `/${IMAGE_PATHS.coach1}`, alt: 'Coach reviewing AI-assisted outreach' },
+] as const;
 
 @Component({
   selector: 'nxt1-ai-athletes-landing',
   standalone: true,
   imports: [
-    NxtHeroSectionComponent,
+    NxtUnfairAdvantageHeroComponent,
     NxtRecruitingEmailAssistantSectionComponent,
-    NxtFaqSectionComponent,
+    NxtSuccessSimulationSectionComponent,
+    NxtGetItDoneWorkflowSectionComponent,
+    NxtOpportunityRadarSectionComponent,
+    NxtHighlightEngineActionSectionComponent,
+    NxtLimitlessBoxSectionComponent,
     NxtCtaBannerComponent,
     NxtSiteFooterComponent,
   ],
   template: `
-    <nxt1-hero-section
-      badgeIcon="sparkles"
-      badgeLabel="AI for Athletes"
-      title="Your AI-Powered"
-      accentText="Recruiting Edge"
-      subtitle="From communication coaching to email redlining — NXT1's AI tools help student-athletes sound professional, stand out, and earn responses from college coaches."
-      primaryCtaLabel="Get Started Free"
-      primaryCtaRoute="/auth"
-      secondaryCtaLabel="Learn About Agent X"
-      secondaryCtaRoute="/agent"
-      ariaId="ai-athletes-hero"
-    />
+    <nxt1-unfair-advantage-hero />
 
-    <!-- Communication Training: Recruiting Email Assistant -->
-    <nxt1-recruiting-email-assistant-section />
+    @defer (on viewport) {
+      <nxt1-highlight-engine-action-section />
+    } @placeholder {
+      <div style="min-height: 60vh" aria-hidden="true"></div>
+    }
 
-    <nxt1-faq-section
-      title="AI for Athletes FAQ"
-      subtitle="Common questions about AI-powered recruiting tools."
-      [items]="faqs"
-    />
+    @defer (on viewport) {
+      <!-- Workflow Automation: The 'Get It Done' Button -->
+      <nxt1-get-it-done-workflow-section />
+    } @placeholder {
+      <div style="min-height: 60vh" aria-hidden="true"></div>
+    }
 
-    <nxt1-cta-banner
-      title="Ready to Sound Like a Pro?"
-      subtitle="Join thousands of athletes using NXT1's AI tools to communicate professionally with college coaches and accelerate their recruiting journey."
-      ctaLabel="Create Free Profile"
-      ctaRoute="/auth"
-    />
+    @defer (on viewport) {
+      <!-- Recruiting Discovery: The Opportunity Radar -->
+      <nxt1-opportunity-radar-section />
+    } @placeholder {
+      <div style="min-height: 60vh" aria-hidden="true"></div>
+    }
 
-    <nxt1-site-footer />
+    @defer (on viewport) {
+      <!-- Success Simulation (Future): Offer Projection -->
+      <nxt1-success-simulation-section />
+    } @placeholder {
+      <div style="min-height: 60vh" aria-hidden="true"></div>
+    }
+
+    @defer (on viewport) {
+      <!-- Communication Training: Recruiting Email Assistant -->
+      <nxt1-recruiting-email-assistant-section />
+    } @placeholder {
+      <div style="min-height: 60vh" aria-hidden="true"></div>
+    }
+
+    @defer (on viewport) {
+      <nxt1-limitless-box-section />
+    } @placeholder {
+      <div style="min-height: 40vh" aria-hidden="true"></div>
+    }
+
+    @defer (on viewport) {
+      <nxt1-cta-banner
+        variant="conversion"
+        badgeLabel="AI for Athletes"
+        title="Turn Every Rep Into Recruiting Momentum."
+        subtitle="Use NXT1 AI to analyze film faster, draft stronger coach outreach, and build a brand that stays active while you train."
+        ctaLabel="Start Free with AI"
+        ctaRoute="/auth"
+        titleId="ai-athletes-final-cta-title"
+        [avatarImages]="ctaAvatars"
+      />
+    } @placeholder {
+      <div style="min-height: 30vh" aria-hidden="true"></div>
+    }
+
+    @defer (on viewport) {
+      <nxt1-site-footer />
+    } @placeholder {
+      <div style="min-height: 20vh" aria-hidden="true"></div>
+    }
   `,
   styles: [
     `
@@ -107,5 +120,5 @@ const FAQS: FaqItem[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtAiAthletesLandingComponent {
-  protected readonly faqs = FAQS;
+  protected readonly ctaAvatars = AI_ATHLETES_CTA_AVATARS;
 }

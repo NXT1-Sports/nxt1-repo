@@ -81,7 +81,7 @@ export const DEFAULT_MOCK_USER: AuthUser = {
   uid: 'test-user-001',
   email: 'test@example.com',
   displayName: 'Test User',
-  photoURL: 'https://example.com/photo.jpg',
+  profileImg: 'https://example.com/photo.jpg',
   role: 'athlete',
   isPremium: false,
   hasCompletedOnboarding: true,
@@ -177,7 +177,7 @@ export const USER_FIXTURES = {
     email: 'google@gmail.com',
     displayName: 'Google User',
     provider: 'google',
-    photoURL: 'https://lh3.googleusercontent.com/photo.jpg',
+    profileImg: 'https://lh3.googleusercontent.com/photo.jpg',
   }),
 
   /** Apple OAuth user */
@@ -204,7 +204,7 @@ export function createMockFirebaseUser(user: AuthUser): FirebaseUserInfo {
     uid: user.uid,
     email: user.email,
     displayName: user.displayName,
-    photoURL: user.photoURL ?? null,
+    photoURL: user.profileImg ?? null,
     emailVerified: user.emailVerified,
     metadata: {
       creationTime: user.createdAt,

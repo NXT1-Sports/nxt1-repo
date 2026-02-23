@@ -67,20 +67,6 @@ import {
   ManageTeamIntegrationsSectionComponent,
 } from './sections';
 
-addIcons({
-  closeOutline,
-  checkmarkOutline,
-  informationCircleOutline,
-  peopleOutline,
-  calendarOutline,
-  statsChartOutline,
-  personOutline,
-  ribbonOutline,
-  linkOutline,
-  chevronForwardOutline,
-  alertCircleOutline,
-});
-
 /** Event emitted when shell requests close */
 export interface ManageTeamCloseEvent {
   readonly saved: boolean;
@@ -667,6 +653,22 @@ export interface ManageTeamCloseEvent {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ManageTeamShellComponent implements OnInit {
+  constructor() {
+    addIcons({
+      closeOutline,
+      checkmarkOutline,
+      informationCircleOutline,
+      peopleOutline,
+      calendarOutline,
+      statsChartOutline,
+      personOutline,
+      ribbonOutline,
+      linkOutline,
+      chevronForwardOutline,
+      alertCircleOutline,
+    });
+  }
+
   readonly service = inject(ManageTeamService);
 
   /** Team ID to manage (null for new team) */

@@ -8,14 +8,11 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
-import {
-  NxtCtaBannerComponent,
-  NxtMobileFirstDesignSectionComponent,
-  NxtRecruitmentPillarsSectionComponent,
-  NxtSeoGoogleSearchSectionComponent,
-  NxtSuperProfileBreakdownComponent,
-  type CtaAvatarImage,
-} from '@nxt1/ui';
+import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
+import { NxtMobileFirstDesignSectionComponent } from '@nxt1/ui/components/mobile-first-design-section';
+import { NxtRecruitmentPillarsSectionComponent } from '@nxt1/ui/components/recruitment-pillars-section';
+import { NxtSeoGoogleSearchSectionComponent } from '@nxt1/ui/components/seo-google-search-section';
+import { NxtSuperProfileBreakdownComponent } from '@nxt1/ui/components/super-profile-breakdown';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import { SeoService } from '../../core/services/seo.service';
 

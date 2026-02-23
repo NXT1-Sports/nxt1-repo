@@ -54,17 +54,6 @@ import { type PostMedia, POST_MAX_MEDIA } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  'add-outline': addOutline,
-  'close-circle': closeCircle,
-  'image-outline': imageOutline,
-  'videocam-outline': videocamOutline,
-  'play-circle-outline': playCircleOutline,
-  'reorder-two-outline': reorderTwoOutline,
-  'alert-circle-outline': alertCircleOutline,
-  'cloud-upload-outline': cloudUploadOutline,
-});
-
 @Component({
   selector: 'nxt1-create-post-media-picker',
   standalone: true,
@@ -604,6 +593,19 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CreatePostMediaPickerComponent {
+  constructor() {
+    addIcons({
+      'add-outline': addOutline,
+      'close-circle': closeCircle,
+      'image-outline': imageOutline,
+      'videocam-outline': videocamOutline,
+      'play-circle-outline': playCircleOutline,
+      'reorder-two-outline': reorderTwoOutline,
+      'alert-circle-outline': alertCircleOutline,
+      'cloud-upload-outline': cloudUploadOutline,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
   // Drop zone ref available for future drag-and-drop enhancements
   // private readonly dropZone = viewChild<ElementRef>('dropZone');

@@ -37,7 +37,9 @@ import {
   EXPLORE_PAGINATION_DEFAULTS,
   EXPLORE_CACHE_KEYS,
 } from '@nxt1/core';
-import { HapticsService, NxtToastService, NxtLoggingService } from '@nxt1/ui';
+import { HapticsService } from '@nxt1/ui/services/haptics';
+import { NxtToastService } from '@nxt1/ui/services/toast';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { ExploreApiService } from './explore-api.service';
 
 /**

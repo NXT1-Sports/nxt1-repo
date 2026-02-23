@@ -7,7 +7,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
-import { NxtAiAthletesLandingComponent } from '@nxt1/ui';
+import { NxtAiAthletesLandingComponent } from '@nxt1/ui/personas';
 import { SeoService } from '../../core/services/seo.service';
 
 @Component({
@@ -22,9 +22,9 @@ export class AiAthletesComponent implements OnInit {
 
   ngOnInit(): void {
     this.seo.updatePage({
-      title: 'AI for Athletes — Communication Training & Recruiting Tools | NXT1',
+      title: 'AI for Athletes — Your Personal ESPN Producer | NXT1',
       description:
-        'NXT1 AI tools help student-athletes communicate professionally with college coaches. Get real-time email redlining, communication coaching, and recruiter-ready outreach guidance.',
+        'NXT1 AI transforms raw game footage into viral-ready highlight reels in minutes, while automating coach outreach and recruiting workflows. Stop spending 5 hours editing and spend 5 seconds uploading.',
     });
   }
 }

@@ -44,16 +44,6 @@ import {
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  'image-outline': imageOutline,
-  'person-add-outline': personAddOutline,
-  'location-outline': locationOutline,
-  'stats-chart-outline': statsChartOutline,
-  'calendar-outline': calendarOutline,
-  'film-outline': filmOutline,
-  'happy-outline': happyOutline,
-});
-
 interface ToolbarAction {
   id: string;
   icon: string;
@@ -232,6 +222,18 @@ interface ToolbarAction {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CreatePostToolbarComponent {
+  constructor() {
+    addIcons({
+      'image-outline': imageOutline,
+      'person-add-outline': personAddOutline,
+      'location-outline': locationOutline,
+      'stats-chart-outline': statsChartOutline,
+      'calendar-outline': calendarOutline,
+      'film-outline': filmOutline,
+      'happy-outline': happyOutline,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   /** Whether toolbar is disabled */

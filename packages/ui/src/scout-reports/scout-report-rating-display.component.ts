@@ -34,8 +34,6 @@ import { star, starHalf, starOutline } from 'ionicons/icons';
 import { getRatingTier, getRatingColor, calculateStars } from '@nxt1/core';
 
 // Register icons
-addIcons({ star, starHalf, starOutline });
-
 /**
  * Rating display size.
  */
@@ -262,6 +260,10 @@ export type RatingDisplaySize = 'small' | 'medium' | 'large';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ScoutReportRatingDisplayComponent {
+  constructor() {
+    addIcons({ star, starHalf, starOutline });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

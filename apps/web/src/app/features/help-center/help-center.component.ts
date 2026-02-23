@@ -8,7 +8,7 @@
 
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { HelpCenterShellWebComponent, type HelpNavigateEvent } from '@nxt1/ui';
+import { HelpCenterShellWebComponent, type HelpNavigateEvent } from '@nxt1/ui/help-center';
 
 @Component({
   selector: 'app-help-center',

@@ -17,8 +17,6 @@ import { chevronForwardOutline, chevronDownOutline } from 'ionicons/icons';
 import type { UsageBreakdownRow, UsageTimeframe } from '@nxt1/core';
 import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
 
-addIcons({ chevronForwardOutline, chevronDownOutline });
-
 @Component({
   selector: 'nxt1-usage-breakdown-table',
   standalone: true,
@@ -283,6 +281,10 @@ addIcons({ chevronForwardOutline, chevronDownOutline });
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageBreakdownTableComponent {
+  constructor() {
+    addIcons({ chevronForwardOutline, chevronDownOutline });
+  }
+
   readonly rows = input.required<readonly UsageBreakdownRow[]>();
   readonly expandedRow = input.required<string | null>();
   readonly periodLabel = input<string>('');

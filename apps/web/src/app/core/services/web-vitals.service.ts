@@ -29,7 +29,7 @@
 import { Injectable, inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import type { ILogger } from '@nxt1/core/logging';
-import { NxtLoggingService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services';
 import { AnalyticsService } from './analytics.service';
 
 /** Threshold ratings aligned with Google's "good / needs-improvement / poor" bands. */

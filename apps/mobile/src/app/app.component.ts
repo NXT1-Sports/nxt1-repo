@@ -113,15 +113,21 @@ export class AppComponent {
     if (!user) {
       // Not authenticated - go to auth
       this.logger.info('Not authenticated, navigating to auth');
-      void this.navController.navigateRoot(AUTH_ROUTES.ROOT);
+      this.navController
+        .navigateRoot(AUTH_ROUTES.ROOT)
+        .catch((err) => this.logger.error('Navigation to auth failed', err));
     } else if (!user.hasCompletedOnboarding) {
       // Authenticated but onboarding incomplete - go to onboarding
       this.logger.info('Onboarding incomplete, navigating to onboarding');
-      void this.navController.navigateRoot(AUTH_REDIRECTS.ONBOARDING);
+      this.navController
+        .navigateRoot(AUTH_REDIRECTS.ONBOARDING)
+        .catch((err) => this.logger.error('Navigation to onboarding failed', err));
     } else {
       // Authenticated and onboarding complete - go to home
       this.logger.info('Authenticated and onboarded, navigating to home');
-      void this.navController.navigateRoot(AUTH_REDIRECTS.DEFAULT);
+      this.navController
+        .navigateRoot(AUTH_REDIRECTS.DEFAULT)
+        .catch((err) => this.logger.error('Navigation to home failed', err));
     }
   }
 

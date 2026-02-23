@@ -31,12 +31,6 @@ import { addIcons } from 'ionicons';
 import { fingerPrintOutline, scanOutline, chevronForward } from 'ionicons/icons';
 
 // Register icons
-addIcons({
-  'finger-print-outline': fingerPrintOutline,
-  'scan-outline': scanOutline,
-  'chevron-forward': chevronForward,
-});
-
 export type BiometryButtonType = 'face' | 'fingerprint' | 'iris' | 'none';
 
 @Component({
@@ -179,6 +173,14 @@ export type BiometryButtonType = 'face' | 'fingerprint' | 'iris' | 'none';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthBiometricButtonComponent {
+  constructor() {
+    addIcons({
+      'finger-print-outline': fingerPrintOutline,
+      'scan-outline': scanOutline,
+      'chevron-forward': chevronForward,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

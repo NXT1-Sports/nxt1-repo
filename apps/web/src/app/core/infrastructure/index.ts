@@ -30,7 +30,7 @@ export {
 export { authInterceptor } from './interceptors/auth.interceptor';
 
 // HTTP Error Interceptor - re-export from @nxt1/ui
-export { httpErrorInterceptor, type HttpErrorInterceptorOptions } from '@nxt1/ui';
+export { httpErrorInterceptor, type HttpErrorInterceptorOptions } from '@nxt1/ui/infrastructure';
 
 // Global Error Handling - re-export from @nxt1/ui
-export { GlobalErrorHandler, type ErrorSeverity, ERROR_MESSAGES } from '@nxt1/ui';
+export { GlobalErrorHandler, type ErrorSeverity, ERROR_MESSAGES } from '@nxt1/ui/infrastructure';

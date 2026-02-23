@@ -63,7 +63,7 @@ import { NxtToastService } from '../services/toast/toast.service';
  * User info for header display.
  */
 export interface AgentXUser {
-  readonly photoURL?: string | null;
+  readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly role?: string;
 }
@@ -89,7 +89,7 @@ export interface AgentXUser {
     @if (!hideHeader()) {
       <nxt1-page-header
         title="Agent X"
-        [avatarSrc]="user()?.photoURL"
+        [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         [actions]="headerActions"
         (avatarClick)="avatarClick.emit()"

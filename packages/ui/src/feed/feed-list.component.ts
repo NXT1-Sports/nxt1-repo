@@ -50,8 +50,6 @@ import { FeedSkeletonComponent } from './feed-skeleton.component';
 import { FeedEmptyStateComponent } from './feed-empty-state.component';
 
 // Register icons
-addIcons({ alertCircleOutline, refreshOutline });
-
 @Component({
   selector: 'nxt1-feed-list',
   standalone: true,
@@ -311,6 +309,10 @@ addIcons({ alertCircleOutline, refreshOutline });
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeedListComponent {
+  constructor() {
+    addIcons({ alertCircleOutline, refreshOutline });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

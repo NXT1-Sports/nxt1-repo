@@ -23,15 +23,14 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import {
   NxtSectionNavWebComponent,
-  NxtDesktopPageHeaderComponent,
-  NxtPlatformService,
-  NxtLoggingService,
-  NewsContentComponent,
-  FeedListComponent,
-  FeedService,
   type SectionNavItem,
   type SectionNavChangeEvent,
-} from '@nxt1/ui';
+} from '@nxt1/ui/components/section-nav-web';
+import { NxtDesktopPageHeaderComponent } from '@nxt1/ui/components/desktop-page-header';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NewsContentComponent } from '@nxt1/ui/news';
+import { FeedListComponent, FeedService } from '@nxt1/ui/feed';
 import { type FeedPost, type FeedAuthor } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AuthFlowService } from '../auth/services';

@@ -17,13 +17,10 @@
 
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import { Router } from '@angular/router';
-import {
-  ExploreShellWebComponent,
-  NxtSidenavService,
-  NxtLoggingService,
-  NxtPlatformService,
-  type ExploreUser,
-} from '@nxt1/ui';
+import { ExploreShellWebComponent, type ExploreUser } from '@nxt1/ui/explore';
+import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import type { ExploreItem, ExploreTabId, ScoutReport, FeedPost, FeedAuthor } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
@@ -76,7 +73,7 @@ export class ExploreComponent {
     if (!user) return null;
 
     return {
-      photoURL: user.photoURL,
+      profileImg: user.profileImg,
       displayName: user.displayName,
     };
   });

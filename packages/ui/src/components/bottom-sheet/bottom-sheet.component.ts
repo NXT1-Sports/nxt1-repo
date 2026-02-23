@@ -41,32 +41,16 @@
 
 import { Component, ChangeDetectionStrategy, Input, signal, computed, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonContent, IonSpinner, IonIcon, ModalController } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  closeOutline,
-  checkmarkCircleOutline,
-  alertCircleOutline,
-  informationCircleOutline,
-  warningOutline,
-} from 'ionicons/icons';
+import { IonContent, ModalController } from '@ionic/angular/standalone';
+import { NxtIconComponent } from '../icon/icon.component';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { NxtPlatformService } from '../../services/platform';
 import type { BottomSheetAction, BottomSheetResult } from './bottom-sheet.types';
 
-// Register icons
-addIcons({
-  'close-outline': closeOutline,
-  'checkmark-circle-outline': checkmarkCircleOutline,
-  'alert-circle-outline': alertCircleOutline,
-  'information-circle-outline': informationCircleOutline,
-  'warning-outline': warningOutline,
-});
-
 @Component({
   selector: 'nxt1-bottom-sheet',
   standalone: true,
-  imports: [CommonModule, IonContent, IonSpinner, IonIcon],
+  imports: [CommonModule, IonContent, NxtIconComponent],
   template: `
     <ion-content [fullscreen]="true" class="nxt1-bottom-sheet-content">
       <div
@@ -79,8 +63,8 @@ addIcons({
         <div class="sheet-handle" aria-hidden="true"></div>
 
         <!-- Header with optional close button -->
-        <header class="sheet-header" [class.has-close]="showClose">
-          @if (showClose) {
+        @if (showClose) {
+          <header class="sheet-header has-close">
             <button
               type="button"
               class="close-btn"
@@ -88,22 +72,22 @@ addIcons({
               [disabled]="loading()"
               aria-label="Close"
             >
-              <ion-icon name="close-outline" aria-hidden="true" />
+              <nxt1-icon name="close" [size]="18" aria-hidden="true" />
             </button>
-          }
-        </header>
+          </header>
+        }
 
         <!-- Icon Section (optional) -->
         @if (icon) {
           <div class="icon-section">
             <div class="icon-container" [class.destructive]="destructive">
-              <ion-icon [name]="icon" aria-hidden="true" />
+              <nxt1-icon [name]="icon" [size]="32" aria-hidden="true" />
             </div>
           </div>
         }
 
         <!-- Content Section -->
-        <div class="content-section">
+        <div class="content-section" [class.content-section--empty]="!title && !subtitle">
           @if (title) {
             <h1 class="title">{{ title }}</h1>
           }
@@ -121,26 +105,30 @@ addIcons({
         @if (actions.length > 0) {
           <div class="actions-section">
             @for (action of actions; track action.label) {
-              <button
-                type="button"
-                class="action-btn"
+              <div
+                class="action-item"
                 [class.primary]="action.role === 'primary'"
                 [class.secondary]="action.role === 'secondary'"
                 [class.cancel]="action.role === 'cancel'"
                 [class.destructive]="action.role === 'destructive'"
-                [class.loading]="action.loading"
-                [disabled]="action.disabled || action.loading || loading()"
-                (click)="onAction(action)"
               >
-                @if (action.loading) {
-                  <ion-spinner name="crescent" aria-label="Loading..." />
-                } @else {
-                  @if (action.icon) {
-                    <ion-icon [name]="action.icon" aria-hidden="true" />
+                <button
+                  type="button"
+                  class="action-btn"
+                  [class.loading]="action.loading"
+                  [disabled]="action.disabled || action.loading || loading()"
+                  (click)="onAction(action)"
+                >
+                  @if (action.loading) {
+                    <div class="spinner" aria-label="Loading..."></div>
+                  } @else {
+                    @if (action.icon) {
+                      <nxt1-icon [name]="action.icon" [size]="20" aria-hidden="true" />
+                    }
+                    <span>{{ action.label }}</span>
                   }
-                  <span>{{ action.label }}</span>
-                }
-              </button>
+                </button>
+              </div>
             }
           </div>
         }
@@ -176,7 +164,7 @@ addIcons({
         --sheet-error: var(--nxt1-color-feedback-error);
         --sheet-error-bg: var(--nxt1-color-feedback-errorBg);
         --sheet-text-on-primary: var(--nxt1-color-text-onPrimary);
-        --sheet-text-on-error: var(--nxt1-color-text-onError, #ffffff);
+        --sheet-text-on-error: var(--nxt1-color-text-onError);
 
         background: var(--sheet-bg);
         font-family: var(--nxt1-fontFamily-brand);
@@ -208,9 +196,9 @@ addIcons({
         width: var(--nxt1-spacing-9, 36px);
         height: var(--nxt1-spacing-1, 5px);
         background: var(--sheet-text-tertiary);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-radius-full, 9999px);
         margin: var(--nxt1-spacing-2) auto 0;
-        opacity: 0.4;
+        opacity: var(--nxt1-opacity-hover);
       }
 
       /* ============================================
@@ -227,7 +215,7 @@ addIcons({
       .close-btn {
         width: var(--nxt1-spacing-8, 32px);
         height: var(--nxt1-spacing-8, 32px);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-radius-full, 9999px);
         border: none;
         background: var(--sheet-border);
         color: var(--sheet-text-secondary);
@@ -236,10 +224,6 @@ addIcons({
         justify-content: center;
         cursor: pointer;
         transition: var(--nxt1-transition-fast);
-
-        ion-icon {
-          font-size: var(--nxt1-fontSize-lg);
-        }
 
         &:active:not(:disabled) {
           transform: scale(0.95);
@@ -264,16 +248,12 @@ addIcons({
       .icon-container {
         width: var(--nxt1-spacing-16, 64px);
         height: var(--nxt1-spacing-16, 64px);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-radius-full, 9999px);
         display: flex;
         align-items: center;
         justify-content: center;
         background: var(--sheet-accent-bg);
         color: var(--sheet-accent);
-
-        ion-icon {
-          font-size: var(--nxt1-fontSize-3xl, 32px);
-        }
 
         &.destructive {
           background: var(--sheet-error-bg);
@@ -288,6 +268,12 @@ addIcons({
         flex: 1;
         text-align: center;
         padding: var(--nxt1-spacing-2) 0 var(--nxt1-spacing-6);
+      }
+
+      /* Collapse content-section when no title/subtitle to save space */
+      .content-section--empty {
+        flex: 0;
+        padding: var(--nxt1-spacing-1) 0;
       }
 
       .title {
@@ -337,11 +323,43 @@ addIcons({
         padding-bottom: var(--nxt1-spacing-4);
       }
 
+      .action-item {
+        border-radius: var(--nxt1-radius-full, 9999px);
+        overflow: hidden;
+        border: 1px solid transparent;
+      }
+
+      .action-item.primary {
+        background: var(--sheet-accent);
+        color: var(--sheet-text-on-primary);
+        border-color: var(--sheet-accent);
+      }
+
+      .action-item.secondary {
+        background: var(--nxt1-color-surface-300);
+        color: var(--sheet-text);
+        border-color: var(--nxt1-color-border-subtle);
+      }
+
+      .action-item.cancel {
+        background: var(--nxt1-color-surface-300);
+        color: var(--sheet-text-secondary);
+        border-color: var(--nxt1-color-border-subtle);
+      }
+
+      .action-item.destructive {
+        background: var(--sheet-error);
+        color: var(--sheet-text-on-error);
+        border-color: var(--sheet-error);
+      }
+
       .action-btn {
         width: 100%;
         height: var(--nxt1-button-height, 48px);
-        border-radius: var(--nxt1-radius-lg);
+        border-radius: var(--nxt1-radius-full, 9999px);
         border: none;
+        background: transparent;
+        color: inherit;
         font-size: var(--nxt1-fontSize-base);
         font-weight: var(--nxt1-fontWeight-semibold);
         cursor: pointer;
@@ -351,13 +369,19 @@ addIcons({
         gap: var(--nxt1-spacing-2);
         transition: var(--nxt1-transition-fast);
 
-        ion-icon {
-          font-size: var(--nxt1-fontSize-lg);
-        }
-
-        ion-spinner {
+        .spinner {
           width: var(--nxt1-fontSize-lg);
           height: var(--nxt1-fontSize-lg);
+          border: 2px solid currentColor;
+          border-top-color: transparent;
+          border-radius: var(--nxt1-radius-full, 9999px);
+          animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+          to {
+            transform: rotate(360deg);
+          }
         }
 
         &:active:not(:disabled) {
@@ -368,53 +392,28 @@ addIcons({
           opacity: var(--nxt1-opacity-disabled);
           cursor: not-allowed;
         }
+      }
 
-        /* Primary button - Uses theme accent color */
-        &.primary {
-          background: var(--sheet-accent);
-          color: var(--sheet-text-on-primary);
-        }
+      .action-item.primary .action-btn:active:not(:disabled) {
+        background: var(--nxt1-color-primaryDark);
+      }
 
-        &.primary:active:not(:disabled) {
-          background: var(--nxt1-color-primaryDark);
-        }
+      .action-item.destructive .action-btn:active:not(:disabled) {
+        background: var(--nxt1-color-feedback-errorDark, var(--sheet-error));
+      }
 
-        /* Secondary button */
-        &.secondary {
-          background: var(--nxt1-color-surface-300);
-          color: var(--sheet-text);
-          border: 1px solid var(--nxt1-color-border-default);
-        }
-
-        /* Cancel button */
-        &.cancel {
-          background: transparent;
-          color: var(--sheet-text-secondary);
-        }
-
-        /* Destructive button */
-        &.destructive {
-          background: var(--sheet-error);
-          color: var(--sheet-text-on-error);
-        }
-
-        &.destructive:active:not(:disabled) {
-          background: var(--nxt1-color-feedback-errorDark, var(--sheet-error));
-        }
+      .action-item.cancel .action-btn {
+        color: var(--sheet-accent);
       }
 
       .ios .action-btn {
-        border-radius: var(--nxt1-radius-xl, 14px);
+        border-radius: var(--nxt1-radius-full, 9999px);
         font-weight: var(--nxt1-fontWeight-semibold);
         letter-spacing: var(--nxt1-letterSpacing-tight);
       }
 
-      .ios .action-btn.cancel {
-        color: var(--sheet-accent);
-      }
-
       .android .action-btn {
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-radius-full, 9999px);
         font-weight: var(--nxt1-fontWeight-medium);
         text-transform: none;
       }

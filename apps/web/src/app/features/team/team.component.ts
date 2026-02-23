@@ -28,7 +28,7 @@ import {
   effect,
 } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
-import { TeamShellComponent, type TeamData } from '@nxt1/ui';
+import { TeamShellComponent, type TeamData } from '@nxt1/ui/team';
 import { SeoService, ShareService } from '../../core/services';
 
 @Component({

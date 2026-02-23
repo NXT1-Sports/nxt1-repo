@@ -21,6 +21,7 @@ export default defineConfig({
     'src/crashlytics/index.ts', // Firebase Crashlytics adapter
     'src/feed/index.ts', // Feed types and interfaces
     'src/create-post/index.ts', // Create post types and interfaces
+    'src/onboarding/index.ts', // Onboarding navigation and link-drop types
   ],
   format: ['cjs', 'esm'],
   dts: false,

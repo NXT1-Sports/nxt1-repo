@@ -57,45 +57,46 @@ let recruitingEmailAssistantInstanceCounter = 0;
           eyebrow="Communication Training"
           [headingLevel]="2"
           variant="hero"
-          align="center"
+          layout="split"
+          contentPosition="start"
           title="Never Send a Bad Email Again."
           subtitle="Social skills training for young athletes with professional coach-outreach guidance."
           support="Agent X redlines weak drafts into recruiter-ready communication that earns responses."
-        />
+        >
+          <article class="email-assistant__panel" [attr.aria-labelledby]="panelTitleId()">
+            <header class="email-assistant__panel-header">
+              <p class="email-assistant__eyebrow">Recruiting Email Assistant</p>
+              <h3 class="email-assistant__panel-title" [id]="panelTitleId()">
+                Real-time Redline View
+              </h3>
+            </header>
 
-        <article class="email-assistant__panel" [attr.aria-labelledby]="panelTitleId()">
-          <header class="email-assistant__panel-header">
-            <p class="email-assistant__eyebrow">Recruiting Email Assistant</p>
-            <h3 class="email-assistant__panel-title" [id]="panelTitleId()">
-              Real-time Redline View
-            </h3>
-          </header>
+            <div
+              class="email-assistant__chat"
+              role="list"
+              aria-label="Recruiting email correction example"
+            >
+              @for (entry of drafts(); track entry.id) {
+                <article
+                  class="email-entry"
+                  role="listitem"
+                  [class.email-entry--draft]="entry.tone === 'draft'"
+                  [class.email-entry--correction]="entry.tone === 'correction'"
+                >
+                  <p class="email-entry__label">{{ entry.authorLabel }}</p>
+                  <p class="email-entry__message">{{ entry.message }}</p>
+                </article>
+              }
+            </div>
 
-          <div
-            class="email-assistant__chat"
-            role="list"
-            aria-label="Recruiting email correction example"
-          >
-            @for (entry of drafts(); track entry.id) {
-              <article
-                class="email-entry"
-                role="listitem"
-                [class.email-entry--draft]="entry.tone === 'draft'"
-                [class.email-entry--correction]="entry.tone === 'correction'"
-              >
-                <p class="email-entry__label">{{ entry.authorLabel }}</p>
-                <p class="email-entry__message">{{ entry.message }}</p>
-              </article>
-            }
-          </div>
-
-          <aside class="email-assistant__reason" [attr.aria-labelledby]="reasonTitleId()">
-            <h4 class="email-assistant__reason-title" [id]="reasonTitleId()">Why this matters</h4>
-            <blockquote class="email-assistant__reason-copy">
-              Solves the #1 complaint from college coaches: poor athlete communication.
-            </blockquote>
-          </aside>
-        </article>
+            <aside class="email-assistant__reason" [attr.aria-labelledby]="reasonTitleId()">
+              <h4 class="email-assistant__reason-title" [id]="reasonTitleId()">Why this matters</h4>
+              <blockquote class="email-assistant__reason-copy">
+                Solves the #1 complaint from college coaches: poor athlete communication.
+              </blockquote>
+            </aside>
+          </article>
+        </nxt1-section-header>
       </div>
     </section>
   `,

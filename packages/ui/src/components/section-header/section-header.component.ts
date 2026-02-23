@@ -164,6 +164,7 @@ export type SectionHeaderContentPosition = 'start' | 'end';
         display: inline-flex;
         align-items: center;
         gap: var(--nxt1-spacing-1_5);
+        width: fit-content;
         margin: 0;
         color: var(--nxt1-color-primary);
         font-family: var(--nxt1-fontFamily-brand);
@@ -213,6 +214,10 @@ export type SectionHeaderContentPosition = 'start' | 'end';
       @media (max-width: 991px) {
         .section-header__title {
           font-size: var(--nxt1-fontSize-2xl);
+        }
+
+        .section-header__eyebrow {
+          margin-inline: auto;
         }
 
         .section-header__subtitle {

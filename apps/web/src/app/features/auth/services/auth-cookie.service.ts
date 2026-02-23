@@ -22,7 +22,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { NxtPlatformService } from '@nxt1/ui';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 
 /** Cookie name for the Firebase auth token */
 export const AUTH_TOKEN_COOKIE = '__session';

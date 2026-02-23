@@ -64,7 +64,7 @@
               {
                 "input": "src/styles-deferred.css",
                 "bundleName": "styles-deferred",
-                "inject": true
+                "inject": false
               }
             ],
             "scripts": [],

@@ -46,16 +46,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
 import { ExploreSkeletonComponent } from './explore-skeleton.component';
 import { ExploreItemComponent } from './explore-item.component';
 
-addIcons({
-  schoolOutline,
-  playCircleOutline,
-  personOutline,
-  peopleOutline,
-  alertCircleOutline,
-  searchOutline,
-  refreshOutline,
-});
-
 @Component({
   selector: 'nxt1-explore-list',
   standalone: true,
@@ -279,6 +269,18 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExploreListComponent {
+  constructor() {
+    addIcons({
+      schoolOutline,
+      playCircleOutline,
+      personOutline,
+      peopleOutline,
+      alertCircleOutline,
+      searchOutline,
+      refreshOutline,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   // Inputs

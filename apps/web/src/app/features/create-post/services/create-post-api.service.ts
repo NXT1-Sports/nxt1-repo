@@ -8,7 +8,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { CreatePostApiService as BaseCreatePostApiService } from '@nxt1/ui';
+import { CreatePostApiService as BaseCreatePostApiService } from '@nxt1/ui/create-post';
 import { PerformanceService } from '../../../core/services/performance.service';
 import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
 import type {

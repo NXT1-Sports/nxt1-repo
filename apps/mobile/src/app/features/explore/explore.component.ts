@@ -95,7 +95,7 @@ export class ExploreComponent {
     if (!user) return null;
 
     return {
-      photoURL: user.photoURL,
+      profileImg: user.profileImg,
       displayName: user.displayName,
     };
   });

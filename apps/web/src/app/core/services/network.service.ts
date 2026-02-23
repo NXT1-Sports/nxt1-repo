@@ -36,7 +36,7 @@
 import { Injectable, PLATFORM_ID, inject, signal, computed, OnDestroy } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Subject } from 'rxjs';
-import { NxtLoggingService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services';
 import type { NetworkStatus, NetworkChangeEvent, ConnectionType } from '@nxt1/core';
 
 @Injectable({

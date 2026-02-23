@@ -6,11 +6,9 @@
  * Initializes Crashlytics early to catch startup crashes.
  */
 
-import { bootstrapApplication } from '@angular/platform-browser';
+import { bootstrapApplication, ɵBrowserDomAdapter } from '@angular/platform-browser';
 import { enableProdMode } from '@angular/core';
 import { Capacitor } from '@capacitor/core';
-import { addIcons } from 'ionicons';
-import * as allIcons from 'ionicons/icons';
 
 import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
@@ -19,8 +17,13 @@ import { environment } from './environments/environment';
 // Import Crashlytics for early initialization
 import { CrashlyticsService } from './app/core/services/crashlytics.service';
 
-// Register all Ionicons globally once
-addIcons(allIcons);
+// Icons: Each @nxt1/ui component registers its own icons via addIcons() in its constructor.
+// No global registration needed — this avoids bundling all 1,357 ionicon SVG paths (~800 KB).
+
+// Eagerly initialize the DOM adapter before bootstrap. Angular 21's Vite dev
+// server can isolate @angular/common chunks so the internal _DOM adapter stays
+// null, crashing PathLocationStrategy. makeCurrent() is idempotent (uses ??=).
+ɵBrowserDomAdapter.makeCurrent();
 
 // Fix document base URL for Capacitor
 if (Capacitor.isNativePlatform()) {

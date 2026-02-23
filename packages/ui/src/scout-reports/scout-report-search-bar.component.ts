@@ -34,8 +34,6 @@ import { addIcons } from 'ionicons';
 import { searchOutline, closeCircle } from 'ionicons/icons';
 
 // Register icons
-addIcons({ searchOutline, closeCircle });
-
 @Component({
   selector: 'nxt1-scout-report-search-bar',
   standalone: true,
@@ -193,6 +191,7 @@ export class ScoutReportSearchBarComponent {
   // ============================================
 
   constructor() {
+    addIcons({ searchOutline, closeCircle });
     // Sync external value to internal
     effect(() => {
       this.internalValue.set(this.value());

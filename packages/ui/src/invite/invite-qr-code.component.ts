@@ -16,14 +16,6 @@ import { download, downloadOutline, share, shareOutline, checkmark } from 'ionic
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 
-addIcons({
-  download,
-  downloadOutline,
-  share,
-  shareOutline,
-  checkmark,
-});
-
 @Component({
   selector: 'nxt1-invite-qr-code',
   standalone: true,
@@ -244,6 +236,16 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InviteQrCodeComponent {
+  constructor() {
+    addIcons({
+      download,
+      downloadOutline,
+      share,
+      shareOutline,
+      checkmark,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
 

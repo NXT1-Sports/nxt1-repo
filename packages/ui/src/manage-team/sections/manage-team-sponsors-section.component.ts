@@ -28,20 +28,6 @@ import {
 import type { TeamSponsor, SponsorTier, SponsorActionEvent } from '@nxt1/core';
 import { SPONSOR_TIER_CONFIG } from '@nxt1/core';
 
-addIcons({
-  ribbonOutline,
-  addOutline,
-  diamondOutline,
-  trophyOutline,
-  medalOutline,
-  heartOutline,
-  globeOutline,
-  mailOutline,
-  callOutline,
-  ellipsisVertical,
-  imageOutline,
-});
-
 @Component({
   selector: 'nxt1-manage-team-sponsors-section',
   standalone: true,
@@ -580,6 +566,22 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ManageTeamSponsorsSectionComponent {
+  constructor() {
+    addIcons({
+      ribbonOutline,
+      addOutline,
+      diamondOutline,
+      trophyOutline,
+      medalOutline,
+      heartOutline,
+      globeOutline,
+      mailOutline,
+      callOutline,
+      ellipsisVertical,
+      imageOutline,
+    });
+  }
+
   /** Sponsors list */
   readonly sponsors = input<readonly TeamSponsor[]>([]);
 

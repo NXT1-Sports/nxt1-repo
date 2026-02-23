@@ -63,7 +63,7 @@ import { AnalyticsDashboardSkeletonComponent } from './analytics-dashboard-skele
  * User info for header display.
  */
 export interface AnalyticsUser {
-  readonly photoURL?: string | null;
+  readonly profileImg?: string | null;
   readonly displayName?: string | null;
 }
 
@@ -87,7 +87,7 @@ export interface AnalyticsUser {
     @if (!hideHeader()) {
       <nxt1-page-header
         title="Analytics"
-        [avatarSrc]="user()?.photoURL"
+        [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         [showBack]="showBack()"
         [actions]="headerActions()"

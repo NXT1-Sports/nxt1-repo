@@ -207,6 +207,14 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
+    path: 'team-platform',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'team-platform/**',
+    renderMode: RenderMode.Server,
+  },
+  {
     path: 'super-profiles',
     renderMode: RenderMode.Server,
   },
@@ -238,6 +246,22 @@ export const serverRoutes: ServerRoute[] = [
   },
   {
     path: 'recruiting-athletes/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'content-creation-athletes',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'content-creation-athletes/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'media-coverage',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'media-coverage/**',
     renderMode: RenderMode.Server,
   },
   {

@@ -35,6 +35,11 @@ export { NxtAnalyticsDashboardPreviewComponent } from './analytics-dashboard-pre
 // ============================================
 
 export { AnalyticsDashboardShellWebComponent } from './web';
+export { AiInterpretationSectionComponent } from './web';
+export { RecruitingCrmWatchPanelComponent } from './web';
+export { ReportCardSectionComponent } from './web';
+export { TimeMachineSectionComponent } from './web';
+export { WeeklyPulseSectionComponent } from './web';
 
 // ============================================
 // SERVICES

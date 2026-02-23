@@ -7,14 +7,18 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
-import { NxtRecruitingAthletesLandingComponent } from '@nxt1/ui';
+import { NxtRecruitingAthletesLandingComponent } from '@nxt1/ui/personas';
 import { SeoService } from '../../core/services/seo.service';
 
 @Component({
   selector: 'app-recruiting-athletes',
   standalone: true,
   imports: [NxtRecruitingAthletesLandingComponent],
-  template: `<nxt1-recruiting-athletes-landing />`,
+  template: `
+    <main id="main-content" role="main">
+      <nxt1-recruiting-athletes-landing />
+    </main>
+  `,
   styles: [
     `
       :host {
@@ -29,18 +33,19 @@ export class RecruitingAthletesComponent implements OnInit {
 
   ngOnInit(): void {
     this.seo.updatePage({
-      title: "Recruiting — See Who's Watching Your Profile | NXT1",
+      title: 'The Entire NCAA In Your Pocket — Direct Access to 85,000+ Coaches | NXT1',
       description:
-        'NXT1 Recruiting Radar shows you exactly which college coaches are viewing your profile, watching your highlights, and downloading your transcript. The read receipt for your career.',
+        'Open doors to every college program in the country. NXT1 gives athletes direct access to 85,000+ college coaches with one click — plus Recruiting Radar shows you exactly who is watching your profile.',
       keywords: [
-        'recruiting radar',
         'college recruiting',
+        'ncaa coaches',
+        'recruiting radar',
+        'college coach contact',
         'recruiting signals',
-        'coach profile views',
-        'recruiting analytics',
-        'athlete recruiting',
-        'college coach interest',
+        'athlete recruiting platform',
+        'college coach directory',
         'recruiting visibility',
+        'open doors recruiting',
       ],
       canonicalUrl: 'https://nxt1sports.com/recruiting-athletes',
       image: 'https://nxt1sports.com/assets/images/og-image.jpg',

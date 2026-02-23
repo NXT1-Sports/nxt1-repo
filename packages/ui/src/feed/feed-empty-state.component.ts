@@ -33,16 +33,6 @@ import {
 import { type FeedFilterType, FEED_EMPTY_STATES, FEED_FILTER_OPTIONS } from '@nxt1/core';
 
 // Register icons
-addIcons({
-  sparklesOutline,
-  peopleOutline,
-  footballOutline,
-  schoolOutline,
-  playCircleOutline,
-  trendingUpOutline,
-  addCircleOutline,
-});
-
 @Component({
   selector: 'nxt1-feed-empty-state',
   standalone: true,
@@ -153,6 +143,18 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeedEmptyStateComponent {
+  constructor() {
+    addIcons({
+      sparklesOutline,
+      peopleOutline,
+      footballOutline,
+      schoolOutline,
+      playCircleOutline,
+      trendingUpOutline,
+      addCircleOutline,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

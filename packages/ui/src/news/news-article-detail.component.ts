@@ -62,17 +62,6 @@ import { NewsReadingProgressComponent } from './news-reading-progress.component'
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  arrowBack,
-  bookmarkOutline,
-  bookmark,
-  shareOutline,
-  timeOutline,
-  eyeOutline,
-  sparklesOutline,
-  checkmarkCircle,
-});
-
 @Component({
   selector: 'nxt1-news-article-detail',
   standalone: true,
@@ -622,6 +611,19 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewsArticleDetailComponent implements AfterViewInit, OnDestroy {
+  constructor() {
+    addIcons({
+      arrowBack,
+      bookmarkOutline,
+      bookmark,
+      shareOutline,
+      timeOutline,
+      eyeOutline,
+      sparklesOutline,
+      checkmarkCircle,
+    });
+  }
+
   private readonly platformId = inject(PLATFORM_ID);
   private readonly haptics = inject(HapticsService);
 

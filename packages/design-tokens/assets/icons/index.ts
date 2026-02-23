@@ -171,6 +171,14 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Arrow up icon (stroke) - for positive delta indicators */
+  arrowUp: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M12 19V5' }, { d: 'M5 12l7-7 7 7' }],
+  },
+
   /** Arrow right icon */
   arrowRight: {
     viewBox: '0 0 24 24',
@@ -279,6 +287,14 @@ export const UI_ICONS = {
       { d: 'M18 8h2a2 2 0 0 1 0 4h-2' },
       { d: 'M12 14v4m0 0H9l-1 4h8l-1-4h-3z' },
     ],
+  },
+
+  /** Podium icon (stroke) - for rankings/leaderboards */
+  podium: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M8 21V11H2v10h6z' }, { d: 'M15 21V7H9v14h6z' }, { d: 'M22 21V3h-6v18h6z' }],
   },
 
   /** Graduation cap icon - for recruiting/colleges */
@@ -743,6 +759,32 @@ export const UI_ICONS = {
       { d: 'M12 8v8' },
       { d: 'M9 10l3-2 3 2' },
       { d: 'M9 14l3 2 3-2' },
+    ],
+  },
+
+  /** Barbell icon (outline) - for strength/training themes */
+  barbell: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M4 12h16' },
+      { d: 'M6 9v6' },
+      { d: 'M3 8v8' },
+      { d: 'M18 9v6' },
+      { d: 'M21 8v8' },
+    ],
+  },
+
+  /** Hardware chip icon (outline) - for AI/computation themes */
+  hardwareChip: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M9 3v2M15 3v2M9 19v2M15 19v2M3 9h2M3 15h2M19 9h2M19 15h2' },
+      { d: 'M7 7h10v10H7z' },
+      { d: 'M10 10h4v4h-4z' },
     ],
   },
 
@@ -1328,6 +1370,25 @@ export const UI_ICONS = {
     ],
   },
 
+  /** QR Code icon - for sharing, scanning */
+  qrCode: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M3 3h7v7H3V3z' },
+      { d: 'M14 3h7v7h-7V3z' },
+      { d: 'M3 14h7v7H3v-7z' },
+      { d: 'M14 14h3v3h-3v-3z' },
+      { d: 'M20 14v3h-3' },
+      { d: 'M14 20h3v1' },
+      { d: 'M20 20h1v1' },
+      { d: 'M6 6h1v1H6V6z' },
+      { d: 'M6 17h1v1H6v-1z' },
+      { d: 'M17 6h1v1h-1V6z' },
+    ],
+  },
+
   /** Credit card icon - for payments, billing */
   card: {
     viewBox: '0 0 24 24',
@@ -1800,6 +1861,7 @@ export const ALIAS_ICONS = {
 
   // ---- Navigation / Arrows ----
   'arrow-back-outline': UI_ICONS.chevronLeft,
+  'arrow-up-outline': UI_ICONS.arrowUp,
   'trending-up': UI_ICONS.trendingUp,
   'trending-down': UI_ICONS.trendingDown,
   'trending-up-outline': UI_ICONS.trendingUp,
@@ -1841,11 +1903,14 @@ export const ALIAS_ICONS = {
 
   // ---- Awards ----
   'trophy-outline': UI_ICONS.trophy,
+  'podium-outline': UI_ICONS.podium,
   'ribbon-outline': UI_ICONS.ribbon,
 
   // ---- Sports / Themes ----
   'sparkles-outline': UI_ICONS.sparkles,
   'football-outline': UI_ICONS.football,
+  'barbell-outline': UI_ICONS.barbell,
+  'hardware-chip-outline': UI_ICONS.hardwareChip,
 
   // ---- Security / Privacy ----
   'shield-outline': UI_ICONS.shield,

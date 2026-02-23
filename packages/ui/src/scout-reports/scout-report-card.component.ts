@@ -67,22 +67,6 @@ import { NxtImageComponent } from '../components/image';
 import { NxtChipComponent } from '../components/chip';
 
 // Register icons
-addIcons({
-  star,
-  starOutline,
-  starHalf,
-  bookmark,
-  bookmarkOutline,
-  checkmarkCircle,
-  diamond,
-  diamondOutline,
-  eye,
-  flash,
-  locationOutline,
-  schoolOutline,
-  trendingUp,
-});
-
 @Component({
   selector: 'nxt1-scout-report-card',
   standalone: true,
@@ -677,6 +661,24 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ScoutReportCardComponent {
+  constructor() {
+    addIcons({
+      star,
+      starOutline,
+      starHalf,
+      bookmark,
+      bookmarkOutline,
+      checkmarkCircle,
+      diamond,
+      diamondOutline,
+      eye,
+      flash,
+      locationOutline,
+      schoolOutline,
+      trendingUp,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   // ============================================

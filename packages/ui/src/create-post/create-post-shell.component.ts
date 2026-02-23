@@ -60,11 +60,6 @@ import { CreatePostProgressComponent, type UploadingFile } from './create-post-p
 import { CreatePostSkeletonComponent } from './create-post-skeleton.component';
 
 // Register icons
-addIcons({
-  'close-outline': closeOutline,
-  sparkles,
-});
-
 @Component({
   selector: 'nxt1-create-post-shell',
   standalone: true,
@@ -425,6 +420,13 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CreatePostShellComponent {
+  constructor() {
+    addIcons({
+      'close-outline': closeOutline,
+      sparkles,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   /** Current user */

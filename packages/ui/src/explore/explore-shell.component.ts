@@ -63,11 +63,9 @@ import { FeedService } from '../feed/feed.service';
 import { ExploreFilterModalService } from './explore-filter-modal.service';
 
 // Register icons for search suggestions
-addIcons({ timeOutline, trendingUpOutline, chevronForwardOutline });
-
 /** User info for header display */
 export interface ExploreUser {
-  readonly photoURL?: string | null;
+  readonly profileImg?: string | null;
   readonly displayName?: string | null;
 }
 
@@ -94,7 +92,7 @@ export interface ExploreUser {
     <!-- Professional Page Header with shared Top Nav search styling -->
     @if (!hideHeader()) {
       <nxt1-page-header
-        [avatarSrc]="user()?.photoURL"
+        [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         [hideAvatar]="explore.isSearchFocused()"
         (avatarClick)="onAvatarClick()"
@@ -388,6 +386,10 @@ export interface ExploreUser {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExploreShellComponent implements OnInit {
+  constructor() {
+    addIcons({ timeOutline, trendingUpOutline, chevronForwardOutline });
+  }
+
   protected readonly explore = inject(ExploreService);
   protected readonly feedService = inject(FeedService);
   private readonly filterModal = inject(ExploreFilterModalService);

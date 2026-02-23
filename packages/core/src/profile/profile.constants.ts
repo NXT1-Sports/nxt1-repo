@@ -29,34 +29,49 @@ import type {
  */
 export const PROFILE_TABS: readonly ProfileTab[] = [
   {
+    id: 'overview',
+    label: 'Overview',
+    icon: 'grid',
+  },
+  {
     id: 'timeline',
     label: 'Timeline',
-    icon: 'newspaper-outline',
+    icon: 'newspaper',
   },
   {
     id: 'videos',
     label: 'Videos',
-    icon: 'videocam-outline',
+    icon: 'videocam',
+  },
+  {
+    id: 'news',
+    label: 'News',
+    icon: 'newspaper-outline',
   },
   {
     id: 'offers',
-    label: 'Offers',
-    icon: 'trophy-outline',
+    label: 'Recruit',
+    icon: 'trophy',
   },
   {
     id: 'stats',
     label: 'Stats',
-    icon: 'stats-chart-outline',
+    icon: 'stats-chart',
+  },
+  {
+    id: 'schedule',
+    label: 'Schedule',
+    icon: 'calendar-clear',
   },
   {
     id: 'events',
     label: 'Events',
-    icon: 'calendar-outline',
+    icon: 'calendar',
   },
   {
     id: 'contact',
     label: 'Contact',
-    icon: 'mail-outline',
+    icon: 'mail',
   },
 ] as const;
 
@@ -64,7 +79,7 @@ export const PROFILE_TABS: readonly ProfileTab[] = [
  * Default selected tab.
  * 'timeline' provides the best overview experience on first load.
  */
-export const PROFILE_DEFAULT_TAB: ProfileTabId = 'timeline';
+export const PROFILE_DEFAULT_TAB: ProfileTabId = 'overview';
 
 // ============================================
 // POST TYPE CONFIGURATION
@@ -74,13 +89,13 @@ export const PROFILE_DEFAULT_TAB: ProfileTabId = 'timeline';
  * Icon mapping for post types.
  */
 export const PROFILE_POST_TYPE_ICONS: Record<ProfilePostType, string> = {
-  video: 'videocam-outline',
-  image: 'image-outline',
-  text: 'document-text-outline',
-  highlight: 'star-outline',
-  news: 'newspaper-outline',
-  stat: 'stats-chart-outline',
-  offer: 'trophy-outline',
+  video: 'videocam',
+  image: 'image',
+  text: 'document-text',
+  highlight: 'star',
+  news: 'newspaper',
+  stat: 'stats-chart',
+  offer: 'trophy',
 } as const;
 
 /**
@@ -104,11 +119,11 @@ export const PROFILE_POST_TYPE_LABELS: Record<ProfilePostType, string> = {
  * Icon mapping for offer types.
  */
 export const OFFER_TYPE_ICONS: Record<OfferType, string> = {
-  scholarship: 'school-outline',
-  preferred_walk_on: 'walk-outline',
-  camp_invite: 'flag-outline',
-  visit: 'location-outline',
-  interest: 'heart-outline',
+  scholarship: 'school',
+  preferred_walk_on: 'walk',
+  camp_invite: 'flag',
+  visit: 'location',
+  interest: 'heart',
 } as const;
 
 /**
@@ -141,13 +156,13 @@ export const OFFER_TYPE_COLORS: Record<OfferType, string> = {
  * Icon mapping for event types.
  */
 export const EVENT_TYPE_ICONS: Record<EventType, string> = {
-  game: 'american-football-outline',
-  camp: 'flag-outline',
-  combine: 'barbell-outline',
-  showcase: 'star-outline',
-  visit: 'school-outline',
-  practice: 'fitness-outline',
-  other: 'calendar-outline',
+  game: 'american-football',
+  camp: 'flag',
+  combine: 'barbell',
+  showcase: 'star',
+  visit: 'school',
+  practice: 'fitness',
+  other: 'calendar',
 } as const;
 
 /**
@@ -174,42 +189,42 @@ export const PROFILE_QUICK_STATS_CONFIG = {
   profileViews: {
     key: 'profileViews',
     label: 'Profile Views',
-    icon: 'eye-outline',
+    icon: 'eye',
   },
   videoViews: {
     key: 'videoViews',
     label: 'Video Views',
-    icon: 'play-circle-outline',
+    icon: 'play-circle',
   },
   totalPosts: {
     key: 'totalPosts',
     label: 'Posts',
-    icon: 'newspaper-outline',
+    icon: 'newspaper',
   },
   highlightCount: {
     key: 'highlightCount',
     label: 'Highlights',
-    icon: 'videocam-outline',
+    icon: 'videocam',
   },
   offerCount: {
     key: 'offerCount',
     label: 'Offers',
-    icon: 'trophy-outline',
+    icon: 'trophy',
   },
   eventCount: {
     key: 'eventCount',
     label: 'Events',
-    icon: 'calendar-outline',
+    icon: 'calendar',
   },
   collegeInterestCount: {
     key: 'collegeInterestCount',
     label: 'College Interest',
-    icon: 'school-outline',
+    icon: 'school',
   },
   shareCount: {
     key: 'shareCount',
     label: 'Shares',
-    icon: 'share-social-outline',
+    icon: 'share-social',
   },
 } as const;
 
@@ -224,18 +239,18 @@ export const PROFILE_OWN_HEADER_ACTIONS: readonly ProfileHeaderAction[] = [
   {
     id: 'create-post',
     label: 'Create Post',
-    icon: 'add-circle-outline',
+    icon: 'add-circle',
     primary: true,
   },
   {
     id: 'qr-code',
     label: 'QR Code',
-    icon: 'qr-code-outline',
+    icon: 'qr-code',
   },
   {
     id: 'share',
     label: 'Share Profile',
-    icon: 'share-social-outline',
+    icon: 'share-social',
   },
 ] as const;
 
@@ -246,17 +261,17 @@ export const PROFILE_OTHER_HEADER_ACTIONS: readonly ProfileHeaderAction[] = [
   {
     id: 'ai-summary',
     label: 'AI Summary',
-    icon: 'sparkles-outline',
+    icon: 'sparkles',
   },
   {
     id: 'qr-code',
     label: 'QR Code',
-    icon: 'qr-code-outline',
+    icon: 'qr-code',
   },
   {
     id: 'share',
     label: 'Share Profile',
-    icon: 'share-social-outline',
+    icon: 'share-social',
   },
 ] as const;
 
@@ -276,40 +291,63 @@ export const PROFILE_EMPTY_STATES: Record<
     readonly ctaLabel?: string;
   }
 > = {
+  overview: {
+    title: 'Overview not available',
+    message: 'Player profile information will appear here once generated.',
+    icon: 'grid',
+  },
   timeline: {
     title: 'No posts yet',
     message: 'Start sharing your journey and connect with coaches and scouts.',
-    icon: 'newspaper-outline',
+    icon: 'newspaper',
     ctaLabel: 'Create First Post',
+  },
+  news: {
+    title: 'No news yet',
+    message: 'News updates, announcements, and media mentions will appear here.',
+    icon: 'newspaper-outline',
+    ctaLabel: 'Create News Post',
   },
   videos: {
     title: 'No videos yet',
     message: 'Upload highlights and game footage to showcase your skills.',
-    icon: 'videocam-outline',
+    icon: 'videocam',
     ctaLabel: 'Upload Video',
   },
   offers: {
-    title: 'No offers yet',
+    title: 'No recruit activity yet',
     message: 'Your recruiting journey is just getting started. Keep working!',
-    icon: 'trophy-outline',
-    ctaLabel: 'Add Offer',
+    icon: 'trophy',
+    ctaLabel: 'Add Recruit Update',
   },
   stats: {
     title: 'No stats recorded',
     message: 'Add your athletic and academic stats to complete your profile.',
-    icon: 'stats-chart-outline',
+    icon: 'stats-chart',
     ctaLabel: 'Add Stats',
+  },
+  academic: {
+    title: 'No academic info yet',
+    message: 'Add GPA, test scores, and school details to strengthen your profile.',
+    icon: 'school',
+    ctaLabel: 'Add Academic Info',
   },
   events: {
     title: 'No events scheduled',
     message: 'Add upcoming games, camps, and showcases to your calendar.',
-    icon: 'calendar-outline',
+    icon: 'calendar',
     ctaLabel: 'Add Event',
+  },
+  schedule: {
+    title: 'No schedule yet',
+    message: 'Add upcoming games, camps, and showcases to your schedule.',
+    icon: 'calendar-clear',
+    ctaLabel: 'Add Schedule Item',
   },
   contact: {
     title: 'Contact info not set',
     message: 'Add your contact information so coaches can reach you.',
-    icon: 'mail-outline',
+    icon: 'mail',
     ctaLabel: 'Add Contact Info',
   },
 } as const;

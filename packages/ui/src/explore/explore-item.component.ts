@@ -39,14 +39,6 @@ import { NxtAvatarComponent } from '../components/avatar';
 import { NxtIconComponent } from '../components/icon';
 import { HapticsService } from '../services/haptics/haptics.service';
 
-addIcons({
-  locationOutline,
-  checkmarkCircle,
-  eyeOutline,
-  heartOutline,
-  chevronForward,
-});
-
 @Component({
   selector: 'nxt1-explore-item',
   standalone: true,
@@ -317,6 +309,16 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExploreItemComponent {
+  constructor() {
+    addIcons({
+      locationOutline,
+      checkmarkCircle,
+      eyeOutline,
+      heartOutline,
+      chevronForward,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   readonly item = input.required<ExploreItem>();

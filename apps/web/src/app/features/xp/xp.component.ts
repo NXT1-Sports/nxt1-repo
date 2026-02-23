@@ -18,14 +18,10 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
-import {
-  XpShellWebComponent,
-  NxtXpLandingComponent,
-  XpSkeletonComponent,
-  NxtLoggingService,
-  NxtSidenavService,
-  NxtPlatformService,
-} from '@nxt1/ui';
+import { XpShellWebComponent, NxtXpLandingComponent } from '@nxt1/ui/xp';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import type { MissionUserRole } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
@@ -33,15 +29,10 @@ import { SeoService } from '../../core/services';
 @Component({
   selector: 'app-xp',
   standalone: true,
-  imports: [XpShellWebComponent, NxtXpLandingComponent, XpSkeletonComponent],
+  imports: [XpShellWebComponent, NxtXpLandingComponent],
   template: `
-    <!-- Loading: Auth state initializing -->
-    @if (isAuthLoading()) {
-      <nxt1-xp-skeleton />
-    }
-
     <!-- Authenticated: Show actual XP dashboard -->
-    @else if (isAuthenticated()) {
+    @if (isAuthenticated()) {
       <nxt1-xp-shell-web
         [userRole]="userRole()"
         [avatarSrc]="avatarSrc()"
@@ -76,9 +67,6 @@ export class XpComponent implements OnInit {
 
   /** Auth state signals */
   protected readonly isAuthenticated = this.authService.isAuthenticated;
-  protected readonly isAuthLoading = computed(
-    () => !this.authService.isInitialized() || this.authService.isLoading()
-  );
 
   /** Desktop detection for hiding redundant page header (sidebar provides nav) */
   protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
@@ -86,23 +74,41 @@ export class XpComponent implements OnInit {
   ngOnInit(): void {
     if (this.isAuthenticated()) {
       this.seo.updatePage({
-        title: 'XP & Missions',
-        description: 'Complete missions, earn XP, and level up your recruiting journey.',
-        keywords: ['xp', 'missions', 'achievements', 'badges', 'gamification'],
+        title: 'XP',
+        description:
+          'Complete missions, earn XP, unlock real recruiting rewards, and track live Arena leaderboards.',
+        keywords: [
+          'xp',
+          'missions',
+          'achievements',
+          'badges',
+          'gamification',
+          'xp economy',
+          'arena leaderboard',
+          'head to head rankings',
+          'recruiting rewards',
+        ],
         noIndex: true,
       });
     } else {
       this.seo.updatePage({
-        title: 'XP & Missions — Level Up Your Recruiting Game | NXT1',
+        title: 'XP — Level Up Your Recruiting Game | NXT1',
         description:
-          'Complete guided missions, earn XP, collect badges, and advance through 5 levels. A gamified recruiting journey for athletes and coaches on NXT1.',
+          'Grind now, cash in later. Complete guided missions, earn XP, climb The Arena head-to-head leaderboards, and unlock real recruiting rewards including profile upgrades, Agent X graphics, and featured athlete spotlight opportunities.',
         keywords: [
           'sports gamification',
           'recruiting missions',
           'athlete xp',
+          'head to head leaderboard',
+          'sports rankings',
+          'state rankings',
           'achievement badges',
           'daily streaks',
           'NXT1 xp',
+          'xp economy rewards',
+          'featured athlete spotlight',
+          'agent x graphic',
+          'scout report reward',
         ],
       });
     }
@@ -122,7 +128,7 @@ export class XpComponent implements OnInit {
   protected readonly avatarSrc = computed(() => {
     const user = this.authService.user();
     if (!user) return undefined;
-    return user.photoURL ?? undefined;
+    return user.profileImg ?? undefined;
   });
 
   /** Avatar display name for page header */

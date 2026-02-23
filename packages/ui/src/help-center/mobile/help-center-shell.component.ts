@@ -46,25 +46,6 @@ import { HapticsService } from '../../services/haptics/haptics.service';
 import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
 
 // Register icons
-addIcons({
-  chevronForward,
-  searchOutline,
-  helpCircleOutline,
-  bookOutline,
-  videocamOutline,
-  personOutline,
-  schoolOutline,
-  settingsOutline,
-  shieldOutline,
-  buildOutline,
-  peopleOutline,
-  cardOutline,
-  homeOutline,
-  lockClosedOutline,
-  chatbubbleOutline,
-  documentTextOutline,
-});
-
 /** Navigation events */
 export interface HelpNavigateEvent {
   readonly type: 'article' | 'category' | 'faq' | 'contact';
@@ -359,6 +340,27 @@ export interface HelpNavigateEvent {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HelpCenterShellMobileComponent {
+  constructor() {
+    addIcons({
+      chevronForward,
+      searchOutline,
+      helpCircleOutline,
+      bookOutline,
+      videocamOutline,
+      personOutline,
+      schoolOutline,
+      settingsOutline,
+      shieldOutline,
+      buildOutline,
+      peopleOutline,
+      cardOutline,
+      homeOutline,
+      lockClosedOutline,
+      chatbubbleOutline,
+      documentTextOutline,
+    });
+  }
+
   protected readonly helpService = inject(HelpCenterService);
   private readonly haptics = inject(HapticsService);
 

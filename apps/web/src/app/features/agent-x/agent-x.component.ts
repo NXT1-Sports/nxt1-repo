@@ -19,16 +19,13 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
-import {
-  AgentXShellWebComponent,
-  NxtAgentXLandingComponent,
-  NxtAgentXExecutionLayerSectionComponent,
-  NxtAgentXWelcomeHeaderComponent,
-  NxtSidenavService,
-  NxtLoggingService,
-  NxtPlatformService,
-  type AgentXUser,
-} from '@nxt1/ui';
+import { AgentXShellWebComponent } from '@nxt1/ui/agent-x/web';
+import { NxtAgentXLandingComponent, type AgentXUser } from '@nxt1/ui/agent-x';
+import { NxtAgentXExecutionLayerSectionComponent } from '@nxt1/ui/components/agent-x-execution-layer-section';
+import { NxtAgentXWelcomeHeaderComponent } from '@nxt1/ui/components/agent-x-welcome-header';
+import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import type { AgentXMode } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { SeoService } from '../../core/services';
@@ -120,7 +117,7 @@ export class AgentXComponent implements OnInit {
     if (!user) return null;
 
     return {
-      photoURL: user.photoURL,
+      profileImg: user.profileImg,
       displayName: user.displayName,
       role: user.role,
     };

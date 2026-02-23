@@ -34,7 +34,7 @@ import {
 } from './auth.interface';
 import { SSR_AUTH_TOKEN, SSR_FIREBASE_CONFIG } from './ssr-tokens';
 import type { UserRole } from '@nxt1/core';
-import { NxtLoggingService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
 
 // Re-export tokens for convenience (but import from ssr-tokens.ts for server.ts)
@@ -265,7 +265,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
         uid,
         email: data['email'] ?? '',
         displayName: data['displayName'] ?? data['firstName'] ?? 'User',
-        photoURL: data['photoURL'] ?? data['profilePhoto'] ?? undefined,
+        profileImg: data['profileImg'] ?? data['photoURL'] ?? data['profilePhoto'] ?? undefined,
         role: (data['role'] as UserRole) ?? 'athlete',
         isPremium: data['isPremium'] ?? data['premium'] ?? false,
         hasCompletedOnboarding:
@@ -288,7 +288,7 @@ export class ServerAuthService implements IAuthService, OnDestroy {
       uid: firebaseUser.uid,
       email: firebaseUser.email ?? '',
       displayName: firebaseUser.displayName ?? 'User',
-      photoURL: firebaseUser.photoURL ?? undefined,
+      profileImg: firebaseUser.photoURL ?? undefined,
       role: 'athlete' as UserRole,
       isPremium: false,
       hasCompletedOnboarding: false,

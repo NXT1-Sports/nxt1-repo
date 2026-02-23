@@ -65,14 +65,6 @@ import {
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  gridOutline,
-  listOutline,
-  reorderFourOutline,
-  filterOutline,
-  optionsOutline,
-});
-
 @Component({
   selector: 'nxt1-scout-reports-content',
   standalone: true,
@@ -416,6 +408,13 @@ export class ScoutReportsContentComponent implements OnInit {
   // ============================================
 
   constructor() {
+    addIcons({
+      gridOutline,
+      listOutline,
+      reorderFourOutline,
+      filterOutline,
+      optionsOutline,
+    });
     // Persist view mode preference
     if (isPlatformBrowser(this.platformId)) {
       const saved = localStorage.getItem('scout-reports-view-mode');

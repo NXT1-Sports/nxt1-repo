@@ -38,12 +38,6 @@ import { NewsArticleDetailComponent } from './news-article-detail.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  searchOutline,
-  notificationsOutline,
-  trophyOutline,
-});
-
 @Component({
   selector: 'nxt1-news-shell',
   standalone: true,
@@ -234,6 +228,14 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewsShellComponent implements OnInit {
+  constructor() {
+    addIcons({
+      searchOutline,
+      notificationsOutline,
+      trophyOutline,
+    });
+  }
+
   readonly newsService = inject(NewsService);
   private readonly haptics = inject(HapticsService);
 

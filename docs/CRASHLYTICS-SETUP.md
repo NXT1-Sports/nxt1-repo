@@ -122,7 +122,7 @@ import {
   GlobalErrorHandler,
   GLOBAL_ERROR_LOGGER,
   GLOBAL_CRASHLYTICS,
-} from '@nxt1/ui';
+} from '@nxt1/ui/infrastructure';
 import { CrashlyticsService } from './services/crashlytics.service';
 
 providers: [

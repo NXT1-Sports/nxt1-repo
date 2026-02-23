@@ -18,6 +18,7 @@ import type {
   ProfileEvent,
   AthleticStatsCategory,
   ProfilePageData,
+  PlayerCardData,
 } from '@nxt1/core';
 
 const now = Date.now();
@@ -34,6 +35,11 @@ export const MOCK_PROFILE_USER: ProfileUser = {
   displayName: 'Marcus Johnson',
   profileImg: 'https://i.pravatar.cc/300?img=68',
   bannerImg: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1200&h=400&fit=crop',
+  gallery: [
+    'https://images.unsplash.com/photo-1551958219-acbc608c6377?w=600&h=800&fit=crop',
+    'https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=600&h=800&fit=crop',
+    'https://images.unsplash.com/photo-1508098682722-e99c643e0edc?w=600&h=800&fit=crop',
+  ],
   role: 'athlete',
   isRecruit: true,
   verificationStatus: 'verified',
@@ -52,9 +58,39 @@ export const MOCK_PROFILE_USER: ProfileUser = {
     teamCode: 'RHS-2024',
     location: 'Austin, TX',
   },
+  teamAffiliations: [
+    {
+      name: 'Riverside High School Varsity',
+      type: 'high-school',
+      logoUrl: 'https://i.pravatar.cc/100?img=45',
+      teamCode: 'RHS-VARSITY',
+      location: 'Austin, TX',
+    },
+    {
+      name: 'Texas Elite 7v7',
+      type: 'club',
+      logoUrl: 'https://i.pravatar.cc/100?img=41',
+      teamCode: 'TE7V7',
+      location: 'Austin, TX',
+    },
+    {
+      name: 'ATX QB Academy',
+      type: 'academy',
+      logoUrl: 'https://i.pravatar.cc/100?img=32',
+      teamCode: 'ATX-QB',
+      location: 'Austin, TX',
+    },
+    {
+      name: 'Texas Elite 7v7',
+      type: 'club',
+      location: 'Austin, TX',
+    },
+  ],
   classYear: '2026',
   height: '6\'2"',
   weight: '195',
+  measurablesVerifiedBy: 'Rivals',
+  measurablesVerifiedUrl: 'https://www.rivals.com',
   gpa: '3.8',
   sat: '1280',
   act: '28',
@@ -64,6 +100,10 @@ export const MOCK_PROFILE_USER: ProfileUser = {
     instagram: 'marcus.johnson12',
     hudl: 'marcus-johnson',
     youtube: '@marcusjohnson',
+    maxpreps: 'marcus-johnson-qb',
+    on3: 'marcus-johnson',
+    rivals: 'marcus-johnson-12',
+    espn: 'high-school/athlete/_/id/2026/marcus-johnson',
   },
   contact: {
     email: 'marcus.johnson@email.com',
@@ -128,8 +168,11 @@ export const MOCK_ATHLETIC_STATS: AthleticStatsCategory[] = [
     name: 'Combine Results',
     stats: [
       { label: '40-Yard Dash', value: '4.58', unit: 's', verified: true },
+      { label: '10-Yard Split', value: '1.63', unit: 's', verified: true },
       { label: 'Vertical Jump', value: '34.5', unit: '"', verified: true },
       { label: 'Broad Jump', value: '9\'8"', verified: true },
+      { label: '20-Yard Shuttle', value: '4.21', unit: 's', verified: true },
+      { label: '3-Cone Drill', value: '6.98', unit: 's', verified: true },
       { label: 'Pro Agility', value: '4.21', unit: 's', verified: true },
       { label: 'Bench Press', value: '225x12', verified: false },
     ],
@@ -337,7 +380,7 @@ export const MOCK_OFFERS: ProfileOffer[] = [
     conference: 'Big 12',
     sport: 'Football',
     coachName: 'Coach Anderson',
-    offeredAt: new Date(now - 75 * 24 * 60 * 60 * 1000).toISOString(),
+    offeredAt: new Date(now - 20 * 24 * 60 * 60 * 1000).toISOString(),
     isCommitted: false,
   },
   {
@@ -363,18 +406,6 @@ export const MOCK_OFFERS: ProfileOffer[] = [
     sport: 'Football',
     coachName: 'Coach Wilson',
     offeredAt: new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString(),
-    isCommitted: false,
-  },
-  {
-    id: 'offer-008',
-    type: 'scholarship',
-    collegeName: 'SMU',
-    collegeLogoUrl: 'https://i.pravatar.cc/100?img=77',
-    division: 'FBS',
-    conference: 'ACC',
-    sport: 'Football',
-    coachName: 'Coach Roberts',
-    offeredAt: new Date(now - 5 * 24 * 60 * 60 * 1000).toISOString(),
     isCommitted: false,
   },
 ];
@@ -447,6 +478,36 @@ export const MOCK_EVENTS: ProfileEvent[] = [
 ];
 
 // ============================================
+// MOCK PLAYER CARD DATA (Agent X / Madden-style)
+// ============================================
+
+export const MOCK_PLAYER_CARD: PlayerCardData = {
+  prospectGrade: {
+    overall: 80,
+    tier: 'blue-chip',
+    starRating: 4,
+    confidence: 87,
+    generatedAt: new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+  archetypes: [
+    { name: 'Arm Strength', rating: 82, icon: 'flash' },
+    { name: 'Accuracy', rating: 79, icon: 'locate' },
+    { name: 'Athleticism', rating: 76, icon: 'fitness' },
+    { name: 'Football IQ', rating: 84, icon: 'bulb' },
+  ],
+  trait: {
+    name: 'Field General',
+    category: 'hidden',
+    description: 'Continue developing to unlock full potential as a leader on the field',
+    icon: 'diamond',
+    progressCurrent: 192,
+    progressTotal: 500,
+  },
+  agentXSummary:
+    'Elite pocket passer with advanced pre-snap reads and above-average arm talent. Projects as a Power 5 starter with continued development.',
+};
+
+// ============================================
 // COMBINED MOCK PAGE DATA
 // ============================================
 
@@ -461,6 +522,7 @@ export const MOCK_PROFILE_PAGE_DATA: ProfilePageData = {
   events: MOCK_EVENTS,
   isOwnProfile: false,
   canEdit: false,
+  playerCard: MOCK_PLAYER_CARD,
 };
 
 /**

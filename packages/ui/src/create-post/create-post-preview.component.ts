@@ -51,20 +51,6 @@ import type { PostMedia, PostPrivacy, PostLocation, TaggableUser } from '@nxt1/c
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  'chevron-down-outline': chevronDownOutline,
-  'chevron-up-outline': chevronUpOutline,
-  'earth-outline': earthOutline,
-  'people-outline': peopleOutline,
-  'lock-closed-outline': lockClosedOutline,
-  'location-outline': locationOutline,
-  'heart-outline': heartOutline,
-  'chatbubble-outline': chatbubbleOutline,
-  'share-outline': shareOutline,
-  'bookmark-outline': bookmarkOutline,
-  'play-circle-outline': playCircleOutline,
-});
-
 @Component({
   selector: 'nxt1-create-post-preview',
   standalone: true,
@@ -565,6 +551,22 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CreatePostPreviewComponent {
+  constructor() {
+    addIcons({
+      'chevron-down-outline': chevronDownOutline,
+      'chevron-up-outline': chevronUpOutline,
+      'earth-outline': earthOutline,
+      'people-outline': peopleOutline,
+      'lock-closed-outline': lockClosedOutline,
+      'location-outline': locationOutline,
+      'heart-outline': heartOutline,
+      'chatbubble-outline': chatbubbleOutline,
+      'share-outline': shareOutline,
+      'bookmark-outline': bookmarkOutline,
+      'play-circle-outline': playCircleOutline,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   /** Current user */

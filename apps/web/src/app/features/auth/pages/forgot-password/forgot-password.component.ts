@@ -13,8 +13,9 @@
 
 import { Component, ChangeDetectionStrategy, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { AuthShellComponent, AuthEmailFormComponent, type AuthEmailFormData } from '@nxt1/ui';
-import { NxtIconComponent } from '@nxt1/ui';
+import { AuthShellComponent } from '@nxt1/ui/auth/auth-shell';
+import { AuthEmailFormComponent, type AuthEmailFormData } from '@nxt1/ui/auth/auth-email-form';
+import { NxtIconComponent } from '@nxt1/ui/components/icon';
 import { AuthNavigationService } from '@nxt1/ui/services';
 import { AuthFlowService } from '../../services';
 import { SeoService } from '../../../../core/services';

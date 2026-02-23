@@ -34,11 +34,12 @@
 
 import { Component, ChangeDetectionStrategy, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NxtCtaButtonComponent } from '../cta-button';
+import { NxtCtaButtonComponent, type CtaButtonVariant } from '../cta-button';
+import { NxtAppStoreBadgesComponent } from '../app-store-badges';
 import { NxtSectionHeaderComponent } from '../section-header';
 
 /** Layout variant for the hero section. */
-export type HeroLayout = 'split' | 'centered';
+export type HeroLayout = 'split' | 'split-reverse' | 'centered';
 
 /** Semantic heading level (1–6). Defaults to 1 for top-level hero. */
 export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
@@ -46,11 +47,17 @@ export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 @Component({
   selector: 'nxt1-hero-section',
   standalone: true,
-  imports: [CommonModule, NxtSectionHeaderComponent, NxtCtaButtonComponent],
+  imports: [
+    CommonModule,
+    NxtSectionHeaderComponent,
+    NxtCtaButtonComponent,
+    NxtAppStoreBadgesComponent,
+  ],
   template: `
     <section
       class="hero"
       [class.hero--centered]="layout() === 'centered'"
+      [class.hero--reversed]="layout() === 'split-reverse'"
       [attr.aria-labelledby]="ariaId()"
     >
       <!-- Text Content Column -->
@@ -70,18 +77,24 @@ export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
         <!-- CTA Buttons -->
         @if (primaryCtaLabel()) {
           <div class="hero-actions">
-            <nxt1-cta-button
-              [label]="primaryCtaLabel()!"
-              [route]="primaryCtaRoute()"
-              variant="primary"
-            />
-            @if (secondaryCtaLabel()) {
+            <!-- Desktop: Web CTA buttons -->
+            <div class="hero-actions__desktop">
               <nxt1-cta-button
-                [label]="secondaryCtaLabel()!"
-                [route]="secondaryCtaRoute()"
-                variant="secondary"
+                [label]="primaryCtaLabel()!"
+                [route]="primaryCtaRoute()"
+                variant="primary"
               />
-            }
+              @if (secondaryCtaLabel()) {
+                <nxt1-cta-button
+                  [label]="secondaryCtaLabel()!"
+                  [route]="secondaryCtaRoute()"
+                  [variant]="secondaryCtaVariant()"
+                />
+              }
+            </div>
+
+            <!-- Mobile: App store download badges -->
+            <nxt1-app-store-badges class="hero-actions__mobile" />
           </div>
         }
       </div>
@@ -121,6 +134,15 @@ export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
           padding: var(--nxt1-section-padding-y) var(--nxt1-section-padding-x);
           gap: var(--nxt1-spacing-12);
         }
+
+        .hero--reversed .hero-content {
+          order: 2;
+        }
+
+        .hero--reversed .hero-media {
+          order: 1;
+          justify-content: flex-start;
+        }
       }
 
       /* Centered variant — single column, text centered */
@@ -148,6 +170,29 @@ export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
         justify-content: center;
       }
 
+      .hero-content {
+        display: grid;
+        gap: var(--nxt1-spacing-4, 16px);
+      }
+
+      .hero-content nxt1-section-header {
+        max-width: var(--nxt1-spacing-120, 480px);
+      }
+
+      @media (max-width: 767px) {
+        .hero-content {
+          text-align: center;
+        }
+
+        .hero-content nxt1-section-header {
+          margin-inline: auto;
+        }
+
+        .hero-content .hero-actions {
+          justify-content: center;
+        }
+      }
+
       /* ============================================
      * BADGE — Pill label above the title
      * ============================================ */
@@ -158,6 +203,31 @@ export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
         display: flex;
         gap: var(--nxt1-spacing-3);
         flex-wrap: wrap;
+      }
+
+      .hero-actions__desktop {
+        display: flex;
+        gap: var(--nxt1-spacing-3);
+        flex-wrap: wrap;
+      }
+
+      /* Mobile-first: show app badges, hide web CTAs */
+      .hero-actions__desktop {
+        display: none;
+      }
+
+      .hero-actions__mobile {
+        display: inline-flex;
+      }
+
+      @media (min-width: 1024px) {
+        .hero-actions__desktop {
+          display: flex;
+        }
+
+        .hero-actions__mobile {
+          display: none;
+        }
       }
 
       /* ============================================
@@ -184,7 +254,7 @@ export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtHeroSectionComponent {
-  /** Layout variant: 'split' (text left, media right) or 'centered' (single column). */
+  /** Layout variant: 'split' (text left, media right), 'split-reverse' (text right, media left), or 'centered' (single column). */
   readonly layout = input<HeroLayout>('split');
 
   /** Badge icon name (Ionicon). Omit to hide the icon. */
@@ -216,6 +286,9 @@ export class NxtHeroSectionComponent {
 
   /** Secondary CTA route (defaults to login). */
   readonly secondaryCtaRoute = input<string>('/auth');
+
+  /** Secondary CTA visual variant. */
+  readonly secondaryCtaVariant = input<CtaButtonVariant>('secondary');
 
   /** Semantic heading level (1-6). Use 2+ when another h1 exists on the page. */
   readonly headingLevel = input<HeadingLevel>(1);

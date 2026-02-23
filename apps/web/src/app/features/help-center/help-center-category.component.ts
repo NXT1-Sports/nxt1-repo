@@ -9,7 +9,7 @@
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
 import type { HelpCategoryId } from '@nxt1/core';
-import { HelpCategoryDetailWebComponent } from '@nxt1/ui';
+import { HelpCategoryDetailWebComponent } from '@nxt1/ui/help-center';
 
 @Component({
   selector: 'app-help-center-category',

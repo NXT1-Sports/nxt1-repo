@@ -49,15 +49,14 @@ import { provideIonicAngular } from '@ionic/angular/standalone';
 
 import { routes } from './app.routes';
 
-// Shared Angular infrastructure from @nxt1/ui
+// Shared Angular infrastructure from @nxt1/ui (granular imports for tree-shaking)
 import {
   GlobalErrorHandler,
   GLOBAL_ERROR_LOGGER,
   GLOBAL_CRASHLYTICS,
   httpErrorInterceptor,
-  ANALYTICS_ADAPTER,
-} from '@nxt1/ui';
-import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
+} from '@nxt1/ui/infrastructure';
+import { ANALYTICS_ADAPTER, NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui/services';
 
 // Core infrastructure (app-specific)
 import { httpCacheInterceptor, authInterceptor } from './core/infrastructure';
@@ -66,6 +65,9 @@ import { httpPerformanceInterceptor } from './core/infrastructure/performance-in
 // Crashlytics service (web uses GA4 fallback)
 import { CrashlyticsService } from './core/services/crashlytics.service';
 import { AnalyticsService } from './core/services/analytics.service';
+
+// Badge bridge: connects ActivityService (from @nxt1/ui) → BadgeCountService
+import { provideBadgeBridge } from './core/services';
 
 // Firebase
 // IMPORTANT: Only import what's actually used in browser bundle
@@ -218,6 +220,14 @@ export const appConfig: ApplicationConfig = {
     // Provide BrowserAuthService for AUTH_SERVICE token
     // Server uses ServerAuthService instead (see app.config.server.ts)
     { provide: AUTH_SERVICE, useClass: BrowserAuthService },
+
+    // ============================================
+    // BADGE COUNT BRIDGE
+    // ============================================
+
+    // Bridges ActivityService.totalUnread → BadgeCountService.activityBadge
+    // So the shell reads from BadgeCountService without importing ActivityService
+    provideBadgeBridge(),
 
     // ============================================
     // LOGGING & ERROR HANDLING

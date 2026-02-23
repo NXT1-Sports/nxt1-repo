@@ -86,7 +86,7 @@ const PREVIEW_BADGES = [
             <span class="dot dot--minimize"></span>
             <span class="dot dot--expand"></span>
           </div>
-          <span class="preview-title">XP &amp; Missions</span>
+          <span class="preview-title">XP</span>
         </div>
 
         <!-- Dashboard Body -->

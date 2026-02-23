@@ -25,10 +25,10 @@ import {
   ManageTeamService,
   ManageTeamSkeletonComponent,
   NxtManageTeamLandingComponent,
-  NxtLoggingService,
-  NxtToastService,
-} from '@nxt1/ui';
-import type { ManageTeamCloseEvent } from '@nxt1/ui';
+} from '@nxt1/ui/manage-team';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtToastService } from '@nxt1/ui/services/toast';
+import type { ManageTeamCloseEvent } from '@nxt1/ui/manage-team';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 

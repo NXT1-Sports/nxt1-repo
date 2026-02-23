@@ -41,20 +41,6 @@ export interface StatsActionEvent {
   readonly action: 'edit' | 'sync' | 'connect' | 'manage';
 }
 
-addIcons({
-  statsChartOutline,
-  addOutline,
-  trophyOutline,
-  footballOutline,
-  handLeftOutline,
-  flashOutline,
-  personOutline,
-  syncOutline,
-  createOutline,
-  chevronForwardOutline,
-  informationCircleOutline,
-});
-
 @Component({
   selector: 'nxt1-manage-team-stats-section',
   standalone: true,
@@ -779,6 +765,22 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ManageTeamStatsSectionComponent {
+  constructor() {
+    addIcons({
+      statsChartOutline,
+      addOutline,
+      trophyOutline,
+      footballOutline,
+      handLeftOutline,
+      flashOutline,
+      personOutline,
+      syncOutline,
+      createOutline,
+      chevronForwardOutline,
+      informationCircleOutline,
+    });
+  }
+
   /** Team stats */
   readonly stats = input<TeamStatsDisplay | null>(null);
 

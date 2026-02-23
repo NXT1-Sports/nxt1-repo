@@ -42,16 +42,6 @@ import {
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  'close-outline': closeOutline,
-  'checkmark-circle': checkmarkCircle,
-  'alert-circle': alertCircle,
-  'cloud-upload-outline': cloudUploadOutline,
-  'document-outline': documentOutline,
-  'image-outline': imageOutline,
-  'videocam-outline': videocamOutline,
-});
-
 export interface UploadingFile {
   id: string;
   name: string;
@@ -437,6 +427,18 @@ export interface UploadingFile {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CreatePostProgressComponent {
+  constructor() {
+    addIcons({
+      'close-outline': closeOutline,
+      'checkmark-circle': checkmarkCircle,
+      'alert-circle': alertCircle,
+      'cloud-upload-outline': cloudUploadOutline,
+      'document-outline': documentOutline,
+      'image-outline': imageOutline,
+      'videocam-outline': videocamOutline,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   /** Whether currently uploading */

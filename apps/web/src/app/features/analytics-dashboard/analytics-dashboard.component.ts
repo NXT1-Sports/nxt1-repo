@@ -20,11 +20,11 @@ import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@a
 import { Router } from '@angular/router';
 import {
   AnalyticsDashboardShellWebComponent,
-  NxtSidenavService,
-  NxtLoggingService,
-  NxtPlatformService,
   type AnalyticsUser,
-} from '@nxt1/ui';
+} from '@nxt1/ui/analytics-dashboard';
+import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import type {
   AnalyticsTabId,
   AnalyticsPeriod,
@@ -81,7 +81,7 @@ export class AnalyticsDashboardComponent implements OnInit {
     if (!user) return null;
 
     return {
-      photoURL: user.photoURL,
+      profileImg: user.profileImg,
       displayName: user.displayName,
     };
   });

@@ -45,15 +45,14 @@ import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { Router, RouterModule, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import { type ActivityItem, type ActivityTabId, ACTIVITY_TABS } from '@nxt1/core';
+import { ActivityService, ActivityListComponent } from '@nxt1/ui/activity';
 import {
-  ActivityService,
-  ActivityListComponent,
   NxtOptionScrollerComponent,
   type OptionScrollerItem,
   type OptionScrollerChangeEvent,
-  NxtIconComponent,
-  NxtLoggingService,
-} from '@nxt1/ui';
+} from '@nxt1/ui/components/option-scroller';
+import { NxtIconComponent } from '@nxt1/ui/components/icon';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 
 @Component({
   selector: 'app-notification-popover',

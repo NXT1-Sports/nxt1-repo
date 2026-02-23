@@ -247,7 +247,7 @@ export interface SettingsUserInfo {
   readonly id: string;
   readonly email: string;
   readonly displayName: string | null;
-  readonly photoURL: string | null;
+  readonly profileImg: string | null;
   readonly role: string;
   readonly emailVerified: boolean;
   readonly createdAt: string;

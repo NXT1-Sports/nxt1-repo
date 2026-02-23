@@ -6,7 +6,7 @@
  * 100% portable - no framework dependencies.
  *
  * Design Principles:
- * - Grouped by concern (identity, profile, sports, media, subscription)
+ * - Grouped by concern (identity, profile, sports, media, payment)
  * - Sports as array - supports unlimited sports, no duplication
  * - Role discriminator for type-safe role handling
  * - Single source for social/contact
@@ -30,7 +30,6 @@ import {
   type VisitType,
   type AccountType,
   type DismissablePrompt,
-  type ReferralStatus,
 } from '../constants/user.constants';
 
 // ============================================
@@ -41,204 +40,55 @@ import {
 export const USER_SCHEMA_VERSION = 2;
 
 // ============================================
-// LEGACY TYPES - For backward compatibility only
-// These will be removed in a future version
+// LEGACY TYPES - Moved to ./legacy/user-legacy.model.ts
+// Imported here for use in deprecated User interface fields.
+// Do NOT use these types in new code.
 // ============================================
+import type {
+  PlayerTag,
+  primarySportStat,
+  GameStat,
+  College,
+  CollegeVisits,
+  CollegeCamp,
+  recentGame,
+  Event,
+  Award,
+  personalBest,
+  Session,
+  TeamCustomLink,
+  OwnTemplate,
+  OwnMixtape,
+  OwnProfile,
+  UserPost,
+  GameClipsCollection,
+} from './legacy/user-legacy.model';
+export type {
+  StatData,
+  SportInfo,
+  PlayerTag,
+  primarySportStat,
+  GameStat,
+  LegacyCollege,
+  College,
+  CollegeVisits,
+  CollegeCamp,
+  recentGame,
+  Event,
+  Award,
+  personalBest,
+  Session,
+  TeamCustomLink,
+  OwnTemplate,
+  OwnMixtape,
+  OwnProfile,
+  UserPost,
+  GameClipsCollection,
+} from './legacy/user-legacy.model';
 
-/** @deprecated Use Record<string, string | number | boolean> instead */
-export interface StatData {
-  [key: string]: string | number | boolean;
-}
-
-/** @deprecated Use Record<string, string | number | boolean | null> instead */
-export interface SportInfo {
-  [key: string]: string | number | boolean | null;
-}
-
-/** Player tag for recruiting */
-export interface PlayerTag {
-  id: string;
-  name: string;
-  category?: string;
-  value?: string | number;
-}
-
-/** @deprecated Use SeasonStats from SportProfile instead */
-export interface primarySportStat {
-  year?: string;
-  data: StatData;
-  title?: string | null;
-  statType?: 'High School' | 'Club' | 'Middle School';
-  competitionLevel?: 'Freshman' | 'JV' | 'Varsity';
-  isRanked?: boolean;
-}
-
-/** @deprecated Use GameStats from SportProfile instead */
-export interface GameStat {
-  game: string;
-  data: StatData;
-  date?: string | Date;
-  year?: string;
-  statType?: 'High School' | 'Club' | 'Middle School';
-  competitionLevel?: 'Freshman' | 'JV' | 'Varsity';
-  isRanked?: boolean;
-}
-
-/** @deprecated Use CollegeOffer or CollegeInteraction instead */
-export interface LegacyCollege {
-  _id?: string | null;
-  'IPEDS/NCES_ID'?: string | null;
-  city?: string | null;
-  logoUrl?: string | null;
-  name?: string | null;
-  state?: string | null;
-  visitDate?: string | null;
-  sportInfo?: SportInfo;
-}
-
-/** @deprecated */
-export type College = LegacyCollege;
-/** @deprecated */
-export type CollegeVisits = LegacyCollege & {
-  visitType?: string | null;
-  visitDate?: string | null;
-};
-/** @deprecated */
-export type CollegeCamp = LegacyCollege & { visitDate?: string | null };
-
-/** @deprecated Use recentGames in SportProfile instead */
-export interface recentGame {
-  name?: string | null;
-  date?: string | null;
-  location?: string | null;
-  time?: string | null;
-  matchLocation?: string | null;
-  gameLink?: string | null;
-  matchType?: string | null;
-  score1?: number | null;
-  score2?: number | null;
-  result?: string | null;
-  opponentLogo?: string | null;
-  year?: string | null;
-}
-
-/** Event */
-export interface Event {
-  date?: string | Date;
-  eventLink?: string | null;
-  eventType?: string | null;
-  name?: string | null;
-}
-
-/** @deprecated Use awards[] in SportProfile instead */
-export interface Award {
-  award: string;
-}
-
-/** @deprecated Use personalBests[] in SportProfile instead */
-export interface personalBest {
-  personalBest?: string | null;
-}
-
-/** Session */
-export interface Session {
-  startTime?: Date | null;
-  endTime?: Date | null;
-}
-
-/** Team custom link */
-export interface TeamCustomLink {
-  title: string;
-  url: string;
-}
-
-/** Own template */
-export interface OwnTemplate {
-  id: string | null;
-  name: string | null;
-  url: string | null;
-  pngUrl?: string | null;
-  type?: string | null;
-  downloadURL?: string | null;
-  previewImage?: string | null;
-  order?: number | null;
-  pinnedToProfile?: boolean | null;
-  pinnedToTeamPage?: boolean | null;
-  selectionOrder?: number;
-  shareCount?: number | null;
-  createdBy?: 'user' | 'system' | null;
-  ownerName?: string | null;
-  ownerId?: string | null;
-  ownerProfileImg?: string | null;
-}
-
-/** Own mixtape */
-export interface OwnMixtape {
-  id: string | null;
-  name: string | null;
-  url?: string | null;
-  type?: string | null;
-  downloadURL?: string | null;
-  previewImage?: string | null;
-  order?: number | null;
-  pinnedToProfile?: boolean | null;
-  pinnedToTeamPage?: boolean | null;
-  selectionOrder?: number;
-  shareCount?: number | null;
-  createdBy?: 'user' | 'system' | null;
-  ownerName?: string | null;
-  ownerId?: string | null;
-  ownerProfileImg?: string | null;
-}
-
-/** Own profile */
-export interface OwnProfile {
-  id: string | null;
-  name: string | null;
-  url?: string | null;
-  profileUrl?: string | null;
-  pngUrl?: string | null;
-  thumbnailUrl?: string | null;
-  type?: string | null;
-  downloadURL?: string | null;
-  previewImage?: string | null;
-  secondarySportPreviewImage?: string | null;
-  order?: number | null;
-  isLive?: boolean;
-  shareCount?: number | null;
-}
-
-/** User post */
-export interface UserPost {
-  id: string;
-  userId?: string;
-  title: string;
-  description?: string;
-  type: string;
-  mediaUrl?: string;
-  thumbnailUrl?: string;
-  createdAt: Date | string;
-  updatedAt?: Date | string;
-  views: number;
-  videoViews?: number;
-  shares: number;
-  reposts?: number;
-  reactions?: number;
-}
-
-/** Game clips collection - reference to prospect model */
-export interface GameClipsCollection {
-  id: string;
-  [key: string]: string | number | boolean | null | undefined;
-}
-
-/** Team code - reference */
-export interface TeamCode {
-  id: string;
-  code: string;
-  teamName: string;
-  [key: string]: string | number | boolean | null | undefined;
-}
+// TeamCode — imported from team-code model for use in the User interface
+import type { TeamCode } from './team-code.model';
+export type { TeamCode } from './team-code.model';
 
 // ============================================
 // LOCATION
@@ -733,18 +583,6 @@ export interface FanData {
   favoriteColleges?: string[];
   /** Sports they're interested in */
   favoriteSports?: string[];
-}
-
-// ============================================
-// REFERRAL
-// ============================================
-
-/** Referral record */
-export interface Referral {
-  userId: string;
-  referredAt: Date | string;
-  status: ReferralStatus;
-  rewardClaimed?: boolean;
 }
 
 // ============================================
@@ -1282,183 +1120,10 @@ export interface User {
 }
 
 // ============================================
-// TYPE GUARDS
-// ============================================
-
-/** Check if user is an athlete */
-export function isAthlete(user: User): user is User & { athlete: AthleteData } {
-  return user.role === USER_ROLES.ATHLETE && !!user.athlete;
-}
-
-/** Check if user is a coach */
-export function isCoach(user: User): user is User & { coach: CoachData } {
-  return user.role === USER_ROLES.COACH && !!user.coach;
-}
-
-/** Check if user is a college coach */
-export function isCollegeCoach(user: User): user is User & { collegeCoach: CollegeCoachData } {
-  return user.role === USER_ROLES.COLLEGE_COACH && !!user.collegeCoach;
-}
-
-/** Check if user has completed onboarding */
-export function isOnboarded(user: User): boolean {
-  // Legacy support: check both old and new flags
-  return !!(user.onboardingCompleted || user.completeSignUp);
-}
-
-/** Check if user can add another sport (computed, not stored) */
-export function canAddSport(user: User, maxSports: number = 5): boolean {
-  const currentCount = user.sports?.length ?? 0;
-  return currentCount < maxSports;
-}
-
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-/** Get primary sport (first in array or legacy primarySport) */
-export function getPrimarySport(user: User): SportProfile | undefined {
-  // Prefer new sports array
-  if (user.sports && user.sports.length > 0) {
-    return user.sports.find((s) => s.order === 0) || user.sports[0];
-  }
-  return undefined;
-}
-
-/** Get active sport based on activeSportIndex */
-export function getActiveSport(user: User): SportProfile | undefined {
-  if (!user.sports || user.sports.length === 0) return undefined;
-  const index = user.activeSportIndex ?? 0;
-  return user.sports[index] ?? user.sports[0];
-}
-
-/** Get sport by name */
-export function getSportByName(user: User, sportName: string): SportProfile | undefined {
-  return user.sports?.find((s) => s.sport.toLowerCase() === sportName.toLowerCase());
-}
-
-/** Check if user plays a specific sport */
-export function playsSport(user: User, sportName: string): boolean {
-  // Check new architecture first
-  if (user.sports?.some((s) => s.sport.toLowerCase() === sportName.toLowerCase())) {
-    return true;
-  }
-  // Fallback to legacy fields
-  return (
-    user.primarySport?.toLowerCase() === sportName.toLowerCase() ||
-    user.secondarySport?.toLowerCase() === sportName.toLowerCase()
-  );
-}
-
-/** Get total number of college offers across all sports */
-export function getTotalOffers(user: User): number {
-  if (!user.sports) return 0;
-  return user.sports.reduce((total, sport) => total + (sport.recruiting?.offers?.length || 0), 0);
-}
-
-/** Get all awards across all sports */
-export function getAllAwards(user: User): string[] {
-  if (!user.sports) return user.awards?.map((a) => a.award) || [];
-  const sportAwards = user.sports.flatMap((s) => s.awards || []);
-  const legacyAwards = user.awards?.map((a) => a.award) || [];
-  return [...new Set([...sportAwards, ...legacyAwards])];
-}
-
-/** Check if user is multi-sport athlete */
-export function isMultiSport(user: User): boolean {
-  if (user.sports && user.sports.length > 1) return true;
-  return !!(user.primarySport && user.secondarySport);
-}
-
-/** Check if user is committed for any sport */
-export function isCommitted(user: User): boolean {
-  // Check new architecture
-  if (user.sports?.some((s) => s.recruiting?.commitment)) return true;
-  // Fallback to legacy
-  return user.isCommitted;
-}
-
-/** Add a new sport to user (returns new user object) */
-export function addSport(user: User, sportProfile: SportProfile): User {
-  const existingSports = user.sports || [];
-
-  // Check if sport already exists
-  if (existingSports.some((s) => s.sport === sportProfile.sport)) {
-    return user;
-  }
-
-  // Set order to next available
-  const maxOrder = existingSports.reduce((max, s) => Math.max(max, s.order), -1);
-  const newProfile = { ...sportProfile, order: maxOrder + 1 };
-
-  return {
-    ...user,
-    sports: [...existingSports, newProfile],
-  };
-}
-
-/** Update a specific sport profile (returns new user object) */
-export function updateSport(user: User, sportName: string, updates: Partial<SportProfile>): User {
-  if (!user.sports) return user;
-
-  const updatedSports = user.sports.map((s) =>
-    s.sport === sportName ? { ...s, ...updates, updatedAt: new Date().toISOString() } : s
-  );
-
-  return { ...user, sports: updatedSports };
-}
-
-/** Remove a sport from user (returns new user object) */
-export function removeSport(user: User, sportName: string): User {
-  if (!user.sports) return user;
-
-  const filtered = user.sports.filter((s) => s.sport !== sportName);
-
-  // Reorder remaining sports
-  const reordered = filtered.map((s, index) => ({ ...s, order: index }));
-
-  return {
-    ...user,
-    sports: reordered,
-    activeSportIndex: 0,
-  };
-}
-
-/** Set primary sport (move to order 0) */
-export function setPrimarySport(user: User, sportName: string): User {
-  if (!user.sports) return user;
-
-  const targetSport = user.sports.find((s) => s.sport === sportName);
-  if (!targetSport) return user;
-
-  const others = user.sports.filter((s) => s.sport !== sportName);
-  const reordered = [
-    { ...targetSport, order: 0 },
-    ...others.map((s, i) => ({ ...s, order: i + 1 })),
-  ];
-
-  return { ...user, sports: reordered, activeSportIndex: 0 };
-}
-
-/** Set active sport by index */
-export function setActiveSport(user: User, index: number): User {
-  if (!user.sports || index < 0 || index >= user.sports.length) {
-    return user;
-  }
-  return { ...user, activeSportIndex: index };
-}
-
-// ============================================
 // UTILITY TYPES
 // ============================================
 
-/** Partial user for updates */
-export type UserUpdate = Partial<Omit<User, 'id' | 'email' | '_schemaVersion' | 'createdAt'>>;
-
-/** User creation payload */
-export type UserCreate = Omit<User, 'id' | '_schemaVersion' | 'createdAt' | 'updatedAt'>;
-
-/** Minimal user for lists/cards */
+/** Minimal user representation for lists/cards */
 export interface UserSummary {
   id: string;
   firstName: string;
@@ -1471,69 +1136,93 @@ export interface UserSummary {
   classOf?: number;
 }
 
-/** Extract summary from full user */
-export function toUserSummary(user: User): UserSummary {
-  const primarySport = getPrimarySport(user);
-  return {
-    id: user.id,
-    firstName: user.firstName,
-    lastName: user.lastName,
-    profileImg: user.profileImg,
-    role: (user.role || 'athlete') as UserRole,
-    location: {
-      city: user.location?.city || user.city || '',
-      state: user.location?.state || user.state || '',
-    },
-    primarySport: primarySport?.sport,
-    primaryPosition: primarySport?.positions?.[0],
-    classOf: user.athlete?.classOf,
-  };
+// ============================================
+// TYPE GUARDS
+// ============================================
+
+/** Check if user is an athlete with athlete data populated */
+export function isAthlete(user: User): boolean {
+  return user.role === USER_ROLES.ATHLETE && !!user.athlete;
+}
+
+/** Check if user is a coach with coach data populated */
+export function isCoach(user: User): boolean {
+  return user.role === USER_ROLES.COACH && !!user.coach;
+}
+
+/** Check if user is a college coach with college coach data populated */
+export function isCollegeCoach(user: User): boolean {
+  return user.role === USER_ROLES.COLLEGE_COACH && !!user.collegeCoach;
+}
+
+/** Check if user has completed onboarding (supports legacy flag) */
+export function isOnboarded(user: User): boolean {
+  return user.onboardingCompleted === true || user.completeSignUp === true;
 }
 
 // ============================================
-// DEFAULT VALUE FACTORIES
+// HELPER FUNCTIONS
 // ============================================
 
-/** Create default user preferences */
-export function createDefaultPreferences(): UserPreferences {
-  return {
-    notifications: {
-      push: true,
-      email: true,
-      sms: false,
-      marketing: false,
-    },
-    activityTracking: true,
-    dismissedPrompts: [],
-    defaultSportIndex: 0,
-    theme: 'system',
-  };
+/** Get primary sport (first in array or legacy primarySport) */
+export function getPrimarySport(user: User): SportProfile | undefined {
+  if (user.sports && user.sports.length > 0) {
+    return user.sports.find((s) => s.order === 0) || user.sports[0];
+  }
+  return undefined;
 }
 
-/** Create default counters */
-export function createDefaultCounters(): UserCounters {
-  return {
-    profileViews: 0,
-    videoViews: 0,
-    followersCount: 0,
-    followingCount: 0,
-    postsCount: 0,
-    sharesCount: 0,
-  };
+/** Get the currently active sport (by activeSportIndex or fallback to first) */
+export function getActiveSport(user: User): SportProfile | undefined {
+  if (!user.sports || user.sports.length === 0) return undefined;
+  const index = user.activeSportIndex ?? 0;
+  return user.sports[index] ?? user.sports[0];
 }
 
-/** Create empty sport profile */
-export function createEmptySportProfile(sport: string, order: number = 0): SportProfile {
-  return {
-    sport,
-    order,
-    positions: [],
-    metrics: {},
-    seasonStats: [],
-    team: {
-      name: '',
-      type: 'high-school',
-    },
-    accountType: 'athlete',
-  };
+/** Find a sport by name (case-insensitive) */
+export function getSportByName(user: User, sportName: string): SportProfile | undefined {
+  return user.sports?.find((s) => s.sport.toLowerCase() === sportName.toLowerCase());
+}
+
+/** Check if user plays a specific sport (supports legacy fields) */
+export function playsSport(user: User, sportName: string): boolean {
+  const lower = sportName.toLowerCase();
+  if (user.sports?.some((s) => s.sport.toLowerCase() === lower)) return true;
+  if (user.primarySport?.toLowerCase() === lower) return true;
+  if (user.secondarySport?.toLowerCase() === lower) return true;
+  return false;
+}
+
+/** Get total offers across all sports */
+export function getTotalOffers(user: User): number {
+  if (!user.sports) return 0;
+  return user.sports.reduce((total, sport) => total + (sport.recruiting?.offers?.length ?? 0), 0);
+}
+
+/** Collect all awards across all sports (deduplicated, includes legacy) */
+export function getAllAwards(user: User): string[] {
+  const awards = new Set<string>();
+  user.sports?.forEach((sport) => {
+    sport.awards?.forEach((a) => awards.add(a));
+  });
+  // Legacy awards
+  if (Array.isArray(user.awards)) {
+    user.awards.forEach((a: { award?: string }) => {
+      if (a.award) awards.add(a.award);
+    });
+  }
+  return [...awards];
+}
+
+/** Check if user has multiple sports (supports legacy fields) */
+export function isMultiSport(user: User): boolean {
+  if (user.sports && user.sports.length > 1) return true;
+  if (user.primarySport && user.secondarySport) return true;
+  return false;
+}
+
+/** Check if user is committed to a college in any sport (supports legacy flag) */
+export function isCommitted(user: User): boolean {
+  if (user.isCommitted) return true;
+  return user.sports?.some((s) => !!s.recruiting?.commitment?.collegeId) ?? false;
 }

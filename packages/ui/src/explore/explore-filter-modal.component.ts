@@ -47,8 +47,6 @@ import {
   EXPLORE_TAB_FILTER_FIELDS,
 } from '@nxt1/core';
 
-addIcons({ closeOutline, refreshOutline, checkmarkOutline });
-
 @Component({
   selector: 'nxt1-explore-filter-modal',
   standalone: true,
@@ -336,6 +334,10 @@ addIcons({ closeOutline, refreshOutline, checkmarkOutline });
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExploreFilterModalComponent implements OnInit {
+  constructor() {
+    addIcons({ closeOutline, refreshOutline, checkmarkOutline });
+  }
+
   private readonly modalCtrl = inject(ModalController);
 
   activeTab: ExploreTabId = 'feed';

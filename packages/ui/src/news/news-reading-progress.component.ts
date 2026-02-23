@@ -25,8 +25,6 @@ import { addIcons } from 'ionicons';
 import { sparklesOutline, checkmarkCircle } from 'ionicons/icons';
 
 // Register icons
-addIcons({ sparklesOutline, checkmarkCircle });
-
 @Component({
   selector: 'nxt1-news-reading-progress',
   standalone: true,
@@ -226,6 +224,10 @@ addIcons({ sparklesOutline, checkmarkCircle });
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewsReadingProgressComponent {
+  constructor() {
+    addIcons({ sparklesOutline, checkmarkCircle });
+  }
+
   /** Current reading progress (0-100) */
   readonly progress = input<number>(0);
 

@@ -11,18 +11,6 @@
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  schoolOutline,
-  walkOutline,
-  flagOutline,
-  locationOutline,
-  heartOutline,
-  checkmarkCircleOutline,
-  addCircleOutline,
-  trophyOutline,
-} from 'ionicons/icons';
 import type { ProfileOffer, OfferType } from '@nxt1/core';
 import {
   OFFER_TYPE_ICONS,
@@ -30,23 +18,13 @@ import {
   OFFER_TYPE_COLORS as _OFFER_TYPE_COLORS,
 } from '@nxt1/core';
 import { ProfileSkeletonComponent } from './profile-skeleton.component';
+import { NxtIconComponent } from '../components/icon';
 
 // Register icons
-addIcons({
-  schoolOutline,
-  walkOutline,
-  flagOutline,
-  locationOutline,
-  heartOutline,
-  checkmarkCircleOutline,
-  addCircleOutline,
-  trophyOutline,
-});
-
 @Component({
   selector: 'nxt1-profile-offers',
   standalone: true,
-  imports: [CommonModule, IonIcon, ProfileSkeletonComponent],
+  imports: [CommonModule, NxtIconComponent, ProfileSkeletonComponent],
   template: `
     <div class="profile-offers">
       <!-- Loading State -->
@@ -62,7 +40,7 @@ addIcons({
       @else if (isEmpty()) {
         <div class="offers-empty">
           <div class="empty-icon">
-            <ion-icon name="trophy-outline"></ion-icon>
+            <nxt1-icon name="trophy" [size]="26" />
           </div>
           <h3 class="empty-title">No offers yet</h3>
           <p class="empty-message">
@@ -70,7 +48,7 @@ addIcons({
           </p>
           @if (isOwnProfile()) {
             <button class="empty-cta" (click)="addOfferClick.emit()">
-              <ion-icon name="add-circle-outline"></ion-icon>
+              <nxt1-icon name="add-circle" [size]="20" />
               <span>Add Offer</span>
             </button>
           }
@@ -91,7 +69,7 @@ addIcons({
                 @if (offer.collegeLogoUrl) {
                   <img [src]="offer.collegeLogoUrl" [alt]="offer.collegeName" />
                 } @else {
-                  <ion-icon name="school-outline"></ion-icon>
+                  <nxt1-icon name="school" [size]="24" />
                 }
               </div>
 
@@ -113,14 +91,14 @@ addIcons({
 
               <!-- Offer Badge -->
               <div class="offer-badge" [attr.data-type]="offer.type">
-                <ion-icon [name]="getOfferTypeIcon(offer.type)"></ion-icon>
+                <nxt1-icon [name]="getOfferTypeIcon(offer.type)" [size]="16" />
                 <span>{{ getOfferTypeLabel(offer.type) }}</span>
               </div>
 
               <!-- Committed Badge -->
               @if (offer.isCommitted) {
                 <div class="committed-badge">
-                  <ion-icon name="checkmark-circle-outline"></ion-icon>
+                  <nxt1-icon name="checkmark-circle" [size]="16" />
                   <span>Committed</span>
                 </div>
               }
@@ -131,7 +109,7 @@ addIcons({
         <!-- Add Offer Button (Own Profile) -->
         @if (isOwnProfile()) {
           <button class="add-offer-btn" (click)="addOfferClick.emit()">
-            <ion-icon name="add-circle-outline"></ion-icon>
+            <nxt1-icon name="add-circle" [size]="20" />
             <span>Add Offer</span>
           </button>
         }
@@ -189,7 +167,7 @@ addIcons({
         justify-content: center;
         margin-bottom: 16px;
 
-        ion-icon {
+        nxt1-icon {
           font-size: 32px;
           color: var(--offers-text-tertiary);
         }
@@ -286,7 +264,7 @@ addIcons({
           object-fit: cover;
         }
 
-        ion-icon {
+        nxt1-icon {
           font-size: 28px;
           color: var(--offers-text-tertiary);
         }
@@ -361,7 +339,7 @@ addIcons({
         font-weight: 500;
         white-space: nowrap;
 
-        ion-icon {
+        nxt1-icon {
           font-size: 14px;
         }
 
@@ -418,7 +396,7 @@ addIcons({
         font-size: 11px;
         font-weight: 600;
 
-        ion-icon {
+        nxt1-icon {
           font-size: 12px;
         }
       }
@@ -444,7 +422,7 @@ addIcons({
         cursor: pointer;
         transition: all 0.2s ease;
 
-        ion-icon {
+        nxt1-icon {
           font-size: 20px;
         }
 
@@ -479,7 +457,7 @@ export class ProfileOffersComponent {
   // ============================================
 
   protected getOfferTypeIcon(type: OfferType): string {
-    return OFFER_TYPE_ICONS[type] ?? 'school-outline';
+    return OFFER_TYPE_ICONS[type] ?? 'school';
   }
 
   protected getOfferTypeLabel(type: OfferType): string {

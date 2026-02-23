@@ -45,6 +45,7 @@ import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { NxtLogoComponent } from '../logo';
 import { NxtIconComponent } from '../icon';
+import { NxtAppStoreBadgesComponent } from '../app-store-badges';
 
 // ============================================
 // TYPES
@@ -144,7 +145,13 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
 @Component({
   selector: 'nxt1-hero-header',
   standalone: true,
-  imports: [CommonModule, RouterModule, NxtLogoComponent, NxtIconComponent],
+  imports: [
+    CommonModule,
+    RouterModule,
+    NxtLogoComponent,
+    NxtIconComponent,
+    NxtAppStoreBadgesComponent,
+  ],
   template: `
     <header
       class="hero-header relative overflow-hidden"
@@ -235,23 +242,29 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
           <div
             class="hero-cta mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row lg:mt-12"
           >
-            <a
-              [routerLink]="['/auth']"
-              class="btn-hero-primary group bg-primary text-text-inverse hover:bg-primaryLight hover:shadow-glow focus:ring-primary focus:ring-offset-bg-primary inline-flex items-center justify-center gap-2 rounded-xl px-8 py-4 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-xl focus:ring-2 focus:ring-offset-2 focus:outline-none"
-            >
-              Get Started Free
-              <nxt1-icon
-                name="arrowRight"
-                [size]="20"
-                class="transition-transform duration-300 group-hover:translate-x-1"
-              />
-            </a>
-            <a
-              [routerLink]="['/explore']"
-              class="btn-hero-secondary border-border bg-surface-200/50 text-text-primary hover:border-border-strong hover:bg-surface-300/50 inline-flex items-center justify-center gap-2 rounded-xl border px-8 py-4 text-lg font-semibold backdrop-blur-sm transition-all duration-300"
-            >
-              Explore Athletes
-            </a>
+            <!-- Desktop: Web CTA buttons -->
+            <div class="hero-cta__desktop">
+              <a
+                [routerLink]="['/auth']"
+                class="btn-hero-primary group bg-primary text-text-inverse hover:bg-primaryLight hover:shadow-glow focus:ring-primary focus:ring-offset-bg-primary inline-flex items-center justify-center gap-2 rounded-xl px-8 py-4 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-xl focus:ring-2 focus:ring-offset-2 focus:outline-none"
+              >
+                Get Started Free
+                <nxt1-icon
+                  name="arrowRight"
+                  [size]="20"
+                  class="transition-transform duration-300 group-hover:translate-x-1"
+                />
+              </a>
+              <a
+                [routerLink]="['/explore']"
+                class="btn-hero-secondary border-border bg-surface-200/50 text-text-primary hover:border-border-strong hover:bg-surface-300/50 inline-flex items-center justify-center gap-2 rounded-xl border px-8 py-4 text-lg font-semibold backdrop-blur-sm transition-all duration-300"
+              >
+                Explore Athletes
+              </a>
+            </div>
+
+            <!-- Mobile: App store download badges -->
+            <nxt1-app-store-badges class="hero-cta__mobile" />
           </div>
         }
 
@@ -282,39 +295,10 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
           </div>
         }
 
-        <!-- App Store Badges -->
+        <!-- App Store Badges (conditional extra section, independent of primary CTA mobile switch) -->
         @if (showAppBadges) {
           <div class="hero-apps mt-8 flex flex-wrap items-center justify-center gap-4">
-            <a
-              href="https://apps.apple.com/app/nxt1-sports"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="transition-transform hover:scale-105"
-              aria-label="Download NXT1 on the App Store"
-            >
-              <img
-                src="assets/shared/badges/app-store.svg"
-                alt="Download on the App Store"
-                width="140"
-                height="42"
-                loading="lazy"
-              />
-            </a>
-            <a
-              href="https://play.google.com/store/apps/details?id=com.nxt1sports"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="transition-transform hover:scale-105"
-              aria-label="Get NXT1 on Google Play"
-            >
-              <img
-                src="assets/shared/badges/google-play.svg"
-                alt="Get it on Google Play"
-                width="156"
-                height="42"
-                loading="lazy"
-              />
-            </a>
+            <nxt1-app-store-badges />
           </div>
         }
       </div>
@@ -441,6 +425,33 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
 
       .hero-card--fans .hero-card__accent {
         background: linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, transparent 60%);
+      }
+
+      /* ============================================
+       CTA MOBILE / DESKTOP SWITCHING
+       Mobile-first: show app badges, hide web CTAs
+       ============================================ */
+
+      .hero-cta__desktop {
+        display: none;
+      }
+
+      .hero-cta__mobile {
+        display: inline-flex;
+      }
+
+      @media (min-width: 1024px) {
+        .hero-cta__desktop {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          justify-content: center;
+          gap: var(--nxt1-spacing-4);
+        }
+
+        .hero-cta__mobile {
+          display: none;
+        }
       }
 
       /* ============================================

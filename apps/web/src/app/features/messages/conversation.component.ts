@@ -17,7 +17,9 @@
 
 import { Component, ChangeDetectionStrategy, inject, input, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
-import { ConversationShellWebComponent, NxtLoggingService, NxtToastService } from '@nxt1/ui';
+import { ConversationShellWebComponent } from '@nxt1/ui/messages';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtToastService } from '@nxt1/ui/services/toast';
 import { SeoService } from '../../core/services';
 
 @Component({

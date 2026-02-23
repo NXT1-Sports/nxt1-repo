@@ -15,7 +15,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
-import { PrivacyContentShellComponent } from '@nxt1/ui';
+import { PrivacyContentShellComponent } from '@nxt1/ui/legal';
 import { SeoService } from '../../core/services/seo.service';
 
 @Component({

@@ -67,7 +67,7 @@ export interface MergedUserProfile {
   readonly uid: string;
   readonly email: string;
   readonly displayName: string;
-  readonly photoURL?: string | null;
+  readonly profileImg?: string | null;
   readonly emailVerified: boolean;
 
   // Status (computed from backend)

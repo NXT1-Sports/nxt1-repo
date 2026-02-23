@@ -493,7 +493,7 @@ export interface HelpNavigateEvent {
       }
 
       .help-dashboard {
-        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
+        padding: 0;
         padding-bottom: var(--nxt1-spacing-16);
       }
 

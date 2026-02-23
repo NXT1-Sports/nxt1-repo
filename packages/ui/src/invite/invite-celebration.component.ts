@@ -24,8 +24,6 @@ import { addIcons } from 'ionicons';
 import { sparkles, trophy, close, checkmarkCircle } from 'ionicons/icons';
 import type { InviteAchievement } from '@nxt1/core';
 
-addIcons({ sparkles, trophy, close, checkmarkCircle });
-
 @Component({
   selector: 'nxt1-invite-celebration',
   standalone: true,
@@ -386,6 +384,7 @@ export class InviteCelebrationComponent {
   private readonly canvasRef = viewChild<ElementRef<HTMLCanvasElement>>('confettiCanvas');
 
   constructor() {
+    addIcons({ sparkles, trophy, close, checkmarkCircle });
     afterNextRender(() => {
       this.startConfetti();
     });

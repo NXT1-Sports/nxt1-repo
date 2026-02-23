@@ -57,17 +57,6 @@ import { ActivityItemComponent } from './activity-item.component';
 import { ActivitySkeletonComponent } from './activity-skeleton.component';
 
 // Register icons
-addIcons({
-  mailOutline,
-  notificationsOutline,
-  pricetagOutline,
-  atOutline,
-  checkmarkCircleOutline,
-  sparklesOutline,
-  alertCircleOutline,
-  refreshOutline,
-});
-
 @Component({
   selector: 'nxt1-activity-list',
   standalone: true,
@@ -331,6 +320,19 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ActivityListComponent {
+  constructor() {
+    addIcons({
+      mailOutline,
+      notificationsOutline,
+      pricetagOutline,
+      atOutline,
+      checkmarkCircleOutline,
+      sparklesOutline,
+      alertCircleOutline,
+      refreshOutline,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================
@@ -354,7 +356,7 @@ export class ActivityListComponent {
   readonly hasMore = input(false);
 
   /** Current active tab (for empty state) */
-  readonly activeTab = input<ActivityTabId>('inbox');
+  readonly activeTab = input<ActivityTabId>('all');
 
   // ============================================
   // OUTPUTS
@@ -394,6 +396,6 @@ export class ActivityListComponent {
   /** Empty state config for current tab */
   protected readonly emptyState = computed(() => {
     const tab = this.activeTab();
-    return ACTIVITY_EMPTY_STATES[tab] ?? ACTIVITY_EMPTY_STATES.inbox;
+    return ACTIVITY_EMPTY_STATES[tab] ?? ACTIVITY_EMPTY_STATES.all;
   });
 }

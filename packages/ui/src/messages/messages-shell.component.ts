@@ -58,7 +58,7 @@ import { MessagesListComponent } from './messages-list.component';
  */
 export interface MessagesUser {
   readonly displayName?: string | null;
-  readonly photoURL?: string | null;
+  readonly profileImg?: string | null;
 }
 
 @Component({
@@ -77,7 +77,7 @@ export interface MessagesUser {
     <!-- Page header with avatar (fixed within shell) -->
     <nxt1-page-header
       title="Messages"
-      [avatarSrc]="user()?.photoURL"
+      [avatarSrc]="user()?.profileImg"
       [avatarName]="displayName()"
       [actions]="headerActions"
       (avatarClick)="avatarClick.emit()"

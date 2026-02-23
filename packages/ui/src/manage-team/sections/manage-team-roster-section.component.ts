@@ -31,23 +31,6 @@ import {
 import type { RosterPlayer, RosterActionEvent } from '@nxt1/core';
 import { NxtAvatarComponent } from '../../components/avatar';
 
-addIcons({
-  peopleOutline,
-  personAddOutline,
-  searchOutline,
-  filterOutline,
-  ellipsisVertical,
-  starOutline,
-  star,
-  checkmarkCircle,
-  alertCircleOutline,
-  bandageOutline,
-  mailOutline,
-  trashOutline,
-  createOutline,
-  eyeOutline,
-});
-
 @Component({
   selector: 'nxt1-manage-team-roster-section',
   standalone: true,
@@ -509,6 +492,25 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ManageTeamRosterSectionComponent {
+  constructor() {
+    addIcons({
+      peopleOutline,
+      personAddOutline,
+      searchOutline,
+      filterOutline,
+      ellipsisVertical,
+      starOutline,
+      star,
+      checkmarkCircle,
+      alertCircleOutline,
+      bandageOutline,
+      mailOutline,
+      trashOutline,
+      createOutline,
+      eyeOutline,
+    });
+  }
+
   /** Roster players */
   readonly players = input<readonly RosterPlayer[]>([]);
 

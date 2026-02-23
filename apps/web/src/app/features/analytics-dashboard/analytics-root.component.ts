@@ -23,13 +23,13 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import {
   AnalyticsDashboardShellWebComponent,
-  NxtSidenavService,
-  NxtLoggingService,
-  NxtPlatformService,
   NxtAnalyticsLandingComponent,
   AnalyticsDashboardSkeletonComponent,
   type AnalyticsUser,
-} from '@nxt1/ui';
+} from '@nxt1/ui/analytics-dashboard';
+import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import type {
   AnalyticsTabId,
   AnalyticsPeriod,
@@ -38,6 +38,7 @@ import type {
   AnalyticsRecommendation,
 } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { AuthCookieService } from '../auth/services/auth-cookie.service';
 import { SeoService } from '../../core/services';
 
 @Component({
@@ -51,7 +52,7 @@ import { SeoService } from '../../core/services';
   ],
   template: `
     <!-- Loading: Auth state initializing -->
-    @if (isAuthLoading()) {
+    @if (shouldShowAuthSkeleton()) {
       <nxt1-analytics-dashboard-skeleton />
     }
 
@@ -87,6 +88,7 @@ import { SeoService } from '../../core/services';
 })
 export class AnalyticsRootComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
+  private readonly authCookie = inject(AuthCookieService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('AnalyticsRootComponent');
@@ -97,6 +99,9 @@ export class AnalyticsRootComponent implements OnInit {
   protected readonly isAuthenticated = this.authService.isAuthenticated;
   protected readonly isAuthLoading = computed(
     () => !this.authService.isInitialized() || this.authService.isLoading()
+  );
+  protected readonly shouldShowAuthSkeleton = computed(
+    () => this.isAuthLoading() && this.authCookie.hasAuthCookie()
   );
 
   /** Desktop detection for hiding redundant page header (sidebar provides nav) */
@@ -138,7 +143,7 @@ export class AnalyticsRootComponent implements OnInit {
     if (!user) return null;
 
     return {
-      photoURL: user.photoURL,
+      profileImg: user.profileImg,
       displayName: user.displayName,
     };
   });

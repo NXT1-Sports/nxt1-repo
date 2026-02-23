@@ -33,17 +33,7 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonContent, IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  statsChartOutline,
-  calendarOutline,
-  mailOutline,
-  callOutline,
-  logoTwitter,
-  logoInstagram,
-  linkOutline,
-} from 'ionicons/icons';
+import { IonContent } from '@ionic/angular/standalone';
 import {
   type ProfileTabId,
   type ProfileTab,
@@ -62,29 +52,20 @@ import {
 } from '../components/option-scroller';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { NxtBottomSheetService } from '../components/bottom-sheet/bottom-sheet.service';
+import type { BottomSheetAction } from '../components/bottom-sheet/bottom-sheet.types';
 import { ProfileService } from './profile.service';
 import { ProfileHeaderComponent } from './profile-header.component';
-import { ProfileStatsBarComponent } from './profile-stats-bar.component';
 import { ProfileTimelineComponent } from './profile-timeline.component';
 import { ProfileOffersComponent } from './profile-offers.component';
 import { ProfileSkeletonComponent } from './profile-skeleton.component';
 
 // Register icons used in template
-addIcons({
-  statsChartOutline,
-  calendarOutline,
-  mailOutline,
-  callOutline,
-  logoTwitter,
-  logoInstagram,
-  linkOutline,
-});
-
 /**
  * User info passed from parent (web/mobile wrapper).
  */
 export interface ProfileShellUser {
-  readonly photoURL?: string | null;
+  readonly profileImg?: string | null;
   readonly displayName?: string | null;
 }
 
@@ -94,13 +75,11 @@ export interface ProfileShellUser {
   imports: [
     CommonModule,
     IonContent,
-    IonIcon,
     NxtPageHeaderComponent,
     NxtIconComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
     ProfileHeaderComponent,
-    ProfileStatsBarComponent,
     ProfileTimelineComponent,
     ProfileOffersComponent,
     ProfileSkeletonComponent,
@@ -114,6 +93,31 @@ export interface ProfileShellUser {
           <button
             type="button"
             class="profile-header-action-btn"
+            aria-label="Agent X"
+            (click)="agentXClick.emit()"
+          >
+            <svg
+              class="agent-x-header-icon"
+              viewBox="0 0 612 792"
+              width="40"
+              height="40"
+              fill="currentColor"
+              stroke="currentColor"
+              stroke-width="12"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path
+                d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+              />
+              <polygon
+                points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="profile-header-action-btn"
             aria-label="Edit profile"
             (click)="editProfileClick.emit()"
           >
@@ -124,7 +128,7 @@ export interface ProfileShellUser {
           type="button"
           class="profile-header-action-btn"
           aria-label="Menu"
-          (click)="menuClick.emit()"
+          (click)="onMenuClick()"
         >
           <nxt1-icon name="menu" [size]="22" />
         </button>
@@ -157,6 +161,7 @@ export interface ProfileShellUser {
           <nxt1-profile-header
             [user]="profile.user()"
             [followStats]="profile.followStats()"
+            [quickStats]="profile.quickStats()"
             [pinnedVideo]="profile.pinnedVideo()"
             [isOwnProfile]="profile.isOwnProfile()"
             [canEdit]="profile.canEdit()"
@@ -171,14 +176,6 @@ export interface ProfileShellUser {
             (messageClick)="onMessageClick()"
             (pinnedVideoClick)="onPinnedVideoClick()"
             (pinVideoClick)="onPinVideoClick()"
-          />
-
-          <!-- Quick Stats Bar -->
-          <nxt1-profile-stats-bar
-            [stats]="profile.quickStatsDisplay()"
-            [isLoading]="false"
-            [clickable]="profile.isOwnProfile()"
-            (statClick)="onStatClick($event)"
           />
 
           <!-- Tab Navigation (Options Scroller) -->
@@ -215,13 +212,30 @@ export interface ProfileShellUser {
                 />
               }
 
+              @case ('news') {
+                <nxt1-profile-timeline
+                  [posts]="profile.newsPosts()"
+                  [isLoading]="false"
+                  [isEmpty]="profile.newsPosts().length === 0"
+                  [isOwnProfile]="profile.isOwnProfile()"
+                  emptyIcon="newspaper"
+                  emptyTitle="No news yet"
+                  emptyMessage="News updates, announcements, and media mentions will appear here."
+                  [emptyCta]="profile.isOwnProfile() ? 'Create News Post' : null"
+                  (postClick)="onPostClick($event)"
+                  (likeClick)="onLikePost($event)"
+                  (shareClick)="onSharePost($event)"
+                  (emptyCtaClick)="onCreatePost()"
+                />
+              }
+
               @case ('videos') {
                 <nxt1-profile-timeline
                   [posts]="profile.videoPosts()"
                   [isLoading]="false"
                   [isEmpty]="profile.videoPosts().length === 0"
                   [isOwnProfile]="profile.isOwnProfile()"
-                  emptyIcon="videocam-outline"
+                  emptyIcon="videocam"
                   emptyTitle="No videos yet"
                   emptyMessage="Upload highlights and game footage to showcase your skills."
                   [emptyCta]="profile.isOwnProfile() ? 'Upload Video' : null"
@@ -246,7 +260,7 @@ export interface ProfileShellUser {
                 <div class="stats-section">
                   @if (profile.athleticStats().length === 0) {
                     <div class="section-empty">
-                      <ion-icon name="stats-chart-outline"></ion-icon>
+                      <nxt1-icon name="stats-chart" [size]="48" />
                       <h3>No stats recorded</h3>
                       <p>Add your athletic and academic stats to complete your profile.</p>
                       @if (profile.isOwnProfile()) {
@@ -274,11 +288,64 @@ export interface ProfileShellUser {
                 </div>
               }
 
+              @case ('academic') {
+                <div class="stats-section">
+                  @if (
+                    !profile.user()?.gpa &&
+                    !profile.user()?.sat &&
+                    !profile.user()?.act &&
+                    !profile.user()?.classYear &&
+                    !profile.user()?.school?.name
+                  ) {
+                    <div class="section-empty">
+                      <nxt1-icon name="school" [size]="48" />
+                      <h3>No academic info yet</h3>
+                      <p>Add GPA, test scores, and school details to strengthen your profile.</p>
+                      @if (profile.isOwnProfile()) {
+                        <button class="empty-cta" (click)="onEditProfile()">
+                          Add Academic Info
+                        </button>
+                      }
+                    </div>
+                  } @else {
+                    <div class="stats-category">
+                      <h4 class="category-title">Academic Profile</h4>
+                      <div class="stats-grid">
+                        @if (profile.user()?.gpa) {
+                          <div class="stat-item">
+                            <span class="stat-value">{{ profile.user()?.gpa }}</span>
+                            <span class="stat-label">GPA</span>
+                          </div>
+                        }
+                        @if (profile.user()?.sat) {
+                          <div class="stat-item">
+                            <span class="stat-value">{{ profile.user()?.sat }}</span>
+                            <span class="stat-label">SAT</span>
+                          </div>
+                        }
+                        @if (profile.user()?.act) {
+                          <div class="stat-item">
+                            <span class="stat-value">{{ profile.user()?.act }}</span>
+                            <span class="stat-label">ACT</span>
+                          </div>
+                        }
+                        @if (profile.user()?.classYear) {
+                          <div class="stat-item">
+                            <span class="stat-value">{{ profile.user()?.classYear }}</span>
+                            <span class="stat-label">Class Year</span>
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+
               @case ('events') {
                 <div class="events-section">
                   @if (profile.events().length === 0) {
                     <div class="section-empty">
-                      <ion-icon name="calendar-outline"></ion-icon>
+                      <nxt1-icon name="calendar" [size]="48" />
                       <h3>No events scheduled</h3>
                       <p>Add upcoming games, camps, and showcases to your calendar.</p>
                       @if (profile.isOwnProfile()) {
@@ -326,11 +393,63 @@ export interface ProfileShellUser {
                 </div>
               }
 
+              @case ('schedule') {
+                <div class="events-section">
+                  @if (profile.events().length === 0) {
+                    <div class="section-empty">
+                      <nxt1-icon name="calendar" [size]="48" />
+                      <h3>No schedule yet</h3>
+                      <p>Add upcoming games, camps, and showcases to your schedule.</p>
+                      @if (profile.isOwnProfile()) {
+                        <button class="empty-cta" (click)="onAddEvent()">Add Schedule Item</button>
+                      }
+                    </div>
+                  } @else {
+                    @if (profile.upcomingEvents().length > 0) {
+                      <h4 class="events-section-title">Upcoming Schedule</h4>
+                      @for (event of profile.upcomingEvents(); track event.id) {
+                        <div class="event-card" (click)="onEventClick(event)">
+                          <div class="event-date">
+                            <span class="date-month">{{ formatEventMonth(event.startDate) }}</span>
+                            <span class="date-day">{{ formatEventDay(event.startDate) }}</span>
+                          </div>
+                          <div class="event-info">
+                            <span class="event-name">{{ event.name }}</span>
+                            <span class="event-location">{{ event.location }}</span>
+                          </div>
+                          <span class="event-type-badge">{{ event.type }}</span>
+                        </div>
+                      }
+                    }
+
+                    @if (profile.pastEvents().length > 0) {
+                      <h4 class="events-section-title past">Past Schedule</h4>
+                      @for (event of profile.pastEvents(); track event.id) {
+                        <div class="event-card event-card--past" (click)="onEventClick(event)">
+                          <div class="event-date">
+                            <span class="date-month">{{ formatEventMonth(event.startDate) }}</span>
+                            <span class="date-day">{{ formatEventDay(event.startDate) }}</span>
+                          </div>
+                          <div class="event-info">
+                            <span class="event-name">{{ event.name }}</span>
+                            @if (event.result) {
+                              <span class="event-result">{{ event.result }}</span>
+                            } @else {
+                              <span class="event-location">{{ event.location }}</span>
+                            }
+                          </div>
+                        </div>
+                      }
+                    }
+                  }
+                </div>
+              }
+
               @case ('contact') {
                 <div class="contact-section">
                   @if (!profile.user()?.contact?.email && !profile.user()?.contact?.phone) {
                     <div class="section-empty">
-                      <ion-icon name="mail-outline"></ion-icon>
+                      <nxt1-icon name="mail" [size]="48" />
                       <h3>Contact info not set</h3>
                       <p>Add your contact information so coaches can reach you.</p>
                       @if (profile.isOwnProfile()) {
@@ -343,13 +462,13 @@ export interface ProfileShellUser {
                     <div class="contact-card">
                       @if (profile.user()?.contact?.email) {
                         <div class="contact-item">
-                          <ion-icon name="mail-outline"></ion-icon>
+                          <nxt1-icon name="mail" [size]="20" />
                           <span>{{ profile.user()?.contact?.email }}</span>
                         </div>
                       }
                       @if (profile.user()?.contact?.phone) {
                         <div class="contact-item">
-                          <ion-icon name="call-outline"></ion-icon>
+                          <nxt1-icon name="call" [size]="20" />
                           <span>{{ profile.user()?.contact?.phone }}</span>
                         </div>
                       }
@@ -364,7 +483,7 @@ export interface ProfileShellUser {
                             [href]="'https://twitter.com/' + profile.user()?.social?.twitter"
                             target="_blank"
                           >
-                            <ion-icon name="logo-twitter"></ion-icon>
+                            <nxt1-icon name="link" [size]="20" />
                             <span>{{ '@' + profile.user()?.social?.twitter }}</span>
                           </a>
                         }
@@ -374,7 +493,7 @@ export interface ProfileShellUser {
                             [href]="'https://instagram.com/' + profile.user()?.social?.instagram"
                             target="_blank"
                           >
-                            <ion-icon name="logo-instagram"></ion-icon>
+                            <nxt1-icon name="link" [size]="20" />
                             <span>{{ '@' + profile.user()?.social?.instagram }}</span>
                           </a>
                         }
@@ -384,7 +503,7 @@ export interface ProfileShellUser {
                             [href]="'https://hudl.com/profile/' + profile.user()?.social?.hudl"
                             target="_blank"
                           >
-                            <ion-icon name="link-outline"></ion-icon>
+                            <nxt1-icon name="link" [size]="20" />
                             <span>Hudl Profile</span>
                           </a>
                         }
@@ -533,7 +652,7 @@ export interface ProfileShellUser {
         padding: 60px 24px;
         text-align: center;
 
-        ion-icon {
+        nxt1-icon {
           font-size: 48px;
           color: var(--profile-text-tertiary);
           margin-bottom: 16px;
@@ -776,7 +895,7 @@ export interface ProfileShellUser {
           border-bottom: none;
         }
 
-        ion-icon {
+        nxt1-icon {
           font-size: 20px;
           color: var(--profile-primary);
         }
@@ -815,7 +934,7 @@ export interface ProfileShellUser {
           border-color: var(--profile-primary);
         }
 
-        ion-icon {
+        nxt1-icon {
           font-size: 20px;
           color: var(--profile-text-secondary);
         }
@@ -828,6 +947,7 @@ export class ProfileShellComponent implements OnInit {
   protected readonly profile = inject(ProfileService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShell');
+  private readonly bottomSheet = inject(NxtBottomSheetService);
 
   // ============================================
   // INPUTS
@@ -855,6 +975,7 @@ export class ProfileShellComponent implements OnInit {
   readonly menuClick = output<void>();
   readonly qrCodeClick = output<void>();
   readonly aiSummaryClick = output<void>();
+  readonly agentXClick = output<void>();
   readonly createPostClick = output<void>();
 
   // ============================================
@@ -1053,7 +1174,53 @@ export class ProfileShellComponent implements OnInit {
   // Contact
   protected onEditContact(): void {
     this.logger.debug('Edit contact');
-    // TODO: Open contact editor
+  }
+
+  /**
+   * Opens the profile quick-actions bottom sheet.
+   * Quarter-height presentation for easy thumb access.
+   */
+  protected async onMenuClick(): Promise<void> {
+    const isOwn = this.profile.isOwnProfile();
+
+    const actions: BottomSheetAction[] = isOwn
+      ? [
+          { label: 'Share Profile', role: 'secondary', icon: 'share' },
+          { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
+          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+        ]
+      : [
+          { label: 'Share Profile', role: 'secondary', icon: 'share' },
+          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+          { label: 'Report', role: 'destructive', icon: 'flag' },
+        ];
+
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      actions,
+      showClose: false,
+      backdropDismiss: true,
+      breakpoints: [0, 0.35],
+      initialBreakpoint: 0.35,
+    });
+
+    // result.data contains the tapped BottomSheetAction; undefined on backdrop/close dismiss
+    const selected = result?.data as BottomSheetAction | undefined;
+    if (!selected) return;
+
+    switch (selected.label) {
+      case 'Share Profile':
+        this.shareClick.emit();
+        break;
+      case 'QR Code':
+        this.qrCodeClick.emit();
+        break;
+      case 'Copy Link':
+        this.shareClick.emit();
+        break;
+      case 'Report':
+        this.logger.info('Report profile requested');
+        break;
+    }
   }
 
   // ============================================

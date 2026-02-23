@@ -35,16 +35,6 @@ import { HelpCenterService } from './help-center.service';
 import { HapticsService } from '../services/haptics/haptics.service';
 import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
 
-addIcons({
-  chevronForward,
-  helpCircleOutline,
-  bookOutline,
-  videocamOutline,
-  schoolOutline,
-  documentTextOutline,
-  timeOutline,
-});
-
 @Component({
   selector: 'nxt1-help-category-detail',
   standalone: true,
@@ -309,6 +299,18 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HelpCategoryDetailComponent {
+  constructor() {
+    addIcons({
+      chevronForward,
+      helpCircleOutline,
+      bookOutline,
+      videocamOutline,
+      schoolOutline,
+      documentTextOutline,
+      timeOutline,
+    });
+  }
+
   protected readonly helpService = inject(HelpCenterService);
   private readonly haptics = inject(HapticsService);
 

@@ -35,18 +35,15 @@
 @import '@nxt1/design-tokens/platform/web';
 
 /* ============================================
-   LAYER 4: IONIC THEME (CSS-only)
-   CRITICAL: Maps NXT1 tokens to Ionic variables
+   LAYER 4–5: IONIC CSS — MOVED TO DEFERRED
+   ============================================
+   Ionic theme tokens and component CSS are now in styles-deferred.css.
+   Safe to defer because:
+   1. The web shell uses ZERO <ion-*> elements in its own template
+   2. Shared @nxt1/ui components that use Ionic are loaded lazily via routes
+   3. The mobile footer (ion-tab-bar) is auth-gated, hidden during SSR
+   4. Angular's inlineCritical (Critters) inlines only rules matching SSR HTML
    ============================================ */
-@import '@nxt1/design-tokens/ionic';
-
-/* ============================================
-   LAYER 5: IONIC COMPONENT CSS
-   CRITICAL: Core visual styles for Ionic web components
-   ============================================ */
-@import '@ionic/angular/css/core.css';
-@import '@ionic/angular/css/typography.css';
-@import '@ionic/angular/css/display.css';
 
 /* ============================================
    LAYER 6: TAILWIND CSS
@@ -57,100 +54,9 @@
 @tailwind utilities;
 
 /* ============================================
-   IONIC INPUT FOCUS FIX (Global)
-   CRITICAL: Prevents flash of native focus outlines
+   IONIC INPUT & PRE-HYDRATION STYLES — MOVED TO DEFERRED
+   See styles-deferred.css "IONIC FRAMEWORK CSS" section
    ============================================ */
-ion-input input,
-ion-input input:focus,
-ion-input input:focus-visible,
-ion-textarea textarea,
-ion-textarea textarea:focus,
-ion-textarea textarea:focus-visible,
-ion-searchbar input,
-ion-searchbar input:focus,
-ion-searchbar input:focus-visible {
-  outline: none !important;
-  box-shadow: none !important;
-}
-
-/* ============================================
-   SSR LAYOUT STABILITY (CLS Fix)
-   CRITICAL: Prevents layout shift during hydration
-   ============================================ */
-
-/* Pre-hydration: Ionic components before they're defined */
-ion-content:not(:defined) {
-  display: block;
-  position: relative;
-  width: 100%;
-  min-height: 100vh;
-  min-height: 100dvh;
-  background-color: transparent;
-  contain: layout style;
-}
-
-ion-header:not(:defined) {
-  display: block;
-  width: 100%;
-}
-
-ion-toolbar:not(:defined) {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  min-height: 56px;
-  padding: 0 16px;
-  background-color: transparent;
-}
-
-ion-buttons:not(:defined) {
-  display: flex;
-  align-items: center;
-}
-
-ion-button:not(:defined) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  min-height: 48px;
-  padding: 0 16px;
-  font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
-  font-weight: 500;
-  border-radius: var(--nxt1-borderRadius-md, 8px);
-  cursor: pointer;
-  border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
-  background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
-  color: var(--nxt1-color-text-primary, #ffffff);
-}
-
-ion-button[expand='block']:not(:defined) {
-  display: flex;
-  width: 100%;
-}
-
-ion-button:not(:defined) svg {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-}
-
-ion-button:not(:defined) span {
-  white-space: nowrap;
-}
-
-ion-icon:not(:defined) {
-  display: inline-block;
-  width: 24px;
-  height: 24px;
-}
-
-ion-title:not(:defined) {
-  display: block;
-  flex: 1;
-  font-size: 17px;
-  font-weight: 600;
-}
 
 /* ============================================
    PREVENT DOUBLE-TAP ZOOM (Global)

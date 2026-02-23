@@ -91,16 +91,18 @@ export interface SectionNavChangeEvent {
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
         font-size: var(--nxt1-fontSize-sm);
         font-weight: var(--nxt1-fontWeight-normal);
+        line-height: var(--nxt1-lineHeight-normal);
+        letter-spacing: 0;
         color: var(--nxt1-color-text-secondary);
         background: transparent;
-        border: none;
+        border: 1px solid transparent;
         border-radius: var(--nxt1-radius-lg, 12px);
         cursor: pointer;
         text-align: left;
-        line-height: var(--nxt1-lineHeight-normal);
         transition:
           color var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out),
-          background var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out);
+          background var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out),
+          border-color var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out);
       }
 
       .nav-item:hover {
@@ -110,8 +112,18 @@ export interface SectionNavChangeEvent {
 
       .nav-item--active {
         color: var(--nxt1-color-text-primary);
-        font-weight: var(--nxt1-fontWeight-medium);
+        font-weight: var(--nxt1-fontWeight-normal);
+        font-size: var(--nxt1-fontSize-sm);
+        line-height: var(--nxt1-lineHeight-normal);
+        letter-spacing: 0;
         background: var(--nxt1-color-surface-200);
+        border-color: var(--nxt1-color-primary);
+      }
+
+      .nav-item:focus,
+      .nav-item:focus-visible {
+        outline: none;
+        box-shadow: none;
       }
 
       /* ==============================

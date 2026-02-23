@@ -23,29 +23,25 @@
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
+import { NxtHeroHeaderComponent, type HeroAudienceCard } from '@nxt1/ui/components/hero-header';
+import { NxtImmersiveHeroComponent } from '@nxt1/ui/components/immersive-hero';
+import { NxtPartnerMarqueeComponent } from '@nxt1/ui/components/partner-marquee';
+import { NxtValuePropComparisonComponent } from '@nxt1/ui/components/value-prop-comparison';
+import { NxtEcosystemMapComponent } from '@nxt1/ui/components/ecosystem-map';
+import { NxtHeroSectionComponent } from '@nxt1/ui/components/hero-section';
 import {
-  NxtHeroHeaderComponent,
-  NxtImmersiveHeroComponent,
-  NxtPartnerMarqueeComponent,
-  NxtValuePropComparisonComponent,
-  NxtEcosystemMapComponent,
-  NxtHeroSectionComponent,
   NxtMovementSectionComponent,
-  NxtSuccessStoriesComponent,
-  NxtEducationalLibraryComponent,
-  NxtRecruitmentEngineComponent,
-  NxtCoachRolodexComponent,
-  NxtCoachAuthorityValidationComponent,
-  NxtUniversalSportsDirectoryComponent,
-  NxtFaqSectionComponent,
-  NxtCtaBannerComponent,
-  EDUCATIONAL_LIBRARY_DEFAULT_ITEMS,
-  type CtaAvatarImage,
-  type EducationalLibraryItem,
-  type FaqItem,
-  type HeroAudienceCard,
   type MovementActivityItem,
-} from '@nxt1/ui';
+} from '@nxt1/ui/components/movement-section';
+import {
+  NxtEducationalLibraryComponent,
+  EDUCATIONAL_LIBRARY_DEFAULT_ITEMS,
+  type EducationalLibraryItem,
+} from '@nxt1/ui/components/educational-library';
+
+import { NxtUniversalSportsDirectoryComponent } from '@nxt1/ui/components/universal-sports-directory';
+import { NxtFaqSectionComponent, type FaqItem } from '@nxt1/ui/components/faq-section';
+import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import { SeoService } from '../../core/services/seo.service';
 import type { SeoConfig } from '@nxt1/core/seo';
@@ -199,11 +195,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
     NxtEcosystemMapComponent,
     NxtHeroSectionComponent,
     NxtMovementSectionComponent,
-    NxtSuccessStoriesComponent,
     NxtEducationalLibraryComponent,
-    NxtRecruitmentEngineComponent,
-    NxtCoachRolodexComponent,
-    NxtCoachAuthorityValidationComponent,
     NxtUniversalSportsDirectoryComponent,
     NxtFaqSectionComponent,
     NxtCtaBannerComponent,
@@ -288,50 +280,11 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
           <div class="landing-section-placeholder" aria-hidden="true"></div>
         }
 
-        <!-- Success Stories + Educational Library -->
+        <!-- Educational Library -->
         @defer (on viewport) {
-          <section aria-labelledby="success-stories-heading">
-            <h2 id="success-stories-heading" class="sr-only">Success Stories</h2>
-            <nxt1-success-stories />
-          </section>
-
           <section aria-labelledby="educational-library-heading">
             <h2 id="educational-library-heading" class="sr-only">Educational Library</h2>
             <nxt1-educational-library [items]="educationalLibraryItems" />
-          </section>
-        } @placeholder {
-          <div class="landing-section-placeholder" aria-hidden="true"></div>
-        }
-
-        <!-- Recruitment Engine: USA Map + Live Recruiting Pulse -->
-        @defer (on viewport) {
-          <section aria-labelledby="recruitment-engine-title">
-            <nxt1-hero-section
-              [headingLevel]="2"
-              badgeLabel="Recruiting Engine"
-              title="The Pulse of"
-              accentText="Recruiting."
-              subtitle="See where the offers are flying right now."
-              support="Recruitment Engine (Live Data): Verified biometrics, embedded transcripts, NIL valuation, and a live highlight feed built for real recruiting decisions."
-              ariaId="recruitment-engine-title"
-            >
-              <nxt1-recruitment-engine />
-            </nxt1-hero-section>
-          </section>
-        } @placeholder {
-          <div class="landing-section-placeholder" aria-hidden="true"></div>
-        }
-
-        <!-- Coach's Rolodex + Authority Validation -->
-        @defer (on viewport) {
-          <section aria-labelledby="coach-rolodex-heading">
-            <h2 id="coach-rolodex-heading" class="sr-only">Coach Network</h2>
-            <nxt1-coach-rolodex />
-          </section>
-
-          <section aria-labelledby="coach-validation-heading">
-            <h2 id="coach-validation-heading" class="sr-only">Coach Validation</h2>
-            <nxt1-coach-authority-validation />
           </section>
         } @placeholder {
           <div class="landing-section-placeholder" aria-hidden="true"></div>

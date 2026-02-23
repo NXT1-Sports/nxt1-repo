@@ -33,20 +33,6 @@ import {
   closeOutline,
 } from 'ionicons/icons';
 
-addIcons({
-  helpCircleOutline,
-  cashOutline,
-  calendarOutline,
-  cardOutline,
-  trendingUpOutline,
-  alertCircleOutline,
-  checkmarkCircleOutline,
-  chevronDownOutline,
-  chevronUpOutline,
-  mailOutline,
-  closeOutline,
-});
-
 interface HelpSection {
   readonly id: string;
   readonly icon: string;
@@ -469,6 +455,22 @@ interface FaqItem {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageHelpContentComponent {
+  constructor() {
+    addIcons({
+      helpCircleOutline,
+      cashOutline,
+      calendarOutline,
+      cardOutline,
+      trendingUpOutline,
+      alertCircleOutline,
+      checkmarkCircleOutline,
+      chevronDownOutline,
+      chevronUpOutline,
+      mailOutline,
+      closeOutline,
+    });
+  }
+
   /** Emitted when contact support is clicked */
   readonly contactSupport = output<void>();
 

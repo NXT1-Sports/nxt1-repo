@@ -63,7 +63,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
     @if (!hideHeader()) {
       <nxt1-page-header
         title="Analytics"
-        [avatarSrc]="user()?.photoURL"
+        [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         [showBack]="showBack()"
         [actions]="headerActions()"
@@ -482,7 +482,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
 
       /* Dashboard container — padding here (matches .usage-dashboard) */
       .analytics-dashboard {
-        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
+        padding: 0;
         padding-bottom: var(--nxt1-spacing-16);
       }
 

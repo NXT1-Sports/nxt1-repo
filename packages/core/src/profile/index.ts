@@ -19,6 +19,8 @@ export {
   type ProfileUserRole,
   type VerificationStatus,
   type ProfileSport,
+  type ProfileTeamType,
+  type ProfileTeamAffiliation,
   type ProfileSchool,
   type ProfileSocialLinks,
   type ProfileContact,
@@ -47,6 +49,13 @@ export {
   type ProfileHeaderAction,
   // Response types
   type ProfilePageData,
+  // Player Card types (Agent X / Madden-style)
+  type ProspectTier,
+  type ProspectGrade,
+  type PlayerArchetype,
+  type AgentXTraitCategory,
+  type AgentXTrait,
+  type PlayerCardData,
 } from './profile.types';
 
 // ============================================

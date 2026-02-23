@@ -33,6 +33,7 @@ import {
 import { NxtAudienceSectionComponent, type AudienceSegment } from '../components/audience-section';
 import { NxtCtaBannerComponent } from '../components/cta-banner';
 import { NxtHeroSectionComponent } from '../components/hero-section';
+import { NxtRecruitmentEngineComponent } from '../components/recruitment-engine';
 import { NxtAthleteProfilesPreviewComponent } from './athlete-profiles-preview.component';
 
 // ============================================
@@ -157,6 +158,7 @@ const PROFILES_FAQS: FaqItem[] = [
     NxtFaqSectionComponent,
     NxtCtaBannerComponent,
     NxtHeroSectionComponent,
+    NxtRecruitmentEngineComponent,
     NxtAthleteProfilesPreviewComponent,
   ],
   template: `
@@ -192,6 +194,25 @@ const PROFILES_FAQS: FaqItem[] = [
       subtitle="Coaches discover talent. Athletes get exposure. Parents stay informed."
       [segments]="audiences"
     />
+
+    <!-- Recruitment Engine: USA Map + Live Recruiting Pulse -->
+    @defer (on viewport) {
+      <section aria-labelledby="recruitment-engine-title">
+        <nxt1-hero-section
+          [headingLevel]="2"
+          badgeLabel="Recruiting Engine"
+          title="The Pulse of"
+          accentText="Recruiting."
+          subtitle="See where the offers are flying right now."
+          support="Recruitment Engine (Live Data): Verified biometrics, embedded transcripts, NIL valuation, and a live highlight feed built for real recruiting decisions."
+          ariaId="recruitment-engine-title"
+        >
+          <nxt1-recruitment-engine />
+        </nxt1-hero-section>
+      </section>
+    } @placeholder {
+      <div style="min-height: 400px" aria-hidden="true"></div>
+    }
 
     <!-- FAQ -->
     <nxt1-faq-section

@@ -30,7 +30,7 @@ export interface AppUser {
   uid: string;
   email: string;
   displayName: string;
-  photoURL?: string;
+  profileImg?: string;
   role: UserRole;
   isPremium: boolean;
   hasCompletedOnboarding: boolean;

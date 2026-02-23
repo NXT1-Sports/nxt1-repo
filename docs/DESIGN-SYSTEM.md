@@ -171,7 +171,7 @@ import { FormsModule } from '@angular/forms'; // ✅ Angular forms
 
 // ✅ Mobile: packages/ui/src/help-center/mobile/help-center-shell.component.ts
 import { IonContent, IonList, IonItem } from '@ionic/angular/standalone'; // ✅ Ionic
-import { HapticsService } from '@nxt1/ui'; // ✅ Native haptics
+import { HapticsService } from '@nxt1/ui/services/haptics'; // ✅ Native haptics
 ```
 
 ### 100% Theme-Aware Pattern

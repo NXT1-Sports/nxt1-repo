@@ -21,8 +21,6 @@ import {
 import type { UsageBudget } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
 
-addIcons({ addOutline, alertCircleOutline, checkmarkCircleOutline, closeCircleOutline });
-
 @Component({
   selector: 'nxt1-usage-budgets',
   standalone: true,
@@ -274,6 +272,10 @@ addIcons({ addOutline, alertCircleOutline, checkmarkCircleOutline, closeCircleOu
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageBudgetsComponent {
+  constructor() {
+    addIcons({ addOutline, alertCircleOutline, checkmarkCircleOutline, closeCircleOutline });
+  }
+
   readonly budgets = input.required<readonly UsageBudget[]>();
 
   readonly createBudget = output<void>();

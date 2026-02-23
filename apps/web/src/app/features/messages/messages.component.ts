@@ -17,13 +17,10 @@
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
-import {
-  MessagesShellWebComponent,
-  NxtSidenavService,
-  NxtLoggingService,
-  NxtPlatformService,
-  type MessagesUser,
-} from '@nxt1/ui';
+import { MessagesShellWebComponent, type MessagesUser } from '@nxt1/ui/messages';
+import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import type { Conversation } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
@@ -60,7 +57,7 @@ export class MessagesComponent implements OnInit {
     if (!user) return null;
 
     return {
-      photoURL: user.photoURL,
+      profileImg: user.profileImg,
       displayName: user.displayName,
     };
   });

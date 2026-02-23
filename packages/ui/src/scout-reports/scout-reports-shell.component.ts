@@ -82,24 +82,6 @@ import {
 } from './scout-report-sort-selector.component';
 
 // Register icons
-addIcons({
-  gridOutline,
-  listOutline,
-  reorderFourOutline,
-  filterOutline,
-  optionsOutline,
-  searchOutline,
-  chevronDownOutline,
-  flameOutline,
-  starOutline,
-  bookmarkOutline,
-  footballOutline,
-  basketballOutline,
-  baseballOutline,
-  trophyOutline,
-  appsOutline,
-});
-
 @Component({
   selector: 'nxt1-scout-reports-shell',
   standalone: true,
@@ -542,6 +524,23 @@ export class ScoutReportsShellComponent {
   // ============================================
 
   constructor() {
+    addIcons({
+      gridOutline,
+      listOutline,
+      reorderFourOutline,
+      filterOutline,
+      optionsOutline,
+      searchOutline,
+      chevronDownOutline,
+      flameOutline,
+      starOutline,
+      bookmarkOutline,
+      footballOutline,
+      basketballOutline,
+      baseballOutline,
+      trophyOutline,
+      appsOutline,
+    });
     // Persist view mode preference
     if (isPlatformBrowser(this.platformId)) {
       const saved = localStorage.getItem('scout-reports-view-mode');

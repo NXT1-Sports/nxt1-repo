@@ -106,62 +106,12 @@ import { InviteSkeletonComponent } from './invite-skeleton.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register all icons
-addIcons({
-  close,
-  closeOutline,
-  link,
-  linkOutline,
-  qrCode,
-  qrCodeOutline,
-  shareSocial,
-  shareSocialOutline,
-  copy,
-  copyOutline,
-  checkmarkCircle,
-  checkmarkCircleOutline,
-  people,
-  peopleOutline,
-  trophy,
-  trophyOutline,
-  flame,
-  flameOutline,
-  star,
-  starOutline,
-  starHalf,
-  diamond,
-  diamondOutline,
-  ribbon,
-  ribbonOutline,
-  rocket,
-  rocketOutline,
-  megaphone,
-  megaphoneOutline,
-  trendingUp,
-  trendingUpOutline,
-  sparkles,
-  sparklesOutline,
-  gift,
-  giftOutline,
-  chatbubble,
-  chatbubbleOutline,
-  mail,
-  mailOutline,
-  logoWhatsapp,
-  logoInstagram,
-  logoTwitter,
-  logoFacebook,
-  share,
-  shareOutline,
-  personAdd,
-  personAddOutline,
-});
-
 /**
  * User info for personalization.
  */
 export interface InviteUser {
   readonly displayName?: string | null;
-  readonly photoURL?: string | null;
+  readonly profileImg?: string | null;
   readonly referralCode?: string;
 }
 
@@ -656,6 +606,58 @@ export interface InviteUser {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InviteShellComponent implements OnInit {
+  constructor() {
+    addIcons({
+      close,
+      closeOutline,
+      link,
+      linkOutline,
+      qrCode,
+      qrCodeOutline,
+      shareSocial,
+      shareSocialOutline,
+      copy,
+      copyOutline,
+      checkmarkCircle,
+      checkmarkCircleOutline,
+      people,
+      peopleOutline,
+      trophy,
+      trophyOutline,
+      flame,
+      flameOutline,
+      star,
+      starOutline,
+      starHalf,
+      diamond,
+      diamondOutline,
+      ribbon,
+      ribbonOutline,
+      rocket,
+      rocketOutline,
+      megaphone,
+      megaphoneOutline,
+      trendingUp,
+      trendingUpOutline,
+      sparkles,
+      sparklesOutline,
+      gift,
+      giftOutline,
+      chatbubble,
+      chatbubbleOutline,
+      mail,
+      mailOutline,
+      logoWhatsapp,
+      logoInstagram,
+      logoTwitter,
+      logoFacebook,
+      share,
+      shareOutline,
+      personAdd,
+      personAddOutline,
+    });
+  }
+
   protected readonly invite = inject(InviteService);
   private readonly haptics = inject(HapticsService);
 

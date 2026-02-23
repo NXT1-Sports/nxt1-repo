@@ -52,8 +52,8 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { Router, RouterOutlet, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
+// ── Navigation Components (granular imports for tree-shaking) ──
 import {
-  // Desktop Sidebar (new)
   NxtDesktopSidebarComponent,
   type DesktopSidebarConfig,
   type DesktopSidebarItem,
@@ -62,7 +62,8 @@ import {
   type DesktopSidebarSelectEvent,
   SIDEBAR_BREAKPOINTS,
   createDesktopSidebarConfig,
-  // Header (Desktop - simplified for sidebar mode)
+} from '@nxt1/ui/components/desktop-sidebar';
+import {
   NxtHeaderComponent,
   type TopNavItem,
   type TopNavUserData,
@@ -71,7 +72,8 @@ import {
   type TopNavUserMenuEvent,
   createTopNavConfig,
   DEFAULT_USER_MENU_ITEMS,
-  // Footer (Mobile)
+} from '@nxt1/ui/components/top-nav';
+import {
   NxtMobileFooterComponent,
   type FooterTabItem,
   type FooterTabSelectEvent,
@@ -79,32 +81,38 @@ import {
   type FooterConfig,
   DEFAULT_FOOTER_TABS,
   findTabByRoute,
-  // Mobile Header (YouTube-style top bar)
+} from '@nxt1/ui/components/footer';
+import {
   NxtMobileHeaderComponent,
   type MobileHeaderConfig,
   type MobileHeaderUserData,
   createMobileHeaderConfig,
-  // Mobile Sidebar (YouTube-style slide-out drawer)
+} from '@nxt1/ui/components/mobile-header';
+import {
   NxtMobileSidebarComponent,
   type MobileSidebarConfig,
   type MobileSidebarSelectEvent,
   createMobileSidebarConfig,
-  // Platform
+} from '@nxt1/ui/components/mobile-sidebar';
+// ── Services (separate from component barrel) ──
+import {
   NxtPlatformService,
   NxtLoggingService,
-  // Scroll
   NxtScrollService,
-  // Activity (for badge count)
-  ActivityService,
-  // Notification state (global)
   NxtNotificationStateService,
-  DEFAULT_SOCIAL_LINKS,
-  // Auth Modal (popup auth for gated features)
-  AuthModalService,
-} from '@nxt1/ui';
+} from '@nxt1/ui/services';
+// ── Auth ──
+import { AuthModalService } from '@nxt1/ui/auth';
+// ── App-level imports ──
 import { AuthFlowService } from '../../../features/auth/services';
+import { BadgeCountService } from '../../services/badge-count.service';
 import { NotificationPopoverComponent } from '../../../features/activity/components';
-import { DEFAULT_SPORTS, formatSportDisplayName, normalizeSportKey } from '@nxt1/core';
+import {
+  DEFAULT_SOCIAL_LINKS,
+  DEFAULT_SPORTS,
+  formatSportDisplayName,
+  normalizeSportKey,
+} from '@nxt1/core';
 
 // ============================================
 // NAVIGATION CONFIGURATION
@@ -269,7 +277,7 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
             id: 'athlete-content',
             label: 'Content Creation',
             icon: 'videocam',
-            route: '/content-creation',
+            route: '/content-creation-athletes',
           },
           {
             id: 'athlete-media',
@@ -288,7 +296,7 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         icon: 'users',
         expanded: false,
         children: [
-          { id: 'team-platform', label: 'Team Platform', icon: 'users', route: '/manage-team' },
+          { id: 'team-platform', label: 'Team Platform', icon: 'users', route: '/team-platform' },
           { id: 'team-ai', label: 'AI For Coaches', icon: 'agent-x', route: '/ai-coaches' },
           { id: 'team-admin', label: 'Administration', icon: 'clipboard', route: '/team-admin' },
           {
@@ -450,6 +458,9 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
     NxtMobileFooterComponent,
     NxtMobileHeaderComponent,
     NxtMobileSidebarComponent,
+    // NotificationPopoverComponent is listed here so Angular resolves the selector,
+    // but since it's only used inside a @defer block, the compiler automatically
+    // splits it + its dependency tree into a separate lazy chunk.
     NotificationPopoverComponent,
   ],
   template: `
@@ -524,11 +535,16 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
           (logoClick)="onLogoClick()"
         />
 
-        <!-- DESKTOP: Notification Popover — CSS-hidden below 768px -->
-        <app-notification-popover
-          [isOpen]="notificationPopoverOpen()"
-          (closePopover)="closeNotificationPopover()"
-        />
+        <!-- DESKTOP: Notification Popover — Lazy-loaded via @defer -->
+        <!-- Component + its dependency tree (ActivityListComponent, etc.)
+             are only bundled when the user opens the notification panel.
+             This removes ~610 lines of component code from the eager shell chunk. -->
+        @defer (when notificationPopoverOpen()) {
+          <app-notification-popover
+            [isOpen]="notificationPopoverOpen()"
+            (closePopover)="closeNotificationPopover()"
+          />
+        }
 
         <!-- PAGE CONTENT — Never gated by @if or display:none -->
         <main class="shell__content" [class.shell__content--has-footer]="showMobileFooter()">
@@ -741,7 +757,7 @@ export class WebShellComponent {
   private readonly logger = inject(NxtLoggingService).child('WebShellComponent');
   private readonly destroyRef = inject(DestroyRef);
   private readonly scrollService = inject(NxtScrollService);
-  private readonly activityService = inject(ActivityService);
+  private readonly badgeCount = inject(BadgeCountService);
   private readonly notificationState = inject(NxtNotificationStateService);
   private readonly authModal = inject(AuthModalService);
   private readonly elementRef = inject(ElementRef);
@@ -781,7 +797,7 @@ export class WebShellComponent {
     const user = this.authFlow.user() as {
       displayName?: string;
       email?: string;
-      photoURL?: string;
+      profileImg?: string;
       unicode?: string;
     } | null;
 
@@ -791,7 +807,7 @@ export class WebShellComponent {
 
     return {
       name,
-      avatarUrl: user.photoURL,
+      avatarUrl: user.profileImg,
       initials: this.getInitials(name),
       handle: user.unicode ? `@${user.unicode}` : undefined,
       verified: false,
@@ -816,7 +832,7 @@ export class WebShellComponent {
       showLogo: false, // Sidebar has logo
       showSearch: true,
       showNotifications: true,
-      notificationCount: this.activityService.totalUnread(),
+      notificationCount: this.badgeCount.totalUnread(),
       sticky: true,
       hideOnScroll: false,
       bordered: false,
@@ -828,7 +844,7 @@ export class WebShellComponent {
     const user = this.authFlow.user() as {
       displayName?: string;
       email?: string;
-      photoURL?: string;
+      profileImg?: string;
     } | null;
 
     if (!user) return null;
@@ -836,7 +852,7 @@ export class WebShellComponent {
     return {
       name: user.displayName || user.email?.split('@')[0] || 'User',
       email: user.email || undefined,
-      avatarUrl: user.photoURL || undefined,
+      avatarUrl: user.profileImg || undefined,
       verified: false,
       roleBadge: undefined,
     };
@@ -871,7 +887,7 @@ export class WebShellComponent {
       showLogo: true,
       showSearch: true,
       showNotifications: true,
-      notificationCount: this.activityService.totalUnread(),
+      notificationCount: this.badgeCount.totalUnread(),
       showSignIn: true,
       showMore: false,
       sticky: true,
@@ -886,7 +902,7 @@ export class WebShellComponent {
     const user = this.authFlow.user() as {
       displayName?: string;
       email?: string;
-      photoURL?: string;
+      profileImg?: string;
     } | null;
 
     if (!user) return null;
@@ -895,7 +911,7 @@ export class WebShellComponent {
 
     return {
       name,
-      avatarUrl: user.photoURL || undefined,
+      avatarUrl: user.profileImg || undefined,
       initials: this.getInitials(name),
     };
   });

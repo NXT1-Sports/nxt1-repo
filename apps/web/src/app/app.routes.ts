@@ -302,6 +302,12 @@ export const routes: Routes = [
         loadChildren: () => import('./features/manage-team/manage-team.routes'),
       },
 
+      // Team Platform - Programs/Organizations Page
+      {
+        path: 'team-platform',
+        loadChildren: () => import('./features/team-platform/team-platform.routes'),
+      },
+
       // Super Profiles - Interactive Profile Breakdown + Athlete Landing
       {
         path: 'super-profiles',
@@ -326,6 +332,19 @@ export const routes: Routes = [
       {
         path: 'recruiting-athletes',
         loadChildren: () => import('./features/recruiting-athletes/recruiting-athletes.routes'),
+      },
+
+      // Content Creation for Athletes
+      {
+        path: 'content-creation-athletes',
+        loadChildren: () =>
+          import('./features/content-creation-athletes/content-creation-athletes.routes'),
+      },
+
+      // Media & Coverage for Athletes
+      {
+        path: 'media-coverage',
+        loadChildren: () => import('./features/media-coverage/media-coverage.routes'),
       },
 
       // AI for Athletes - Communication Training & AI Recruiting Tools

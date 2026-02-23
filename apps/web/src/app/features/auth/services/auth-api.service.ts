@@ -15,7 +15,7 @@ import { Injectable, inject } from '@angular/core';
 import { createAuthApi, type AuthApi, type User } from '@nxt1/core';
 import { AngularHttpAdapter } from '../../../core/infrastructure';
 import { environment } from '../../../../environments/environment';
-import { NxtLoggingService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
 import { PerformanceService } from '../../../core/services/performance.service';
 import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
