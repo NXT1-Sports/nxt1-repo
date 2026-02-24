@@ -54,29 +54,6 @@ import {
 import type { EarnedBadge, Badge, BadgeRarity } from '@nxt1/core';
 
 // Register icons
-addIcons({
-  personCircle,
-  videocam,
-  statsChart,
-  shieldCheckmark,
-  people,
-  list,
-  chatbubbles,
-  create,
-  star,
-  checkmarkCircle,
-  school,
-  heart,
-  megaphone,
-  ribbon,
-  flameOutline,
-  flame,
-  bonfire,
-  rocket,
-  footsteps,
-  sparkles,
-});
-
 type BadgeSize = 'small' | 'medium' | 'large';
 
 @Component({
@@ -352,6 +329,31 @@ type BadgeSize = 'small' | 'medium' | 'large';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class XpBadgeComponent {
+  constructor() {
+    addIcons({
+      personCircle,
+      videocam,
+      statsChart,
+      shieldCheckmark,
+      people,
+      list,
+      chatbubbles,
+      create,
+      star,
+      checkmarkCircle,
+      school,
+      heart,
+      megaphone,
+      ribbon,
+      flameOutline,
+      flame,
+      bonfire,
+      rocket,
+      footsteps,
+      sparkles,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

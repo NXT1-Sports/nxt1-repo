@@ -18,7 +18,9 @@
 
 import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { Router } from '@angular/router';
-import { NewsShellComponent, NxtSidenavService, NxtLoggingService } from '@nxt1/ui';
+import { NewsShellComponent } from '@nxt1/ui/news';
+import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { NewsArticle } from '@nxt1/core';
 
 @Component({

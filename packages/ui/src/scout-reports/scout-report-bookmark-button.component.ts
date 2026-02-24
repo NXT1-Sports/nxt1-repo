@@ -32,8 +32,6 @@ import { addIcons } from 'ionicons';
 import { bookmark, bookmarkOutline } from 'ionicons/icons';
 
 // Register icons
-addIcons({ bookmark, bookmarkOutline });
-
 @Component({
   selector: 'nxt1-scout-report-bookmark-button',
   standalone: true,
@@ -271,6 +269,10 @@ addIcons({ bookmark, bookmarkOutline });
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ScoutReportBookmarkButtonComponent {
+  constructor() {
+    addIcons({ bookmark, bookmarkOutline });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

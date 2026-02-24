@@ -36,14 +36,6 @@ import {
 } from 'ionicons/icons';
 
 // Register icons
-addIcons({
-  'finger-print-outline': fingerPrintOutline,
-  'scan-outline': scanOutline,
-  'shield-checkmark-outline': shieldCheckmarkOutline,
-  'close-outline': closeOutline,
-  'checkmark-circle-outline': checkmarkCircleOutline,
-});
-
 export type BiometryDisplayType = 'face' | 'fingerprint' | 'iris' | 'none';
 
 @Component({
@@ -299,6 +291,16 @@ export type BiometryDisplayType = 'face' | 'fingerprint' | 'iris' | 'none';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthBiometricPromptComponent {
+  constructor() {
+    addIcons({
+      'finger-print-outline': fingerPrintOutline,
+      'scan-outline': scanOutline,
+      'shield-checkmark-outline': shieldCheckmarkOutline,
+      'close-outline': closeOutline,
+      'checkmark-circle-outline': checkmarkCircleOutline,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

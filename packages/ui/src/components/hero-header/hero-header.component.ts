@@ -45,6 +45,7 @@ import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { NxtLogoComponent } from '../logo';
 import { NxtIconComponent } from '../icon';
+import { NxtAppStoreBadgesComponent } from '../app-store-badges';
 
 // ============================================
 // TYPES
@@ -84,6 +85,7 @@ export interface HeroConfig {
 
 /** Hero variant for different page contexts */
 export type HeroVariant = 'default' | 'landing' | 'minimal' | 'compact';
+export type HeroSeoHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
 /** Card click event */
 export interface HeroAudienceCardClickEvent {
@@ -103,7 +105,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     description:
       'Build your recruiting profile, showcase highlights, and connect with college coaches.',
     icon: 'athlete',
-    route: '/auth/register?role=athlete',
+    route: '/auth?role=athlete',
     cta: 'Start Your Journey',
     gradientClass: 'hero-card--athletes',
     ariaLabel: 'Learn about NXT1 for athletes and start your recruiting journey',
@@ -113,7 +115,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     title: 'For HS & Clubs',
     description: 'Manage rosters, promote your program, and help athletes get discovered.',
     icon: 'users',
-    route: '/auth/register?role=coach',
+    route: '/auth?role=coach',
     cta: 'Elevate Your Program',
     gradientClass: 'hero-card--teams',
     ariaLabel: 'Learn about NXT1 for high schools and club teams',
@@ -123,7 +125,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     title: 'For Scouts',
     description: 'Discover top talent, build watch lists, and streamline your recruiting process.',
     icon: 'scout',
-    route: '/auth/register?role=scout',
+    route: '/auth?role=scout',
     cta: 'Find Elite Talent',
     gradientClass: 'hero-card--scouts',
     ariaLabel: 'Learn about NXT1 for college scouts and recruiters',
@@ -133,7 +135,7 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     title: 'For Fans',
     description: 'Follow rising stars, get insider updates, and support athletes you believe in.',
     icon: 'fan',
-    route: '/auth/register?role=fan',
+    route: '/auth?role=fan',
     cta: 'Join the Community',
     gradientClass: 'hero-card--fans',
     ariaLabel: 'Learn about NXT1 for sports fans and supporters',
@@ -143,7 +145,13 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
 @Component({
   selector: 'nxt1-hero-header',
   standalone: true,
-  imports: [CommonModule, RouterModule, NxtLogoComponent, NxtIconComponent],
+  imports: [
+    CommonModule,
+    RouterModule,
+    NxtLogoComponent,
+    NxtIconComponent,
+    NxtAppStoreBadgesComponent,
+  ],
   template: `
     <header
       class="hero-header relative overflow-hidden"
@@ -163,11 +171,15 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
       }
 
       <div
-        class="hero-content mx-auto w-full px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-20"
+        class="hero-content mx-auto w-full px-4 pt-2 pb-12 sm:px-6 sm:pt-4 sm:pb-16 lg:px-8 lg:pt-6 lg:pb-20"
         style="max-width: var(--nxt1-root-shell-max-width, 80rem)"
       >
-        <!-- SEO H1 (screen reader only) -->
-        <h1 class="sr-only">NXT1 — The Future of Sports Recruiting</h1>
+        <!-- SEO heading (screen reader only) -->
+        @if (seoHeadingLevel === 1) {
+          <h1 class="sr-only">NXT1 — The Future of Sports Recruiting</h1>
+        } @else {
+          <h2 class="sr-only">NXT1 — The Future of Sports Recruiting</h2>
+        }
 
         <!-- Brand Logo -->
         @if (showLogo) {
@@ -180,7 +192,9 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
         <section class="hero-cards" aria-label="Choose your path">
           <h2 class="sr-only">Who NXT1 is for</h2>
 
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+          <div
+            class="hero-cards__grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6"
+          >
             @for (card of audienceCards(); track card.id) {
               <article
                 class="hero-card group border-border bg-surface-200/80 hover:border-border-primary hover:shadow-glow/10 relative flex flex-col overflow-hidden rounded-2xl border p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-lg"
@@ -228,23 +242,29 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
           <div
             class="hero-cta mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row lg:mt-12"
           >
-            <a
-              [routerLink]="['/auth/register']"
-              class="btn-hero-primary group bg-primary text-text-inverse hover:bg-primaryLight hover:shadow-glow focus:ring-primary focus:ring-offset-bg-primary inline-flex items-center justify-center gap-2 rounded-xl px-8 py-4 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-xl focus:ring-2 focus:ring-offset-2 focus:outline-none"
-            >
-              Get Started Free
-              <nxt1-icon
-                name="arrowRight"
-                [size]="20"
-                class="transition-transform duration-300 group-hover:translate-x-1"
-              />
-            </a>
-            <a
-              [routerLink]="['/explore']"
-              class="btn-hero-secondary border-border bg-surface-200/50 text-text-primary hover:border-border-strong hover:bg-surface-300/50 inline-flex items-center justify-center gap-2 rounded-xl border px-8 py-4 text-lg font-semibold backdrop-blur-sm transition-all duration-300"
-            >
-              Explore Athletes
-            </a>
+            <!-- Desktop: Web CTA buttons -->
+            <div class="hero-cta__desktop">
+              <a
+                [routerLink]="['/auth']"
+                class="btn-hero-primary group bg-primary text-text-inverse hover:bg-primaryLight hover:shadow-glow focus:ring-primary focus:ring-offset-bg-primary inline-flex items-center justify-center gap-2 rounded-xl px-8 py-4 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-xl focus:ring-2 focus:ring-offset-2 focus:outline-none"
+              >
+                Get Started Free
+                <nxt1-icon
+                  name="arrowRight"
+                  [size]="20"
+                  class="transition-transform duration-300 group-hover:translate-x-1"
+                />
+              </a>
+              <a
+                [routerLink]="['/explore']"
+                class="btn-hero-secondary border-border bg-surface-200/50 text-text-primary hover:border-border-strong hover:bg-surface-300/50 inline-flex items-center justify-center gap-2 rounded-xl border px-8 py-4 text-lg font-semibold backdrop-blur-sm transition-all duration-300"
+              >
+                Explore Athletes
+              </a>
+            </div>
+
+            <!-- Mobile: App store download badges -->
+            <nxt1-app-store-badges class="hero-cta__mobile" />
           </div>
         }
 
@@ -275,39 +295,10 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
           </div>
         }
 
-        <!-- App Store Badges -->
+        <!-- App Store Badges (conditional extra section, independent of primary CTA mobile switch) -->
         @if (showAppBadges) {
           <div class="hero-apps mt-8 flex flex-wrap items-center justify-center gap-4">
-            <a
-              href="https://apps.apple.com/app/nxt1-sports"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="transition-transform hover:scale-105"
-              aria-label="Download NXT1 on the App Store"
-            >
-              <img
-                src="assets/shared/badges/app-store.svg"
-                alt="Download on the App Store"
-                width="140"
-                height="42"
-                loading="lazy"
-              />
-            </a>
-            <a
-              href="https://play.google.com/store/apps/details?id=com.nxt1sports"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="transition-transform hover:scale-105"
-              aria-label="Get NXT1 on Google Play"
-            >
-              <img
-                src="assets/shared/badges/google-play.svg"
-                alt="Get it on Google Play"
-                width="156"
-                height="42"
-                loading="lazy"
-              />
-            </a>
+            <nxt1-app-store-badges />
           </div>
         }
       </div>
@@ -437,14 +428,73 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
       }
 
       /* ============================================
+       CTA MOBILE / DESKTOP SWITCHING
+       Mobile-first: show app badges, hide web CTAs
+       ============================================ */
+
+      .hero-cta__desktop {
+        display: none;
+      }
+
+      .hero-cta__mobile {
+        display: inline-flex;
+      }
+
+      @media (min-width: 1024px) {
+        .hero-cta__desktop {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          justify-content: center;
+          gap: var(--nxt1-spacing-4);
+        }
+
+        .hero-cta__mobile {
+          display: none;
+        }
+      }
+
+      /* ============================================
        RESPONSIVE ADJUSTMENTS
        ============================================ */
 
       @media (max-width: 640px) {
         .hero-header {
           min-height: auto;
-          padding-top: var(--nxt1-spacing-8);
-          padding-bottom: var(--nxt1-spacing-8);
+          padding-top: 0;
+          padding-bottom: 0;
+        }
+
+        .hero-header[data-variant='minimal'] .hero-cards__grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: var(--nxt1-spacing-3);
+        }
+
+        .hero-header[data-variant='minimal'] .hero-card {
+          padding: var(--nxt1-spacing-4);
+          border-radius: var(--nxt1-borderRadius-xl);
+        }
+
+        .hero-header[data-variant='minimal'] .hero-card__icon {
+          width: calc(var(--nxt1-spacing-10) + var(--nxt1-spacing-1));
+          height: calc(var(--nxt1-spacing-10) + var(--nxt1-spacing-1));
+          margin-bottom: var(--nxt1-spacing-3);
+        }
+
+        .hero-header[data-variant='minimal'] .hero-card__title {
+          margin-bottom: var(--nxt1-spacing-1);
+          font-size: var(--nxt1-fontSize-lg);
+          line-height: 1.2;
+        }
+
+        .hero-header[data-variant='minimal'] .hero-card__description {
+          margin-bottom: var(--nxt1-spacing-3);
+          font-size: var(--nxt1-fontSize-xs);
+          line-height: var(--nxt1-lineHeight-normal);
+        }
+
+        .hero-header[data-variant='minimal'] .hero-card__cta {
+          font-size: var(--nxt1-fontSize-xs);
         }
 
         .hero-bg__glow {
@@ -491,6 +541,9 @@ export class NxtHeroHeaderComponent {
 
   /** Hero variant for different contexts */
   @Input() variant: HeroVariant = 'default';
+
+  /** Screen-reader-only SEO heading level for this section. */
+  @Input() seoHeadingLevel: HeroSeoHeadingLevel = 1;
 
   /** Show animated background */
   @Input() showAnimatedBg = true;

@@ -89,7 +89,7 @@ export type { UsageUser };
       <nxt1-page-header
         title="Billing & Usage"
         [showBack]="true"
-        [avatarSrc]="user()?.photoURL"
+        [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         (backClick)="back.emit()"
         (avatarClick)="avatarClick.emit()"
@@ -264,7 +264,7 @@ export type { UsageUser };
       }
 
       .usage-dashboard {
-        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
+        padding: 0;
         padding-bottom: var(--nxt1-spacing-16);
       }
 

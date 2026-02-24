@@ -8,7 +8,7 @@
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
-import { HelpArticleDetailWebComponent } from '@nxt1/ui';
+import { HelpArticleDetailWebComponent } from '@nxt1/ui/help-center';
 
 @Component({
   selector: 'app-help-center-article',

@@ -17,12 +17,9 @@
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
-import {
-  ActivityShellComponent,
-  NxtSidenavService,
-  NxtLoggingService,
-  type ActivityUser,
-} from '@nxt1/ui';
+import { ActivityShellComponent, type ActivityUser } from '@nxt1/ui/activity';
+import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ActivityTabId } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
@@ -64,7 +61,7 @@ export class ActivityComponent implements OnInit {
     if (!user) return null;
 
     return {
-      photoURL: user.photoURL,
+      profileImg: user.profileImg,
       displayName: user.displayName,
     };
   });

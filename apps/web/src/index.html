@@ -127,97 +127,135 @@
         margin: 0;
       }
 
-      /* Pre-hydration: Give Ionic components dimensions before they're defined */
-      ion-content:not(:defined) {
-        display: block;
-        width: 100%;
-        min-height: 100vh;
-        background-color: var(--prehydration-bg);
-        color: var(--prehydration-text);
+      /*
+       * Ionic :not(:defined) CLS guards live in styles-critical.css.
+       * Critters inlines them at build time (inlineCritical: true),
+       * so they are NOT duplicated here—keeps this <style> block lean.
+       *
+       * Only theme-aware backgrounds and responsive nav guards remain
+       * because they must execute before ANY external CSS arrives.
+       */
+
+      /*
+       * CRITICAL: Pre-hydration responsive layout guards
+       * ────────────────────────────────────────────────────
+       * YouTube / LinkedIn / Twitter Pattern (A+ Standard)
+       *
+       * Both desktop and mobile nav components are always in the DOM.
+       * These CSS rules fire BEFORE any JavaScript to ensure the
+       * correct set of navigation is visible on the actual viewport.
+       *
+       * Targets custom element selectors which apply to unknown
+       * elements — works before Angular defines the components.
+       *
+       * Zero-flash, zero-CLS, zero-hydration-mismatch.
+       */
+      @media (max-width: 767.98px) {
+        /* Mobile: column layout, hide desktop nav chrome */
+        nxt1-desktop-sidebar,
+        nxt1-header,
+        app-notification-popover {
+          display: none !important;
+        }
       }
 
-      ion-header:not(:defined),
-      ion-toolbar:not(:defined) {
-        display: block;
-        width: 100%;
-        background-color: var(--prehydration-bg);
-      }
-
-      ion-button:not(:defined) {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 48px;
-      }
-
-      ion-icon:not(:defined) {
-        display: inline-block;
-        width: 24px;
-        height: 24px;
-      }
-
-      /* Auth wrapper - ensure centered content before hydration */
-      .nxt1-auth-wrapper {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
-        min-height: 100vh;
-        background-color: var(--prehydration-bg);
+      @media (min-width: 768px) {
+        /* Desktop / Tablet: hide mobile nav chrome */
+        nxt1-mobile-header,
+        nxt1-mobile-sidebar,
+        nxt1-mobile-footer {
+          display: none !important;
+        }
       }
     </style>
 
     <link rel="canonical" href="https://nxt1sports.com/" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
-      content="The ultimate sports content platform. Discover amazing athletic highlights, training videos, and sports content from athletes worldwide. Upload, share, and explore the best in sports entertainment."
+      content="Build your verified recruiting profile, connect with college coaches, and get discovered. The all-in-one sports recruiting platform for athletes, coaches, scouts, and teams."
     />
     <meta name="author" content="NXT1 Sports" />
     <meta name="publisher" content="NXT1 Sports" />
 
+    <!-- Internationalization / hreflang (A+ SEO) -->
+    <link rel="alternate" hreflang="en-US" href="https://nxt1sports.com/" />
+    <link rel="alternate" hreflang="x-default" href="https://nxt1sports.com/" />
+
     <!-- Open Graph Meta Tags for Social Media -->
-    <meta property="og:type" content="video.other" />
+    <meta property="og:type" content="website" />
     <meta property="og:site_name" content="NXT1 Sports" />
-    <meta property="og:title" content="NXT1 Sports - The Sports Content Platform" />
+    <meta property="og:title" content="NXT1 Sports — The Future of Sports Recruiting" />
     <meta
       property="og:description"
-      content="Your destination for sports content. Watch highlights, training videos, game footage, and exclusive athletic content. Join millions discovering amazing sports moments."
+      content="Build your verified recruiting profile, connect with college coaches, and get discovered. The all-in-one sports recruiting platform."
     />
     <meta property="og:url" content="https://nxt1sports.com/" />
     <meta property="og:image" content="https://nxt1sports.com/assets/images/og-image.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="NXT1 Sports recruiting platform preview" />
     <meta property="og:locale" content="en_US" />
 
     <!-- Twitter Card Meta Tags -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@nxt1sports" />
-    <meta name="twitter:title" content="NXT1 Sports - The Sports Content Platform" />
+    <meta name="twitter:title" content="NXT1 Sports — The Future of Sports Recruiting" />
     <meta
       name="twitter:description"
-      content="Discover the best sports content on the web. Watch highlights, training videos, and exclusive athletic moments. Your home for sports entertainment."
+      content="Build your verified recruiting profile, connect with college coaches, and get discovered by the right programs. Join NXT1 today."
     />
-    <meta name="twitter:image" content="https://nxt1sports.com/assets/images/twitter-card.jpg" />
+    <meta name="twitter:image" content="https://nxt1sports.com/assets/images/og-image.jpg" />
+    <meta name="twitter:image:alt" content="NXT1 Sports recruiting platform preview" />
 
     <!-- Additional SEO Tags -->
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
-    <meta name="googlebot" content="index, follow" />
-    <meta name="language" content="English" />
-    <meta name="revisit-after" content="7 days" />
+    <meta name="googlebot" content="index, follow, max-image-preview:large" />
+
+    <!-- Sitemap Discovery (faster than robots.txt-only) -->
+    <link rel="sitemap" type="application/xml" href="https://nxt1sports.com/sitemap.xml" />
 
     <link rel="icon" type="image/x-icon" href="favicon.ico" />
+
+    <!--
+      RESOURCE HINTS (A+ Performance Pattern)
+      Priority order: preconnect > dns-prefetch > preload
+      Only hint origins that are used during initial page load.
+    -->
     <link rel="preconnect" href="https://storage.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://firebaseinstallations.googleapis.com" crossorigin />
+    <link rel="dns-prefetch" href="https://firestore.googleapis.com" />
+    <link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com" />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+    <link rel="dns-prefetch" href="https://a.espncdn.com" />
+
+    <!-- Preload deferred styles as non-render-blocking -->
+    <link
+      rel="preload"
+      href="styles-deferred.css"
+      as="style"
+      onload="
+        this.onload = null;
+        this.rel = 'stylesheet';
+      "
+    />
+    <noscript><link rel="stylesheet" href="styles-deferred.css" /></noscript>
 
     <!-- PWA Manifest -->
     <link rel="manifest" href="manifest.webmanifest" />
     <meta name="color-scheme" content="light dark" />
 
-    <!-- Apple Touch Icon -->
-    <link rel="apple-touch-icon" href="assets/icons/icon-192x192.png" />
+    <!-- Apple Touch Icon + PWA Meta -->
+    <link rel="apple-touch-icon" sizes="192x192" href="assets/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="assets/icons/icon-512x512.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NXT1" />
+    <meta name="application-name" content="NXT1 Sports" />
+    <meta name="msapplication-TileColor" content="#0a0a0a" />
 
-    <!-- Analytics: Firebase SDK handles analytics - no gtag.js needed -->
+    <!-- Analytics: Firebase SDK handles analytics — no gtag.js needed -->
   </head>
 
   <body style="background-color: #0a0a0a; margin: 0">

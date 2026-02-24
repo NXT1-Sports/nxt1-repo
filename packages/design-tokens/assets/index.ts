@@ -52,6 +52,23 @@ export const LOGO_DIMENSIONS = {
 } as const;
 
 // ============================================
+// SHARED IMAGE ASSETS
+// ============================================
+
+/**
+ * Shared people image paths relative to app's assets/shared/ folder.
+ * Apps copy design-tokens/assets/images to assets/shared/images/
+ */
+export const IMAGE_PATHS = {
+  athlete1: 'assets/shared/images/athlete-1.png',
+  athlete2: 'assets/shared/images/athlete-2.png',
+  athlete3: 'assets/shared/images/athlete-3.png',
+  athlete4: 'assets/shared/images/athlete-4.png',
+  athlete5: 'assets/shared/images/athlete-5.png',
+  coach1: 'assets/shared/images/coach-1.png',
+} as const;
+
+// ============================================
 // ICON REGISTRY
 // ============================================
 
@@ -67,3 +84,4 @@ export * from './icons';
 
 export type LogoPath = keyof typeof LOGO_PATHS;
 export type LogoDimension = keyof typeof LOGO_DIMENSIONS;
+export type ImagePath = keyof typeof IMAGE_PATHS;

@@ -82,45 +82,6 @@ import type {
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register all icons used
-addIcons({
-  personOutline,
-  mailOutline,
-  shieldOutline,
-  keyOutline,
-  fingerPrintOutline,
-  logOutOutline,
-  trashOutline,
-  moonOutline,
-  sunnyOutline,
-  notificationsOutline,
-  globeOutline,
-  colorPaletteOutline,
-  eyeOutline,
-  eyeOffOutline,
-  cardOutline,
-  receiptOutline,
-  trendingUpOutline,
-  starOutline,
-  diamondOutline,
-  linkOutline,
-  analyticsOutline,
-  cloudOutline,
-  syncOutline,
-  extensionPuzzleOutline,
-  helpCircleOutline,
-  chatbubbleOutline,
-  documentTextOutline,
-  refreshOutline,
-  bugOutline,
-  lockClosedOutline,
-  documentOutline,
-  informationCircleOutline,
-  chevronForward,
-  openOutline,
-  copyOutline,
-  checkmarkOutline,
-});
-
 /**
  * Toggle change event.
  */
@@ -537,6 +498,47 @@ export interface SettingsCopyEvent {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsItemComponent {
+  constructor() {
+    addIcons({
+      personOutline,
+      mailOutline,
+      shieldOutline,
+      keyOutline,
+      fingerPrintOutline,
+      logOutOutline,
+      trashOutline,
+      moonOutline,
+      sunnyOutline,
+      notificationsOutline,
+      globeOutline,
+      colorPaletteOutline,
+      eyeOutline,
+      eyeOffOutline,
+      cardOutline,
+      receiptOutline,
+      trendingUpOutline,
+      starOutline,
+      diamondOutline,
+      linkOutline,
+      analyticsOutline,
+      cloudOutline,
+      syncOutline,
+      extensionPuzzleOutline,
+      helpCircleOutline,
+      chatbubbleOutline,
+      documentTextOutline,
+      refreshOutline,
+      bugOutline,
+      lockClosedOutline,
+      documentOutline,
+      informationCircleOutline,
+      chevronForward,
+      openOutline,
+      copyOutline,
+      checkmarkOutline,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   // ============================================

@@ -70,18 +70,6 @@ import type { ScoutReportFilter, AthleteSport } from '@nxt1/core';
 import { POSITIONS_BY_SPORT, SPORT_LABELS, SPORT_ICONS } from '@nxt1/core';
 
 // Register icons
-addIcons({
-  closeOutline,
-  refreshOutline,
-  checkmarkOutline,
-  footballOutline,
-  basketballOutline,
-  baseballOutline,
-  locationOutline,
-  calendarOutline,
-  starOutline,
-});
-
 /**
  * Graduation year options.
  */
@@ -680,6 +668,17 @@ export class ScoutReportFilterPanelComponent {
   // ============================================
 
   constructor() {
+    addIcons({
+      closeOutline,
+      refreshOutline,
+      checkmarkOutline,
+      footballOutline,
+      basketballOutline,
+      baseballOutline,
+      locationOutline,
+      calendarOutline,
+      starOutline,
+    });
     // Sync external filter to internal on open
     effect(() => {
       if (this.isOpen()) {

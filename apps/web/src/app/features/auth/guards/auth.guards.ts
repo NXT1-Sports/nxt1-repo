@@ -49,7 +49,7 @@ import {
 } from '@nxt1/core';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { AuthFlowService } from '../services/auth-flow.service';
-import { NxtLoggingService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
 
 // ============================================
@@ -67,7 +67,7 @@ function getAuthState(authService: AuthFlowService): AuthState {
           uid: user.uid,
           email: user.email,
           displayName: user.displayName,
-          photoURL: user.photoURL,
+          profileImg: user.profileImg,
           role: user.role,
           isPremium: user.isPremium,
           hasCompletedOnboarding: user.hasCompletedOnboarding,

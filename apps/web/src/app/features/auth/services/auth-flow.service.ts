@@ -47,7 +47,8 @@ import {
   runInInjectionContext,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import { NxtPlatformService, NxtLoggingService } from '@nxt1/ui';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { type ILogger } from '@nxt1/core/logging';
 import { Subscription } from 'rxjs';
 
@@ -55,7 +56,7 @@ import { Subscription } from 'rxjs';
 import type { Auth as FirebaseAuthType, User as FirebaseUser } from '@angular/fire/auth';
 
 import { AuthApiService } from './auth-api.service';
-import { AuthErrorHandler } from '@nxt1/ui';
+import { AuthErrorHandler } from '@nxt1/ui/services/auth-error';
 import { FileUploadService } from '../../../core/services';
 import {
   type UserRole,
@@ -83,7 +84,7 @@ import {
   APP_EVENTS,
 } from '@nxt1/core/analytics';
 import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
-import { GLOBAL_CRASHLYTICS } from '@nxt1/ui';
+import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure/error-handling';
 import { environment } from '../../../../environments/environment';
 
 /**
@@ -509,7 +510,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               completeSignUp: true,
               isCollegeCoach: currentUser.role === 'college-coach',
               isRecruit: currentUser.role === 'athlete',
-              profileImg: currentUser.photoURL ?? null,
+              profileImg: currentUser.profileImg ?? null,
               sports: [],
             };
           }
@@ -532,12 +533,14 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         ...(backendProfile ?? {}),
         uid: firebaseUser.uid,
         email: firebaseUser.email ?? '',
+        // Backend displayName is source of truth; Firebase displayName is fallback
         displayName:
-          firebaseUser.displayName ??
           (backendProfile?.firstName && backendProfile?.lastName
-            ? `${backendProfile.firstName} ${backendProfile.lastName}`
-            : 'User'),
-        photoURL: firebaseUser.photoURL ?? backendProfile?.profileImg ?? undefined,
+            ? `${backendProfile.firstName} ${backendProfile.lastName}`.trim()
+            : undefined) ??
+          firebaseUser.displayName ??
+          'User',
+        profileImg: backendProfile?.profileImg ?? firebaseUser.photoURL ?? undefined,
         role: this.getUserRole(
           backendProfile
             ? {
@@ -658,7 +661,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic import for SSR safety
-      const { signInWithEmailAndPassword } = await import('firebase/auth');
+      const { signInWithEmailAndPassword } = await import('@angular/fire/auth');
 
       const result = await signInWithEmailAndPassword(
         this.firebaseAuth,
@@ -827,7 +830,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     this.logger.info('🎯 Starting Google OAuth (popup)');
 
     try {
-      // Use @angular/fire/auth to ensure compatibility with AngularFire Auth instance
+      // Dynamic imports for SSR safety
       const { GoogleAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
 
       const provider = new GoogleAuthProvider();
@@ -975,6 +978,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     this.authManager.setError(null);
 
     try {
+      // Dynamic imports for SSR safety
       const { OAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
 
       // Microsoft OAuth Provider
@@ -1041,6 +1045,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     this.logger.info('🍎 Starting Apple OAuth (popup)');
 
     try {
+      // Dynamic imports for SSR safety
       const { OAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
 
       // Apple OAuth Provider
@@ -1167,7 +1172,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic import for SSR safety
-      const { createUserWithEmailAndPassword } = await import('firebase/auth');
+      const { createUserWithEmailAndPassword } = await import('@angular/fire/auth');
 
       // Create Firebase user
       const result = await createUserWithEmailAndPassword(
@@ -1262,7 +1267,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic import for SSR safety
-      const { signOut } = await import('firebase/auth');
+      const { signOut } = await import('@angular/fire/auth');
 
       // Track sign out before clearing user
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_OUT);
@@ -1303,7 +1308,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic import for SSR safety
-      const { sendPasswordResetEmail } = await import('firebase/auth');
+      const { sendPasswordResetEmail } = await import('@angular/fire/auth');
 
       await sendPasswordResetEmail(this.firebaseAuth, email);
 
@@ -1350,7 +1355,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic import for SSR safety
-      const { sendEmailVerification } = await import('firebase/auth');
+      const { sendEmailVerification } = await import('@angular/fire/auth');
 
       await sendEmailVerification(this.firebaseAuth.currentUser);
 
@@ -1384,7 +1389,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic import for SSR safety
-      const { reload } = await import('firebase/auth');
+      const { reload } = await import('@angular/fire/auth');
 
       // Reload user to get fresh data from Firebase
       await reload(this.firebaseAuth.currentUser);

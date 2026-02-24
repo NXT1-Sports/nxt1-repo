@@ -33,6 +33,7 @@ import {
   type FeedFilterType,
   EXPLORE_SEARCH_CONFIG,
   EXPLORE_TABS,
+  isFeedTab,
 } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../../components/page-header';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
@@ -46,6 +47,7 @@ import { NewsContentComponent } from '../../news/news-content.component';
 import { FeedListComponent } from '../../feed/feed-list.component';
 import { FeedService } from '../../feed/feed.service';
 import type { ExploreUser } from '../explore-shell.component';
+import { ExploreFilterModalService } from '../explore-filter-modal.service';
 
 @Component({
   selector: 'nxt1-explore-shell-web',
@@ -65,10 +67,38 @@ import type { ExploreUser } from '../explore-shell.component';
     <!-- SEO: Page Header with semantic search -->
     @if (!hideHeader()) {
       <nxt1-page-header
-        [avatarSrc]="user()?.photoURL"
+        [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         (avatarClick)="onAvatarClick()"
       >
+        @if (!explore.isSearchFocused()) {
+          <button
+            type="button"
+            pageHeaderSlot="end"
+            class="header-filter-btn"
+            aria-label="Open filters"
+            (click)="onFilterClick()"
+          >
+            <svg
+              class="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 4a1 1 0 011-1h16a1 1 0 01.8 1.6L14 13.5V19a1 1 0 01-.553.894l-4 2A1 1 0 018 21v-7.5L3.2 4.6A1 1 0 013 4z"
+              />
+            </svg>
+            @if (activeFilterCount() > 0) {
+              <span class="header-filter-badge">{{ activeFilterCount() }}</span>
+            }
+          </button>
+        }
+
         <!-- Native search input (SSR-friendly, accessible) -->
         <div pageHeaderSlot="title" class="search-container w-full">
           <div class="relative">
@@ -238,22 +268,51 @@ import type { ExploreUser } from '../explore-shell.component';
 
         <!-- Tab Selector (web uses horizontal pills) -->
         @if (!explore.isSearchFocused() || explore.hasQuery()) {
-          <nav class="tab-bar" aria-label="Explore tabs">
-            @for (tab of tabOptions(); track tab.id) {
+          <div class="tab-row">
+            <nav class="tab-bar" aria-label="Explore tabs">
+              @for (tab of tabOptions(); track tab.id) {
+                <button
+                  type="button"
+                  class="tab-pill"
+                  [class.active]="explore.activeTab() === tab.id"
+                  (click)="onTabChange(tab.id)"
+                  [attr.aria-current]="explore.activeTab() === tab.id ? 'page' : null"
+                >
+                  {{ tab.label }}
+                  @if (tab.badge) {
+                    <span class="tab-badge">{{ tab.badge }}</span>
+                  }
+                </button>
+              }
+            </nav>
+
+            @if (hideHeader()) {
               <button
                 type="button"
-                class="tab-pill"
-                [class.active]="explore.activeTab() === tab.id"
-                (click)="onTabChange(tab.id)"
-                [attr.aria-current]="explore.activeTab() === tab.id ? 'page' : null"
+                class="tab-filter-btn"
+                aria-label="Open filters"
+                (click)="onFilterClick()"
               >
-                {{ tab.label }}
-                @if (tab.badge) {
-                  <span class="tab-badge">{{ tab.badge }}</span>
+                <svg
+                  class="h-[18px] w-[18px]"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M3 4a1 1 0 011-1h16a1 1 0 01.8 1.6L14 13.5V19a1 1 0 01-.553.894l-4 2A1 1 0 018 21v-7.5L3.2 4.6A1 1 0 013 4z"
+                  />
+                </svg>
+                @if (activeFilterCount() > 0) {
+                  <span class="tab-filter-badge">{{ activeFilterCount() }}</span>
                 }
               </button>
             }
-          </nav>
+          </div>
         }
 
         <!-- Main Content -->
@@ -352,7 +411,7 @@ import type { ExploreUser } from '../explore-shell.component';
       }
 
       .explore-dashboard {
-        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
+        padding: 0;
         padding-bottom: var(--nxt1-spacing-16);
       }
 
@@ -368,6 +427,17 @@ import type { ExploreUser } from '../explore-shell.component';
 
       .tab-bar::-webkit-scrollbar {
         display: none;
+      }
+
+      .tab-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .tab-row .tab-bar {
+        flex: 1;
+        min-width: 0;
       }
 
       .tab-pill {
@@ -413,6 +483,44 @@ import type { ExploreUser } from '../explore-shell.component';
         background: rgba(0, 0, 0, 0.15);
         color: var(--nxt1-color-on-primary, #000000);
       }
+
+      .header-filter-btn,
+      .tab-filter-btn {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.75));
+        cursor: pointer;
+      }
+
+      .header-filter-btn:hover,
+      .tab-filter-btn:hover {
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        color: var(--nxt1-color-text-primary, #ffffff);
+      }
+
+      .header-filter-badge,
+      .tab-filter-badge {
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        min-width: 14px;
+        height: 14px;
+        padding: 0 3px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        font-size: 9px;
+        font-weight: 700;
+        line-height: 14px;
+        text-align: center;
+        color: var(--nxt1-color-on-primary, #0a0a0a);
+        background: var(--nxt1-color-primary, #ccff00);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -420,6 +528,7 @@ import type { ExploreUser } from '../explore-shell.component';
 export class ExploreShellWebComponent implements OnInit {
   protected readonly explore = inject(ExploreService);
   protected readonly feedService = inject(FeedService);
+  private readonly filterModal = inject(ExploreFilterModalService);
   private readonly haptics = inject(HapticsService);
   private readonly logger = inject(NxtLoggingService).child('ExploreShellWeb');
 
@@ -446,6 +555,9 @@ export class ExploreShellWebComponent implements OnInit {
 
   // Computed
   protected readonly displayName = computed(() => this.user()?.displayName ?? 'User');
+  protected readonly activeFilterCount = computed(() =>
+    this.explore.getActiveFilterCount(this.explore.activeTab())
+  );
 
   protected readonly tabOptions = computed(() => {
     const counts = this.explore.tabCounts();
@@ -464,6 +576,25 @@ export class ExploreShellWebComponent implements OnInit {
   protected onAvatarClick(): void {
     this.haptics.impact('light');
     this.avatarClick.emit();
+  }
+
+  protected async onFilterClick(): Promise<void> {
+    await this.haptics.impact('light');
+    const tab = this.explore.activeTab();
+    this.logger.debug('Explore header filter clicked', { tab });
+
+    const result = await this.filterModal.open({
+      tab,
+      currentFilters: this.explore.getFiltersForTab(tab),
+    });
+
+    if (!result.applied) return;
+
+    this.explore.setFiltersForTab(tab, result.filters);
+
+    if (!isFeedTab(tab)) {
+      await this.explore.refresh();
+    }
   }
 
   protected onSearchFocus(): void {

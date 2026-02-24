@@ -15,7 +15,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
-import { TermsContentShellComponent } from '@nxt1/ui';
+import { TermsContentShellComponent } from '@nxt1/ui/legal';
 import { SeoService } from '../../core/services/seo.service';
 
 @Component({

@@ -49,16 +49,6 @@ import { type PostPrivacy, PRIVACY_OPTIONS } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  'globe-outline': globeOutline,
-  'people-outline': peopleOutline,
-  'shield-outline': shieldOutline,
-  'school-outline': schoolOutline,
-  'lock-closed-outline': lockClosedOutline,
-  'chevron-down-outline': chevronDownOutline,
-  'checkmark-outline': checkmarkOutline,
-});
-
 @Component({
   selector: 'nxt1-create-post-privacy-selector',
   standalone: true,
@@ -446,6 +436,18 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class CreatePostPrivacySelectorComponent {
+  constructor() {
+    addIcons({
+      'globe-outline': globeOutline,
+      'people-outline': peopleOutline,
+      'shield-outline': shieldOutline,
+      'school-outline': schoolOutline,
+      'lock-closed-outline': lockClosedOutline,
+      'chevron-down-outline': chevronDownOutline,
+      'checkmark-outline': checkmarkOutline,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   /** Current privacy setting */

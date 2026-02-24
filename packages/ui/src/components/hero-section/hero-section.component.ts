@@ -4,7 +4,7 @@
  * @version 1.0.0
  *
  * Reusable two-column hero layout for feature landing pages.
- * Left column: badge, title (with accent span), subtitle, CTA buttons.
+ * Left column: badge, title (with accent span), subtitle, support text, CTA buttons.
  * Right column: `<ng-content>` slot for feature-specific media/previews.
  *
  * Designed for reuse across `/analytics`, `/xp`, `/scout-reports`,
@@ -21,10 +21,11 @@
  *   title="Your Recruiting Edge,"
  *   accentText="Powered by Data"
  *   subtitle="Real-time analytics for athletes and coaches."
+ *   support="Verified metrics and live recruiting activity to help coaches evaluate faster."
  *   primaryCtaLabel="Get Started Free"
- *   primaryCtaRoute="/auth/register"
+ *   primaryCtaRoute="/auth"
  *   secondaryCtaLabel="Log In"
- *   secondaryCtaRoute="/auth/login"
+ *   secondaryCtaRoute="/auth"
  * >
  *   <nxt1-analytics-dashboard-preview />
  * </nxt1-hero-section>
@@ -33,62 +34,67 @@
 
 import { Component, ChangeDetectionStrategy, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NxtIconComponent } from '../icon';
-import { NxtCtaButtonComponent } from '../cta-button';
+import { NxtCtaButtonComponent, type CtaButtonVariant } from '../cta-button';
+import { NxtAppStoreBadgesComponent } from '../app-store-badges';
+import { NxtSectionHeaderComponent } from '../section-header';
 
 /** Layout variant for the hero section. */
-export type HeroLayout = 'split' | 'centered';
+export type HeroLayout = 'split' | 'split-reverse' | 'centered';
+
+/** Semantic heading level (1–6). Defaults to 1 for top-level hero. */
+export type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
 @Component({
   selector: 'nxt1-hero-section',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, NxtCtaButtonComponent],
+  imports: [
+    CommonModule,
+    NxtSectionHeaderComponent,
+    NxtCtaButtonComponent,
+    NxtAppStoreBadgesComponent,
+  ],
   template: `
     <section
       class="hero"
       [class.hero--centered]="layout() === 'centered'"
+      [class.hero--reversed]="layout() === 'split-reverse'"
       [attr.aria-labelledby]="ariaId()"
     >
       <!-- Text Content Column -->
       <div class="hero-content">
-        <!-- Badge -->
-        @if (badgeLabel()) {
-          <div class="hero-badge">
-            @if (badgeIcon()) {
-              <nxt1-icon [name]="badgeIcon()!" size="18" />
-            }
-            <span>{{ badgeLabel() }}</span>
-          </div>
-        }
-
-        <!-- Title with Accent -->
-        <h1 [id]="ariaId()" class="hero-title">
-          {{ title() }}
-          @if (accentText()) {
-            <span class="hero-accent"> {{ accentText() }}</span>
-          }
-        </h1>
-
-        <!-- Subtitle -->
-        @if (subtitle()) {
-          <p class="hero-subtitle">{{ subtitle() }}</p>
-        }
+        <nxt1-section-header
+          variant="standard"
+          [titleId]="ariaId()"
+          [headingLevel]="headingLevel()"
+          [eyebrow]="badgeLabel()"
+          [eyebrowIcon]="badgeIcon()"
+          [title]="title()"
+          [accentText]="accentText()"
+          [subtitle]="subtitle()"
+          [support]="support()"
+        />
 
         <!-- CTA Buttons -->
         @if (primaryCtaLabel()) {
           <div class="hero-actions">
-            <nxt1-cta-button
-              [label]="primaryCtaLabel()!"
-              [route]="primaryCtaRoute()"
-              variant="primary"
-            />
-            @if (secondaryCtaLabel()) {
+            <!-- Desktop: Web CTA buttons -->
+            <div class="hero-actions__desktop">
               <nxt1-cta-button
-                [label]="secondaryCtaLabel()!"
-                [route]="secondaryCtaRoute()"
-                variant="secondary"
+                [label]="primaryCtaLabel()!"
+                [route]="primaryCtaRoute()"
+                variant="primary"
               />
-            }
+              @if (secondaryCtaLabel()) {
+                <nxt1-cta-button
+                  [label]="secondaryCtaLabel()!"
+                  [route]="secondaryCtaRoute()"
+                  [variant]="secondaryCtaVariant()"
+                />
+              }
+            </div>
+
+            <!-- Mobile: App store download badges -->
+            <nxt1-app-store-badges class="hero-actions__mobile" />
           </div>
         }
       </div>
@@ -128,6 +134,15 @@ export type HeroLayout = 'split' | 'centered';
           padding: var(--nxt1-section-padding-y) var(--nxt1-section-padding-x);
           gap: var(--nxt1-spacing-12);
         }
+
+        .hero--reversed .hero-content {
+          order: 2;
+        }
+
+        .hero--reversed .hero-media {
+          order: 1;
+          justify-content: flex-start;
+        }
       }
 
       /* Centered variant — single column, text centered */
@@ -142,7 +157,11 @@ export type HeroLayout = 'split' | 'centered';
         }
       }
 
-      .hero--centered .hero-subtitle {
+      .hero-content nxt1-section-header {
+        width: 100%;
+      }
+
+      .hero--centered .hero-content nxt1-section-header {
         margin-left: auto;
         margin-right: auto;
       }
@@ -151,59 +170,32 @@ export type HeroLayout = 'split' | 'centered';
         justify-content: center;
       }
 
-      /* ============================================
-     * BADGE — Pill label above the title
-     * ============================================ */
-      .hero-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
-        background: var(--nxt1-color-alpha-primary10);
-        color: var(--nxt1-color-primary);
-        border-radius: var(--nxt1-borderRadius-full);
-        font-size: var(--nxt1-fontSize-xs);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        font-family: var(--nxt1-fontFamily-brand);
-        letter-spacing: var(--nxt1-letterSpacing-wide);
-        text-transform: uppercase;
-        margin-bottom: var(--nxt1-spacing-4);
+      .hero-content {
+        display: grid;
+        gap: var(--nxt1-spacing-4, 16px);
       }
 
-      /* ============================================
-     * TITLE — Large display heading with accent
-     * ============================================ */
-      .hero-title {
-        font-family: var(--nxt1-fontFamily-display);
-        font-size: var(--nxt1-fontSize-3xl);
-        font-weight: var(--nxt1-fontWeight-bold);
-        line-height: var(--nxt1-lineHeight-tight);
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-4);
+      .hero-content nxt1-section-header {
+        max-width: var(--nxt1-spacing-120, 480px);
       }
 
-      @media (min-width: 768px) {
-        .hero-title {
-          font-size: var(--nxt1-fontSize-4xl);
+      @media (max-width: 767px) {
+        .hero-content {
+          text-align: center;
+        }
+
+        .hero-content nxt1-section-header {
+          margin-inline: auto;
+        }
+
+        .hero-content .hero-actions {
+          justify-content: center;
         }
       }
 
-      .hero-accent {
-        color: var(--nxt1-color-primary);
-      }
-
       /* ============================================
-     * SUBTITLE — Supporting description text
+     * BADGE — Pill label above the title
      * ============================================ */
-      .hero-subtitle {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-lg);
-        line-height: var(--nxt1-lineHeight-relaxed);
-        color: var(--nxt1-color-text-secondary);
-        margin: 0 0 var(--nxt1-spacing-6);
-        max-width: var(--nxt1-section-subtitle-max-width);
-      }
-
       /* ============================================
      * CTA ACTIONS — Button row with wrap
      * ============================================ */
@@ -211,6 +203,31 @@ export type HeroLayout = 'split' | 'centered';
         display: flex;
         gap: var(--nxt1-spacing-3);
         flex-wrap: wrap;
+      }
+
+      .hero-actions__desktop {
+        display: flex;
+        gap: var(--nxt1-spacing-3);
+        flex-wrap: wrap;
+      }
+
+      /* Mobile-first: show app badges, hide web CTAs */
+      .hero-actions__desktop {
+        display: none;
+      }
+
+      .hero-actions__mobile {
+        display: inline-flex;
+      }
+
+      @media (min-width: 1024px) {
+        .hero-actions__desktop {
+          display: flex;
+        }
+
+        .hero-actions__mobile {
+          display: none;
+        }
       }
 
       /* ============================================
@@ -237,7 +254,7 @@ export type HeroLayout = 'split' | 'centered';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtHeroSectionComponent {
-  /** Layout variant: 'split' (text left, media right) or 'centered' (single column). */
+  /** Layout variant: 'split' (text left, media right), 'split-reverse' (text right, media left), or 'centered' (single column). */
   readonly layout = input<HeroLayout>('split');
 
   /** Badge icon name (Ionicon). Omit to hide the icon. */
@@ -255,17 +272,26 @@ export class NxtHeroSectionComponent {
   /** Subtitle / description paragraph below the title. */
   readonly subtitle = input<string>();
 
+  /** Optional support text paragraph rendered below the subtitle. */
+  readonly support = input<string>();
+
   /** Primary CTA button label. Omit to hide all CTAs. */
   readonly primaryCtaLabel = input<string>();
 
   /** Primary CTA route (defaults to register). */
-  readonly primaryCtaRoute = input<string>('/auth/register');
+  readonly primaryCtaRoute = input<string>('/auth');
 
   /** Secondary CTA button label. Omit to show only the primary CTA. */
   readonly secondaryCtaLabel = input<string>();
 
   /** Secondary CTA route (defaults to login). */
-  readonly secondaryCtaRoute = input<string>('/auth/login');
+  readonly secondaryCtaRoute = input<string>('/auth');
+
+  /** Secondary CTA visual variant. */
+  readonly secondaryCtaVariant = input<CtaButtonVariant>('secondary');
+
+  /** Semantic heading level (1-6). Use 2+ when another h1 exists on the page. */
+  readonly headingLevel = input<HeadingLevel>(1);
 
   /** ARIA ID for the title element (auto-generated or override). */
   readonly ariaId = input<string>('hero-section-title');

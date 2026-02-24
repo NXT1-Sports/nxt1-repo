@@ -328,7 +328,7 @@ export function createFooterConfig(config: Partial<FooterConfig> = {}): FooterCo
     variant: 'default',
     hidden: false,
     translucent: true,
-    glass: false, // Solid background by default
+    glass: true, // Glass background by default
     indicatorStyle: 'none',
     scrollToTopOnSameTap: true, // Enable scroll-to-top on same tab tap by default
     ...config,

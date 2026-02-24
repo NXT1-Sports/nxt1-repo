@@ -26,7 +26,7 @@
  * <nxt1-site-footer
  *   [linkGroups]="footerLinks"
  *   ctaLabel="Sign Up Free"
- *   ctaRoute="/auth/register"
+ *   ctaRoute="/auth"
  * />
  * ```
  *
@@ -108,6 +108,9 @@ const DEFAULT_LINK_GROUPS: SiteFooterLinkGroup[] = [
 
 @Component({
   selector: 'nxt1-site-footer',
+  host: {
+    style: 'display: none !important;',
+  },
   standalone: true,
   imports: [RouterLink, NxtLogoComponent, NxtIconComponent],
   template: `
@@ -204,12 +207,6 @@ const DEFAULT_LINK_GROUPS: SiteFooterLinkGroup[] = [
       :host {
         display: block;
         width: 100%;
-      }
-
-      @media (min-width: 768px) {
-        :host {
-          display: none;
-        }
       }
 
       /* ============================================
@@ -502,7 +499,7 @@ export class NxtSiteFooterComponent {
   readonly ctaLabel = input<string>('Get Started Free');
 
   /** CTA button route. */
-  readonly ctaRoute = input<string>('/auth/register');
+  readonly ctaRoute = input<string>('/auth');
 
   /** Company name for copyright line. */
   readonly companyName = input<string>('NXT1 Sports');

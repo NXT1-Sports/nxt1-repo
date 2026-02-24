@@ -97,3 +97,23 @@ export { ShareService } from './share.service';
  * @see {@link ../../../../../../docs/FIREBASE-PERFORMANCE-USAGE-GUIDE.md Usage Guide}
  */
 export { PerformanceService } from './performance.service';
+
+// ============================================
+// BADGE COUNT SERVICE
+// ============================================
+
+/**
+ * Lightweight badge count service for the app shell.
+ * Used by WebShellComponent instead of importing ActivityService directly.
+ * Feature services (ActivityService, MessagesService) write to this via the badge bridge.
+ *
+ * @see {@link ./badge-count.service.ts}
+ * @see {@link ./badge-bridge.initializer.ts}
+ */
+export { BadgeCountService } from './badge-count.service';
+
+/**
+ * Badge bridge initializer — connects ActivityService (from @nxt1/ui) → BadgeCountService.
+ * Register in app.config.ts: `provideBadgeBridge()`
+ */
+export { provideBadgeBridge } from './badge-bridge.initializer';

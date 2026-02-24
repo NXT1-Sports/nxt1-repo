@@ -95,7 +95,7 @@ export class XpComponent {
    * Avatar source URL for page header
    */
   protected readonly avatarSrc = computed(() => {
-    return this.authFlow.user()?.photoURL;
+    return this.authFlow.user()?.profileImg;
   });
 
   /**

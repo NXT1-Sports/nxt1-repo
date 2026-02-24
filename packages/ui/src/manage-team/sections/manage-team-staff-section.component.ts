@@ -29,21 +29,6 @@ import {
 import type { StaffMember, StaffRole, StaffActionEvent } from '@nxt1/core';
 import { STAFF_ROLE_CONFIG } from '@nxt1/core';
 
-addIcons({
-  peopleOutline,
-  addOutline,
-  personOutline,
-  mailOutline,
-  callOutline,
-  ellipsisVertical,
-  shieldCheckmarkOutline,
-  fitnessOutline,
-  medkitOutline,
-  clipboardOutline,
-  briefcaseOutline,
-  schoolOutline,
-});
-
 @Component({
   selector: 'nxt1-manage-team-staff-section',
   standalone: true,
@@ -568,6 +553,23 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ManageTeamStaffSectionComponent {
+  constructor() {
+    addIcons({
+      peopleOutline,
+      addOutline,
+      personOutline,
+      mailOutline,
+      callOutline,
+      ellipsisVertical,
+      shieldCheckmarkOutline,
+      fitnessOutline,
+      medkitOutline,
+      clipboardOutline,
+      briefcaseOutline,
+      schoolOutline,
+    });
+  }
+
   /** Staff list */
   readonly staff = input<readonly StaffMember[]>([]);
 

@@ -105,6 +105,11 @@
       "types": "./dist/create-post/index.d.ts",
       "import": "./dist/create-post/index.mjs",
       "require": "./dist/create-post/index.js"
+    },
+    "./onboarding": {
+      "types": "./dist/onboarding/index.d.ts",
+      "import": "./dist/onboarding/index.mjs",
+      "require": "./dist/onboarding/index.js"
     }
   },
   "files": [

@@ -32,23 +32,6 @@ import {
 import type { TeamIntegration, IntegrationProvider, IntegrationActionEvent } from '@nxt1/core';
 import { INTEGRATION_PROVIDERS } from '@nxt1/core';
 
-addIcons({
-  linkOutline,
-  addOutline,
-  checkmarkCircle,
-  closeCircle,
-  syncOutline,
-  trashOutline,
-  openOutline,
-  copyOutline,
-  alertCircleOutline,
-  informationCircleOutline,
-  videocamOutline,
-  statsChartOutline,
-  calendarOutline,
-  chevronForwardOutline,
-});
-
 @Component({
   selector: 'nxt1-manage-team-integrations-section',
   standalone: true,
@@ -668,6 +651,25 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ManageTeamIntegrationsSectionComponent {
+  constructor() {
+    addIcons({
+      linkOutline,
+      addOutline,
+      checkmarkCircle,
+      closeCircle,
+      syncOutline,
+      trashOutline,
+      openOutline,
+      copyOutline,
+      alertCircleOutline,
+      informationCircleOutline,
+      videocamOutline,
+      statsChartOutline,
+      calendarOutline,
+      chevronForwardOutline,
+    });
+  }
+
   /** Integrations list */
   readonly integrations = input<readonly TeamIntegration[]>([]);
 

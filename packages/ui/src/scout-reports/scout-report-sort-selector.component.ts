@@ -40,17 +40,6 @@ import {
 import type { ScoutReportSortBy, SortOrder } from '@nxt1/core';
 
 // Register icons
-addIcons({
-  swapVerticalOutline,
-  chevronDownOutline,
-  checkmarkOutline,
-  starOutline,
-  timeOutline,
-  trendingUpOutline,
-  trendingDownOutline,
-  textOutline,
-});
-
 /**
  * Combined sort option (sortBy + sortOrder).
  */
@@ -282,6 +271,19 @@ const SORT_OPTIONS: SortOptionConfig[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ScoutReportSortSelectorComponent {
+  constructor() {
+    addIcons({
+      swapVerticalOutline,
+      chevronDownOutline,
+      checkmarkOutline,
+      starOutline,
+      timeOutline,
+      trendingUpOutline,
+      trendingDownOutline,
+      textOutline,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

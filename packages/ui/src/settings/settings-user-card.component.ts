@@ -36,13 +36,6 @@ import { NxtAvatarComponent } from '../components/avatar';
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  cameraOutline,
-  createOutline,
-  checkmarkCircle,
-  star,
-});
-
 @Component({
   selector: 'nxt1-settings-user-card',
   standalone: true,
@@ -54,7 +47,7 @@ addIcons({
       <!-- Avatar with Edit Overlay -->
       <div class="user-card__avatar-container">
         <nxt1-avatar
-          [src]="user()?.photoURL"
+          [src]="user()?.profileImg"
           [name]="user()?.displayName ?? user()?.email"
           size="xl"
         />
@@ -326,6 +319,15 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsUserCardComponent {
+  constructor() {
+    addIcons({
+      cameraOutline,
+      createOutline,
+      checkmarkCircle,
+      star,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   // ============================================

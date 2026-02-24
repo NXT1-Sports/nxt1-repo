@@ -28,8 +28,8 @@ export interface AuthUser {
   email: string;
   /** Display name */
   displayName: string;
-  /** Profile photo URL */
-  photoURL?: string;
+  /** Profile image URL from backend (source of truth for user profile photo) */
+  profileImg?: string;
   /** User role in the application */
   role: UserRole;
   /** Premium subscription status */

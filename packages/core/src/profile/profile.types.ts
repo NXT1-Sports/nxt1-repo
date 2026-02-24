@@ -18,7 +18,17 @@
  * Profile tab identifiers for content filtering.
  * 'timeline' shows all content, 'videos' filters to video posts only.
  */
-export type ProfileTabId = 'timeline' | 'videos' | 'offers' | 'stats' | 'events' | 'contact';
+export type ProfileTabId =
+  | 'overview'
+  | 'timeline'
+  | 'news'
+  | 'videos'
+  | 'offers'
+  | 'stats'
+  | 'academic'
+  | 'events'
+  | 'schedule'
+  | 'contact';
 
 /**
  * Configuration for a profile content tab.
@@ -67,17 +77,60 @@ export interface ProfileSport {
 }
 
 /**
- * School/Team information.
+ * Team affiliation types shown on athlete profiles.
  */
-export interface ProfileSchool {
-  /** School name */
+export type ProfileTeamType =
+  | 'high-school'
+  | 'club'
+  | 'juco'
+  | 'college'
+  | 'academy'
+  | 'travel'
+  | 'middle-school'
+  | 'other';
+
+/**
+ * Team affiliation entry (school, club, academy, etc.).
+ */
+export interface ProfileTeamAffiliation {
+  /** Team/organization display name */
   readonly name: string;
+  /** Team type for labeling and icon treatment */
+  readonly type?: ProfileTeamType;
   /** Team logo URL */
   readonly logoUrl?: string;
   /** Team code (for linking) */
   readonly teamCode?: string;
   /** Location (City, State) */
   readonly location?: string;
+  /** Season record label (for example: "10-2" or "10-2-1") */
+  readonly seasonRecord?: string;
+  /** Optional wins/losses/ties values when no formatted seasonRecord is provided */
+  readonly wins?: number | string;
+  readonly losses?: number | string;
+  readonly ties?: number | string;
+}
+
+/**
+ * School/Team information.
+ */
+export interface ProfileSchool {
+  /** School name */
+  readonly name: string;
+  /** School/team type */
+  readonly type?: ProfileTeamType;
+  /** Team logo URL */
+  readonly logoUrl?: string;
+  /** Team code (for linking) */
+  readonly teamCode?: string;
+  /** Location (City, State) */
+  readonly location?: string;
+  /** Season record label (for example: "10-2" or "10-2-1") */
+  readonly seasonRecord?: string;
+  /** Optional wins/losses/ties values when no formatted seasonRecord is provided */
+  readonly wins?: number | string;
+  readonly losses?: number | string;
+  readonly ties?: number | string;
 }
 
 /**
@@ -128,6 +181,8 @@ export interface ProfileUser {
   readonly profileImg?: string;
   /** Banner/cover image URL */
   readonly bannerImg?: string;
+  /** Gallery images (additional profile photos) */
+  readonly gallery?: readonly string[];
   /** User role */
   readonly role: ProfileUserRole;
   /** Whether this is a recruit/athlete */
@@ -144,12 +199,22 @@ export interface ProfileUser {
   readonly additionalSports?: readonly ProfileSport[];
   /** School/team info */
   readonly school?: ProfileSchool;
+  /** Team affiliations shown in right-side profile card */
+  readonly teamAffiliations?: readonly ProfileTeamAffiliation[];
   /** Graduation class (e.g., "2026") */
   readonly classYear?: string;
   /** Height (for athletes) */
   readonly height?: string;
   /** Weight (for athletes) */
   readonly weight?: string;
+  /** Measurables verified by source (e.g., "Rivals", "247Sports") */
+  readonly measurablesVerifiedBy?: string;
+  /** URL for the verification source */
+  readonly measurablesVerifiedUrl?: string;
+  /** Stats verified by source (e.g., "MaxPreps") — powers the shared verification banner */
+  readonly statsVerifiedBy?: string;
+  /** URL for the stats verification source */
+  readonly statsVerifiedUrl?: string;
   /** GPA */
   readonly gpa?: string;
   /** SAT score */
@@ -334,7 +399,7 @@ export interface ProfilePinnedVideo {
 /**
  * Offer type.
  */
-export type OfferType = 'scholarship' | 'preferred_walk_on' | 'camp_invite' | 'visit' | 'interest';
+export type OfferType = 'scholarship' | 'preferred_walk_on' | 'interest';
 
 /**
  * A college offer.
@@ -348,6 +413,8 @@ export interface ProfileOffer {
   readonly collegeName: string;
   /** College logo URL */
   readonly collegeLogoUrl?: string;
+  /** Optional graphic/image URL for the offer card */
+  readonly graphicUrl?: string;
   /** Division (D1, D2, D3, NAIA, etc.) */
   readonly division?: string;
   /** Conference */
@@ -399,6 +466,10 @@ export interface ProfileEvent {
   readonly opponent?: string;
   /** Result (for past games) */
   readonly result?: string;
+  /** Logo/avatar URL for the entity (college logo, camp logo, etc.) */
+  readonly logoUrl?: string;
+  /** Full graphic/banner image URL (event flyer, camp graphic, etc.) */
+  readonly graphicUrl?: string;
 }
 
 // ============================================
@@ -474,6 +545,91 @@ export interface ProfileHeaderAction {
 }
 
 // ============================================
+// PLAYER CARD / PROSPECT GRADE TYPES (Agent X)
+// ============================================
+
+/**
+ * Prospect rating tier — determines visual treatment of the OVR badge.
+ * Inspired by sports video game rating systems (Madden, 2K).
+ */
+export type ProspectTier =
+  | 'elite'
+  | 'blue-chip'
+  | 'starter'
+  | 'prospect'
+  | 'developing'
+  | 'unrated';
+
+/**
+ * Agent X-generated prospect grade (the "OVR" rating).
+ * The centerpiece of the Madden-style player card.
+ */
+export interface ProspectGrade {
+  /** Overall rating 0-99 */
+  readonly overall: number;
+  /** Rating tier for visual treatment */
+  readonly tier: ProspectTier;
+  /** Star rating 1-5 (traditional recruiting context) */
+  readonly starRating?: number;
+  /** When the grade was last computed by Agent X */
+  readonly generatedAt?: string;
+  /** Agent X confidence in this rating (0-100) */
+  readonly confidence?: number;
+}
+
+/**
+ * A positional skill archetype with individual rating.
+ * e.g., "Arm Strength: 92", "Speed: 88", "Court Vision: 85"
+ */
+export interface PlayerArchetype {
+  /** Skill name (e.g., "Arm Strength", "Speed", "Court Vision") */
+  readonly name: string;
+  /** Rating 0-99 */
+  readonly rating: number;
+  /** Optional icon key */
+  readonly icon?: string;
+}
+
+/**
+ * Agent X trait category — mirrors video game "Superstar/X-Factor" ability system.
+ */
+export type AgentXTraitCategory = 'superstar' | 'x-factor' | 'hidden';
+
+/**
+ * Agent X assigned trait/ability badge.
+ * e.g., "Elite Arm Talent", "Shutdown Corner", "Floor General"
+ */
+export interface AgentXTrait {
+  /** Trait name */
+  readonly name: string;
+  /** Category determines visual treatment */
+  readonly category: AgentXTraitCategory;
+  /** Short description of what makes this athlete special */
+  readonly description?: string;
+  /** Icon key */
+  readonly icon?: string;
+  /** Progress toward unlocking (for 'hidden' category) */
+  readonly progressCurrent?: number;
+  /** Total needed to unlock */
+  readonly progressTotal?: number;
+}
+
+/**
+ * Complete player card data generated by Agent X.
+ * This is the "Madden Profile" — the AI-powered scouting dashboard.
+ */
+export interface PlayerCardData {
+  /** The OVR rating */
+  readonly prospectGrade?: ProspectGrade;
+  /** Positional skill breakdowns (3-4 archetypes) */
+  readonly archetypes?: readonly PlayerArchetype[];
+  /** Featured Agent X trait/ability */
+  readonly trait?: AgentXTrait;
+  /** AI-generated one-line scouting summary */
+  readonly agentXSummary?: string;
+}
+
+// ============================================
 // API RESPONSE TYPES
 // ============================================
 
@@ -501,4 +657,6 @@ export interface ProfilePageData {
   readonly isOwnProfile: boolean;
   /** Whether current user can edit this profile */
   readonly canEdit: boolean;
+  /** Agent X player card data (Madden-style ratings & archetypes) */
+  readonly playerCard?: PlayerCardData;
 }

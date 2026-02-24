@@ -52,7 +52,7 @@ import type { MessagesUser } from '../messages-shell.component';
     <!-- Page header (hidden on desktop when sidebar visible) -->
     @if (!hideHeader()) {
       <nxt1-page-header
-        [avatarSrc]="user()?.photoURL"
+        [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         (avatarClick)="avatarClick.emit()"
       >

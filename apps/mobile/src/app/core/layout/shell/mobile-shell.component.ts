@@ -353,7 +353,8 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       enableHaptics: true,
       variant: isIos ? 'default' : 'elevated',
       hidden: false,
-      translucent: isIos,
+      translucent: false,
+      glass: false, // Solid opaque background
       indicatorStyle: 'none',
       scrollToTopOnSameTap: true, // Enable Instagram/Twitter-style scroll-to-top
     };
@@ -385,7 +386,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       const primarySport = profile.sports?.find((s) => s.order === 0) ?? profile.sports?.[0];
       const position = primarySport?.positions?.[0] ?? '';
       const displayName = `${profile.firstName} ${profile.lastName}`.trim();
-      const avatarUrl = profile.profileImg || authUser?.photoURL || undefined;
+      const avatarUrl = profile.profileImg || authUser?.profileImg || undefined;
       return {
         name: displayName || 'User',
         subtitle: position ? `${primarySport?.sport ?? ''} • ${position}` : profile.email,
@@ -414,7 +415,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     return {
       name: authUser.displayName || 'User',
       subtitle: authUser.email,
-      avatarUrl: authUser.photoURL ?? undefined,
+      avatarUrl: authUser.profileImg ?? undefined,
       initials: this.getInitials(authUser.displayName || authUser.email || 'U'),
       verified: authUser.emailVerified,
       isPremium: authUser.isPremium,
@@ -733,7 +734,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       user: user
         ? {
             displayName: `${user.firstName} ${user.lastName}`.trim() || user.email || undefined,
-            photoURL: user.profileImg ?? undefined,
+            profileImg: user.profileImg ?? undefined,
             referralCode: undefined, // TODO: Get from backend
           }
         : undefined,

@@ -7,10 +7,12 @@
  */
 
 import { ApplicationConfig, provideZoneChangeDetection, ErrorHandler } from '@angular/core';
+import { APP_BASE_HREF } from '@angular/common';
 import { provideRouter, withComponentInputBinding, RouteReuseStrategy } from '@angular/router';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import { provideAnimations } from '@angular/platform-browser/animations';
 import { provideIonicAngular, IonicRouteStrategy } from '@ionic/angular/standalone';
+import { iosTransitionAnimation } from '@ionic/core';
 
 // Firebase
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
@@ -60,6 +62,9 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
 
+    // Explicit base href for Capacitor and Vite dev server compatibility
+    { provide: APP_BASE_HREF, useValue: '/' },
+
     provideRouter(routes, withComponentInputBinding()),
 
     // HTTP client with error handling
@@ -83,6 +88,7 @@ export const appConfig: ApplicationConfig = {
     // - gestureEnablers: use custom swipe handling in shell component
     provideIonicAngular({
       mode: 'ios', // iOS mode = horizontal slide animations (like Instagram/TikTok)
+      navAnimation: iosTransitionAnimation, // Eagerly provide transition to avoid Vite dynamic import failure
       innerHTMLTemplatesEnabled: true,
       swipeBackEnabled: false, // Disable iOS back gesture - we use sidenav instead (Twitter/X pattern)
     }),

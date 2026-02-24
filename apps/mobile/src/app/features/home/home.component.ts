@@ -58,7 +58,7 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
     <!-- Professional Page Header with Logo (Twitter/X style) -->
     <nxt1-page-header
       [showLogo]="true"
-      [avatarSrc]="photoURL()"
+      [avatarSrc]="profileImg()"
       [avatarName]="displayName()"
       [actions]="headerActions()"
       (avatarClick)="onAvatarClick()"
@@ -169,10 +169,10 @@ export class HomeComponent implements OnInit {
   });
 
   // Map User model fields to template-friendly names
-  readonly photoURL = computed(() => {
+  readonly profileImg = computed(() => {
     const profile = this.profile();
     if (profile) return profile.profileImg;
-    return this.authUser()?.photoURL;
+    return this.authUser()?.profileImg;
   });
 
   readonly isPremium = computed(() => {

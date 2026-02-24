@@ -44,8 +44,8 @@ import { serverRoutes } from './app.routes.server';
 // @ionic/angular-server is installed for its server-safe component implementations
 import { provideIonicAngular } from '@ionic/angular/standalone';
 
-// Shared infrastructure from @nxt1/ui
-import { GLOBAL_CRASHLYTICS } from '@nxt1/ui';
+// Shared infrastructure from @nxt1/ui (granular import)
+import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure';
 
 // Crashlytics service (web uses GA4 fallback, SSR-safe)
 import { CrashlyticsService } from './core/services/crashlytics.service';
@@ -113,7 +113,9 @@ export const config: ApplicationConfig = {
     // Ionic components are server-rendered via IonicServerModule
     // This provides server-safe implementations of Ionic web components
     provideIonicAngular({
-      mode: undefined, // Auto-detect platform
+      // Use 'md' on server to match client config and avoid
+      // platform detection mismatches during hydration.
+      mode: 'md',
     }),
 
     // ============================================

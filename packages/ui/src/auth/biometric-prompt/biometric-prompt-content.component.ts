@@ -29,13 +29,6 @@ import { NxtPlatformService } from '../../services/platform';
 import type { BiometricPromptResult } from './biometric-prompt.service';
 
 // Register icons
-addIcons({
-  'finger-print-outline': fingerPrintOutline,
-  'scan-outline': scanOutline,
-  'shield-checkmark-outline': shieldCheckmarkOutline,
-  'close-outline': closeOutline,
-});
-
 @Component({
   selector: 'nxt1-biometric-prompt-content',
   standalone: true,
@@ -539,6 +532,15 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class BiometricPromptContentComponent {
+  constructor() {
+    addIcons({
+      'finger-print-outline': fingerPrintOutline,
+      'scan-outline': scanOutline,
+      'shield-checkmark-outline': shieldCheckmarkOutline,
+      'close-outline': closeOutline,
+    });
+  }
+
   private readonly modalCtrl = inject(ModalController);
   private readonly platform = inject(NxtPlatformService);
 

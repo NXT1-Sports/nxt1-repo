@@ -157,7 +157,7 @@ const FAQS: FaqItem[] = [
       accentText="Before Anyone Else"
       subtitle="Evaluate athletes, build prospect lists, create professional scouting reports, and share your findings with college programs — all from the NXT1 scouting workspace."
       primaryCtaLabel="Start Scouting"
-      primaryCtaRoute="/auth/register"
+      primaryCtaRoute="/auth"
       secondaryCtaLabel="Browse Athletes"
       secondaryCtaRoute="/explore"
       ariaId="scouts-hero"
@@ -189,7 +189,7 @@ const FAQS: FaqItem[] = [
       title="Scout the Next Generation"
       subtitle="Join 1,000+ verified scouts discovering talent on NXT1. Free to search, powerful to evaluate."
       ctaLabel="Start Scouting"
-      ctaRoute="/auth/register"
+      ctaRoute="/auth"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,

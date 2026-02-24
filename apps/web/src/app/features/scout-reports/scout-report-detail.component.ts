@@ -33,7 +33,7 @@ import {
   ScoutReportPremiumBadgeComponent,
   ScoutReportDetailSkeletonComponent,
   type QuickStatItem,
-} from '@nxt1/ui';
+} from '@nxt1/ui/scout-reports';
 import { formatViewCount, formatGradYear, getRatingTier } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AnalyticsService } from '../../core/services';

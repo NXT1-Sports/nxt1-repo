@@ -39,7 +39,7 @@ export const MOCK_USER = {
   uid: 'test-user-123',
   email: 'e2e-test@nxt1.com',
   displayName: 'E2E Test User',
-  photoURL: 'https://ui-avatars.com/api/?name=E2E+Test&background=random',
+  profileImg: 'https://ui-avatars.com/api/?name=E2E+Test&background=random',
   emailVerified: true,
   metadata: {
     creationTime: '2025-01-01T00:00:00.000Z',
@@ -120,7 +120,7 @@ export const MOCK_POSTS = [
     authorId: MOCK_USER.uid,
     author: {
       name: 'E2E Tester',
-      avatarUrl: MOCK_USER.photoURL,
+      avatarUrl: MOCK_USER.profileImg,
     },
     likeCount: 42,
     commentCount: 8,
@@ -135,7 +135,7 @@ export const MOCK_POSTS = [
     authorId: MOCK_USER.uid,
     author: {
       name: 'E2E Tester',
-      avatarUrl: MOCK_USER.photoURL,
+      avatarUrl: MOCK_USER.profileImg,
     },
     likeCount: 15,
     commentCount: 3,
@@ -247,7 +247,7 @@ export const handlers = [
       completeSignUp: true,
       isCollegeCoach: false,
       isRecruit: true,
-      profileImg: MOCK_USER.photoURL,
+      profileImg: MOCK_USER.profileImg,
       sports: [{ sport: 'Football', positions: ['Quarterback'], order: 0 }],
     });
   }),
@@ -436,7 +436,7 @@ export const handlers = [
       authorId: MOCK_USER.uid,
       author: {
         name: 'E2E Tester',
-        avatarUrl: MOCK_USER.photoURL,
+        avatarUrl: MOCK_USER.profileImg,
       },
       likeCount: 0,
       commentCount: 0,

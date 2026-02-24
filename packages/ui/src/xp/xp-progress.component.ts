@@ -41,16 +41,6 @@ import {
 import type { MissionProgress } from '@nxt1/core';
 
 // Register icons
-addIcons({
-  star,
-  starOutline,
-  starHalfOutline,
-  trophy,
-  trophyOutline,
-  flame,
-  flameOutline,
-});
-
 type ProgressSize = 'small' | 'medium' | 'large';
 
 @Component({
@@ -361,6 +351,18 @@ type ProgressSize = 'small' | 'medium' | 'large';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class XpProgressComponent {
+  constructor() {
+    addIcons({
+      star,
+      starOutline,
+      starHalfOutline,
+      trophy,
+      trophyOutline,
+      flame,
+      flameOutline,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

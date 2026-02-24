@@ -57,16 +57,18 @@ import {
 export type { ToastType, ToastPosition, ToastAction, ToastOptions } from './toast.types';
 
 // Register icons used by toast service
-addIcons({
-  'checkmark-circle': checkmarkCircle,
-  'alert-circle': alertCircle,
-  warning: warning,
-  'information-circle': informationCircle,
-  close: close,
-});
-
 @Injectable({ providedIn: 'root' })
 export class NxtToastService {
+  constructor() {
+    addIcons({
+      'checkmark-circle': checkmarkCircle,
+      'alert-circle': alertCircle,
+      warning: warning,
+      'information-circle': informationCircle,
+      close: close,
+    });
+  }
+
   private readonly toastController = inject(ToastController);
   private readonly platform = inject(NxtPlatformService);
   private readonly haptics = inject(HapticsService);

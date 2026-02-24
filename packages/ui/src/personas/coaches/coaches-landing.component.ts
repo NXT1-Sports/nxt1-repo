@@ -158,7 +158,7 @@ const FAQS: FaqItem[] = [
       accentText="Not Harder"
       subtitle="Search 125,000+ verified athlete profiles, watch highlight reels, evaluate prospects, and manage your recruiting pipeline — all on one platform built for coaches."
       primaryCtaLabel="Start Recruiting"
-      primaryCtaRoute="/auth/register"
+      primaryCtaRoute="/auth"
       secondaryCtaLabel="Search Athletes"
       secondaryCtaRoute="/explore"
       ariaId="coaches-hero"
@@ -190,7 +190,7 @@ const FAQS: FaqItem[] = [
       title="Find Your Next Recruit"
       subtitle="Join 3,000+ coaches already discovering talent on NXT1. Free to search, free to connect."
       ctaLabel="Start Recruiting"
-      ctaRoute="/auth/register"
+      ctaRoute="/auth"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,

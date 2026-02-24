@@ -26,7 +26,7 @@ import {
   HttpHandlerFn,
 } from '@angular/common/http';
 import { catchError, throwError } from 'rxjs';
-import { NxtLoggingService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services';
 import type { ILogger } from '@nxt1/core/logging';
 import {
   parseApiError,

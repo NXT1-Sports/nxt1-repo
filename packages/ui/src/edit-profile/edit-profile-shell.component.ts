@@ -55,18 +55,6 @@ import { EditProfileSkeletonComponent } from './edit-profile-skeleton.component'
 import type { EditProfileSectionId } from '@nxt1/core';
 
 // Register icons
-addIcons({
-  closeOutline,
-  checkmarkOutline,
-  chevronDownOutline,
-  chevronUpOutline,
-  sparklesOutline,
-  trophyOutline,
-  starOutline,
-  diamondOutline,
-  flameOutline,
-});
-
 @Component({
   selector: 'nxt1-edit-profile-shell',
   standalone: true,
@@ -670,6 +658,20 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class EditProfileShellComponent implements OnInit {
+  constructor() {
+    addIcons({
+      closeOutline,
+      checkmarkOutline,
+      chevronDownOutline,
+      chevronUpOutline,
+      sparklesOutline,
+      trophyOutline,
+      starOutline,
+      diamondOutline,
+      flameOutline,
+    });
+  }
+
   protected readonly profile = inject(EditProfileService);
 
   // ============================================

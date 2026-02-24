@@ -37,12 +37,10 @@ import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 
 // Shared UI Components
-import {
-  AuthShellComponent,
-  OnboardingWelcomeComponent,
-  NxtLoggingService,
-  NxtThemeService,
-} from '@nxt1/ui';
+import { AuthShellComponent } from '@nxt1/ui/auth/auth-shell';
+import { OnboardingWelcomeComponent } from '@nxt1/ui/onboarding/onboarding-welcome';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtThemeService } from '@nxt1/ui/services/theme';
 
 // Core Constants
 import { AUTH_REDIRECTS } from '@nxt1/core/constants';

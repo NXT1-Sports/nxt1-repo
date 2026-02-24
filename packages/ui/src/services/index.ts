@@ -119,3 +119,11 @@ export {
   type ModalCapabilities,
   type ModalPreference,
 } from './modal';
+
+// Breadcrumb / Crashlytics integration
+export {
+  NxtBreadcrumbService,
+  NxtTrackClickDirective,
+  NxtTrackFormDirective,
+  NxtTrackVisibleDirective,
+} from './breadcrumb';

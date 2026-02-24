@@ -42,6 +42,8 @@ import { XpCategoryComponent } from '../xp-category.component';
 import { XpItemComponent } from '../xp-item.component';
 import { XpBadgeGridComponent } from '../xp-badge.component';
 import { XpSkeletonComponent } from '../xp-skeleton.component';
+import { NxtXpEconomyRewardsComponent } from '../xp-economy-rewards.component';
+import { NxtXpArenaLeaderboardComponent } from '../xp-arena-leaderboard.component';
 
 @Component({
   selector: 'nxt1-xp-shell-web',
@@ -55,6 +57,8 @@ import { XpSkeletonComponent } from '../xp-skeleton.component';
     XpItemComponent,
     XpBadgeGridComponent,
     XpSkeletonComponent,
+    NxtXpEconomyRewardsComponent,
+    NxtXpArenaLeaderboardComponent,
   ],
   template: `
     <!-- Page Header (hidden on desktop when sidebar provides navigation) -->
@@ -165,6 +169,14 @@ import { XpSkeletonComponent } from '../xp-skeleton.component';
             </div>
           </section>
 
+          <section class="rewards-section" aria-label="XP economy rewards">
+            <nxt1-xp-economy-rewards />
+          </section>
+
+          <section class="arena-section" aria-label="The Arena head-to-head leaderboards">
+            <nxt1-xp-arena-leaderboard />
+          </section>
+
           <!-- Recent Badges -->
           @if (recentBadges().length > 0) {
             <section class="badges-section" aria-label="Recent badges">
@@ -255,7 +267,7 @@ import { XpSkeletonComponent } from '../xp-skeleton.component';
 
       /* Dashboard container — padding here (matches .usage-dashboard) */
       .xp-dashboard {
-        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
+        padding: 0;
         padding-bottom: var(--nxt1-spacing-16);
       }
 
@@ -341,7 +353,9 @@ import { XpSkeletonComponent } from '../xp-skeleton.component';
 
       .featured-section,
       .categories-section,
-      .badges-section {
+      .badges-section,
+      .rewards-section,
+      .arena-section {
         margin-bottom: var(--nxt1-spacing-6);
       }
 

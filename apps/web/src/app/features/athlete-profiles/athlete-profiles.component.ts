@@ -20,7 +20,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
-import { NxtAthleteProfilesLandingComponent } from '@nxt1/ui';
+import { NxtAthleteProfilesLandingComponent } from '@nxt1/ui/athlete-profiles';
 import { SeoService } from '../../core/services';
 
 @Component({

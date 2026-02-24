@@ -44,19 +44,6 @@ import {
 } from 'ionicons/icons';
 
 // Register icons
-addIcons({
-  eyeOutline,
-  bookmarkOutline,
-  heartOutline,
-  shareOutline,
-  trendingUpOutline,
-  timeOutline,
-  calendarOutline,
-  locationOutline,
-  schoolOutline,
-  personOutline,
-});
-
 /**
  * Single stat item.
  */
@@ -250,6 +237,21 @@ export interface QuickStatItem {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ScoutReportQuickStatsComponent {
+  constructor() {
+    addIcons({
+      eyeOutline,
+      bookmarkOutline,
+      heartOutline,
+      shareOutline,
+      trendingUpOutline,
+      timeOutline,
+      calendarOutline,
+      locationOutline,
+      schoolOutline,
+      personOutline,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

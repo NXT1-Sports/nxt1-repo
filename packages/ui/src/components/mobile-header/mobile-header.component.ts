@@ -29,13 +29,11 @@ import {
   ChangeDetectionStrategy,
   inject,
   signal,
-  computed,
   input,
   output,
   PLATFORM_ID,
   afterNextRender,
   HostBinding,
-  ElementRef,
   OnDestroy,
 } from '@angular/core';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
@@ -469,7 +467,6 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
 export class NxtMobileHeaderComponent implements OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly haptics = inject(HapticsService);
-  private readonly elementRef = inject(ElementRef);
   private readonly destroy$ = new Subject<void>();
 
   // ============================================

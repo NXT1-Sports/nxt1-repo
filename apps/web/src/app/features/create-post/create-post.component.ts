@@ -21,11 +21,11 @@ import {
   CreatePostShellComponent,
   CreatePostService,
   CreatePostApiService,
-  NxtPageHeaderComponent,
-  NxtToastService,
   MOCK_CURRENT_USER,
   MOCK_XP_PREVIEW,
-} from '@nxt1/ui';
+} from '@nxt1/ui/create-post';
+import { NxtPageHeaderComponent } from '@nxt1/ui/components/page-header';
+import { NxtToastService } from '@nxt1/ui/services/toast';
 import type { CreatePostState, TaggableUser, PostXpBreakdown } from '@nxt1/core';
 import { SeoService } from '../../core/services';
 

@@ -16,8 +16,6 @@ import { receiptOutline, documentTextOutline, downloadOutline } from 'ionicons/i
 import type { UsagePaymentHistoryRecord } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
 
-addIcons({ receiptOutline, documentTextOutline, downloadOutline });
-
 @Component({
   selector: 'nxt1-usage-payment-history',
   standalone: true,
@@ -261,6 +259,10 @@ addIcons({ receiptOutline, documentTextOutline, downloadOutline });
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsagePaymentHistoryComponent {
+  constructor() {
+    addIcons({ receiptOutline, documentTextOutline, downloadOutline });
+  }
+
   readonly records = input.required<readonly UsagePaymentHistoryRecord[]>();
   readonly hasMore = input<boolean>(false);
 

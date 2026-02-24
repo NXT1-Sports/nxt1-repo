@@ -45,8 +45,6 @@ import { NewsSkeletonComponent } from './news-skeleton.component';
 import { NewsEmptyStateComponent } from './news-empty-state.component';
 
 // Register icons
-addIcons({ alertCircleOutline, refreshOutline });
-
 @Component({
   selector: 'nxt1-news-list',
   standalone: true,
@@ -306,6 +304,10 @@ addIcons({ alertCircleOutline, refreshOutline });
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewsListComponent {
+  constructor() {
+    addIcons({ alertCircleOutline, refreshOutline });
+  }
+
   /** Articles to display */
   readonly articles = input<NewsArticle[]>([]);
 

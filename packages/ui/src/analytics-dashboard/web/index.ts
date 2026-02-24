@@ -7,3 +7,8 @@
  */
 
 export { AnalyticsDashboardShellWebComponent } from './analytics-dashboard-shell-web.component';
+export { AiInterpretationSectionComponent } from './ai-interpretation-section.component';
+export { RecruitingCrmWatchPanelComponent } from './recruiting-crm-watch-panel.component';
+export { ReportCardSectionComponent } from './report-card-section.component';
+export { TimeMachineSectionComponent } from './time-machine-section.component';
+export { WeeklyPulseSectionComponent } from './weekly-pulse-section.component';

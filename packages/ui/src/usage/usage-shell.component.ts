@@ -58,13 +58,11 @@ import {
   UsageBudgetsComponent,
 } from './sections';
 
-addIcons({ helpCircleOutline, closeOutline });
-
 /**
  * User info for header display.
  */
 export interface UsageUser {
-  readonly photoURL?: string | null;
+  readonly profileImg?: string | null;
   readonly displayName?: string | null;
 }
 
@@ -93,7 +91,7 @@ export interface UsageUser {
       <nxt1-page-header
         title="Billing & Usage"
         [showBack]="true"
-        [avatarSrc]="user()?.photoURL"
+        [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         [actions]="headerActions"
         (backClick)="back.emit()"
@@ -504,6 +502,10 @@ export interface UsageUser {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageShellComponent implements OnInit {
+  constructor() {
+    addIcons({ helpCircleOutline, closeOutline });
+  }
+
   protected readonly svc = inject(UsageService);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);

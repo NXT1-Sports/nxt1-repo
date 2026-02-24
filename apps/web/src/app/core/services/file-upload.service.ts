@@ -43,7 +43,7 @@ import {
 } from '@nxt1/core';
 import { AngularFileUploadAdapter } from '../infrastructure';
 import { environment } from '../../../environments/environment';
-import { NxtLoggingService, NxtToastService } from '@nxt1/ui';
+import { NxtLoggingService, NxtToastService } from '@nxt1/ui/services';
 import type { ILogger } from '@nxt1/core/logging';
 
 // ============================================

@@ -147,90 +147,6 @@ import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
 
 // Register Ionicons used for back button, menu, and common action buttons
 // This comprehensive list covers most icons consumers might pass to [actions]
-addIcons({
-  // Navigation (arrowBack, chevronBack removed - using NxtBackButtonComponent)
-  menuOutline,
-  closeOutline,
-
-  // More/overflow
-  ellipsisHorizontal,
-  ellipsisVertical,
-  ellipsisHorizontalCircleOutline,
-  ellipsisVerticalCircleOutline,
-
-  // Search
-  searchOutline,
-  filterOutline,
-
-  // User
-  personCircleOutline,
-  personAddOutline,
-  peopleOutline,
-
-  // Common actions
-  add,
-  addOutline,
-  addCircleOutline,
-  createOutline,
-  pencilOutline,
-  trashOutline,
-  shareOutline,
-  copyOutline,
-  linkOutline,
-  downloadOutline,
-  cloudUploadOutline,
-  refreshOutline,
-
-  // Notifications/alerts
-  notificationsOutline,
-  notifications,
-  checkmarkDoneOutline,
-  checkmarkCircleOutline,
-  informationCircleOutline,
-  helpCircleOutline,
-  warningOutline,
-  alertCircleOutline,
-  closeCircleOutline,
-
-  // Settings
-  settingsOutline,
-  optionsOutline,
-
-  // Favorites/bookmarks
-  heartOutline,
-  bookmarkOutline,
-  starOutline,
-  star,
-  flag,
-  flagOutline,
-
-  // Media
-  cameraOutline,
-  imageOutline,
-  videocamOutline,
-  micOutline,
-  qrCodeOutline,
-  scanOutline,
-
-  // Communication
-  sendOutline,
-  chatbubbleOutline,
-  mailOutline,
-  callOutline,
-
-  // View controls
-  eyeOutline,
-  eyeOffOutline,
-  expandOutline,
-  contractOutline,
-  gridOutline,
-  listOutline,
-  reorderThreeOutline,
-
-  // Auth
-  logOutOutline,
-});
-
 @Component({
   selector: 'nxt1-page-header',
   standalone: true,
@@ -806,6 +722,92 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtPageHeaderComponent {
+  constructor() {
+    addIcons({
+      // Navigation (arrowBack, chevronBack removed - using NxtBackButtonComponent)
+      menuOutline,
+      closeOutline,
+
+      // More/overflow
+      ellipsisHorizontal,
+      ellipsisVertical,
+      ellipsisHorizontalCircleOutline,
+      ellipsisVerticalCircleOutline,
+
+      // Search
+      searchOutline,
+      filterOutline,
+
+      // User
+      personCircleOutline,
+      personAddOutline,
+      peopleOutline,
+
+      // Common actions
+      add,
+      addOutline,
+      addCircleOutline,
+      createOutline,
+      pencilOutline,
+      trashOutline,
+      shareOutline,
+      copyOutline,
+      linkOutline,
+      downloadOutline,
+      cloudUploadOutline,
+      refreshOutline,
+
+      // Notifications/alerts
+      notificationsOutline,
+      notifications,
+      checkmarkDoneOutline,
+      checkmarkCircleOutline,
+      informationCircleOutline,
+      helpCircleOutline,
+      warningOutline,
+      alertCircleOutline,
+      closeCircleOutline,
+
+      // Settings
+      settingsOutline,
+      optionsOutline,
+
+      // Favorites/bookmarks
+      heartOutline,
+      bookmarkOutline,
+      starOutline,
+      star,
+      flag,
+      flagOutline,
+
+      // Media
+      cameraOutline,
+      imageOutline,
+      videocamOutline,
+      micOutline,
+      qrCodeOutline,
+      scanOutline,
+
+      // Communication
+      sendOutline,
+      chatbubbleOutline,
+      mailOutline,
+      callOutline,
+
+      // View controls
+      eyeOutline,
+      eyeOffOutline,
+      expandOutline,
+      contractOutline,
+      gridOutline,
+      listOutline,
+      reorderThreeOutline,
+
+      // Auth
+      logOutOutline,
+    });
+  }
+
   private readonly platform = inject(NxtPlatformService);
   private readonly haptics = inject(HapticsService);
 

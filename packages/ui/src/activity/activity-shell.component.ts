@@ -52,7 +52,7 @@ import { ActivityListComponent } from './activity-list.component';
  * User info for header display.
  */
 export interface ActivityUser {
-  readonly photoURL?: string | null;
+  readonly profileImg?: string | null;
   readonly displayName?: string | null;
 }
 
@@ -71,7 +71,7 @@ export interface ActivityUser {
     <!-- Professional Page Header (Twitter/X style) -->
     <nxt1-page-header
       title="Activity"
-      [avatarSrc]="user()?.photoURL"
+      [avatarSrc]="user()?.profileImg"
       [avatarName]="displayName()"
       [actions]="headerActions()"
       (avatarClick)="avatarClick.emit()"

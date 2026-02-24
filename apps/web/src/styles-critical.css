@@ -1,0 +1,348 @@
+/**
+ * @fileoverview CRITICAL CSS - Above-the-fold styles only
+ * @module @nxt1/web
+ *
+ * This file contains ONLY the CSS needed for initial page render:
+ * - Design tokens (CSS custom properties referenced everywhere)
+ * - Foundation reset & fonts (basic page structure)
+ * - App shell layout (prevents CLS during SSR hydration)
+ * - Ionic core (required for component rendering)
+ *
+ * Non-critical CSS is loaded asynchronously via styles-deferred.css
+ * to eliminate render-blocking and improve LCP.
+ *
+ * Combined with Angular's `inlineCritical: true`, Critters will
+ * further extract only the rules that match the initial HTML and
+ * inline them, deferring even this file's load.
+ */
+
+/* ============================================
+   LAYER 1: DESIGN TOKENS - Generated CSS
+   CRITICAL: All components reference these variables
+   ============================================ */
+@import '@nxt1/design-tokens/css';
+
+/* ============================================
+   LAYER 2: FOUNDATION - Reset, Fonts & App Shell
+   CRITICAL: Page structure and font loading
+   ============================================ */
+@import '@nxt1/design-tokens/foundation';
+
+/* ============================================
+   LAYER 3: PLATFORM ADAPTATION - Web
+   CRITICAL: Scrollbar, hover states, responsive type
+   ============================================ */
+@import '@nxt1/design-tokens/platform/web';
+
+/* ============================================
+   LAYER 4–5: IONIC CSS — MOVED TO DEFERRED
+   ============================================
+   Ionic theme tokens and component CSS are now in styles-deferred.css.
+   Safe to defer because:
+   1. The web shell uses ZERO <ion-*> elements in its own template
+   2. Shared @nxt1/ui components that use Ionic are loaded lazily via routes
+   3. The mobile footer (ion-tab-bar) is auth-gated, hidden during SSR
+   4. Angular's inlineCritical (Critters) inlines only rules matching SSR HTML
+   ============================================ */
+
+/* ============================================
+   LAYER 6: TAILWIND CSS
+   CRITICAL: Utility-first CSS framework (tree-shaken)
+   ============================================ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================
+   IONIC INPUT & PRE-HYDRATION STYLES — MOVED TO DEFERRED
+   See styles-deferred.css "IONIC FRAMEWORK CSS" section
+   ============================================ */
+
+/* ============================================
+   PREVENT DOUBLE-TAP ZOOM (Global)
+   ============================================ */
+*,
+*::before,
+*::after {
+  touch-action: manipulation;
+}
+
+/* ============================================
+   BASE LAYER - Web-Specific Overrides
+   CRITICAL: Base document styling
+   ============================================ */
+@layer base {
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  html,
+  body {
+    min-height: 100%;
+    height: 100%;
+    width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    background-color: var(--nxt1-color-bg-primary, #0a0a0a);
+    color: var(--nxt1-color-text-primary, #ffffff);
+    font-family: var(--nxt1-fontFamily-brand);
+  }
+
+  html.cdk-global-scrollblock {
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--nxt1-fontFamily-display, var(--nxt1-fontFamily-brand));
+    font-weight: var(--nxt1-fontWeight-bold, 700);
+    line-height: var(--nxt1-lineHeight-tight, 1.25);
+    color: var(--nxt1-color-text-primary);
+  }
+
+  h1 {
+    font-size: var(--nxt1-fontSize-4xl, 3rem);
+  }
+  h2 {
+    font-size: var(--nxt1-fontSize-3xl, 2.25rem);
+  }
+  h3 {
+    font-size: var(--nxt1-fontSize-2xl, 1.875rem);
+  }
+  h4 {
+    font-size: var(--nxt1-fontSize-xl, 1.5rem);
+  }
+  h5 {
+    font-size: var(--nxt1-fontSize-lg, 1.25rem);
+  }
+  h6 {
+    font-size: var(--nxt1-fontSize-base, 1rem);
+  }
+
+  p {
+    font-size: var(--nxt1-fontSize-base, 1rem);
+    line-height: var(--nxt1-lineHeight-relaxed, 1.625);
+    color: var(--nxt1-color-text-secondary);
+  }
+
+  a {
+    color: var(--nxt1-color-primary);
+    text-decoration: none;
+    transition: color var(--nxt1-duration-fast, 150ms) var(--nxt1-ease-in-out, ease-in-out);
+  }
+
+  a:hover {
+    color: var(--nxt1-color-primary-600);
+  }
+
+  ::selection {
+    background-color: var(--nxt1-color-alpha-primary30, rgba(204, 255, 0, 0.3));
+    color: var(--nxt1-color-text-primary);
+  }
+}
+
+/* ============================================
+   COMPONENTS LAYER - Core Reusable Components
+   CRITICAL: Buttons, forms, cards used on first paint
+   ============================================ */
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--nxt1-spacing-2, 0.5rem);
+    padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-4, 1rem);
+    font-family: var(--nxt1-fontFamily-brand);
+    font-size: var(--nxt1-fontSize-base, 1rem);
+    font-weight: var(--nxt1-fontWeight-semibold, 600);
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    border: none;
+    border-radius: var(--nxt1-radius-default, 8px);
+    cursor: pointer;
+    transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-ease-in-out);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background-color: var(--nxt1-color-primary);
+    color: #0a0a0a;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--nxt1-color-primary-600);
+  }
+
+  .btn-secondary {
+    background-color: transparent;
+    color: var(--nxt1-color-text-primary);
+    border: 1px solid var(--nxt1-color-border-default);
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background-color: var(--nxt1-color-surface-200);
+  }
+
+  .btn-ghost {
+    background-color: transparent;
+    color: var(--nxt1-color-text-secondary);
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    background-color: var(--nxt1-color-state-hover);
+    color: var(--nxt1-color-text-primary);
+  }
+
+  .form-control {
+    width: 100%;
+    padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-4, 1rem);
+    font-family: var(--nxt1-fontFamily-brand);
+    font-size: var(--nxt1-fontSize-base, 1rem);
+    font-weight: var(--nxt1-fontWeight-medium, 500);
+    color: var(--nxt1-color-text-primary);
+    background-color: var(--nxt1-color-surface-200);
+    border: 1px solid var(--nxt1-color-border-default);
+    border-radius: var(--nxt1-radius-default, 8px);
+    outline: none;
+    transition: border-color var(--nxt1-duration-fast, 150ms) var(--nxt1-ease-in-out);
+  }
+
+  .form-control::placeholder {
+    color: var(--nxt1-color-text-disabled);
+  }
+
+  .form-control:focus {
+    border-color: var(--nxt1-color-primary);
+  }
+
+  .form-control:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .card {
+    background-color: var(--nxt1-color-surface-200);
+    border: 1px solid var(--nxt1-color-border-subtle);
+    border-radius: var(--nxt1-radius-lg, 12px);
+    padding: var(--nxt1-spacing-4, 1rem);
+  }
+
+  .card-elevated {
+    background-color: var(--nxt1-color-surface-400);
+    box-shadow: var(--nxt1-shadow-md);
+  }
+
+  .spinner {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 50%;
+    border: 3px solid var(--nxt1-color-border-default);
+    border-top-color: var(--nxt1-color-primary);
+    animation: spin 1s linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
+/* ============================================
+   UTILITIES LAYER
+   ============================================ */
+@layer utilities {
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .bg-glow {
+    background: radial-gradient(
+      ellipse at center,
+      var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.15)) 0%,
+      transparent 70%
+    );
+  }
+
+  @keyframes pulse-glow {
+    0%,
+    100% {
+      opacity: 0.6;
+      transform: translateX(-50%) scale(1);
+    }
+    50% {
+      opacity: 1;
+      transform: translateX(-50%) scale(1.1);
+    }
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow 8s ease-in-out infinite;
+  }
+}
+
+/* ============================================
+   LEGACY CSS VARIABLES (backwards compatibility)
+   ============================================ */
+:root {
+  --primary: var(--nxt1-color-primary);
+  --primary-dark: var(--nxt1-color-primary-dark);
+  --primary-rgb: var(--nxt1-color-primary-rgb);
+  --app-bg: var(--nxt1-color-bg-primary);
+  --card-bg: var(--nxt1-color-surface-200);
+  --card-bg-elevated: var(--nxt1-color-surface-400);
+  --surface: var(--nxt1-color-surface-100);
+  --text-primary: var(--nxt1-color-text-primary);
+  --text-secondary: var(--nxt1-color-text-secondary);
+  --text-tertiary: var(--nxt1-color-text-tertiary);
+  --text-disabled: var(--nxt1-color-text-disabled);
+  --border-color: var(--nxt1-color-border-default);
+  --border-color-light: var(--nxt1-color-border-subtle);
+  --success: var(--nxt1-color-success);
+  --warning: var(--nxt1-color-warning);
+  --error: var(--nxt1-color-error);
+  --info: var(--nxt1-color-info);
+  --spacing-xs: var(--nxt1-spacing-1);
+  --spacing-sm: var(--nxt1-spacing-2);
+  --spacing-md: var(--nxt1-spacing-4);
+  --spacing-lg: var(--nxt1-spacing-6);
+  --spacing-xl: var(--nxt1-spacing-8);
+  --radius-sm: var(--nxt1-radius-sm);
+  --radius-md: var(--nxt1-radius-default);
+  --radius-lg: var(--nxt1-radius-md);
+  --radius-xl: var(--nxt1-radius-lg);
+  --radius-full: var(--nxt1-radius-full);
+  --transition-fast: var(--nxt1-duration-fast) var(--nxt1-ease-in-out);
+  --transition-normal: var(--nxt1-duration-normal) var(--nxt1-ease-in-out);
+  --transition-slow: var(--nxt1-duration-slow) var(--nxt1-ease-in-out);
+  --z-dropdown: var(--nxt1-z-dropdown);
+  --z-sticky: var(--nxt1-z-sticky);
+  --z-fixed: var(--nxt1-z-fixed);
+  --z-modal-backdrop: var(--nxt1-z-modal-backdrop);
+  --z-modal: var(--nxt1-z-modal);
+  --z-popover: var(--nxt1-z-popover);
+  --z-tooltip: var(--nxt1-z-tooltip);
+  --z-toast: var(--nxt1-z-toast);
+}

@@ -74,13 +74,16 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
     <div class="footer-container">
       <!-- Floating Pill Tab Bar -->
       <ion-tab-bar
-        [translucent]="config.translucent"
+        [translucent]="config.glass && config.translucent"
         [class.footer--hidden]="config.hidden"
         [class.footer--solid]="!config.glass"
         [class.footer--glass]="config.glass"
         [class.footer--show-labels]="shouldShowLabels()"
         [class.footer--hide-labels]="!shouldShowLabels()"
         [selectedTab]="activeTabId ?? _activeTabId()"
+        [style.--ion-tab-bar-background]="config.glass ? null : 'var(--footer-solid-bg)'"
+        [style.--background]="config.glass ? null : 'var(--footer-solid-bg)'"
+        [style.backdrop-filter]="config.glass ? null : 'none'"
       >
         @for (tab of regularTabs(); track tab.id) {
           <ion-tab-button
@@ -193,8 +196,8 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         border: 1px solid var(--footer-solid-border) !important;
         border-radius: var(--nxt1-pill-radius, 28px);
         padding: var(--nxt1-pill-padding, 1px);
-        height: var(--nxt1-pill-height, 44px);
-        min-height: var(--nxt1-pill-height, 44px); /* Ensure height is respected */
+        height: var(--nxt1-pill-height, 48px);
+        min-height: var(--nxt1-pill-height, 48px); /* Ensure height is respected */
         box-shadow: var(--footer-solid-shadow);
         background: var(--footer-solid-bg) !important;
         -webkit-backdrop-filter: none !important;
@@ -330,10 +333,10 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         display: flex;
         align-items: center;
         justify-content: center;
-        width: var(--nxt1-fab-size, 44px);
-        height: var(--nxt1-fab-size, 44px);
-        min-width: var(--nxt1-fab-size, 44px);
-        min-height: var(--nxt1-fab-size, 44px);
+        width: var(--nxt1-fab-size, 48px);
+        height: var(--nxt1-fab-size, 48px);
+        min-width: var(--nxt1-fab-size, 48px);
+        min-height: var(--nxt1-fab-size, 48px);
         border-radius: var(--nxt1-fab-radius, 50%);
         border: none;
         background: var(--nxt1-color-primary, #ccff00);
@@ -475,7 +478,7 @@ export class NxtMobileFooterComponent {
     enableHaptics: true,
     variant: 'default',
     hidden: false,
-    translucent: true,
+    translucent: false, // Solid background by default — set true only with glass: true
     glass: false, // Solid background by default
     indicatorStyle: 'none',
     scrollToTopOnSameTap: true, // Enable scroll-to-top on same tab tap by default

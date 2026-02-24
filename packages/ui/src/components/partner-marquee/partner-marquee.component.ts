@@ -35,6 +35,7 @@
 
 import { Component, ChangeDetectionStrategy, Input, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { NxtSectionHeaderComponent } from '../section-header';
 
 // ============================================
 // TYPES
@@ -80,7 +81,7 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
 @Component({
   selector: 'nxt1-partner-marquee',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, NxtSectionHeaderComponent],
   template: `
     <section
       class="partner-marquee"
@@ -91,13 +92,15 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
       <div class="partner-marquee__container">
         <!-- Section Header -->
         <div class="partner-marquee__header">
-          @if (showLabel) {
-            <span class="partner-marquee__label">{{ label }}</span>
-          }
-          <h2 class="partner-marquee__title">{{ title }}</h2>
-          @if (subtitle) {
-            <p class="partner-marquee__subtitle">{{ subtitle }}</p>
-          }
+          <nxt1-section-header
+            titleId="partner-marquee-title"
+            [eyebrow]="showLabel ? label : undefined"
+            [headingLevel]="2"
+            align="center"
+            [singleLineTitle]="true"
+            [title]="title"
+            [subtitle]="subtitle || undefined"
+          />
         </div>
 
         <!-- Marquee Track -->
@@ -277,36 +280,9 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
          ============================================ */
 
       .partner-marquee__header {
-        text-align: center;
+        --nxt1-section-subtitle-max-width: 30rem;
         margin-bottom: var(--nxt1-spacing-10, 2.5rem);
         padding: 0;
-      }
-
-      .partner-marquee__label {
-        display: inline-block;
-        font-size: 0.75rem;
-        font-weight: 600;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-        color: var(--nxt1-color-primary);
-        margin-bottom: var(--nxt1-spacing-3, 0.75rem);
-      }
-
-      .partner-marquee__title {
-        font-family: var(--nxt1-font-brand, inherit);
-        font-size: clamp(1.5rem, 3vw, 2rem);
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary);
-        margin: 0;
-        line-height: 1.2;
-      }
-
-      .partner-marquee__subtitle {
-        font-size: clamp(0.875rem, 1.5vw, 1.0625rem);
-        color: var(--nxt1-color-text-secondary);
-        margin: var(--nxt1-spacing-2, 0.5rem) auto 0;
-        max-width: 480px;
-        line-height: 1.5;
       }
 
       /* ============================================

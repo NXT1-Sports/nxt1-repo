@@ -49,14 +49,6 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
 
 // Register icons
-addIcons({
-  trophyOutline,
-  locationOutline,
-  peopleOutline,
-  statsChartOutline,
-  shareOutline,
-});
-
 /**
  * Team data structure
  */
@@ -514,6 +506,13 @@ export class TeamShellComponent {
   // ============================================
 
   constructor() {
+    addIcons({
+      trophyOutline,
+      locationOutline,
+      peopleOutline,
+      statsChartOutline,
+      shareOutline,
+    });
     // Log component initialization
     effect(() => {
       this.logger.info('Team shell initialized', {

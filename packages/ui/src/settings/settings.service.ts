@@ -52,7 +52,7 @@ const MOCK_USER: SettingsUserInfo = {
   id: 'user_123',
   email: 'john.doe@example.com',
   displayName: 'John Doe',
-  photoURL: null,
+  profileImg: null,
   role: 'athlete',
   emailVerified: true,
   createdAt: '2024-01-15T10:00:00Z',

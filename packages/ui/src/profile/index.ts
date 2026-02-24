@@ -43,9 +43,17 @@ export { ProfileHeaderComponent } from './profile-header.component';
 // Web-optimized header (YouTube-style, Tailwind, zero Ionic)
 export { ProfileHeaderWebComponent } from './web/profile-header-web.component';
 
-export { ProfileStatsBarComponent } from './profile-stats-bar.component';
+// Madden-style desktop page header for profile
+export { ProfileDesktopHeaderComponent } from './web/profile-desktop-header.component';
+
+// Related Athletes discovery row
+export { RelatedAthletesComponent, type RelatedAthlete } from './web/related-athletes.component';
+
 export { ProfileTimelineComponent } from './profile-timeline.component';
 export { ProfileOffersComponent } from './profile-offers.component';
+export { ProfileRankingsComponent } from './rankings/profile-rankings.component';
+export type { RankingSource, VerifiedProvider } from './rankings/profile-rankings.component';
+export { ProfileEventsComponent } from './profile-events.component';
 export {
   ProfileSkeletonComponent,
   type ProfileSkeletonVariant,

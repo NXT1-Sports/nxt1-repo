@@ -43,16 +43,6 @@ import type { ProfileCompletionTier } from '@nxt1/core';
 import { PROFILE_COMPLETION_TIERS } from '@nxt1/core';
 
 // Register icons
-addIcons({
-  starOutline,
-  starHalfOutline,
-  star,
-  trophy,
-  diamond,
-  sparkles,
-  chevronForward,
-});
-
 @Component({
   selector: 'nxt1-edit-profile-progress',
   standalone: true,
@@ -415,6 +405,18 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class EditProfileProgressComponent {
+  constructor() {
+    addIcons({
+      starOutline,
+      starHalfOutline,
+      star,
+      trophy,
+      diamond,
+      sparkles,
+      chevronForward,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

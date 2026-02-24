@@ -28,20 +28,6 @@ import {
 } from 'ionicons/icons';
 import type { InviteStats } from '@nxt1/core';
 
-addIcons({
-  flame,
-  flameOutline,
-  star,
-  starOutline,
-  starHalf,
-  trophy,
-  trophyOutline,
-  diamond,
-  diamondOutline,
-  sparkles,
-  arrowUp,
-});
-
 @Component({
   selector: 'nxt1-invite-stats-card',
   standalone: true,
@@ -377,6 +363,22 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InviteStatsCardComponent {
+  constructor() {
+    addIcons({
+      flame,
+      flameOutline,
+      star,
+      starOutline,
+      starHalf,
+      trophy,
+      trophyOutline,
+      diamond,
+      diamondOutline,
+      sparkles,
+      arrowUp,
+    });
+  }
+
   // Inputs
   readonly stats = input<InviteStats | null>(null);
   readonly streakDays = input<number>(0);

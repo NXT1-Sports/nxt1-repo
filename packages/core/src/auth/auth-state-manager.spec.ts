@@ -613,14 +613,14 @@ describe('createAuthStateManager', () => {
     it('should handle empty string values in user', async () => {
       const user = createMockAuthUser({
         displayName: '',
-        photoURL: '',
+        profileImg: '',
       });
 
       await authManager.setUser(user);
 
       const savedUser = authManager.getUser();
       expect(savedUser?.displayName).toBe('');
-      expect(savedUser?.photoURL).toBe('');
+      expect(savedUser?.profileImg).toBe('');
     });
   });
 });

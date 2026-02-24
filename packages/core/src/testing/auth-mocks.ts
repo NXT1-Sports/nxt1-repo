@@ -598,7 +598,7 @@ export function createTestAuthSetup(
           uid: user.uid,
           email: user.email,
           displayName: user.displayName,
-          photoURL: user.photoURL ?? null,
+          photoURL: user.profileImg ?? null,
           emailVerified: user.emailVerified,
         }
       : null,

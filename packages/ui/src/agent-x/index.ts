@@ -28,3 +28,12 @@ export {
 
 // Landing Page
 export { NxtAgentXLandingComponent } from './agent-x-landing.component';
+export {
+  NxtAgentXIdentitySectionComponent,
+  type IdentityTreeInput,
+} from '../components/agent-x-identity-section';
+
+// FAB Chat Widget (Web-only, SSR-safe)
+export { AgentXFabComponent } from './fab';
+export { AgentXFabChatPanelComponent } from './fab';
+export { AgentXFabService, type FabPanelState } from './fab';

@@ -28,20 +28,6 @@ import {
 } from 'ionicons/icons';
 import type { TeamBasicInfo, TeamBranding, TeamContactInfo } from '@nxt1/core';
 
-addIcons({
-  shieldOutline,
-  cameraOutline,
-  colorPaletteOutline,
-  callOutline,
-  mailOutline,
-  globeOutline,
-  locationOutline,
-  createOutline,
-  checkmarkCircle,
-  chevronDownOutline,
-  chevronUpOutline,
-});
-
 @Component({
   selector: 'nxt1-manage-team-info-section',
   standalone: true,
@@ -463,6 +449,22 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ManageTeamInfoSectionComponent {
+  constructor() {
+    addIcons({
+      shieldOutline,
+      cameraOutline,
+      colorPaletteOutline,
+      callOutline,
+      mailOutline,
+      globeOutline,
+      locationOutline,
+      createOutline,
+      checkmarkCircle,
+      chevronDownOutline,
+      chevronUpOutline,
+    });
+  }
+
   /** Basic team info */
   readonly basicInfo = input<TeamBasicInfo | null>(null);
 

@@ -86,7 +86,7 @@ export class AgentXComponent {
     if (!user) return null;
 
     return {
-      photoURL: user.photoURL,
+      profileImg: user.profileImg,
       displayName: user.displayName,
       role: user.role,
     };

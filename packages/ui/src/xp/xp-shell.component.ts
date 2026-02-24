@@ -61,15 +61,6 @@ import { XpSkeletonComponent } from './xp-skeleton.component';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
 
 // Register icons
-addIcons({
-  sparkles,
-  trophy,
-  flame,
-  chevronForward,
-  checkmarkCircle,
-  closeCircle,
-});
-
 @Component({
   selector: 'nxt1-xp-shell',
   standalone: true,
@@ -650,6 +641,14 @@ export class XpShellComponent {
   // ============================================
 
   constructor() {
+    addIcons({
+      sparkles,
+      trophy,
+      flame,
+      chevronForward,
+      checkmarkCircle,
+      closeCircle,
+    });
     // Load missions on role change
     effect(() => {
       const role = this.userRole();

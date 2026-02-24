@@ -1,1 +1,5 @@
-export { NxtCtaBannerComponent, type CtaBannerVariant } from './cta-banner.component';
+export {
+  NxtCtaBannerComponent,
+  type CtaBannerVariant,
+  type CtaAvatarImage,
+} from './cta-banner.component';

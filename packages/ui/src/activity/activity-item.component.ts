@@ -49,23 +49,6 @@ import {
 import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@nxt1/core';
 
 // Register all icons
-addIcons({
-  personAddOutline,
-  heartOutline,
-  chatbubbleOutline,
-  atOutline,
-  mailOutline,
-  trophyOutline,
-  pricetagOutline,
-  megaphoneOutline,
-  ribbonOutline,
-  alarmOutline,
-  informationCircleOutline,
-  sparklesOutline,
-  chevronForward,
-  ellipsisHorizontal,
-});
-
 @Component({
   selector: 'nxt1-activity-item',
   standalone: true,
@@ -348,6 +331,25 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ActivityItemComponent {
+  constructor() {
+    addIcons({
+      personAddOutline,
+      heartOutline,
+      chatbubbleOutline,
+      atOutline,
+      mailOutline,
+      trophyOutline,
+      pricetagOutline,
+      megaphoneOutline,
+      ribbonOutline,
+      alarmOutline,
+      informationCircleOutline,
+      sparklesOutline,
+      chevronForward,
+      ellipsisHorizontal,
+    });
+  }
+
   /** The activity item to display */
   readonly item = input.required<ActivityItem>();
 

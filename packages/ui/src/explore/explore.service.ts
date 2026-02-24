@@ -35,6 +35,7 @@ import { Injectable, inject, signal, computed } from '@angular/core';
 import {
   type ExploreItem,
   type ExploreTabId,
+  type ExploreFilters,
   type ExplorePagination,
   type ExploreTabCounts,
   EXPLORE_DEFAULT_TAB,
@@ -84,6 +85,19 @@ export class ExploreService {
   private readonly _recentSearches = signal<string[]>(MOCK_RECENT_SEARCHES);
   private readonly _trendingSearches = signal<string[]>(MOCK_TRENDING_SEARCHES);
   private readonly _suggestions = signal<string[]>([]);
+  private readonly _tabFilters = signal<Record<ExploreTabId, ExploreFilters>>({
+    feed: {},
+    following: {},
+    news: {},
+    colleges: {},
+    athletes: {},
+    teams: {},
+    videos: {},
+    leaderboards: {},
+    'scout-reports': {},
+    camps: {},
+    events: {},
+  });
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -124,6 +138,9 @@ export class ExploreService {
 
   /** Search suggestions */
   readonly suggestions = computed(() => this._suggestions());
+
+  /** Active filters per tab */
+  readonly tabFilters = computed(() => this._tabFilters());
 
   /** Whether results are empty */
   readonly isEmpty = computed(() => this._items().length === 0 && !this._isLoading());
@@ -166,7 +183,8 @@ export class ExploreService {
     this._pagination.set(null);
 
     const tab = this._activeTab();
-    this.logger.debug('Searching', { query, tab });
+    const filters = this._tabFilters()[tab] ?? {};
+    this.logger.debug('Searching', { query, tab, filters });
 
     try {
       // Simulate network delay
@@ -348,5 +366,63 @@ export class ExploreService {
    */
   clearRecentSearches(): void {
     this._recentSearches.set([]);
+  }
+
+  /**
+   * Get active filters for a specific tab.
+   */
+  getFiltersForTab(tab: ExploreTabId): ExploreFilters {
+    return this._tabFilters()[tab] ?? {};
+  }
+
+  /**
+   * Set filters for a specific tab.
+   */
+  setFiltersForTab(tab: ExploreTabId, filters: ExploreFilters): void {
+    const normalized = this.normalizeFilters(filters);
+    this._tabFilters.update((current) => ({
+      ...current,
+      [tab]: normalized,
+    }));
+  }
+
+  /**
+   * Clear filters for a specific tab.
+   */
+  clearFiltersForTab(tab: ExploreTabId): void {
+    this._tabFilters.update((current) => ({
+      ...current,
+      [tab]: {},
+    }));
+  }
+
+  /**
+   * Count active filters for a specific tab.
+   */
+  getActiveFilterCount(tab: ExploreTabId): number {
+    const filters = this._tabFilters()[tab] ?? {};
+    let count = 0;
+
+    if (filters.sport) count += 1;
+    if (filters.state) count += 1;
+    if (filters.division) count += 1;
+    if (filters.position) count += 1;
+    if (typeof filters.classYear === 'number') count += 1;
+    if (typeof filters.radius === 'number') count += 1;
+    if (filters.verifiedOnly === true) count += 1;
+
+    return count;
+  }
+
+  private normalizeFilters(filters: ExploreFilters): ExploreFilters {
+    return {
+      ...(filters.sport?.trim() ? { sport: filters.sport.trim() } : {}),
+      ...(filters.state?.trim() ? { state: filters.state.trim().toUpperCase() } : {}),
+      ...(filters.division?.trim() ? { division: filters.division.trim() } : {}),
+      ...(filters.position?.trim() ? { position: filters.position.trim() } : {}),
+      ...(typeof filters.classYear === 'number' ? { classYear: filters.classYear } : {}),
+      ...(typeof filters.radius === 'number' ? { radius: filters.radius } : {}),
+      ...(filters.verifiedOnly === true ? { verifiedOnly: true } : {}),
+    };
   }
 }

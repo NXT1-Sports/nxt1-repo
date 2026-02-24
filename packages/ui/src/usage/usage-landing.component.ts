@@ -167,9 +167,9 @@ const USAGE_FAQS: FaqItem[] = [
       accentText="Zero Surprises"
       subtitle="Track every dollar, manage subscriptions, set budgets, and download receipts. Clear, honest billing for athletes, coaches, and programs."
       primaryCtaLabel="Get Started Free"
-      primaryCtaRoute="/auth/register"
+      primaryCtaRoute="/auth"
       secondaryCtaLabel="Log In"
-      secondaryCtaRoute="/auth/login"
+      secondaryCtaRoute="/auth"
       ariaId="usage-hero-title"
     >
       <nxt1-usage-dashboard-preview />
@@ -205,7 +205,7 @@ const USAGE_FAQS: FaqItem[] = [
       title="Ready to Take Control of Your Billing?"
       subtitle="Start with a generous free tier. Only pay for what you use."
       ctaLabel="Sign Up Free"
-      ctaRoute="/auth/register"
+      ctaRoute="/auth"
     />
   `,
   styles: [

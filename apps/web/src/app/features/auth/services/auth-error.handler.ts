@@ -34,7 +34,7 @@ import {
   getFieldErrors,
 } from '@nxt1/core/errors';
 import { getAuthErrorMessage } from '@nxt1/core';
-import { NxtLoggingService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
 
 // ============================================

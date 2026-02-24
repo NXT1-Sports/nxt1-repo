@@ -24,8 +24,6 @@ import { bookmarkOutline, bookmark } from 'ionicons/icons';
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({ bookmarkOutline, bookmark });
-
 @Component({
   selector: 'nxt1-news-bookmark-button',
   standalone: true,
@@ -179,6 +177,10 @@ addIcons({ bookmarkOutline, bookmark });
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NewsBookmarkButtonComponent {
+  constructor() {
+    addIcons({ bookmarkOutline, bookmark });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   /** Whether the article is currently bookmarked */

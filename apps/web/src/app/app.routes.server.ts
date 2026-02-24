@@ -191,6 +191,14 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
+    path: 'nil',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'nil/**',
+    renderMode: RenderMode.Server,
+  },
+  {
     path: 'manage-team',
     renderMode: RenderMode.Server,
   },
@@ -199,11 +207,27 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
-    path: 'athlete-profiles',
+    path: 'team-platform',
     renderMode: RenderMode.Server,
   },
   {
-    path: 'athlete-profiles/**',
+    path: 'team-platform/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'super-profiles',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'super-profiles/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'recruiting-scouts-colleges',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'recruiting-scouts-colleges/**',
     renderMode: RenderMode.Server,
   },
 
@@ -214,6 +238,38 @@ export const serverRoutes: ServerRoute[] = [
   },
   {
     path: 'athletes/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'recruiting-athletes',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'recruiting-athletes/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'content-creation-athletes',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'content-creation-athletes/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'media-coverage',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'media-coverage/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'ai-athletes',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'ai-athletes/**',
     renderMode: RenderMode.Server,
   },
   {

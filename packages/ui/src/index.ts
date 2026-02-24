@@ -143,8 +143,97 @@ export {
   type HeroVariant,
   type HeroAudienceCardClickEvent,
 } from './components/hero-header';
+export { NxtEcosystemMapComponent, type EcosystemMapStep } from './components/ecosystem-map';
+export { NxtSectionHeaderComponent, type SectionHeaderLevel } from './components/section-header';
+export {
+  NxtKillerComparisonComponent,
+  type KillerComparisonRow,
+  KILLER_COMPARISON_DEFAULT_ROWS,
+} from './components/nxt1-killer-comparison';
+export { NxtHeaderCardComponent } from './components/header-card';
+export {
+  NxtSuperProfileBreakdownComponent,
+  type SuperProfileHotspot,
+} from './components/super-profile-breakdown';
+export {
+  NxtMobileFirstDesignSectionComponent,
+  type DevicePreview,
+} from './components/mobile-first-design-section';
+export { NxtSeoGoogleSearchSectionComponent } from './components/seo-google-search-section';
 
 export { NxtAgentXWelcomeHeaderComponent } from './components/agent-x-welcome-header';
+export {
+  NxtAgentXIdentitySectionComponent,
+  type IdentityTreeInput,
+} from './components/agent-x-identity-section';
+export {
+  NxtAgentXExecutionLayerSectionComponent,
+  type ExecutionLayerTask,
+} from './components/agent-x-execution-layer-section';
+export { NxtAgentXHypeMachineSectionComponent } from './components/agent-x-hype-machine-section';
+export {
+  NxtAgentXMoneyballSectionComponent,
+  type MoneyballAthleteProfile,
+  type MoneyballProgressPoint,
+} from './components/agent-x-moneyball-section';
+export {
+  NxtSuccessSimulationSectionComponent,
+  type SuccessSimulationScenario,
+} from './components/success-simulation-section';
+export {
+  NxtCoverageGapPainPointComponent,
+  type CoverageGapLayer,
+} from './components/coverage-gap-pain-point';
+export {
+  NxtRecruitingEmailAssistantSectionComponent,
+  type RecruitingEmailAssistantDraft,
+} from './components/recruiting-email-assistant-section';
+export { NxtNewsletterFeatureSectionComponent } from './components/newsletter-feature-section';
+export { NxtRankingsEngineSectionComponent } from './components/rankings-engine-section';
+export {
+  NxtGetItDoneWorkflowSectionComponent,
+  type GetItDoneWorkflow,
+  type GetItDoneWorkflowStep,
+} from './components/get-it-done-workflow-section';
+export {
+  NxtHighlightEngineActionSectionComponent,
+  type HighlightEngineStep,
+} from './components/highlight-engine-action-section';
+export {
+  NxtLimitlessBoxSectionComponent,
+  type LimitlessBurstNode,
+} from './components/limitless-box-section';
+export {
+  NxtTeamBrandArchitectureSectionComponent,
+  type BrandPipelineOutputCard,
+  type BrandPipelineStep,
+} from './components/team-brand-architecture-section';
+export { NxtOldVsNewContrastSectionComponent } from './components/old-vs-new-contrast-section';
+export { NxtIntegrationPipelineSectionComponent } from './components/integration-pipeline-section';
+export { NxtBrandKitIntegrationSectionComponent } from './components/brand-kit-integration-section';
+export {
+  NxtHighlightReelNetworkSectionComponent,
+  type DistributionDestination,
+} from './components/highlight-reel-network-section';
+export { NxtImmersiveHeroComponent, type ImmersiveHeroShot } from './components/immersive-hero';
+export { NxtD1DreamHeroComponent, type D1DreamHeadingLevel } from './components/d1-dream-hero';
+export { NxtOpenDoorsHeroComponent } from './components/open-doors-hero';
+export { NxtMediaEmpireHeroComponent } from './components/media-empire-hero';
+export { NxtBreakingNewsHeroComponent } from './components/breaking-news-hero';
+export { NxtScoutReportJournalismSectionComponent } from './components/scout-report-journalism-section';
+export { NxtCoSignCollaborationSectionComponent } from './components/co-sign-collaboration-section';
+export { NxtGraphicFactoryHeroComponent } from './components/graphic-factory-hero';
+export { NxtInfiniteContentEngineSectionComponent } from './components/infinite-content-engine-section';
+export {
+  NxtAppStoreBadgesComponent,
+  type AppStoreBadgeLayout,
+} from './components/app-store-badges';
+export { NxtUnfairAdvantageHeroComponent } from './components/unfair-advantage-hero';
+
+// ============================================
+// GENESIS MOMENT (Team Platform — Big Bang)
+// ============================================
+export { NxtGenesisMomentComponent } from './components/genesis-moment';
 
 // ============================================
 // PARTNER MARQUEE (Infinite Logo Scroll)
@@ -156,7 +245,65 @@ export {
   type MarqueeVariant,
 } from './components/partner-marquee';
 
+export {
+  NxtLockerRoomTalkMarqueeComponent,
+  type LockerRoomReviewItem,
+} from './components/locker-room-talk-marquee';
+
+export {
+  NxtDraftClassTickerComponent,
+  type DraftClassAthleteCard,
+} from './components/draft-class-ticker';
+
+export {
+  NxtMovementSectionComponent,
+  type MovementActivityItem,
+} from './components/movement-section';
+
 export { NxtFaqSectionComponent, type FaqItem } from './components/faq-section';
+
+// ============================================
+// RECRUITMENT ENGINE (USA Map + Live Activity Pings)
+// ============================================
+export {
+  NxtRecruitmentEngineComponent,
+  type RecruitingActivity,
+  type RecruitingActivityType,
+} from './components/recruitment-engine';
+export { NxtCommunicationCenterSectionComponent } from './components/communication-center-section';
+export { NxtRecruitingCommandCenterSectionComponent } from './components/recruiting-command-center-section';
+export {
+  NxtOpportunityRadarSectionComponent,
+  type OpportunityRadarSchoolMatch,
+} from './components/opportunity-radar-section';
+
+// ============================================
+// COACH ROLODEX (College Network Stats + Logo Marquee)
+// ============================================
+export { NxtCoachRolodexComponent, type CollegeLogo } from './components/coach-rolodex';
+
+// ============================================
+// AGENT X DEMO (AI Creative Director Showcase)
+// ============================================
+export {
+  NxtAgentXDemoComponent,
+  type AgentXDemoChatMessage,
+  type AgentXDemoGraphic,
+} from './components/agent-x-demo';
+export { NxtNilMonetizationUpsideComponent } from './components/nil-monetization-upside';
+
+export {
+  NxtCoachAuthorityValidationComponent,
+  type CoachAuthorityQuote,
+} from './components/coach-authority-validation';
+export {
+  NxtCoachesNetworkAuthorityComponent,
+  type CoachesNetworkLogo,
+} from './components/coaches-network-authority';
+export {
+  NxtInvisibleAthletePainPointComponent,
+  type InvisibleAthleteSignal,
+} from './components/invisible-athlete-pain-point';
 
 // ============================================
 // REUSABLE LANDING / MARKETING SECTIONS
@@ -166,14 +313,33 @@ export {
   NxtFeatureShowcaseComponent,
   type FeatureShowcaseItem,
 } from './components/feature-showcase';
+export {
+  NxtEducationalLibraryComponent,
+  type EducationalLibraryItem,
+  EDUCATIONAL_LIBRARY_DEFAULT_ITEMS,
+} from './components/educational-library';
 export { NxtAudienceSectionComponent, type AudienceSegment } from './components/audience-section';
-export { NxtCtaBannerComponent, type CtaBannerVariant } from './components/cta-banner';
+export {
+  NxtCtaBannerComponent,
+  type CtaBannerVariant,
+  type CtaAvatarImage,
+} from './components/cta-banner';
 export {
   NxtCtaButtonComponent,
   type CtaButtonVariant,
   type CtaButtonSize,
 } from './components/cta-button';
-export { NxtHeroSectionComponent, type HeroLayout } from './components/hero-section';
+export {
+  NxtHeroSectionComponent,
+  type HeroLayout,
+  type HeadingLevel,
+} from './components/hero-section';
+export { NxtValuePropComparisonComponent } from './components/value-prop-comparison';
+export {
+  NxtUniversalSportsDirectoryComponent,
+  type UniversalSportDirectoryLink,
+} from './components/universal-sports-directory';
+export { NxtSuccessStoriesComponent, type SuccessStoryItem } from './components/success-stories';
 export {
   NxtSiteFooterComponent,
   type SiteFooterLink,
@@ -332,6 +498,11 @@ export {
   type AgentXUser,
   // Landing
   NxtAgentXLandingComponent,
+  // FAB Chat Widget (Web-only, SSR-safe)
+  AgentXFabComponent,
+  AgentXFabChatPanelComponent,
+  AgentXFabService,
+  type FabPanelState,
 } from './agent-x';
 
 // ============================================
@@ -427,8 +598,12 @@ export {
   ExploreItemWebComponent,
   // Shared
   ExploreSkeletonComponent,
+  ExploreFilterModalComponent,
+  ExploreFilterModalService,
   // Types
   type ExploreUser,
+  type ExploreFilterModalConfig,
+  type ExploreFilterModalResult,
 } from './explore';
 
 // ============================================
@@ -441,7 +616,6 @@ export {
   ProfileShellComponent,
   ProfileShellWebComponent,
   ProfileHeaderComponent,
-  ProfileStatsBarComponent,
   ProfileTimelineComponent,
   ProfileOffersComponent,
   ProfileSkeletonComponent,
@@ -1162,6 +1336,8 @@ export {
   type AppDownloadBarConfig,
 } from './components/app-download-bar';
 
+export { NxtXpLeaderboardSectionComponent } from './components/xp-leaderboard-section';
+
 // ============================================
 // ATHLETE PROFILES (Public Directory & Marketing)
 // ============================================
@@ -1170,16 +1346,28 @@ export {
   NxtAthleteProfilesPreviewComponent,
 } from './athlete-profiles';
 
+export {
+  NxtRecruitingRadarSectionComponent,
+  type RecruitingRadarEvent,
+} from './components/recruiting-radar-section';
+
+export {
+  NxtRecruitmentPillarsSectionComponent,
+  type RecruitmentPillar,
+} from './components/recruitment-pillars-section';
+
 // ============================================
 // PERSONA PAGES (Athletes, Coaches, Parents, Scouts)
 // ============================================
 export {
+  NxtAiAthletesLandingComponent,
   NxtAthletesLandingComponent,
   NxtAthletesPreviewComponent,
   NxtCoachesLandingComponent,
   NxtCoachesPreviewComponent,
   NxtParentsLandingComponent,
   NxtParentsPreviewComponent,
+  NxtRecruitingAthletesLandingComponent,
   NxtScoutsLandingComponent,
   NxtScoutsPreviewComponent,
 } from './personas';

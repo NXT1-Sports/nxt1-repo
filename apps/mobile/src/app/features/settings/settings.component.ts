@@ -94,7 +94,7 @@ export class SettingsComponent {
     if (!user) return null;
 
     return {
-      photoURL: user.photoURL ?? undefined,
+      profileImg: user.profileImg ?? undefined,
       displayName: user.displayName ?? undefined,
     };
   });

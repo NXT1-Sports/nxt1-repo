@@ -16,11 +16,18 @@ import {
   type ProfilePost,
   type ProfileEvent,
   type ProfileStatItem,
+  type ProfileOffer,
+  type ProfileSport,
   PROFILE_DEFAULT_TAB,
 } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { MOCK_PROFILE_PAGE_DATA, getMockOwnProfileData } from './profile.mock-data';
+
+type ProfileUserTeamExtension = {
+  readonly teamId?: string;
+  readonly managedTeams?: readonly unknown[];
+};
 
 @Injectable({ providedIn: 'root' })
 export class ProfileService {
@@ -37,6 +44,7 @@ export class ProfileService {
   private readonly _profileData = signal<ProfilePageData | null>(null);
   private readonly _isEditMode = signal(false);
   private readonly _editSection = signal<string | null>(null);
+  private readonly _activeSportIndex = signal(0);
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS (READ-ONLY)
@@ -78,8 +86,46 @@ export class ProfileService {
   /** Offers list */
   readonly offers = computed(() => this._profileData()?.offers ?? []);
 
+  /** Committed offers (offers where isCommitted is true) */
+  readonly committedOffers = computed<readonly ProfileOffer[]>(() =>
+    this.offers().filter((o: ProfileOffer) => o.isCommitted === true)
+  );
+
+  /** Interest offers (type === 'interest', not committed) */
+  readonly interestOffers = computed<readonly ProfileOffer[]>(() =>
+    this.offers().filter((o: ProfileOffer) => o.type === 'interest' && !o.isCommitted)
+  );
+
+  /** Active offers (non-interest, non-committed — scholarship, visit, preferred_walk_on) */
+  readonly activeOffers = computed<readonly ProfileOffer[]>(() =>
+    this.offers().filter((o: ProfileOffer) => o.type !== 'interest' && !o.isCommitted)
+  );
+
+  /** Whether the user has any recruiting activity at all */
+  readonly hasRecruitingActivity = computed<boolean>(() => this.offers().length > 0);
+
   /** Events list */
   readonly events = computed(() => this._profileData()?.events ?? []);
+
+  /** Player card data (Agent X / Madden-style) */
+  readonly playerCard = computed(() => this._profileData()?.playerCard ?? null);
+
+  /**
+   * All profile images for carousel display.
+   * Combines profileImg + gallery into a single ordered array.
+   */
+  readonly profileImages = computed<readonly string[]>(() => {
+    const user = this._profileData()?.user;
+    if (!user) return [];
+    const images: string[] = [];
+    if (user.profileImg) images.push(user.profileImg);
+    if (user.gallery?.length) {
+      for (const img of user.gallery) {
+        if (img && !images.includes(img)) images.push(img);
+      }
+    }
+    return images;
+  });
 
   /** Whether viewing own profile */
   readonly isOwnProfile = computed(() => this._profileData()?.isOwnProfile ?? false);
@@ -87,14 +133,46 @@ export class ProfileService {
   /** Whether can edit profile */
   readonly canEdit = computed(() => this._profileData()?.canEdit ?? false);
 
+  /** All sports (primary + additional) for profile switching */
+  readonly allSports = computed<readonly ProfileSport[]>(() => {
+    const user = this._profileData()?.user;
+    if (!user) return [];
+    const sports: ProfileSport[] = [];
+    if (user.primarySport) sports.push(user.primarySport);
+    if (user.additionalSports?.length) {
+      for (const s of user.additionalSports) {
+        sports.push(s);
+      }
+    }
+    return sports;
+  });
+
+  /** Whether user has multiple sport profiles */
+  readonly hasMultipleSports = computed(() => this.allSports().length > 1);
+
+  /** Currently active sport index */
+  readonly activeSportIndex = computed(() => {
+    const idx = this._activeSportIndex();
+    const sports = this.allSports();
+    return idx < sports.length ? idx : 0;
+  });
+
+  /** Currently active sport profile */
+  readonly activeSport = computed<ProfileSport | null>(() => {
+    const sports = this.allSports();
+    const idx = this.activeSportIndex();
+    return sports[idx] ?? null;
+  });
+
   /** Whether user has a team to edit */
   readonly hasTeam = computed(() => {
     // Check if user has team in their sports profile
     const user = this._profileData()?.user;
     if (!user) return false;
+    const extendedUser = user as typeof user & ProfileUserTeamExtension;
     // For now, return true for coaches/team managers, or if they have a team association
     // This will be enhanced when backend provides team data
-    return !!(user as any).teamId || !!(user as any).managedTeams?.length;
+    return !!extendedUser.teamId || !!extendedUser.managedTeams?.length;
   });
 
   /** Whether in edit mode */
@@ -124,6 +202,11 @@ export class ProfileService {
     this.allPosts().filter((p: ProfilePost) => p.type === 'video' || p.type === 'highlight')
   );
 
+  /** News posts only */
+  readonly newsPosts = computed(() =>
+    this.allPosts().filter((p: ProfilePost) => p.type === 'news')
+  );
+
   /** Pinned posts */
   readonly pinnedPosts = computed(() => this.allPosts().filter((p: ProfilePost) => p.isPinned));
 
@@ -146,37 +229,37 @@ export class ProfileService {
         key: 'profileViews',
         label: 'Profile Views',
         value: stats.profileViews,
-        icon: 'eye-outline',
+        icon: 'eye',
       },
       {
         key: 'videoViews',
         label: 'Video Views',
         value: stats.videoViews,
-        icon: 'play-circle-outline',
+        icon: 'play-circle',
       },
       {
         key: 'offerCount',
         label: 'Offers',
         value: stats.offerCount,
-        icon: 'trophy-outline',
+        icon: 'trophy',
       },
       {
         key: 'highlightCount',
         label: 'Highlights',
         value: stats.highlightCount,
-        icon: 'videocam-outline',
+        icon: 'videocam',
       },
       {
         key: 'collegeInterestCount',
         label: 'College Interest',
         value: stats.collegeInterestCount,
-        icon: 'school-outline',
+        icon: 'school',
       },
       {
         key: 'shareCount',
         label: 'Shares',
         value: stats.shareCount,
-        icon: 'share-social-outline',
+        icon: 'share-social',
       },
     ];
   });
@@ -187,11 +270,15 @@ export class ProfileService {
     const events = this.events();
 
     return {
+      overview: 0,
       timeline: this.allPosts().length,
+      news: this.newsPosts().length,
       videos: this.videoPosts().length,
       offers: offers.length,
       stats: 0,
+      academic: 0,
       events: events.length,
+      schedule: events.length,
       contact: 0,
     };
   });
@@ -207,6 +294,32 @@ export class ProfileService {
     const now = new Date();
     return this.events().filter((e: ProfileEvent) => new Date(e.startDate) <= now);
   });
+
+  /** Visit events */
+  readonly visitEvents = computed(() =>
+    this.events().filter((e: ProfileEvent) => e.type === 'visit')
+  );
+
+  /** Camp events */
+  readonly campEvents = computed(() =>
+    this.events().filter((e: ProfileEvent) => e.type === 'camp')
+  );
+
+  /** General events (combines, showcases, other — excludes visits, camps, games, practice) */
+  readonly generalEvents = computed(() =>
+    this.events().filter(
+      (e: ProfileEvent) =>
+        e.type !== 'visit' && e.type !== 'camp' && e.type !== 'game' && e.type !== 'practice'
+    )
+  );
+
+  /**
+   * All non-game events (visits, camps, combines, showcases, other).
+   * Used by the events section which excludes games and practice.
+   */
+  readonly nonGameEvents = computed(() =>
+    this.events().filter((e: ProfileEvent) => e.type !== 'game' && e.type !== 'practice')
+  );
 
   // ============================================
   // PUBLIC METHODS
@@ -316,6 +429,21 @@ export class ProfileService {
   }
 
   /**
+   * Switch to a different sport profile by index.
+   */
+  setActiveSportIndex(index: number): void {
+    const sports = this.allSports();
+    if (index >= 0 && index < sports.length) {
+      this.logger.info('Sport profile switched', {
+        from: this._activeSportIndex(),
+        to: index,
+        sport: sports[index]?.name,
+      });
+      this._activeSportIndex.set(index);
+    }
+  }
+
+  /**
    * Enter edit mode for a specific section.
    */
   enterEditMode(section?: string): void {
@@ -344,6 +472,7 @@ export class ProfileService {
     this._profileData.set(null);
     this._isEditMode.set(false);
     this._editSection.set(null);
+    this._activeSportIndex.set(0);
   }
 
   // ============================================

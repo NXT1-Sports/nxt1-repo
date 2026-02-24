@@ -50,7 +50,6 @@ import {
   type IAuthFlowService,
   type FlowSignInCredentials as SignInCredentials,
   type FlowSignUpCredentials as SignUpCredentials,
-  type OAuthOptions as _OAuthOptions,
 } from '@nxt1/core/auth';
 import { createNativeStorageAdapter } from '../../../core/infrastructure/native-storage.adapter';
 import { AUTH_ROUTES, AUTH_REDIRECTS, AUTH_METHODS } from '@nxt1/core/constants';
@@ -150,7 +149,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
   // Additional mobile-specific computed
   readonly displayName = computed(() => this.user()?.displayName ?? 'User');
-  readonly photoURL = computed(() => this.user()?.photoURL);
+  readonly profileImg = computed(() => this.user()?.profileImg);
 
   /**
    * ⭐ USER PROFILE (delegated to ProfileService) ⭐
@@ -325,6 +324,11 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       this.authManager.setLoading(true);
 
       try {
+        // ⭐ CRITICAL: Wait for Firebase to finish restoring session from IndexedDB.
+        // Without this, getCurrentUser() returns null on reload because Firebase
+        // hasn't loaded the persisted session yet — causing a false "not logged in" state.
+        await this.firebaseAuth.waitForAuthReady();
+
         const firebaseUser = this.firebaseAuth.getCurrentUser();
 
         if (firebaseUser) {
@@ -346,20 +350,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           // Sync profile
           await this.syncUserProfile(firebaseUser.uid);
         } else {
-          // No Firebase user - check if we have a persisted user
-          // On page reload, Firebase might not have synced yet, but we have persisted state
-          const currentState = this._state();
-          if (!currentState.user) {
-            // No persisted user either - reset state
-            this.logger.debug('No Firebase user and no persisted user, resetting');
-            await this.authManager.reset();
-          } else {
-            // We have persisted user but Firebase returned null
-            // This is normal on initial app startup - Firebase hasn't fully initialized
-            this.logger.debug('Persisted user found, keeping state despite Firebase null');
-            // Re-sync profile to ensure it's fresh
-            await this.syncUserProfile(currentState.user.uid);
-          }
+          // No Firebase user AFTER authStateReady() — session genuinely doesn't exist.
+          // Any persisted AuthUser is stale (e.g., token expired, user signed out elsewhere).
+          this.logger.debug('No Firebase user after auth ready, resetting state');
+          await this.authManager.reset();
         }
       } catch (err) {
         this.logger.error('Auth state sync failed', err);
@@ -413,11 +407,14 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         firebaseUser.email || firebaseUser.providerData?.[0]?.email || userProfile?.email || '';
 
       // Create AuthUser from Firebase + backend data (minimal auth state)
+      // ⭐ profileImg: ALWAYS prefer backend profileImg (source of truth).
+      // Firebase photoURL is only used as initial fallback for brand-new social sign-ups
+      // before they have a backend profile.
       const authUser: AuthUser = {
         uid: firebaseUser.uid,
         email: userEmail,
         displayName: firebaseUser.displayName ?? userDisplayName ?? 'User',
-        photoURL: firebaseUser.photoURL ?? userProfile?.profileImg ?? undefined,
+        profileImg: userProfile?.profileImg ?? firebaseUser.photoURL ?? undefined,
         role: this.profileService.role() ?? 'athlete',
         isPremium: this.profileService.isPremium(),
         hasCompletedOnboarding,
@@ -523,14 +520,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       // Navigate to appropriate screen (unless skipNavigation is set)
       if (!credentials.skipNavigation) {
-        // Check if user completed onboarding
-        if (this.hasCompletedOnboarding()) {
-          // User đã complete onboarding → về home
-          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
-        } else {
-          // User chưa complete onboarding → đi onboarding
-          await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
-        }
+        await this.navigatePostAuth();
       }
 
       return true;
@@ -550,206 +540,133 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   }
 
   /**
+   * Navigate to the correct destination based on onboarding status.
+   * Reusable across all sign-in methods.
+   */
+  private async navigatePostAuth(): Promise<void> {
+    if (this.hasCompletedOnboarding()) {
+      await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
+    } else {
+      await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
+    }
+  }
+
+  /**
    * Sign in with Google
    */
   async signInWithGoogle(): Promise<boolean> {
-    console.debug('[AuthFlowService] signInWithGoogle started');
-    this.authManager.setLoading(true);
-    this.authManager.setError(null);
-
-    try {
-      console.debug('[AuthFlowService] Calling firebaseAuth.signInWithGoogle()...');
-      const result = await this.firebaseAuth.signInWithGoogle();
-      console.debug(
-        '[AuthFlowService][DEBUG] Full Google sign-in result:',
-        JSON.stringify(result, null, 2)
-      );
-
-      // Extract email from multiple sources (Firebase sometimes doesn't set user.email)
-      const userEmail =
-        result.user.email ||
-        result.user.providerData?.[0]?.email ||
-        // @ts-expect-error _tokenResponse exists on native result
-        result._tokenResponse?.email ||
-        null;
-
-      console.debug('[AuthFlowService] Firebase sign-in result:', {
-        uid: result.user.uid,
-        email: userEmail,
-        emailFromUser: result.user.email,
-        emailFromProvider: result.user.providerData?.[0]?.email,
-      });
-
-      // Check if new user by trying to fetch profile from backend
-      // @capacitor-firebase/authentication doesn't provide _tokenResponse.isNewUser reliably
-      let isNewUser = false;
-      try {
-        await this.authApi.getUserProfile(result.user.uid);
-        isNewUser = false; // User exists in backend
-        console.debug('[AuthFlowService] Existing user detected from backend');
-      } catch (error: unknown) {
-        const apiError = error as { status?: number; message?: string };
-        if (apiError?.status === 404 || apiError?.message?.includes('not found')) {
-          isNewUser = true; // User not found in backend = new user
-          console.debug('[AuthFlowService] New user detected - not found in backend');
-        } else {
-          console.warn('[AuthFlowService] Error checking user existence:', error);
-          // Fallback to checking _tokenResponse if available
-          // @ts-expect-error additionalUserInfo is on the result
-          isNewUser = result._tokenResponse?.isNewUser ?? false;
-        }
-      }
-      console.debug('[AuthFlowService] isNewUser:', isNewUser);
-
-      // Track analytics
-      this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
-        method: AUTH_METHODS.GOOGLE,
-      });
-      this.analytics.setUserId(result.user.uid);
-
-      // Token is handled automatically by tokenProvider on every request
-      console.debug('[AuthFlowService] Token provider handles auth automatically');
-
-      if (isNewUser) {
-        console.debug('[AuthFlowService] New user - creating in backend...');
-        // Create user in backend with email from multiple sources
-        await this.authApi.createUser({
-          uid: result.user.uid,
-          email: userEmail!,
-        });
-        // Set user state BEFORE navigating (required for onboarding page)
-        await this.syncUserProfile(result.user.uid);
-        console.debug('[AuthFlowService] New user - navigating to onboarding...');
-        await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
-      } else {
-        console.debug('[AuthFlowService] Existing user - syncing profile...');
-        await this.syncUserProfile(result.user.uid);
-
-        // Set user properties after sync
-        const user = this.user();
-        if (user) {
-          this.analytics.setUserProperties({
-            user_type: user.role,
-            is_premium: user.isPremium,
-            auth_provider: AUTH_METHODS.GOOGLE,
-          });
-        }
-
-        // Check if user completed onboarding
-        const completed = this.hasCompletedOnboarding();
-        console.debug('[AuthFlowService] Navigation check:', {
-          hasCompletedOnboarding: completed,
-          user: user,
-          willNavigateTo: completed ? 'HOME' : 'ONBOARDING',
-        });
-
-        if (completed) {
-          // User đã complete onboarding → về home
-          console.debug('[AuthFlowService] ✅ Onboarding completed - navigating to HOME');
-          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
-        } else {
-          // User chưa complete onboarding → đi onboarding
-          console.debug('[AuthFlowService] ⚠️ Onboarding NOT completed - navigating to ONBOARDING');
-          await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
-        }
-      }
-
-      console.debug('[AuthFlowService] Google sign-in complete, returning true');
-      return true;
-    } catch (err) {
-      console.error('[AuthFlowService] Google sign-in error:', err);
-      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
-        method: AUTH_METHODS.GOOGLE,
-        error_code: getAuthErrorCode(err) ?? 'unknown',
-      });
-      const message = getAuthErrorMessage(err);
-      this.authManager.setError(message);
-      return false;
-    } finally {
-      this.authManager.setLoading(false);
-    }
+    return this.handleOAuthSignIn(AUTH_METHODS.GOOGLE, () => this.firebaseAuth.signInWithGoogle());
   }
 
   /**
    * Sign in with Apple
    */
   async signInWithApple(): Promise<boolean> {
+    return this.handleOAuthSignIn(AUTH_METHODS.APPLE, () => this.firebaseAuth.signInWithApple());
+  }
+
+  /**
+   * Sign in with Microsoft
+   */
+  async signInWithMicrosoft(): Promise<boolean> {
+    return this.handleOAuthSignIn(
+      AUTH_METHODS.MICROSOFT,
+      () => this.firebaseAuth.signInWithMicrosoft(),
+      { nullable: true }
+    );
+  }
+
+  // ============================================
+  // SHARED OAUTH HANDLER (DRY — eliminates duplication)
+  // ============================================
+
+  /**
+   * Shared OAuth sign-in handler for all social providers.
+   *
+   * Orchestrates the full post-OAuth flow:
+   * 1. Detect new vs. existing user (backend lookup)
+   * 2. Create backend user if new
+   * 3. Sync profile + analytics
+   * 4. Navigate to home or onboarding
+   *
+   * @param method - Auth method constant (GOOGLE, APPLE, MICROSOFT)
+   * @param signInFn - Provider-specific sign-in function from FirebaseAuthService
+   * @param options.nullable - If true, a null result means user cancelled (e.g. Microsoft)
+   */
+  private async handleOAuthSignIn(
+    method: string,
+    signInFn: () => Promise<import('@angular/fire/auth').UserCredential | null>,
+    options?: { nullable?: boolean }
+  ): Promise<boolean> {
+    this.logger.debug(`${method} sign-in started`);
     this.authManager.setLoading(true);
     this.authManager.setError(null);
 
     try {
-      const result = await this.firebaseAuth.signInWithApple();
-      console.debug(
-        '[AuthFlowService][DEBUG] Full Apple sign-in result:',
-        JSON.stringify(result, null, 2)
-      );
+      const result = await signInFn();
 
-      let isNewUser = false;
-      try {
-        await this.authApi.getUserProfile(result.user.uid);
-        isNewUser = false; // User exists in backend
-        console.debug('[AuthFlowService] Apple - Existing user detected from backend');
-      } catch (error: unknown) {
-        const apiError = error as { status?: number; message?: string };
-        if (apiError?.status === 404 || apiError?.message?.includes('not found')) {
-          isNewUser = true; // User not found in backend = new user
-          console.debug('[AuthFlowService] Apple - New user detected - not found in backend');
-        } else {
-          console.warn('[AuthFlowService] Apple - Error checking user existence:', error);
-          // @ts-expect-error additionalUserInfo is on the result
-          isNewUser = result._tokenResponse?.isNewUser ?? false;
-        }
+      // User cancelled (applicable to providers that return null)
+      if (!result && options?.nullable) {
+        this.authManager.setLoading(false);
+        return false;
       }
+
+      if (!result) {
+        throw new Error(`${method} sign-in returned no result`);
+      }
+
+      // Extract email from multiple sources (Firebase sometimes doesn't set user.email)
+      const userEmail = result.user.email || result.user.providerData?.[0]?.email || null;
+
+      this.logger.debug(`${method} Firebase sign-in successful`, {
+        uid: result.user.uid,
+        email: userEmail,
+      });
+
+      // Detect new vs. existing user by checking backend profile
+      const isNewUser = await this.isNewBackendUser(result.user.uid);
 
       // Track analytics
       this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
-        method: AUTH_METHODS.APPLE,
+        method,
       });
       this.analytics.setUserId(result.user.uid);
 
-      // Token is handled automatically by tokenProvider on every request
-
       if (isNewUser) {
-        await this.authApi.createUser({
-          uid: result.user.uid,
-          email: result.user.email!,
-        });
-        // Set user state BEFORE navigating (required for onboarding page)
+        this.logger.info(`${method} new user — creating backend profile`, { uid: result.user.uid });
+        await this.authApi.createUser({ uid: result.user.uid, email: userEmail! });
         await this.syncUserProfile(result.user.uid);
         await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
       } else {
+        this.logger.debug(`${method} existing user — syncing profile`, { uid: result.user.uid });
         await this.syncUserProfile(result.user.uid);
+
+        // Set analytics user properties after sync
         const user = this.user();
         if (user) {
           this.analytics.setUserProperties({
             user_type: user.role,
             is_premium: user.isPremium,
-            auth_provider: AUTH_METHODS.APPLE,
+            auth_provider: method,
           });
         }
 
-        const completed = this.hasCompletedOnboarding();
-        console.debug('[AuthFlowService] Apple - Navigation check:', {
-          hasCompletedOnboarding: completed,
-          user: user,
-          willNavigateTo: completed ? 'HOME' : 'ONBOARDING',
-        });
-
-        if (completed) {
-          console.debug('[AuthFlowService] ✅ Apple - Onboarding completed - navigating to HOME');
-          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
-        } else {
-          console.debug(
-            '[AuthFlowService] ⚠️ Apple - Onboarding NOT completed - navigating to ONBOARDING'
-          );
-          await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
-        }
+        await this.navigatePostAuth();
       }
 
+      this.logger.info(`${method} sign-in complete`);
       return true;
-    } catch (err) {
+    } catch (err: unknown) {
+      // Microsoft-specific: redirect in progress is not an error
+      const authError = err as { message?: string; code?: string };
+      if (authError?.message === 'REDIRECT_IN_PROGRESS') {
+        this.logger.debug(`${method} OAuth redirect in progress`);
+        return true;
+      }
+
+      this.logger.error(`${method} sign-in failed`, err);
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
-        method: AUTH_METHODS.APPLE,
+        method,
         error_code: getAuthErrorCode(err) ?? 'unknown',
       });
       const message = getAuthErrorMessage(err);
@@ -761,114 +678,23 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   }
 
   /**
-   * Sign in with Microsoft
+   * Check if a user exists in the backend.
+   * Returns true if the user is NOT found (new user).
+   *
+   * @param uid - Firebase UID to check
    */
-  async signInWithMicrosoft(): Promise<boolean> {
-    this.authManager.setLoading(true);
-    this.authManager.setError(null);
-
+  private async isNewBackendUser(uid: string): Promise<boolean> {
     try {
-      const result = await this.firebaseAuth.signInWithMicrosoft();
-      console.debug(
-        '[AuthFlowService][DEBUG] Full Microsoft sign-in result:',
-        JSON.stringify(result, null, 2)
-      );
-
-      // User cancelled
-      if (!result) {
-        this.authManager.setLoading(false);
-        return false;
+      await this.authApi.getUserProfile(uid);
+      return false; // User exists
+    } catch (error: unknown) {
+      const apiError = error as { status?: number; message?: string };
+      if (apiError?.status === 404 || apiError?.message?.includes('not found')) {
+        return true; // User not found → new user
       }
-
-      // @capacitor-firebase/authentication doesn't provide _tokenResponse.isNewUser reliably
-      let isNewUser = false;
-      try {
-        await this.authApi.getUserProfile(result.user.uid);
-        isNewUser = false; // User exists in backend
-        console.debug('[AuthFlowService] Microsoft - Existing user detected from backend');
-      } catch (error: unknown) {
-        const apiError = error as { status?: number; message?: string };
-        if (apiError?.status === 404 || apiError?.message?.includes('not found')) {
-          isNewUser = true; // User not found in backend = new user
-          console.debug('[AuthFlowService] Microsoft - New user detected - not found in backend');
-        } else {
-          console.warn('[AuthFlowService] Microsoft - Error checking user existence:', error);
-          // @ts-expect-error additionalUserInfo is on the result
-          isNewUser = result._tokenResponse?.isNewUser ?? false;
-        }
-      }
-
-      // Track analytics
-      this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
-        method: AUTH_METHODS.MICROSOFT,
-      });
-      this.analytics.setUserId(result.user.uid);
-
-      // Token is handled automatically by tokenProvider on every request
-
-      if (isNewUser) {
-        await this.authApi.createUser({
-          uid: result.user.uid,
-          email: result.user.email!,
-        });
-        // Set user state BEFORE navigating (required for onboarding page)
-        await this.syncUserProfile(result.user.uid);
-        await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
-      } else {
-        await this.syncUserProfile(result.user.uid);
-
-        // Set user properties after sync
-        const user = this.user();
-        if (user) {
-          this.analytics.setUserProperties({
-            user_type: user.role,
-            is_premium: user.isPremium,
-            auth_provider: AUTH_METHODS.MICROSOFT,
-          });
-        }
-
-        // Check if user completed onboarding
-        const completed = this.hasCompletedOnboarding();
-        console.debug('[AuthFlowService] Microsoft - Navigation check:', {
-          hasCompletedOnboarding: completed,
-          user: user,
-          willNavigateTo: completed ? 'HOME' : 'ONBOARDING',
-        });
-
-        if (completed) {
-          console.debug(
-            '[AuthFlowService] ✅ Microsoft - Onboarding completed - navigating to HOME'
-          );
-          await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
-        } else {
-          console.debug(
-            '[AuthFlowService] ⚠️ Microsoft - Onboarding NOT completed - navigating to ONBOARDING'
-          );
-          await this.navigateForward(AUTH_REDIRECTS.ONBOARDING);
-        }
-      }
-
-      return true;
-    } catch (err: unknown) {
-      const authError = err as { message?: string; code?: string };
-      if (authError?.message === 'REDIRECT_IN_PROGRESS') {
-        console.log('[AuthFlowService] Microsoft OAuth redirect in progress...');
-        return true;
-      }
-      if (authError?.message?.includes('currently being implemented')) {
-        this.authManager.setError(authError.message);
-        return false;
-      }
-
-      this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNIN_ERROR, {
-        method: AUTH_METHODS.MICROSOFT,
-        error_code: getAuthErrorCode(err) ?? 'unknown',
-      });
-      const message = getAuthErrorMessage(err);
-      this.authManager.setError(message);
+      // On unknown errors, assume existing user to avoid duplicate creation
+      this.logger.warn('Error checking user existence, assuming existing', { uid, error });
       return false;
-    } finally {
-      this.authManager.setLoading(false);
     }
   }
 
@@ -939,7 +765,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         this.authManager.setSignupInProgress(false);
       }
     } catch (err) {
-      console.error('[AuthFlowService] signUpWithEmail failed', err);
+      this.logger.error('signUpWithEmail failed', err);
       // Track signup error
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNUP_ERROR, {
         method: AUTH_METHODS.EMAIL,

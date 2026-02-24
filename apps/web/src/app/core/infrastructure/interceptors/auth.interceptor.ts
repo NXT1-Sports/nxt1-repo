@@ -20,7 +20,7 @@ import { isPlatformBrowser } from '@angular/common';
 import { HttpInterceptorFn, HttpRequest, HttpHandlerFn, HttpEvent } from '@angular/common/http';
 import { Observable, from, switchMap } from 'rxjs';
 import { Auth } from '@angular/fire/auth';
-import { NxtLoggingService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services';
 import { environment } from '../../../../environments/environment';
 
 /**

@@ -108,23 +108,22 @@ export {
   type CollegeCoachData,
   type FanData,
   type Post,
-  type Referral,
   type User,
+  type UserSummary,
   isAthlete,
   isCoach,
   isCollegeCoach,
   isOnboarded,
   getPrimarySport,
   getActiveSport,
-  type UserUpdate,
-  type UserCreate,
-  type UserSummary,
-  toUserSummary,
-  createDefaultPreferences,
+  getSportByName,
+  playsSport,
+  getTotalOffers,
+  getAllAwards,
+  isMultiSport,
+  isCommitted,
   createDefaultSubscription,
-  createDefaultCounters,
   createDefaultMediaLibrary,
-  createEmptySportProfile,
   // Notification model
   NOTIFICATION_SCHEMA_VERSION,
   type NotificationRecipient,
@@ -691,6 +690,13 @@ export {
   EXPLORE_API_ENDPOINTS,
   EXPLORE_UI_CONFIG,
   EXPLORE_INITIAL_TAB_COUNTS,
+  EXPLORE_FILTER_SPORT_OPTIONS,
+  EXPLORE_FILTER_DIVISION_OPTIONS,
+  EXPLORE_FILTER_STATE_OPTIONS,
+  EXPLORE_FILTER_RADIUS_CONFIG,
+  EXPLORE_FILTER_CLASS_YEAR_SPAN,
+  getExploreFilterClassYearOptions,
+  EXPLORE_TAB_FILTER_FIELDS,
   // API Factory
   createExploreApi,
   type ExploreApi,
@@ -900,6 +906,12 @@ export {
 // ============================================
 
 export * from './profile';
+
+// ============================================
+// TIMELINE (Shared vertical-timeline types)
+// ============================================
+
+export * from './timeline';
 
 // ============================================
 // SETTINGS

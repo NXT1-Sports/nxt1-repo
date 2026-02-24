@@ -11,20 +11,21 @@
  */
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { NxtHeroSectionComponent } from '../../components/hero-section';
+import { NxtD1DreamHeroComponent } from '../../components/d1-dream-hero';
 import { NxtStatsBarComponent, type StatsBarItem } from '../../components/stats-bar';
-import {
-  NxtFeatureShowcaseComponent,
-  type FeatureShowcaseItem,
-} from '../../components/feature-showcase';
 import {
   NxtAudienceSectionComponent,
   type AudienceSegment,
 } from '../../components/audience-section';
 import { NxtFaqSectionComponent, type FaqItem } from '../../components/faq-section';
-import { NxtCtaBannerComponent } from '../../components/cta-banner';
+import { NxtCtaBannerComponent, type CtaAvatarImage } from '../../components/cta-banner';
 import { NxtSiteFooterComponent } from '../../components/site-footer';
-import { NxtAthletesPreviewComponent } from './athletes-preview.component';
+import { NxtLockerRoomTalkMarqueeComponent } from '../../components/locker-room-talk-marquee';
+import { NxtDraftClassTickerComponent } from '../../components/draft-class-ticker';
+import { NxtCoachesNetworkAuthorityComponent } from '../../components/coaches-network-authority';
+import { NxtXpLeaderboardSectionComponent } from '../../components/xp-leaderboard-section';
+import { NxtAgentXHypeMachineSectionComponent } from '../../components/agent-x-hype-machine-section';
+import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 
 // ============================================
 // PAGE-SPECIFIC CONSTANTS
@@ -35,51 +36,6 @@ const STATS: StatsBarItem[] = [
   { label: 'Profile Views Monthly', value: '2M+' },
   { label: 'College Connections', value: '5K+' },
   { label: 'Highlight Uploads', value: '500K+' },
-];
-
-const FEATURES: FeatureShowcaseItem[] = [
-  {
-    id: 'athletes-recruiting-profile',
-    icon: 'person-outline',
-    title: 'Recruiting Profile',
-    description:
-      'Build a verified profile with stats, academics, measurables, and contact info that college coaches search for every day.',
-  },
-  {
-    id: 'athletes-highlight-reels',
-    icon: 'videocam-outline',
-    title: 'Highlight Reels',
-    description:
-      'Upload game film and training clips with our built-in video editor. Auto-generate highlight reels that showcase your best plays.',
-  },
-  {
-    id: 'athletes-performance-analytics',
-    icon: 'bar-chart-outline',
-    title: 'Performance Analytics',
-    description:
-      'Track who viewed your profile, which coaches are interested, and how your recruiting stock is trending over time.',
-  },
-  {
-    id: 'athletes-xp-rankings',
-    icon: 'rocket-outline',
-    title: 'XP & Rankings',
-    description:
-      'Earn XP by completing your profile, posting highlights, and engaging with the community. Climb the leaderboard to boost visibility.',
-  },
-  {
-    id: 'athletes-college-discovery',
-    icon: 'school-outline',
-    title: 'College Discovery',
-    description:
-      'Search thousands of college programs by sport, division, location, and academic fit. Find the schools that match your goals.',
-  },
-  {
-    id: 'athletes-verified-exposure',
-    icon: 'shield-outline',
-    title: 'Verified Exposure',
-    description:
-      'Get your profile in front of verified college coaches and scouts through our curated matchmaking and exposure events.',
-  },
 ];
 
 const AUDIENCES: AudienceSegment[] = [
@@ -139,48 +95,52 @@ const FAQS: FaqItem[] = [
   },
 ];
 
+const CTA_AVATARS: readonly CtaAvatarImage[] = [
+  { src: `/${IMAGE_PATHS.athlete1}`, alt: 'High school athlete' },
+  { src: `/${IMAGE_PATHS.athlete2}`, alt: 'Club athlete' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Student athlete' },
+  { src: `/${IMAGE_PATHS.athlete4}`, alt: 'Varsity athlete' },
+  { src: `/${IMAGE_PATHS.athlete5}`, alt: 'Travel ball athlete' },
+  { src: `/${IMAGE_PATHS.coach1}`, alt: 'College coach' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Elite recruit' },
+] as const;
+
 @Component({
   selector: 'nxt1-athletes-landing',
   standalone: true,
   imports: [
-    NxtHeroSectionComponent,
+    NxtD1DreamHeroComponent,
     NxtStatsBarComponent,
-    NxtFeatureShowcaseComponent,
     NxtAudienceSectionComponent,
+    NxtLockerRoomTalkMarqueeComponent,
+    NxtDraftClassTickerComponent,
+    NxtCoachesNetworkAuthorityComponent,
+    NxtXpLeaderboardSectionComponent,
+    NxtAgentXHypeMachineSectionComponent,
     NxtFaqSectionComponent,
     NxtCtaBannerComponent,
     NxtSiteFooterComponent,
-    NxtAthletesPreviewComponent,
   ],
   template: `
-    <nxt1-hero-section
-      badgeIcon="person-outline"
-      badgeLabel="For Athletes"
-      title="Your Recruiting Journey"
-      accentText="Starts Here"
-      subtitle="Build a verified recruiting profile, upload highlights, track analytics, and connect with college coaches — all in one platform built for student-athletes."
-      primaryCtaLabel="Create Free Profile"
-      primaryCtaRoute="/auth/register"
-      secondaryCtaLabel="Browse Athletes"
-      secondaryCtaRoute="/explore"
-      ariaId="athletes-hero"
-    >
-      <nxt1-athletes-preview />
-    </nxt1-hero-section>
+    <nxt1-d1-dream-hero ariaTitleId="athletes-d1-dream-hero" />
 
     <nxt1-stats-bar [stats]="stats" />
 
-    <nxt1-feature-showcase
-      title="Everything You Need to Get Recruited"
-      subtitle="NXT1 gives you the tools college coaches actually look for — a professional profile, highlight reels, performance data, and direct connections."
-      [features]="features"
-    />
+    <nxt1-draft-class-ticker />
 
     <nxt1-audience-section
       title="Built for Every Athlete"
       subtitle="Whether you're a high school freshman or a college transfer, NXT1 adapts to your recruiting stage."
       [segments]="audiences"
     />
+
+    <nxt1-agent-x-hype-machine-section />
+
+    <nxt1-xp-leaderboard-section />
+
+    <nxt1-coaches-network-authority />
+
+    <nxt1-locker-room-talk-marquee />
 
     <nxt1-faq-section
       title="Athlete FAQs"
@@ -189,19 +149,30 @@ const FAQS: FaqItem[] = [
     />
 
     <nxt1-cta-banner
-      title="Ready to Get Recruited?"
-      subtitle="Join 125,000+ athletes already using NXT1 to build their recruiting profile and connect with college coaches."
-      ctaLabel="Create Free Profile"
-      ctaRoute="/auth/register"
+      variant="conversion"
+      badgeLabel="Join The Revolution"
+      title="Stop Competing. Start Dominating."
+      subtitle="Join the NXT1 sports recruiting platform to build a verified athlete profile, publish elite highlights, and get discovered by college coaches with real recruiting signals."
+      ctaLabel="Create Your NXT1 Account"
+      ctaRoute="/auth"
+      titleId="landing-final-cta-title"
+      [avatarImages]="ctaAvatars"
     />
 
     <nxt1-site-footer />
   `,
+  styles: [
+    `
+      :host {
+        display: block;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtAthletesLandingComponent {
   protected readonly stats = STATS;
-  protected readonly features = FEATURES;
   protected readonly audiences = AUDIENCES;
   protected readonly faqs = FAQS;
+  protected readonly ctaAvatars = CTA_AVATARS;
 }

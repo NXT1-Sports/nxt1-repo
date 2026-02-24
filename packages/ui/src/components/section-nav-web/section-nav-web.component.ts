@@ -35,6 +35,8 @@ export interface SectionNavItem {
   readonly id: string;
   /** Display label shown in the nav button. */
   readonly label: string;
+  /** Optional badge count shown beside the label. */
+  readonly badge?: number;
 }
 
 /** Emitted when the user clicks a different section. */
@@ -60,6 +62,9 @@ export interface SectionNavChangeEvent {
           (click)="onSelect(item)"
         >
           {{ item.label }}
+          @if (item.badge != null && item.badge > 0) {
+            <span class="nav-badge">{{ item.badge }}</span>
+          }
         </button>
       }
     </nav>
@@ -91,16 +96,18 @@ export interface SectionNavChangeEvent {
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
         font-size: var(--nxt1-fontSize-sm);
         font-weight: var(--nxt1-fontWeight-normal);
+        line-height: var(--nxt1-lineHeight-normal);
+        letter-spacing: 0;
         color: var(--nxt1-color-text-secondary);
         background: transparent;
-        border: none;
+        border: 1px solid transparent;
         border-radius: var(--nxt1-radius-lg, 12px);
         cursor: pointer;
         text-align: left;
-        line-height: var(--nxt1-lineHeight-normal);
         transition:
           color var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out),
-          background var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out);
+          background var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out),
+          border-color var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out);
       }
 
       .nav-item:hover {
@@ -110,8 +117,38 @@ export interface SectionNavChangeEvent {
 
       .nav-item--active {
         color: var(--nxt1-color-text-primary);
-        font-weight: var(--nxt1-fontWeight-medium);
+        font-weight: var(--nxt1-fontWeight-normal);
+        font-size: var(--nxt1-fontSize-sm);
+        line-height: var(--nxt1-lineHeight-normal);
+        letter-spacing: 0;
         background: var(--nxt1-color-surface-200);
+        border-color: var(--nxt1-color-primary);
+      }
+
+      .nav-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 6px;
+        margin-left: 6px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        background: var(--nxt1-color-alpha-primary15);
+        color: var(--nxt1-color-primary);
+      }
+
+      .nav-item--active .nav-badge {
+        background: var(--nxt1-color-alpha-primary20);
+      }
+
+      .nav-item:focus,
+      .nav-item:focus-visible {
+        outline: none;
+        box-shadow: none;
       }
 
       /* ==============================
@@ -154,6 +191,13 @@ export interface SectionNavChangeEvent {
           background: var(--nxt1-color-surface-300);
           border-color: var(--nxt1-color-primary);
           color: var(--nxt1-color-text-primary);
+        }
+
+        .nav-badge {
+          min-width: 18px;
+          height: 18px;
+          padding: 0 5px;
+          font-size: 9px;
         }
       }
     `,

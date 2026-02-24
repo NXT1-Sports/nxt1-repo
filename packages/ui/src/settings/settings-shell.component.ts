@@ -64,7 +64,7 @@ import type { SettingsSectionId } from '@nxt1/core';
  * User info for header display.
  */
 export interface SettingsUser {
-  readonly photoURL?: string | null;
+  readonly profileImg?: string | null;
   readonly displayName?: string | null;
 }
 

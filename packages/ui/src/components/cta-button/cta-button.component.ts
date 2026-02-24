@@ -15,7 +15,7 @@
  * <!-- Link button -->
  * <nxt1-cta-button
  *   label="Get Started Free"
- *   route="/auth/register"
+ *   route="/auth"
  *   variant="primary"
  * />
  *
@@ -30,7 +30,7 @@
  * <!-- Secondary outline -->
  * <nxt1-cta-button
  *   label="Log In"
- *   route="/auth/login"
+ *   route="/auth"
  *   variant="secondary"
  * />
  *
@@ -106,10 +106,12 @@ export type CtaButtonSize = 'default' | 'lg';
         align-items: center;
         justify-content: center;
         gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-6);
+        padding: var(--nxt1-cta-btn-padding-y, var(--nxt1-spacing-3))
+          var(--nxt1-cta-btn-padding-x, var(--nxt1-spacing-6));
+        min-width: var(--nxt1-cta-btn-min-width, auto);
         border-radius: var(--nxt1-borderRadius-lg);
         font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
+        font-size: var(--nxt1-cta-btn-font-size, var(--nxt1-fontSize-base));
         font-weight: var(--nxt1-fontWeight-semibold);
         line-height: var(--nxt1-lineHeight-tight);
         text-decoration: none;
@@ -153,7 +155,7 @@ export type CtaButtonSize = 'default' | 'lg';
       .nxt1-cta-btn--secondary {
         background: var(--nxt1-color-surface-200);
         color: var(--nxt1-color-text-primary);
-        border: 1px solid var(--nxt1-color-border-default);
+        border: var(--nxt1-spacing-px) solid var(--nxt1-color-border-default);
       }
 
       .nxt1-cta-btn--secondary:hover {
@@ -169,10 +171,11 @@ export type CtaButtonSize = 'default' | 'lg';
      * GHOST — Semi-transparent for glass backgrounds
      * ============================================ */
       .nxt1-cta-btn--ghost {
+        --_ghost-blur: 8px;
         background: color-mix(in srgb, var(--nxt1-color-surface-200) 85%, transparent);
         color: var(--nxt1-color-text-primary);
-        border: 1px solid var(--nxt1-color-border-default);
-        backdrop-filter: blur(8px);
+        border: var(--nxt1-spacing-px) solid var(--nxt1-color-border-default);
+        backdrop-filter: blur(var(--_ghost-blur));
       }
 
       .nxt1-cta-btn--ghost:hover {
@@ -188,8 +191,9 @@ export type CtaButtonSize = 'default' | 'lg';
      * SIZE MODIFIER — Large
      * ============================================ */
       .nxt1-cta-btn--lg {
-        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-8);
-        font-size: var(--nxt1-fontSize-lg);
+        --nxt1-cta-btn-padding-y: var(--nxt1-spacing-4);
+        --nxt1-cta-btn-padding-x: var(--nxt1-spacing-8);
+        --nxt1-cta-btn-font-size: var(--nxt1-fontSize-lg);
       }
 
       /* ============================================

@@ -192,8 +192,6 @@ import type { SidenavItemSelectEvent } from './sidenav.types';
                               class="nxt1-sidenav-sports__avatar"
                             />
                           </div>
-                        } @else {
-                          <div class="nxt1-sidenav-sports__empty">No sport added yet</div>
                         }
 
                         <button
@@ -479,7 +477,10 @@ import type { SidenavItemSelectEvent } from './sidenav.types';
             </div>
 
             <div class="nxt1-sidenav-footer__meta">
-              <span class="nxt1-sidenav-footer__copyright">© 2026 NXT1 Sports</span>
+              <span class="nxt1-sidenav-footer__copyright"
+                >© 2026 NXT1 Sports. All rights reserved.</span
+              >
+              <span class="nxt1-sidenav-footer__signature">Made With ❤️ By John Keller</span>
             </div>
           </div>
         }
@@ -1244,6 +1245,15 @@ import type { SidenavItemSelectEvent } from './sidenav.types';
       .nxt1-sidenav-footer__copyright {
         font-size: 11px;
         color: var(--nxt1-sidenav-text-tertiary);
+      }
+
+      .nxt1-sidenav-footer__signature {
+        display: block;
+        margin-top: 10px;
+        padding-top: 4px;
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-sidenav-text-tertiary);
+        text-align: center;
       }
 
       /* ============================================

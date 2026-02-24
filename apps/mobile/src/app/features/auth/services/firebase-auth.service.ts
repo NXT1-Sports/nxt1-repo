@@ -55,7 +55,8 @@ import {
 } from '@angular/fire/auth';
 import { environment } from '../../../../environments/environment';
 import { Subscription } from 'rxjs';
-import { NxtPlatformService } from '@nxt1/ui';
+import { NxtPlatformService, NxtLoggingService } from '@nxt1/ui';
+import { type ILogger } from '@nxt1/core/logging';
 import { NativeAuthService } from './native-auth.service';
 import { FirebaseUserInfo, NativeAuthResult } from '@nxt1/core';
 
@@ -77,14 +78,17 @@ export class FirebaseAuthService implements OnDestroy {
   private readonly nativeAuth = inject(NativeAuthService);
   private readonly injector = inject(Injector);
 
+  /** Structured logger for Firebase auth operations */
+  private readonly logger: ILogger = inject(NxtLoggingService).child('FirebaseAuthService');
+
   private authStateSubscription?: Subscription;
 
   // Store authState observable reference during injection context
   private readonly authState$ = authState(this.auth);
 
-  // Firebase user state
+  // Firebase user state — private writeable, public computed (2026 pattern)
   private readonly _firebaseUser = signal<FirebaseUser | null>(null);
-  readonly firebaseUser = this._firebaseUser.asReadonly();
+  readonly firebaseUser = computed(() => this._firebaseUser());
   readonly isAuthenticated = computed(() => this._firebaseUser() !== null);
 
   constructor() {
@@ -119,22 +123,22 @@ export class FirebaseAuthService implements OnDestroy {
    */
   private async checkRedirectResult(): Promise<void> {
     try {
-      console.debug('[FirebaseAuthService] Checking for OAuth redirect result...');
+      this.logger.debug('Checking for OAuth redirect result...');
       const result = await runInInjectionContext(this.injector, () => getRedirectResult(this.auth));
 
       if (result) {
-        console.debug('[FirebaseAuthService] OAuth redirect success:', {
+        this.logger.debug('OAuth redirect success:', {
           uid: result.user.uid,
           email: result.user.email,
           providerId: result.providerId,
         });
       } else {
-        console.debug('[FirebaseAuthService] No pending OAuth redirect result');
+        this.logger.debug('No pending OAuth redirect result');
       }
     } catch (error: unknown) {
       const authError = error as { code?: string; message?: string };
       if (authError?.code !== 'auth/no-auth-event') {
-        console.error('[FirebaseAuthService] OAuth redirect error:', {
+        this.logger.error('OAuth redirect error:', {
           code: authError?.code,
           message: authError?.message,
         });
@@ -147,6 +151,15 @@ export class FirebaseAuthService implements OnDestroy {
    */
   getCurrentUser(): FirebaseUser | null {
     return this.auth.currentUser;
+  }
+
+  /**
+   * Wait for Firebase Auth to finish initializing.
+   * Resolves once Firebase has restored the session from persistence (IndexedDB).
+   * MUST be called before getCurrentUser() on app startup to avoid stale null.
+   */
+  async waitForAuthReady(): Promise<void> {
+    await this.auth.authStateReady();
   }
 
   /**
@@ -252,16 +265,14 @@ export class FirebaseAuthService implements OnDestroy {
   async signInWithGoogle(): Promise<UserCredential> {
     // Use native auth on iOS/Android
     if (this.nativeAuth.isNativeAvailable) {
-      console.debug(
-        '[FirebaseAuthService] Using native Google Sign-In via @capacitor-firebase/authentication'
-      );
+      this.logger.debug('Using native Google Sign-In via @capacitor-firebase/authentication');
 
       try {
         const nativeResult = await this.nativeAuth.signInWithGoogle();
 
         // User cancelled
         if (!nativeResult) {
-          console.debug('[FirebaseAuthService] User cancelled Google Sign-In');
+          this.logger.debug('User cancelled Google Sign-In');
           throw new Error('Sign-in was cancelled');
         }
 
@@ -270,43 +281,39 @@ export class FirebaseAuthService implements OnDestroy {
         let currentUser = this.auth.currentUser;
 
         if (!currentUser) {
-          console.debug('[FirebaseAuthService] Waiting for Firebase auth state to sync...');
+          this.logger.debug('Waiting for Firebase auth state to sync...');
           // Wait up to 2 seconds for auth state to update
           for (let i = 0; i < 20; i++) {
             await new Promise((resolve) => setTimeout(resolve, 100));
             currentUser = this.auth.currentUser;
             if (currentUser) {
-              console.debug(
-                '[FirebaseAuthService] Firebase auth state synced after',
-                (i + 1) * 100,
-                'ms'
-              );
+              this.logger.debug('Firebase auth state synced', { delayMs: (i + 1) * 100 });
               break;
             }
           }
         }
 
         if (!currentUser) {
-          console.error('[FirebaseAuthService] No Firebase user after waiting for auth state', {
+          this.logger.error('No Firebase user after waiting for auth state', {
             hasIdToken: !!nativeResult.idToken,
             hasServerAuthCode: !!nativeResult.serverAuthCode,
           });
 
           // Last resort: manually sign in with the credential if we have idToken
           if (nativeResult.idToken) {
-            console.debug('[FirebaseAuthService] Attempting manual sign-in with credential...');
+            this.logger.debug('Attempting manual sign-in with credential...');
             const credential = GoogleAuthProvider.credential(nativeResult.idToken);
             const result = await runInInjectionContext(this.injector, () =>
               signInWithCredential(this.auth, credential)
             );
-            console.debug('[FirebaseAuthService] Manual sign-in successful');
+            this.logger.debug('Manual sign-in successful');
             return result;
           }
 
           throw new Error('Google Sign-In succeeded but no Firebase user found. Please try again.');
         }
 
-        console.debug('[FirebaseAuthService] Firebase sign-in successful:', {
+        this.logger.debug('Firebase sign-in successful:', {
           uid: currentUser.uid,
           email: currentUser.email,
         });
@@ -317,13 +324,13 @@ export class FirebaseAuthService implements OnDestroy {
           operationType: 'signIn',
         } as UserCredential;
       } catch (error) {
-        console.error('[FirebaseAuthService] Google Sign-In error:', error);
+        this.logger.error('Google Sign-In error:', error);
         throw error;
       }
     }
 
     // Web fallback (development/PWA)
-    console.debug('[FirebaseAuthService] Using web Google Sign-In (fallback)');
+    this.logger.debug('Using web Google Sign-In (fallback)');
     return runInInjectionContext(this.injector, () => {
       const provider = new GoogleAuthProvider();
       provider.addScope('profile');
@@ -350,7 +357,7 @@ export class FirebaseAuthService implements OnDestroy {
   async signInWithApple(): Promise<UserCredential> {
     // Use native auth on iOS/Android
     if (this.nativeAuth.isNativeAvailable) {
-      console.debug('[FirebaseAuthService] Using native Apple Sign-In');
+      this.logger.debug('Using native Apple Sign-In');
 
       try {
         const nativeResult = await this.nativeAuth.signInWithApple();
@@ -365,17 +372,13 @@ export class FirebaseAuthService implements OnDestroy {
         let currentUser = this.auth.currentUser;
 
         if (!currentUser) {
-          console.debug('[FirebaseAuthService] Waiting for Firebase auth state to sync...');
+          this.logger.debug('Waiting for Firebase auth state to sync...');
           // Wait up to 2 seconds for auth state to update
           for (let i = 0; i < 20; i++) {
             await new Promise((resolve) => setTimeout(resolve, 100));
             currentUser = this.auth.currentUser;
             if (currentUser) {
-              console.debug(
-                '[FirebaseAuthService] Firebase auth state synced after',
-                (i + 1) * 100,
-                'ms'
-              );
+              this.logger.debug('Firebase auth state synced (Apple)', { delayMs: (i + 1) * 100 });
               break;
             }
           }
@@ -404,13 +407,13 @@ export class FirebaseAuthService implements OnDestroy {
           operationType: 'signIn',
         } as UserCredential;
       } catch (error) {
-        console.error('[FirebaseAuthService] Apple Sign-In error:', error);
+        this.logger.error('Apple Sign-In error:', error);
         throw error;
       }
     }
 
     // Web fallback (development/PWA)
-    console.debug('[FirebaseAuthService] Using web Apple Sign-In (fallback)');
+    this.logger.debug('Using web Apple Sign-In (fallback)');
     return runInInjectionContext(this.injector, () => {
       const provider = new OAuthProvider('apple.com');
       provider.addScope('email');
@@ -432,18 +435,16 @@ export class FirebaseAuthService implements OnDestroy {
    * @throws Error on failure
    */
   async signInWithMicrosoft(): Promise<UserCredential | null> {
-    console.debug('[FirebaseAuthService] Starting Microsoft Sign-In');
+    this.logger.debug('Starting Microsoft Sign-In');
 
     if (this.nativeAuth.isNativeAvailable) {
-      console.debug(
-        '[FirebaseAuthService] Using native Microsoft OAuth via @capacitor-firebase/authentication'
-      );
+      this.logger.debug('Using native Microsoft OAuth via @capacitor-firebase/authentication');
       try {
         const result = await this.nativeAuth.signInWithMicrosoft();
 
         // User cancelled
         if (!result) {
-          console.debug('[FirebaseAuthService] User cancelled Microsoft Sign-In');
+          this.logger.debug('User cancelled Microsoft Sign-In');
           return null;
         }
 
@@ -456,7 +457,7 @@ export class FirebaseAuthService implements OnDestroy {
           const authStatePromise = new Promise<void>((resolve) => {
             const unsubscribe = this.authState$.subscribe((user) => {
               if (user) {
-                console.debug('[FirebaseAuthService] Auth state changed, user detected');
+                this.logger.debug('Auth state changed, user detected');
                 unsubscribe.unsubscribe();
                 resolve();
               }
@@ -499,12 +500,12 @@ export class FirebaseAuthService implements OnDestroy {
           operationType: 'signIn',
         } as UserCredential;
       } catch (error) {
-        console.error('[FirebaseAuthService] Native Microsoft sign-in failed:', error);
+        this.logger.error('Native Microsoft sign-in failed:', error);
         throw error;
       }
     }
 
-    console.debug('[FirebaseAuthService] Using Firebase OAuth popup (web)');
+    this.logger.debug('Using Firebase OAuth popup (web)');
     return runInInjectionContext(this.injector, () => {
       const provider = new OAuthProvider('microsoft.com');
       provider.setCustomParameters({ prompt: 'select_account' });
@@ -532,19 +533,17 @@ export class FirebaseAuthService implements OnDestroy {
   private async signInWithNativeCredential(
     nativeResult: NativeAuthResult
   ): Promise<UserCredential> {
-    console.debug(
-      '[FirebaseAuthService] Converting native credential to Firebase:',
-      nativeResult.provider,
-      'idToken length:',
-      nativeResult.idToken?.length
-    );
+    this.logger.debug('Converting native credential to Firebase', {
+      provider: nativeResult.provider,
+      idTokenLength: nativeResult.idToken?.length,
+    });
 
     return runInInjectionContext(this.injector, async () => {
       let credential: OAuthCredential;
 
       switch (nativeResult.provider) {
         case 'google':
-          console.debug('[FirebaseAuthService] Creating Google credential with:', {
+          this.logger.debug('Creating Google credential with:', {
             hasIdToken: !!nativeResult.idToken,
             idTokenLength: nativeResult.idToken?.length,
             hasAccessToken: !!nativeResult.accessToken,
@@ -553,9 +552,7 @@ export class FirebaseAuthService implements OnDestroy {
           // For Google, we only need the idToken. accessToken is optional.
           // The idToken must be from an OAuth client that's linked to this Firebase project
           credential = GoogleAuthProvider.credential(nativeResult.idToken);
-          console.debug(
-            '[FirebaseAuthService] Google credential created, calling signInWithCredential...'
-          );
+          this.logger.debug('Google credential created, calling signInWithCredential');
           break;
 
         case 'apple': {
@@ -568,9 +565,7 @@ export class FirebaseAuthService implements OnDestroy {
         }
 
         case 'microsoft': {
-          console.debug(
-            '[FirebaseAuthService] Exchanging Microsoft token for Firebase custom token'
-          );
+          this.logger.debug('Exchanging Microsoft token for Firebase custom token');
 
           const response = await fetch(`${environment.apiUrl}/auth/microsoft/custom-token`, {
             method: 'POST',
@@ -599,16 +594,16 @@ export class FirebaseAuthService implements OnDestroy {
 
       // Sign in to Firebase with the OAuth credential
       try {
-        console.debug('[FirebaseAuthService] Calling signInWithCredential...');
+        this.logger.debug('Calling signInWithCredential...');
         const result = await signInWithCredential(this.auth, credential);
-        console.debug('[FirebaseAuthService] signInWithCredential SUCCESS:', {
+        this.logger.debug('signInWithCredential SUCCESS:', {
           uid: result.user.uid,
           email: result.user.email,
         });
         return result;
       } catch (error: unknown) {
         // Log detailed error info for debugging
-        console.error('[FirebaseAuthService] signInWithCredential FAILED:', {
+        this.logger.error('signInWithCredential FAILED:', {
           error,
           errorCode: (error as { code?: string })?.code,
           errorMessage: (error as { message?: string })?.message,

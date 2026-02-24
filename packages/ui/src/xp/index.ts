@@ -36,6 +36,9 @@ export {
 // Landing Page (Public marketing)
 export { NxtXpLandingComponent } from './xp-landing.component';
 export { NxtXpDashboardPreviewComponent } from './xp-dashboard-preview.component';
+export { NxtXpEconomyRewardsComponent } from './xp-economy-rewards.component';
+export { NxtXpMultiplierEffectComponent } from './xp-multiplier-effect.component';
+export { NxtXpArenaLeaderboardComponent } from './xp-arena-leaderboard.component';
 
 // ============================================
 // SERVICES

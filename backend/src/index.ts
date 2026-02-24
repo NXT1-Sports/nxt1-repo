@@ -229,8 +229,10 @@ async function setupApplication() {
    * Route configuration for both production and staging
    */
   const routeConfigs: Array<RouteConfig> = [
-    // Auth routes with strict rate limiting
-    { path: '/auth', rateLimitType: 'auth', handler: authRoutes },
+    // Auth routes — use 'api' rate limit since Firebase handles actual authentication.
+    // The /auth/* endpoints are profile management, onboarding, and session tracking,
+    // not password-based login. 'auth' (5 req/15min) was causing 429s on profile fetch.
+    { path: '/auth', rateLimitType: 'api', handler: authRoutes },
     { path: '/upload', rateLimitType: 'upload', handler: uploadRoutes },
     { path: '/invite', rateLimitType: 'email', handler: inviteRoutes },
     // Content routes with standard API rate limiting

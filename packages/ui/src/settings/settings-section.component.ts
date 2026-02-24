@@ -61,17 +61,6 @@ import {
 import { HapticsService } from '../services/haptics/haptics.service';
 
 // Register icons
-addIcons({
-  personOutline,
-  colorPaletteOutline,
-  cardOutline,
-  extensionPuzzleOutline,
-  helpCircleOutline,
-  documentTextOutline,
-  chevronDown,
-  chevronUp,
-});
-
 /**
  * Section toggle event.
  */
@@ -305,6 +294,19 @@ export interface SettingsSectionToggleEvent {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsSectionComponent {
+  constructor() {
+    addIcons({
+      personOutline,
+      colorPaletteOutline,
+      cardOutline,
+      extensionPuzzleOutline,
+      helpCircleOutline,
+      documentTextOutline,
+      chevronDown,
+      chevronUp,
+    });
+  }
+
   private readonly haptics = inject(HapticsService);
 
   // ============================================

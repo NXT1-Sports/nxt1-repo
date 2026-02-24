@@ -11,50 +11,16 @@
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon, IonSpinner } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  heartOutline,
-  heart,
-  chatbubbleOutline,
-  shareOutline,
-  playCircle,
-  playOutline,
-  imageOutline,
-  documentTextOutline,
-  starOutline,
-  newspaperOutline,
-  statsChartOutline,
-  trophyOutline,
-  ellipsisHorizontal,
-  pinOutline,
-} from 'ionicons/icons';
 import type { ProfilePost, ProfilePostType } from '@nxt1/core';
 import { PROFILE_POST_TYPE_ICONS, PROFILE_POST_TYPE_LABELS } from '@nxt1/core';
 import { ProfileSkeletonComponent } from './profile-skeleton.component';
+import { NxtIconComponent } from '../components/icon';
 
 // Register icons
-addIcons({
-  heartOutline,
-  heart,
-  chatbubbleOutline,
-  shareOutline,
-  playCircle,
-  playOutline,
-  imageOutline,
-  documentTextOutline,
-  starOutline,
-  newspaperOutline,
-  statsChartOutline,
-  trophyOutline,
-  ellipsisHorizontal,
-  pinOutline,
-});
-
 @Component({
   selector: 'nxt1-profile-timeline',
   standalone: true,
-  imports: [CommonModule, IonIcon, IonSpinner, ProfileSkeletonComponent],
+  imports: [CommonModule, NxtIconComponent, ProfileSkeletonComponent],
   template: `
     <div class="profile-timeline">
       <!-- Loading State -->
@@ -69,7 +35,7 @@ addIcons({
       <!-- Error State -->
       @else if (error()) {
         <div class="timeline-error">
-          <ion-icon name="alert-circle-outline"></ion-icon>
+          <nxt1-icon name="alert-circle" [size]="48" />
           <h3>Something went wrong</h3>
           <p>{{ error() }}</p>
           <button class="retry-btn" (click)="retry.emit()">Try Again</button>
@@ -80,7 +46,7 @@ addIcons({
       @else if (isEmpty()) {
         <div class="timeline-empty">
           <div class="empty-icon">
-            <ion-icon [name]="emptyIcon()"></ion-icon>
+            <nxt1-icon [name]="emptyIcon()" [size]="36" />
           </div>
           <h3 class="empty-title">{{ emptyTitle() }}</h3>
           <p class="empty-message">{{ emptyMessage() }}</p>
@@ -100,7 +66,7 @@ addIcons({
               <!-- Pinned Badge -->
               @if (post.isPinned) {
                 <div class="pinned-badge">
-                  <ion-icon name="pin-outline"></ion-icon>
+                  <nxt1-icon name="pin" [size]="14" />
                   <span>Pinned</span>
                 </div>
               }
@@ -108,13 +74,13 @@ addIcons({
               <!-- Post Header -->
               <header class="post-header">
                 <div class="post-type-badge" [attr.data-type]="post.type">
-                  <ion-icon [name]="getPostTypeIcon(post.type)"></ion-icon>
+                  <nxt1-icon [name]="getPostTypeIcon(post.type)" [size]="14" />
                   <span>{{ getPostTypeLabel(post.type) }}</span>
                 </div>
                 <time class="post-time">{{ formatRelativeTime(post.createdAt) }}</time>
                 @if (showMenu()) {
                   <button class="post-menu-btn" (click)="menuClick.emit(post)">
-                    <ion-icon name="ellipsis-horizontal"></ion-icon>
+                    <nxt1-icon name="ellipsis-horizontal" [size]="16" />
                   </button>
                 }
               </header>
@@ -141,7 +107,7 @@ addIcons({
                     />
                     @if (post.type === 'video' || post.type === 'highlight') {
                       <div class="video-overlay">
-                        <ion-icon name="play-circle"></ion-icon>
+                        <nxt1-icon name="play-circle" [size]="64" />
                         @if (post.duration) {
                           <span class="video-duration">{{ formatDuration(post.duration) }}</span>
                         }
@@ -158,20 +124,20 @@ addIcons({
                   [class.action-btn--active]="post.isLiked"
                   (click)="likeClick.emit(post)"
                 >
-                  <ion-icon [name]="post.isLiked ? 'heart' : 'heart-outline'"></ion-icon>
+                  <nxt1-icon [name]="post.isLiked ? 'heart' : 'heart'" [size]="20" />
                   <span>{{ formatCount(post.likeCount) }}</span>
                 </button>
                 <button class="action-btn" (click)="commentClick.emit(post)">
-                  <ion-icon name="chatbubble-outline"></ion-icon>
+                  <nxt1-icon name="chatbubble" [size]="20" />
                   <span>{{ formatCount(post.commentCount) }}</span>
                 </button>
                 <button class="action-btn" (click)="shareClick.emit(post)">
-                  <ion-icon name="share-outline"></ion-icon>
+                  <nxt1-icon name="share" [size]="20" />
                   <span>{{ formatCount(post.shareCount) }}</span>
                 </button>
                 @if (post.viewCount !== undefined) {
                   <span class="view-count">
-                    <ion-icon name="play-outline"></ion-icon>
+                    <nxt1-icon name="play" [size]="16" />
                     {{ formatCount(post.viewCount) }} views
                   </span>
                 }
@@ -183,7 +149,7 @@ addIcons({
           @if (hasMore()) {
             <div class="load-more">
               @if (isLoadingMore()) {
-                <ion-spinner name="crescent"></ion-spinner>
+                <span class="load-more-spinner" aria-hidden="true"></span>
               } @else {
                 <button class="load-more-btn" (click)="loadMore.emit()">Load More</button>
               }
@@ -229,7 +195,7 @@ addIcons({
         padding: 48px 24px;
         text-align: center;
 
-        ion-icon {
+        nxt1-icon {
           font-size: 48px;
           color: var(--timeline-error);
           margin-bottom: 16px;
@@ -288,7 +254,7 @@ addIcons({
         justify-content: center;
         margin-bottom: 20px;
 
-        ion-icon {
+        nxt1-icon {
           font-size: 36px;
           color: var(--timeline-text-tertiary);
         }
@@ -359,7 +325,7 @@ addIcons({
         color: var(--timeline-text-tertiary);
         margin-bottom: 8px;
 
-        ion-icon {
+        nxt1-icon {
           font-size: 14px;
         }
       }
@@ -386,7 +352,7 @@ addIcons({
         font-weight: 500;
         color: var(--timeline-text-secondary);
 
-        ion-icon {
+        nxt1-icon {
           font-size: 14px;
         }
 
@@ -487,7 +453,7 @@ addIcons({
         background: rgba(0, 0, 0, 0.4);
         transition: background 0.2s ease;
 
-        ion-icon {
+        nxt1-icon {
           font-size: 64px;
           color: white;
           filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
@@ -534,7 +500,7 @@ addIcons({
         cursor: pointer;
         transition: color 0.2s ease;
 
-        ion-icon {
+        nxt1-icon {
           font-size: 20px;
         }
 
@@ -559,7 +525,7 @@ addIcons({
         font-size: 13px;
         color: var(--timeline-text-tertiary);
 
-        ion-icon {
+        nxt1-icon {
           font-size: 16px;
         }
       }
@@ -591,8 +557,19 @@ addIcons({
         }
       }
 
-      ion-spinner {
-        color: var(--timeline-primary);
+      .load-more-spinner {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 2px solid var(--timeline-surface);
+        border-top-color: var(--timeline-primary);
+        animation: timelineSpin 0.8s linear infinite;
+      }
+
+      @keyframes timelineSpin {
+        to {
+          transform: rotate(360deg);
+        }
       }
     `,
   ],
@@ -611,7 +588,7 @@ export class ProfileTimelineComponent {
   readonly hasMore = input(false);
   readonly isOwnProfile = input(false);
   readonly showMenu = input(false);
-  readonly emptyIcon = input('newspaper-outline');
+  readonly emptyIcon = input('newspaper');
   readonly emptyTitle = input('No posts yet');
   readonly emptyMessage = input('Start sharing your journey');
   readonly emptyCta = input<string | null>(null);
@@ -634,7 +611,7 @@ export class ProfileTimelineComponent {
   // ============================================
 
   protected getPostTypeIcon(type: ProfilePostType): string {
-    return PROFILE_POST_TYPE_ICONS[type] ?? 'document-text-outline';
+    return PROFILE_POST_TYPE_ICONS[type] ?? 'document-text';
   }
 
   protected getPostTypeLabel(type: ProfilePostType): string {

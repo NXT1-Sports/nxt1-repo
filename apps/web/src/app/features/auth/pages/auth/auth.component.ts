@@ -27,21 +27,19 @@ import {
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule, ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { AuthShellComponent } from '@nxt1/ui/auth/auth-shell';
+import { AuthSocialButtonsComponent } from '@nxt1/ui/auth/auth-social-buttons';
+import { AuthActionButtonsComponent } from '@nxt1/ui/auth/auth-action-buttons';
+import { AuthDividerComponent } from '@nxt1/ui/auth/auth-divider';
+import { AuthEmailFormComponent, type AuthEmailFormData } from '@nxt1/ui/auth/auth-email-form';
+import { AuthAppDownloadComponent } from '@nxt1/ui/auth/auth-app-download';
+import { AuthModeSwitcherComponent, type AuthMode } from '@nxt1/ui/auth/auth-mode-switcher';
+import { AuthTermsDisclaimerComponent } from '@nxt1/ui/auth/auth-terms-disclaimer';
 import {
-  AuthShellComponent,
-  AuthSocialButtonsComponent,
-  AuthActionButtonsComponent,
-  AuthDividerComponent,
-  AuthEmailFormComponent,
-  AuthAppDownloadComponent,
-  AuthModeSwitcherComponent,
-  AuthTermsDisclaimerComponent,
   AuthTeamCodeComponent,
   AuthTeamCodeBannerComponent,
-  type AuthEmailFormData,
-  type AuthMode,
   type TeamCodeValidationState,
-} from '@nxt1/ui';
+} from '@nxt1/ui/auth/auth-team-code';
 import { AuthFlowService, AuthApiService } from '../../services';
 import { AuthNavigationService } from '@nxt1/ui/services';
 import { SeoService } from '../../../../core/services';

@@ -40,7 +40,7 @@ import {
 import { AuthApiService } from './auth-api.service';
 import { AuthCookieService } from './auth-cookie.service';
 import { type UserRole, getAuthErrorMessage } from '@nxt1/core';
-import { NxtLoggingService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
 
 /**
@@ -167,7 +167,7 @@ export class BrowserAuthService implements IAuthService {
         uid: firebaseUser.uid,
         email: firebaseUser.email ?? '',
         displayName: firebaseUser.displayName ?? 'User',
-        photoURL: firebaseUser.photoURL ?? undefined,
+        profileImg: firebaseUser.photoURL ?? undefined,
         role: 'athlete' as UserRole,
         isPremium: false,
         hasCompletedOnboarding: false,

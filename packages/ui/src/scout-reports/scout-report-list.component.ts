@@ -54,15 +54,6 @@ import { ScoutReportSkeletonComponent } from './scout-report-skeleton.component'
 import { ScoutReportEmptyStateComponent } from './scout-report-empty-state.component';
 
 // Register icons
-addIcons({
-  searchOutline,
-  bookmarkOutline,
-  diamondOutline,
-  alertCircleOutline,
-  refreshOutline,
-  filterOutline,
-});
-
 @Component({
   selector: 'nxt1-scout-report-list',
   standalone: true,
@@ -297,6 +288,17 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ScoutReportListComponent {
+  constructor() {
+    addIcons({
+      searchOutline,
+      bookmarkOutline,
+      diamondOutline,
+      alertCircleOutline,
+      refreshOutline,
+      filterOutline,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

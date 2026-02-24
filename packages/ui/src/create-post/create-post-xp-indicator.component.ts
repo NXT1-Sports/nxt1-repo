@@ -51,18 +51,6 @@ import {
 import type { PostXpBreakdown } from '@nxt1/core';
 
 // Register icons
-addIcons({
-  'sparkles-outline': sparklesOutline,
-  sparkles,
-  'flame-outline': flameOutline,
-  flame,
-  'star-outline': starOutline,
-  star,
-  'trending-up-outline': trendingUpOutline,
-  'chevron-down-outline': chevronDownOutline,
-  'information-circle-outline': informationCircleOutline,
-});
-
 @Component({
   selector: 'nxt1-create-post-xp-indicator',
   standalone: true,
@@ -627,6 +615,17 @@ export class CreatePostXpIndicatorComponent {
   protected readonly displayXp = computed(() => this.xpBreakdown()?.totalXp ?? 0);
 
   constructor() {
+    addIcons({
+      'sparkles-outline': sparklesOutline,
+      sparkles,
+      'flame-outline': flameOutline,
+      flame,
+      'star-outline': starOutline,
+      star,
+      'trending-up-outline': trendingUpOutline,
+      'chevron-down-outline': chevronDownOutline,
+      'information-circle-outline': informationCircleOutline,
+    });
     // Trigger animation when XP changes
     effect(() => {
       const xp = this.xpBreakdown();

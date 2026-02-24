@@ -24,6 +24,7 @@ import {
   provideZoneChangeDetection,
   isDevMode,
   ErrorHandler,
+  Injectable,
 } from '@angular/core';
 import {
   provideRouter,
@@ -31,8 +32,10 @@ import {
   withViewTransitions,
   withInMemoryScrolling,
   withPreloading,
-  PreloadAllModules,
+  PreloadingStrategy,
+  Route,
 } from '@angular/router';
+import { Observable } from 'rxjs';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import {
   provideClientHydration,
@@ -46,15 +49,14 @@ import { provideIonicAngular } from '@ionic/angular/standalone';
 
 import { routes } from './app.routes';
 
-// Shared Angular infrastructure from @nxt1/ui
+// Shared Angular infrastructure from @nxt1/ui (granular imports for tree-shaking)
 import {
   GlobalErrorHandler,
   GLOBAL_ERROR_LOGGER,
   GLOBAL_CRASHLYTICS,
   httpErrorInterceptor,
-  ANALYTICS_ADAPTER,
-} from '@nxt1/ui';
-import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
+} from '@nxt1/ui/infrastructure';
+import { ANALYTICS_ADAPTER, NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui/services';
 
 // Core infrastructure (app-specific)
 import { httpCacheInterceptor, authInterceptor } from './core/infrastructure';
@@ -64,18 +66,50 @@ import { httpPerformanceInterceptor } from './core/infrastructure/performance-in
 import { CrashlyticsService } from './core/services/crashlytics.service';
 import { AnalyticsService } from './core/services/analytics.service';
 
+// Badge bridge: connects ActivityService (from @nxt1/ui) → BadgeCountService
+import { provideBadgeBridge } from './core/services';
+
 // Firebase
+// IMPORTANT: Only import what's actually used in browser bundle
+// - FirebaseApp: Required for Firebase initialization
+// - Auth: Required for authentication (BrowserAuthService uses it)
+// - Firestore: NOT imported - only used in SSR via firebase/firestore SDK
+// - Storage: NOT imported - file uploads go through backend API (security)
+// - Analytics/Performance: Lazy-loaded after LCP (see AppComponent)
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
 import { provideAuth, getAuth } from '@angular/fire/auth';
-import { provideFirestore, getFirestore } from '@angular/fire/firestore';
-import { provideAnalytics, getAnalytics } from '@angular/fire/analytics';
-import { provideStorage, getStorage } from '@angular/fire/storage';
-import { providePerformance, getPerformance } from '@angular/fire/performance';
 
 // Auth service with injection token pattern
 import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
 
 import { environment } from '../environments/environment';
+
+/**
+ * Custom preloading strategy that waits until the browser is idle
+ * before preloading lazy routes. This prevents chunk loading from
+ * competing with LCP-critical rendering during the initial load.
+ *
+ * On browsers without requestIdleCallback, falls back to a 3-second delay.
+ */
+@Injectable({ providedIn: 'root' })
+class IdlePreloadStrategy implements PreloadingStrategy {
+  preload(_route: Route, load: () => Observable<unknown>): Observable<unknown> {
+    // Wait for browser idle or 3s timeout, then preload
+    return new Observable((subscriber) => {
+      const callback = () => {
+        load().subscribe(subscriber);
+      };
+
+      if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(callback, { timeout: 5000 });
+      } else {
+        setTimeout(callback, 3000);
+      }
+
+      return () => {}; // No cleanup needed
+    });
+  }
+}
 
 /**
  * Browser Application Configuration
@@ -104,8 +138,9 @@ export const appConfig: ApplicationConfig = {
         scrollPositionRestoration: 'enabled',
         anchorScrolling: 'enabled',
       }),
-      // Preload all lazy routes for faster navigation
-      withPreloading(PreloadAllModules)
+      // Idle-based preloading: defer chunk loading until browser is idle
+      // Prevents preloaded JS from competing with LCP-critical rendering
+      withPreloading(IdlePreloadStrategy)
     ),
 
     // HTTP client with fetch API, error handling, and caching
@@ -159,7 +194,10 @@ export const appConfig: ApplicationConfig = {
     // ============================================
 
     provideIonicAngular({
-      mode: undefined, // Auto-detect platform (ios/md)
+      // Explicitly set 'md' for web to avoid Ionic's platform detection
+      // which triggers forced reflows (reads layout properties synchronously).
+      // Mobile app uses 'ios'/'md' auto-detection via Capacitor.
+      mode: 'md',
       animated: true,
       rippleEffect: true,
     }),
@@ -170,10 +208,10 @@ export const appConfig: ApplicationConfig = {
 
     provideFirebaseApp(() => initializeApp(environment.firebase)),
     provideAuth(() => getAuth()),
-    provideFirestore(() => getFirestore()),
-    provideStorage(() => getStorage()),
-    provideAnalytics(() => getAnalytics()), // GA4 - Auto-tracks performance & page views
-    providePerformance(() => getPerformance()), // Firebase Performance Monitoring (2026)
+    // NOTE: Firestore and Storage are NOT provided in browser bundle:
+    // - Firestore: Only used during SSR via firebase/firestore SDK (ServerAuthService)
+    // - Storage: File uploads go through backend API for security
+    // - Analytics/Performance: Lazy-loaded after LCP (see AppComponent.initializeBrowserFeatures())
 
     // ============================================
     // AUTH SERVICE (Injection Token Pattern)
@@ -182,6 +220,14 @@ export const appConfig: ApplicationConfig = {
     // Provide BrowserAuthService for AUTH_SERVICE token
     // Server uses ServerAuthService instead (see app.config.server.ts)
     { provide: AUTH_SERVICE, useClass: BrowserAuthService },
+
+    // ============================================
+    // BADGE COUNT BRIDGE
+    // ============================================
+
+    // Bridges ActivityService.totalUnread → BadgeCountService.activityBadge
+    // So the shell reads from BadgeCountService without importing ActivityService
+    provideBadgeBridge(),
 
     // ============================================
     // LOGGING & ERROR HANDLING

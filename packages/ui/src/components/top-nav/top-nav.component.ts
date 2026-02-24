@@ -560,7 +560,7 @@ import type {
               type="button"
               class="mobile-auth-btn mobile-auth-btn--secondary flex h-12 w-full items-center justify-center rounded-xl border border-[var(--nxt1-nav-border)] bg-transparent font-semibold text-[var(--nxt1-nav-text)] transition-all duration-200 hover:bg-[var(--nxt1-nav-hover-bg)] active:scale-[0.98]"
               (click)="closeMobileMenu()"
-              routerLink="/auth/register"
+              routerLink="/auth"
             >
               Create Account
             </button>

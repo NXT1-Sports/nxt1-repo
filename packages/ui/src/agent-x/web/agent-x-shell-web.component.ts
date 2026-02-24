@@ -58,7 +58,7 @@ import { NxtToastService } from '../../services/toast/toast.service';
  * User info for header display.
  */
 export interface AgentXUser {
-  readonly photoURL?: string | null;
+  readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly role?: string;
 }
@@ -80,7 +80,7 @@ export interface AgentXUser {
     @if (!hideHeader()) {
       <nxt1-page-header
         title="Agent X"
-        [avatarSrc]="user()?.photoURL"
+        [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         [actions]="headerActions"
         (avatarClick)="avatarClick.emit()"
@@ -132,17 +132,19 @@ export interface AgentXUser {
     </main>
 
     <!-- Shared Input Bar (fixed, outside main scroll) -->
-    <nxt1-agent-x-input
-      [hasMessages]="!agentX.isEmpty()"
-      [selectedTask]="agentX.selectedTask()"
-      [isLoading]="agentX.isLoading()"
-      [canSend]="agentX.canSend()"
-      [userMessage]="agentX.getUserMessage()"
-      (messageChange)="agentX.setUserMessage($event)"
-      (send)="onSendMessage()"
-      (removeTask)="agentX.clearTask()"
-      (toggleTasks)="onToggleTasks()"
-    />
+    @if (!hideInput()) {
+      <nxt1-agent-x-input
+        [hasMessages]="!agentX.isEmpty()"
+        [selectedTask]="agentX.selectedTask()"
+        [isLoading]="agentX.isLoading()"
+        [canSend]="agentX.canSend()"
+        [userMessage]="agentX.getUserMessage()"
+        (messageChange)="agentX.setUserMessage($event)"
+        (send)="onSendMessage()"
+        (removeTask)="agentX.clearTask()"
+        (toggleTasks)="onToggleTasks()"
+      />
+    }
   `,
   styles: [
     `
@@ -227,6 +229,9 @@ export class AgentXShellWebComponent {
 
   /** Hide mobile page header (desktop sidebar provides navigation) */
   readonly hideHeader = input(false);
+
+  /** Hide the input bar (e.g. when logged out) */
+  readonly hideInput = input(false);
 
   // ============================================
   // OUTPUTS

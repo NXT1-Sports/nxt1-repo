@@ -13,6 +13,8 @@ import type {
   ExploreSortOption,
   ExploreTabCounts,
 } from './explore.types';
+import { US_STATES } from '../constants/location.constants';
+import { DEFAULT_SPORTS, formatSportDisplayName } from '../constants/sport.constants';
 
 // ============================================
 // TAB CONFIGURATION
@@ -412,3 +414,185 @@ export const EXPLORE_INITIAL_TAB_COUNTS: ExploreTabCounts = {
   camps: 0,
   events: 0,
 };
+
+// ============================================
+// FILTER UI CONFIGURATION
+// ============================================
+
+/**
+ * Shared sport filter options for Explore filter panel.
+ * Derived from the canonical DEFAULT_SPORTS constant (single source of truth).
+ * De-duplicated by base sport name so gendered variants collapse into one chip.
+ */
+export const EXPLORE_FILTER_SPORT_OPTIONS: readonly string[] = (() => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const sport of DEFAULT_SPORTS) {
+    const display = formatSportDisplayName(sport.name);
+    // Strip gender prefix to get base sport for de-duplication
+    const base = display.replace(/^(Men's|Women's)\s+/i, '');
+    if (!seen.has(base)) {
+      seen.add(base);
+      result.push(base);
+    }
+  }
+  return result;
+})();
+
+/**
+ * Shared division filter options for Explore filter panel.
+ */
+export const EXPLORE_FILTER_DIVISION_OPTIONS: readonly string[] = [
+  'D1',
+  'D2',
+  'D3',
+  'NAIA',
+  'JUCO',
+] as const;
+
+/**
+ * Shared state options for Explore filter panel.
+ */
+export const EXPLORE_FILTER_STATE_OPTIONS: readonly string[] = US_STATES.map(
+  (state) => state.abbreviation
+);
+
+/**
+ * Radius filter configuration.
+ */
+export const EXPLORE_FILTER_RADIUS_CONFIG = {
+  min: 10,
+  max: 250,
+  step: 10,
+  default: 50,
+} as const;
+
+/**
+ * Number of class years to display from the current year.
+ */
+export const EXPLORE_FILTER_CLASS_YEAR_SPAN = 5;
+
+/**
+ * Returns rolling class year options beginning from provided base year.
+ */
+export function getExploreFilterClassYearOptions(
+  baseYear = new Date().getFullYear()
+): readonly number[] {
+  return Array.from({ length: EXPLORE_FILTER_CLASS_YEAR_SPAN }, (_, index) => baseYear + index);
+}
+
+/**
+ * Field visibility matrix for tab-aware Explore filters.
+ */
+export const EXPLORE_TAB_FILTER_FIELDS: Record<
+  ExploreTabId,
+  {
+    readonly sport: boolean;
+    readonly state: boolean;
+    readonly division: boolean;
+    readonly position: boolean;
+    readonly classYear: boolean;
+    readonly radius: boolean;
+    readonly verifiedOnly: boolean;
+  }
+> = {
+  feed: {
+    sport: true,
+    state: true,
+    division: false,
+    position: false,
+    classYear: false,
+    radius: false,
+    verifiedOnly: true,
+  },
+  following: {
+    sport: true,
+    state: true,
+    division: false,
+    position: false,
+    classYear: false,
+    radius: false,
+    verifiedOnly: true,
+  },
+  news: {
+    sport: true,
+    state: true,
+    division: false,
+    position: false,
+    classYear: false,
+    radius: false,
+    verifiedOnly: false,
+  },
+  colleges: {
+    sport: true,
+    state: true,
+    division: true,
+    position: false,
+    classYear: false,
+    radius: true,
+    verifiedOnly: false,
+  },
+  athletes: {
+    sport: true,
+    state: true,
+    division: false,
+    position: true,
+    classYear: true,
+    radius: true,
+    verifiedOnly: true,
+  },
+  teams: {
+    sport: true,
+    state: true,
+    division: false,
+    position: false,
+    classYear: false,
+    radius: true,
+    verifiedOnly: true,
+  },
+  videos: {
+    sport: true,
+    state: true,
+    division: false,
+    position: true,
+    classYear: false,
+    radius: false,
+    verifiedOnly: true,
+  },
+  leaderboards: {
+    sport: true,
+    state: true,
+    division: false,
+    position: true,
+    classYear: true,
+    radius: false,
+    verifiedOnly: false,
+  },
+  'scout-reports': {
+    sport: true,
+    state: true,
+    division: false,
+    position: true,
+    classYear: true,
+    radius: false,
+    verifiedOnly: true,
+  },
+  camps: {
+    sport: true,
+    state: true,
+    division: false,
+    position: false,
+    classYear: true,
+    radius: true,
+    verifiedOnly: false,
+  },
+  events: {
+    sport: true,
+    state: true,
+    division: false,
+    position: false,
+    classYear: true,
+    radius: true,
+    verifiedOnly: false,
+  },
+} as const;

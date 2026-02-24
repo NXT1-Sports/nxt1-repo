@@ -20,13 +20,13 @@ import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@a
 import { Router } from '@angular/router';
 import {
   SettingsShellComponent,
-  NxtSidenavService,
-  NxtLoggingService,
-  NxtBottomSheetService,
   type SettingsUser,
   type SettingsNavigateEvent,
   type SettingsActionEvent,
-} from '@nxt1/ui';
+} from '@nxt1/ui/settings';
+import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtBottomSheetService } from '@nxt1/ui/components/bottom-sheet';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 
@@ -73,7 +73,7 @@ export class SettingsComponent implements OnInit {
     if (!user) return null;
 
     return {
-      photoURL: user.photoURL,
+      profileImg: user.profileImg,
       displayName: user.displayName,
     };
   });

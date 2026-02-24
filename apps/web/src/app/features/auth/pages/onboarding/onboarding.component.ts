@@ -47,22 +47,26 @@ import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
 
 // Shared UI Components
-import { AuthShellComponent, AuthTitleComponent, AuthSubtitleComponent } from '@nxt1/ui';
+import { AuthShellComponent } from '@nxt1/ui/auth/auth-shell';
+import { AuthTitleComponent } from '@nxt1/ui/auth/auth-title';
+import { AuthSubtitleComponent } from '@nxt1/ui/auth/auth-subtitle';
+import { OnboardingRoleSelectionComponent } from '@nxt1/ui/onboarding/onboarding-role-selection';
+import { OnboardingProfileStepComponent } from '@nxt1/ui/onboarding/onboarding-profile-step';
+import { OnboardingTeamStepComponent } from '@nxt1/ui/onboarding/onboarding-team-step';
+import { OnboardingSportStepComponent } from '@nxt1/ui/onboarding/onboarding-sport-step';
+import { OnboardingPositionStepComponent } from '@nxt1/ui/onboarding/onboarding-position-step';
+import { OnboardingContactStepComponent } from '@nxt1/ui/onboarding/onboarding-contact-step';
+import { OnboardingReferralStepComponent } from '@nxt1/ui/onboarding/onboarding-referral-step';
+import { OnboardingProgressBarComponent } from '@nxt1/ui/onboarding/onboarding-progress-bar';
+import { OnboardingNavigationButtonsComponent } from '@nxt1/ui/onboarding/onboarding-navigation-buttons';
+import { OnboardingButtonMobileComponent } from '@nxt1/ui/onboarding/onboarding-button-mobile';
 import {
-  OnboardingRoleSelectionComponent,
-  OnboardingProfileStepComponent,
-  OnboardingTeamStepComponent,
-  OnboardingSportStepComponent,
-  OnboardingPositionStepComponent,
-  OnboardingContactStepComponent,
-  OnboardingReferralStepComponent,
-  OnboardingProgressBarComponent,
-  OnboardingNavigationButtonsComponent,
-  OnboardingButtonMobileComponent,
   OnboardingStepCardComponent,
   type AnimationDirection,
-} from '@nxt1/ui';
-import { NxtToastService, NxtPlatformService, NxtThemeService } from '@nxt1/ui';
+} from '@nxt1/ui/onboarding/onboarding-step-card';
+import { NxtToastService } from '@nxt1/ui/services/toast';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { NxtThemeService } from '@nxt1/ui/services/theme';
 
 // Core API - Types, State Machine & Constants
 import {
@@ -115,7 +119,7 @@ import {
   OnboardingAnalyticsService,
 } from '../../services';
 import { SeoService } from '../../../../core/services';
-import { NxtLoggingService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
 
 // Types are imported directly from @nxt1/core/api - no local aliases needed

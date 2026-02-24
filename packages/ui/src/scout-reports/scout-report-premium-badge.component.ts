@@ -30,8 +30,6 @@ import { addIcons } from 'ionicons';
 import { diamond, star, ribbon, trophy } from 'ionicons/icons';
 
 // Register icons
-addIcons({ diamond, star, ribbon, trophy });
-
 /**
  * Badge variant styles.
  */
@@ -197,6 +195,10 @@ const BADGE_CONFIGS: Record<PremiumBadgeVariant, BadgeConfig> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ScoutReportPremiumBadgeComponent {
+  constructor() {
+    addIcons({ diamond, star, ribbon, trophy });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

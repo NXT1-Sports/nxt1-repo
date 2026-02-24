@@ -118,8 +118,8 @@ export class NxtBottomSheetService {
       componentProps: config.componentProps,
 
       // Breakpoints for draggable resize
-      breakpoints: config.breakpoints ?? [0, 0.75, 1],
-      initialBreakpoint: config.initialBreakpoint ?? 0.75,
+      breakpoints: config.breakpoints ?? [0, 1],
+      initialBreakpoint: config.initialBreakpoint ?? 1,
 
       // Native drag handle
       handle: config.showHandle ?? true,

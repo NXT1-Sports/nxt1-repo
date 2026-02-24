@@ -27,6 +27,13 @@ export { NxtIconComponent, type IconName, type UIIconName, type BrandIconName } 
 export { NxtBackButtonComponent, type BackButtonSize, type BackButtonVariant } from './back-button';
 
 export {
+  NxtTooltipDirective,
+  type TooltipInput,
+  type TooltipConfig,
+  type TooltipPlacement,
+} from './tooltip';
+
+export {
   NxtShareButtonComponent,
   type ShareButtonSize,
   type ShareButtonVariant,
@@ -40,6 +47,26 @@ export {
   type SearchBarVariant,
   type SearchBarSubmitEvent,
 } from './search-bar';
+
+export {
+  NxtCoachAuthorityValidationComponent,
+  type CoachAuthorityQuote,
+} from './coach-authority-validation';
+export { NxtGraphicFactoryHeroComponent } from './graphic-factory-hero';
+export { NxtCoSignCollaborationSectionComponent } from './co-sign-collaboration-section';
+export {
+  NxtSuccessSimulationSectionComponent,
+  type SuccessSimulationScenario,
+} from './success-simulation-section';
+export {
+  NxtInvisibleAthletePainPointComponent,
+  type InvisibleAthleteSignal,
+} from './invisible-athlete-pain-point';
+export { NxtCoverageGapPainPointComponent, type CoverageGapLayer } from './coverage-gap-pain-point';
+export { NxtNewsletterFeatureSectionComponent } from './newsletter-feature-section';
+export { NxtContentFactoryLandingComponent } from './content-factory';
+
+export { NxtHeaderCardComponent } from './header-card';
 
 // ============================================
 // AVATAR
@@ -277,7 +304,73 @@ export {
   type HeroAudienceCardClickEvent,
 } from './hero-header';
 
+export { NxtEcosystemMapComponent, type EcosystemMapStep } from './ecosystem-map';
+
+export {
+  NxtKillerComparisonComponent,
+  type KillerComparisonRow,
+  KILLER_COMPARISON_DEFAULT_ROWS,
+} from './nxt1-killer-comparison';
+export { NxtOpenDoorsHeroComponent } from './open-doors-hero';
+export { NxtMediaEmpireHeroComponent } from './media-empire-hero';
+export { NxtBreakingNewsHeroComponent } from './breaking-news-hero';
+export { NxtValuePropComparisonComponent } from './value-prop-comparison';
+export {
+  NxtEducationalLibraryComponent,
+  type EducationalLibraryItem,
+  EDUCATIONAL_LIBRARY_DEFAULT_ITEMS,
+} from './educational-library';
+export {
+  NxtUniversalSportsDirectoryComponent,
+  type UniversalSportDirectoryLink,
+} from './universal-sports-directory';
+export { NxtSuccessStoriesComponent, type SuccessStoryItem } from './success-stories';
+export { NxtSectionHeaderComponent, type SectionHeaderLevel } from './section-header';
+export {
+  NxtSuperProfileBreakdownComponent,
+  type SuperProfileHotspot,
+} from './super-profile-breakdown';
+export {
+  NxtMobileFirstDesignSectionComponent,
+  type DevicePreview,
+} from './mobile-first-design-section';
+export { NxtSeoGoogleSearchSectionComponent } from './seo-google-search-section';
+
 export { NxtAgentXWelcomeHeaderComponent } from './agent-x-welcome-header';
+export {
+  NxtAgentXMoneyballSectionComponent,
+  type MoneyballAthleteProfile,
+  type MoneyballProgressPoint,
+} from './agent-x-moneyball-section';
+export {
+  NxtAgentXExecutionLayerSectionComponent,
+  type ExecutionLayerTask,
+} from './agent-x-execution-layer-section';
+export { NxtAgentXHypeMachineSectionComponent } from './agent-x-hype-machine-section';
+export { NxtImmersiveHeroComponent, type ImmersiveHeroShot } from './immersive-hero';
+export { NxtD1DreamHeroComponent, type D1DreamHeadingLevel } from './d1-dream-hero';
+export { NxtAppStoreBadgesComponent, type AppStoreBadgeLayout } from './app-store-badges';
+export {
+  NxtAgentXDemoComponent,
+  type AgentXDemoChatMessage,
+  type AgentXDemoGraphic,
+} from './agent-x-demo';
+export {
+  NxtTeamBrandArchitectureSectionComponent,
+  type BrandPipelineOutputCard,
+  type BrandPipelineStep,
+} from './team-brand-architecture-section';
+export { NxtOldVsNewContrastSectionComponent } from './old-vs-new-contrast-section';
+export { NxtBrandKitIntegrationSectionComponent } from './brand-kit-integration-section';
+export {
+  NxtHighlightReelNetworkSectionComponent,
+  type DistributionDestination,
+} from './highlight-reel-network-section';
+
+// ============================================
+// GENESIS MOMENT (Team Platform — Big Bang)
+// ============================================
+export { NxtGenesisMomentComponent } from './genesis-moment';
 
 // ============================================
 // PARTNER MARQUEE (Infinite Logo Scroll)
@@ -292,6 +385,38 @@ export {
 export { NxtFaqSectionComponent, type FaqItem } from './faq-section';
 
 // ============================================
+// RECRUITMENT ENGINE (USA Map + Live Activity Pings)
+// ============================================
+export {
+  NxtRecruitmentEngineComponent,
+  type RecruitingActivity,
+  type RecruitingActivityType,
+} from './recruitment-engine';
+
+export {
+  NxtRecruitingRadarSectionComponent,
+  type RecruitingRadarEvent,
+} from './recruiting-radar-section';
+
+export {
+  NxtOpportunityRadarSectionComponent,
+  type OpportunityRadarSchoolMatch,
+} from './opportunity-radar-section';
+
+export { NxtCommunicationCenterSectionComponent } from './communication-center-section';
+
+export { NxtRecruitingCommandCenterSectionComponent } from './recruiting-command-center-section';
+
+export {
+  NxtRecruitmentPillarsSectionComponent,
+  type RecruitmentPillar,
+} from './recruitment-pillars-section';
+
+export { NxtXpLeaderboardSectionComponent } from './xp-leaderboard-section';
+
+export { NxtNilMonetizationUpsideComponent } from './nil-monetization-upside';
+
+// ============================================
 // APP DOWNLOAD BAR
 // ============================================
 export {
@@ -304,3 +429,20 @@ export {
 // UTILITY COMPONENTS
 // ============================================
 export { NxtRefreshContainerComponent, type RefreshEvent } from './refresh-container';
+export {
+  NxtGetItDoneWorkflowSectionComponent,
+  type GetItDoneWorkflow,
+  type GetItDoneWorkflowStep,
+} from './get-it-done-workflow-section';
+export {
+  NxtHighlightEngineActionSectionComponent,
+  type HighlightEngineStep,
+} from './highlight-engine-action-section';
+
+export { NxtLimitlessBoxSectionComponent, type LimitlessBurstNode } from './limitless-box-section';
+
+// ============================================
+// TIMELINE (Shared vertical-timeline components)
+// ============================================
+export { NxtTimelineCardComponent } from './timeline-card';
+export { NxtTimelineComponent } from './timeline';

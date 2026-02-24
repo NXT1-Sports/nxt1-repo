@@ -24,16 +24,16 @@
  */
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { NxtCtaBannerComponent } from '../components/cta-banner';
 import { NxtFaqSectionComponent, type FaqItem } from '../components/faq-section';
 import { NxtStatsBarComponent, type StatsBarItem } from '../components/stats-bar';
-import {
-  NxtFeatureShowcaseComponent,
-  type FeatureShowcaseItem,
-} from '../components/feature-showcase';
-import { NxtAudienceSectionComponent, type AudienceSegment } from '../components/audience-section';
-import { NxtCtaBannerComponent } from '../components/cta-banner';
 import { NxtHeroSectionComponent } from '../components/hero-section';
 import { NxtAnalyticsDashboardPreviewComponent } from './analytics-dashboard-preview.component';
+import { RecruitingCrmWatchPanelComponent } from './web/recruiting-crm-watch-panel.component';
+import { ReportCardSectionComponent } from './web/report-card-section.component';
+import { TimeMachineSectionComponent } from './web/time-machine-section.component';
+import { AiInterpretationSectionComponent } from './web/ai-interpretation-section.component';
+import { WeeklyPulseSectionComponent } from './web/weekly-pulse-section.component';
 
 // ============================================
 // CONSTANTS — Page-Specific Content
@@ -43,75 +43,6 @@ const ANALYTICS_STATS: StatsBarItem[] = [
   { value: '2.1M+', label: 'Data Points Tracked' },
   { value: '50K+', label: 'Athletes & Coaches' },
   { value: '8,400+', label: 'College Programs Connected' },
-];
-
-const ANALYTICS_FEATURES: FeatureShowcaseItem[] = [
-  {
-    id: 'profile-views',
-    icon: 'eye-outline',
-    title: 'Profile & Roster Views',
-    description:
-      'Athletes see which coaches are watching. Coaches see which recruits are engaging with their program.',
-  },
-  {
-    id: 'engagement',
-    icon: 'trending-up-outline',
-    title: 'Engagement Tracking',
-    description:
-      'Track likes, comments, shares, and follower growth. Understand what content drives recruiting attention.',
-  },
-  {
-    id: 'video-analytics',
-    icon: 'videocam-outline',
-    title: 'Video Performance',
-    description:
-      'Detailed view counts, watch time, and completion rates for every highlight reel and game film.',
-  },
-  {
-    id: 'recruiting',
-    icon: 'school-outline',
-    title: 'Recruiting Pipeline',
-    description:
-      'Athletes track coach interest in real time. Coaches track prospect engagement and build target lists.',
-  },
-  {
-    id: 'insights',
-    icon: 'bulb-outline',
-    title: 'AI-Powered Insights',
-    description:
-      'Personalized recommendations on when to post, what content performs best, and where to focus next.',
-  },
-  {
-    id: 'export',
-    icon: 'download-outline',
-    title: 'Export & Share',
-    description:
-      'Download PDF reports to share with coaches, parents, recruiting coordinators, or your athletic department.',
-  },
-];
-
-const ANALYTICS_AUDIENCES: AudienceSegment[] = [
-  {
-    id: 'athletes',
-    title: 'Athletes',
-    description:
-      'See exactly who\u2019s watching your profile, track recruiting interest, and optimize your exposure.',
-    icon: 'flash-outline',
-  },
-  {
-    id: 'coaches',
-    title: 'Coaches & Programs',
-    description:
-      'Monitor prospect engagement, track roster visibility, and measure your program\u2019s recruiting reach.',
-    icon: 'people-outline',
-  },
-  {
-    id: 'parents',
-    title: 'Parents & Families',
-    description:
-      'Stay informed about your athlete\u2019s recruiting progress, coach interest, and overall exposure.',
-    icon: 'heart-outline',
-  },
 ];
 
 const ANALYTICS_FAQS: FaqItem[] = [
@@ -151,13 +82,16 @@ const ANALYTICS_FAQS: FaqItem[] = [
   selector: 'nxt1-analytics-landing',
   standalone: true,
   imports: [
-    NxtStatsBarComponent,
-    NxtFeatureShowcaseComponent,
-    NxtAudienceSectionComponent,
-    NxtFaqSectionComponent,
     NxtCtaBannerComponent,
+    NxtStatsBarComponent,
+    NxtFaqSectionComponent,
     NxtHeroSectionComponent,
     NxtAnalyticsDashboardPreviewComponent,
+    RecruitingCrmWatchPanelComponent,
+    ReportCardSectionComponent,
+    TimeMachineSectionComponent,
+    AiInterpretationSectionComponent,
+    WeeklyPulseSectionComponent,
   ],
   template: `
     <!-- Hero Section — uses shared NxtHeroSectionComponent -->
@@ -168,9 +102,9 @@ const ANALYTICS_FAQS: FaqItem[] = [
       accentText="Powered by Data"
       subtitle="Real-time analytics for athletes and coaches. Track profile views, video performance, and recruiting interest — all in one powerful dashboard."
       primaryCtaLabel="Get Started Free"
-      primaryCtaRoute="/auth/register"
+      primaryCtaRoute="/auth"
       secondaryCtaLabel="Log In"
-      secondaryCtaRoute="/auth/login"
+      secondaryCtaRoute="/auth"
       ariaId="analytics-hero-title"
     >
       <nxt1-analytics-dashboard-preview />
@@ -179,19 +113,22 @@ const ANALYTICS_FAQS: FaqItem[] = [
     <!-- Social Proof Stats -->
     <nxt1-stats-bar [stats]="stats" />
 
-    <!-- Feature Showcase Grid -->
-    <nxt1-feature-showcase
-      title="Everything Athletes & Coaches Need"
-      subtitle="From profile views to recruiting pipelines &mdash; data-driven tools for every side of the recruiting process."
-      [features]="features"
-    />
+    <!-- Weekly Pulse — Trajectory Tracking -->
+    <nxt1-weekly-pulse-section />
 
-    <!-- Audience Segments -->
-    <nxt1-audience-section
-      title="Built for Every Role"
-      subtitle="Whether you&rsquo;re an athlete, coach, or parent &mdash; analytics gives you the edge."
-      [segments]="audiences"
-    />
+    <!-- Time Machine — Granular Date Control -->
+    <nxt1-time-machine-section />
+
+    <!-- AI Interpretation — The Stat vs. The Insight -->
+    <nxt1-ai-interpretation-section />
+
+    <!-- Recruiting CRM — "Who is Watching?" -->
+    <div class="crm-landing-section">
+      <nxt1-recruiting-crm-watch-panel />
+    </div>
+
+    <!-- The Report Card — Weekly Scouting Report -->
+    <nxt1-report-card-section />
 
     <!-- FAQ -->
     <nxt1-faq-section
@@ -201,12 +138,15 @@ const ANALYTICS_FAQS: FaqItem[] = [
       defaultOpenId="what-is-analytics"
     />
 
-    <!-- Bottom CTA -->
+    <!-- Final CTA -->
     <nxt1-cta-banner
-      title="Ready to Unlock Your Recruiting Analytics?"
-      subtitle="Join thousands of athletes and coaches using NXT1 to gain a competitive edge."
-      ctaLabel="Sign Up Free"
-      ctaRoute="/auth/register"
+      variant="conversion"
+      badgeLabel="Analytics"
+      title="Your Data. Your Edge."
+      subtitle="Track profile views, video performance, and recruiting interest — all in one powerful dashboard. Start free today."
+      ctaLabel="Get Started Free"
+      ctaRoute="/auth"
+      titleId="analytics-landing-final-cta-title"
     />
   `,
   styles: [
@@ -214,13 +154,17 @@ const ANALYTICS_FAQS: FaqItem[] = [
       :host {
         display: block;
       }
+
+      .crm-landing-section {
+        max-width: var(--nxt1-section-max-width-narrow);
+        margin: 0 auto;
+        padding: var(--nxt1-section-padding-y) var(--nxt1-section-padding-x);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtAnalyticsLandingComponent {
   protected readonly stats = ANALYTICS_STATS;
-  protected readonly features = ANALYTICS_FEATURES;
-  protected readonly audiences = ANALYTICS_AUDIENCES;
   protected readonly faqs = ANALYTICS_FAQS;
 }

@@ -13,13 +13,17 @@ import {
   NxtPlatformService,
   NxtLoggingService,
   NxtBreadcrumbService,
+  NxtThemeService,
+} from '@nxt1/ui/services';
+import {
   NxtAppDownloadBarComponent,
   NxtAppDownloadBarService,
-  NxtThemeService,
-} from '@nxt1/ui';
+} from '@nxt1/ui/components/app-download-bar';
+import { AgentXFabComponent } from '@nxt1/ui/agent-x';
 import type { ILogger } from '@nxt1/core/logging';
 import { filter } from 'rxjs/operators';
 import { AnalyticsService } from './core/services/analytics.service';
+import { WebVitalsService } from './core/services/web-vitals.service';
 
 /**
  * Root Application Component
@@ -39,7 +43,7 @@ import { AnalyticsService } from './core/services/analytics.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, NxtAppDownloadBarComponent],
+  imports: [CommonModule, RouterOutlet, NxtAppDownloadBarComponent, AgentXFabComponent],
   templateUrl: './app.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -50,6 +54,7 @@ export class AppComponent implements OnInit {
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
   private readonly analytics = inject(AnalyticsService);
   protected readonly downloadBar = inject(NxtAppDownloadBarService);
+  private readonly webVitals = inject(WebVitalsService);
 
   /** Theme service — injected at root so it initializes on every route (including 404) */
   private readonly theme = inject(NxtThemeService);
@@ -87,26 +92,22 @@ export class AppComponent implements OnInit {
   // ============================================
 
   /**
-   * Initialize app state and resolve authentication
-   * This runs on both server and client
+   * Initialize app state.
+   *
+   * Marks the app as ready immediately — auth state resolves
+   * asynchronously and the UI adapts reactively via signals.
+   * No artificial delay; rendering begins on the first frame.
    */
-  private async initializeApp(): Promise<void> {
-    try {
-      // Simulate auth resolution delay (replace with real auth check)
-      // In production, this will be replaced by AuthFlowService initialization
-      await this.delay(100);
-
-      this.loading.set(false);
-    } catch (err) {
-      this.logger.error('Initialization failed', err);
-      this.error.set(err instanceof Error ? err.message : 'Failed to initialize application');
-      this.loading.set(false);
-    }
+  private initializeApp(): void {
+    this.loading.set(false);
   }
 
   /**
    * Initialize browser-only features
-   * Called in afterNextRender to ensure DOM is available
+   * Called in afterNextRender to ensure DOM is available.
+   *
+   * PERFORMANCE: Non-critical initializations are deferred to idle time
+   * so they don't compete with LCP rendering on the main thread.
    */
   private initializeBrowserFeatures(): void {
     if (!this.platform.isBrowser()) return;
@@ -117,8 +118,46 @@ export class AppComponent implements OnInit {
     // Initialize app download promotion bar (scroll-triggered)
     this.downloadBar.initialize();
 
+    // Start Core Web Vitals collection (LCP, INP, CLS, FCP, TTFB)
+    this.webVitals.initialize();
+
     // Log app initialization
     this.logger.info('Browser features initialized');
+
+    // DEFERRED: Initialize Firebase Analytics & Performance AFTER LCP.
+    // These SDKs are heavy (~50-80ms main thread work) and are not needed
+    // for initial render. Using requestIdleCallback ensures they load
+    // only when the browser is idle, preventing render delay.
+    this.deferFirebaseObservability();
+  }
+
+  /**
+   * Lazily initialize Firebase Analytics and Performance Monitoring.
+   * Deferred to idle time to avoid blocking LCP.
+   */
+  private deferFirebaseObservability(): void {
+    const init = async () => {
+      try {
+        const { getAnalytics } = await import('@angular/fire/analytics');
+        const { getPerformance } = await import('@angular/fire/performance');
+
+        // Initialize the SDKs (they auto-attach to the default FirebaseApp)
+        getAnalytics();
+        getPerformance();
+
+        this.logger.debug('Firebase Analytics & Performance initialized (deferred)');
+      } catch (err: unknown) {
+        // Non-critical — don't break the app if analytics fail
+        const details = err instanceof Error ? { message: err.message } : undefined;
+        this.logger.warn('Firebase observability init failed', details);
+      }
+    };
+
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(() => init(), { timeout: 8000 });
+    } else {
+      setTimeout(() => init(), 3000);
+    }
   }
 
   /**
@@ -137,13 +176,5 @@ export class AppComponent implements OnInit {
           this.logger.debug('Page view tracked', { path: event.urlAfterRedirects });
         }
       });
-  }
-
-  // ============================================
-  // UTILITY METHODS
-  // ============================================
-
-  private delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

@@ -46,13 +46,14 @@ import {
   DestroyRef,
   afterNextRender,
   PLATFORM_ID,
+  ElementRef,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { Router, RouterOutlet, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
+// ── Navigation Components (granular imports for tree-shaking) ──
 import {
-  // Desktop Sidebar (new)
   NxtDesktopSidebarComponent,
   type DesktopSidebarConfig,
   type DesktopSidebarItem,
@@ -61,7 +62,8 @@ import {
   type DesktopSidebarSelectEvent,
   SIDEBAR_BREAKPOINTS,
   createDesktopSidebarConfig,
-  // Header (Desktop - simplified for sidebar mode)
+} from '@nxt1/ui/components/desktop-sidebar';
+import {
   NxtHeaderComponent,
   type TopNavItem,
   type TopNavUserData,
@@ -70,7 +72,8 @@ import {
   type TopNavUserMenuEvent,
   createTopNavConfig,
   DEFAULT_USER_MENU_ITEMS,
-  // Footer (Mobile)
+} from '@nxt1/ui/components/top-nav';
+import {
   NxtMobileFooterComponent,
   type FooterTabItem,
   type FooterTabSelectEvent,
@@ -78,32 +81,38 @@ import {
   type FooterConfig,
   DEFAULT_FOOTER_TABS,
   findTabByRoute,
-  // Mobile Header (YouTube-style top bar)
+} from '@nxt1/ui/components/footer';
+import {
   NxtMobileHeaderComponent,
   type MobileHeaderConfig,
   type MobileHeaderUserData,
   createMobileHeaderConfig,
-  // Mobile Sidebar (YouTube-style slide-out drawer)
+} from '@nxt1/ui/components/mobile-header';
+import {
   NxtMobileSidebarComponent,
   type MobileSidebarConfig,
   type MobileSidebarSelectEvent,
   createMobileSidebarConfig,
-  // Platform
+} from '@nxt1/ui/components/mobile-sidebar';
+// ── Services (separate from component barrel) ──
+import {
   NxtPlatformService,
   NxtLoggingService,
-  // Scroll
   NxtScrollService,
-  // Activity (for badge count)
-  ActivityService,
-  // Notification state (global)
   NxtNotificationStateService,
-  DEFAULT_SOCIAL_LINKS,
-  // Auth Modal (popup auth for gated features)
-  AuthModalService,
-} from '@nxt1/ui';
+} from '@nxt1/ui/services';
+// ── Auth ──
+import { AuthModalService } from '@nxt1/ui/auth';
+// ── App-level imports ──
 import { AuthFlowService } from '../../../features/auth/services';
+import { BadgeCountService } from '../../services/badge-count.service';
 import { NotificationPopoverComponent } from '../../../features/activity/components';
-import { SPORT_LANDING_CONFIGS } from '@nxt1/core';
+import {
+  DEFAULT_SOCIAL_LINKS,
+  DEFAULT_SPORTS,
+  formatSportDisplayName,
+  normalizeSportKey,
+} from '@nxt1/core';
 
 // ============================================
 // NAVIGATION CONFIGURATION
@@ -122,29 +131,54 @@ const FOLLOW_US_ITEMS: readonly DesktopSidebarItem[] = DEFAULT_SOCIAL_LINKS.map(
 }));
 
 /**
- * Sport child items — derived from SPORT_LANDING_CONFIGS.
- * Adding a new sport config to @nxt1/core automatically adds it here.
+ * Maps normalized sport base names to icon names in the design-tokens registry.
+ * Gendered variants (mens/womens) share the same base sport icon.
  */
-const SPORT_CHILD_ITEMS: readonly DesktopSidebarItem[] = Object.values(SPORT_LANDING_CONFIGS).map(
-  (config) => ({
-    id: `sport-${config.slug}`,
-    label: config.displayName,
-    icon: config.heroBadgeIcon,
-    route: `/${config.slug}`,
-  })
-);
+const SPORT_ICON_MAP: Record<string, string> = {
+  football: 'football',
+  basketball: 'basketball',
+  baseball: 'baseball',
+  softball: 'softball',
+  soccer: 'soccer',
+  lacrosse: 'lacrosse',
+  volleyball: 'volleyball',
+  golf: 'golf',
+  track_field: 'track',
+  cross_country: 'crossCountry',
+  field_hockey: 'fieldHockey',
+  ice_hockey: 'iceHockey',
+  tennis: 'tennis',
+  swimming_diving: 'swimming',
+  rowing: 'rowing',
+  wrestling: 'wrestling',
+  gymnastics: 'gymnastics',
+  water_polo: 'waterPolo',
+  bowling: 'bowling',
+};
 
 /**
- * "Sports" expandable item — used inside sidebar sections.
- * Click toggles the sport list open/closed.
+ * resolves a sport name (e.g. "basketball mens") to a design-token icon key.
  */
-const SPORTS_NAV_ITEM: DesktopSidebarItem = {
-  id: 'sports',
-  label: 'Sports',
-  icon: 'trophy',
-  children: SPORT_CHILD_ITEMS,
-  expanded: true,
-};
+function getSportIconName(sportName: string): string {
+  const key = normalizeSportKey(sportName); // e.g. "basketball_mens" or "track_field_mens"
+  // Strip gender suffix to get base sport
+  const base = key.replace(/_(mens|womens)$/, '');
+  return SPORT_ICON_MAP[base] ?? 'trophy';
+}
+
+/**
+ * Sport child items — derived from DEFAULT_SPORTS constant in @nxt1/core.
+ * All sports from the shared constants are automatically available here.
+ */
+const SPORT_CHILD_ITEMS: readonly DesktopSidebarItem[] = DEFAULT_SPORTS.map((sport) => {
+  const slug = normalizeSportKey(sport.name).replace(/_/g, '-');
+  return {
+    id: `sport-${slug}`,
+    label: formatSportDisplayName(sport.name),
+    icon: getSportIconName(sport.name),
+    route: `/sports/${slug}`,
+  };
+});
 
 const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
   {
@@ -157,6 +191,7 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         activeIcon: 'compassFilled',
         route: '/explore',
       },
+      { id: 'news', label: 'News', icon: 'newspaper', route: '/news' },
       { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
     ],
   },
@@ -187,142 +222,214 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
 ];
 
 /**
- * Logged-out variant — Profile routes to /athlete-profiles with public label.
+ * Logged-out variant — Full marketing sidebar with persona-based navigation.
  * Auth-required items (Settings) use `action` instead of direct navigation
  * so the web-shell can present the sign-in modal before routing.
  * Named WEB_* to avoid shadowing the @nxt1/ui LOGGED_OUT_SIDEBAR_SECTIONS export.
  */
-const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] =
-  DESKTOP_SIDEBAR_SECTIONS.map((section) => {
-    // Auth-gate footer items that require a session
-    if (section.id === 'footer') {
-      return {
-        ...section,
-        items: section.items.map((item) => {
-          if (item.id === 'settings') {
-            return { ...item, action: 'settings' as const };
-          }
-          return item;
-        }),
-      };
-    }
+const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
+  // ── Top-level pages ──
+  {
+    id: 'main',
+    items: [
+      {
+        id: 'explore',
+        label: 'Explore',
+        icon: 'compass',
+        activeIcon: 'compassFilled',
+        route: '/explore',
+      },
+      { id: 'news', label: 'News', icon: 'newspaper', route: '/news' },
+      { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
+    ],
+  },
 
-    if (section.id !== 'you') return section;
-    return {
-      ...section,
-      label: 'For You',
-      items: [
-        {
-          id: 'persona-athletes',
-          label: 'For Athletes',
-          icon: 'athlete',
-          expanded: false,
-          children: [
-            {
-              id: 'athlete-platform',
-              label: 'Athlete Platform',
-              icon: 'athlete',
-              route: '/athletes',
-            },
-            {
-              id: 'athlete-profiles',
-              label: 'Athlete Profiles',
-              icon: 'person',
-              route: '/athlete-profiles',
-            },
-            { id: 'athlete-xp', label: 'XP', icon: 'sparkles', route: '/xp' },
-            { id: 'athlete-analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
-          ],
-        },
-        {
-          id: 'persona-college-coaches',
-          label: 'For College Coaches',
-          icon: 'whistle',
-          expanded: false,
-          children: [
-            {
-              id: 'coach-platform',
-              label: 'Coach Platform',
-              icon: 'whistle',
-              route: '/college-coaches',
-            },
-            { id: 'coach-rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
-            { id: 'coach-explore', label: 'Explore Athletes', icon: 'compass', route: '/explore' },
-          ],
-        },
-        {
-          id: 'persona-team-coaches',
-          label: 'For Team Coaches',
-          icon: 'users',
-          expanded: false,
-          children: [
-            {
-              id: 'team-platform',
-              label: 'Team Platform',
-              icon: 'users',
-              route: '/manage-team',
-            },
-            { id: 'team-manage', label: 'Manage Team', icon: 'users', route: '/manage-team' },
-            {
-              id: 'team-analytics',
-              label: 'Team Analytics',
-              icon: 'barChart',
-              route: '/analytics',
-            },
-          ],
-        },
-        {
-          id: 'persona-parents',
-          label: 'For Parents',
-          icon: 'parent',
-          expanded: false,
-          children: [
-            {
-              id: 'parent-platform',
-              label: 'Parent Platform',
-              icon: 'parent',
-              route: '/parents',
-            },
-            {
-              id: 'parent-profiles',
-              label: 'Athlete Profiles',
-              icon: 'person',
-              route: '/athlete-profiles',
-            },
-            {
-              id: 'parent-recruiting',
-              label: 'College Search',
-              icon: 'graduationCap',
-              route: '/colleges',
-            },
-          ],
-        },
-        {
-          id: 'persona-scouts',
-          label: 'For Scouts',
-          icon: 'search',
-          expanded: false,
-          children: [
-            {
-              id: 'scout-platform',
-              label: 'Scout Platform',
-              icon: 'search',
-              route: '/scouts',
-            },
-            { id: 'scout-rankings', label: 'Rankings', icon: 'trophy', route: '/rankings' },
-            {
-              id: 'scout-reports',
-              label: 'Scout Reports',
-              icon: 'documentText',
-              route: '/scout-reports',
-            },
-            { id: 'scout-explore', label: 'Explore Athletes', icon: 'compass', route: '/explore' },
-          ],
-        },
-        SPORTS_NAV_ITEM,
-      ],
-    };
-  });
+  // ── Persona sections + Sports (expandable items with children) ──
+  {
+    id: 'personas',
+    items: [
+      {
+        id: 'persona-athletes',
+        label: 'For Athletes',
+        icon: 'athlete',
+        expanded: false,
+        children: [
+          {
+            id: 'athlete-platform',
+            label: 'Athlete Platform',
+            icon: 'athlete',
+            route: '/athletes',
+          },
+          {
+            id: 'athlete-profiles',
+            label: 'Super Profile',
+            icon: 'link',
+            route: '/super-profiles',
+          },
+          { id: 'athlete-ai', label: 'AI for Athletes', icon: 'agent-x', route: '/ai-athletes' },
+          {
+            id: 'athlete-recruiting',
+            label: 'Recruiting',
+            icon: 'graduationCap',
+            route: '/recruiting-athletes',
+          },
+          {
+            id: 'athlete-content',
+            label: 'Content Creation',
+            icon: 'videocam',
+            route: '/content-creation-athletes',
+          },
+          {
+            id: 'athlete-media',
+            label: 'Media & Coverage',
+            icon: 'newspaper',
+            route: '/media-coverage',
+          },
+          { id: 'athlete-xp', label: 'XP', icon: 'sparkles', route: '/xp' },
+          { id: 'athlete-analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
+          { id: 'athlete-nil', label: 'NIL', icon: 'creditCard', route: '/nil' },
+        ],
+      },
+      {
+        id: 'persona-programs',
+        label: 'For Programs/Orgs',
+        icon: 'users',
+        expanded: false,
+        children: [
+          { id: 'team-platform', label: 'Team Platform', icon: 'users', route: '/team-platform' },
+          { id: 'team-ai', label: 'AI For Coaches', icon: 'agent-x', route: '/ai-coaches' },
+          { id: 'team-admin', label: 'Administration', icon: 'clipboard', route: '/team-admin' },
+          {
+            id: 'team-content',
+            label: 'Content Creation',
+            icon: 'videocam',
+            route: '/team-content',
+          },
+          { id: 'team-website', label: 'Team Website', icon: 'link', route: '/team-website' },
+          {
+            id: 'team-management',
+            label: 'Management',
+            icon: 'settings',
+            route: '/team-management',
+          },
+          { id: 'team-analytics', label: 'Analytics', icon: 'barChart', route: '/team-analytics' },
+          {
+            id: 'team-recruiting',
+            label: 'Recruiting',
+            icon: 'graduationCap',
+            route: '/team-recruiting',
+          },
+        ],
+      },
+      {
+        id: 'persona-colleges',
+        label: 'For Colleges/Scouts',
+        icon: 'search',
+        expanded: false,
+        children: [
+          { id: 'scout-platform', label: 'Scout Platform', icon: 'search', route: '/scouts' },
+          { id: 'scout-discover', label: 'Discover Athletes', icon: 'compass', route: '/explore' },
+          { id: 'scout-ai', label: 'AI For Scouts', icon: 'agent-x', route: '/ai-scouts' },
+          {
+            id: 'scout-recruiting',
+            label: 'Recruiting',
+            icon: 'graduationCap',
+            route: '/recruiting-scouts-colleges',
+          },
+        ],
+      },
+      {
+        id: 'persona-parents',
+        label: 'For Parents',
+        icon: 'parent',
+        expanded: false,
+        children: [
+          { id: 'parent-platform', label: 'Parent Platform', icon: 'parent', route: '/parents' },
+          {
+            id: 'parent-content',
+            label: 'Content Creation',
+            icon: 'videocam',
+            route: '/parent-content',
+          },
+          {
+            id: 'parent-coverage',
+            label: 'Athlete Coverage',
+            icon: 'newspaper',
+            route: '/athlete-coverage',
+          },
+          {
+            id: 'parent-recruiting',
+            label: 'Recruiting',
+            icon: 'graduationCap',
+            route: '/parent-recruiting',
+          },
+        ],
+      },
+      {
+        id: 'persona-businesses',
+        label: 'For Businesses',
+        icon: 'business',
+        expanded: false,
+        children: [
+          {
+            id: 'biz-advertising',
+            label: 'Advertising',
+            icon: 'star',
+            route: '/advertising',
+          },
+          {
+            id: 'biz-recruiting-services',
+            label: 'Recruiting Services',
+            icon: 'recruiting-service',
+            route: '/recruiting-services',
+          },
+          {
+            id: 'biz-whitelabel',
+            label: 'Whitelabel',
+            icon: 'colorPalette',
+            route: '/whitelabel',
+          },
+          {
+            id: 'biz-nil',
+            label: 'NIL',
+            icon: 'creditCard',
+            route: '/nil',
+          },
+          {
+            id: 'biz-partnerships',
+            label: 'Partnerships',
+            icon: 'handshake',
+            route: '/partnerships',
+          },
+        ],
+      },
+      {
+        id: 'sports',
+        label: 'Sports',
+        icon: 'trophy',
+        expanded: false,
+        children: SPORT_CHILD_ITEMS as DesktopSidebarItem[],
+      },
+    ],
+  },
+
+  // ── Footer (Usage, Settings, Help Center) ──
+  {
+    id: 'footer',
+    items: [
+      { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
+      { id: 'settings', label: 'Settings', icon: 'settings', action: 'settings' as const },
+      { id: 'help', label: 'Help Center', icon: 'help', route: '/help-center' },
+    ],
+  },
+
+  // ── Follow Us ──
+  {
+    id: 'follow-us',
+    label: 'Follow Us',
+    items: FOLLOW_US_ITEMS,
+  },
+];
 
 /**
  * Desktop header navigation items (empty - sidebar has main nav).
@@ -351,215 +458,218 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
     NxtMobileFooterComponent,
     NxtMobileHeaderComponent,
     NxtMobileSidebarComponent,
+    // NotificationPopoverComponent is listed here so Angular resolves the selector,
+    // but since it's only used inside a @defer block, the compiler automatically
+    // splits it + its dependency tree into a separate lazy chunk.
     NotificationPopoverComponent,
   ],
   template: `
-    <div
-      class="shell"
-      [class.shell--mobile]="isMobileView()"
-      [class.shell--desktop]="!isMobileView()"
-    >
-      <!-- ============================================
-           DESKTOP/TABLET: Sidebar + Header Layout
-           ============================================ -->
-      @if (!isMobileView()) {
-        <!-- Fixed Desktop Sidebar -->
-        <nxt1-desktop-sidebar
-          [sections]="sidebarSections()"
-          [user]="sidebarUserData()"
-          [config]="sidebarConfig()"
-          (itemSelect)="onSidebarItemSelect($event)"
-          (userClick)="onSidebarUserClick($event)"
+    <!--
+      2026 A+ SSR-Safe Shell (YouTube / LinkedIn / Twitter Pattern)
+      ──────────────────────────────────────────────────────────────
+      GOLD STANDARD: Every navigation component is ALWAYS in the DOM.
+      CSS media queries — not @if blocks — control which set is visible.
+
+      Why this is the professional standard:
+      • SSR HTML is identical to hydrated HTML → zero DOM mutations on load
+      • Mobile nav appears on FIRST paint, not after hydration (~200-500ms)
+      • Desktop nav appears on FIRST paint, not after hydration
+      • Page content is always visible, always indexable (SEO perfect)
+      • Zero CLS (Cumulative Layout Shift) — no layout changes after load
+      • CSS is instant; JavaScript hydration is asynchronous
+
+      Components manage their own internal visibility:
+      • nxt1-mobile-sidebar: transform/visibility controlled by [open] input
+      • app-notification-popover: controlled by [isOpen] input
+      • nxt1-mobile-footer: auth-gated (@if) — auth state is consistent
+        between SSR and client (both start unauthenticated), so no risk
+        of hydration mismatch
+    -->
+    <div class="shell">
+      <!-- DESKTOP: Fixed Sidebar — CSS-hidden below 768px -->
+      <nxt1-desktop-sidebar
+        [sections]="sidebarSections()"
+        [user]="sidebarUserData()"
+        [config]="sidebarConfig()"
+        (itemSelect)="onSidebarItemSelect($event)"
+        (userClick)="onSidebarUserClick($event)"
+        (logoClick)="onLogoClick()"
+        (collapseChange)="onSidebarCollapseChange($event)"
+      />
+
+      <!-- MOBILE: Top Header Bar — CSS-hidden at 768px+ -->
+      <nxt1-mobile-header
+        [config]="mobileHeaderConfig()"
+        [user]="mobileHeaderUserData()"
+        (menuClick)="onMobileMenuToggle()"
+        (logoClick)="onLogoClick()"
+        (searchClick)="onMobileSearchClick()"
+        (notificationsClick)="onNotificationsClick()"
+        (userClick)="onMobileUserClick()"
+      />
+
+      <!-- MOBILE: Slide-Out Drawer — CSS-hidden at 768px+, self-manages open/close -->
+      <nxt1-mobile-sidebar
+        [sections]="mobileSidebarSections()"
+        [user]="sidebarUserData()"
+        [config]="mobileSidebarConfig()"
+        [open]="mobileSidebarOpen()"
+        (itemSelect)="onMobileSidebarItemSelect($event)"
+        (userClick)="onMobileSidebarUserClick($event)"
+        (logoClick)="onLogoClick()"
+        (closeRequest)="closeMobileSidebar()"
+      />
+
+      <!-- MAIN CONTENT — ALWAYS VISIBLE, ALWAYS INDEXABLE -->
+      <div class="shell__main">
+        <!-- DESKTOP: Header bar — CSS-hidden below 768px -->
+        <nxt1-header
+          [items]="headerItems"
+          [user]="headerUserData()"
+          [userMenuItems]="userMenuItems"
+          [config]="headerConfig()"
+          (navigate)="onHeaderNavigate($event)"
+          (userMenuAction)="onUserMenuAction($event)"
+          (notificationsClick)="onNotificationsClick()"
+          (createClick)="onCreateClick()"
           (logoClick)="onLogoClick()"
-          (collapseChange)="onSidebarCollapseChange($event)"
         />
 
-        <!-- Main Content Area -->
-        <div class="shell__main">
-          <!-- Top Header (Search, Notifications, User - no main nav items) -->
-          <nxt1-header
-            [items]="headerItems"
-            [user]="headerUserData()"
-            [userMenuItems]="userMenuItems"
-            [config]="headerConfig()"
-            (navigate)="onHeaderNavigate($event)"
-            (userMenuAction)="onUserMenuAction($event)"
-            (notificationsClick)="onNotificationsClick()"
-            (createClick)="onCreateClick()"
-            (logoClick)="onLogoClick()"
-          />
-
-          <!-- Notification Popover (Desktop) -->
+        <!-- DESKTOP: Notification Popover — Lazy-loaded via @defer -->
+        <!-- Component + its dependency tree (ActivityListComponent, etc.)
+             are only bundled when the user opens the notification panel.
+             This removes ~610 lines of component code from the eager shell chunk. -->
+        @defer (when notificationPopoverOpen()) {
           <app-notification-popover
             [isOpen]="notificationPopoverOpen()"
             (closePopover)="closeNotificationPopover()"
           />
+        }
 
-          <!-- Page Content -->
-          <main class="shell__content">
-            <router-outlet />
-          </main>
-        </div>
-      }
-
-      <!-- ============================================
-           MOBILE: Header + Sidebar + Footer Layout
-           ============================================ -->
-      @if (isMobileView()) {
-        <!-- Mobile Top Header Bar (YouTube-style) -->
-        <nxt1-mobile-header
-          [config]="mobileHeaderConfig()"
-          [user]="mobileHeaderUserData()"
-          (menuClick)="onMobileMenuToggle()"
-          (logoClick)="onLogoClick()"
-          (searchClick)="onMobileSearchClick()"
-          (notificationsClick)="onNotificationsClick()"
-          (userClick)="onMobileUserClick()"
-        />
-
-        <!-- Mobile Slide-Out Sidebar Drawer -->
-        <nxt1-mobile-sidebar
-          [sections]="mobileSidebarSections()"
-          [user]="sidebarUserData()"
-          [config]="mobileSidebarConfig()"
-          [open]="mobileSidebarOpen()"
-          (itemSelect)="onMobileSidebarItemSelect($event)"
-          (userClick)="onMobileSidebarUserClick($event)"
-          (logoClick)="onLogoClick()"
-          (closeRequest)="closeMobileSidebar()"
-        />
-
-        <!-- Main Content Area (full width) -->
-        <main
-          class="shell__content shell__content--mobile-header"
-          [class.shell__content--mobile]="showMobileFooter()"
-        >
+        <!-- PAGE CONTENT — Never gated by @if or display:none -->
+        <main class="shell__content" [class.shell__content--has-footer]="showMobileFooter()">
           <router-outlet />
         </main>
+      </div>
 
-        <!-- Bottom Tab Bar -->
-        @if (showMobileFooter()) {
-          <nxt1-mobile-footer
-            [tabs]="footerTabs"
-            [activeTabId]="activeTabId()"
-            [config]="footerConfig()"
-            (tabSelect)="onTabSelect($event)"
-            (scrollToTop)="onScrollToTop($event)"
-          />
-        }
+      <!-- MOBILE: Bottom Tab Bar — CSS-hidden at 768px+, auth-gated -->
+      @if (showMobileFooter()) {
+        <nxt1-mobile-footer
+          [tabs]="footerTabs"
+          [activeTabId]="activeTabId()"
+          [config]="footerConfig()"
+          (tabSelect)="onTabSelect($event)"
+          (scrollToTop)="onScrollToTop($event)"
+        />
       }
     </div>
   `,
   styles: [
     `
       /* ============================================
-       CSS CUSTOM PROPERTIES (Design Tokens)
-       ============================================ */
+         CSS CUSTOM PROPERTIES (Design Tokens)
+         ============================================ */
       :host {
         --shell-header-height: 64px;
         --shell-sidebar-width: 256px;
         --shell-sidebar-collapsed-width: 72px;
         --shell-footer-height: var(--nxt1-mobile-footer-height, 72px);
         --shell-bg: var(--nxt1-color-bg-primary);
-        --shell-content-bg: var(--nxt1-color-bg-secondary);
+        --shell-content-bg: var(--nxt1-color-bg-primary);
 
-        display: block;
-        min-height: 100vh;
-        min-height: 100dvh;
+        /*
+         * Fixed positioning takes the shell OUT of document flow.
+         * Body has zero scrollable content → no second scrollbar.
+         * Same pattern as YouTube / Twitter / LinkedIn app shells.
+         */
+        position: fixed;
+        inset: 0;
+        display: flex;
+        overflow: hidden;
         background: var(--shell-bg);
+        z-index: 1;
       }
 
       /* ============================================
-       SHELL CONTAINER
-       ============================================ */
+         SHELL CONTAINER
+         Default: row layout (desktop/tablet).
+         Media query overrides to column (mobile).
+         100% CSS-driven — no JS class bindings.
+         ============================================ */
       .shell {
         display: flex;
-        min-height: 100vh;
-        min-height: 100dvh;
-      }
-
-      /* Desktop/Tablet: Sidebar + Main */
-      .shell--desktop {
         flex-direction: row;
-      }
-
-      /* Mobile: Single column */
-      .shell--mobile {
-        flex-direction: column;
-        height: 100vh;
-        height: 100dvh;
+        width: 100%;
+        height: 100%;
       }
 
       /* ============================================
-       DESKTOP SIDEBAR
-       ============================================ */
+         DESKTOP SIDEBAR
+         ============================================ */
       nxt1-desktop-sidebar {
         flex-shrink: 0;
         z-index: 50;
       }
 
       /* ============================================
-       MAIN CONTENT AREA (Desktop)
-       ============================================ */
+         MAIN CONTENT AREA
+         Always in the DOM — never inside an @if block.
+         ============================================ */
       .shell__main {
         flex: 1;
         display: flex;
         flex-direction: column;
         min-width: 0; /* Prevent flex overflow */
-        height: 100vh;
-        height: 100dvh;
+        min-height: 0; /* Allow flex shrinking for overflow scroll */
       }
 
       /* ============================================
-       HEADER (Desktop)
-       ============================================ */
+         HEADER (Desktop)
+         ============================================ */
       nxt1-header {
         flex-shrink: 0;
         z-index: 40;
       }
 
       /* ============================================
-       PAGE CONTENT
-       ============================================ */
+         NOTIFICATION POPOVER (Desktop)
+         ============================================ */
+      app-notification-popover {
+        z-index: 45;
+      }
+
+      /* ============================================
+         PAGE CONTENT
+         ============================================ */
       .shell__content {
         flex: 1;
         overflow-y: auto;
         overflow-x: hidden;
         background: var(--shell-content-bg);
         min-height: 0; /* Critical for flex overflow scrolling */
-      }
-
-      /* Mobile: account for fixed footer */
-      .shell__content--mobile {
-        padding-bottom: var(--shell-footer-height);
-      }
-
-      /* Mobile: account for mobile header at top */
-      .shell__content--mobile-header {
-        /* Content below the sticky mobile header */
+        padding-top: calc(var(--nxt1-spacing-4, 1rem) + 7px);
       }
 
       /* ============================================
-       MOBILE HEADER (sticky) 
-       ============================================ */
+         MOBILE HEADER (sticky)
+         ============================================ */
       nxt1-mobile-header {
         flex-shrink: 0;
         z-index: 40;
       }
 
       /* ============================================
-       MOBILE SIDEBAR (overlay drawer)
-       ============================================ */
+         MOBILE SIDEBAR (overlay drawer)
+         Component manages its own transform/visibility.
+         ============================================ */
       nxt1-mobile-sidebar {
-        /* Sidebar component handles its own positioning */
+        /* positioned by component — no layout styles needed */
       }
 
       /* ============================================
-       MOBILE FOOTER
-       ============================================ */
+         MOBILE FOOTER
+         ============================================ */
       nxt1-mobile-footer {
-        /* Footer component handles positioning via :host styles */
-        /* Web uses full-width footer (not floating pill) */
         --nxt1-footer-bottom: 0;
         --nxt1-footer-left: 0;
         --nxt1-footer-right: 0;
@@ -567,17 +677,69 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
       }
 
       /* ============================================
-       RESPONSIVE BEHAVIOR
-       ============================================ */
+         RESPONSIVE LAYOUT — 100% CSS-Driven
+         ──────────────────────────────────────────
+         YouTube / LinkedIn / Twitter Pattern:
+         Both desktop and mobile nav are ALWAYS in the DOM.
+         CSS media queries toggle visibility instantly.
+         No JavaScript needed for initial layout correctness.
 
-      /* Tablet (768-1279px): Collapsed sidebar */
+         Results:
+         • Zero hydration mismatch (SSR DOM ≡ client DOM)
+         • Zero layout shift on any viewport
+         • All nav visible on first paint (no waiting for JS)
+         • Page content always visible and indexable
+         ============================================ */
+
+      /* ─── MOBILE (<768px) ─── */
+      @media (max-width: 767.98px) {
+        /* Switch to vertical stack */
+        .shell {
+          flex-direction: column;
+        }
+
+        /* Hide desktop navigation chrome */
+        nxt1-desktop-sidebar,
+        nxt1-header,
+        app-notification-popover {
+          display: none !important;
+        }
+
+        /* Main fills remaining height below mobile header */
+        .shell__main {
+          flex: 1;
+          min-height: 0;
+        }
+
+        /* Footer padding when footer is present */
+        .shell__content--has-footer {
+          padding-bottom: var(--shell-footer-height);
+        }
+      }
+
+      /* ─── DESKTOP / TABLET (≥768px) ─── */
+      @media (min-width: 768px) {
+        /* Hide mobile navigation chrome */
+        nxt1-mobile-header,
+        nxt1-mobile-sidebar,
+        nxt1-mobile-footer {
+          display: none !important;
+        }
+
+        /* Ensure no footer padding on desktop */
+        .shell__content--has-footer {
+          padding-bottom: 0;
+        }
+      }
+
+      /* ─── TABLET (768–1279px) ─── */
       @media (min-width: 768px) and (max-width: 1279px) {
         :host {
           --shell-sidebar-width: var(--shell-sidebar-collapsed-width);
         }
       }
 
-      /* Desktop (≥1280px): Expanded sidebar */
+      /* ─── DESKTOP (≥1280px) ─── */
       @media (min-width: 1280px) {
         :host {
           --shell-sidebar-width: 256px;
@@ -595,15 +757,16 @@ export class WebShellComponent {
   private readonly logger = inject(NxtLoggingService).child('WebShellComponent');
   private readonly destroyRef = inject(DestroyRef);
   private readonly scrollService = inject(NxtScrollService);
-  private readonly activityService = inject(ActivityService);
+  private readonly badgeCount = inject(BadgeCountService);
   private readonly notificationState = inject(NxtNotificationStateService);
   private readonly authModal = inject(AuthModalService);
+  private readonly elementRef = inject(ElementRef);
 
   // ============================================
   // SIDEBAR CONFIGURATION (Desktop/Tablet)
   // ============================================
 
-  /** Base sidebar sections — auth-aware (Profile → /athlete-profiles when logged out) */
+  /** Base sidebar sections — auth-aware (Profile → /super-profiles when logged out) */
   private readonly _baseSidebarSections = computed(() =>
     this.authFlow.isAuthenticated() ? DESKTOP_SIDEBAR_SECTIONS : WEB_LOGGED_OUT_SIDEBAR_SECTIONS
   );
@@ -634,7 +797,7 @@ export class WebShellComponent {
     const user = this.authFlow.user() as {
       displayName?: string;
       email?: string;
-      photoURL?: string;
+      profileImg?: string;
       unicode?: string;
     } | null;
 
@@ -644,7 +807,7 @@ export class WebShellComponent {
 
     return {
       name,
-      avatarUrl: user.photoURL,
+      avatarUrl: user.profileImg,
       initials: this.getInitials(name),
       handle: user.unicode ? `@${user.unicode}` : undefined,
       verified: false,
@@ -669,7 +832,7 @@ export class WebShellComponent {
       showLogo: false, // Sidebar has logo
       showSearch: true,
       showNotifications: true,
-      notificationCount: this.activityService.totalUnread(),
+      notificationCount: this.badgeCount.totalUnread(),
       sticky: true,
       hideOnScroll: false,
       bordered: false,
@@ -681,7 +844,7 @@ export class WebShellComponent {
     const user = this.authFlow.user() as {
       displayName?: string;
       email?: string;
-      photoURL?: string;
+      profileImg?: string;
     } | null;
 
     if (!user) return null;
@@ -689,7 +852,7 @@ export class WebShellComponent {
     return {
       name: user.displayName || user.email?.split('@')[0] || 'User',
       email: user.email || undefined,
-      avatarUrl: user.photoURL || undefined,
+      avatarUrl: user.profileImg || undefined,
       verified: false,
       roleBadge: undefined,
     };
@@ -709,7 +872,7 @@ export class WebShellComponent {
     variant: 'default',
     hidden: false,
     translucent: false,
-    glass: false, // Use solid background
+    glass: false, // Solid opaque background (glass causes see-through)
     indicatorStyle: 'none',
     scrollToTopOnSameTap: true,
   }));
@@ -724,7 +887,7 @@ export class WebShellComponent {
       showLogo: true,
       showSearch: true,
       showNotifications: true,
-      notificationCount: this.activityService.totalUnread(),
+      notificationCount: this.badgeCount.totalUnread(),
       showSignIn: true,
       showMore: false,
       sticky: true,
@@ -739,7 +902,7 @@ export class WebShellComponent {
     const user = this.authFlow.user() as {
       displayName?: string;
       email?: string;
-      photoURL?: string;
+      profileImg?: string;
     } | null;
 
     if (!user) return null;
@@ -748,7 +911,7 @@ export class WebShellComponent {
 
     return {
       name,
-      avatarUrl: user.photoURL || undefined,
+      avatarUrl: user.profileImg || undefined,
       initials: this.getInitials(name),
     };
   });
@@ -805,10 +968,13 @@ export class WebShellComponent {
     return viewport.width < SIDEBAR_BREAKPOINTS.MOBILE;
   });
 
-  /** Show mobile footer only when authenticated */
-  readonly showMobileFooter = computed(
-    () => this.isMobileView() && this.authFlow.isAuthenticated()
-  );
+  /**
+   * Show mobile footer when authenticated.
+   * CSS media queries handle viewport visibility (hidden at ≥768px).
+   * Auth state is consistent between SSR and client (both start
+   * unauthenticated), so the @if guard won't cause hydration mismatch.
+   */
+  readonly showMobileFooter = computed(() => this.authFlow.isAuthenticated());
 
   // ============================================
   // LIFECYCLE
@@ -968,13 +1134,16 @@ export class WebShellComponent {
   async onScrollToTop(event: FooterScrollToTopEvent): Promise<void> {
     this.logger.debug('Scroll to top triggered', { tabId: event.tab.id, source: event.source });
 
-    // Use the scroll service to scroll to top
-    // On web, we use window scroll (no IonContent)
-    await this.scrollService.scrollToTop({
-      target: 'window',
-      behavior: 'smooth',
-      enableHaptics: false, // Web doesn't have haptics
-    });
+    // Target the shell's own scroll container (.shell__content)
+    const scrollEl = this.getShellContentElement();
+    if (scrollEl) {
+      await this.scrollService.scrollToTop({
+        target: 'custom',
+        scrollElement: scrollEl,
+        behavior: 'smooth',
+        enableHaptics: false,
+      });
+    }
   }
 
   /**
@@ -1072,6 +1241,12 @@ export class WebShellComponent {
       .subscribe((event) => {
         this._currentRoute.set(event.urlAfterRedirects);
         this.syncActiveTabFromRoute(event.urlAfterRedirects);
+
+        // Scroll shell content to top on navigation (replaces window.scrollTo)
+        const scrollEl = this.getShellContentElement();
+        if (scrollEl) {
+          scrollEl.scrollTo({ top: 0, behavior: 'instant' });
+        }
       });
   }
 
@@ -1081,6 +1256,15 @@ export class WebShellComponent {
   private syncActiveTabFromRoute(url: string): void {
     const matchedTab = findTabByRoute(this.footerTabs, url);
     this._activeTabId.set(matchedTab?.id ?? null);
+  }
+
+  /**
+   * Get the shell's main scroll container element (.shell__content).
+   * Used to programmatically scroll on navigation and scroll-to-top events.
+   */
+  private getShellContentElement(): HTMLElement | null {
+    if (!isPlatformBrowser(this.platformId)) return null;
+    return this.elementRef.nativeElement.querySelector('.shell__content') ?? null;
   }
 
   /**

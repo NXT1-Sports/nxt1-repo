@@ -28,21 +28,6 @@ import {
 } from 'ionicons/icons';
 import type { ScheduleEvent, ScheduleActionEvent } from '@nxt1/core';
 
-addIcons({
-  calendarOutline,
-  addOutline,
-  locationOutline,
-  timeOutline,
-  footballOutline,
-  trophyOutline,
-  checkmarkCircle,
-  closeCircle,
-  removeCircle,
-  ellipsisVertical,
-  homeOutline,
-  airplaneOutline,
-});
-
 @Component({
   selector: 'nxt1-manage-team-schedule-section',
   standalone: true,
@@ -607,6 +592,23 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ManageTeamScheduleSectionComponent {
+  constructor() {
+    addIcons({
+      calendarOutline,
+      addOutline,
+      locationOutline,
+      timeOutline,
+      footballOutline,
+      trophyOutline,
+      checkmarkCircle,
+      closeCircle,
+      removeCircle,
+      ellipsisVertical,
+      homeOutline,
+      airplaneOutline,
+    });
+  }
+
   /** Schedule events */
   readonly events = input<readonly ScheduleEvent[]>([]);
 

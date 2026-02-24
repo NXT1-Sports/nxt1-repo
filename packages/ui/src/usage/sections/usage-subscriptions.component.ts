@@ -8,15 +8,13 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import { informationCircleOutline } from 'ionicons/icons';
 import type { UsageSubscription } from '@nxt1/core';
 import { formatPrice } from '@nxt1/core';
-
-addIcons({ informationCircleOutline });
 
 @Component({
   selector: 'nxt1-usage-subscriptions',
@@ -154,6 +152,10 @@ addIcons({ informationCircleOutline });
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class UsageSubscriptionsComponent {
+  constructor() {
+    addIcons({ informationCircleOutline });
+  }
+
   readonly subscriptions = input.required<readonly UsageSubscription[]>();
   readonly manage = output<void>();
 

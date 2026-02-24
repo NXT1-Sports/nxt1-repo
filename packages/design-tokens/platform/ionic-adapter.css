@@ -207,29 +207,10 @@
 
 /* ============================================
    iOS 26 LIQUID GLASS TAB BAR
-   Apply backdrop-filter for frosted glass effect
+   NOTE: Glass/solid mode is now controlled by the footer component
+   (NxtMobileFooterComponent) via .footer--glass / .footer--solid classes.
+   Global styles removed to prevent conflicts with component-level control.
    ============================================ */
-
-ion-tab-bar {
-  /* Ensure translucent background */
-  --background: var(--nxt1-glass-bg, rgba(22, 22, 22, 0.88));
-  --border: 1px solid var(--nxt1-glass-border, rgba(255, 255, 255, 0.12));
-
-  /* Frosted glass blur effect */
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-  backdrop-filter: saturate(180%) blur(20px);
-
-  /* Subtle inner glow for depth */
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 -1px 20px rgba(0, 0, 0, 0.2);
-}
-
-/* Stronger blur on iOS for better glass effect */
-.ios ion-tab-bar {
-  -webkit-backdrop-filter: saturate(200%) blur(25px);
-  backdrop-filter: saturate(200%) blur(25px);
-}
 
 /* ============================================
    IONIC PLATFORM OVERRIDES (Android/Material)

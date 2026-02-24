@@ -52,21 +52,6 @@ import type { Mission, MissionCategoryConfig } from '@nxt1/core';
 import { XpItemComponent } from './xp-item.component';
 
 // Register icons
-addIcons({
-  chevronDown,
-  chevronUp,
-  checkmarkCircle,
-  personCircleOutline,
-  eyeOutline,
-  flagOutline,
-  calendarOutline,
-  peopleOutline,
-  heartOutline,
-  imagesOutline,
-  schoolOutline,
-  ribbonOutline,
-});
-
 @Component({
   selector: 'nxt1-xp-category',
   standalone: true,
@@ -323,6 +308,23 @@ addIcons({
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class XpCategoryComponent {
+  constructor() {
+    addIcons({
+      chevronDown,
+      chevronUp,
+      checkmarkCircle,
+      personCircleOutline,
+      eyeOutline,
+      flagOutline,
+      calendarOutline,
+      peopleOutline,
+      heartOutline,
+      imagesOutline,
+      schoolOutline,
+      ribbonOutline,
+    });
+  }
+
   // ============================================
   // INPUTS
   // ============================================

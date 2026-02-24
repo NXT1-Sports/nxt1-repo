@@ -40,13 +40,14 @@ import {
   ACTIVITY_TABS,
   ACTIVITY_PAGINATION_DEFAULTS,
 } from '@nxt1/core';
-import { HapticsService, NxtToastService, NxtLoggingService } from '@nxt1/ui';
+import { HapticsService } from '@nxt1/ui/services/haptics';
+import { NxtToastService } from '@nxt1/ui/services/toast';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { ActivityApiService } from './activity-api.service';
 
 /** Mock badge counts for development */
 const MOCK_BADGE_COUNTS: Record<ActivityTabId, number> = {
   all: 12,
-  inbox: 3,
   notifications: 5,
   deals: 2,
   mentions: 1,

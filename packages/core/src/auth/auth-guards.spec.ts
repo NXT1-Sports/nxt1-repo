@@ -522,7 +522,7 @@ describe('Auth Guards', () => {
         uid: 'minimal',
         email: 'minimal@test.com',
         displayName: '',
-        photoURL: undefined,
+        profileImg: undefined,
       });
       const state = createMockAuthState({
         user: minimalUser,

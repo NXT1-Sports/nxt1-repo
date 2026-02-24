@@ -1,0 +1,452 @@
+/**
+ * @fileoverview DEFERRED CSS - Non-critical styles loaded asynchronously
+ * @module @nxt1/web
+ *
+ * This file contains CSS that is NOT needed for the initial render:
+ * - NXT1 UI component styles (buttons, forms, links, skeletons, a11y)
+ * - Auth feature styles
+ * - Navigation component styles
+ * - Ionic component overrides (select, toast, modal)
+ * - Ion-button theming (::part selectors)
+ * - Auth button styles (glass morphism)
+ * - Pre/post hydration fallback styles
+ *
+ * Loaded asynchronously to prevent render-blocking.
+ * Angular's build system handles the async loading via inlineCritical.
+ */
+
+/* ============================================
+   NXT1 UI COMPONENT STYLES
+   Base styles (buttons, forms, links) + Feature styles
+   ============================================ */
+@import '@nxt1/ui/styles/base';
+@import '@nxt1/ui/styles/auth';
+
+/* ============================================
+   NAVIGATION COMPONENTS
+   Header, footer, mobile menu
+   ============================================ */
+@import '@nxt1/ui/styles/components/navigation';
+
+/* ============================================
+   IONIC COMPONENT OVERRIDES
+   Select, toast, modal theming
+   ============================================ */
+@import '@nxt1/ui/styles/components/ionic-select';
+@import '@nxt1/ui/styles/components/ionic-toast';
+@import '@nxt1/ui/styles/components/ionic-modal';
+
+/* ============================================
+   IONIC FRAMEWORK CSS (moved from critical)
+   Safe to defer: web shell uses zero <ion-*> elements.
+   Shared @nxt1/ui components that use Ionic are route-loaded.
+   ============================================ */
+
+/* Ionic theme tokens → Ionic CSS variables mapping */
+@import '@nxt1/design-tokens/ionic';
+
+/* Ionic component base CSS */
+@import '@ionic/angular/css/core.css';
+@import '@ionic/angular/css/typography.css';
+@import '@ionic/angular/css/display.css';
+
+/* Ionic input focus fix — prevents flash of native focus outlines */
+ion-input input,
+ion-input input:focus,
+ion-input input:focus-visible,
+ion-textarea textarea,
+ion-textarea textarea:focus,
+ion-textarea textarea:focus-visible,
+ion-searchbar input,
+ion-searchbar input:focus,
+ion-searchbar input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Pre-hydration: Ionic components before custom element registration */
+ion-content:not(:defined) {
+  display: block;
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: transparent;
+  contain: layout style;
+}
+
+ion-header:not(:defined) {
+  display: block;
+  width: 100%;
+}
+
+ion-toolbar:not(:defined) {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 56px;
+  padding: 0 16px;
+  background-color: transparent;
+}
+
+ion-buttons:not(:defined) {
+  display: flex;
+  align-items: center;
+}
+
+ion-button:not(:defined) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 48px;
+  padding: 0 16px;
+  font-family: var(--nxt1-fontFamily-brand, -apple-system, BlinkMacSystemFont, sans-serif);
+  font-weight: 500;
+  border-radius: var(--nxt1-borderRadius-md, 8px);
+  cursor: pointer;
+  border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+  background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+  color: var(--nxt1-color-text-primary, #ffffff);
+}
+
+ion-button[expand='block']:not(:defined) {
+  display: flex;
+  width: 100%;
+}
+
+ion-button:not(:defined) svg {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+}
+
+ion-button:not(:defined) span {
+  white-space: nowrap;
+}
+
+ion-icon:not(:defined) {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+}
+
+ion-title:not(:defined) {
+  display: block;
+  flex: 1;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+/* ============================================
+   ION-BUTTON GLOBAL THEMING
+   ::part(native) styles for all ion-button elements
+   ============================================ */
+
+ion-button::part(native) {
+  font-family: var(--nxt1-fontFamily-brand);
+  font-weight: var(--nxt1-fontWeight-semibold);
+  letter-spacing: var(--nxt1-letterSpacing-tight);
+  border-radius: var(--nxt1-radius-md);
+  transition: all var(--nxt1-duration-normal) var(--nxt1-easing-out);
+}
+
+/* DEFAULT/SOLID BUTTON */
+ion-button:not([fill])::part(native),
+ion-button[fill='default']::part(native),
+ion-button[fill='solid']::part(native) {
+  background: var(--nxt1-color-primary);
+  color: var(--nxt1-color-text-onPrimary);
+}
+
+ion-button:not([fill])::part(native):hover,
+ion-button[fill='default']::part(native):hover,
+ion-button[fill='solid']::part(native):hover {
+  background: var(--nxt1-color-primaryDark);
+}
+
+ion-button:not([fill])::part(native):active,
+ion-button[fill='default']::part(native):active,
+ion-button[fill='solid']::part(native):active {
+  background: var(--nxt1-color-primaryDark);
+}
+
+/* OUTLINE BUTTON */
+ion-button[fill='outline']::part(native) {
+  background: transparent;
+  border: 1px solid var(--nxt1-color-border-default);
+  color: var(--nxt1-color-text-primary);
+}
+
+ion-button[fill='outline']::part(native):hover {
+  background: var(--nxt1-color-state-hover);
+  border-color: var(--nxt1-color-border-strong);
+}
+
+ion-button[fill='outline']::part(native):active {
+  background: var(--nxt1-color-state-pressed);
+}
+
+/* CLEAR BUTTON */
+ion-button[fill='clear']::part(native) {
+  background: transparent;
+  color: var(--nxt1-color-text-primary);
+}
+
+ion-button[fill='clear']::part(native):hover {
+  background: var(--nxt1-color-state-hover);
+}
+
+ion-button[fill='clear']::part(native):active {
+  background: var(--nxt1-color-state-pressed);
+}
+
+/* COLOR VARIANTS */
+ion-button[color='secondary']::part(native) {
+  background: var(--nxt1-color-surface-200);
+  color: var(--nxt1-color-text-primary);
+}
+
+ion-button[color='secondary']::part(native):hover {
+  background: var(--nxt1-color-surface-300);
+}
+
+ion-button[color='danger']::part(native) {
+  background: var(--nxt1-color-error);
+  color: var(--nxt1-color-neutral-dark-1000);
+}
+
+ion-button[color='danger']::part(native):hover {
+  background: var(--nxt1-color-errorDark);
+}
+
+ion-button[color='success']::part(native) {
+  background: var(--nxt1-color-success);
+  color: var(--nxt1-color-neutral-dark-1000);
+}
+
+ion-button[color='success']::part(native):hover {
+  background: var(--nxt1-color-successDark);
+}
+
+ion-button[color='warning']::part(native) {
+  background: var(--nxt1-color-warning);
+  color: var(--nxt1-color-neutral-dark-0);
+}
+
+ion-button[color='warning']::part(native):hover {
+  background: var(--nxt1-color-warningDark);
+}
+
+ion-button[color='light']::part(native) {
+  background: var(--nxt1-color-neutral-dark-1000);
+  color: var(--nxt1-color-neutral-dark-0);
+}
+
+ion-button[color='light']::part(native):hover {
+  background: var(--nxt1-color-neutral-dark-950);
+}
+
+ion-button[color='dark']::part(native) {
+  background: var(--nxt1-color-neutral-dark-100);
+  color: var(--nxt1-color-neutral-dark-1000);
+}
+
+ion-button[color='dark']::part(native):hover {
+  background: var(--nxt1-color-neutral-dark-200);
+}
+
+/* ============================================
+   AUTH BUTTON STYLES
+   Glass morphism styling for auth buttons
+   ============================================ */
+
+ion-button.nxt1-auth-btn {
+  display: block;
+  width: 100%;
+  height: 52px;
+  margin-bottom: var(--nxt1-spacing-3);
+  --padding-start: 0;
+  --padding-end: 0;
+}
+
+ion-button.nxt1-auth-btn::part(native) {
+  width: 100%;
+  height: 100%;
+  background: var(--auth-bg-input);
+  border: 1px solid var(--auth-border-default);
+  border-radius: var(--auth-radius-default);
+  color: var(--auth-text-primary);
+  font-family: var(--nxt1-fontFamily-brand);
+  font-weight: var(--nxt1-fontWeight-semibold);
+  font-size: var(--nxt1-fontSize-base);
+  padding: 0 var(--nxt1-spacing-4);
+  transition: all var(--nxt1-duration-normal) var(--nxt1-easing-out);
+}
+
+ion-button.nxt1-auth-btn::part(native):hover {
+  background: var(--auth-bg-input-hover);
+  transform: translateY(-1px);
+}
+
+ion-button.nxt1-auth-btn::part(native):active {
+  background: var(--auth-bg-input-hover);
+  transform: translateY(0);
+}
+
+ion-button.nxt1-auth-btn--google::part(native) {
+  background: var(--auth-bg-input);
+  border-color: var(--auth-border-default);
+}
+
+ion-button.nxt1-auth-btn--google::part(native):hover {
+  background: var(--auth-bg-input-hover);
+}
+
+ion-button.nxt1-auth-btn--apple::part(native) {
+  background: #000000;
+  border-color: var(--auth-border-hover);
+  color: #ffffff;
+}
+
+ion-button.nxt1-auth-btn--apple::part(native):hover {
+  background: #1a1a1a;
+}
+
+ion-button.nxt1-auth-btn--microsoft::part(native) {
+  background: var(--auth-bg-input);
+  border-color: var(--auth-border-default);
+}
+
+ion-button.nxt1-auth-btn--microsoft::part(native):hover {
+  background: var(--auth-bg-input-hover);
+}
+
+ion-button.nxt1-auth-btn--email::part(native) {
+  background: var(--auth-bg-input);
+  border-color: var(--auth-border-default);
+}
+
+ion-button.nxt1-auth-btn--email::part(native):hover {
+  background: var(--auth-bg-input-hover);
+  border-color: var(--auth-border-focus);
+}
+
+ion-button.nxt1-auth-btn--team-code {
+  height: 48px;
+}
+
+ion-button.nxt1-auth-btn--team-code::part(native) {
+  background: transparent;
+  border: 1px dashed var(--auth-border-hover);
+  color: var(--auth-text-secondary);
+}
+
+ion-button.nxt1-auth-btn--team-code::part(native):hover {
+  background: var(--auth-bg-input);
+  border-style: solid;
+  color: var(--auth-primary);
+}
+
+ion-button.nxt1-auth-btn .btn-content {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nxt1-spacing-3);
+  width: 100%;
+}
+
+ion-button.nxt1-auth-btn .btn-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+/* ============================================
+   PRE-HYDRATION FALLBACK (SSR)
+   Styles before Ionic's .hydrated class is added
+   ============================================ */
+ion-button.nxt1-auth-btn:not(.hydrated) {
+  background: var(--auth-bg-input, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--auth-border-default, rgba(255, 255, 255, 0.1));
+  border-radius: var(--auth-radius-default, 8px);
+  color: var(--auth-text-primary, #ffffff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+ion-button.nxt1-auth-btn--apple:not(.hydrated) {
+  background: #000000;
+  border-color: var(--auth-border-hover, rgba(255, 255, 255, 0.15));
+}
+
+ion-button.nxt1-auth-btn--team-code:not(.hydrated) {
+  background: transparent;
+  border: 1px dashed var(--auth-border-hover);
+  color: var(--auth-text-secondary);
+}
+
+/* ============================================
+   AUTH SHELL CONTENT PROJECTION STYLES
+   ============================================ */
+[authTitle] {
+  color: var(--nxt1-color-text-primary);
+  font-family: var(--nxt1-fontFamily-brand);
+  font-size: var(--nxt1-fontSize-2xl, 1.875rem);
+  font-weight: var(--nxt1-fontWeight-bold, 700);
+  line-height: var(--nxt1-lineHeight-tight, 1.25);
+  margin-bottom: var(--nxt1-spacing-2, 0.5rem);
+  text-align: center;
+}
+
+@media (min-width: 768px) {
+  [authTitle] {
+    font-size: var(--nxt1-fontSize-3xl, 2.25rem);
+  }
+}
+
+[authSubtitle] {
+  color: var(--nxt1-color-text-secondary);
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  line-height: var(--nxt1-lineHeight-relaxed, 1.625);
+  text-align: center;
+}
+
+[authFooter] {
+  color: var(--nxt1-color-text-secondary);
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  line-height: var(--nxt1-lineHeight-relaxed, 1.625);
+  text-align: center;
+}
+
+[authFooter] a {
+  color: var(--nxt1-color-primary);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
+  text-decoration: none;
+  transition: all var(--nxt1-duration-fast, 150ms);
+}
+
+[authFooter] a:hover {
+  text-decoration: underline;
+}
+
+[authTerms] {
+  color: var(--nxt1-color-text-tertiary);
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  line-height: var(--nxt1-lineHeight-relaxed, 1.625);
+  max-width: 20rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+[authTerms] a {
+  color: var(--nxt1-color-text-secondary);
+  text-decoration: none;
+  transition: all var(--nxt1-duration-fast, 150ms);
+}
+
+[authTerms] a:hover {
+  text-decoration: underline;
+}
