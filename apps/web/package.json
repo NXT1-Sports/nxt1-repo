@@ -6,8 +6,8 @@
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
-    "dev": "NODE_OPTIONS='--max-old-space-size=8192' ng serve",
-    "dev:ssr": "NODE_OPTIONS='--max-old-space-size=8192' ng serve --configuration development",
+    "dev": "cross-env NODE_OPTIONS='--max-old-space-size=8192' ng serve",
+    "dev:ssr": "cross-env NODE_OPTIONS='--max-old-space-size=8192' ng serve --configuration development",
     "build": "ng build --configuration production",
     "build:dev": "ng build --configuration development",
     "build:staging": "ng build --configuration staging",
@@ -61,7 +61,8 @@
     "rxjs": "~7.8.0",
     "tailwindcss": "^3.4.19",
     "tslib": "^2.3.0",
-    "zone.js": "^0.16.0"
+    "zone.js": "^0.16.0",
+    "cross-env": "^7.0.3"
   },
   "devDependencies": {
     "@ionic/angular-toolkit": "^12.1.0",

@@ -36,6 +36,13 @@
       "cache": true,
       "env": ["NODE_ENV"]
     },
+    "build:staging": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.spec.ts", "!**/*.test.ts"],
+      "outputs": ["dist/**", "www/**"],
+      "cache": true,
+      "env": ["NODE_ENV"]
+    },
     "serve:ssr": {
       "dependsOn": ["build"],
       "cache": false,

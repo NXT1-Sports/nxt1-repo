@@ -117,15 +117,15 @@
     "src"
   ],
   "scripts": {
-    "build": "NODE_OPTIONS=--max-old-space-size=8192 tsup && rm -f dist/.tsbuildinfo && tsc --emitDeclarationOnly --declaration --declarationMap --project tsconfig.json",
-    "dev": "NODE_OPTIONS=--max-old-space-size=8192 tsup --watch",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsup && rimraf dist/.tsbuildinfo && tsc --emitDeclarationOnly --declaration --declarationMap --project tsconfig.json",
+    "dev": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist .turbo node_modules"
+    "clean": "rimraf dist .turbo node_modules"
   },
   "dependencies": {
     "tsup": "^8.5.0"
@@ -133,7 +133,9 @@
   "devDependencies": {
     "@types/node": "^25.2.3",
     "@vitest/coverage-v8": "^4.0.18",
+    "cross-env": "^7.0.3",
     "firebase": "^12.9.0",
+    "rimraf": "^6.1.2",
     "typescript": "~5.9.3",
     "vitest": "^4.0.18"
   },

@@ -92,14 +92,19 @@ function verifyBundleId(configPath, expectedId, platform) {
   }
 }
 
-const expectedBundleId = 'com.nxt1sports.nxt1';
+const expectedIosBundleId = 'com.nxt1sports.nxt1';
+const expectedAndroidBundleId = 'com.nxt1sports.app.twa';
 
 // Verify configurations
-const iOSValid = verifyBundleId(iOSTargets[0], expectedBundleId, 'ios');
-const androidValid = verifyBundleId(androidTarget, expectedBundleId, 'android');
+const iOSValid = verifyBundleId(iOSTargets[0], expectedIosBundleId, 'ios');
+const androidValid = verifyBundleId(androidTarget, expectedAndroidBundleId, 'android');
 
 if (iOSValid && androidValid) {
-  log(`🎉 Environment: ${firebaseEnv} (Bundle ID: ${expectedBundleId})`, colors.green);
+  log(`🎉 Environment: ${firebaseEnv} (IOS Bundle ID: ${expectedIosBundleId})`, colors.green);
+  log(
+    `🎉 Environment: ${firebaseEnv} Android (Bundle ID: ${expectedAndroidBundleId})`,
+    colors.green
+  );
 } else {
   if (!iOSValid) log(`❌ iOS Bundle ID mismatch in ${firebaseEnv}`, colors.red);
   if (!androidValid) log(`❌ Android Package Name mismatch in ${firebaseEnv}`, colors.red);
