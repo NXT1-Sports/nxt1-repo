@@ -15,17 +15,17 @@ export const environment = {
   // Staging API - accessible from anywhere via domain
   apiUrl: 'https://backend.nxt1sports.com/api/v1/staging',
 
-  // Firebase Staging Configuration
+  // Firebase Staging Configuration (nxt-1-staging-v2)
   firebase: {
-    apiKey: 'AIzaSyDSwJsZTCXeUQ2qPPqrGHQjMwxksQ-fkvE',
-    authDomain: 'nxt-1-staging.firebaseapp.com',
-    projectId: 'nxt-1-staging',
-    storageBucket: 'nxt-1-staging.appspot.com',
-    messagingSenderId: '455734259010',
-    appId: '1:455734259010:web:34d2571568094bb75a6cdb',
-    measurementId: 'G-TH51Q9XZNB',
+    apiKey: 'AIzaSyDavayHwEACTQjg1KQKYofDScMMH4y1ViM',
+    authDomain: 'nxt-1-staging-v2.firebaseapp.com',
+    projectId: 'nxt-1-staging-v2',
+    storageBucket: 'nxt-1-staging-v2.firebasestorage.app',
+    messagingSenderId: '1099429444442',
+    appId: '1:1099429444442:web:15c8b8a5d7f26883b09163',
+    measurementId: 'G-7C1JQW72JX',
   },
 
-  googleClientId: '455734259010-qagtsakkvchuf3tnbgjgitjj80e740ib.apps.googleusercontent.com',
-  googleServerClientId: '455734259010-d04kqk9g2kkfov38t0lrdqcrlujtrsom.apps.googleusercontent.com',
+  googleClientId: '1099429444442-n4nnpevnqm8on4dp91il0f6rl39e3nvs.apps.googleusercontent.com',
+  googleServerClientId: '1099429444442-v8mlmoiu6kc27nhdl661d12te7cg2j4h.apps.googleusercontent.com',
 };

@@ -9,26 +9,26 @@ PODS:
     - GoogleUtilities/Environment (~> 8.0)
     - GoogleUtilities/UserDefaults (~> 8.0)
     - PromisesObjC (~> 2.4)
-  - Capacitor (8.0.1):
+  - Capacitor (8.1.0):
     - CapacitorCordova
-  - CapacitorActionSheet (8.0.0):
+  - CapacitorActionSheet (8.0.1):
     - Capacitor
-  - CapacitorApp (8.0.0):
+  - CapacitorApp (8.0.1):
     - Capacitor
-  - CapacitorBrowser (8.0.0):
+  - CapacitorBrowser (8.0.1):
     - Capacitor
-  - CapacitorCamera (8.0.0):
+  - CapacitorCamera (8.0.1):
     - Capacitor
   - CapacitorCommunityAppleSignIn (7.1.0):
     - Capacitor
-  - CapacitorCordova (8.0.1)
-  - CapacitorDevice (8.0.0):
+  - CapacitorCordova (8.1.0)
+  - CapacitorDevice (8.0.1):
     - Capacitor
-  - CapacitorDialog (8.0.0):
+  - CapacitorDialog (8.0.1):
     - Capacitor
-  - CapacitorFilesystem (8.0.0):
+  - CapacitorFilesystem (8.1.1):
     - Capacitor
-    - IONFilesystemLib (~> 1.0.1)
+    - IONFilesystemLib (~> 1.1.0)
   - CapacitorFirebaseAuthentication (8.0.1):
     - Capacitor
     - CapacitorFirebaseAuthentication/Lite (= 8.0.1)
@@ -46,7 +46,7 @@ PODS:
   - CapacitorFirebasePerformance (8.0.1):
     - Capacitor
     - FirebasePerformance (~> 12.7.0)
-  - CapacitorGeolocation (8.0.0):
+  - CapacitorGeolocation (8.1.0):
     - Capacitor
     - IONGeolocationLib (= 2.0.0)
   - CapacitorHaptics (8.0.0):
@@ -55,17 +55,17 @@ PODS:
     - Capacitor
   - CapacitorNativeBiometric (0.0.1):
     - Capacitor
-  - CapacitorNetwork (8.0.0):
+  - CapacitorNetwork (8.0.1):
     - Capacitor
-  - CapacitorPreferences (8.0.0):
+  - CapacitorPreferences (8.0.1):
     - Capacitor
-  - CapacitorPushNotifications (8.0.0):
+  - CapacitorPushNotifications (8.0.1):
     - Capacitor
-  - CapacitorShare (8.0.0):
+  - CapacitorShare (8.0.1):
     - Capacitor
-  - CapacitorSplashScreen (8.0.0):
+  - CapacitorSplashScreen (8.0.1):
     - Capacitor
-  - CapacitorStatusBar (8.0.0):
+  - CapacitorStatusBar (8.0.1):
     - Capacitor
   - FirebaseABTesting (12.7.0):
     - FirebaseCore (~> 12.7.0)
@@ -170,7 +170,7 @@ PODS:
     - AppAuth/Core (~> 2.0)
     - GTMSessionFetcher/Core (< 4.0, >= 3.3)
   - GTMSessionFetcher/Core (3.5.0)
-  - IONFilesystemLib (1.0.1)
+  - IONFilesystemLib (1.1.0)
   - IONGeolocationLib (2.0.0)
   - MSAL (1.9.0):
     - MSAL/app-lib (= 1.9.0)
@@ -189,29 +189,29 @@ PODS:
     - MSAL (~> 1.1)
 
 DEPENDENCIES:
-  - "Capacitor (from `../../node_modules/@capacitor/ios`)"
+  - "Capacitor (from `../../../../node_modules/@capacitor/ios`)"
   - "CapacitorActionSheet (from `../../../../node_modules/@capacitor/action-sheet`)"
-  - "CapacitorApp (from `../../node_modules/@capacitor/app`)"
+  - "CapacitorApp (from `../../../../node_modules/@capacitor/app`)"
   - "CapacitorBrowser (from `../../../../node_modules/@capacitor/browser`)"
-  - "CapacitorCamera (from `../../node_modules/@capacitor/camera`)"
+  - "CapacitorCamera (from `../../../../node_modules/@capacitor/camera`)"
   - "CapacitorCommunityAppleSignIn (from `../../../../node_modules/@capacitor-community/apple-sign-in`)"
-  - "CapacitorCordova (from `../../node_modules/@capacitor/ios`)"
-  - "CapacitorDevice (from `../../node_modules/@capacitor/device`)"
+  - "CapacitorCordova (from `../../../../node_modules/@capacitor/ios`)"
+  - "CapacitorDevice (from `../../../../node_modules/@capacitor/device`)"
   - "CapacitorDialog (from `../../../../node_modules/@capacitor/dialog`)"
-  - "CapacitorFilesystem (from `../../node_modules/@capacitor/filesystem`)"
+  - "CapacitorFilesystem (from `../../../../node_modules/@capacitor/filesystem`)"
   - "CapacitorFirebaseAuthentication (from `../../../../node_modules/@capacitor-firebase/authentication`)"
   - "CapacitorFirebaseAuthentication/Google (from `../../../../node_modules/@capacitor-firebase/authentication`)"
   - "CapacitorFirebaseCrashlytics (from `../../../../node_modules/@capacitor-firebase/crashlytics`)"
   - "CapacitorFirebasePerformance (from `../../../../node_modules/@capacitor-firebase/performance`)"
-  - "CapacitorGeolocation (from `../../node_modules/@capacitor/geolocation`)"
+  - "CapacitorGeolocation (from `../../../../node_modules/@capacitor/geolocation`)"
   - "CapacitorHaptics (from `../../../../node_modules/@capacitor/haptics`)"
-  - "CapacitorKeyboard (from `../../node_modules/@capacitor/keyboard`)"
+  - "CapacitorKeyboard (from `../../../../node_modules/@capacitor/keyboard`)"
   - CapacitorNativeBiometric (from `../../../../node_modules/capacitor-native-biometric`)
-  - "CapacitorNetwork (from `../../node_modules/@capacitor/network`)"
+  - "CapacitorNetwork (from `../../../../node_modules/@capacitor/network`)"
   - "CapacitorPreferences (from `../../../../node_modules/@capacitor/preferences`)"
-  - "CapacitorPushNotifications (from `../../node_modules/@capacitor/push-notifications`)"
-  - "CapacitorShare (from `../../node_modules/@capacitor/share`)"
-  - "CapacitorSplashScreen (from `../../node_modules/@capacitor/splash-screen`)"
+  - "CapacitorPushNotifications (from `../../../../node_modules/@capacitor/push-notifications`)"
+  - "CapacitorShare (from `../../../../node_modules/@capacitor/share`)"
+  - "CapacitorSplashScreen (from `../../../../node_modules/@capacitor/splash-screen`)"
   - "CapacitorStatusBar (from `../../../../node_modules/@capacitor/status-bar`)"
   - "RecognizebvCapacitorPluginMsauth (from `../../../../node_modules/@recognizebv/capacitor-plugin-msauth`)"
 
@@ -248,25 +248,25 @@ SPEC REPOS:
 
 EXTERNAL SOURCES:
   Capacitor:
-    :path: "../../node_modules/@capacitor/ios"
+    :path: "../../../../node_modules/@capacitor/ios"
   CapacitorActionSheet:
     :path: "../../../../node_modules/@capacitor/action-sheet"
   CapacitorApp:
-    :path: "../../node_modules/@capacitor/app"
+    :path: "../../../../node_modules/@capacitor/app"
   CapacitorBrowser:
     :path: "../../../../node_modules/@capacitor/browser"
   CapacitorCamera:
-    :path: "../../node_modules/@capacitor/camera"
+    :path: "../../../../node_modules/@capacitor/camera"
   CapacitorCommunityAppleSignIn:
     :path: "../../../../node_modules/@capacitor-community/apple-sign-in"
   CapacitorCordova:
-    :path: "../../node_modules/@capacitor/ios"
+    :path: "../../../../node_modules/@capacitor/ios"
   CapacitorDevice:
-    :path: "../../node_modules/@capacitor/device"
+    :path: "../../../../node_modules/@capacitor/device"
   CapacitorDialog:
     :path: "../../../../node_modules/@capacitor/dialog"
   CapacitorFilesystem:
-    :path: "../../node_modules/@capacitor/filesystem"
+    :path: "../../../../node_modules/@capacitor/filesystem"
   CapacitorFirebaseAuthentication:
     :path: "../../../../node_modules/@capacitor-firebase/authentication"
   CapacitorFirebaseCrashlytics:
@@ -274,23 +274,23 @@ EXTERNAL SOURCES:
   CapacitorFirebasePerformance:
     :path: "../../../../node_modules/@capacitor-firebase/performance"
   CapacitorGeolocation:
-    :path: "../../node_modules/@capacitor/geolocation"
+    :path: "../../../../node_modules/@capacitor/geolocation"
   CapacitorHaptics:
     :path: "../../../../node_modules/@capacitor/haptics"
   CapacitorKeyboard:
-    :path: "../../node_modules/@capacitor/keyboard"
+    :path: "../../../../node_modules/@capacitor/keyboard"
   CapacitorNativeBiometric:
     :path: "../../../../node_modules/capacitor-native-biometric"
   CapacitorNetwork:
-    :path: "../../node_modules/@capacitor/network"
+    :path: "../../../../node_modules/@capacitor/network"
   CapacitorPreferences:
     :path: "../../../../node_modules/@capacitor/preferences"
   CapacitorPushNotifications:
-    :path: "../../node_modules/@capacitor/push-notifications"
+    :path: "../../../../node_modules/@capacitor/push-notifications"
   CapacitorShare:
-    :path: "../../node_modules/@capacitor/share"
+    :path: "../../../../node_modules/@capacitor/share"
   CapacitorSplashScreen:
-    :path: "../../node_modules/@capacitor/splash-screen"
+    :path: "../../../../node_modules/@capacitor/splash-screen"
   CapacitorStatusBar:
     :path: "../../../../node_modules/@capacitor/status-bar"
   RecognizebvCapacitorPluginMsauth:
@@ -299,29 +299,29 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   AppAuth: 1c1a8afa7e12f2ec3a294d9882dfa5ab7d3cb063
   AppCheckCore: cc8fd0a3a230ddd401f326489c99990b013f0c4f
-  Capacitor: ff35b0f66370b84aa238251b35b91886a3207c16
-  CapacitorActionSheet: 23a61973f273680dc12ef506109d9397675e3fc3
-  CapacitorApp: 3963a84197280757b84f126afd1520a85ae3b092
-  CapacitorBrowser: b7d7f05f840fe042e46f6528bb8db853e3058fb2
-  CapacitorCamera: 592acb7ab9fb748e2d8571eb03af30ec4e1ace12
+  Capacitor: 47b825120c6b8b6d6f9f053e9350a8960d436710
+  CapacitorActionSheet: ee54b5b22a54dbe82c44582a6c0fca4a60c5595b
+  CapacitorApp: 942306cd1acf7774a00e89a3986af3a67c8cad7a
+  CapacitorBrowser: e72e572d5dbdbb854fda5950586a2451e981f2d6
+  CapacitorCamera: fcacb82cc319e62f8d8c93e20f3f70e2464efe5e
   CapacitorCommunityAppleSignIn: 271cb2860576fd2961508bbfa7a82117d93eadca
-  CapacitorCordova: 0d65b9bb74e995dcecb9463f34f1af2aba6f955c
-  CapacitorDevice: 9a16fb36a19ff391bf75afbe3cf16f883b3b3aa0
-  CapacitorDialog: 3721e40dd075f590328166c29b4e982dbeedeb56
-  CapacitorFilesystem: 2cb7c29536024668f333266a2177f8c10bbd9c98
+  CapacitorCordova: e8b76fd95fc1e157775abc484c59cc0de464095d
+  CapacitorDevice: ff033fa0c4ec19f5e059a073769a9b2347e69f57
+  CapacitorDialog: 854c5dac405081cae697c177ca43bcaa95ae67bf
+  CapacitorFilesystem: f2b2caa158383b3f568383b33e47296f7c48c470
   CapacitorFirebaseAuthentication: cb5ddfd40d28ae8522b9af25741ba62eaa939501
   CapacitorFirebaseCrashlytics: 9498eaa61bdcc42971392747c221a407c38ddc5e
   CapacitorFirebasePerformance: 859956f5d5716d57d5dc98332dc2ee460f8a0158
-  CapacitorGeolocation: 8a405e707de9aff6ac9eca7f408966a370f7ca33
+  CapacitorGeolocation: 7132de914f9d853ec4642dc1d36e4e2018a4e8a8
   CapacitorHaptics: 2079d9fa04c5a71e18663b4722323c304c58245c
   CapacitorKeyboard: d7868c079a4d5277a3deca27a10a488fcbbb8b69
   CapacitorNativeBiometric: 78cf21304251a512e4597437325b5e9b0cd9f7b3
-  CapacitorNetwork: 156f8096cbbce5337eb1769fcc0d6adc4b85d3f3
-  CapacitorPreferences: 443fabe9670226200e595658a87ef0b1566716d4
-  CapacitorPushNotifications: 722c1528eabbefd355f47e373a4c6235d01e85e9
-  CapacitorShare: 12f1d192170cbcf9f108fd675ac8e343761a4638
-  CapacitorSplashScreen: 422880d7117605c30699eb4b21644b62db42e86c
-  CapacitorStatusBar: 312e2e67928dfe9514c4a8916a1fd610552f5f35
+  CapacitorNetwork: 8812ce60d11fb63d8f2e4ba51a49b2e59892ebe2
+  CapacitorPreferences: cca2021f386efb75947c850334447d9ff22b14f1
+  CapacitorPushNotifications: 99644101c6a82036e459929b6d897ee1cb27d97f
+  CapacitorShare: 0c58305114538568059bfc07111f22dcb9cb2a82
+  CapacitorSplashScreen: 4b46c72298db552b3c57ce021ef028b6dc7f1fa7
+  CapacitorStatusBar: 32206abd53b14f339763da26f71286deaa891e16
   FirebaseABTesting: 72e4636929660d40844f2a4db15be9d551fc27d6
   FirebaseAppCheckInterop: d58366471f1dadf2ed998b15f85c658458a10142
   FirebaseAuth: 88beaef7c688a2950541552b6dd195d22137c41a
@@ -341,7 +341,7 @@ SPEC CHECKSUMS:
   GoogleUtilities: 00c88b9a86066ef77f0da2fab05f65d7768ed8e1
   GTMAppAuth: 217a876b249c3c585a54fd6f73e6b58c4f5c4238
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
-  IONFilesystemLib: 89258b8e3e85465da93127d25d7ce37f977e8a6f
+  IONFilesystemLib: 50b9a0f3052a9b40b9bedb43f328a8fe222f9f87
   IONGeolocationLib: a5e40b54edc2ee9902036eda5aaa41ddf07bb68d
   MSAL: 1a32a1070ccf55d9641d31edd8869ea2b5a78beb
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
@@ -350,6 +350,6 @@ SPEC CHECKSUMS:
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   RecognizebvCapacitorPluginMsauth: c108ed22d9d2329bc729661356f9fce24354e2c2
 
-PODFILE CHECKSUM: 10956f980498ae712d3f3eda0670c54b51287662
+PODFILE CHECKSUM: d4e2174d6a307781dc26ecd86fb9b34b60152e82
 
 COCOAPODS: 1.16.2

@@ -7,7 +7,7 @@
 
 import * as admin from 'firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { RESERVED_USERNAMES, FIELD_LENGTHS, VALIDATION_PATTERNS } from '@nxt1/core';
+import { RESERVED_USERNAMES, FIELD_LENGTHS, VALIDATION_PATTERNS } from '../constants';
 
 const db = admin.firestore();
 

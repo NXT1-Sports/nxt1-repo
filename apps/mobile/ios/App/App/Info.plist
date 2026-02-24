@@ -83,10 +83,10 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<!-- Staging: nxt-1-staging -->
-				<string>com.googleusercontent.apps.455734259010-hi7stcq2qk5jan5md5k4cqnvaj3u94gu</string>
-				<!-- Production: nxt-1-de054 -->
-				<string>com.googleusercontent.apps.574223545656-u8o0mv59tnbtd66te7lp12bto9f50uid</string>
+				<!-- Active GoogleService-Info.plist (nxt1 staging v2) -->
+				<string>com.googleusercontent.apps.1099429444442-n4nnpevnqm8on4dp91il0f6rl39e3nvs</string>
+				<!-- Active GoogleService-Info.plist (nxt1 production v2) -->
+				<string>com.googleusercontent.apps.112256620070-hhqncoijt5f2or5218dmtq43moa6vgup</string>
 			</array>
 			<key>CFBundleURLName</key>
 			<string>Google Sign-In</string>

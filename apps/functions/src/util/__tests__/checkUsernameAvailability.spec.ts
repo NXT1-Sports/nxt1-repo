@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
-import { RESERVED_USERNAMES } from '@nxt1/core';
+import { RESERVED_USERNAMES } from '../../constants';
 
 describe('checkUsernameAvailability', () => {
   beforeAll(() => {

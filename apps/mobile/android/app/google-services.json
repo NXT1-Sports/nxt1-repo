@@ -1,41 +1,41 @@
 {
   "project_info": {
-    "project_number": "1099429444442",
-    "project_id": "nxt-1-staging-v2",
-    "storage_bucket": "nxt-1-staging-v2.firebasestorage.app"
+    "project_number": "112256620070",
+    "project_id": "nxt-1-v2",
+    "storage_bucket": "nxt-1-v2.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:1099429444442:android:34a76cf2c0681109b09163",
+        "mobilesdk_app_id": "1:112256620070:android:4604d3b06c1025872c78e7",
         "android_client_info": {
           "package_name": "com.nxt1sports.app.twa"
         }
       },
       "oauth_client": [
         {
-          "client_id": "1099429444442-qvnc4csm9stdpio14t2tui627vb99s7a.apps.googleusercontent.com",
+          "client_id": "112256620070-2rpu05innjjfbj63hcnveipetcifbjml.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.nxt1sports.app.twa",
-            "certificate_hash": "ada78935bcc6b980d9d1c05b96b2e07f93299f24"
+            "certificate_hash": "108de7d69ff10c4b4245ad91189958ae60d0761c"
           }
         },
         {
-          "client_id": "1099429444442-v8mlmoiu6kc27nhdl661d12te7cg2j4h.apps.googleusercontent.com",
+          "client_id": "112256620070-v6sa43846pdd27972btg8o82kj84aoap.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyBggIA58A35b7Wukm4YMvcbkmqudoJPmRs"
+          "current_key": "AIzaSyB0Fs-xMWa9YlANKbnoHqTujQTDmD61Ls4"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "1099429444442-v8mlmoiu6kc27nhdl661d12te7cg2j4h.apps.googleusercontent.com",
+              "client_id": "112256620070-v6sa43846pdd27972btg8o82kj84aoap.apps.googleusercontent.com",
               "client_type": 3
             }
           ]

@@ -93,6 +93,9 @@ app.use(
           'http://127.0.0.1:4300',
           'http://localhost:8100',
           'http://127.0.0.1:8100',
+          // Capacitor native apps (iOS & Android)
+          'capacitor://localhost',
+          'ionic://localhost',
           'https://nxt1.com',
           'https://www.nxt1.com',
           'https://nxt1sports.com',

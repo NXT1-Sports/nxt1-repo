@@ -7,7 +7,7 @@
 
 import * as admin from 'firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { DISPOSABLE_EMAIL_DOMAINS, VALIDATION_PATTERNS } from '@nxt1/core';
+import { DISPOSABLE_EMAIL_DOMAINS, VALIDATION_PATTERNS } from '../constants';
 
 const db = admin.firestore();
 
