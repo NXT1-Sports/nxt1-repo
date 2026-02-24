@@ -3,21 +3,23 @@
 <plist version="1.0">
 <dict>
 	<key>CLIENT_ID</key>
-	<string>574223545656-u8o0mv59tnbtd66te7lp12bto9f50uid.apps.googleusercontent.com</string>
+	<string>112256620070-hhqncoijt5f2or5218dmtq43moa6vgup.apps.googleusercontent.com</string>
 	<key>REVERSED_CLIENT_ID</key>
-	<string>com.googleusercontent.apps.574223545656-u8o0mv59tnbtd66te7lp12bto9f50uid</string>
+	<string>com.googleusercontent.apps.112256620070-hhqncoijt5f2or5218dmtq43moa6vgup</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>112256620070-2rpu05innjjfbj63hcnveipetcifbjml.apps.googleusercontent.com</string>
 	<key>API_KEY</key>
-	<string>AIzaSyDvaPjlLXECjcPuwCPHbJ1uV4S8zGEWyxI</string>
+	<string>AIzaSyANFHwCBLXCQxdeBb1OBuZi2t8zgWLnLZw</string>
 	<key>GCM_SENDER_ID</key>
-	<string>574223545656</string>
+	<string>112256620070</string>
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
 	<string>com.nxt1sports.nxt1</string>
 	<key>PROJECT_ID</key>
-	<string>nxt-1-de054</string>
+	<string>nxt-1-v2</string>
 	<key>STORAGE_BUCKET</key>
-	<string>nxt-1-de054.appspot.com</string>
+	<string>nxt-1-v2.firebasestorage.app</string>
 	<key>IS_ADS_ENABLED</key>
 	<false></false>
 	<key>IS_ANALYTICS_ENABLED</key>
@@ -29,6 +31,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:574223545656:ios:59960b003ce26cd245bdcd</string>
+	<string>1:112256620070:ios:b4795a595d8262392c78e7</string>
 </dict>
 </plist>

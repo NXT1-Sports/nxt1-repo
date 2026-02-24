@@ -14,7 +14,7 @@
     "predeploy": ["npm --prefix \"$RESOURCE_DIR\" run build"]
   },
   "hosting": {
-    "site": "nxt-1-staging",
+    "site": "nxt-1-staging-v2",
     "public": "apps/web/dist/nxt1-web/browser",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [

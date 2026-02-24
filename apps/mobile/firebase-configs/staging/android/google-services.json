@@ -1,109 +1,42 @@
 {
   "project_info": {
-    "project_number": "455734259010",
-    "project_id": "nxt-1-staging",
-    "storage_bucket": "nxt-1-staging.appspot.com"
+    "project_number": "1099429444442",
+    "project_id": "nxt-1-staging-v2",
+    "storage_bucket": "nxt-1-staging-v2.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:455734259010:android:05691dfdfb6bba955a6cdb",
+        "mobilesdk_app_id": "1:1099429444442:android:34a76cf2c0681109b09163",
         "android_client_info": {
-          "package_name": "com.nxt1.sports"
+          "package_name": "com.nxt1sports.app.twa"
         }
       },
       "oauth_client": [
         {
-          "client_id": "455734259010-33dk9g9nktnk982sh0lk61e84bv5o0f0.apps.googleusercontent.com",
+          "client_id": "1099429444442-qvnc4csm9stdpio14t2tui627vb99s7a.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
-            "package_name": "com.nxt1.sports",
+            "package_name": "com.nxt1sports.app.twa",
             "certificate_hash": "ada78935bcc6b980d9d1c05b96b2e07f93299f24"
           }
         },
         {
-          "client_id": "455734259010-91f4aiq3nbk2fo3kue1jmgf82pqmd5p8.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.nxt1.sports",
-            "certificate_hash": "da789415ab1a0dc97dacaefc76ed09fb7626e190"
-          }
-        },
-        {
-          "client_id": "455734259010-d04kqk9g2kkfov38t0lrdqcrlujtrsom.apps.googleusercontent.com",
+          "client_id": "1099429444442-v8mlmoiu6kc27nhdl661d12te7cg2j4h.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyD1mTldf29TIRdvHWzxTTKamuXs7IOkCVI"
+          "current_key": "AIzaSyBggIA58A35b7Wukm4YMvcbkmqudoJPmRs"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "455734259010-d04kqk9g2kkfov38t0lrdqcrlujtrsom.apps.googleusercontent.com",
+              "client_id": "1099429444442-v8mlmoiu6kc27nhdl661d12te7cg2j4h.apps.googleusercontent.com",
               "client_type": 3
-            },
-            {
-              "client_id": "455734259010-qagtsakkvchuf3tnbgjgitjj80e740ib.apps.googleusercontent.com",
-              "client_type": 2,
-              "ios_info": {
-                "bundle_id": "com.nxt1.sports"
-              }
-            }
-          ]
-        }
-      }
-    },
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:455734259010:android:a1ce3602990801e75a6cdb",
-        "android_client_info": {
-          "package_name": "com.nxt1sports.nxt1"
-        }
-      },
-      "oauth_client": [
-        {
-          "client_id": "455734259010-0h2go359hoo3vlchsqaova93ck3vn300.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.nxt1sports.nxt1",
-            "certificate_hash": "da789415ab1a0dc97dacaefc76ed09fb7626e190"
-          }
-        },
-        {
-          "client_id": "455734259010-i3p7d98f5hg6ebsr9eiq80ligerj0941.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.nxt1sports.nxt1",
-            "certificate_hash": "ada78935bcc6b980d9d1c05b96b2e07f93299f24"
-          }
-        },
-        {
-          "client_id": "455734259010-d04kqk9g2kkfov38t0lrdqcrlujtrsom.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
-      "api_key": [
-        {
-          "current_key": "AIzaSyD1mTldf29TIRdvHWzxTTKamuXs7IOkCVI"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "455734259010-d04kqk9g2kkfov38t0lrdqcrlujtrsom.apps.googleusercontent.com",
-              "client_type": 3
-            },
-            {
-              "client_id": "455734259010-qagtsakkvchuf3tnbgjgitjj80e740ib.apps.googleusercontent.com",
-              "client_type": 2,
-              "ios_info": {
-                "bundle_id": "com.nxt1.sports"
-              }
             }
           ]
         }

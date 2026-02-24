@@ -1,21 +1,21 @@
 {
   "projects": {
-    "default": "nxt-1-de054",
-    "staging": "nxt-1-staging",
-    "production": "nxt-1-de054"
+    "default": "nxt-1-v2",
+    "staging": "nxt-1-staging-v2",
+    "production": "nxt-1-v2"
   },
   "targets": {
-    "nxt-1-staging": {
+    "nxt-1-staging-v2": {
       "hosting": {
         "web": [
-          "nxt-1-staging"
+          "nxt-1-staging-v2"
         ]
       }
     },
-    "nxt-1-de054": {
+    "nxt-1-v2": {
       "hosting": {
         "web": [
-          "nxt-1-de054"
+          "nxt-1-v2"
         ]
       }
     }
