@@ -592,10 +592,12 @@ export {
   ExploreShellComponent,
   ExploreListComponent,
   ExploreItemComponent,
+  ExploreForYouComponent,
   // Web (Zero Ionic)
   ExploreShellWebComponent,
   ExploreListWebComponent,
   ExploreItemWebComponent,
+  ExploreForYouWebComponent,
   // Shared
   ExploreSkeletonComponent,
   ExploreFilterModalComponent,

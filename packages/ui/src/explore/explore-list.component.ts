@@ -306,6 +306,7 @@ export class ExploreListComponent {
   protected readonly initialState = computed(() => {
     const state = EXPLORE_INITIAL_STATES[this.activeTab()];
     const iconMap: Record<ExploreTabId, string> = {
+      'for-you': 'sparkles-outline',
       feed: 'home-outline',
       following: 'people-outline',
       news: 'newspaper-outline',

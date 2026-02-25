@@ -15,11 +15,15 @@
  * Explore tab identifiers.
  * Each tab represents a different content category.
  *
+ * 'for-you' is the default landing view — a curated multi-category
+ * overview that does not pre-select any single content tab.
+ *
  * Feed tabs ('feed', 'following', 'news') are content sections
  * that replaced the standalone /home route. They live as the first
  * options in the explore option scroller (2026 strategy).
  */
 export type ExploreTabId =
+  | 'for-you'
   | 'feed'
   | 'following'
   | 'news'
@@ -262,9 +266,10 @@ export interface ExploreSearchResponse<T extends ExploreItem = ExploreItem> {
 
 /**
  * Tab counts response.
- * Feed tabs (feed, following, news) don't display counts.
+ * Feed tabs (feed, following, news) and the for-you landing don't display counts.
  */
 export interface ExploreTabCounts {
+  readonly 'for-you': number;
   readonly feed: number;
   readonly following: number;
   readonly news: number;

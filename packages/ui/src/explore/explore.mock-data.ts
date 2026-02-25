@@ -510,6 +510,7 @@ export function getMockItemCount(tab: ExploreTabId, query = ''): number {
  */
 export function getMockTabCounts(query = ''): ExploreTabCounts {
   return {
+    'for-you': 0,
     feed: 0,
     following: 0,
     news: 0,
