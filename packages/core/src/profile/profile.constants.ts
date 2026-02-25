@@ -441,6 +441,23 @@ export const PROFILE_UI_CONFIG = {
 } as const;
 
 // ============================================
+// CACHE KEYS
+// ============================================
+
+/**
+ * Cache key prefixes for the profile feature.
+ * Aligns with CACHE_KEYS.USER_PROFILE from @nxt1/core/cache.
+ */
+export const PROFILE_CACHE_KEYS = {
+  /** Profile data keyed by userId — MEDIUM_TTL (15 min) */
+  BY_ID: 'user:profile:',
+  /** Profile data keyed by username — MEDIUM_TTL (15 min) */
+  BY_USERNAME: 'user:profile:username:',
+  /** Full-text / filtered profile search results — SEARCH TTL (15 min) */
+  SEARCH: 'user:profile:search:',
+} as const;
+
+// ============================================
 // VALIDATION
 // ============================================
 

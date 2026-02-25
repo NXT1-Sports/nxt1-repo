@@ -209,17 +209,6 @@ function getPrimarySport(sports?: SportProfile[]): string | undefined {
 }
 
 /**
- * Get positions from primary sport (for legacy field compatibility)
- * @param sports - Array of sport profiles
- * @returns Positions array of primary sport, or undefined if none
- */
-function getPrimaryPositions(sports?: SportProfile[]): string[] | undefined {
-  if (!sports?.length) return undefined;
-  const primary = sports.find((s) => s.order === 0) ?? sports[0];
-  return primary?.positions;
-}
-
-/**
  * GET /auth/team-code/validate/:code
  * Validate a team code for registration
  *
@@ -646,73 +635,9 @@ router.get(
   })
 );
 
-/**
- * GET /auth/profile/:uid
- * Get user profile by UID
- *
- * Returns V2 format with legacy field mappings for backward compatibility
- */
-router.get(
-  '/profile/:uid',
-  asyncHandler(async (req: Request, res: Response): Promise<void> => {
-    const { db } = req.firebase!;
-    const uid = req.params['uid'] as string;
-
-    if (!uid) {
-      const error = validationError([
-        { field: 'uid', message: 'User ID is required', rule: 'required' },
-      ]);
-      sendError(res, error);
-      return;
-    }
-
-    // Fetch user document
-    const userDoc = await db.collection('Users').doc(uid).get();
-
-    if (!userDoc.exists) {
-      const error = notFoundError('user', uid);
-      sendError(res, error);
-      return;
-    }
-
-    const userData = userDoc.data() as UserV2Document | undefined;
-
-    // Build response with V2 fields + legacy mappings
-    const profile = {
-      id: userDoc.id,
-      email: userData?.email,
-      firstName: userData?.firstName,
-      lastName: userData?.lastName,
-      profileImg: userData?.profileImg,
-
-      // V2: Role field
-      role: userData?.role,
-
-      // V2: Sports array
-      sports: userData?.sports,
-      activeSportIndex: userData?.activeSportIndex,
-
-      // V2: Nested objects
-      location: userData?.location,
-      contact: userData?.contact,
-      social: userData?.social,
-
-      // V2: Onboarding flag
-      onboardingCompleted: userData?.onboardingCompleted ?? false,
-      // Legacy alias for frontend compatibility
-      completeSignUp: userData?.onboardingCompleted ?? false,
-
-      // Team association
-      teamCode: userData?.teamCode,
-
-      // Derived fields for backward compatibility
-      primarySport: getPrimarySport(userData?.sports) ?? userData?.primarySport,
-      primarySportPositions: getPrimaryPositions(userData?.sports),
-    };
-
-    res.json(profile);
-  })
-);
+// GET /auth/profile/:uid and other /auth/profile/* routes are handled
+// entirely by profileRoutes (see bottom of file), which implements
+// proper caching (MEDIUM_TTL 15 min) via PROFILE_CACHE_KEYS.
 
 /**
  * POST /auth/profile/onboarding
@@ -1349,7 +1274,9 @@ router.post(
 // ============================================
 // PROFILE ROUTES
 // ============================================
-// Mount profile API routes at /auth/profile
+// Mounted early so profileRoutes handles all /auth/profile/* requests
+// (GET /:userId, GET /username/:username, GET /search, PUT, POST, DELETE)
+// with Redis caching (MEDIUM_TTL = 15 min via PROFILE_CACHE_KEYS).
 router.use('/profile', profileRoutes);
 
 export default router;
