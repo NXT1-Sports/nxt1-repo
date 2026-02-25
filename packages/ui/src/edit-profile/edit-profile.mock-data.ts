@@ -58,12 +58,21 @@ export const MOCK_EDIT_PROFILE_FORM_DATA: EditProfileFormData = {
     verticalJump: '34.5"',
   },
   socialLinks: {
-    twitter: '@marcusj12',
-    instagram: '@marcus.johnson12',
-    tiktok: '',
-    youtube: '',
-    hudl: 'https://hudl.com/marcus-johnson',
-    maxpreps: '',
+    links: [
+      {
+        platform: 'twitter',
+        url: 'https://x.com/marcusj12',
+        username: '@marcusj12',
+        displayOrder: 0,
+      },
+      {
+        platform: 'instagram',
+        url: 'https://instagram.com/marcus.johnson12',
+        username: '@marcus.johnson12',
+        displayOrder: 1,
+      },
+      { platform: 'hudl', url: 'https://hudl.com/marcus-johnson', displayOrder: 2 },
+    ],
   },
   contact: {
     email: 'marcus.johnson@email.com',
@@ -707,12 +716,7 @@ export const MOCK_EMPTY_PROFILE_FORM_DATA: EditProfileFormData = {
     verticalJump: '',
   },
   socialLinks: {
-    twitter: '',
-    instagram: '',
-    tiktok: '',
-    youtube: '',
-    hudl: '',
-    maxpreps: '',
+    links: [],
   },
   contact: {
     email: '',

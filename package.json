@@ -100,6 +100,7 @@
     "@firebase/component": "^0.7.0",
     "firebase": "^12.8.0",
     "qrcode": "^1.5.4",
+    "tinyglobby": "^0.2.15",
     "turbo": "^2.8.1"
   },
   "overrides": {

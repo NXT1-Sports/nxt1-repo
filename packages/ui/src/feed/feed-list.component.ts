@@ -36,14 +36,8 @@
 
 import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import {
-  IonIcon,
-  IonSpinner,
-  IonInfiniteScroll,
-  IonInfiniteScrollContent,
-} from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { alertCircleOutline, refreshOutline } from 'ionicons/icons';
+import { IonSpinner, IonInfiniteScroll, IonInfiniteScrollContent } from '@ionic/angular/standalone';
+import { NxtIconComponent } from '../components/icon';
 import { type FeedPost, type FeedAuthor, type FeedFilterType, FEED_UI_CONFIG } from '@nxt1/core';
 import { FeedPostCardComponent } from './feed-post-card.component';
 import { FeedSkeletonComponent } from './feed-skeleton.component';
@@ -55,7 +49,7 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
   standalone: true,
   imports: [
     CommonModule,
-    IonIcon,
+    NxtIconComponent,
     IonSpinner,
     IonInfiniteScroll,
     IonInfiniteScrollContent,
@@ -78,12 +72,12 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
       @else if (error()) {
         <div class="feed-list__error">
           <div class="feed-list__error-icon">
-            <ion-icon name="alert-circle-outline"></ion-icon>
+            <nxt1-icon name="alertCircle" [size]="32" />
           </div>
           <h3 class="feed-list__error-title">Something went wrong</h3>
           <p class="feed-list__error-message">{{ error() }}</p>
           <button type="button" class="feed-list__error-action" (click)="retry.emit()">
-            <ion-icon name="refresh-outline"></ion-icon>
+            <nxt1-icon name="refresh" [size]="16" />
             <span>Try Again</span>
           </button>
         </div>
@@ -105,6 +99,7 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
               <nxt1-feed-post-card
                 [post]="post"
                 [showMenu]="showMenu()"
+                [compact]="compactCards()"
                 (postClick)="postClick.emit($event)"
                 (authorClick)="authorClick.emit($event)"
                 (reactClick)="reactClick.emit($event)"
@@ -309,10 +304,6 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeedListComponent {
-  constructor() {
-    addIcons({ alertCircleOutline, refreshOutline });
-  }
-
   // ============================================
   // INPUTS
   // ============================================
@@ -325,6 +316,7 @@ export class FeedListComponent {
   readonly hasMore = input(false);
   readonly filterType = input<FeedFilterType>('for-you');
   readonly showMenu = input(true);
+  readonly compactCards = input(false);
 
   // ============================================
   // OUTPUTS

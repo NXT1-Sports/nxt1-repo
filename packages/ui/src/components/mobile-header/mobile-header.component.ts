@@ -59,15 +59,26 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
       role="banner"
     >
       <div class="mobile-header__container">
-        <!-- Left: Hamburger Menu Button -->
-        <button
-          type="button"
-          class="mobile-header__action-btn"
-          aria-label="Open navigation menu"
-          (click)="onMenuClick($event)"
-        >
-          <nxt1-icon name="menu" [size]="24" />
-        </button>
+        <!-- Left: Back Arrow or Hamburger Menu Button -->
+        @if (config().showBack) {
+          <button
+            type="button"
+            class="mobile-header__action-btn"
+            aria-label="Go back"
+            (click)="onBackClick($event)"
+          >
+            <nxt1-icon name="chevronLeft" [size]="24" />
+          </button>
+        } @else {
+          <button
+            type="button"
+            class="mobile-header__action-btn"
+            aria-label="Open navigation menu"
+            (click)="onMenuClick($event)"
+          >
+            <nxt1-icon name="menu" [size]="24" />
+          </button>
+        }
 
         <!-- Center: Logo -->
         @if (config().showLogo !== false) {
@@ -486,6 +497,9 @@ export class NxtMobileHeaderComponent implements OnDestroy {
   /** Emitted when hamburger menu button is clicked */
   readonly menuClick = output<Event>();
 
+  /** Emitted when back button is clicked (when showBack is true) */
+  readonly backClick = output<Event>();
+
   /** Emitted when logo is clicked */
   readonly logoClick = output<Event>();
 
@@ -548,6 +562,11 @@ export class NxtMobileHeaderComponent implements OnDestroy {
   onMenuClick(event: Event): void {
     this.haptics.impact('light');
     this.menuClick.emit(event);
+  }
+
+  onBackClick(event: Event): void {
+    this.haptics.impact('light');
+    this.backClick.emit(event);
   }
 
   onLogoClick(event: Event): void {

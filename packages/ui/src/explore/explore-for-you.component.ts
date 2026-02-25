@@ -43,58 +43,12 @@ import { MOCK_ATHLETES, MOCK_COLLEGES, MOCK_TEAMS, MOCK_VIDEOS } from './explore
 import { NxtAvatarComponent } from '../components/avatar';
 import type { ExploreUser } from './explore-shell.component';
 
-/** Quick-access category tile shown in the discovery grid */
-interface CategoryTile {
-  readonly id: ExploreTabId;
-  readonly label: string;
-  readonly icon: string;
-  readonly colorVar: string;
-}
-
-const CATEGORY_TILES: readonly CategoryTile[] = [
-  { id: 'colleges', label: 'Colleges', icon: 'school-outline', colorVar: '--nxt1-color-blue' },
-  { id: 'athletes', label: 'Athletes', icon: 'person-outline', colorVar: '--nxt1-color-primary' },
-  { id: 'teams', label: 'Teams', icon: 'people-outline', colorVar: '--nxt1-color-purple' },
-  { id: 'videos', label: 'Videos', icon: 'play-circle-outline', colorVar: '--nxt1-color-red' },
-  {
-    id: 'leaderboards',
-    label: 'Leaderboards',
-    icon: 'trophy-outline',
-    colorVar: '--nxt1-color-gold',
-  },
-  { id: 'camps', label: 'Camps', icon: 'calendar-outline', colorVar: '--nxt1-color-green' },
-] as const;
-
 @Component({
   selector: 'nxt1-explore-for-you',
   standalone: true,
   imports: [CommonModule, IonIcon, IonRippleEffect, NxtAvatarComponent],
   template: `
     <section class="for-you" aria-label="For You — personalized explore">
-      <!-- ── Category Quick Access ────────────────────────── -->
-      <div class="section">
-        <div class="section__header">
-          <h2 class="section__title">Browse Categories</h2>
-        </div>
-        <div class="category-grid" role="list" aria-label="Content categories">
-          @for (tile of categoryTiles; track tile.id) {
-            <button
-              class="category-tile"
-              type="button"
-              role="listitem"
-              [attr.aria-label]="'Browse ' + tile.label"
-              (click)="onCategoryTap(tile.id)"
-            >
-              <ion-ripple-effect></ion-ripple-effect>
-              <div class="category-tile__icon">
-                <ion-icon [name]="tile.icon" aria-hidden="true" />
-              </div>
-              <span class="category-tile__label">{{ tile.label }}</span>
-            </button>
-          }
-        </div>
-      </div>
-
       <!-- ── Trending Athletes ─────────────────────────────── -->
       <div class="section">
         <div class="section__header">
@@ -352,61 +306,6 @@ const CATEGORY_TILES: readonly CategoryTile[] = [
       .section__see-all ion-icon {
         font-size: 14px;
         opacity: 0.8;
-      }
-
-      /* ── CATEGORY GRID ── */
-
-      .category-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: var(--nxt1-spacing-2, 8px);
-        padding: 0 var(--nxt1-spacing-4, 16px);
-      }
-
-      .category-tile {
-        position: relative;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: var(--nxt1-spacing-2, 8px);
-        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-2, 8px);
-        background: var(--fy-surface);
-        border: 1px solid var(--fy-border);
-        border-radius: var(--fy-radius-md);
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-        transition:
-          background-color var(--fy-duration-fast) ease,
-          transform var(--fy-duration-fast) ease;
-      }
-
-      .category-tile:hover {
-        background: var(--fy-surface-hover);
-      }
-
-      .category-tile:active {
-        transform: scale(0.95);
-      }
-
-      .category-tile__icon {
-        width: 40px;
-        height: 40px;
-        border-radius: var(--fy-radius-sm);
-        background: color-mix(in srgb, var(--fy-primary) 12%, transparent);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 20px;
-        color: var(--fy-primary);
-      }
-
-      .category-tile__label {
-        font-size: var(--nxt1-fontSize-xs, 12px);
-        font-weight: var(--nxt1-fontWeight-medium, 500);
-        color: var(--fy-text-secondary);
-        text-align: center;
-        line-height: 1.2;
       }
 
       /* ── HORIZONTAL SCROLL ── */
@@ -772,7 +671,6 @@ const CATEGORY_TILES: readonly CategoryTile[] = [
       /* ── REDUCED MOTION ── */
 
       @media (prefers-reduced-motion: reduce) {
-        .category-tile,
         .athlete-card,
         .college-card,
         .video-card,
@@ -819,7 +717,6 @@ export class ExploreForYouComponent {
   readonly categorySelect = output<ExploreTabId>();
 
   // ── Constants ────────────────────────────────────────────
-  protected readonly categoryTiles = CATEGORY_TILES;
 
   // ── Computed mock data slices ────────────────────────────
 
@@ -835,10 +732,6 @@ export class ExploreForYouComponent {
   }
 
   protected onSeeAllTap(tab: ExploreTabId): void {
-    this.categorySelect.emit(tab);
-  }
-
-  protected onCategoryTap(tab: ExploreTabId): void {
     this.categorySelect.emit(tab);
   }
 

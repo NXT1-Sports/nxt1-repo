@@ -49,24 +49,53 @@ export {
   // Location & Contact
   type Location,
   type SocialLinks,
+  type SocialLink as UserSocialLink,
   type ContactInfo,
-  type ConnectedAccounts,
+  type ConnectedSource,
+  // Connected email (metadata only — tokens in sub-collection)
+  // EmailProvider is exported from campaigns section below
+  type ConnectedEmail,
+  type EmailTokenData,
+  // Images & Verification
+  type UserImages,
+  type VerificationStatus,
   // Sports architecture
   type SportProfile,
   type TeamInfo,
   type CoachContact,
-  type AthleticMetrics,
-  type SeasonStats,
-  type GameStats,
   type SeasonRecord,
   type CollegeOffer,
   type CollegeInteraction,
   type Commitment,
+  type RecruitingSummary,
   type AcademicInfo,
+  type SportVerification,
+  // 2026 Agentic Architecture (schema-driven, self-describing)
+  type DataSource,
+  type VerifiedMetric,
+  type VerifiedStat,
+  type ScheduleEvent,
+  // @deprecated — use VerifiedMetric[] / VerifiedStat[] instead
+  type AthleticMetrics,
+  type SeasonStats,
+  type GameStats,
+  // Agent X & Scouting (source-of-truth types)
+  // Note: Display-DTO versions with same names exist in profile.types.ts
+  // Import from @nxt1/core/models when you need domain types
+  type PlayerArchetype as DomainPlayerArchetype,
+  type AgentXTrait as DomainAgentXTrait,
+  // History & Awards
+  type TeamHistoryEntry,
+  type UserAward,
   // Role-specific data
   type AthleteData,
   type CoachData,
   type CollegeCoachData,
+  type DirectorData,
+  type ScoutData,
+  type RecruitingServiceData,
+  type MediaData,
+  type ParentData,
   type FanData,
   // Preferences & Settings
   type NotificationPreferences,
@@ -79,6 +108,7 @@ export {
   isCoach,
   isCollegeCoach,
   isOnboarded,
+  isVerified,
   // Helper functions
   getPrimarySport,
   getActiveSport,
@@ -88,36 +118,22 @@ export {
   getAllAwards,
   isMultiSport,
   isCommitted,
+  getDisplayName,
+  getProfileImg,
+  getBannerImg,
+  getGalleryImages,
+  getSocialUrl,
+  getClassOf,
+  hasAgentXProfile,
+  getConnectedSource,
 } from './user.model';
 
 // ====================================
-// LEGACY TYPES - @deprecated
-// Exported for backward compatibility only.
-// New code should NOT import these — see ./legacy/user-legacy.model.ts
-// for migration guidance.
+// LEGACY TYPES - REMOVED
+// All legacy types (StatData, SportInfo, PlayerTag, etc.) have been
+// removed from public exports. They still exist in
+// ./legacy/user-legacy.model.ts for reference/migration only.
 // ====================================
-export type {
-  StatData,
-  SportInfo,
-  PlayerTag,
-  primarySportStat,
-  GameStat,
-  LegacyCollege,
-  // Note: 'College' is intentionally omitted here — use College from college.types instead
-  CollegeVisits,
-  CollegeCamp,
-  recentGame,
-  Event,
-  Award,
-  personalBest,
-  Session,
-  TeamCustomLink,
-  OwnTemplate,
-  OwnMixtape,
-  OwnProfile,
-  UserPost,
-  GameClipsCollection,
-} from './legacy/user-legacy.model';
 
 // Media model (videos, profile cards, posts)
 export {

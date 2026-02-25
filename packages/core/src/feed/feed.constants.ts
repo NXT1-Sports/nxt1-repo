@@ -83,42 +83,42 @@ export const FEED_FILTER_OPTIONS: readonly FeedFilterOption[] = [
   {
     id: 'for-you',
     label: 'For You',
-    icon: 'sparkles-outline',
+    icon: 'sparkles',
     requiresAuth: false,
     description: 'Personalized content based on your interests',
   },
   {
     id: 'following',
     label: 'Following',
-    icon: 'people-outline',
+    icon: 'users',
     requiresAuth: true,
     description: 'Posts from athletes and teams you follow',
   },
   {
     id: 'sports',
     label: 'Sports',
-    icon: 'football-outline',
+    icon: 'football',
     requiresAuth: false,
     description: 'Filter by your favorite sports',
   },
   {
     id: 'offers',
     label: 'Offers',
-    icon: 'school-outline',
+    icon: 'school',
     requiresAuth: false,
     description: 'Latest college offers and commitments',
   },
   {
     id: 'highlights',
     label: 'Highlights',
-    icon: 'play-circle-outline',
+    icon: 'playCircle',
     requiresAuth: false,
     description: 'Top video highlights and clips',
   },
   {
     id: 'trending',
     label: 'Trending',
-    icon: 'trending-up-outline',
+    icon: 'trendingUp',
     requiresAuth: false,
     description: "What's popular right now",
   },
@@ -137,25 +137,25 @@ export const FEED_DEFAULT_FILTER: FeedFilterType = 'for-you';
  * Icons for each post type.
  */
 export const FEED_POST_TYPE_ICONS: Record<FeedPostType, string> = {
-  text: 'document-text-outline',
-  image: 'image-outline',
-  video: 'videocam-outline',
-  highlight: 'play-circle-outline',
-  offer: 'school-outline',
-  commitment: 'trophy-outline',
-  article: 'newspaper-outline',
-  milestone: 'ribbon-outline',
-  repost: 'repeat-outline',
-  stats: 'bar-chart-outline',
-  metrics: 'trending-up-outline',
-  award: 'ribbon-outline',
-  camp: 'barbell-outline',
-  visit: 'school-outline',
-  schedule: 'calendar-outline',
-  graphic: 'image-outline',
-  game: 'football-outline',
-  playoffs: 'trophy-outline',
-  news: 'newspaper-outline',
+  text: 'documentText',
+  image: 'image',
+  video: 'videocam',
+  highlight: 'playCircle',
+  offer: 'school',
+  commitment: 'trophy',
+  article: 'newspaper',
+  milestone: 'ribbon',
+  repost: 'repeat',
+  stats: 'barChart',
+  metrics: 'trendingUp',
+  award: 'ribbon',
+  camp: 'barbell',
+  visit: 'school',
+  schedule: 'calendar',
+  graphic: 'image',
+  game: 'football',
+  playoffs: 'trophy',
+  news: 'newspaper',
 } as const;
 
 /**
@@ -184,25 +184,10 @@ export const FEED_POST_TYPE_LABELS: Record<FeedPostType, string> = {
 } as const;
 
 /**
- * Colors for special post types (for badges).
+ * Optional per-type color overrides for badges.
+ * Intentionally empty so badges remain fully theme-token driven.
  */
-export const FEED_POST_TYPE_COLORS: Partial<Record<FeedPostType, string>> = {
-  offer: '#ff0000',
-  commitment: '#4ECDC4',
-  milestone: '#FFD700',
-  highlight: 'var(--nxt1-color-primary, #d4ff00)',
-  video: '#002eff',
-  graphic: '#FF6B6B',
-  stats: '#A855F7',
-  metrics: '#10B981',
-  award: '#f5940b',
-  camp: '#F97316',
-  visit: '#3B82F6',
-  schedule: '#EF4444',
-  game: '#37ff00',
-  playoffs: '#FFD700',
-  news: '#06B6D4',
-} as const;
+export const FEED_POST_TYPE_COLORS: Partial<Record<FeedPostType, string>> = {} as const;
 
 // ============================================
 // TAG/CHIP CONFIGURATION
@@ -250,11 +235,11 @@ export const FEED_ENGAGEMENT_ICONS: Record<
   FeedEngagementAction,
   { outline: string; filled: string }
 > = {
-  like: { outline: 'heart-outline', filled: 'heart' },
-  comment: { outline: 'chatbubble-outline', filled: 'chatbubble' },
-  share: { outline: 'share-outline', filled: 'share' },
-  bookmark: { outline: 'bookmark-outline', filled: 'bookmark' },
-  report: { outline: 'flag-outline', filled: 'flag' },
+  like: { outline: 'heart', filled: 'heartFilled' },
+  comment: { outline: 'chatBubble', filled: 'chatBubble' },
+  share: { outline: 'share', filled: 'share' },
+  bookmark: { outline: 'bookmark', filled: 'bookmarkFilled' },
+  report: { outline: 'flag', filled: 'flagFilled' },
 } as const;
 
 // ============================================

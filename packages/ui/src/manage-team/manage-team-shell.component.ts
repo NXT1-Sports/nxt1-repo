@@ -49,7 +49,7 @@ import type {
   ManageTeamFormData,
   ManageTeamTabId,
   RosterPlayer,
-  ScheduleEvent,
+  TeamScheduleEvent,
   StaffMember,
   TeamSponsor,
   TeamIntegration,
@@ -808,7 +808,7 @@ export class ManageTeamShellComponent implements OnInit {
     this.sectionAction.emit({ section: 'roster', action: event.action, data: event });
   }
 
-  onScheduleAction(event: { action: string; eventId?: string; event?: ScheduleEvent }): void {
+  onScheduleAction(event: { action: string; eventId?: string; event?: TeamScheduleEvent }): void {
     this.sectionAction.emit({ section: 'schedule', action: event.action, data: event });
   }
 

@@ -24,6 +24,18 @@ export {
   type FeedOfferData,
   type FeedCommitmentData,
   type FeedMilestoneData,
+  // Activity data types (unified timeline)
+  type FeedVisitData,
+  type FeedCampData,
+  type FeedStatUpdateData,
+  type FeedStatLine,
+  type FeedMetricsData,
+  type FeedMetricLine,
+  type FeedAwardData,
+  type FeedNewsData,
+  type FeedScheduleData,
+  type FeedExternalSource,
+  type FeedAcademicData,
   // Engagement types
   type FeedReactionType,
   type FeedEngagement,
@@ -99,4 +111,7 @@ export {
   profileUserToFeedAuthor,
   profilePostToFeedPost,
   profilePostsToFeedPosts,
+  profileOfferToFeedPost,
+  profileEventToFeedPost,
+  buildUnifiedActivityFeed,
 } from './feed.mappers';

@@ -252,9 +252,11 @@ export type RosterSortOption = 'name' | 'number' | 'position' | 'classYear';
 // ============================================
 
 /**
- * Scheduled game/event.
+ * Scheduled team game/event (coach-managed).
+ * Renamed from ScheduleEvent to avoid collision with the
+ * athlete-level ScheduleEvent in user.model.ts.
  */
-export interface ScheduleEvent {
+export interface TeamScheduleEvent {
   readonly id: string;
   readonly type: ScheduleEventType;
   readonly title?: string;
@@ -443,7 +445,7 @@ export interface ManageTeamFormData {
   readonly contact: TeamContactInfo;
   readonly record: TeamRecord;
   readonly roster: readonly RosterPlayer[];
-  readonly schedule: readonly ScheduleEvent[];
+  readonly schedule: readonly TeamScheduleEvent[];
   readonly staff: readonly StaffMember[];
   readonly sponsors: readonly TeamSponsor[];
   readonly integrations: readonly TeamIntegration[];
@@ -518,7 +520,7 @@ export interface RosterActionEvent {
 export interface ScheduleActionEvent {
   readonly action: 'add' | 'edit' | 'remove' | 'view-details';
   readonly eventId?: string;
-  readonly event?: ScheduleEvent;
+  readonly event?: TeamScheduleEvent;
 }
 
 /**

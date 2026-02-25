@@ -231,7 +231,7 @@ const MOCK_RELATED_ATHLETES: readonly RelatedAthlete[] = [
                 }
                 @if (athlete.isVerified) {
                   <span class="related-card-verified" aria-label="Verified athlete">
-                    <nxt1-icon name="checkmark-circle" [size]="14" />
+                    <nxt1-icon name="checkmarkCircle" [size]="14" />
                   </span>
                 }
               </div>

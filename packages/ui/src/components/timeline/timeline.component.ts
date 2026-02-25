@@ -168,6 +168,11 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
         }
       }
 
+      /* Remove rail padding when only empty state is shown */
+      .tl-layout:has(> .tl-empty) {
+        padding-left: 0;
+      }
+
       /* ═══ VERTICAL RAIL ═══ */
 
       .tl-rail {

@@ -38,11 +38,8 @@ import { IonRippleEffect } from '@ionic/angular/standalone';
 import {
   type FeedPost,
   type FeedAuthor,
-  type FeedPostTag,
   FEED_POST_TYPE_ICONS,
   FEED_POST_TYPE_LABELS,
-  FEED_POST_TYPE_COLORS,
-  FEED_TAG_TYPE_ICONS,
   FEED_MAX_VISIBLE_TAGS,
 } from '@nxt1/core';
 import { NxtAvatarComponent } from '../components/avatar';
@@ -67,6 +64,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
       class="feed-post"
       [class.feed-post--featured]="post().isFeatured"
       [class.feed-post--pinned]="post().isPinned"
+      [class.feed-post--compact]="compact()"
       role="article"
       [attr.aria-label]="ariaLabel()"
     >
@@ -103,6 +101,33 @@ import { HapticsService } from '../services/haptics/haptics.service';
         </div>
       }
 
+      <!-- Compact Meta Bar: shown on profile pages where author is known (hideAuthor=true) -->
+      @if (hideAuthor()) {
+        <div class="feed-post__meta-bar">
+          <!-- Left: type badge + timestamp -->
+          <div class="feed-post__meta-bar-left">
+            @if (showTypeBadge()) {
+              <div class="feed-post__type-badge">
+                <span>{{ typeBadgeLabel() }}</span>
+              </div>
+            }
+            <span class="feed-post__time">{{ timeAgo() }}</span>
+          </div>
+
+          <!-- Right: menu only -->
+          @if (showMenu()) {
+            <button
+              type="button"
+              class="feed-post__menu-btn"
+              (click)="handleMenuClick($event)"
+              aria-label="Post options"
+            >
+              <nxt1-icon name="moreHorizontal" [size]="18" />
+            </button>
+          }
+        </div>
+      }
+
       <!-- Post Header: Author Info + Type Badge -->
       @if (!hideAuthor()) {
         <header class="feed-post__header">
@@ -117,7 +142,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
               [src]="post().author.avatarUrl"
               [name]="post().author.displayName"
               size="md"
-              [badge]="post().author.isVerified ? { type: 'verified' } : undefined"
             />
           </button>
 
@@ -125,9 +149,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
           <div class="feed-post__author" (click)="handleAuthorClick($event)">
             <div class="feed-post__author-row">
               <span class="feed-post__author-name">{{ post().author.displayName }}</span>
-              @if (post().author.isVerified) {
-                <nxt1-icon name="checkmarkCircle" [size]="16" class="feed-post__verified" />
-              }
             </div>
             <div class="feed-post__author-meta">
               <span class="feed-post__time">{{ timeAgo() }}</span>
@@ -136,8 +157,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
 
           <!-- Type Badge (next to author, right-aligned) -->
           @if (showTypeBadge()) {
-            <div class="feed-post__type-badge" [style.--badge-color]="typeBadgeColor()">
-              <nxt1-icon [name]="typeBadgeIcon()" [size]="14" />
+            <div class="feed-post__type-badge">
               <span>{{ typeBadgeLabel() }}</span>
             </div>
           }
@@ -219,12 +239,290 @@ import { HapticsService } from '../services/haptics/haptics.service';
           </div>
         }
 
+        <!-- Visit Card (College Visit Activity) -->
+        @if (post().visitData) {
+          <div class="feed-post__activity-card feed-post__activity-card--visit">
+            <div class="feed-post__activity-icon-wrap feed-post__activity-icon-wrap--visit">
+              <nxt1-icon name="school" [size]="20" />
+            </div>
+            <div class="feed-post__activity-body">
+              <div class="feed-post__activity-row">
+                @if (post().visitData!.collegeLogoUrl) {
+                  <img
+                    [src]="post().visitData!.collegeLogoUrl"
+                    [alt]="post().visitData!.collegeName"
+                    class="feed-post__activity-logo"
+                  />
+                }
+                <div class="feed-post__activity-details">
+                  <span class="feed-post__activity-overline">{{
+                    formatVisitType(post().visitData!.visitType)
+                  }}</span>
+                  <span class="feed-post__activity-title">{{ post().visitData!.collegeName }}</span>
+                  @if (post().visitData!.location) {
+                    <span class="feed-post__activity-meta">
+                      <nxt1-icon name="location" [size]="12" />
+                      {{ post().visitData!.location }}
+                    </span>
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
+        }
+
+        <!-- Camp/Combine/Showcase Card -->
+        @if (post().campData) {
+          <div class="feed-post__activity-card feed-post__activity-card--camp">
+            <div class="feed-post__activity-icon-wrap feed-post__activity-icon-wrap--camp">
+              <nxt1-icon name="flag" [size]="20" />
+            </div>
+            <div class="feed-post__activity-body">
+              <div class="feed-post__activity-row">
+                @if (post().campData!.logoUrl) {
+                  <img
+                    [src]="post().campData!.logoUrl"
+                    [alt]="post().campData!.campName"
+                    class="feed-post__activity-logo"
+                  />
+                }
+                <div class="feed-post__activity-details">
+                  <span class="feed-post__activity-overline">{{
+                    formatCampType(post().campData!.campType)
+                  }}</span>
+                  <span class="feed-post__activity-title">{{ post().campData!.campName }}</span>
+                  @if (post().campData!.location) {
+                    <span class="feed-post__activity-meta">
+                      <nxt1-icon name="location" [size]="12" />
+                      {{ post().campData!.location }}
+                    </span>
+                  }
+                  @if (post().campData!.result) {
+                    <span class="feed-post__activity-result">{{ post().campData!.result }}</span>
+                  }
+                </div>
+              </div>
+            </div>
+          </div>
+        }
+
+        <!-- Stat Update Card (Hero style) -->
+        @if (post().statUpdateData) {
+          <div class="feed-post__stat-card">
+            <div class="feed-post__stat-card-header">
+              <nxt1-icon name="barChart" [size]="16" />
+              <span class="feed-post__stat-card-context">{{ post().statUpdateData!.context }}</span>
+              @if (post().statUpdateData!.gameResult) {
+                <span
+                  class="feed-post__stat-card-result"
+                  [class.feed-post__stat-card-result--win]="
+                    post().statUpdateData!.gameResult!.startsWith('W')
+                  "
+                >
+                  {{ post().statUpdateData!.gameResult }}
+                </span>
+              }
+            </div>
+            <div class="feed-post__stat-grid">
+              @for (stat of post().statUpdateData!.stats; track stat.label) {
+                <div
+                  class="feed-post__stat-cell"
+                  [class.feed-post__stat-cell--highlight]="stat.isHighlight"
+                >
+                  <span class="feed-post__stat-value">{{ stat.value }}</span>
+                  <span class="feed-post__stat-label-text">{{ stat.label }}</span>
+                </div>
+              }
+            </div>
+          </div>
+        }
+
+        <!-- Metrics Card (Combine/Measurables) -->
+        @if (post().metricsData) {
+          <div class="feed-post__metrics-card">
+            <div class="feed-post__metrics-header">
+              <nxt1-icon name="barbell" [size]="16" />
+              <span>{{ post().metricsData!.category || post().metricsData!.source }}</span>
+            </div>
+            <div class="feed-post__metrics-grid">
+              @for (metric of post().metricsData!.metrics; track metric.label) {
+                <div class="feed-post__metric-cell">
+                  <span class="feed-post__metric-value"
+                    >{{ metric.value
+                    }}<span class="feed-post__metric-unit">{{ metric.unit }}</span></span
+                  >
+                  <span class="feed-post__metric-label-text">{{ metric.label }}</span>
+                  @if (metric.verified) {
+                    <nxt1-icon
+                      name="checkmarkCircle"
+                      [size]="12"
+                      class="feed-post__metric-verified"
+                    />
+                  }
+                </div>
+              }
+            </div>
+          </div>
+        }
+
+        <!-- Award Card -->
+        @if (post().awardData) {
+          <div class="feed-post__award-card">
+            <div class="feed-post__award-icon">
+              <nxt1-icon [name]="post().awardData!.icon || 'trophy'" [size]="28" />
+            </div>
+            <div class="feed-post__award-info">
+              <span class="feed-post__award-name">{{ post().awardData!.awardName }}</span>
+              @if (post().awardData!.organization) {
+                <span class="feed-post__award-org">{{ post().awardData!.organization }}</span>
+              }
+              @if (post().awardData!.season) {
+                <span class="feed-post__award-season">{{ post().awardData!.season }}</span>
+              }
+            </div>
+          </div>
+        }
+
+        <!-- News Article Card (SEO: rendered as <a> when URL present) -->
+        @if (post().newsData) {
+          @if (post().newsData!.articleUrl) {
+            <a
+              class="feed-post__news-card feed-post__news-card--link"
+              [href]="post().newsData!.articleUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              [attr.aria-label]="'Read article: ' + post().newsData!.headline"
+              (click)="$event.stopPropagation()"
+            >
+              @if (post().newsData!.imageUrl) {
+                <div class="feed-post__news-image">
+                  <nxt1-image
+                    [src]="post().newsData!.imageUrl!"
+                    [alt]="post().newsData!.headline"
+                    fit="cover"
+                  />
+                  @if (post().newsData!.category) {
+                    <span class="feed-post__news-category">{{ post().newsData!.category }}</span>
+                  }
+                </div>
+              }
+              <div class="feed-post__news-body">
+                <span class="feed-post__news-headline">{{ post().newsData!.headline }}</span>
+                @if (post().newsData!.excerpt) {
+                  <p class="feed-post__news-excerpt">{{ post().newsData!.excerpt }}</p>
+                }
+                <div class="feed-post__news-source">
+                  @if (post().newsData!.sourceLogoUrl) {
+                    <img
+                      [src]="post().newsData!.sourceLogoUrl"
+                      class="feed-post__news-source-logo"
+                      alt=""
+                    />
+                  }
+                  <span>{{ post().newsData!.source }}</span>
+                </div>
+              </div>
+            </a>
+          } @else {
+            <div class="feed-post__news-card">
+              @if (post().newsData!.imageUrl) {
+                <div class="feed-post__news-image">
+                  <nxt1-image
+                    [src]="post().newsData!.imageUrl!"
+                    [alt]="post().newsData!.headline"
+                    fit="cover"
+                  />
+                  @if (post().newsData!.category) {
+                    <span class="feed-post__news-category">{{ post().newsData!.category }}</span>
+                  }
+                </div>
+              }
+              <div class="feed-post__news-body">
+                <span class="feed-post__news-headline">{{ post().newsData!.headline }}</span>
+                @if (post().newsData!.excerpt) {
+                  <p class="feed-post__news-excerpt">{{ post().newsData!.excerpt }}</p>
+                }
+                <div class="feed-post__news-source">
+                  @if (post().newsData!.sourceLogoUrl) {
+                    <img
+                      [src]="post().newsData!.sourceLogoUrl"
+                      class="feed-post__news-source-logo"
+                      alt=""
+                    />
+                  }
+                  <span>{{ post().newsData!.source }}</span>
+                </div>
+              </div>
+            </div>
+          }
+        }
+
+        <!-- Schedule / Game Card -->
+        @if (post().scheduleData) {
+          <div
+            class="feed-post__schedule-card"
+            [class.feed-post__schedule-card--live]="post().scheduleData!.status === 'live'"
+          >
+            <div class="feed-post__schedule-status">
+              <span
+                class="feed-post__schedule-badge"
+                [class]="'feed-post__schedule-badge--' + post().scheduleData!.status"
+              >
+                {{ post().scheduleData!.status | uppercase }}
+              </span>
+            </div>
+            <div class="feed-post__schedule-matchup">
+              @if (post().scheduleData!.isHome !== undefined) {
+                <span class="feed-post__schedule-ha">{{
+                  post().scheduleData!.isHome ? 'HOME' : 'AWAY'
+                }}</span>
+              }
+              <span class="feed-post__schedule-vs">vs</span>
+              @if (post().scheduleData!.opponentLogoUrl) {
+                <img
+                  [src]="post().scheduleData!.opponentLogoUrl"
+                  class="feed-post__schedule-opp-logo"
+                  alt=""
+                />
+              }
+              <span class="feed-post__schedule-opponent">{{ post().scheduleData!.opponent }}</span>
+            </div>
+            @if (post().scheduleData!.result) {
+              <span
+                class="feed-post__schedule-result"
+                [class.feed-post__schedule-result--win]="
+                  post().scheduleData!.result!.startsWith('W')
+                "
+              >
+                {{ post().scheduleData!.result }}
+              </span>
+            }
+            @if (post().scheduleData!.venue) {
+              <span class="feed-post__schedule-venue">
+                <nxt1-icon name="location" [size]="12" />
+                {{ post().scheduleData!.venue }}
+              </span>
+            }
+          </div>
+        }
+
+        <!-- External Source Badge (AI-Synced Content) -->
+        @if (post().externalSource) {
+          <div class="feed-post__external-source">
+            @if (post().externalSource!.logoUrl) {
+              <img [src]="post().externalSource!.logoUrl" class="feed-post__external-logo" alt="" />
+            } @else {
+              <nxt1-icon [name]="post().externalSource!.icon || 'link'" [size]="14" />
+            }
+            <span>{{ post().externalSource!.label }}</span>
+          </div>
+        }
+
         <!-- Post Tags / Attached Profile Data Chips -->
         @if (hasTags()) {
           <div class="feed-post__tags">
             @for (tag of visibleTags(); track tag.id) {
-              <div class="feed-post__tag" [style.--tag-color]="tag.color || 'var(--post-primary)'">
-                <nxt1-icon [name]="getTagIcon(tag.type)" [size]="14" />
+              <div class="feed-post__tag">
                 <span class="feed-post__tag-label">{{ tag.label }}</span>
               </div>
             }
@@ -306,6 +604,32 @@ import { HapticsService } from '../services/haptics/haptics.service';
       }
 
       /* ============================================
+         COMPACT META BAR (shown when hideAuthor=true)
+         Type badge + timestamp — Twitter/Instagram profile pattern
+         ============================================ */
+
+      .feed-post__meta-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px 0;
+        gap: 8px;
+      }
+
+      .feed-post__meta-bar-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+
+        .feed-post__time {
+          font-size: 12px;
+          color: var(--post-text-tertiary);
+          white-space: nowrap;
+        }
+      }
+
+      /* ============================================
          REPOST HEADER
          ============================================ */
 
@@ -361,6 +685,15 @@ import { HapticsService } from '../services/haptics/haptics.service';
         background: rgba(212, 255, 0, 0.02);
       }
 
+      .feed-post--compact {
+        border-radius: 12px;
+      }
+
+      .feed-post--compact .feed-post__repost-header {
+        padding: 6px 10px;
+        font-size: 11px;
+      }
+
       /* ============================================
          MEDIA (top of card, no padding)
          ============================================ */
@@ -377,6 +710,25 @@ import { HapticsService } from '../services/haptics/haptics.service';
         .feed-post__media-item {
           aspect-ratio: 16 / 9;
         }
+      }
+
+      .feed-post--compact .feed-post__media--single .feed-post__media-item {
+        aspect-ratio: 3;
+      }
+
+      .feed-post--compact .feed-post__media--double .feed-post__media-item {
+        aspect-ratio: 1.5;
+      }
+
+      .feed-post--compact .feed-post__media--grid .feed-post__media-item {
+        aspect-ratio: 1.5;
+      }
+
+      .feed-post--compact .feed-post__video-duration {
+        bottom: 4px;
+        right: 4px;
+        padding: 2px 6px;
+        font-size: 10px;
       }
 
       .feed-post__media--double {
@@ -479,6 +831,37 @@ import { HapticsService } from '../services/haptics/haptics.service';
         padding: 12px 16px 0;
       }
 
+      .feed-post--compact .feed-post__header {
+        gap: 6px;
+        padding: 8px 10px 0;
+      }
+
+      .feed-post--compact .feed-post__avatar-btn nxt1-avatar {
+        --avatar-size: 28px;
+      }
+
+      .feed-post--compact .feed-post__author-name {
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .feed-post--compact .feed-post__author-meta {
+        font-size: 11px;
+        margin-top: 0;
+      }
+
+      .feed-post--compact .feed-post__type-badge {
+        padding: 3px 8px;
+        font-size: 10px;
+        font-weight: 600;
+        box-shadow: none;
+      }
+
+      .feed-post--compact .feed-post__menu-btn {
+        width: 26px;
+        height: 26px;
+      }
+
       .feed-post__avatar-btn {
         background: none;
         border: none;
@@ -508,12 +891,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
         text-overflow: ellipsis;
       }
 
-      .feed-post__verified {
-        font-size: 16px;
-        color: var(--post-verified);
-        flex-shrink: 0;
-      }
-
       .feed-post__author-meta {
         display: flex;
         align-items: center;
@@ -531,15 +908,22 @@ import { HapticsService } from '../services/haptics/haptics.service';
       .feed-post__type-badge {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
-        padding: 5px 12px;
-        background: color-mix(in srgb, var(--badge-color, var(--post-primary)) 15%, transparent);
-        border: 1px solid
-          color-mix(in srgb, var(--badge-color, var(--post-primary)) 40%, transparent);
+        gap: 0;
+        padding: 6px 12px;
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--post-bg) 80%, var(--post-primary) 20%) 0%,
+          color-mix(in srgb, var(--post-bg) 86%, var(--post-primary) 14%) 100%
+        );
+        border: 1px solid color-mix(in srgb, var(--post-primary) 48%, transparent);
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--post-primary) 22%, transparent),
+          0 6px 14px rgba(0, 0, 0, 0.2);
         border-radius: var(--nxt1-radius-full, 9999px);
         font-size: 12px;
-        font-weight: 600;
-        color: var(--badge-color, var(--post-primary));
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: var(--post-text-primary);
         text-transform: capitalize;
         white-space: nowrap;
         flex-shrink: 0;
@@ -575,6 +959,10 @@ import { HapticsService } from '../services/haptics/haptics.service';
         padding: 10px 16px 0;
       }
 
+      .feed-post--compact .feed-post__content {
+        padding: 4px 10px 0;
+      }
+
       .feed-post__pinned-badge {
         display: inline-flex;
         align-items: center;
@@ -595,6 +983,12 @@ import { HapticsService } from '../services/haptics/haptics.service';
         line-height: 1.3;
       }
 
+      .feed-post--compact .feed-post__title {
+        font-size: 14px;
+        margin-bottom: 1px;
+        line-height: 1.25;
+      }
+
       .feed-post__text {
         font-size: 14px;
         line-height: 1.45;
@@ -608,6 +1002,110 @@ import { HapticsService } from '../services/haptics/haptics.service';
           color: var(--post-primary);
           font-weight: 500;
         }
+      }
+
+      .feed-post--compact .feed-post__text {
+        font-size: 12px;
+        line-height: 1.35;
+        margin-bottom: 4px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      /* Compact: Offer/Commitment/Activity/Award/News cards */
+      .feed-post--compact .feed-post__offer-card,
+      .feed-post--compact .feed-post__commitment-card,
+      .feed-post--compact .feed-post__activity-card,
+      .feed-post--compact .feed-post__stat-card,
+      .feed-post--compact .feed-post__metrics-card,
+      .feed-post--compact .feed-post__award-card {
+        padding: 8px;
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+
+      .feed-post--compact .feed-post__offer-logo,
+      .feed-post--compact .feed-post__commitment-logo {
+        width: 32px;
+        height: 32px;
+      }
+
+      .feed-post--compact .feed-post__offer-college,
+      .feed-post--compact .feed-post__commitment-college {
+        font-size: 13px;
+      }
+
+      .feed-post--compact .feed-post__activity-icon-wrap {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+      }
+
+      .feed-post--compact .feed-post__activity-logo {
+        width: 32px;
+        height: 32px;
+      }
+
+      .feed-post--compact .feed-post__activity-title {
+        font-size: 13px;
+      }
+
+      .feed-post--compact .feed-post__award-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+      }
+
+      .feed-post--compact .feed-post__award-name {
+        font-size: 13px;
+      }
+
+      .feed-post--compact .feed-post__stat-value,
+      .feed-post--compact .feed-post__metric-value {
+        font-size: 15px;
+      }
+
+      .feed-post--compact .feed-post__news-image {
+        aspect-ratio: 2.5 / 1;
+      }
+
+      .feed-post--compact .feed-post__news-body {
+        padding: 8px 10px;
+      }
+
+      .feed-post--compact .feed-post__news-headline {
+        font-size: 13px;
+        margin-bottom: 2px;
+      }
+
+      .feed-post--compact .feed-post__news-excerpt {
+        font-size: 12px;
+        margin-bottom: 4px;
+        -webkit-line-clamp: 1;
+      }
+
+      .feed-post--compact .feed-post__schedule-card {
+        padding: 8px;
+        gap: 4px;
+        margin-bottom: 4px;
+      }
+
+      .feed-post--compact .feed-post__tags {
+        gap: 4px;
+        margin-bottom: 4px;
+      }
+
+      .feed-post--compact .feed-post__tag {
+        padding: 3px 8px;
+        font-size: 10px;
+      }
+
+      .feed-post--compact .feed-post__external-source {
+        padding: 3px 8px;
+        font-size: 10px;
+        margin-bottom: 4px;
       }
 
       /* ============================================
@@ -674,6 +1172,553 @@ import { HapticsService } from '../services/haptics/haptics.service';
       }
 
       /* ============================================
+         ACTIVITY CARDS (Visit, Camp, Schedule)
+         ============================================ */
+
+      .feed-post__activity-card {
+        display: flex;
+        gap: 12px;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: var(--nxt1-radius-md, 8px);
+        border: 1px solid var(--post-border);
+        margin-bottom: 8px;
+      }
+
+      .feed-post__activity-icon-wrap {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .feed-post__activity-icon-wrap--visit {
+        background: color-mix(in srgb, #3b82f6 15%, transparent);
+        color: #3b82f6;
+      }
+
+      .feed-post__activity-icon-wrap--camp {
+        background: color-mix(in srgb, #f59e0b 15%, transparent);
+        color: #f59e0b;
+      }
+
+      .feed-post__activity-body {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .feed-post__activity-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .feed-post__activity-logo {
+        width: 40px;
+        height: 40px;
+        object-fit: contain;
+        flex-shrink: 0;
+        border-radius: 6px;
+      }
+
+      .feed-post__activity-details {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .feed-post__activity-overline {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--post-text-tertiary);
+      }
+
+      .feed-post__activity-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--post-text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .feed-post__activity-meta {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--post-text-tertiary);
+      }
+
+      .feed-post__activity-result {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--post-primary);
+        margin-top: 2px;
+      }
+
+      /* ============================================
+         STAT UPDATE CARD (Hero Style)
+         ============================================ */
+
+      .feed-post__stat-card {
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: var(--nxt1-radius-md, 8px);
+        border: 1px solid var(--post-border);
+        margin-bottom: 8px;
+      }
+
+      .feed-post__stat-card-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        color: var(--post-text-secondary);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .feed-post__stat-card-context {
+        flex: 1;
+        min-width: 0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .feed-post__stat-card-result {
+        padding: 3px 10px;
+        font-size: 12px;
+        font-weight: 700;
+        border-radius: 4px;
+        color: var(--post-text-primary);
+        background: rgba(255, 255, 255, 0.06);
+        flex-shrink: 0;
+      }
+
+      .feed-post__stat-card-result--win {
+        background: color-mix(in srgb, #4ade80 15%, transparent);
+        color: #4ade80;
+      }
+
+      .feed-post__stat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+        gap: 4px;
+      }
+
+      .feed-post__stat-cell {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 10px 4px;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .feed-post__stat-cell--highlight {
+        background: color-mix(in srgb, var(--post-primary) 10%, transparent);
+        border: 1px solid color-mix(in srgb, var(--post-primary) 30%, transparent);
+      }
+
+      .feed-post__stat-value {
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--post-text-primary);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .feed-post__stat-label-text {
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--post-text-tertiary);
+      }
+
+      /* ============================================
+         METRICS CARD (Combine/Measurables)
+         ============================================ */
+
+      .feed-post__metrics-card {
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: var(--nxt1-radius-md, 8px);
+        border: 1px solid var(--post-border);
+        margin-bottom: 8px;
+      }
+
+      .feed-post__metrics-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--post-text-secondary);
+      }
+
+      .feed-post__metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px;
+
+        @media (min-width: 480px) {
+          grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+        }
+      }
+
+      .feed-post__metric-cell {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 10px 4px;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .feed-post__metric-value {
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--post-text-primary);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .feed-post__metric-unit {
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--post-text-tertiary);
+        margin-left: 1px;
+      }
+
+      .feed-post__metric-label-text {
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--post-text-tertiary);
+      }
+
+      .feed-post__metric-verified {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        color: var(--post-verified);
+      }
+
+      /* ============================================
+         AWARD CARD
+         ============================================ */
+
+      .feed-post__award-card {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 14px;
+        background: linear-gradient(
+          135deg,
+          color-mix(in srgb, #fbbf24 8%, transparent),
+          color-mix(in srgb, #f59e0b 3%, transparent)
+        );
+        border-radius: var(--nxt1-radius-md, 8px);
+        border: 1px solid color-mix(in srgb, #fbbf24 25%, transparent);
+        margin-bottom: 8px;
+      }
+
+      .feed-post__award-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        background: color-mix(in srgb, #fbbf24 15%, transparent);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fbbf24;
+        flex-shrink: 0;
+      }
+
+      .feed-post__award-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .feed-post__award-name {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--post-text-primary);
+      }
+
+      .feed-post__award-org {
+        font-size: 13px;
+        color: var(--post-text-secondary);
+      }
+
+      .feed-post__award-season {
+        font-size: 12px;
+        color: var(--post-text-tertiary);
+      }
+
+      /* ============================================
+         NEWS CARD (Article embed)
+         ============================================ */
+
+      .feed-post__news-card {
+        display: block;
+        overflow: hidden;
+        border-radius: var(--nxt1-radius-md, 8px);
+        border: 1px solid var(--post-border);
+        margin-bottom: 8px;
+        background: rgba(255, 255, 255, 0.03);
+        text-decoration: none;
+        color: inherit;
+      }
+
+      .feed-post__news-card--link {
+        cursor: pointer;
+        transition: border-color 0.2s ease;
+
+        &:hover {
+          border-color: color-mix(in srgb, var(--post-primary) 40%, transparent);
+        }
+
+        &:hover .feed-post__news-headline {
+          color: var(--post-primary);
+        }
+      }
+
+      .feed-post__news-image {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 2 / 1;
+        overflow: hidden;
+
+        nxt1-image {
+          width: 100%;
+          height: 100%;
+        }
+      }
+
+      .feed-post__news-category {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        padding: 3px 10px;
+        background: rgba(0, 0, 0, 0.7);
+        -webkit-backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px);
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--post-primary);
+      }
+
+      .feed-post__news-body {
+        padding: 12px;
+      }
+
+      .feed-post__news-headline {
+        display: block;
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--post-text-primary);
+        line-height: 1.3;
+        margin-bottom: 4px;
+      }
+
+      .feed-post__news-excerpt {
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--post-text-secondary);
+        margin: 0 0 8px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .feed-post__news-source {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--post-text-tertiary);
+        font-weight: 500;
+      }
+
+      .feed-post__news-source-logo {
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
+        object-fit: contain;
+      }
+
+      /* ============================================
+         SCHEDULE / GAME CARD
+         ============================================ */
+
+      .feed-post__schedule-card {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: var(--nxt1-radius-md, 8px);
+        border: 1px solid var(--post-border);
+        margin-bottom: 8px;
+      }
+
+      .feed-post__schedule-card--live {
+        border-color: color-mix(in srgb, #ef4444 40%, transparent);
+        background: color-mix(in srgb, #ef4444 5%, transparent);
+      }
+
+      .feed-post__schedule-status {
+        display: flex;
+        align-items: center;
+      }
+
+      .feed-post__schedule-badge {
+        padding: 3px 10px;
+        border-radius: 4px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+      }
+
+      .feed-post__schedule-badge--upcoming {
+        background: color-mix(in srgb, #3b82f6 15%, transparent);
+        color: #3b82f6;
+      }
+
+      .feed-post__schedule-badge--live {
+        background: color-mix(in srgb, #ef4444 15%, transparent);
+        color: #ef4444;
+        animation: livePulse 2s infinite;
+      }
+
+      .feed-post__schedule-badge--final {
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--post-text-secondary);
+      }
+
+      .feed-post__schedule-badge--postponed,
+      .feed-post__schedule-badge--cancelled {
+        background: color-mix(in srgb, #f59e0b 15%, transparent);
+        color: #f59e0b;
+      }
+
+      @keyframes livePulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.7;
+        }
+      }
+
+      .feed-post__schedule-matchup {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--post-text-primary);
+      }
+
+      .feed-post__schedule-ha {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--post-text-tertiary);
+        padding: 2px 8px;
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 4px;
+      }
+
+      .feed-post__schedule-vs {
+        font-size: 12px;
+        color: var(--post-text-tertiary);
+        font-weight: 500;
+      }
+
+      .feed-post__schedule-opp-logo {
+        width: 24px;
+        height: 24px;
+        object-fit: contain;
+        border-radius: 4px;
+      }
+
+      .feed-post__schedule-opponent {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .feed-post__schedule-result {
+        font-size: 14px;
+        font-weight: 700;
+        padding: 4px 12px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--post-text-primary);
+      }
+
+      .feed-post__schedule-result--win {
+        background: color-mix(in srgb, #4ade80 15%, transparent);
+        color: #4ade80;
+      }
+
+      .feed-post__schedule-venue {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--post-text-tertiary);
+      }
+
+      /* ============================================
+         EXTERNAL SOURCE BADGE
+         ============================================ */
+
+      .feed-post__external-source {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 12px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--post-border);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        font-size: 11px;
+        font-weight: 500;
+        color: var(--post-text-tertiary);
+        margin-bottom: 8px;
+      }
+
+      .feed-post__external-logo {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        object-fit: contain;
+      }
+
+      /* ============================================
          TAGS / CHIPS (attached profile data)
          ============================================ */
 
@@ -688,19 +1733,19 @@ import { HapticsService } from '../services/haptics/haptics.service';
       .feed-post__tag {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
+        gap: 0;
         padding: 6px 12px;
-        background: color-mix(in srgb, var(--tag-color, var(--post-primary)) 10%, transparent);
-        border: 1px solid color-mix(in srgb, var(--tag-color, var(--post-primary)) 35%, transparent);
-        border-radius: 16px;
+        background: color-mix(in srgb, var(--post-bg) 82%, var(--post-primary) 18%);
+        border: 1px solid color-mix(in srgb, var(--post-primary) 55%, transparent);
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--post-primary) 28%, transparent),
+          0 6px 14px rgba(0, 0, 0, 0.22);
+        border-radius: 999px;
         font-size: 12px;
-        font-weight: 600;
-        color: var(--tag-color, var(--post-primary));
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: var(--post-text-primary);
         white-space: nowrap;
-
-        nxt1-icon {
-          opacity: 0.8;
-        }
       }
 
       .feed-post__tag--more {
@@ -716,7 +1761,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
       }
 
       .feed-post__tag-label {
-        max-width: 120px;
+        max-width: 140px;
         overflow: hidden;
         text-overflow: ellipsis;
       }
@@ -745,6 +1790,19 @@ import { HapticsService } from '../services/haptics/haptics.service';
         padding: 10px 16px;
         border-top: 1px solid var(--post-border);
         margin-top: 8px;
+      }
+
+      .feed-post--compact .feed-post__stats {
+        padding: 6px 10px;
+        margin-top: 4px;
+      }
+
+      .feed-post--compact .feed-post__stat-count {
+        font-size: 12px;
+      }
+
+      .feed-post--compact .feed-post__stat-label {
+        font-size: 9px;
       }
 
       .feed-post__stat {
@@ -807,6 +1865,14 @@ import { HapticsService } from '../services/haptics/haptics.service';
           transform: scale(0.98);
         }
       }
+
+      .feed-post--compact .feed-post__view-profile {
+        width: calc(100% - 20px);
+        margin: 0 10px 8px;
+        padding: 6px 12px;
+        font-size: 11px;
+        letter-spacing: 0.8px;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -821,6 +1887,7 @@ export class FeedPostCardComponent {
   readonly post = input.required<FeedPost>();
   readonly showMenu = input(true);
   readonly hideAuthor = input(false);
+  readonly compact = input(false);
   /** Show the "View Profile" button at the bottom */
   readonly showProfileLink = input(true);
 
@@ -868,15 +1935,11 @@ export class FeedPostCardComponent {
   });
 
   protected readonly typeBadgeIcon = computed(() => {
-    return FEED_POST_TYPE_ICONS[this.post().type] ?? 'document-text-outline';
+    return FEED_POST_TYPE_ICONS[this.post().type] ?? 'documentText';
   });
 
   protected readonly typeBadgeLabel = computed(() => {
     return FEED_POST_TYPE_LABELS[this.post().type] ?? 'Post';
-  });
-
-  protected readonly typeBadgeColor = computed(() => {
-    return FEED_POST_TYPE_COLORS[this.post().type] ?? 'var(--post-primary)';
   });
 
   protected readonly hasMedia = computed(() => {
@@ -918,10 +1981,6 @@ export class FeedPostCardComponent {
   // ============================================
   // HELPERS
   // ============================================
-
-  protected getTagIcon(type: FeedPostTag['type']): string {
-    return FEED_TAG_TYPE_ICONS[type] ?? 'sparkles';
-  }
 
   // ============================================
   // EVENT HANDLERS
@@ -1024,5 +2083,25 @@ export class FeedPostCardComponent {
       interest: 'Interest',
     };
     return labels[type] ?? type;
+  }
+
+  protected formatVisitType(type: string): string {
+    const labels: Record<string, string> = {
+      official: 'Official Visit',
+      unofficial: 'Unofficial Visit',
+      'junior-day': 'Junior Day',
+      'game-day': 'Game Day Visit',
+    };
+    return labels[type] ?? 'Campus Visit';
+  }
+
+  protected formatCampType(type: string): string {
+    const labels: Record<string, string> = {
+      camp: 'Camp',
+      combine: 'Combine',
+      showcase: 'Showcase',
+      invitational: 'Invitational',
+    };
+    return labels[type] ?? 'Event';
   }
 }

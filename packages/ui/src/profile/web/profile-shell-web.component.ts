@@ -56,8 +56,8 @@ import {
   type ProfileSeasonGameLog,
   type ScoutReport,
 } from '@nxt1/core';
-import { NxtPageHeaderComponent } from '../../components/page-header';
-import { ProfileDesktopHeaderComponent } from './profile-desktop-header.component';
+// NxtPageHeaderComponent removed — web profile uses shell top nav on mobile and page header in wide layouts
+import { ProfilePageHeaderComponent } from './profile-page-header.component';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
@@ -133,13 +133,13 @@ const XP_LEVELS: ReadonlyArray<{
   { level: 7, name: 'GOAT', min: 25_000, max: Infinity },
 ];
 
-/** Arc math for the mobile XP ring (matches desktop profile-desktop-header). */
+/** Arc math for the mobile XP ring (matches profile page header). */
 const MOBILE_RING_RADIUS = 40;
 const MOBILE_ARC_DEGREES = 270;
 const MOBILE_ARC_CIRCUMFERENCE = 2 * Math.PI * MOBILE_RING_RADIUS;
 const MOBILE_ARC_LENGTH = MOBILE_ARC_CIRCUMFERENCE * (MOBILE_ARC_DEGREES / 360);
 
-/** Badge metadata type for mobile header badge grid (mirrors desktop header). */
+/** Badge metadata type for mobile header badge grid (mirrors page header). */
 interface MobileHeaderBadge {
   readonly id: string;
   readonly name: string;
@@ -149,12 +149,16 @@ interface MobileHeaderBadge {
 
 /** Placeholder badges shown when real badge data isn't available (matches desktop). */
 const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
-  { id: 'profile-pro', name: 'Profile Pro', icon: 'person-outline', rarity: 'rare' },
-  { id: 'highlight-star', name: 'Highlight Star', icon: 'videocam-outline', rarity: 'epic' },
-  { id: 'team-player', name: 'Team Player', icon: 'people-outline', rarity: 'uncommon' },
-  { id: 'stat-tracker', name: 'Stat Tracker', icon: 'stats-chart-outline', rarity: 'common' },
-  { id: 'early-adopter', name: 'Early Adopter', icon: 'rocket-outline', rarity: 'rare' },
-  { id: 'on-fire', name: 'On Fire', icon: 'flame-outline', rarity: 'legendary' },
+  { id: 'profile-pro', name: 'Profile Pro', icon: 'person', rarity: 'rare' },
+  { id: 'highlight-star', name: 'Highlight Star', icon: 'videocam', rarity: 'epic' },
+  { id: 'team-player', name: 'Team Player', icon: 'users', rarity: 'uncommon' },
+  { id: 'stat-tracker', name: 'Stat Tracker', icon: 'barChart', rarity: 'common' },
+  { id: 'early-adopter', name: 'Early Adopter', icon: 'rocket', rarity: 'rare' },
+  { id: 'on-fire', name: 'On Fire', icon: 'flame', rarity: 'legendary' },
+  { id: 'clutch-performer', name: 'Clutch Performer', icon: 'bolt', rarity: 'epic' },
+  { id: 'film-room', name: 'Film Room', icon: 'eye', rarity: 'uncommon' },
+  { id: 'captain', name: 'Captain', icon: 'shield', rarity: 'rare' },
+  { id: 'grind-mode', name: 'Grind Mode', icon: 'barbell', rarity: 'common' },
 ];
 
 interface StatsComparisonItem {
@@ -170,8 +174,7 @@ interface StatsComparisonItem {
   standalone: true,
   imports: [
     CommonModule,
-    NxtPageHeaderComponent,
-    ProfileDesktopHeaderComponent,
+    ProfilePageHeaderComponent,
     NxtIconComponent,
     NxtImageComponent,
     NxtRefresherComponent,
@@ -219,212 +222,181 @@ interface StatsComparisonItem {
           <div class="madden-split">
             <!-- LEFT SIDE: Header + Tabs + Content -->
             <div class="madden-split-left">
-              <!-- Page header: mobile only -->
-              @if (!hideHeader()) {
-                <div class="md:hidden">
-                  <nxt1-page-header [showBack]="true" (backClick)="backClick.emit()">
-                    <div pageHeaderSlot="end" class="profile-header-actions">
-                      @if (profile.isOwnProfile()) {
-                        <button
-                          type="button"
-                          class="profile-header-action-btn"
-                          aria-label="Edit profile"
-                          (click)="editProfileClick.emit()"
-                        >
-                          <nxt1-icon name="pencil" [size]="22" />
-                        </button>
-                      }
-                      <button
-                        type="button"
-                        class="profile-header-action-btn"
-                        aria-label="Menu"
-                        (click)="onMenuClick()"
-                      >
-                        <nxt1-icon name="menu" [size]="22" />
-                      </button>
-                    </div>
-                  </nxt1-page-header>
-                </div>
-              }
-
-              <!-- Desktop page header: Madden-style -->
-              @if (hideHeader()) {
-                <nxt1-profile-desktop-header
+              <!-- Profile page header: Madden-style (hidden on mobile — shell top nav handles navigation) -->
+              <div class="hidden md:block">
+                <nxt1-profile-page-header
                   [user]="profile.user()"
                   [playerCard]="null"
                   [showFollowAction]="!isOwnProfile()"
                   (back)="backClick.emit()"
                   (follow)="followClick.emit()"
                 />
-              }
+              </div>
 
-              @if (!hideHeader()) {
-                <section class="madden-mobile-hero" aria-label="Profile summary">
-                  @if (profile.profileImages().length > 0) {
-                    <div class="madden-mobile-hero__carousel">
-                      <div class="carousel-glow-wrap">
-                        <div class="carousel-glow-border" aria-hidden="true"></div>
-                        <div class="carousel-glow-ambient" aria-hidden="true"></div>
-                        <nxt1-image-carousel
-                          [images]="profile.profileImages()"
-                          [alt]="desktopTitle()"
-                          [autoPlay]="true"
-                          [autoPlayInterval]="4200"
-                          [overlayTitle]="desktopTitle()"
-                          [overlaySubtitle]="carouselOverlaySubtitle()"
-                          [overlayTitles]="carouselOverlayTitles()"
-                          [overlaySubtitles]="carouselOverlaySubtitles()"
-                          class="madden-player-carousel"
-                        />
-                        @if (
-                          profile.user()?.verificationStatus === 'verified' ||
-                          profile.user()?.verificationStatus === 'premium'
-                        ) {
-                          <span class="carousel-verified-badge">
-                            <nxt1-icon name="checkmark-circle" [size]="14" />
-                            Verified
-                          </span>
-                        }
-                      </div>
-                    </div>
-                  }
-
-                  <div class="madden-mobile-hero__identity">
-                    <h1 class="madden-mobile-hero__name">{{ mobileDisplayName() }}</h1>
-                    @if (mobileSubtitleLine()) {
-                      <p class="madden-mobile-hero__meta">{{ mobileSubtitleLine() }}</p>
-                    }
-                    @if (!isOwnProfile()) {
-                      <button
-                        type="button"
-                        class="madden-mobile-hero__follow-btn"
-                        aria-label="Follow athlete"
-                        (click)="followClick.emit()"
-                      >
-                        <nxt1-icon name="plus" [size]="13" />
-                        Follow
-                      </button>
-                    }
-                    <!-- Mobile hero stats (Class, Height, Weight, Location) -->
-                    <div class="madden-mobile-hero__stats">
-                      @if (profile.user()?.classYear) {
-                        <div class="mobile-hero-stat">
-                          <span class="mobile-hero-stat__key">Class:</span>
-                          <span class="mobile-hero-stat__val">{{ profile.user()?.classYear }}</span>
-                        </div>
-                      }
-                      @if (profile.user()?.height) {
-                        <div class="mobile-hero-stat">
-                          <span class="mobile-hero-stat__key">Height:</span>
-                          <span class="mobile-hero-stat__val-wrap">
-                            <span class="mobile-hero-stat__val">{{ profile.user()?.height }}</span>
-                            @if (profile.user()?.measurablesVerifiedBy) {
-                              @if (measurablesProviderUrl()) {
-                                <a
-                                  class="ov-verified-badge ov-verified-link"
-                                  [href]="measurablesProviderUrl()!"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  <span class="ov-verified-logo">
-                                    <nxt1-image
-                                      class="ov-verified-logo-img"
-                                      [src]="measurablesProviderLogoSrc()"
-                                      [alt]="
-                                        (profile.user()?.measurablesVerifiedBy || 'provider') +
-                                        ' logo'
-                                      "
-                                      [width]="60"
-                                      [height]="14"
-                                      fit="contain"
-                                      [showPlaceholder]="false"
-                                    />
-                                  </span>
-                                </a>
-                              } @else {
-                                <span class="ov-verified-badge">
-                                  <span class="ov-verified-logo">
-                                    <nxt1-image
-                                      class="ov-verified-logo-img"
-                                      [src]="measurablesProviderLogoFallbackSrc()"
-                                      [alt]="
-                                        (profile.user()?.measurablesVerifiedBy || 'provider') +
-                                        ' logo'
-                                      "
-                                      [width]="60"
-                                      [height]="14"
-                                      fit="contain"
-                                      [showPlaceholder]="false"
-                                    />
-                                  </span>
-                                </span>
-                              }
-                            }
-                          </span>
-                        </div>
-                      }
-                      @if (profile.user()?.weight) {
-                        <div class="mobile-hero-stat">
-                          <span class="mobile-hero-stat__key">Weight:</span>
-                          <span class="mobile-hero-stat__val-wrap">
-                            <span class="mobile-hero-stat__val"
-                              >{{ profile.user()?.weight }} lb</span
-                            >
-                            @if (profile.user()?.measurablesVerifiedBy) {
-                              @if (measurablesProviderUrl()) {
-                                <a
-                                  class="ov-verified-badge ov-verified-link"
-                                  [href]="measurablesProviderUrl()!"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  <span class="ov-verified-logo">
-                                    <nxt1-image
-                                      class="ov-verified-logo-img"
-                                      [src]="measurablesProviderLogoSrc()"
-                                      [alt]="
-                                        (profile.user()?.measurablesVerifiedBy || 'provider') +
-                                        ' logo'
-                                      "
-                                      [width]="60"
-                                      [height]="14"
-                                      fit="contain"
-                                      [showPlaceholder]="false"
-                                    />
-                                  </span>
-                                </a>
-                              } @else {
-                                <span class="ov-verified-badge">
-                                  <span class="ov-verified-logo">
-                                    <nxt1-image
-                                      class="ov-verified-logo-img"
-                                      [src]="measurablesProviderLogoFallbackSrc()"
-                                      [alt]="
-                                        (profile.user()?.measurablesVerifiedBy || 'provider') +
-                                        ' logo'
-                                      "
-                                      [width]="60"
-                                      [height]="14"
-                                      fit="contain"
-                                      [showPlaceholder]="false"
-                                    />
-                                  </span>
-                                </span>
-                              }
-                            }
-                          </span>
-                        </div>
-                      }
-                      @if (profile.user()?.location) {
-                        <div class="mobile-hero-stat">
-                          <span class="mobile-hero-stat__key">Location:</span>
-                          <span class="mobile-hero-stat__val">{{ profile.user()?.location }}</span>
-                        </div>
+              <!-- Mobile hero: profile summary (hidden on wide layouts where page header handles it) -->
+              <section class="madden-mobile-hero md:hidden" aria-label="Profile summary">
+                @if (profile.profileImages().length > 0) {
+                  <div class="madden-mobile-hero__carousel">
+                    <div class="carousel-glow-wrap">
+                      <div class="carousel-glow-border" aria-hidden="true"></div>
+                      <div class="carousel-glow-ambient" aria-hidden="true"></div>
+                      <nxt1-image-carousel
+                        [images]="profile.profileImages()"
+                        [alt]="desktopTitle()"
+                        [autoPlay]="true"
+                        [autoPlayInterval]="4200"
+                        [overlayTitle]="desktopTitle()"
+                        [overlaySubtitle]="carouselOverlaySubtitle()"
+                        [overlayTitles]="carouselOverlayTitles()"
+                        [overlaySubtitles]="carouselOverlaySubtitles()"
+                        class="madden-player-carousel"
+                      />
+                      @if (
+                        profile.user()?.verificationStatus === 'verified' ||
+                        profile.user()?.verificationStatus === 'premium'
+                      ) {
+                        <span class="carousel-verified-badge">
+                          <nxt1-icon name="checkmarkCircle" [size]="14" />
+                          Verified
+                        </span>
                       }
                     </div>
                   </div>
-                </section>
-              }
+                }
+
+                <div class="madden-mobile-hero__identity">
+                  <h1 class="madden-mobile-hero__name">{{ mobileDisplayName() }}</h1>
+                  @if (mobileSubtitleLine()) {
+                    <p class="madden-mobile-hero__meta">{{ mobileSubtitleLine() }}</p>
+                  }
+                  @if (!isOwnProfile()) {
+                    <button
+                      type="button"
+                      class="madden-mobile-hero__follow-btn"
+                      aria-label="Follow athlete"
+                      (click)="followClick.emit()"
+                    >
+                      <nxt1-icon name="plus" [size]="13" />
+                      Follow
+                    </button>
+                  }
+                  <!-- Mobile hero stats (Class, Height, Weight, Location) -->
+                  <div class="madden-mobile-hero__stats">
+                    @if (profile.user()?.classYear) {
+                      <div class="mobile-hero-stat">
+                        <span class="mobile-hero-stat__key">Class:</span>
+                        <span class="mobile-hero-stat__val">{{ profile.user()?.classYear }}</span>
+                      </div>
+                    }
+                    @if (profile.user()?.height) {
+                      <div class="mobile-hero-stat">
+                        <span class="mobile-hero-stat__key">Height:</span>
+                        <span class="mobile-hero-stat__val-wrap">
+                          <span class="mobile-hero-stat__val">{{ profile.user()?.height }}</span>
+                          @if (profile.user()?.measurablesVerifiedBy) {
+                            @if (measurablesProviderUrl()) {
+                              <a
+                                class="ov-verified-badge ov-verified-link"
+                                [href]="measurablesProviderUrl()!"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <span class="ov-verified-logo">
+                                  <nxt1-image
+                                    class="ov-verified-logo-img"
+                                    [src]="measurablesProviderLogoSrc()"
+                                    [alt]="
+                                      (profile.user()?.measurablesVerifiedBy || 'provider') +
+                                      ' logo'
+                                    "
+                                    [width]="60"
+                                    [height]="14"
+                                    fit="contain"
+                                    [showPlaceholder]="false"
+                                  />
+                                </span>
+                              </a>
+                            } @else {
+                              <span class="ov-verified-badge">
+                                <span class="ov-verified-logo">
+                                  <nxt1-image
+                                    class="ov-verified-logo-img"
+                                    [src]="measurablesProviderLogoFallbackSrc()"
+                                    [alt]="
+                                      (profile.user()?.measurablesVerifiedBy || 'provider') +
+                                      ' logo'
+                                    "
+                                    [width]="60"
+                                    [height]="14"
+                                    fit="contain"
+                                    [showPlaceholder]="false"
+                                  />
+                                </span>
+                              </span>
+                            }
+                          }
+                        </span>
+                      </div>
+                    }
+                    @if (profile.user()?.weight) {
+                      <div class="mobile-hero-stat">
+                        <span class="mobile-hero-stat__key">Weight:</span>
+                        <span class="mobile-hero-stat__val-wrap">
+                          <span class="mobile-hero-stat__val">{{ profile.user()?.weight }} lb</span>
+                          @if (profile.user()?.measurablesVerifiedBy) {
+                            @if (measurablesProviderUrl()) {
+                              <a
+                                class="ov-verified-badge ov-verified-link"
+                                [href]="measurablesProviderUrl()!"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <span class="ov-verified-logo">
+                                  <nxt1-image
+                                    class="ov-verified-logo-img"
+                                    [src]="measurablesProviderLogoSrc()"
+                                    [alt]="
+                                      (profile.user()?.measurablesVerifiedBy || 'provider') +
+                                      ' logo'
+                                    "
+                                    [width]="60"
+                                    [height]="14"
+                                    fit="contain"
+                                    [showPlaceholder]="false"
+                                  />
+                                </span>
+                              </a>
+                            } @else {
+                              <span class="ov-verified-badge">
+                                <span class="ov-verified-logo">
+                                  <nxt1-image
+                                    class="ov-verified-logo-img"
+                                    [src]="measurablesProviderLogoFallbackSrc()"
+                                    [alt]="
+                                      (profile.user()?.measurablesVerifiedBy || 'provider') +
+                                      ' logo'
+                                    "
+                                    [width]="60"
+                                    [height]="14"
+                                    fit="contain"
+                                    [showPlaceholder]="false"
+                                  />
+                                </span>
+                              </span>
+                            }
+                          }
+                        </span>
+                      </div>
+                    }
+                    @if (profile.user()?.location) {
+                      <div class="mobile-hero-stat">
+                        <span class="mobile-hero-stat__key">Location:</span>
+                        <span class="mobile-hero-stat__val">{{ profile.user()?.location }}</span>
+                      </div>
+                    }
+                  </div>
+                </div>
+              </section>
 
               <!-- TOP TAB BAR -->
               <nav class="madden-top-tabs" aria-label="Profile sections">
@@ -561,6 +533,7 @@ interface StatsComparisonItem {
                           activeSideTab() === 'player-profile' && teamAffiliations().length > 0
                         ) {
                           <div class="ov-mobile-teams">
+                            <h3 class="ov-section-title ov-overview-title">Player Profile</h3>
                             <div class="madden-team-stack">
                               @for (
                                 team of teamAffiliations();
@@ -609,6 +582,7 @@ interface StatsComparisonItem {
                           <div class="ov-top-row">
                             <!-- ═══ PLAYER PROFILE — Key/Value Pairs (like Madden) ═══ -->
                             <div class="ov-section ov-section--profile ov-section--player-stats">
+                              <h3 class="ov-section-title ov-overview-title">Player Profile</h3>
                               <div class="ov-profile-grid">
                                 @if (profile.user()?.classYear) {
                                   <div class="ov-profile-row">
@@ -750,37 +724,46 @@ interface StatsComparisonItem {
                             <!-- ═══ AGENT X TRAIT (inline, no large container) ═══ -->
                             @if (profile.playerCard()?.trait) {
                               <div class="ov-trait-inline">
-                                <span class="ov-trait-category">
-                                  {{ traitCategoryLabel() }}
-                                </span>
-                                <div class="ov-trait-icon-lg" aria-hidden="true">
-                                  <svg
-                                    viewBox="0 0 100 100"
-                                    fill="none"
-                                    xmlns="http://www.w3.org/2000/svg"
-                                  >
-                                    <path
-                                      d="M50 6L84 28V72L50 94L16 72V28L50 6Z"
-                                      class="ov-trait-icon-shell"
-                                    />
-                                    <path
-                                      d="M50 16L74 32V68L50 84L26 68V32L50 16Z"
-                                      class="ov-trait-icon-core"
-                                    />
-                                  </svg>
-                                  <div class="ov-trait-icon-inner">
-                                    @if (profile.playerCard()?.trait?.category === 'hidden') {
-                                      <nxt1-icon name="flame" [size]="36" />
-                                    } @else {
-                                      <nxt1-icon name="flash" [size]="36" />
-                                    }
+                                <div class="ov-trait-badge">
+                                  <div class="ov-trait-icon-lg" aria-hidden="true">
+                                    <svg
+                                      viewBox="0 0 100 100"
+                                      fill="none"
+                                      xmlns="http://www.w3.org/2000/svg"
+                                    >
+                                      <path
+                                        d="M50 6L84 28V72L50 94L16 72V28L50 6Z"
+                                        class="ov-trait-icon-shell"
+                                      />
+                                      <path
+                                        d="M50 16L74 32V68L50 84L26 68V32L50 16Z"
+                                        class="ov-trait-icon-core"
+                                      />
+                                    </svg>
+                                    <div class="ov-trait-icon-inner">
+                                      @if (profile.playerCard()?.trait?.category === 'hidden') {
+                                        <nxt1-icon name="flame" [size]="36" />
+                                      } @else {
+                                        <nxt1-icon name="bolt" [size]="36" />
+                                      }
+                                    </div>
                                   </div>
                                 </div>
-                                @if (profile.playerCard()?.agentXSummary) {
-                                  <p class="ov-trait-summary">
-                                    {{ displayAgentXSummary() }}
-                                  </p>
-                                }
+                                <div class="ov-trait-text">
+                                  <span class="ov-trait-category">
+                                    {{ traitCategoryLabel() }}
+                                  </span>
+                                  @if (profile.playerCard()?.agentXSummary) {
+                                    <p class="ov-trait-summary">
+                                      <span class="ov-trait-summary__reserve" aria-hidden="true">
+                                        {{ profile.playerCard()?.agentXSummary }}
+                                      </span>
+                                      <span class="ov-trait-summary__typed" aria-live="polite">
+                                        {{ displayAgentXSummary() }}
+                                      </span>
+                                    </p>
+                                  }
+                                </div>
                               </div>
                             }
                           </div>
@@ -824,7 +807,7 @@ interface StatsComparisonItem {
                                     </span>
                                     <span class="ov-connected-label">{{ acct.label }}</span>
                                     <span class="ov-connected-check">
-                                      <nxt1-icon name="checkmark-circle" [size]="13" />
+                                      <nxt1-icon name="checkmarkCircle" [size]="13" />
                                     </span>
                                   </a>
                                 }
@@ -854,7 +837,11 @@ interface StatsComparisonItem {
                           }
 
                           <!-- ═══ MOBILE XP RING + BADGES (below connected accounts) ═══ -->
-                          <div class="ov-mobile-xp-section" aria-label="Player XP">
+                          <div
+                            class="ov-mobile-xp-section"
+                            [class.ov-mobile-xp-section--centered]="mobileBadgesEarned() <= 5"
+                            aria-label="Player XP"
+                          >
                             <div
                               class="ov-mobile-xp-ring"
                               [attr.aria-label]="
@@ -980,7 +967,13 @@ interface StatsComparisonItem {
                                 <div class="madden-empty">
                                   <nxt1-icon name="time" [size]="48" />
                                   <h3>No history yet</h3>
-                                  <p>Team history and year-by-year progression will appear here.</p>
+                                  <p>
+                                    @if (profile.isOwnProfile()) {
+                                      Team history and year-by-year progression will appear here.
+                                    } @else {
+                                      This athlete hasn't added any team history yet.
+                                    }
+                                  </p>
                                 </div>
                               } @else {
                                 <div class="ov-history-list">
@@ -1071,8 +1064,12 @@ interface StatsComparisonItem {
                                   <nxt1-icon name="school" [size]="48" />
                                   <h3>No academic info yet</h3>
                                   <p>
-                                    Add GPA, test scores, and school details to strengthen your
-                                    profile.
+                                    @if (profile.isOwnProfile()) {
+                                      Add GPA, test scores, and school details to strengthen your
+                                      profile.
+                                    } @else {
+                                      This athlete hasn't added academic information yet.
+                                    }
                                   </p>
                                   @if (profile.isOwnProfile()) {
                                     <button
@@ -1128,7 +1125,13 @@ interface StatsComparisonItem {
                             <div class="madden-empty">
                               <nxt1-icon name="mail" [size]="48" />
                               <h3>Contact info not set</h3>
-                              <p>Add your contact information so coaches can reach you.</p>
+                              <p>
+                                @if (profile.isOwnProfile()) {
+                                  Add your contact information so coaches can reach you.
+                                } @else {
+                                  This athlete hasn't added contact information yet.
+                                }
+                              </p>
                               @if (profile.isOwnProfile()) {
                                 <button
                                   type="button"
@@ -1272,6 +1275,7 @@ interface StatsComparisonItem {
                     @case ('timeline') {
                       <nxt1-profile-timeline
                         [posts]="profile.filteredPosts()"
+                        [unifiedFeed]="profile.unifiedTimeline()"
                         [profileUser]="profile.user()"
                         [isLoading]="false"
                         [isLoadingMore]="profile.isLoadingMore()"
@@ -1352,9 +1356,15 @@ interface StatsComparisonItem {
 
                         @if (profile.metrics().length === 0) {
                           <div class="madden-empty">
-                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
-                            <h3>{{ emptyState().title }}</h3>
-                            <p>{{ emptyState().message }}</p>
+                            <nxt1-icon name="barbell" [size]="48" />
+                            <h3>No metrics recorded</h3>
+                            <p>
+                              @if (profile.isOwnProfile()) {
+                                Add your combine results and measurables to complete your profile.
+                              } @else {
+                                This athlete hasn't recorded any metrics yet.
+                              }
+                            </p>
                             @if (profile.isOwnProfile()) {
                               <button type="button" class="madden-cta-btn" (click)="onAddStats()">
                                 {{ emptyState().ctaLabel }}
@@ -1412,9 +1422,15 @@ interface StatsComparisonItem {
                           profile.gameLog().length === 0 && profile.athleticStats().length === 0
                         ) {
                           <div class="madden-empty">
-                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
-                            <h3>{{ emptyState().title }}</h3>
-                            <p>{{ emptyState().message }}</p>
+                            <nxt1-icon name="stats-chart" [size]="48" />
+                            <h3>No stats recorded</h3>
+                            <p>
+                              @if (profile.isOwnProfile()) {
+                                Add your athletic and academic stats to complete your profile.
+                              } @else {
+                                This athlete hasn't recorded any stats yet.
+                              }
+                            </p>
                             @if (profile.isOwnProfile()) {
                               <button type="button" class="madden-cta-btn" (click)="onAddStats()">
                                 {{ emptyState().ctaLabel }}
@@ -1422,54 +1438,6 @@ interface StatsComparisonItem {
                             }
                           </div>
                         } @else {
-                          <!-- ═══ Team Type Toggle (School / Club) — mobile only ═══ -->
-                          @if (hasSchoolGameLogs() && hasClubGameLogs()) {
-                            <nav class="gl-team-type-nav" aria-label="Team type selection">
-                              <button
-                                type="button"
-                                class="gl-team-type-pill"
-                                [class.gl-team-type-pill--active]="activeTeamType() === 'school'"
-                                (click)="onTeamTypeChange('school')"
-                              >
-                                School
-                              </button>
-                              <button
-                                type="button"
-                                class="gl-team-type-pill"
-                                [class.gl-team-type-pill--active]="activeTeamType() === 'club'"
-                                (click)="onTeamTypeChange('club')"
-                              >
-                                Club
-                              </button>
-                            </nav>
-                          }
-
-                          <!-- ═══ Season Selector (mobile only — desktop uses side tabs) ═══ -->
-                          @if (gameLogSeasons().length > 0) {
-                            <nav class="gl-season-nav" aria-label="Season selection">
-                              <button
-                                type="button"
-                                class="gl-season-pill"
-                                [class.gl-season-pill--active]="isCareerMode()"
-                                (click)="onCareerModeActivate()"
-                              >
-                                Career
-                              </button>
-                              @for (season of gameLogSeasons(); track season; let i = $index) {
-                                <button
-                                  type="button"
-                                  class="gl-season-pill"
-                                  [class.gl-season-pill--active]="
-                                    !isCareerMode() && activeGameLogSeasonIdx() === i
-                                  "
-                                  (click)="onGameLogSeasonChange(i)"
-                                >
-                                  {{ season }}
-                                </button>
-                              }
-                            </nav>
-                          }
-
                           <!-- ═══ Category Tabs (Passing / Rushing / etc.) ═══ -->
                           @if (gameLogCategoriesForSeason().length > 0) {
                             <nav class="stats-board__tabs" aria-label="Stat categories">
@@ -1793,9 +1761,15 @@ interface StatsComparisonItem {
                           !profile.user()?.school?.name
                         ) {
                           <div class="madden-empty">
-                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
-                            <h3>{{ emptyState().title }}</h3>
-                            <p>{{ emptyState().message }}</p>
+                            <nxt1-icon name="school" [size]="48" />
+                            <h3>No academic info yet</h3>
+                            <p>
+                              @if (profile.isOwnProfile()) {
+                                Add GPA, test scores, and school details to strengthen your profile.
+                              } @else {
+                                This athlete hasn't added academic information yet.
+                              }
+                            </p>
                             @if (profile.isOwnProfile()) {
                               <button
                                 type="button"
@@ -1854,9 +1828,15 @@ interface StatsComparisonItem {
 
                         @if (scheduleEvents().length === 0) {
                           <div class="madden-empty">
-                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
-                            <h3>{{ emptyState().title }}</h3>
-                            <p>{{ emptyState().message }}</p>
+                            <nxt1-icon name="calendar" [size]="48" />
+                            <h3>No schedule yet</h3>
+                            <p>
+                              @if (profile.isOwnProfile()) {
+                                Add games and practices to show your full season schedule.
+                              } @else {
+                                This athlete hasn't added any schedule items yet.
+                              }
+                            </p>
                             @if (profile.isOwnProfile()) {
                               <button type="button" class="madden-cta-btn" (click)="onAddEvent()">
                                 {{ emptyState().ctaLabel }}
@@ -1951,9 +1931,15 @@ interface StatsComparisonItem {
                           !profile.user()?.coachContact
                         ) {
                           <div class="madden-empty">
-                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
-                            <h3>{{ emptyState().title }}</h3>
-                            <p>{{ emptyState().message }}</p>
+                            <nxt1-icon name="mail" [size]="48" />
+                            <h3>Contact info not set</h3>
+                            <p>
+                              @if (profile.isOwnProfile()) {
+                                Add your contact information so coaches can reach you.
+                              } @else {
+                                This athlete hasn't added contact information yet.
+                              }
+                            </p>
                             @if (profile.isOwnProfile()) {
                               <button
                                 type="button"
@@ -2809,7 +2795,6 @@ interface StatsComparisonItem {
         font-size: 10px;
         font-weight: 600;
         letter-spacing: 0.06em;
-        text-transform: uppercase;
         white-space: nowrap;
       }
 
@@ -4507,6 +4492,19 @@ interface StatsComparisonItem {
         align-items: center;
         text-align: center;
         gap: 8px;
+        margin: 24px 0;
+      }
+      .ov-trait-badge {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+      .ov-trait-text {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
       }
       .ov-trait-icon-lg {
         width: 112px;
@@ -4548,6 +4546,7 @@ interface StatsComparisonItem {
         line-height: 1;
       }
       .ov-trait-summary {
+        position: relative;
         font-size: 14px;
         font-weight: 600;
         color: var(--m-text);
@@ -4555,6 +4554,16 @@ interface StatsComparisonItem {
         line-height: 1.45;
         max-width: 320px;
         min-height: calc(1.45em * 4);
+      }
+      .ov-trait-summary__reserve {
+        display: block;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      .ov-trait-summary__typed {
+        position: absolute;
+        inset: 0;
+        display: block;
       }
 
       @media (max-width: 980px) {
@@ -4832,6 +4841,9 @@ interface StatsComparisonItem {
         }
       }
       @media (max-width: 768px) {
+        .madden-top-tabs ::ng-deep .option-scroller--scrollable.option-scroller--md {
+          --scroller-padding: 8px;
+        }
         .ov-top-row {
           grid-template-columns: minmax(0, 1fr);
           gap: 10px;
@@ -4978,15 +4990,26 @@ interface StatsComparisonItem {
         }
         .ov-mobile-xp-section {
           display: flex;
-          flex-direction: column;
+          flex-direction: row;
           align-items: center;
-          gap: 16px;
+          justify-content: space-between;
+          gap: 12px;
           padding: 28px 0 14px;
+          width: 100%;
+        }
+        .ov-mobile-xp-section--centered {
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+        }
+        .ov-mobile-xp-section--centered .ov-mobile-xp-badge-grid {
+          flex: none;
+          justify-content: center;
         }
         .ov-mobile-xp-ring {
           position: relative;
-          width: 130px;
-          height: 130px;
+          width: clamp(92px, 28vw, 112px);
+          height: clamp(92px, 28vw, 112px);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -5027,7 +5050,7 @@ interface StatsComparisonItem {
         }
         .ov-mobile-xp-lvl {
           font-family: var(--nxt1-fontFamily-brand, sans-serif);
-          font-size: 28px;
+          font-size: clamp(20px, 5.5vw, 24px);
           font-weight: 800;
           line-height: 1;
           color: var(--m-text);
@@ -5046,8 +5069,11 @@ interface StatsComparisonItem {
           display: flex;
           align-items: center;
           gap: 8px;
-          justify-content: center;
+          justify-content: flex-start;
           flex-wrap: wrap;
+          flex: 1;
+          min-width: 0;
+          align-content: center;
         }
         .ov-mobile-xp-badge-orb {
           width: 38px;
@@ -5150,6 +5176,21 @@ interface StatsComparisonItem {
           grid-column: 1 / -1;
           align-self: start;
           margin-top: 8px;
+          flex-direction: row-reverse;
+          align-items: center;
+          text-align: left;
+          gap: 14px;
+        }
+        .ov-trait-text {
+          align-items: flex-start;
+          flex: 1;
+        }
+        .ov-trait-icon-lg {
+          width: 88px;
+          height: 88px;
+        }
+        .ov-trait-summary {
+          max-width: none;
         }
         :host {
           height: auto;
@@ -5159,34 +5200,34 @@ interface StatsComparisonItem {
         .stage-halftone-dots {
           background-image: radial-gradient(
             circle,
-            color-mix(in srgb, var(--m-accent) 22%, transparent) 1px,
+            color-mix(in srgb, var(--m-accent) 34%, transparent) 1.05px,
             transparent 0.9px
           );
           background-size: 14px 14px;
           mask-image: radial-gradient(
-            ellipse 115% 72% at 50% -6%,
+            ellipse 122% 78% at 50% 10%,
             rgba(0, 0, 0, 0.9) 0%,
-            rgba(0, 0, 0, 0.62) 26%,
-            rgba(0, 0, 0, 0.3) 50%,
-            transparent 74%
+            rgba(0, 0, 0, 0.68) 30%,
+            rgba(0, 0, 0, 0.36) 56%,
+            transparent 80%
           );
           -webkit-mask-image: radial-gradient(
-            ellipse 115% 72% at 50% -6%,
+            ellipse 122% 78% at 50% 10%,
             rgba(0, 0, 0, 0.9) 0%,
-            rgba(0, 0, 0, 0.62) 26%,
-            rgba(0, 0, 0, 0.3) 50%,
-            transparent 74%
+            rgba(0, 0, 0, 0.68) 30%,
+            rgba(0, 0, 0, 0.36) 56%,
+            transparent 80%
           );
-          opacity: 0.78;
+          opacity: 0.95;
         }
         .stage-halftone-fade {
           background: radial-gradient(
-            ellipse 78% 62% at 50% -10%,
-            color-mix(in srgb, var(--m-accent) 16%, transparent) 0%,
-            color-mix(in srgb, var(--m-accent) 8%, transparent) 36%,
-            transparent 72%
+            ellipse 86% 72% at 50% 8%,
+            color-mix(in srgb, var(--m-accent) 26%, transparent) 0%,
+            color-mix(in srgb, var(--m-accent) 13%, transparent) 42%,
+            transparent 78%
           );
-          opacity: 0.84;
+          opacity: 0.98;
         }
         .profile-main {
           height: auto;
@@ -5198,6 +5239,16 @@ interface StatsComparisonItem {
           min-height: 0;
           overflow: visible;
           flex-shrink: 1;
+        }
+        /* Pin halftone background to viewport height so it never shifts between tabs */
+        .stage-halftone-bg {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          height: 100dvh;
+          z-index: 0;
         }
         .madden-split {
           height: auto;
@@ -5213,7 +5264,7 @@ interface StatsComparisonItem {
           display: none;
         }
         .madden-content-layer {
-          padding: 12px;
+          padding: 12px 0 0;
           flex-direction: column;
           gap: 0;
           min-height: auto;
@@ -5224,13 +5275,21 @@ interface StatsComparisonItem {
         }
         .madden-side-nav-column > nxt1-section-nav-web {
           order: 0;
+          width: calc(100% - 24px);
+          margin-inline: 12px;
         }
         .madden-content-scroll {
           order: 1;
           max-width: 100%;
           max-height: none;
           overflow-y: visible;
-          padding: 0;
+          overflow-x: visible;
+          padding: 0 12px 24px;
+          align-items: stretch;
+          scrollbar-gutter: auto;
+        }
+        .madden-content-scroll > * {
+          max-width: none;
         }
         .madden-split-left {
           max-width: 100%;
@@ -5251,14 +5310,16 @@ interface StatsComparisonItem {
         }
         /* Section nav pills — match profile dark theme on mobile */
         .madden-side-nav-column ::ng-deep .section-nav {
-          gap: 6px;
+          gap: 4px;
+          padding-inline: 2px;
           padding-bottom: 10px;
           border-bottom: none;
+          box-sizing: border-box;
         }
         .madden-side-nav-column ::ng-deep .nav-item {
           width: auto;
-          padding: 6px 14px;
-          font-size: 12px;
+          padding: 6px 10px;
+          font-size: 11px;
           font-weight: 600;
           font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
           letter-spacing: 0.02em;
@@ -5281,8 +5342,10 @@ interface StatsComparisonItem {
           position: static;
           bottom: auto;
           left: auto;
-          width: 100%;
+          width: calc(100% - 24px);
+          margin-inline: 12px;
           margin-top: var(--nxt1-spacing-5);
+          margin-bottom: var(--nxt1-spacing-4);
           border-top: none;
           padding-top: 0;
           border-bottom: none;
@@ -5352,7 +5415,7 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
   // COMPUTED
   // ============================================
 
-  /** Desktop page header title — shows the athlete's name */
+  /** Profile page header title — shows the athlete's name */
   protected readonly desktopTitle = computed(() => {
     const u = this.profile.user();
     if (u?.displayName) return u.displayName;
@@ -5361,7 +5424,7 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
     return (first + ' ' + last).trim() || 'Profile';
   });
 
-  /** Desktop page header subtitle — position + school */
+  /** Profile page header subtitle — position + school */
   protected readonly desktopSubtitle = computed(() => {
     const u = this.profile.user();
     const parts: string[] = [];
@@ -5474,8 +5537,8 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
     return `${filled} ${remaining}`;
   });
 
-  /** Number of badges earned (matches desktop header logic). */
-  private readonly mobileBadgesEarned = computed(() => {
+  /** Number of badges earned (matches page header logic). */
+  protected readonly mobileBadgesEarned = computed(() => {
     const numericBadges =
       this.readUserNumericField('badgesEarned') ??
       this.readUserNumericField('badgeCount') ??
@@ -5491,27 +5554,27 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
     return Math.max(1, Math.round(ovrRating / 6));
   });
 
-  /** Up to 6 desktop-style badges for the mobile hero grid. */
+  /** Up to 10 desktop-style badges for the mobile hero grid. */
   protected readonly mobileDisplayBadges = computed((): ReadonlyArray<MobileHeaderBadge> => {
     const userBadges = (this.profile.user() as unknown as Record<string, unknown> | null)?.[
       'earnedBadges'
     ];
     if (Array.isArray(userBadges) && userBadges.length > 0) {
       const VALID_RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
-      return userBadges.slice(0, 6).map((b: Record<string, unknown>) => ({
+      return userBadges.slice(0, 10).map((b: Record<string, unknown>) => ({
         id: String(b['id'] ?? ''),
         name: String(b['name'] ?? 'Badge'),
-        icon: String(b['icon'] ?? 'star-outline'),
+        icon: String(b['icon'] ?? 'star'),
         rarity: (VALID_RARITIES.includes(String(b['rarity'] ?? ''))
           ? String(b['rarity'])
           : 'common') as MobileHeaderBadge['rarity'],
       }));
     }
-    const count = Math.min(this.mobileBadgesEarned(), 6);
+    const count = Math.min(this.mobileBadgesEarned(), 10);
     return MOBILE_PLACEHOLDER_BADGES.slice(0, count);
   });
 
-  /** How many more badges beyond the displayed 6. */
+  /** How many more badges beyond the displayed 10. */
   protected readonly mobileRemainingBadgeCount = computed(() => {
     const total = this.mobileBadgesEarned();
     const shown = this.mobileDisplayBadges().length;
@@ -5709,20 +5772,20 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
       stats: [
         ...(this.hasSchoolGameLogs()
           ? [
-              { id: 'school-career', label: 'Career', group: 'School' },
+              { id: 'school-career', label: 'School Career', group: 'School' },
               ...this.schoolSeasons().map((s) => ({
                 id: `school-season-${s}`,
-                label: s,
+                label: `School ${s}`,
                 group: 'School',
               })),
             ]
           : []),
         ...(this.hasClubGameLogs()
           ? [
-              { id: 'club-career', label: 'Career', group: 'Club' },
+              { id: 'club-career', label: 'Club Career', group: 'Club' },
               ...this.clubSeasons().map((s) => ({
                 id: `club-season-${s}`,
-                label: s,
+                label: `Club ${s}`,
                 group: 'Club',
               })),
             ]
@@ -7226,7 +7289,7 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
           key: 'twitter',
           label: 'X',
           icon: 'twitter',
-          color: '#ffffff',
+          color: 'currentColor',
           urlPrefix: 'https://x.com/',
           handlePrefix: '@',
         },

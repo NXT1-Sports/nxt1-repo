@@ -11,7 +11,7 @@
 
 import type { FeedPost, FeedPostType, FeedAuthor, FeedMedia } from './feed.types';
 import type { ProfilePost, ProfilePostType } from '../profile/profile.types';
-import type { ProfileUser } from '../profile/profile.types';
+import type { ProfileUser, ProfileOffer, ProfileEvent } from '../profile/profile.types';
 
 // ============================================
 // TYPE MAPPINGS
@@ -156,4 +156,225 @@ export function profilePostsToFeedPosts(
   author: FeedAuthor
 ): readonly FeedPost[] {
   return posts.map((post) => profilePostToFeedPost(post, author));
+}
+
+// ============================================
+// PROFILE OFFER → FEED POST
+// ============================================
+
+/**
+ * Converts a ProfileOffer to a FeedPost for unified timeline rendering.
+ * Creates a rich offer card with college branding.
+ */
+export function profileOfferToFeedPost(offer: ProfileOffer, author: FeedAuthor): FeedPost {
+  const offerLabels: Record<string, string> = {
+    scholarship: 'Scholarship Offer',
+    preferred_walk_on: 'Preferred Walk-On',
+    interest: 'Interest',
+  };
+
+  const title = `${offerLabels[offer.type] ?? 'Offer'} from ${offer.collegeName}`;
+  const content = offer.coachName
+    ? `Received ${(offerLabels[offer.type] ?? 'an offer').toLowerCase()} from ${offer.collegeName}${offer.conference ? ` (${offer.conference})` : ''}. ${offer.coachName ? `Coach ${offer.coachName}` : ''}`
+    : `Received ${(offerLabels[offer.type] ?? 'an offer').toLowerCase()} from ${offer.collegeName}${offer.conference ? ` (${offer.conference})` : ''}`;
+
+  const media: readonly FeedMedia[] = offer.graphicUrl
+    ? [
+        {
+          id: `${offer.id}-graphic`,
+          type: 'image' as const,
+          url: offer.graphicUrl,
+          thumbnailUrl: offer.graphicUrl,
+          altText: `${offer.collegeName} offer graphic`,
+        },
+      ]
+    : [];
+
+  return {
+    id: `activity-offer-${offer.id}`,
+    type: 'offer',
+    visibility: 'public',
+    author,
+    title,
+    content,
+    media,
+    offerData: {
+      collegeName: offer.collegeName,
+      collegeLogoUrl: offer.collegeLogoUrl,
+      offerType:
+        offer.type === 'preferred_walk_on'
+          ? 'preferred-walk-on'
+          : offer.type === 'scholarship'
+            ? 'scholarship'
+            : 'interest',
+      sport: offer.sport,
+      division: offer.division,
+      conference: offer.conference,
+    },
+    engagement: {
+      likeCount: 0,
+      commentCount: 0,
+      shareCount: 0,
+      viewCount: 0,
+      reactionCount: 0,
+      repostCount: 0,
+    },
+    userEngagement: {
+      isLiked: false,
+      isBookmarked: false,
+      isReposted: false,
+      isFollowingAuthor: false,
+      isReacted: false,
+      reactionType: null,
+    },
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: offer.offeredAt,
+    updatedAt: offer.offeredAt,
+  };
+}
+
+// ============================================
+// PROFILE EVENT → FEED POST
+// ============================================
+
+/**
+ * Converts a ProfileEvent to a FeedPost for unified timeline rendering.
+ * Maps event types (visit, camp, combine, showcase) to FeedPost types.
+ */
+export function profileEventToFeedPost(event: ProfileEvent, author: FeedAuthor): FeedPost {
+  const typeMap: Record<string, FeedPostType> = {
+    visit: 'visit',
+    camp: 'camp',
+    combine: 'camp',
+    showcase: 'camp',
+    game: 'game',
+    practice: 'schedule',
+    other: 'schedule',
+  };
+
+  const feedPostType: FeedPostType = typeMap[event.type] ?? 'schedule';
+
+  const media: readonly FeedMedia[] = event.graphicUrl
+    ? [
+        {
+          id: `${event.id}-graphic`,
+          type: 'image' as const,
+          url: event.graphicUrl,
+          thumbnailUrl: event.graphicUrl,
+          altText: `${event.name} graphic`,
+        },
+      ]
+    : [];
+
+  // Build type-specific data
+  const visitData =
+    event.type === 'visit'
+      ? {
+          collegeName:
+            event.name.replace(/\s*(Official|Unofficial)\s*Visit/i, '').trim() || event.name,
+          collegeLogoUrl: event.logoUrl,
+          visitType: event.name.toLowerCase().includes('official')
+            ? ('official' as const)
+            : ('unofficial' as const),
+          location: event.location,
+          visitDate: event.startDate,
+          endDate: event.endDate,
+          graphicUrl: event.graphicUrl,
+        }
+      : undefined;
+
+  const campData =
+    event.type === 'camp' || event.type === 'combine' || event.type === 'showcase'
+      ? {
+          campName: event.name,
+          campType: event.type as 'camp' | 'combine' | 'showcase',
+          location: event.location,
+          eventDate: event.startDate,
+          logoUrl: event.logoUrl,
+          graphicUrl: event.graphicUrl,
+        }
+      : undefined;
+
+  return {
+    id: `activity-event-${event.id}`,
+    type: feedPostType,
+    visibility: 'public',
+    author,
+    title: event.name,
+    content: event.description,
+    media,
+    visitData,
+    campData,
+    location: event.location,
+    engagement: {
+      likeCount: 0,
+      commentCount: 0,
+      shareCount: 0,
+      viewCount: 0,
+      reactionCount: 0,
+      repostCount: 0,
+    },
+    userEngagement: {
+      isLiked: false,
+      isBookmarked: false,
+      isReposted: false,
+      isFollowingAuthor: false,
+      isReacted: false,
+      reactionType: null,
+    },
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: event.startDate,
+    updatedAt: event.startDate,
+  };
+}
+
+// ============================================
+// UNIFIED ACTIVITY FEED BUILDER
+// ============================================
+
+/**
+ * Builds a unified activity feed by merging all profile sections into
+ * a chronologically sorted array of FeedPosts.
+ *
+ * This is the core function for the unified timeline — every profile
+ * section (posts, offers, events, etc.) gets converted to FeedPost
+ * and sorted newest-first.
+ *
+ * @param posts - User's timeline posts
+ * @param offers - Recruiting offers
+ * @param events - Visits, camps, combines, showcases
+ * @param author - Profile owner as FeedAuthor
+ * @returns Chronologically sorted (newest first) unified FeedPost array
+ */
+export function buildUnifiedActivityFeed(
+  posts: readonly ProfilePost[],
+  offers: readonly ProfileOffer[],
+  events: readonly ProfileEvent[],
+  author: FeedAuthor
+): readonly FeedPost[] {
+  const feedPosts: FeedPost[] = [];
+
+  // Convert posts
+  for (const post of posts) {
+    feedPosts.push(profilePostToFeedPost(post, author));
+  }
+
+  // Convert offers
+  for (const offer of offers) {
+    feedPosts.push(profileOfferToFeedPost(offer, author));
+  }
+
+  // Convert events
+  for (const event of events) {
+    feedPosts.push(profileEventToFeedPost(event, author));
+  }
+
+  // Sort newest first
+  feedPosts.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  return feedPosts;
 }

@@ -193,6 +193,7 @@ export interface ProfileShellUser {
               @case ('timeline') {
                 <nxt1-profile-timeline
                   [posts]="profile.filteredPosts()"
+                  [unifiedFeed]="profile.unifiedTimeline()"
                   [profileUser]="profile.user()"
                   [isLoading]="false"
                   [isLoadingMore]="profile.isLoadingMore()"
@@ -316,7 +317,7 @@ export interface ProfileShellUser {
                 <div class="stats-section">
                   @if (profile.athleticStats().length === 0) {
                     <div class="section-empty">
-                      <nxt1-icon name="stats-chart" [size]="48" />
+                      <nxt1-icon name="barChart" [size]="48" />
                       <h3>No stats recorded</h3>
                       <p>Add your athletic and academic stats to complete your profile.</p>
                       @if (profile.isOwnProfile()) {

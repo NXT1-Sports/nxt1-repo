@@ -124,12 +124,7 @@ describe('User Model Type Guards', () => {
       expect(isOnboarded(user)).toBe(true);
     });
 
-    it('should return true when completeSignUp is true (legacy)', () => {
-      const user = createMockUser({ completeSignUp: true });
-      expect(isOnboarded(user)).toBe(true);
-    });
-
-    it('should return false when neither flag is set', () => {
+    it('should return false when flag is not set', () => {
       const user = createMockUser();
       expect(isOnboarded(user)).toBe(false);
     });
@@ -229,16 +224,6 @@ describe('User Model Helper Functions', () => {
       expect(playsSport(user, 'football')).toBe(true);
     });
 
-    it('should return true for legacy primarySport', () => {
-      const user = createMockUser({ primarySport: 'Football' });
-      expect(playsSport(user, 'Football')).toBe(true);
-    });
-
-    it('should return true for legacy secondarySport', () => {
-      const user = createMockUser({ secondarySport: 'Basketball' });
-      expect(playsSport(user, 'Basketball')).toBe(true);
-    });
-
     it('should return false for sport not played', () => {
       const user = createMockUser({
         sports: [createMockSportProfile({ sport: 'Football' })],
@@ -254,18 +239,13 @@ describe('User Model Helper Functions', () => {
           createMockSportProfile({
             sport: 'Football',
             recruiting: {
-              offers: [
-                { collegeId: 'c1', collegeName: 'U1', sport: 'Football' },
-                { collegeId: 'c2', collegeName: 'U2', sport: 'Football' },
-              ],
-              interactions: [],
+              offerCount: 2,
             },
           }),
           createMockSportProfile({
             sport: 'Basketball',
             recruiting: {
-              offers: [{ collegeId: 'c3', collegeName: 'U3', sport: 'Basketball' }],
-              interactions: [],
+              offerCount: 1,
             },
           }),
         ],
@@ -285,31 +265,25 @@ describe('User Model Helper Functions', () => {
   });
 
   describe('getAllAwards', () => {
-    it('should collect awards from all sports', () => {
+    it('should collect awards from user top-level', () => {
       const user = createMockUser({
-        sports: [
-          createMockSportProfile({ sport: 'Football', awards: ['MVP', 'All-State'] }),
-          createMockSportProfile({ sport: 'Basketball', awards: ['Best Player'] }),
+        awards: [
+          { title: 'MVP', category: 'athletic', sport: 'Football' },
+          { title: 'All-State', category: 'athletic', sport: 'Football' },
+          { title: 'Best Player', category: 'athletic', sport: 'Basketball' },
         ],
       });
       const awards = getAllAwards(user);
-      expect(awards).toContain('MVP');
-      expect(awards).toContain('All-State');
-      expect(awards).toContain('Best Player');
+      expect(awards.length).toBe(3);
+      expect(awards[0].title).toBe('MVP');
+      expect(awards[1].title).toBe('All-State');
+      expect(awards[2].title).toBe('Best Player');
     });
 
-    it('should include legacy awards', () => {
-      const user = createMockUser({ awards: [{ award: 'Legacy Award' }] });
-      expect(getAllAwards(user)).toContain('Legacy Award');
-    });
-
-    it('should deduplicate awards', () => {
-      const user = createMockUser({
-        sports: [createMockSportProfile({ awards: ['MVP'] })],
-        awards: [{ award: 'MVP' }],
-      });
+    it('should return empty array when no awards', () => {
+      const user = createMockUser();
       const awards = getAllAwards(user);
-      expect(awards.filter((a) => a === 'MVP').length).toBe(1);
+      expect(awards.length).toBe(0);
     });
   });
 
@@ -328,11 +302,6 @@ describe('User Model Helper Functions', () => {
       const user = createMockUser({ sports: [createMockSportProfile()] });
       expect(isMultiSport(user)).toBe(false);
     });
-
-    it('should return true with legacy primary and secondary sport', () => {
-      const user = createMockUser({ primarySport: 'Football', secondarySport: 'Basketball' });
-      expect(isMultiSport(user)).toBe(true);
-    });
   });
 
   describe('isCommitted', () => {
@@ -341,8 +310,6 @@ describe('User Model Helper Functions', () => {
         sports: [
           createMockSportProfile({
             recruiting: {
-              offers: [],
-              interactions: [],
               commitment: {
                 collegeId: 'college-1',
                 collegeName: 'State U',
@@ -354,11 +321,6 @@ describe('User Model Helper Functions', () => {
           }),
         ],
       });
-      expect(isCommitted(user)).toBe(true);
-    });
-
-    it('should return true when legacy isCommitted is true', () => {
-      const user = createMockUser({ isCommitted: true });
       expect(isCommitted(user)).toBe(true);
     });
 

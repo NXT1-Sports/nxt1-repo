@@ -99,12 +99,12 @@ export type BackButtonVariant = 'default' | 'floating' | 'ghost' | 'solid';
         --nxt1-back-button-transition: var(--nxt1-motion-duration-fast, 150ms)
           var(--nxt1-motion-easing-standard, ease-out);
 
-        /* Color tokens */
+        /* Color tokens — theme-aware with neutral fallbacks */
         --nxt1-back-button-color: var(--nxt1-color-text-primary, currentColor);
         --nxt1-back-button-color-hover: var(--nxt1-color-text-primary, currentColor);
         --nxt1-back-button-bg: transparent;
-        --nxt1-back-button-bg-hover: var(--nxt1-color-state-hover, rgba(255, 255, 255, 0.08));
-        --nxt1-back-button-bg-active: var(--nxt1-color-state-pressed, rgba(255, 255, 255, 0.12));
+        --nxt1-back-button-bg-hover: var(--nxt1-color-surface-300, rgba(0, 0, 0, 0.06));
+        --nxt1-back-button-bg-active: var(--nxt1-color-surface-400, rgba(0, 0, 0, 0.1));
       }
 
       .nxt1-back-button {
@@ -198,17 +198,18 @@ export type BackButtonVariant = 'default' | 'floating' | 'ghost' | 'solid';
         pointer-events: none;
       }
 
-      /* Variant: Floating (elevated with shadow) */
+      /* Variant: Floating (elevated with shadow) — theme-aware */
       .nxt1-back-button--floating {
-        background: var(--nxt1-color-surface-elevated, rgba(20, 20, 20, 0.9));
-        box-shadow: var(--nxt1-shadow-md, 0 4px 12px rgba(0, 0, 0, 0.15));
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
+        background: var(--nxt1-color-bg-elevated, var(--nxt1-color-surface-200, #f5f5f5));
+        box-shadow: var(--nxt1-shadow-md, 0 4px 12px rgba(0, 0, 0, 0.12));
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.08));
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
       }
 
       .nxt1-back-button--floating:hover:not(:disabled) {
-        background: var(--nxt1-color-surface-elevated, rgba(30, 30, 30, 0.95));
-        box-shadow: var(--nxt1-shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.2));
+        background: var(--nxt1-color-surface-300, var(--nxt1-color-bg-elevated, #eeeeee));
+        box-shadow: var(--nxt1-shadow-lg, 0 8px 24px rgba(0, 0, 0, 0.16));
       }
 
       /* Variant: Ghost (minimal, no background) */
@@ -220,13 +221,13 @@ export type BackButtonVariant = 'default' | 'floating' | 'ghost' | 'solid';
         background: var(--nxt1-back-button-bg-hover);
       }
 
-      /* Variant: Solid (always has background) */
+      /* Variant: Solid (always has background) — theme-aware */
       .nxt1-back-button--solid {
-        background: var(--nxt1-color-surface-secondary, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-200, var(--nxt1-color-bg-secondary, #fafafa));
       }
 
       .nxt1-back-button--solid:hover:not(:disabled) {
-        background: var(--nxt1-color-surface-tertiary, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-surface-300, var(--nxt1-color-bg-tertiary, #f5f5f5));
       }
 
       /* Icon wrapper - sizes controlled by design tokens */

@@ -39,22 +39,6 @@ import { MOCK_ATHLETES, MOCK_COLLEGES, MOCK_TEAMS, MOCK_VIDEOS } from '../explor
 import { NxtAvatarComponent } from '../../components/avatar';
 import type { ExploreUser } from '../explore-shell.component';
 
-/** Quick-access category tile shown in the discovery grid */
-interface CategoryTile {
-  readonly id: ExploreTabId;
-  readonly label: string;
-  readonly emoji: string;
-}
-
-const CATEGORY_TILES: readonly CategoryTile[] = [
-  { id: 'colleges', label: 'Colleges', emoji: '🎓' },
-  { id: 'athletes', label: 'Athletes', emoji: '🏃' },
-  { id: 'teams', label: 'Teams', emoji: '🏆' },
-  { id: 'videos', label: 'Videos', emoji: '🎬' },
-  { id: 'leaderboards', label: 'Leaderboards', emoji: '📊' },
-  { id: 'camps', label: 'Camps', emoji: '⛺' },
-] as const;
-
 /** SVG icon paths keyed by name */
 const ICONS = {
   sparkles:
@@ -74,26 +58,6 @@ const ICONS = {
   imports: [CommonModule, NxtAvatarComponent],
   template: `
     <section class="for-you" aria-label="For You — personalized explore">
-      <!-- ── Category Quick Access ────────────────────────── -->
-      <div class="section animate-section">
-        <div class="section__header">
-          <h2 class="section__title">Browse Categories</h2>
-        </div>
-        <nav class="category-grid" aria-label="Content categories">
-          @for (tile of categoryTiles; track tile.id) {
-            <button
-              type="button"
-              class="category-tile"
-              [attr.aria-label]="'Browse ' + tile.label"
-              (click)="onCategoryTap(tile.id)"
-            >
-              <span class="category-tile__icon" aria-hidden="true">{{ tile.emoji }}</span>
-              <span class="category-tile__label">{{ tile.label }}</span>
-            </button>
-          }
-        </nav>
-      </div>
-
       <!-- ── Trending Athletes ─────────────────────────────── -->
       <div class="section animate-section">
         <div class="section__header">
@@ -426,60 +390,6 @@ const ICONS = {
       .see-all-btn__icon {
         width: 16px;
         height: 16px;
-      }
-
-      /* ── CATEGORY GRID ── */
-
-      .category-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: var(--nxt1-spacing-2, 8px);
-        padding: 0 var(--nxt1-spacing-6, 24px);
-      }
-
-      @media (min-width: 640px) {
-        .category-grid {
-          grid-template-columns: repeat(6, 1fr);
-        }
-      }
-
-      .category-tile {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: var(--nxt1-spacing-2, 8px);
-        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-2, 8px);
-        background: var(--fy-surface);
-        border: 1px solid var(--fy-border);
-        border-radius: var(--fy-radius-md);
-        cursor: pointer;
-        transition:
-          background-color var(--fy-duration-fast) ease,
-          transform var(--fy-duration-fast) ease,
-          border-color var(--fy-duration-fast) ease;
-      }
-
-      .category-tile:hover {
-        background: var(--fy-surface-hover);
-        border-color: color-mix(in srgb, var(--fy-primary) 25%, transparent);
-        transform: translateY(-2px);
-      }
-
-      .category-tile:active {
-        transform: scale(0.96);
-      }
-
-      .category-tile__icon {
-        font-size: 24px;
-        line-height: 1;
-      }
-
-      .category-tile__label {
-        font-size: var(--nxt1-fontSize-xs, 12px);
-        font-weight: var(--nxt1-fontWeight-medium, 500);
-        color: var(--fy-text-secondary);
-        text-align: center;
-        line-height: 1.2;
       }
 
       /* ── HORIZONTAL SCROLL ── */
@@ -896,7 +806,6 @@ const ICONS = {
           transition: none;
         }
 
-        .category-tile,
         .athlete-card,
         .college-card,
         .video-card,
@@ -929,7 +838,6 @@ export class ExploreForYouWebComponent {
   readonly categorySelect = output<ExploreTabId>();
 
   // ── Constants ────────────────────────────────────────────
-  protected readonly categoryTiles = CATEGORY_TILES;
   protected readonly icons = ICONS;
 
   // ── Computed mock data slices ────────────────────────────
@@ -952,10 +860,6 @@ export class ExploreForYouWebComponent {
   }
 
   protected onSeeAllTap(tab: ExploreTabId): void {
-    this.categorySelect.emit(tab);
-  }
-
-  protected onCategoryTap(tab: ExploreTabId): void {
     this.categorySelect.emit(tab);
   }
 

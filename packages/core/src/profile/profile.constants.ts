@@ -105,14 +105,14 @@ export const PROFILE_VERIFICATION_HIDDEN_TABS: ReadonlySet<ProfileTabId> = new S
 
 /**
  * Sub-filters within the Timeline tab.
- * Allows users to quickly switch between All, Pinned, and Media posts.
+ * Allows users to quickly filter by activity type.
  */
 export const PROFILE_TIMELINE_FILTERS: readonly ProfileTimelineFilter[] = [
   {
     id: 'all',
-    label: 'All Posts',
+    label: 'All Activity',
     icon: 'newspaper',
-    emptyTitle: 'No posts yet',
+    emptyTitle: 'No activity yet',
     emptyMessage: 'Start sharing your journey',
   },
   {
@@ -128,6 +128,34 @@ export const PROFILE_TIMELINE_FILTERS: readonly ProfileTimelineFilter[] = [
     icon: 'image',
     emptyTitle: 'No media posts',
     emptyMessage: 'Share photos and videos to showcase your talent',
+  },
+  {
+    id: 'offers',
+    label: 'Offers',
+    icon: 'trophy',
+    emptyTitle: 'No offers yet',
+    emptyMessage: 'Recruiting offers and interest will appear here',
+  },
+  {
+    id: 'events',
+    label: 'Events',
+    icon: 'calendar',
+    emptyTitle: 'No events yet',
+    emptyMessage: 'Visits, camps, and showcases will appear here',
+  },
+  {
+    id: 'stats',
+    label: 'Stats',
+    icon: 'stats-chart',
+    emptyTitle: 'No stat updates',
+    emptyMessage: 'Game stats and performance updates will appear here',
+  },
+  {
+    id: 'news',
+    label: 'News',
+    icon: 'newspaper-outline',
+    emptyTitle: 'No news mentions',
+    emptyMessage: 'News articles and media mentions will appear here',
   },
 ] as const;
 

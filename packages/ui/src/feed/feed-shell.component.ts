@@ -38,21 +38,10 @@ import {
   IonContent,
   IonRefresher,
   IonRefresherContent,
-  IonIcon,
   IonFab,
   IonFabButton,
 } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  addOutline,
-  arrowUpOutline,
-  sparklesOutline,
-  peopleOutline,
-  footballOutline,
-  schoolOutline,
-  playCircleOutline,
-  trendingUpOutline,
-} from 'ionicons/icons';
+import { NxtIconComponent } from '../components/icon';
 import {
   type FeedPost,
   type FeedAuthor,
@@ -77,7 +66,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
     IonContent,
     IonRefresher,
     IonRefresherContent,
-    IonIcon,
+    NxtIconComponent,
     IonFab,
     IonFabButton,
     NxtOptionScrollerComponent,
@@ -96,7 +85,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
       <!-- New Posts Banner -->
       @if (feedService.hasNewPosts()) {
         <button type="button" class="feed-shell__new-posts" (click)="onLoadNewPosts()">
-          <ion-icon name="arrow-up-outline"></ion-icon>
+          <nxt1-icon name="arrowUp" [size]="16" />
           <span>{{ feedService.newPostsCount() }} new posts</span>
         </button>
       }
@@ -138,7 +127,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
       <!-- Floating Action Button (Create Post) -->
       <ion-fab slot="fixed" vertical="bottom" horizontal="end">
         <ion-fab-button (click)="onCreatePostClick()" aria-label="Create post">
-          <ion-icon name="add-outline"></ion-icon>
+          <nxt1-icon name="plus" [size]="24" />
         </ion-fab-button>
       </ion-fab>
     </div>
@@ -278,19 +267,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeedShellComponent implements OnInit {
-  constructor() {
-    addIcons({
-      addOutline,
-      arrowUpOutline,
-      sparklesOutline,
-      peopleOutline,
-      footballOutline,
-      schoolOutline,
-      playCircleOutline,
-      trendingUpOutline,
-    });
-  }
-
   protected readonly feedService = inject(FeedService);
   private readonly haptics = inject(HapticsService);
   private readonly elementRef = inject(ElementRef);

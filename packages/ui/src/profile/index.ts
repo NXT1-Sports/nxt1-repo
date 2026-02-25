@@ -43,8 +43,8 @@ export { ProfileHeaderComponent } from './profile-header.component';
 // Web-optimized header (YouTube-style, Tailwind, zero Ionic)
 export { ProfileHeaderWebComponent } from './web/profile-header-web.component';
 
-// Madden-style desktop page header for profile
-export { ProfileDesktopHeaderComponent } from './web/profile-desktop-header.component';
+// Madden-style profile page header
+export { ProfilePageHeaderComponent } from './web/profile-page-header.component';
 
 // Related Athletes discovery row
 export { RelatedAthletesComponent, type RelatedAthlete } from './web/related-athletes.component';
@@ -72,5 +72,6 @@ export {
   MOCK_OFFERS,
   MOCK_ATHLETIC_STATS,
   MOCK_EVENTS,
+  MOCK_ACTIVITY_FEED_ITEMS,
   MOCK_PROFILE_PAGE_DATA,
 } from './profile.mock-data';

@@ -26,7 +26,7 @@ import {
   homeOutline,
   airplaneOutline,
 } from 'ionicons/icons';
-import type { ScheduleEvent, ScheduleActionEvent } from '@nxt1/core';
+import type { TeamScheduleEvent, ScheduleActionEvent } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-manage-team-schedule-section',
@@ -610,7 +610,7 @@ export class ManageTeamScheduleSectionComponent {
   }
 
   /** Schedule events */
-  readonly events = input<readonly ScheduleEvent[]>([]);
+  readonly events = input<readonly TeamScheduleEvent[]>([]);
 
   /** Action event */
   readonly action = output<ScheduleActionEvent>();
@@ -639,7 +639,7 @@ export class ManageTeamScheduleSectionComponent {
     this.action.emit({ action: 'add' });
   }
 
-  onEventMenu(event: ScheduleEvent, e: Event): void {
+  onEventMenu(event: TeamScheduleEvent, e: Event): void {
     e.stopPropagation();
     this.action.emit({ action: 'edit', eventId: event.id, event });
   }

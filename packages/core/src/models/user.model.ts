@@ -40,51 +40,10 @@ import {
 export const USER_SCHEMA_VERSION = 2;
 
 // ============================================
-// LEGACY TYPES - Moved to ./legacy/user-legacy.model.ts
-// Imported here for use in deprecated User interface fields.
-// Do NOT use these types in new code.
+// LEGACY TYPES - Only import what is still referenced on User interface.
+// Full legacy types live in ./legacy/user-legacy.model.ts (not re-exported).
 // ============================================
-import type {
-  PlayerTag,
-  primarySportStat,
-  GameStat,
-  College,
-  CollegeVisits,
-  CollegeCamp,
-  recentGame,
-  Event,
-  Award,
-  personalBest,
-  Session,
-  TeamCustomLink,
-  OwnTemplate,
-  OwnMixtape,
-  OwnProfile,
-  UserPost,
-  GameClipsCollection,
-} from './legacy/user-legacy.model';
-export type {
-  StatData,
-  SportInfo,
-  PlayerTag,
-  primarySportStat,
-  GameStat,
-  LegacyCollege,
-  College,
-  CollegeVisits,
-  CollegeCamp,
-  recentGame,
-  Event,
-  Award,
-  personalBest,
-  Session,
-  TeamCustomLink,
-  OwnTemplate,
-  OwnMixtape,
-  OwnProfile,
-  UserPost,
-  GameClipsCollection,
-} from './legacy/user-legacy.model';
+import type { TeamCustomLink } from './legacy/user-legacy.model';
 
 // TeamCode — imported from team-code model for use in the User interface
 import type { TeamCode } from './team-code.model';
@@ -104,10 +63,13 @@ export interface Location {
 }
 
 // ============================================
-// SOCIAL & CONTACT
+// SOCIAL & CONTACT (legacy — still used by team-code.model & auth.routes)
 // ============================================
 
-/** Social media links */
+/**
+ * @deprecated Use SocialLink[] (agnostic array) instead.
+ * Kept temporarily — team-code.model.ts and auth.routes.ts still reference this.
+ */
 export interface SocialLinks {
   twitter?: string | null;
   instagram?: string | null;
@@ -118,29 +80,250 @@ export interface SocialLinks {
   linkedin?: string | null;
 }
 
-/** Contact information */
+/**
+ * @deprecated Use a dedicated contact fields approach.
+ * Kept temporarily — team-code.model.ts and auth.routes.ts still reference this.
+ */
 export interface ContactInfo {
   email: string;
   phone?: string | null;
 }
 
-/** Connected email accounts for campaigns */
-export interface ConnectedAccounts {
-  gmail?: {
-    token: string;
-    email: string;
-    connectedAt: Date | string;
+// ============================================
+// SOCIAL LINK (agnostic, array-based)
+// ============================================
+
+/**
+ * Platform-agnostic social link.
+ * Replaces hardcoded SocialLinks interface.
+ * Stored as an array on User.social.
+ */
+export interface SocialLink {
+  /** Platform identifier (e.g., 'twitter', 'instagram', 'hudl', 'maxpreps') */
+  platform: string;
+  /** Full URL to the social profile */
+  url: string;
+  /** Display username/handle (without @) */
+  username?: string;
+  /** Display order (lower = first) */
+  displayOrder?: number;
+  /** Whether this link has been verified by the platform or Agent X */
+  verified?: boolean;
+}
+
+// ============================================
+// CONNECTED SOURCES (Agent X sync)
+// ============================================
+
+/**
+ * Agnostic connected source for Agent X AI sync.
+ * Represents any external profile that is linked and scraped.
+ * Platform is NOT hardcoded — supports any source.
+ */
+export interface ConnectedSource {
+  /** Platform identifier (e.g., 'maxpreps', 'hudl', 'perfect-game') */
+  platform: string;
+  /** URL of the external profile */
+  profileUrl: string;
+  /** When Agent X last synced data from this source */
+  lastSyncedAt?: Date | string;
+  /** Current sync status */
+  syncStatus?: 'idle' | 'syncing' | 'error' | 'success';
+  /** Fields that were synced from this source (for auditability) */
+  syncedFields?: string[];
+  /** Error message if sync failed */
+  lastError?: string;
+}
+
+// ============================================
+// CONNECTED EMAIL (metadata only — tokens live in sub-collection)
+// ============================================
+
+// EmailProvider is defined in campaigns.model.ts ('gmail' | 'microsoft' | 'yahoo' | 'system')
+import type { EmailProvider } from './campaigns.model';
+export type { EmailProvider } from './campaigns.model';
+
+/**
+ * Connected email account metadata (stored on User doc).
+ * Tokens are NEVER stored here — they live in:
+ *   users/{uid}/emailTokens/{provider}
+ *
+ * This is the 2026 security best practice: User doc is readable by
+ * many services; tokens should only be accessible to backend email services.
+ */
+export interface ConnectedEmail {
+  /** Email address */
+  email: string;
+  /** Provider identifier */
+  provider: EmailProvider;
+  /** Whether this connection is currently active */
+  isActive: boolean;
+  /** When the account was connected */
+  connectedAt: Date | string;
+  /** Last time email was sent through this account */
+  lastUsedAt?: Date | string;
+  /** Last error (if any) — no sensitive details */
+  lastError?: string;
+  /** When last error occurred */
+  lastErrorAt?: Date | string;
+}
+
+/**
+ * OAuth token data for a connected email account.
+ * Stored in Firestore sub-collection: users/{uid}/emailTokens/{provider}
+ * NEVER stored on the User document.
+ */
+export interface EmailTokenData {
+  /** Provider identifier */
+  provider: EmailProvider;
+  /** OAuth access token (encrypted at rest) */
+  accessToken: string;
+  /** OAuth refresh token (encrypted at rest) */
+  refreshToken?: string;
+  /** When the access token expires */
+  tokenExpiresAt?: Date | string;
+  /** When tokens were last refreshed */
+  lastRefreshedAt?: Date | string;
+}
+
+// ============================================
+// IMAGES
+// ============================================
+
+/** User's image collection */
+export interface UserImages {
+  /** Profile picture URL */
+  profileImg?: string | null;
+  /** Banner/cover image URL */
+  bannerImg?: string | null;
+  /** Gallery images (max enforced by backend) */
+  gallery?: string[];
+}
+
+// ============================================
+// VERIFICATION
+// ============================================
+
+/** User verification status */
+export type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'premium';
+
+// ============================================
+// TEAM HISTORY
+// ============================================
+
+/** A team affiliation entry (past or current) */
+export interface TeamHistoryEntry {
+  /** Team/school/club name */
+  name: string;
+  /** Team type */
+  type: TeamType;
+  /** Team logo URL */
+  logoUrl?: string;
+  /** Sport this team is for */
+  sport?: string;
+  /** Location */
+  location?: Pick<Location, 'city' | 'state'>;
+  /** Season record with this team */
+  record?: {
+    wins?: number;
+    losses?: number;
+    ties?: number;
   };
-  microsoft?: {
-    token: string;
-    email: string;
-    connectedAt: Date | string;
-  };
-  yahoo?: {
-    token: string;
-    email: string;
-    connectedAt: Date | string;
-  };
+  /** When the athlete joined */
+  startDate?: Date | string;
+  /** When the athlete left (undefined = still active) */
+  endDate?: Date | string;
+  /** Whether this is the current team */
+  isCurrent?: boolean;
+}
+
+// ============================================
+// AWARDS
+// ============================================
+
+/** A user award/honor */
+export interface UserAward {
+  /** Award title (e.g., 'All-Conference First Team') */
+  title: string;
+  /** Category of the award (optional, free-form) */
+  category?: string;
+  /** Sport (if athletic award) */
+  sport?: string;
+  /** Season or year */
+  season?: string;
+  /** Issuing organization */
+  issuer?: string;
+  /** Date received */
+  date?: Date | string;
+}
+
+// ============================================
+// SPORT VERIFICATION
+// ============================================
+
+/** Verification info for a sport profile's data */
+export interface SportVerification {
+  /** Who verified measurables (e.g., 'NXT1 Verified', 'Combine Results') */
+  measurablesVerifiedBy?: string;
+  /** URL to verification source */
+  measurablesVerifiedUrl?: string;
+  /** Who verified stats */
+  statsVerifiedBy?: string;
+  /** URL to stats verification source */
+  statsVerifiedUrl?: string;
+  /** When the verification occurred */
+  verifiedAt?: Date | string;
+}
+
+// ============================================
+// AGENT X / SCOUTING (source-of-truth types)
+// Note: Display-only DTO versions exist in profile.types.ts
+// ============================================
+
+/** Player archetype assigned by Agent X */
+export interface PlayerArchetype {
+  /** Archetype name (e.g., 'Floor General', 'Pocket Passer') */
+  name: string;
+  /** Emoji representing the archetype */
+  emoji: string;
+  /** Short description */
+  description: string;
+}
+
+/** Agent X trait analysis */
+export interface AgentXTrait {
+  /** Trait name */
+  name: string;
+  /** Detailed description */
+  description?: string;
+  /** Confidence score (0-1) */
+  confidence?: number;
+}
+
+// ============================================
+// RECRUITING SUMMARY (denormalized on SportProfile)
+// ============================================
+
+/**
+ * Lean recruiting summary stored on SportProfile.
+ * Full offer/interaction data lives in sub-collections.
+ * Backend keeps offerCount/interestCount in sync.
+ */
+export interface RecruitingSummary {
+  /** Commitment information (if committed) */
+  commitment?: Commitment;
+  /** Target recruitment level (D1, D2, D3, NAIA, JUCO) */
+  level?: string;
+  /** Denormalized count of offers (synced from sub-collection) */
+  offerCount?: number;
+  /** Denormalized count of interests (synced from sub-collection) */
+  interestCount?: number;
+  /** Player rating (1-5) */
+  rating?: number;
+  /** Who rated the player */
+  ratedBy?: string;
+  /** Recruiting tags/notes */
+  tags?: string[];
 }
 
 // ============================================
@@ -185,16 +368,160 @@ export interface CoachContact {
 }
 
 // ============================================
-// SPORT PROFILE
+// DATA SOURCE (shared across all verified data)
 // ============================================
 
 /**
- * Athletic measurements and metrics
- * Dynamic record - fields vary by sport
+ * Where a data point originated.
+ * Fully agnostic for 2026+ integrations.
+ *
+ * Examples: 'maxpreps', 'hudl', 'agent-x', 'ncaa', custom partner IDs,
+ * internal pipelines, and future providers not known at compile time.
+ */
+export type DataSource = string;
+
+// ============================================
+// VERIFIED METRIC (2026 Agentic Architecture)
+// ============================================
+
+/**
+ * A single verified athletic measurement / combine metric.
+ * Replaces the old `AthleticMetrics` Record<string, any>.
+ *
+ * Self-describing: the UI renders directly from `label` + `value` + `unit`
+ * without needing to know the sport or parse camelCase keys.
+ *
+ * Stored on SportProfile.verifiedMetrics (lean subset) and in
+ * sub-collection users/{uid}/sports/{sportId}/metrics/{metricId}
+ * for full history.
+ */
+export interface VerifiedMetric {
+  /** Unique identifier (e.g., 'forty_yard_dash_2025-06-15') */
+  id: string;
+  /** Machine key matching FieldDefinition.field (e.g., '40_yard_dash') */
+  field: string;
+  /** Display-ready label (e.g., '40-Yard Dash') */
+  label: string;
+  /** Metric value */
+  value: string | number;
+  /** Unit of measurement (e.g., 's', 'lbs', 'in', 'ft', 'mph') */
+  unit?: string;
+  /** Grouping category (e.g., 'speed', 'strength', 'agility', 'physical') */
+  category?: string;
+  /** Where this data came from */
+  source: DataSource;
+  /** Whether this metric has been verified by a trusted source */
+  verified: boolean;
+  /** Who/what verified it (e.g., 'MaxPreps', 'PrepSports Regional Combine') */
+  verifiedBy?: string;
+  /** When the metric was recorded/measured */
+  dateRecorded?: Date | string;
+  /** When this record was last updated */
+  updatedAt?: Date | string;
+}
+
+// ============================================
+// VERIFIED STAT (2026 Agentic Architecture)
+// ============================================
+
+/**
+ * A single verified game/season statistic.
+ * Replaces the old `SeasonStats.stats` Record<string, any>.
+ *
+ * Self-describing: the UI renders directly from `label` + `value`
+ * without needing to know the sport.
+ *
+ * Stored in sub-collection:
+ *   users/{uid}/sports/{sportId}/stats/{statId}
+ *
+ * Agent X curates the top stats onto SportProfile.featuredStats
+ * for instant profile page loads.
+ */
+export interface VerifiedStat {
+  /** Unique identifier */
+  id: string;
+  /** Machine key matching FieldDefinition.field (e.g., 'passing_yards') */
+  field: string;
+  /** Display-ready label (e.g., 'Passing Yards') */
+  label: string;
+  /** Stat value */
+  value: string | number;
+  /** Unit (if applicable, e.g., 'yds', 'avg') */
+  unit?: string;
+  /** Grouping category (e.g., 'offense', 'defense', 'special_teams') */
+  category?: string;
+  /** Season identifier (e.g., '2025-2026') */
+  season?: string;
+  /** Where this data came from */
+  source: DataSource;
+  /** Whether this stat has been verified by a trusted source */
+  verified: boolean;
+  /** Who/what verified it */
+  verifiedBy?: string;
+  /** Date the stat was recorded */
+  dateRecorded?: Date | string;
+  /** When this record was last updated */
+  updatedAt?: Date | string;
+}
+
+// ============================================
+// SCHEDULE EVENT (2026 Agentic Architecture)
+// ============================================
+
+/**
+ * A scheduled event on the athlete's calendar.
+ * Agnostic container — supports games, camps, visits, tournaments, etc.
+ *
+ * Stored in sub-collection:
+ *   users/{uid}/schedule/{eventId}
+ *
+ * Agent X pins upcoming events onto SportProfile.upcomingEvents
+ * for instant profile page loads.
+ */
+export interface ScheduleEvent {
+  /** Unique identifier */
+  id: string;
+  /** Event type */
+  eventType: 'game' | 'camp' | 'visit' | 'tournament' | 'combine' | 'tryout' | 'practice' | 'other';
+  /** Event title (e.g., 'vs. Mater Dei', 'Rivals Underclassmen Camp') */
+  title: string;
+  /** Event date (ISO string) */
+  date: Date | string;
+  /** End date (for multi-day events) */
+  endDate?: Date | string;
+  /** Location */
+  location?: string;
+  /** Opponent (for games) */
+  opponent?: string;
+  /** Game result (e.g., 'W 24-14') */
+  result?: string;
+  /** URL for event details */
+  url?: string;
+  /** Logo/image URL */
+  logoUrl?: string;
+  /** Where this event data came from */
+  source: DataSource;
+  /** Agent X notes about the athlete's performance */
+  agentXNotes?: string;
+}
+
+// ============================================
+// SPORT PROFILE (legacy types — deprecated)
+// ============================================
+
+/**
+ * @deprecated Use VerifiedMetric[] instead.
+ * Athletic measurements and metrics as a flat key-value map.
+ * Kept temporarily — existing reads may still use this shape.
+ * Migration: convert to VerifiedMetric[] with label/value/source metadata.
  */
 export type AthleticMetrics = Record<string, string | number | undefined>;
 
-/** Season statistics */
+/**
+ * @deprecated Use VerifiedStat[] in sub-collections instead.
+ * Season statistics as a flat key-value map.
+ * Migration: convert to VerifiedStat[] with full metadata.
+ */
 export interface SeasonStats {
   season: string;
   year: number;
@@ -202,7 +529,11 @@ export interface SeasonStats {
   gamesPlayed?: number;
 }
 
-/** Game-by-game statistics */
+/**
+ * @deprecated Use VerifiedStat[] + ScheduleEvent[] in sub-collections instead.
+ * Game-by-game statistics as a flat key-value map.
+ * Migration: convert to VerifiedStat[] per game + ScheduleEvent for the game itself.
+ */
 export interface GameStats {
   date: Date | string;
   opponent: string;
@@ -257,8 +588,20 @@ export interface Commitment {
  * Sport profile - contains all data for ONE sport
  * Array-based design supports unlimited sports
  *
- * Note: Only `sport`, `order`, and `accountType` are required.
- * Other fields are populated progressively as user completes profile.
+ * ARCHITECTURE: Sub-collection principle applied.
+ * Growing/unbounded data lives in Firestore sub-collections:
+ *   users/{uid}/sports/{sportId}/metrics/{metricId}    — VerifiedMetric (full history)
+ *   users/{uid}/sports/{sportId}/stats/{statId}        — VerifiedStat (all seasons)
+ *   users/{uid}/sports/{sportId}/offers/{offerId}      — CollegeOffer
+ *   users/{uid}/sports/{sportId}/interactions/{id}     — CollegeInteraction
+ *   users/{uid}/schedule/{eventId}                     — ScheduleEvent (games, camps, visits)
+ *
+ * Agent X curates lean summaries onto this document:
+ *   featuredMetrics  — Top N most impressive metrics (instant UI load)
+ *   featuredStats    — Top N most impressive stats (instant UI load)
+ *   upcomingEvents   — Next 2-3 scheduled events (instant UI load)
+ *
+ * Only lean summaries and denormalized counts stay on this document.
  */
 export interface SportProfile {
   /** Sport identifier (e.g., 'football', 'basketball mens') */
@@ -276,24 +619,47 @@ export interface SportProfile {
   /** Positions played (optional - added during profile completion) */
   positions?: string[];
 
+  /** Jersey number */
+  jerseyNumber?: string;
+
   /** Side preference (e.g., 'left', 'right', 'both') */
   side?: string[];
 
-  /** Athletic measurements - optional, added during profile completion */
+  /**
+   * @deprecated Use verifiedMetrics instead.
+   * Athletic measurements as flat key-value map.
+   * Kept for backward compatibility with existing Firestore reads.
+   */
   metrics?: AthleticMetrics;
 
-  /** Season statistics - optional, added over time */
-  seasonStats?: SeasonStats[];
+  /**
+   * Athletic measurements with full metadata (2026 Agentic Architecture).
+   * Self-describing: each entry has label, value, unit, source, verified.
+   * Replaces the old flat-map `metrics` field.
+   */
+  verifiedMetrics?: VerifiedMetric[];
 
-  /** Game-by-game stats */
-  gameStats?: GameStats[];
+  /**
+   * Agent X curated "Top N" most impressive metrics for instant UI rendering.
+   * Agent X automatically selects the best metrics and pins them here
+   * so the profile page can render the hero section without sub-collection reads.
+   * Backend keeps this in sync — frontend NEVER writes this directly.
+   */
+  featuredMetrics?: VerifiedMetric[];
 
-  /** Personal bests/records */
-  personalBests?: Array<{
-    name: string;
-    value: string | number;
-    date?: Date | string;
-  }>;
+  /**
+   * Agent X curated "Top N" most impressive stats for instant UI rendering.
+   * Same pattern as featuredMetrics — Agent X auto-selects from sub-collection.
+   * Backend keeps this in sync — frontend NEVER writes this directly.
+   */
+  featuredStats?: VerifiedStat[];
+
+  /**
+   * Upcoming schedule events pinned by Agent X for instant UI rendering.
+   * Agent X pulls the next 2-3 upcoming events from the schedule sub-collection.
+   * Backend keeps this in sync — frontend NEVER writes this directly.
+   */
+  upcomingEvents?: ScheduleEvent[];
 
   /** Team information - optional, added during profile completion */
   team?: TeamInfo;
@@ -307,23 +673,11 @@ export interface SportProfile {
   /** Account type for this sport (athlete, parent managing, coach) */
   accountType: AccountType;
 
-  /** College recruiting data */
-  recruiting?: {
-    /** College offers received */
-    offers: CollegeOffer[];
-    /** College interactions (interests, visits, camps) */
-    interactions: CollegeInteraction[];
-    /** Commitment status */
-    commitment?: Commitment;
-    /** Target recruitment level (D1, D2, D3, NAIA, JUCO) */
-    level?: string;
-    /** Recruiting tags/notes */
-    tags?: string[];
-    /** Player rating (1-5) */
-    rating?: number;
-    /** Who rated the player */
-    ratedBy?: string;
-  };
+  /**
+   * Lean recruiting summary (denormalized from sub-collection).
+   * Full offer/interaction data is in sub-collections.
+   */
+  recruiting?: RecruitingSummary;
 
   /** Schedule and events */
   schedule?: {
@@ -335,21 +689,11 @@ export interface SportProfile {
     eventLink?: string;
   };
 
-  /** Recent games/matches */
-  recentGames?: Array<{
-    date: Date | string;
-    opponent: string;
-    result: 'win' | 'loss' | 'tie';
-    score?: string;
-    highlights?: string;
-    location?: string;
-  }>;
-
   /** Season win/loss record */
   seasonRecord?: SeasonRecord;
 
-  /** Awards and honors for this sport */
-  awards?: string[];
+  /** Verification info for this sport's data */
+  verification?: SportVerification;
 
   /** Primary highlight video */
   primaryVideo?: {
@@ -414,6 +758,12 @@ export interface UserCounters {
   followingCount: number;
   postsCount: number;
   sharesCount: number;
+  /** Number of highlight videos */
+  highlightCount?: number;
+  /** Total offers across all sports (denormalized) */
+  offerCount?: number;
+  /** Number of events attended */
+  eventCount?: number;
   _lastSyncedAt?: Date | string;
 }
 
@@ -427,8 +777,6 @@ export interface UserCounters {
  * Sport-specific data (positions, stats, team) goes in SportProfile[].
  */
 export interface AthleteData {
-  /** Graduation year (e.g., 2027) */
-  classOf: number;
   /** Academic information (GPA, test scores, etc.) */
   academics?: AcademicInfo;
   /** Parent/guardian contact info */
@@ -600,23 +948,66 @@ export interface FanData {
  * 5. Preferences replace boolean flags
  */
 export interface User {
-  emailVerified: any;
   // ============================================
   // CORE IDENTITY (required)
   // ============================================
   id: string;
   email: string;
+  emailVerified?: boolean;
   firstName: string;
   lastName: string;
-  displayName: string;
-  profileImg: string | null;
-  aboutMe: string;
+  /** Preferred display name (if different from firstName + lastName) */
+  displayName?: string;
+
+  /** Optional bio/about text */
+  aboutMe?: string;
+
+  /**
+   * Profile image URL — top-level convenience field.
+   * Also stored in userImgs.profileImg. Use getProfileImg() helper for reads.
+   */
+  profileImg?: string | null;
+
+  /**
+   * Unique profile identifier used for shareable URLs and QR codes.
+   * e.g. 'JD-2026-FB' — assigned during onboarding.
+   */
+  unicode?: string | null;
 
   /**
    * User's gender (inclusive options).
    * @see GENDERS in @nxt1/core/constants for valid values
    */
   gender?: Gender;
+
+  // ============================================
+  // IMAGES (new architecture)
+  // ============================================
+  /** Profile, banner, and gallery images */
+  userImgs?: UserImages;
+
+  // ============================================
+  // VERIFICATION
+  // ============================================
+  /** Verification status (unverified, pending, verified, premium) */
+  verificationStatus?: VerificationStatus;
+
+  // ============================================
+  // PHYSICAL ATTRIBUTES (top-level for quick access)
+  // ============================================
+  /** Height (e.g., '6\'2"' or '188cm') */
+  height?: string;
+  /** Weight (e.g., '185 lbs' or '84kg') */
+  weight?: string;
+
+  // ============================================
+  // CLASS / GRADUATION (top-level, source of truth)
+  // ============================================
+  /**
+   * Graduation year (e.g., 2027).
+   * Previously on AthleteData.classOf — moved here for top-level access.
+   */
+  classOf?: number;
 
   // ============================================
   // ROLE & STATUS
@@ -637,14 +1028,102 @@ export interface User {
   // ============================================
   location?: Location;
   contact?: ContactInfo;
-  social?: SocialLinks;
+
+  /**
+   * Social links (agnostic, array-based).
+   * Each entry is a platform-agnostic SocialLink.
+   * Replaces the old hardcoded SocialLinks interface.
+   */
+  social?: SocialLink[];
+
+  // ============================================
+  // TEAM HISTORY
+  // ============================================
+  /** All team affiliations (past and current) */
+  teamHistory?: TeamHistoryEntry[];
+
+  // ============================================
+  // AWARDS (all types — athletic, academic, leadership, community)
+  // ============================================
+  /**
+   * User's awards/honors across all categories.
+   * Consolidated from sports[].awards (removed) into a single array.
+   */
+  awards?: UserAward[];
+
+  // ============================================
+  // AGENT X AI PROFILE
+  // ============================================
+  /** Agent X AI-generated profile analysis */
+  agentX?: {
+    /** AI-generated prospect grade */
+    prospectGrade?: {
+      /** Overall rating (0-99) */
+      overall: number;
+      /** Athletic ability sub-grade */
+      athletic?: number;
+      /** Mental/IQ sub-grade */
+      mental?: number;
+      /** Technical skill sub-grade */
+      technical?: number;
+      /** Potential/upside sub-grade */
+      potential?: number;
+    };
+    /** Prospect tier derived from grade */
+    tier?: 'elite' | 'blue-chip' | 'starter' | 'prospect' | 'developing' | 'unrated';
+    /** Player archetypes (up to 5) */
+    archetypes?: PlayerArchetype[];
+    /** Trait analysis */
+    traits?: AgentXTrait[];
+    /** AI-generated scout summary paragraph */
+    scoutSummary?: string;
+    /** When Agent X last analyzed this profile */
+    lastAnalyzedAt?: Date | string;
+    /** Data sources used in analysis */
+    sourcesUsed?: string[];
+    /** Overall confidence in the analysis (0-1) */
+    confidence?: number;
+  };
+
+  // ============================================
+  // CONNECTED SOURCES (Agent X sync)
+  // ============================================
+  /** External profiles linked for Agent X AI sync (agnostic) */
+  connectedSources?: ConnectedSource[];
+
+  // ============================================
+  // CONNECTED EMAIL ACCOUNTS
+  // Metadata only — tokens live in users/{uid}/emailTokens/{provider}
+  // ============================================
+  /** Email accounts connected for campaigns/messaging */
+  connectedEmails?: ConnectedEmail[];
+
+  // ============================================
+  // LEGACY: Connected email tokens (flat fields)
+  // Written by old backend controllers + beforeUserCreate function.
+  // Migration path: move to users/{uid}/emailTokens/{provider}
+  // ============================================
+  /** @deprecated Legacy — currently connected email address */
+  connectedEmail?: string;
+  /** @deprecated Legacy — Gmail OAuth refresh token */
+  connectedGmailToken?: string;
+  /** @deprecated Legacy — Microsoft OAuth refresh token */
+  connectedMicrosoftToken?: string;
+  /** @deprecated Legacy — Yahoo OAuth refresh token */
+  connectedYahooToken?: string;
+
+  // ============================================
+  // PROFILE CODE (shareable link / QR)
+  // ============================================
+  /** Unique shareable profile code */
+  profileCode?: string;
 
   // ============================================
   // ROLE-SPECIFIC DATA
   // Only ONE of these should be populated based on user's role.
   // Athletes also have sports[] for sport-specific data.
   // ============================================
-  /** Athlete-specific data (classOf, academics, parent info) - role: 'athlete' */
+  /** Athlete-specific data (academics, parent info) - role: 'athlete' */
   athlete?: AthleteData;
   /** HS/Club coach-specific data - role: 'coach' */
   coach?: CoachData;
@@ -691,11 +1170,6 @@ export interface User {
   planTier?: PlanTier;
 
   // ============================================
-  // CONNECTED ACCOUNTS
-  // ============================================
-  connectedAccounts?: ConnectedAccounts;
-
-  // ============================================
   // ANALYTICS & COUNTERS
   // ============================================
   _counters?: UserCounters;
@@ -710,7 +1184,7 @@ export interface User {
   // ============================================
   // PUSH NOTIFICATIONS
   // ============================================
-  fcmToken: string | null;
+  fcmToken?: string | null;
 
   // ============================================
   // SCHEMA VERSION
@@ -718,147 +1192,8 @@ export interface User {
   _schemaVersion?: typeof USER_SCHEMA_VERSION;
 
   // ============================================
-  // LEGACY FIELDS (deprecated - for backward compatibility)
-  // These will be removed in a future version.
-  // Use sports[], location, contact, social instead.
+  // TEAM CODE (non-deprecated, used by coaches)
   // ============================================
-
-  /** @deprecated Use onboardingCompleted */
-  completeSignUp: boolean;
-  /** @deprecated Use onboardingCompleted */
-  completeAddSport: boolean;
-
-  /** @deprecated Use sports[activeSportIndex] */
-  appSport: 'primary' | 'secondary' | null;
-  /** @deprecated Use sports[0].sport */
-  sport: string;
-  /** @deprecated Use sports[0].sport */
-  primarySport: string;
-  /** @deprecated Use sports[0].positions */
-  primarySportPositions: string[];
-  /** @deprecated Use sports[1].sport */
-  secondarySport: string;
-  /** @deprecated Use sports[1].positions */
-  secondarySportPositions: string[];
-  /** @deprecated Use sports[0].positions[0] */
-  position: string;
-  /** @deprecated Use sports[0].side */
-  side?: string[];
-
-  /** @deprecated Use sports[0].team.name */
-  highSchool: string;
-  /** @deprecated Use sports[0].team.type */
-  highSchoolSuffix: 'High School' | 'Club';
-  /** @deprecated Use sports[1].team.name */
-  secondaryHighSchool: string;
-  /** @deprecated Use sports[1].team.type */
-  secondaryHighSchoolSuffix: 'High School' | 'Club';
-  /** @deprecated Use sports[0].clubTeam */
-  club: string | null;
-  /** @deprecated Use sports[1].clubTeam */
-  secondaryClub: string | null;
-  /** @deprecated Use athlete.classOf */
-  classOf: number;
-
-  /** @deprecated Use sports[1].profileImg */
-  secondarySportProfileImg: string | null;
-  /** @deprecated Use sports[0].team.logo */
-  teamLogoImg: string | null;
-  /** @deprecated Use sports[1].team.logo */
-  secondarySportTeamLogoImg: string | null;
-  /** @deprecated Use sports[0].primaryVideo */
-  primaryVideoImage: { url: string; thumbnailUrl?: string } | string | null;
-  /** @deprecated Use sports[1].primaryVideo */
-  secondaryVideoImage: { url: string; thumbnailUrl?: string } | string | null;
-
-  /** @deprecated Use contact.email */
-  contactEmail: string;
-  /** @deprecated Use contact.phone */
-  phoneNumber: string;
-  /** @deprecated Use location.address */
-  address: string;
-  /** @deprecated Use location.city */
-  city: string;
-  /** @deprecated Use location.state */
-  state: string;
-  /** @deprecated Use location.zipCode */
-  zipCode: number;
-  /** @deprecated Use location.country */
-  country: string;
-
-  /** @deprecated Use social.twitter */
-  twitter: string | null;
-  /** @deprecated Use social.instagram */
-  instagram: string | null;
-  /** @deprecated Use social.tiktok */
-  tiktok: string | null;
-  /** @deprecated Use social.hudl */
-  hudlAccountLink: string;
-  /** @deprecated Use social.youtube */
-  youtubeAccountLink: string;
-  /** @deprecated */
-  sportsAccountLink: string;
-  /** @deprecated Use social */
-  socialLinks?: {
-    instagram?: string;
-    twitter?: string;
-    facebook?: string;
-    youtube?: string;
-  };
-
-  /** @deprecated Use role */
-  athleteOrParentOrCoach: string;
-  /** @deprecated Use sports[1].accountType */
-  secondaryAthleteOrParentOrCoach: string;
-  /** @deprecated Use role === 'athlete' */
-  isRecruit?: boolean | null;
-  /** @deprecated Use role === 'college-coach' */
-  isCollegeCoach?: boolean | null;
-  /** @deprecated Use role === 'fan' */
-  isFan?: boolean | null;
-
-  /** @deprecated Use sports[0].coach */
-  coachCount: number;
-  /** @deprecated Use sports[1].coach */
-  secondarySportCoachCount: number;
-  /** @deprecated Use sports[0].coach.title */
-  coachTitle: string | null;
-  /** @deprecated Use sports[0].coach.firstName */
-  coachFirstName: string;
-  /** @deprecated Use sports[1].coach.firstName */
-  secondarySportCoachFirstName: string;
-  /** @deprecated Use sports[0].coach.lastName */
-  coachLastName: string;
-  /** @deprecated Use sports[1].coach.lastName */
-  secondarySportCoachLastName: string;
-  /** @deprecated Use sports[0].coach.phone */
-  coachPhoneNumber: string;
-  /** @deprecated Use sports[1].coach.phone */
-  secondarySportCoachPhoneNumber: string;
-  /** @deprecated Use sports[0].coach.email */
-  coachEmail: string;
-  /** @deprecated Use sports[1].coach.email */
-  secondarySportCoachEmail: string;
-  /** @deprecated Use coach.canManageMultipleTeams */
-  canManageMultipleTeams?: boolean | null;
-
-  /** @deprecated */
-  organization?: string | null;
-  /** @deprecated */
-  secondOrganization?: string | null;
-  /** @deprecated */
-  collegeTeamName?: string | null;
-  /** @deprecated Use sports[0].team.conference */
-  conference?: string | null;
-  /** @deprecated Use sports[0].team.division */
-  division?: string | null;
-  /** @deprecated */
-  title: string;
-  /** @deprecated Use sports[0].team.mascot */
-  mascot: string;
-  /** @deprecated Use sports[0].team.name */
-  teamName?: string;
-
   /** Team code reference */
   teamCode?: TeamCode | string | null;
   /** Team code trial info */
@@ -868,240 +1203,27 @@ export interface User {
     isActive: boolean;
     expiredAt?: Date | string;
   };
-  /** @deprecated Use sports[0].team.colors */
-  teamColors?: string[] | null;
-  /** @deprecated Use sports[0].team.colors[0] */
-  teamColor1?: string | null;
-  /** @deprecated Use sports[0].team.colors[1] */
-  teamColor2?: string | null;
-  /** @deprecated Use sports[1].team.colors[0] */
-  secondarySportTeamColor1?: string | null;
-  /** @deprecated Use sports[1].team.colors[1] */
-  secondarySportTeamColor2?: string | null;
 
-  /** @deprecated Use sports[0].schedule.url */
-  schedule?: string | null;
-  /** @deprecated Use sports[0].schedule.upcomingEvent */
-  upcomingPastEvent?: string | null;
-  /** @deprecated Use sports[0].schedule.eventLink */
-  upcomingGameLink?: string | null;
-  /** @deprecated Use sports[1].schedule.url */
-  secondarySportSchedule?: string | null;
-  /** @deprecated Use sports[1].schedule.upcomingEvent */
-  secondarySportUpcomingPastEvent?: string | null;
-  /** @deprecated Use sports[1].schedule.eventLink */
-  secondarySportUpcomingGameLink?: string | null;
-
-  /** @deprecated */
-  unicode?: string | null;
-  /** @deprecated */
-  secondarySportUnicode?: string | null;
-  /** @deprecated Use sports[1].aboutMe */
-  secondarySportAboutMe?: string | null;
-
-  /** @deprecated Use athlete.academics */
-  academicInfo: {
-    [key: string]: string | number;
-  };
-
-  /** @deprecated Use sports[0].metrics */
-  primarySportAthleticInfo: {
-    [key: string]: string | number;
-  };
-  /** @deprecated Use sports[1].metrics */
-  secondarySportAthleticInfo: {
-    [key: string]: string | number;
-  };
-  /** @deprecated Use sports[0].seasonStats */
-  primarySportStats: primarySportStat[];
-  /** @deprecated Use sports[1].seasonStats */
-  secondarySportStats: primarySportStat[];
-  /** @deprecated Use sports[0].gameStats */
-  primarySportGameStats?: GameStat[];
-  /** @deprecated Use sports[1].gameStats */
-  secondarySportGameStats?: GameStat[];
-
-  /** @deprecated Use sports[0].seasonRecord */
-  seasonRecord?: {
-    wins: number;
-    losses: number;
-    ties?: number;
-  };
-
-  /** @deprecated Use sports[0].recruiting.level */
-  level?: string;
-  /** @deprecated */
-  playerRole?: string;
-  /** @deprecated Use sports[0].recruiting.tags */
-  playerTags: PlayerTag[];
-  /** @deprecated Use sports[0].recruiting.offers */
-  offers: string | null;
-  /** @deprecated Use sports[1].recruiting.offers */
-  secondarySportOffers: string | null;
-  /** @deprecated */
-  offerLogos?: { [collegeName: string]: string };
-  /** @deprecated */
-  secondarySportOfferLogos?: { [collegeName: string]: string };
-  /** @deprecated Use sports[0].recruiting.commitment.status */
-  committmentStatus?: string;
-  /** @deprecated Use sports[0].recruiting.commitment */
-  committmentBy?: College;
-  /** @deprecated Use sports[0].recruiting.interactions */
-  collegeInterests?: College[] | null;
-  /** @deprecated Use sports[0].recruiting.interactions */
-  collegeVisits?: CollegeVisits[] | null;
-  /** @deprecated Use sports[0].recruiting.interactions */
-  collegeCamps?: CollegeCamp[] | null;
-  /** @deprecated Use isCommitted(user) helper */
-  isCommitted: boolean;
-  /** @deprecated Use sports[0].recruiting.rating */
-  rating?: number;
-  /** @deprecated Use sports[0].recruiting.ratedBy */
-  ratedBy?: string;
-
-  /** @deprecated Use sports[0].recentGames */
-  recentGames?: recentGame[];
-  /** @deprecated */
-  events?: Event[];
-  /** @deprecated Use sports[0].awards */
-  awards?: Award[];
-  /** @deprecated Use sports[0].personalBests */
-  personalBests?: personalBest[];
-
-  /** @deprecated Use Posts collection via userId */
-  posts: UserPost[] | null;
-  /** @deprecated Use UserMedia collection */
-  favoriteTemplate: string[] | null;
-  /** @deprecated Use UserMedia collection */
-  favoriteProfile: string[] | null;
-  /** @deprecated Use UserMedia collection */
-  availableTemplate: string[] | null;
-  /** @deprecated Use UserMedia collection */
-  availableProfiles: string[] | null;
-  /** @deprecated Use UserMedia collection */
-  availableMixtapes: string[] | null;
-  /** @deprecated Use UserMedia collection */
-  ownTemplates: OwnTemplate[] | null;
-  /** @deprecated Use UserMedia collection */
-  ownProfiles: OwnProfile[] | null;
-  /** @deprecated Use UserMedia collection */
-  ownMixtapes: OwnMixtape[] | null;
-  /** @deprecated */
-  pinnedProfileVideo?: string | null;
-  /** @deprecated */
-  gameClipsCollection?: GameClipsCollection | null;
-
-  /** @deprecated Use UserCampaigns collection */
-  ownEmailTemplate: {
-    [key: string]: string;
-  };
-  /** @deprecated Use UserCampaigns collection */
-  generalEmailTemplate: {
-    [key: string]: string;
-  };
-  /** @deprecated Use UserCampaigns collection */
-  personalEmailTemplate: {
-    [key: string]: string;
-  };
-  /** @deprecated Use UserCampaigns collection */
-  secondarySportOwnEmailTemplate: {
-    [key: string]: string;
-  };
-  /** @deprecated Use UserCampaigns collection */
-  secondarySportGeneralEmailTemplate: {
-    [key: string]: string;
-  };
-  /** @deprecated Use UserCampaigns collection */
-  secondarySportPersonalEmailTemplate: {
-    [key: string]: string;
-  };
-
-  /** @deprecated Use Campaigns collection */
-  campaignsSent: { id: string; name: string; sentAt: Date | string }[] | null;
-  /** @deprecated */
-  completeQuestionnaires: string[] | null;
-  /** @deprecated */
-  completeCamps: string[] | null;
-  /** @deprecated */
-  isFirstTimeAtCampaign: boolean;
-  /** @deprecated */
-  taggedColleges: [string | number];
-
-  /** @deprecated Use connectedAccounts.gmail.token */
-  connectedGmailToken?: string;
-  /** @deprecated Use connectedAccounts.microsoft.token */
-  connectedMicrosoftToken?: string;
-  /** @deprecated Use connectedAccounts */
-  connectedEmail?: string;
-
-  /** @deprecated Use planTier and subscription in Subscriptions collection */
-  payment: {
-    expiresIn: Date | string | null;
-    firstYearExpiresIn: Date | string | null;
-  };
-  /** @deprecated */
-  lastActivePlan: string;
-  /** @deprecated */
-  showedTrialMessage?: boolean;
-
-  /** @deprecated Use preferences.activityTracking */
-  activityTracking: boolean | null;
-  /** @deprecated Use preferences.notifications.push */
-  pushNotifications: boolean;
-  /** @deprecated */
-  availableColleges: string[];
-  /** @deprecated */
-  showedHearAbout: boolean;
-
-  /** @deprecated Use preferences.dismissedPrompts */
-  isShowedHowCollegeCreditWorks: boolean | null;
-  /** @deprecated Use preferences.dismissedPrompts */
-  isShowedFirstOpenCampaigns: boolean | null;
-  /** @deprecated Use preferences.dismissedPrompts */
-  isShowedHowMediaCreditWorks?: boolean | null;
-  /** @deprecated */
-  isSavingMedia: boolean | null;
-  /** @deprecated */
-  isNeedCreateThumbnail?: boolean | null;
-  /** @deprecated Use preferences.dismissedPrompts */
-  hasSeenFeedbackModal?: boolean | null;
-  /** @deprecated */
-  feedbackModalSeenAt?: Date | string | null;
-
-  /** @deprecated Use _counters.profileViews */
-  profileViews?: number;
-  /** @deprecated Use _counters.videoViews */
-  videoViews: number;
-  /** @deprecated Use _counters.followersCount */
-  followersCount?: number;
-  /** @deprecated Use _counters.followingCount */
-  followingCount?: number;
-
-  /** @deprecated */
-  referrals: [{ userId: string; date: Date; status: string }];
-
-  /** @deprecated Use athlete.parentInfo */
-  parentInfo: {
-    [key: string]: number;
-  };
-
-  /** @deprecated */
-  order?: number | string;
-  /** @deprecated */
-  removedBgImages?: string | null;
-  /** @deprecated */
-  qrCode?: string | null;
-
-  /** @deprecated Use contact and location instead */
-  contactInfo?: {
-    phoneNumber?: string;
-    email?: string;
-    address?: string;
-    city?: string;
-    state?: string;
-    zipCode?: string | number;
-    fieldLocation?: string;
-  };
+  // ============================================
+  // SUB-COLLECTIONS ARCHITECTURE
+  // The following data lives in Firestore sub-collections,
+  // NOT on this document. Listed here for reference:
+  //
+  //   users/{uid}/timeline/{postId}          — Timeline posts
+  //   users/{uid}/videos/{videoId}           — Video highlights
+  //   users/{uid}/news/{articleId}           — News articles
+  //   users/{uid}/rankings/{rankingId}       — Rankings entries
+  //   users/{uid}/scoutReports/{reportId}    — Scouting reports
+  //   users/{uid}/schedule/{eventId}         — Schedule/events
+  //   users/{uid}/xp/{entryId}              — XP & badges
+  //   users/{uid}/followers/{userId}         — Follow relationships
+  //   users/{uid}/following/{userId}         — Follow relationships
+  //   users/{uid}/sports/{sportId}/stats/    — Season stats
+  //   users/{uid}/sports/{sportId}/gameStats/ — Game stats
+  //   users/{uid}/sports/{sportId}/offers/   — College offers
+  //   users/{uid}/sports/{sportId}/interactions/ — College interactions
+  //   users/{uid}/emailTokens/{provider}      — OAuth tokens (gmail, microsoft, yahoo)
+  // ============================================
 
   /** Team links for coach pages */
   teamLinks?: {
@@ -1110,14 +1232,6 @@ export interface User {
     registrationUrl?: string;
     customLinks?: TeamCustomLink[];
   };
-
-  /** @deprecated */
-  sessions?: Session[] | null;
-
-  /** @deprecated Use lastLoginAt */
-  lastLoginTime: Date | string | null;
-  /** @deprecated Use updatedAt */
-  lastUpdated?: Date | string | null;
 }
 
 // ============================================
@@ -1129,12 +1243,16 @@ export interface UserSummary {
   id: string;
   firstName: string;
   lastName: string;
-  profileImg: string | null;
-  role: UserRole;
-  location: Pick<Location, 'city' | 'state'>;
+  displayName?: string;
+  profileImg?: string | null;
+  role?: UserRole;
+  verificationStatus?: VerificationStatus;
+  location?: Pick<Location, 'city' | 'state'>;
   primarySport?: string;
   primaryPosition?: string;
   classOf?: number;
+  height?: string;
+  weight?: string;
 }
 
 // ============================================
@@ -1156,9 +1274,14 @@ export function isCollegeCoach(user: User): boolean {
   return user.role === USER_ROLES.COLLEGE_COACH && !!user.collegeCoach;
 }
 
-/** Check if user has completed onboarding (supports legacy flag) */
+/** Check if user has completed onboarding */
 export function isOnboarded(user: User): boolean {
-  return user.onboardingCompleted === true || user.completeSignUp === true;
+  return user.onboardingCompleted === true;
+}
+
+/** Check if user is verified (verified or premium status) */
+export function isVerified(user: User): boolean {
+  return user.verificationStatus === 'verified' || user.verificationStatus === 'premium';
 }
 
 // ============================================
@@ -1185,45 +1308,70 @@ export function getSportByName(user: User, sportName: string): SportProfile | un
   return user.sports?.find((s) => s.sport.toLowerCase() === sportName.toLowerCase());
 }
 
-/** Check if user plays a specific sport (supports legacy fields) */
+/** Check if user plays a specific sport */
 export function playsSport(user: User, sportName: string): boolean {
   const lower = sportName.toLowerCase();
-  if (user.sports?.some((s) => s.sport.toLowerCase() === lower)) return true;
-  if (user.primarySport?.toLowerCase() === lower) return true;
-  if (user.secondarySport?.toLowerCase() === lower) return true;
-  return false;
+  return user.sports?.some((s) => s.sport.toLowerCase() === lower) ?? false;
 }
 
-/** Get total offers across all sports */
+/** Get total offers across all sports (from denormalized recruiting summary) */
 export function getTotalOffers(user: User): number {
   if (!user.sports) return 0;
-  return user.sports.reduce((total, sport) => total + (sport.recruiting?.offers?.length ?? 0), 0);
+  return user.sports.reduce((total, sport) => total + (sport.recruiting?.offerCount ?? 0), 0);
 }
 
-/** Collect all awards across all sports (deduplicated, includes legacy) */
-export function getAllAwards(user: User): string[] {
-  const awards = new Set<string>();
-  user.sports?.forEach((sport) => {
-    sport.awards?.forEach((a) => awards.add(a));
-  });
-  // Legacy awards
-  if (Array.isArray(user.awards)) {
-    user.awards.forEach((a: { award?: string }) => {
-      if (a.award) awards.add(a.award);
-    });
-  }
-  return [...awards];
+/** Get all awards */
+export function getAllAwards(user: User): UserAward[] {
+  return user.awards ?? [];
 }
 
-/** Check if user has multiple sports (supports legacy fields) */
+/** Check if user has multiple sports */
 export function isMultiSport(user: User): boolean {
-  if (user.sports && user.sports.length > 1) return true;
-  if (user.primarySport && user.secondarySport) return true;
-  return false;
+  return (user.sports?.length ?? 0) > 1;
 }
 
-/** Check if user is committed to a college in any sport (supports legacy flag) */
+/** Check if user is committed to a college in any sport */
 export function isCommitted(user: User): boolean {
-  if (user.isCommitted) return true;
   return user.sports?.some((s) => !!s.recruiting?.commitment?.collegeId) ?? false;
+}
+
+/** Get user's display name (displayName if set, otherwise firstName + lastName) */
+export function getDisplayName(user: User): string {
+  return user.displayName || `${user.firstName} ${user.lastName}`;
+}
+
+/** Get user's profile image URL */
+export function getProfileImg(user: User): string | null {
+  return user.userImgs?.profileImg ?? user.profileImg ?? null;
+}
+
+/** Get user's banner image URL */
+export function getBannerImg(user: User): string | null {
+  return user.userImgs?.bannerImg ?? null;
+}
+
+/** Get all gallery images */
+export function getGalleryImages(user: User): string[] {
+  return user.userImgs?.gallery ?? [];
+}
+
+/** Get a social link URL by platform name (case-insensitive) */
+export function getSocialUrl(user: User, platform: string): string | undefined {
+  if (!Array.isArray(user.social)) return undefined;
+  return user.social.find((s) => s.platform.toLowerCase() === platform.toLowerCase())?.url;
+}
+
+/** Get user's graduation class year */
+export function getClassOf(user: User): number | undefined {
+  return user.classOf;
+}
+
+/** Check if Agent X has analyzed this profile */
+export function hasAgentXProfile(user: User): boolean {
+  return !!user.agentX?.prospectGrade?.overall;
+}
+
+/** Get connected source by platform name */
+export function getConnectedSource(user: User, platform: string): ConnectedSource | undefined {
+  return user.connectedSources?.find((s) => s.platform.toLowerCase() === platform.toLowerCase());
 }

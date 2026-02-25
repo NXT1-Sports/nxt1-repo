@@ -16,11 +16,12 @@ import type {
   ProfilePost,
   ProfileOffer,
   ProfileEvent,
-  ProfileAward,
   AthleticStatsCategory,
   ProfilePageData,
   PlayerCardData,
   ProfileSeasonGameLog,
+  FeedPost,
+  FeedAuthor,
 } from '@nxt1/core';
 
 const now = Date.now();
@@ -1070,6 +1071,524 @@ export const MOCK_EVENTS: ProfileEvent[] = [
 // ============================================
 // MOCK PLAYER CARD DATA (Agent X / Madden-style)
 // ============================================
+
+/**
+ * Mock FeedAuthor for activity feed items.
+ * Derived from MOCK_PROFILE_USER — used to stamp non-post activity items.
+ */
+const MOCK_FEED_AUTHOR: FeedAuthor = {
+  uid: 'user-001',
+  profileCode: 'marcus-johnson-2026',
+  displayName: 'Marcus Johnson',
+  firstName: 'Marcus',
+  lastName: 'Johnson',
+  avatarUrl: 'https://i.pravatar.cc/300?img=12',
+  role: 'athlete',
+  verificationStatus: 'verified',
+  isVerified: true,
+  sport: 'Football',
+  position: 'Quarterback',
+  schoolName: 'Riverside High School',
+  classYear: '2026',
+};
+
+// ============================================
+// MOCK ACTIVITY FEED ITEMS
+// (Non-post items that appear in the unified timeline)
+// ============================================
+
+const defaultEngagement = {
+  likeCount: 0,
+  commentCount: 0,
+  shareCount: 0,
+  viewCount: 0,
+  reactionCount: 0,
+  repostCount: 0,
+};
+
+const defaultUserEngagement = {
+  isLiked: false,
+  isBookmarked: false,
+  isReposted: false,
+  isFollowingAuthor: false,
+  isReacted: false,
+  reactionType: null as null,
+};
+
+/**
+ * Comprehensive mock activity feed items covering every timeline section:
+ * - Stat updates
+ * - Metrics/measurables
+ * - Awards
+ * - News mentions
+ * - Schedule/game results
+ * - External syncs (Hudl, MaxPreps)
+ * - Academic updates
+ *
+ * Note: Offers and Events are converted from MOCK_OFFERS/MOCK_EVENTS
+ * by the mapper functions at runtime. These are extra FeedPost items
+ * that enrich the timeline beyond what the mappers auto-generate.
+ */
+export const MOCK_ACTIVITY_FEED_ITEMS: readonly FeedPost[] = [
+  // ── Stat Update: Week 8 Game ──
+  {
+    id: 'activity-stat-001',
+    type: 'stats',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'Week 8 Performance',
+    content:
+      'Dominant performance against Central High. Set a new career high in passing yards! 🔥',
+    media: [],
+    statUpdateData: {
+      context: 'Week 8 vs Central High',
+      gameDate: new Date(now - 4 * 24 * 60 * 60 * 1000).toISOString(),
+      gameResult: 'W 42-14',
+      opponent: 'Central High',
+      stats: [
+        { label: 'PASS YDS', value: 312, isHighlight: true },
+        { label: 'COMP', value: '21/28' },
+        { label: 'TDs', value: 4, isHighlight: true },
+        { label: 'INTs', value: 0 },
+        { label: 'QBR', value: '148.6', isHighlight: true },
+      ],
+    },
+    engagement: {
+      ...defaultEngagement,
+      likeCount: 156,
+      reactionCount: 156,
+      commentCount: 34,
+      viewCount: 2400,
+    },
+    userEngagement: defaultUserEngagement,
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: new Date(now - 4 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 4 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+
+  // ── Stat Update: Week 7 ──
+  {
+    id: 'activity-stat-002',
+    type: 'stats',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'Week 7 Stats',
+    content: 'Tough game but we pulled through. On to the next one.',
+    media: [],
+    statUpdateData: {
+      context: 'Week 7 vs Lincoln Prep',
+      gameDate: new Date(now - 11 * 24 * 60 * 60 * 1000).toISOString(),
+      gameResult: 'W 28-24',
+      opponent: 'Lincoln Prep',
+      stats: [
+        { label: 'PASS YDS', value: 245 },
+        { label: 'COMP', value: '18/26' },
+        { label: 'TDs', value: 3 },
+        { label: 'INTs', value: 1 },
+        { label: 'RUSH YDS', value: 38 },
+      ],
+    },
+    engagement: {
+      ...defaultEngagement,
+      likeCount: 89,
+      reactionCount: 89,
+      commentCount: 12,
+      viewCount: 1800,
+    },
+    userEngagement: defaultUserEngagement,
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: new Date(now - 11 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 11 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+
+  // ── Metrics Update: Combine Results ──
+  {
+    id: 'activity-metrics-001',
+    type: 'metrics',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'New Combine Numbers',
+    content:
+      'Posted some strong numbers at the PrepSports Regional Combine! Improvement across the board. 💪',
+    media: [],
+    metricsData: {
+      source: 'PrepSports Regional Combine',
+      measuredAt: new Date(now - 6 * 24 * 60 * 60 * 1000).toISOString(),
+      category: 'Combine Results',
+      metrics: [
+        { label: '40 YARD', value: '4.52', unit: 's', verified: true },
+        { label: 'VERTICAL', value: '34', unit: 'in', verified: true },
+        { label: 'BROAD', value: '118', unit: 'in', verified: true },
+        { label: 'SHUTTLE', value: '4.12', unit: 's', verified: true },
+        { label: '3-CONE', value: '6.95', unit: 's', verified: true },
+        { label: 'BENCH', value: '225', unit: 'lbs', verified: true },
+      ],
+    },
+    engagement: {
+      ...defaultEngagement,
+      likeCount: 234,
+      reactionCount: 234,
+      commentCount: 45,
+      viewCount: 5600,
+    },
+    userEngagement: defaultUserEngagement,
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: new Date(now - 6 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 6 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+
+  // ── Award: All-District ──
+  {
+    id: 'activity-award-001',
+    type: 'award',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'All-District First Team',
+    content:
+      'Honored to be selected All-District First Team QB for the second consecutive year! 🏆',
+    media: [],
+    awardData: {
+      awardName: 'All-District First Team Quarterback',
+      organization: 'Texas 6A District 14',
+      category: 'All-District',
+      season: '2025-2026',
+      icon: 'trophy',
+    },
+    engagement: {
+      ...defaultEngagement,
+      likeCount: 567,
+      reactionCount: 567,
+      commentCount: 89,
+      viewCount: 8900,
+    },
+    userEngagement: {
+      ...defaultUserEngagement,
+      isLiked: true,
+      isReacted: true,
+      reactionType: 'celebrate',
+    },
+    isPinned: false,
+    isFeatured: true,
+    commentsDisabled: false,
+    createdAt: new Date(now - 8 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 8 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+
+  // ── Award: Team MVP ──
+  {
+    id: 'activity-award-002',
+    type: 'award',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'Team MVP Award',
+    content: 'Grateful. This is a team effort. Blessed to have the teammates and coaches I do. 🙏',
+    media: [],
+    awardData: {
+      awardName: 'Offensive MVP',
+      organization: 'Riverside High School',
+      category: 'MVP',
+      season: '2025-2026',
+      icon: 'star',
+    },
+    engagement: {
+      ...defaultEngagement,
+      likeCount: 345,
+      reactionCount: 345,
+      commentCount: 56,
+      viewCount: 4500,
+    },
+    userEngagement: defaultUserEngagement,
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: new Date(now - 22 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 22 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+
+  // ── News Mention ──
+  {
+    id: 'activity-news-001',
+    type: 'news',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'Featured in Texas Football Weekly',
+    content: '',
+    media: [],
+    newsData: {
+      headline: 'Top 10 QBs to Watch in Texas 6A: Marcus Johnson Leads the Pack',
+      source: 'Texas Football Weekly',
+      sourceLogoUrl: 'https://i.pravatar.cc/32?img=50',
+      excerpt:
+        "Riverside High's Marcus Johnson has emerged as the most dynamic quarterback prospect in Texas 6A, combining elite accuracy with dual-threat ability...",
+      articleUrl: 'https://example.com/texas-football-weekly/top-10-qbs',
+      imageUrl: 'https://images.unsplash.com/photo-1566577739112-5180d4bf9390?w=600&h=300&fit=crop',
+      publishedAt: new Date(now - 9 * 24 * 60 * 60 * 1000).toISOString(),
+      category: 'Recruiting',
+    },
+    engagement: {
+      ...defaultEngagement,
+      likeCount: 412,
+      reactionCount: 412,
+      commentCount: 67,
+      viewCount: 12400,
+    },
+    userEngagement: defaultUserEngagement,
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: new Date(now - 9 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 9 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+
+  // ── News: Recruiting buzz ──
+  {
+    id: 'activity-news-002',
+    type: 'news',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'Recruiting Update',
+    content: '',
+    media: [],
+    newsData: {
+      headline: 'Big 12 Programs Circling Riverside QB Marcus Johnson After Monster Week 6',
+      source: '247Sports',
+      sourceLogoUrl: 'https://i.pravatar.cc/32?img=51',
+      excerpt:
+        'Multiple Big 12 programs have increased their pursuit of 2026 quarterback Marcus Johnson after his five-touchdown performance...',
+      articleUrl: 'https://example.com/247sports/big-12-pursuit',
+      publishedAt: new Date(now - 18 * 24 * 60 * 60 * 1000).toISOString(),
+      category: 'Recruiting',
+    },
+    engagement: {
+      ...defaultEngagement,
+      likeCount: 289,
+      reactionCount: 289,
+      commentCount: 45,
+      viewCount: 8700,
+    },
+    userEngagement: defaultUserEngagement,
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: new Date(now - 18 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 18 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+
+  // ── Schedule: Upcoming Game ──
+  {
+    id: 'activity-schedule-001',
+    type: 'schedule',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'Week 9 - Senior Night',
+    content:
+      "Senior Night under the lights. Last regular season home game. Let's make it count! 🏟️",
+    media: [],
+    scheduleData: {
+      eventTitle: 'Senior Night - Week 9',
+      opponent: 'Westlake High',
+      venue: 'Riverside Stadium',
+      dateTime: new Date(now + 3 * 24 * 60 * 60 * 1000).toISOString(),
+      isHome: true,
+      status: 'upcoming',
+    },
+    engagement: {
+      ...defaultEngagement,
+      likeCount: 78,
+      reactionCount: 78,
+      commentCount: 23,
+      viewCount: 1200,
+    },
+    userEngagement: defaultUserEngagement,
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 1 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+
+  // ── Schedule: Past Game Result ──
+  {
+    id: 'activity-schedule-002',
+    type: 'game',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'Week 8 Game Result',
+    content: 'Great team win! On to the next one.',
+    media: [],
+    scheduleData: {
+      eventTitle: 'Week 8',
+      opponent: 'Central High',
+      venue: 'Central Field',
+      dateTime: new Date(now - 4 * 24 * 60 * 60 * 1000).toISOString(),
+      isHome: false,
+      result: 'W 42-14',
+      status: 'final',
+    },
+    engagement: {
+      ...defaultEngagement,
+      likeCount: 198,
+      reactionCount: 198,
+      commentCount: 42,
+      viewCount: 3400,
+    },
+    userEngagement: defaultUserEngagement,
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: new Date(now - 4 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 4 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+
+  // ── External Sync: Hudl Highlight ──
+  {
+    id: 'activity-external-001',
+    type: 'highlight',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'Junior Season Highlights (Updated)',
+    content: 'New clips added from Week 8. Check out the film!',
+    media: [
+      {
+        id: 'hudl-media-001',
+        type: 'video',
+        url: 'https://example.com/hudl/highlights',
+        thumbnailUrl:
+          'https://images.unsplash.com/photo-1566577739112-5180d4bf9390?w=400&h=225&fit=crop',
+        duration: 280,
+        altText: 'Junior Season Highlights',
+      },
+    ],
+    externalSource: {
+      platform: 'Hudl',
+      icon: 'videocam',
+      label: 'Synced from Hudl',
+      originalUrl: 'https://hudl.com/video/user123/highlights',
+      syncedAt: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    engagement: {
+      ...defaultEngagement,
+      likeCount: 567,
+      reactionCount: 567,
+      commentCount: 89,
+      viewCount: 23400,
+    },
+    userEngagement: defaultUserEngagement,
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+
+  // ── External Sync: MaxPreps Stats ──
+  {
+    id: 'activity-external-002',
+    type: 'stats',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'Season Stats Updated',
+    content: 'Season statistics updated with Week 8 performance.',
+    media: [],
+    statUpdateData: {
+      context: '2025 Season Totals (8 games)',
+      stats: [
+        { label: 'PASS YDS', value: '2,847', isHighlight: true },
+        { label: 'COMP %', value: '68.5%' },
+        { label: 'TDs', value: 28, isHighlight: true },
+        { label: 'INTs', value: 6 },
+        { label: 'QBR', value: '142.3' },
+      ],
+    },
+    externalSource: {
+      platform: 'MaxPreps',
+      icon: 'stats-chart',
+      label: 'Synced from MaxPreps',
+      originalUrl: 'https://maxpreps.com/athlete/marcus-johnson',
+      syncedAt: new Date(now - 4 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    engagement: { ...defaultEngagement, likeCount: 123, reactionCount: 123, viewCount: 4500 },
+    userEngagement: defaultUserEngagement,
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: new Date(now - 4 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 4 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+
+  // ── Academic Update: GPA ──
+  {
+    id: 'activity-academic-001',
+    type: 'milestone',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'Academic Update',
+    content: 'Fall semester grades are in! Student-athlete first. 📚',
+    media: [],
+    academicData: {
+      updateType: 'gpa',
+      value: '3.85',
+      label: 'Cumulative GPA',
+      context: 'Honor Roll — Fall 2025',
+      term: 'Fall 2025',
+    },
+    milestoneData: {
+      type: 'award',
+      value: 3.85,
+      label: 'Cumulative GPA',
+      icon: 'school',
+    },
+    engagement: {
+      ...defaultEngagement,
+      likeCount: 298,
+      reactionCount: 298,
+      commentCount: 42,
+      viewCount: 3200,
+    },
+    userEngagement: defaultUserEngagement,
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: new Date(now - 12 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 12 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+
+  // ── Metrics: Updated Measurables ──
+  {
+    id: 'activity-metrics-002',
+    type: 'metrics',
+    visibility: 'public',
+    author: MOCK_FEED_AUTHOR,
+    title: 'Updated Measurables',
+    content: 'School physical results — continuing to grow and develop. 📈',
+    media: [],
+    metricsData: {
+      source: 'School Physical',
+      measuredAt: new Date(now - 25 * 24 * 60 * 60 * 1000).toISOString(),
+      category: 'Measurables',
+      metrics: [
+        { label: 'HEIGHT', value: '6\'2"', verified: true },
+        { label: 'WEIGHT', value: '215', unit: 'lbs', verified: true },
+        { label: 'WINGSPAN', value: '76', unit: 'in', verified: true },
+        { label: 'HAND', value: '9.5', unit: 'in', verified: true },
+        { label: 'ARM', value: '32', unit: 'in', verified: true },
+      ],
+    },
+    engagement: { ...defaultEngagement, likeCount: 67, reactionCount: 67, viewCount: 1200 },
+    userEngagement: defaultUserEngagement,
+    isPinned: false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: new Date(now - 25 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(now - 25 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+];
 
 export const MOCK_PLAYER_CARD: PlayerCardData = {
   prospectGrade: {

@@ -49,7 +49,7 @@ import {
   ElementRef,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { isPlatformBrowser, CommonModule } from '@angular/common';
+import { isPlatformBrowser, CommonModule, Location } from '@angular/common';
 import { Router, RouterOutlet, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
 // ── Navigation Components (granular imports for tree-shaking) ──
@@ -502,6 +502,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
         [config]="mobileHeaderConfig()"
         [user]="mobileHeaderUserData()"
         (menuClick)="onMobileMenuToggle()"
+        (backClick)="onMobileBackClick()"
         (logoClick)="onLogoClick()"
         (searchClick)="onMobileSearchClick()"
         (notificationsClick)="onNotificationsClick()"
@@ -576,6 +577,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
         --shell-footer-height: var(--nxt1-mobile-footer-height, 72px);
         --shell-bg: var(--nxt1-color-bg-primary);
         --shell-content-bg: var(--nxt1-color-bg-primary);
+        --shell-content-padding-x: 0px;
 
         /*
          * Fixed positioning takes the shell OUT of document flow.
@@ -648,6 +650,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
         background: var(--shell-content-bg);
         min-height: 0; /* Critical for flex overflow scrolling */
         padding-top: calc(var(--nxt1-spacing-4, 1rem) + 7px);
+        padding-inline: var(--shell-content-padding-x);
 
         /* Flex column so full-bleed pages (profile, explore) can stretch
            to fill the visible area with flex:1 — YouTube/Twitter pattern */
@@ -741,6 +744,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
       @media (min-width: 768px) and (max-width: 1279px) {
         :host {
           --shell-sidebar-width: var(--shell-sidebar-collapsed-width);
+          --shell-content-padding-x: 24px;
         }
       }
 
@@ -748,6 +752,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
       @media (min-width: 1280px) {
         :host {
           --shell-sidebar-width: 256px;
+          --shell-content-padding-x: 32px;
         }
       }
     `,
@@ -757,6 +762,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
 export class WebShellComponent {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
+  private readonly location = inject(Location);
   private readonly platform = inject(NxtPlatformService);
   private readonly authFlow = inject(AuthFlowService);
   private readonly logger = inject(NxtLoggingService).child('WebShellComponent');
@@ -886,9 +892,16 @@ export class WebShellComponent {
   // MOBILE HEADER CONFIGURATION (YouTube-style top bar)
   // ============================================
 
-  /** Mobile header configuration */
+  /** Whether the current route should show a back arrow instead of hamburger */
+  private readonly _showMobileBack = computed(() => {
+    const route = this._currentRoute();
+    return route.startsWith('/profile');
+  });
+
+  /** Mobile header configuration — route-aware (back arrow on profile pages) */
   readonly mobileHeaderConfig = computed<MobileHeaderConfig>(() => {
     return createMobileHeaderConfig({
+      showBack: this._showMobileBack(),
       showLogo: true,
       showSearch: true,
       showNotifications: true,
@@ -1048,6 +1061,13 @@ export class WebShellComponent {
   onMobileMenuToggle(): void {
     this._mobileSidebarOpen.update((open) => !open);
     this.logger.debug('Mobile sidebar toggled', { open: this._mobileSidebarOpen() });
+  }
+
+  /**
+   * Navigate back when back arrow in mobile header is clicked
+   */
+  onMobileBackClick(): void {
+    this.location.back();
   }
 
   /**

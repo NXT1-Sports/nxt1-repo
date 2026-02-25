@@ -12,6 +12,9 @@
  * Mobile header configuration.
  */
 export interface MobileHeaderConfig {
+  /** Show back arrow instead of hamburger menu (e.g. on profile pages) */
+  readonly showBack?: boolean;
+
   /** Whether to show the NXT1 logo */
   readonly showLogo?: boolean;
 
@@ -68,6 +71,7 @@ export interface MobileHeaderUserData {
  * Default mobile header configuration.
  */
 export const DEFAULT_MOBILE_HEADER_CONFIG: MobileHeaderConfig = {
+  showBack: false,
   showLogo: true,
   showSearch: true,
   showMore: false,

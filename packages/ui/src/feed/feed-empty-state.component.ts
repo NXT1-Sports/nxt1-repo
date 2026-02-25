@@ -19,34 +19,24 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  sparklesOutline,
-  peopleOutline,
-  footballOutline,
-  schoolOutline,
-  playCircleOutline,
-  trendingUpOutline,
-  addCircleOutline,
-} from 'ionicons/icons';
 import { type FeedFilterType, FEED_EMPTY_STATES, FEED_FILTER_OPTIONS } from '@nxt1/core';
+import { NxtIconComponent } from '../components/icon';
 
-// Register icons
+// ============================================
 @Component({
   selector: 'nxt1-feed-empty-state',
   standalone: true,
-  imports: [CommonModule, IonIcon],
+  imports: [CommonModule, NxtIconComponent],
   template: `
     <div class="feed-empty">
       <div class="feed-empty__icon">
-        <ion-icon [name]="icon()"></ion-icon>
+        <nxt1-icon [name]="icon()" [size]="48" />
       </div>
       <h3 class="feed-empty__title">{{ title() }}</h3>
       <p class="feed-empty__message">{{ message() }}</p>
       @if (cta()) {
         <button type="button" class="feed-empty__cta" (click)="ctaClick.emit()">
-          <ion-icon name="add-circle-outline"></ion-icon>
+          <nxt1-icon name="plusCircle" [size]="16" />
           <span>{{ cta() }}</span>
         </button>
       }
@@ -143,18 +133,6 @@ import { type FeedFilterType, FEED_EMPTY_STATES, FEED_FILTER_OPTIONS } from '@nx
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeedEmptyStateComponent {
-  constructor() {
-    addIcons({
-      sparklesOutline,
-      peopleOutline,
-      footballOutline,
-      schoolOutline,
-      playCircleOutline,
-      trendingUpOutline,
-      addCircleOutline,
-    });
-  }
-
   // ============================================
   // INPUTS
   // ============================================
@@ -178,7 +156,7 @@ export class FeedEmptyStateComponent {
   protected readonly icon = computed(() => {
     if (this.customIcon()) return this.customIcon()!;
     const filterOption = FEED_FILTER_OPTIONS.find((f) => f.id === this.filterType());
-    return filterOption?.icon ?? 'sparkles-outline';
+    return filterOption?.icon ?? 'sparkles';
   });
 
   protected readonly title = computed(() => {

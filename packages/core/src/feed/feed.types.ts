@@ -181,6 +181,210 @@ export interface FeedMilestoneData {
 }
 
 // ============================================
+// ACTIVITY DATA TYPES (Unified Timeline)
+// ============================================
+
+/**
+ * Visit/campus tour data for visit activity posts.
+ */
+export interface FeedVisitData {
+  /** College/university name */
+  readonly collegeName: string;
+  /** College logo URL */
+  readonly collegeLogoUrl?: string;
+  /** Visit type */
+  readonly visitType: 'official' | 'unofficial' | 'junior-day' | 'game-day';
+  /** Location */
+  readonly location?: string;
+  /** Visit date */
+  readonly visitDate: string;
+  /** End date (multi-day visits) */
+  readonly endDate?: string;
+  /** Sport */
+  readonly sport?: string;
+  /** Graphic/photo from the visit */
+  readonly graphicUrl?: string;
+}
+
+/**
+ * Camp/combine/showcase data for camp activity posts.
+ */
+export interface FeedCampData {
+  /** Camp/event name */
+  readonly campName: string;
+  /** Organization/host */
+  readonly organization?: string;
+  /** Camp type */
+  readonly campType: 'camp' | 'combine' | 'showcase' | 'invitational';
+  /** Location */
+  readonly location?: string;
+  /** Event date */
+  readonly eventDate: string;
+  /** Result/award earned */
+  readonly result?: string;
+  /** Logo URL */
+  readonly logoUrl?: string;
+  /** Graphic URL */
+  readonly graphicUrl?: string;
+}
+
+/**
+ * Stat update data for stats activity posts.
+ */
+export interface FeedStatUpdateData {
+  /** Game or event context (e.g., "Week 8 vs Central High") */
+  readonly context: string;
+  /** Game date */
+  readonly gameDate?: string;
+  /** Game result (e.g., "W 42-14") */
+  readonly gameResult?: string;
+  /** Opponent name */
+  readonly opponent?: string;
+  /** Key stats to highlight */
+  readonly stats: readonly FeedStatLine[];
+  /** Season totals after this game */
+  readonly seasonTotals?: readonly FeedStatLine[];
+}
+
+/**
+ * Individual stat line for stat update cards.
+ */
+export interface FeedStatLine {
+  /** Stat label (e.g., "PASS YDS", "TDs") */
+  readonly label: string;
+  /** Stat value */
+  readonly value: string | number;
+  /** Unit/suffix (e.g., "yds", "pts") */
+  readonly unit?: string;
+  /** Whether this stat is a season high/personal best */
+  readonly isHighlight?: boolean;
+}
+
+/**
+ * Metrics/measurables data for metrics activity posts.
+ */
+export interface FeedMetricsData {
+  /** Measurement source (e.g., "PrepSports Regional Combine") */
+  readonly source: string;
+  /** Date measured */
+  readonly measuredAt: string;
+  /** Category (e.g., "Combine Results", "Measurables") */
+  readonly category?: string;
+  /** Key metrics to show */
+  readonly metrics: readonly FeedMetricLine[];
+}
+
+/**
+ * Individual metric line for metrics cards.
+ */
+export interface FeedMetricLine {
+  /** Metric label (e.g., "40 YARD", "VERTICAL") */
+  readonly label: string;
+  /** Metric value */
+  readonly value: string | number;
+  /** Unit (e.g., "s", "in", "lbs") */
+  readonly unit?: string;
+  /** Whether officially verified */
+  readonly verified?: boolean;
+  /** Previous value (for showing improvement) */
+  readonly previousValue?: string | number;
+}
+
+/**
+ * Award/achievement data for award activity posts.
+ */
+export interface FeedAwardData {
+  /** Award name */
+  readonly awardName: string;
+  /** Awarding organization/body */
+  readonly organization?: string;
+  /** Award category (e.g., "All-District", "MVP", "Academic") */
+  readonly category?: string;
+  /** Season/year */
+  readonly season?: string;
+  /** Icon name */
+  readonly icon?: string;
+}
+
+/**
+ * News article data for news activity posts.
+ */
+export interface FeedNewsData {
+  /** Article headline */
+  readonly headline: string;
+  /** Article source/publication */
+  readonly source: string;
+  /** Source logo URL */
+  readonly sourceLogoUrl?: string;
+  /** Article excerpt/summary */
+  readonly excerpt?: string;
+  /** Article URL */
+  readonly articleUrl?: string;
+  /** Hero image URL */
+  readonly imageUrl?: string;
+  /** Published date */
+  readonly publishedAt: string;
+  /** Category tag */
+  readonly category?: string;
+}
+
+/**
+ * Schedule/game data for schedule activity posts.
+ */
+export interface FeedScheduleData {
+  /** Game/event title */
+  readonly eventTitle: string;
+  /** Opponent */
+  readonly opponent?: string;
+  /** Opponent logo URL */
+  readonly opponentLogoUrl?: string;
+  /** Venue/location */
+  readonly venue?: string;
+  /** Date/time */
+  readonly dateTime: string;
+  /** Whether home game */
+  readonly isHome?: boolean;
+  /** Result if game is completed (e.g., "W 42-14") */
+  readonly result?: string;
+  /** Game status */
+  readonly status: 'upcoming' | 'live' | 'final' | 'postponed' | 'cancelled';
+}
+
+/**
+ * External platform sync source for AI-curated content.
+ */
+export interface FeedExternalSource {
+  /** Platform name (e.g., "Hudl", "MaxPreps", "247Sports") */
+  readonly platform: string;
+  /** Platform icon name */
+  readonly icon?: string;
+  /** Platform logo URL */
+  readonly logoUrl?: string;
+  /** Original content URL */
+  readonly originalUrl?: string;
+  /** Display label (e.g., "Synced from Hudl") */
+  readonly label: string;
+  /** When the sync occurred */
+  readonly syncedAt?: string;
+}
+
+/**
+ * Academic update data for academic activity posts.
+ */
+export interface FeedAcademicData {
+  /** Update type */
+  readonly updateType: 'gpa' | 'test-score' | 'honor-roll' | 'eligibility' | 'graduation';
+  /** Primary value (e.g., "3.85", "1280") */
+  readonly value: string;
+  /** Label (e.g., "Cumulative GPA", "SAT Score") */
+  readonly label: string;
+  /** Secondary value/context */
+  readonly context?: string;
+  /** Term/semester */
+  readonly term?: string;
+}
+
+// ============================================
 // POST TAGS / ATTACHED DATA
 // ============================================
 
@@ -322,6 +526,24 @@ export interface FeedPost {
   readonly commitmentData?: FeedCommitmentData;
   /** Milestone data (for milestone posts) */
   readonly milestoneData?: FeedMilestoneData;
+  /** Visit data (for visit activity posts) */
+  readonly visitData?: FeedVisitData;
+  /** Camp/combine/showcase data (for camp activity posts) */
+  readonly campData?: FeedCampData;
+  /** Stat update data (for stats activity posts) */
+  readonly statUpdateData?: FeedStatUpdateData;
+  /** Metrics/measurables data (for metrics activity posts) */
+  readonly metricsData?: FeedMetricsData;
+  /** Award data (for award activity posts) */
+  readonly awardData?: FeedAwardData;
+  /** News article data (for news activity posts) */
+  readonly newsData?: FeedNewsData;
+  /** Schedule/game data (for schedule/game activity posts) */
+  readonly scheduleData?: FeedScheduleData;
+  /** Academic update data (for academic activity posts) */
+  readonly academicData?: FeedAcademicData;
+  /** External platform source (for AI-synced content) */
+  readonly externalSource?: FeedExternalSource;
   /** Original post (for reposts) */
   readonly originalPost?: FeedPost;
   /** Repost metadata (if this post was reposted) */

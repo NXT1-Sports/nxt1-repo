@@ -58,8 +58,10 @@ export type ProfileUserRole = 'athlete' | 'coach' | 'team' | 'college_coach' | '
 
 /**
  * Verification status for profiles.
+ * Re-exported from user.model.ts (single source of truth).
  */
-export type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'premium';
+import type { VerificationStatus } from '../models/user.model';
+export type { VerificationStatus } from '../models/user.model';
 
 /**
  * Sport information for an athlete.
@@ -449,9 +451,17 @@ export interface ProfileSeasonGameLog {
 
 /**
  * Timeline sub-filter identifiers.
- * Used to filter posts within the Timeline tab (Pinned, All, Media).
+ * Used to filter activity items within the Timeline tab.
+ * 'all' shows every activity, others filter by type.
  */
-export type ProfileTimelineFilterId = 'all' | 'pinned' | 'media';
+export type ProfileTimelineFilterId =
+  | 'all'
+  | 'pinned'
+  | 'media'
+  | 'offers'
+  | 'events'
+  | 'stats'
+  | 'news';
 
 /**
  * Configuration for a timeline filter option.
@@ -682,6 +692,9 @@ export interface ProfileHeaderAction {
 
 // ============================================
 // PLAYER CARD / PROSPECT GRADE TYPES (Agent X)
+// Display DTOs — NOT the same as domain types in user.model.ts.
+// These are presentation-focused (readonly, simpler shapes).
+// Domain/source-of-truth types: import from @nxt1/core/models
 // ============================================
 
 /**

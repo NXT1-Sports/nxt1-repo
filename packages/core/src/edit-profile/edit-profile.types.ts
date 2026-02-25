@@ -250,15 +250,36 @@ export interface EditProfilePhysical {
 }
 
 /**
+ * A single social link entry for editing.
+ * Agnostic — no hardcoded platforms. Mirrors SocialLink in user.model.ts.
+ */
+export interface EditProfileSocialLinkEntry {
+  /** Platform identifier (e.g., "twitter", "instagram", "hudl", custom) */
+  readonly platform: string;
+  /** Full URL to the profile */
+  readonly url: string;
+  /** Optional display username/handle */
+  readonly username?: string;
+  /** Display order (0-based) */
+  readonly displayOrder?: number;
+}
+
+/**
  * Social links form data.
+ * Agnostic array — supports any platform, no hardcoded fields.
+ *
+ * @example
+ * ```ts
+ * const socialLinks: EditProfileSocialLinks = {
+ *   links: [
+ *     { platform: 'twitter', url: 'https://x.com/handle', username: '@handle', displayOrder: 0 },
+ *     { platform: 'hudl', url: 'https://hudl.com/profile/123', displayOrder: 1 },
+ *   ]
+ * };
+ * ```
  */
 export interface EditProfileSocialLinks {
-  readonly twitter?: string;
-  readonly instagram?: string;
-  readonly tiktok?: string;
-  readonly youtube?: string;
-  readonly hudl?: string;
-  readonly maxpreps?: string;
+  readonly links: readonly EditProfileSocialLinkEntry[];
 }
 
 /**

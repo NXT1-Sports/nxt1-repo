@@ -14,7 +14,7 @@ import type { HttpAdapter } from '../api/http-adapter';
 import type {
   ManageTeamFormData,
   RosterPlayer,
-  ScheduleEvent,
+  TeamScheduleEvent,
   StaffMember,
   TeamSponsor,
   TeamIntegration,
@@ -184,8 +184,8 @@ export function createManageTeamApi(http: HttpAdapter, baseUrl: string) {
     /**
      * Get team schedule.
      */
-    async getSchedule(teamId: string): Promise<readonly ScheduleEvent[]> {
-      const response = await http.get<ApiResponse<ScheduleEvent[]>>(
+    async getSchedule(teamId: string): Promise<readonly TeamScheduleEvent[]> {
+      const response = await http.get<ApiResponse<TeamScheduleEvent[]>>(
         `${endpoint}/${teamId}/schedule`
       );
       return response.success ? (response.data ?? []) : [];
@@ -194,8 +194,11 @@ export function createManageTeamApi(http: HttpAdapter, baseUrl: string) {
     /**
      * Add schedule event.
      */
-    async addEvent(teamId: string, event: Omit<ScheduleEvent, 'id'>): Promise<ScheduleEvent> {
-      const response = await http.post<ApiResponse<ScheduleEvent>>(
+    async addEvent(
+      teamId: string,
+      event: Omit<TeamScheduleEvent, 'id'>
+    ): Promise<TeamScheduleEvent> {
+      const response = await http.post<ApiResponse<TeamScheduleEvent>>(
         `${endpoint}/${teamId}/schedule`,
         event
       );
@@ -211,9 +214,9 @@ export function createManageTeamApi(http: HttpAdapter, baseUrl: string) {
     async updateEvent(
       teamId: string,
       eventId: string,
-      data: Partial<ScheduleEvent>
-    ): Promise<ScheduleEvent> {
-      const response = await http.put<ApiResponse<ScheduleEvent>>(
+      data: Partial<TeamScheduleEvent>
+    ): Promise<TeamScheduleEvent> {
+      const response = await http.put<ApiResponse<TeamScheduleEvent>>(
         `${endpoint}/${teamId}/schedule/${eventId}`,
         data
       );

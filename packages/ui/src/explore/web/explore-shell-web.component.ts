@@ -37,6 +37,8 @@ import {
 } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../../components/page-header';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
+import { NxtSectionNavWebComponent } from '../../components/section-nav-web';
+import type { SectionNavItem, SectionNavChangeEvent } from '../../components/section-nav-web';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { ExploreService } from '../explore.service';
@@ -58,6 +60,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
     FormsModule,
     NxtPageHeaderComponent,
     NxtDesktopPageHeaderComponent,
+    NxtSectionNavWebComponent,
     ExploreListWebComponent,
     ExploreSkeletonComponent,
     ExploreForYouWebComponent,
@@ -268,135 +271,126 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
           </section>
         }
 
-        <!-- Tab Selector (web uses horizontal pills) -->
+        <!-- Two-column layout: Sidebar nav + Content (like Help Center) -->
         @if (!explore.isSearchFocused() || explore.hasQuery()) {
-          <div class="tab-row">
-            <nav class="tab-bar" aria-label="Explore tabs">
-              @for (tab of tabOptions(); track tab.id) {
+          <div class="explore-layout">
+            <nxt1-section-nav-web
+              [items]="tabOptions()"
+              [activeId]="explore.activeTab()"
+              ariaLabel="Explore tabs"
+              (selectionChange)="onSectionTabChange($event)"
+            />
+
+            <section class="explore-section-content" role="tabpanel">
+              @if (hideHeader()) {
                 <button
                   type="button"
-                  class="tab-pill"
-                  [class.active]="explore.activeTab() === tab.id"
-                  (click)="onTabChange(tab.id)"
-                  [attr.aria-current]="explore.activeTab() === tab.id ? 'page' : null"
+                  class="tab-filter-btn"
+                  aria-label="Open filters"
+                  (click)="onFilterClick()"
                 >
-                  {{ tab.label }}
-                  @if (tab.badge) {
-                    <span class="tab-badge">{{ tab.badge }}</span>
+                  <svg
+                    class="h-[18px] w-[18px]"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M3 4a1 1 0 011-1h16a1 1 0 01.8 1.6L14 13.5V19a1 1 0 01-.553.894l-4 2A1 1 0 018 21v-7.5L3.2 4.6A1 1 0 013 4z"
+                    />
+                  </svg>
+                  @if (activeFilterCount() > 0) {
+                    <span class="tab-filter-badge">{{ activeFilterCount() }}</span>
                   }
                 </button>
               }
-            </nav>
 
-            @if (hideHeader()) {
-              <button
-                type="button"
-                class="tab-filter-btn"
-                aria-label="Open filters"
-                (click)="onFilterClick()"
-              >
-                <svg
-                  class="h-[18px] w-[18px]"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M3 4a1 1 0 011-1h16a1 1 0 01.8 1.6L14 13.5V19a1 1 0 01-.553.894l-4 2A1 1 0 018 21v-7.5L3.2 4.6A1 1 0 013 4z"
+              <!-- For You Tab: Multi-category curated landing view -->
+              @if (explore.activeTab() === 'for-you' && !explore.hasQuery()) {
+                <nxt1-explore-for-you-web
+                  [user]="user()"
+                  (itemTap)="onItemClick($event)"
+                  (categorySelect)="onForYouCategorySelect($event)"
+                />
+                <!-- Feed Tab: Personalized content stream -->
+              } @else if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
+                <nxt1-feed-list
+                  [posts]="feedService.posts()"
+                  [isLoading]="feedService.isLoading()"
+                  [isLoadingMore]="feedService.isLoadingMore()"
+                  [isEmpty]="feedService.isEmpty()"
+                  [error]="feedService.error()"
+                  [hasMore]="feedService.hasMore()"
+                  [compactCards]="true"
+                  [filterType]="'for-you'"
+                  (postClick)="onPostSelect($event)"
+                  (authorClick)="onAuthorSelect($event)"
+                  (reactClick)="onLikeClick($event)"
+                  (repostClick)="onCommentClick($event)"
+                  (shareClick)="onShareClick($event)"
+                  (bookmarkClick)="onBookmarkClick($event)"
+                  (loadMore)="onFeedLoadMore()"
+                  (retry)="onFeedRetry()"
+                />
+              } @else if (explore.activeTab() === 'following' && !explore.hasQuery()) {
+                <!-- Following Tab: Posts from followed users -->
+                <nxt1-feed-list
+                  [posts]="feedService.posts()"
+                  [isLoading]="feedService.isLoading()"
+                  [isLoadingMore]="feedService.isLoadingMore()"
+                  [isEmpty]="feedService.isEmpty()"
+                  [error]="feedService.error()"
+                  [hasMore]="feedService.hasMore()"
+                  [compactCards]="true"
+                  [filterType]="'following'"
+                  (postClick)="onPostSelect($event)"
+                  (authorClick)="onAuthorSelect($event)"
+                  (reactClick)="onLikeClick($event)"
+                  (repostClick)="onCommentClick($event)"
+                  (shareClick)="onShareClick($event)"
+                  (bookmarkClick)="onBookmarkClick($event)"
+                  (loadMore)="onFeedLoadMore()"
+                  (retry)="onFeedRetry()"
+                />
+              } @else if (explore.activeTab() === 'news' && !explore.hasQuery()) {
+                <!-- News Tab: Sports recruiting news -->
+                <nxt1-news-content
+                  (articleSelect)="onNewsArticleSelect($event)"
+                  (xpBadgeClick)="onXpBadgeClick()"
+                />
+              } @else if (explore.activeTab() === 'scout-reports' && !explore.hasQuery()) {
+                <!-- Scout Reports Tab -->
+                <nxt1-scout-reports-content
+                  (reportSelect)="onScoutReportSelect($event)"
+                  (openFilters)="onScoutReportFiltersOpen()"
+                />
+              } @else {
+                @defer (on viewport; prefetch on idle) {
+                  <nxt1-explore-list-web
+                    [items]="explore.items()"
+                    [activeTab]="explore.activeTab()"
+                    [isLoading]="explore.isLoading()"
+                    [isLoadingMore]="explore.isLoadingMore()"
+                    [isEmpty]="explore.isEmpty()"
+                    [hasQuery]="explore.hasQuery()"
+                    [error]="explore.error()"
+                    [hasMore]="explore.hasMore()"
+                    (loadMore)="onLoadMore()"
+                    (retry)="onRetry()"
+                    (itemClick)="onItemClick($event)"
                   />
-                </svg>
-                @if (activeFilterCount() > 0) {
-                  <span class="tab-filter-badge">{{ activeFilterCount() }}</span>
+                } @placeholder {
+                  <nxt1-explore-skeleton />
+                } @loading (minimum 200ms) {
+                  <nxt1-explore-skeleton />
                 }
-              </button>
-            }
+              }
+            </section>
           </div>
-        }
-
-        <!-- Main Content -->
-        @if (!explore.isSearchFocused() || explore.hasQuery()) {
-          <!-- For You Tab: Multi-category curated landing view -->
-          @if (explore.activeTab() === 'for-you' && !explore.hasQuery()) {
-            <nxt1-explore-for-you-web
-              [user]="user()"
-              (itemTap)="onItemClick($event)"
-              (categorySelect)="onForYouCategorySelect($event)"
-            />
-          <!-- Feed Tab: Personalized content stream -->
-          } @else if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
-            <nxt1-feed-list
-              [posts]="feedService.posts()"
-              [isLoading]="feedService.isLoading()"
-              [isLoadingMore]="feedService.isLoadingMore()"
-              [isEmpty]="feedService.isEmpty()"
-              [error]="feedService.error()"
-              [hasMore]="feedService.hasMore()"
-              [filterType]="'for-you'"
-              (postClick)="onPostSelect($event)"
-              (authorClick)="onAuthorSelect($event)"
-              (reactClick)="onLikeClick($event)"
-              (repostClick)="onCommentClick($event)"
-              (shareClick)="onShareClick($event)"
-              (bookmarkClick)="onBookmarkClick($event)"
-              (loadMore)="onFeedLoadMore()"
-              (retry)="onFeedRetry()"
-            />
-          } @else if (explore.activeTab() === 'following' && !explore.hasQuery()) {
-            <!-- Following Tab: Posts from followed users -->
-            <nxt1-feed-list
-              [posts]="feedService.posts()"
-              [isLoading]="feedService.isLoading()"
-              [isLoadingMore]="feedService.isLoadingMore()"
-              [isEmpty]="feedService.isEmpty()"
-              [error]="feedService.error()"
-              [hasMore]="feedService.hasMore()"
-              [filterType]="'following'"
-              (postClick)="onPostSelect($event)"
-              (authorClick)="onAuthorSelect($event)"
-              (reactClick)="onLikeClick($event)"
-              (repostClick)="onCommentClick($event)"
-              (shareClick)="onShareClick($event)"
-              (bookmarkClick)="onBookmarkClick($event)"
-              (loadMore)="onFeedLoadMore()"
-              (retry)="onFeedRetry()"
-            />
-          } @else if (explore.activeTab() === 'news' && !explore.hasQuery()) {
-            <!-- News Tab: Sports recruiting news -->
-            <nxt1-news-content
-              (articleSelect)="onNewsArticleSelect($event)"
-              (xpBadgeClick)="onXpBadgeClick()"
-            />
-          } @else if (explore.activeTab() === 'scout-reports' && !explore.hasQuery()) {
-            <!-- Scout Reports Tab -->
-            <nxt1-scout-reports-content
-              (reportSelect)="onScoutReportSelect($event)"
-              (openFilters)="onScoutReportFiltersOpen()"
-            />
-          } @else {
-            @defer (on viewport; prefetch on idle) {
-              <nxt1-explore-list-web
-                [items]="explore.items()"
-                [activeTab]="explore.activeTab()"
-                [isLoading]="explore.isLoading()"
-                [isLoadingMore]="explore.isLoadingMore()"
-                [isEmpty]="explore.isEmpty()"
-                [hasQuery]="explore.hasQuery()"
-                [error]="explore.error()"
-                [hasMore]="explore.hasMore()"
-                (loadMore)="onLoadMore()"
-                (retry)="onRetry()"
-                (itemClick)="onItemClick($event)"
-              />
-            } @placeholder {
-              <nxt1-explore-skeleton />
-            } @loading (minimum 200ms) {
-              <nxt1-explore-skeleton />
-            }
-          }
         }
       </div>
     </main>
@@ -424,73 +418,29 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
         padding-bottom: var(--nxt1-spacing-16);
       }
 
-      /* Tab bar (horizontal pills) */
-      .tab-bar {
-        display: flex;
-        gap: var(--nxt1-spacing-2, 8px);
-        padding: var(--nxt1-spacing-2, 8px) 0 var(--nxt1-spacing-4, 16px) 0;
-        overflow-x: auto;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
+      /* ==============================
+         TWO-COLUMN LAYOUT (Help Center style)
+         Left: sticky vertical section nav
+         Right: tab content
+         ============================== */
+
+      .explore-layout {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: var(--nxt1-spacing-6, 24px);
+        align-items: start;
+        padding-top: var(--nxt1-spacing-2, 8px);
       }
 
-      .tab-bar::-webkit-scrollbar {
-        display: none;
-      }
-
-      .tab-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .tab-row .tab-bar {
-        flex: 1;
+      .explore-section-content {
         min-width: 0;
       }
 
-      .tab-pill {
-        flex-shrink: 0;
-        display: inline-flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-1, 4px);
-        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-4, 16px);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
-        background: transparent;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        white-space: nowrap;
-      }
-
-      .tab-pill:hover {
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
-      }
-
-      .tab-pill.active {
-        background: var(--nxt1-color-primary, #ccff00);
-        color: var(--nxt1-color-on-primary, #000000);
-        border-color: transparent;
-        font-weight: 600;
-      }
-
-      .tab-badge {
-        font-size: 11px;
-        font-weight: 700;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        padding: 1px 6px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        min-width: 18px;
-        text-align: center;
-      }
-
-      .tab-pill.active .tab-badge {
-        background: rgba(0, 0, 0, 0.15);
-        color: var(--nxt1-color-on-primary, #000000);
+      @media (max-width: 768px) {
+        .explore-layout {
+          grid-template-columns: 1fr;
+          gap: var(--nxt1-spacing-4, 16px);
+        }
       }
 
       .header-filter-btn,
@@ -568,7 +518,7 @@ export class ExploreShellWebComponent implements OnInit {
     this.explore.getActiveFilterCount(this.explore.activeTab())
   );
 
-  protected readonly tabOptions = computed(() => {
+  protected readonly tabOptions = computed<readonly SectionNavItem[]>(() => {
     const counts = this.explore.tabCounts();
     return EXPLORE_TABS.map((tab) => ({
       id: tab.id,
@@ -679,6 +629,10 @@ export class ExploreShellWebComponent implements OnInit {
     await this.explore.switchTab(id);
     await this.ensureFeedLoadedForTab(id);
     this.tabChange.emit(id);
+  }
+
+  protected async onSectionTabChange(event: SectionNavChangeEvent): Promise<void> {
+    await this.onTabChange(event.id);
   }
 
   /**

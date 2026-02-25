@@ -1,5 +1,5 @@
 /**
- * @fileoverview Gamified Desktop Page Header for Profile
+ * @fileoverview Gamified Profile Page Header
  *
  * Premium header with:
  * - Back button + Name/Position
@@ -59,42 +59,42 @@ const PLACEHOLDER_BADGES: ReadonlyArray<HeaderBadge> = [
   {
     id: 'profile-pro',
     name: 'Profile Pro',
-    icon: 'person-outline',
+    icon: 'person',
     rarity: 'rare',
     description: 'Completed your full athlete profile',
   },
   {
     id: 'highlight-star',
     name: 'Highlight Star',
-    icon: 'videocam-outline',
+    icon: 'videocam',
     rarity: 'epic',
     description: 'Uploaded 10+ highlight videos',
   },
   {
     id: 'team-player',
     name: 'Team Player',
-    icon: 'people-outline',
+    icon: 'users',
     rarity: 'uncommon',
     description: 'Joined a team and linked your roster',
   },
   {
     id: 'stat-tracker',
     name: 'Stat Tracker',
-    icon: 'stats-chart-outline',
+    icon: 'barChart',
     rarity: 'common',
     description: 'Logged season stats for the first time',
   },
   {
     id: 'early-adopter',
     name: 'Early Adopter',
-    icon: 'rocket-outline',
+    icon: 'rocket',
     rarity: 'rare',
     description: 'One of the first 1,000 athletes on NXT1',
   },
   {
     id: 'on-fire',
     name: 'On Fire',
-    icon: 'flame-outline',
+    icon: 'flame',
     rarity: 'legendary',
     description: 'Achieved a 30-day activity streak',
   },
@@ -107,7 +107,7 @@ const ARC_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS; // full circ ≈ 251.33
 const ARC_LENGTH = ARC_CIRCUMFERENCE * (ARC_DEGREES / 360); // visible arc ≈ 188.5
 
 @Component({
-  selector: 'nxt1-profile-desktop-header',
+  selector: 'nxt1-profile-page-header',
   standalone: true,
   imports: [CommonModule, NxtIconComponent, NxtBackButtonComponent, NxtTooltipDirective],
   template: `
@@ -567,7 +567,7 @@ const ARC_LENGTH = ARC_CIRCUMFERENCE * (ARC_DEGREES / 360); // visible arc ≈ 1
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ProfileDesktopHeaderComponent {
+export class ProfilePageHeaderComponent {
   /* ── Inputs / Outputs ── */
   readonly user = input<ProfileUser | null>(null);
   readonly playerCard = input<PlayerCardData | null>(null);
@@ -690,7 +690,7 @@ export class ProfileDesktopHeaderComponent {
       return userBadges.slice(0, 6).map((b: Record<string, unknown>) => ({
         id: String(b['id'] ?? ''),
         name: String(b['name'] ?? 'Badge'),
-        icon: String(b['icon'] ?? 'star-outline'),
+        icon: String(b['icon'] ?? 'star'),
         rarity: (VALID_RARITIES.includes(String(b['rarity'] ?? ''))
           ? String(b['rarity'])
           : 'common') as HeaderBadge['rarity'],

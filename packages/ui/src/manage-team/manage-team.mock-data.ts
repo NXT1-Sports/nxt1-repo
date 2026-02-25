@@ -12,7 +12,7 @@ import type {
   ManageTeamFormData,
   ManageTeamSection,
   RosterPlayer,
-  ScheduleEvent,
+  TeamScheduleEvent,
   StaffMember,
   TeamSponsor,
   TeamIntegration,
@@ -184,7 +184,7 @@ export const MOCK_ROSTER: readonly RosterPlayer[] = [
 // MOCK SCHEDULE
 // ============================================
 
-export const MOCK_SCHEDULE: readonly ScheduleEvent[] = [
+export const MOCK_SCHEDULE: readonly TeamScheduleEvent[] = [
   {
     id: 'event-1',
     type: 'game',
@@ -659,7 +659,7 @@ export function getMockRoster(count?: number): readonly RosterPlayer[] {
 /**
  * Get mock schedule with optional count.
  */
-export function getMockSchedule(count?: number): readonly ScheduleEvent[] {
+export function getMockSchedule(count?: number): readonly TeamScheduleEvent[] {
   return count ? MOCK_SCHEDULE.slice(0, count) : [...MOCK_SCHEDULE];
 }
 

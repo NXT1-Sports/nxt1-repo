@@ -18,11 +18,18 @@ import {
   type ProfileStatItem,
   type ProfileOffer,
   type ProfileSport,
+  type FeedPost,
   PROFILE_DEFAULT_TAB,
+  profileUserToFeedAuthor,
+  buildUnifiedActivityFeed,
 } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../services/logging/logging.service';
-import { MOCK_PROFILE_PAGE_DATA, getMockOwnProfileData } from './profile.mock-data';
+import {
+  MOCK_PROFILE_PAGE_DATA,
+  getMockOwnProfileData,
+  MOCK_ACTIVITY_FEED_ITEMS,
+} from './profile.mock-data';
 import { type RankingSource, MOCK_RANKINGS } from './rankings/profile-rankings.component';
 
 type ProfileUserTeamExtension = {
@@ -47,6 +54,7 @@ export class ProfileService {
   private readonly _editSection = signal<string | null>(null);
   private readonly _activeSportIndex = signal(0);
   private readonly _rankings = signal<RankingSource[]>(MOCK_RANKINGS);
+  private readonly _activityFeedItems = signal<readonly FeedPost[]>([]);
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS (READ-ONLY)
@@ -123,6 +131,37 @@ export class ProfileService {
 
   /** Player card data (Agent X / Madden-style) */
   readonly playerCard = computed(() => this._profileData()?.playerCard ?? null);
+
+  /**
+   * Unified activity timeline feed.
+   * Merges all profile sections (posts, offers, events) + extra activity items
+   * (stat updates, metrics, awards, news, schedule, external syncs)
+   * into a single chronologically sorted FeedPost array.
+   *
+   * This powers the unified Timeline tab, showing EVERY update across
+   * the entire profile in one seamless feed.
+   */
+  readonly unifiedTimeline = computed<readonly FeedPost[]>(() => {
+    const data = this._profileData();
+    if (!data?.user) return [];
+
+    const author = profileUserToFeedAuthor(data.user);
+    const posts = data.recentPosts ?? [];
+    const offers = data.offers ?? [];
+    const events = data.events ?? [];
+
+    // Build unified feed from posts + offers + events
+    const baseFeed = buildUnifiedActivityFeed(posts, offers, events, author);
+
+    // Merge in extra activity items (stat updates, metrics, awards, news, etc.)
+    const extraItems = this._activityFeedItems();
+    if (extraItems.length === 0) return baseFeed;
+
+    // Combine and re-sort chronologically (newest first)
+    const combined = [...baseFeed, ...extraItems];
+    combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return combined;
+  });
 
   /**
    * All profile images for carousel display.
@@ -354,6 +393,7 @@ export class ProfileService {
 
       const data = isOwnProfile ? getMockOwnProfileData() : MOCK_PROFILE_PAGE_DATA;
       this._profileData.set(data);
+      this._activityFeedItems.set(MOCK_ACTIVITY_FEED_ITEMS);
 
       this.logger.info('Profile loaded successfully', { profileCode });
     } catch (err) {
@@ -485,6 +525,7 @@ export class ProfileService {
     this._error.set(null);
     this._activeTab.set(PROFILE_DEFAULT_TAB);
     this._profileData.set(null);
+    this._activityFeedItems.set([]);
     this._isEditMode.set(false);
     this._editSection.set(null);
     this._activeSportIndex.set(0);

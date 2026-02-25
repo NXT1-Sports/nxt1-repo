@@ -49,29 +49,31 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
       <!-- Filter Tabs (only shown when filters enabled) -->
       @if (showFilters()) {
         <nav class="timeline-filters" role="tablist" aria-label="Timeline filters">
-          @for (filter of filters; track filter.id) {
-            <button
-              type="button"
-              role="tab"
-              class="timeline-filter"
-              [class.timeline-filter--active]="activeFilter() === filter.id"
-              [attr.aria-selected]="activeFilter() === filter.id"
-              [attr.aria-controls]="'timeline-panel-' + filter.id"
-              (click)="setFilter(filter.id)"
-            >
-              <nxt1-icon [name]="filter.icon" [size]="14" />
-              <span>{{ filter.label }}</span>
-              @if (filter.id === 'pinned' && pinnedCount() > 0) {
-                <span class="timeline-filter__badge">{{ pinnedCount() }}</span>
-              }
-            </button>
-          }
-          <!-- Active indicator bar -->
-          <div
-            class="timeline-filters__indicator"
-            [style.width.%]="100 / filters.length"
-            [style.transform]="'translateX(' + activeFilterIndex() * 100 + '%)'"
-          ></div>
+          <div class="timeline-filters__scroll">
+            @for (filter of filters; track filter.id) {
+              <button
+                type="button"
+                role="tab"
+                class="timeline-filter"
+                [class.timeline-filter--active]="activeFilter() === filter.id"
+                [attr.aria-selected]="activeFilter() === filter.id"
+                [attr.aria-controls]="'timeline-panel-' + filter.id"
+                (click)="setFilter(filter.id)"
+              >
+                <nxt1-icon [name]="filter.icon" [size]="14" />
+                <span>{{ filter.label }}</span>
+                @if (filter.id === 'pinned' && pinnedCount() > 0) {
+                  <span class="timeline-filter__badge">{{ pinnedCount() }}</span>
+                }
+                @if (filter.id === 'offers' && filterBadgeCounts().offers > 0) {
+                  <span class="timeline-filter__badge">{{ filterBadgeCounts().offers }}</span>
+                }
+                @if (filter.id === 'events' && filterBadgeCounts().events > 0) {
+                  <span class="timeline-filter__badge">{{ filterBadgeCounts().events }}</span>
+                }
+              </button>
+            }
+          </div>
         </nav>
       }
 
@@ -87,7 +89,7 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
       <!-- Error State -->
       @else if (error()) {
         <div class="timeline-error">
-          <nxt1-icon name="alert-circle" [size]="48" />
+          <nxt1-icon name="alertCircle" [size]="48" />
           <h3>Something went wrong</h3>
           <p>{{ error() }}</p>
           <button class="retry-btn" (click)="retry.emit()">Try Again</button>
@@ -171,15 +173,26 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
 
       .timeline-filters {
         position: relative;
-        display: flex;
-        align-items: stretch;
         border-bottom: 1px solid var(--timeline-border);
         background: var(--timeline-bg);
         overflow: hidden;
       }
 
+      .timeline-filters__scroll {
+        display: flex;
+        align-items: stretch;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+
+        &::-webkit-scrollbar {
+          display: none;
+        }
+      }
+
       .timeline-filter {
-        flex: 1;
+        flex: none;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -203,6 +216,7 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
 
       .timeline-filter--active {
         color: var(--timeline-primary);
+        box-shadow: inset 0 -2px 0 var(--timeline-primary);
       }
 
       .timeline-filter__badge {
@@ -218,16 +232,6 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
         font-size: 10px;
         font-weight: 700;
         font-variant-numeric: tabular-nums;
-      }
-
-      .timeline-filters__indicator {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        height: 2px;
-        background: var(--timeline-primary);
-        border-radius: 2px 2px 0 0;
-        transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
       /* ============================================
@@ -400,6 +404,14 @@ export class ProfileTimelineComponent {
   /** Profile posts to display */
   readonly posts = input<readonly ProfilePost[]>([]);
 
+  /**
+   * Unified activity feed (pre-built FeedPost[]).
+   * When provided, this replaces the posts→FeedPost mapping
+   * and includes all activity types (offers, events, stats, etc.).
+   * Built by ProfileService.unifiedTimeline.
+   */
+  readonly unifiedFeed = input<readonly FeedPost[]>([]);
+
   /** Profile owner — used to build FeedAuthor for card rendering */
   readonly profileUser = input<ProfileUser | null>(null);
 
@@ -448,17 +460,14 @@ export class ProfileTimelineComponent {
   protected readonly activeFilter = this._activeFilter.asReadonly();
 
   /** Sync external filter input to internal state */
-  private readonly filterSync = effect(() => {
-    const external = this.filter();
-    if (external !== null) {
-      this._activeFilter.set(external);
-    }
-  });
-
-  /** Index of the active filter (for indicator positioning) */
-  protected readonly activeFilterIndex = computed(() => {
-    return this.filters.findIndex((f) => f.id === this._activeFilter());
-  });
+  constructor() {
+    effect(() => {
+      const external = this.filter();
+      if (external !== null) {
+        this._activeFilter.set(external);
+      }
+    });
+  }
 
   /** Config for the currently active filter (for empty state text) */
   protected readonly activeFilterConfig = computed(() => {
@@ -467,7 +476,20 @@ export class ProfileTimelineComponent {
 
   /** Count of pinned posts (for badge on Pinned tab) */
   protected readonly pinnedCount = computed(() => {
+    const feed = this.unifiedFeed();
+    if (feed.length > 0) return feed.filter((p) => p.isPinned).length;
     return this.posts().filter((p) => p.isPinned).length;
+  });
+
+  /** Badge counts for activity type filters */
+  protected readonly filterBadgeCounts = computed(() => {
+    const feed = this.unifiedFeed();
+    return {
+      offers: feed.filter((p) => p.type === 'offer' || p.type === 'commitment').length,
+      events: feed.filter(
+        (p) => p.type === 'visit' || p.type === 'camp' || p.type === 'schedule' || p.type === 'game'
+      ).length,
+    };
   });
 
   /** Resolved empty icon: input override → filter config */
@@ -507,46 +529,62 @@ export class ProfileTimelineComponent {
     };
   });
 
-  /** All ProfilePosts mapped to FeedPosts (before filtering) */
+  /** All FeedPosts — from unified feed or mapped from ProfilePosts */
   private readonly allFeedPosts = computed<readonly FeedPost[]>(() => {
+    const unified = this.unifiedFeed();
+    if (unified.length > 0) return unified;
+
     const posts = this.posts();
     const author = this.feedAuthor();
     return posts.map((p) => profilePostToFeedPost(p, author));
   });
 
-  /** Filtered posts based on active filter */
-  protected readonly filteredPosts = computed<readonly ProfilePost[]>(() => {
-    const posts = this.posts();
+  /** Filtered FeedPosts for the card component — supports all filter types */
+  protected readonly filteredFeedPosts = computed<readonly FeedPost[]>(() => {
+    const feed = this.allFeedPosts();
     const filter = this._activeFilter();
 
     switch (filter) {
-      case 'pinned':
-        return posts.filter((p) => p.isPinned);
-      case 'media':
-        return posts.filter(
-          (p) =>
-            p.type === 'image' ||
-            p.type === 'video' ||
-            p.type === 'highlight' ||
-            !!p.thumbnailUrl ||
-            !!p.mediaUrl
-        );
       case 'all':
+        return feed;
+      case 'pinned':
+        return feed.filter((p) => p.isPinned);
+      case 'media':
+        return feed.filter(
+          (p) =>
+            p.type === 'image' || p.type === 'video' || p.type === 'highlight' || p.media.length > 0
+        );
+      case 'offers':
+        return feed.filter(
+          (p) =>
+            p.type === 'offer' || p.type === 'commitment' || !!p.offerData || !!p.commitmentData
+        );
+      case 'events':
+        return feed.filter(
+          (p) =>
+            p.type === 'visit' ||
+            p.type === 'camp' ||
+            p.type === 'schedule' ||
+            p.type === 'game' ||
+            !!p.visitData ||
+            !!p.campData ||
+            !!p.scheduleData
+        );
+      case 'stats':
+        return feed.filter(
+          (p) => p.type === 'stats' || p.type === 'metrics' || !!p.statUpdateData || !!p.metricsData
+        );
+      case 'news':
+        return feed.filter((p) => p.type === 'news' || p.type === 'article' || !!p.newsData);
       default:
-        return posts;
+        return feed;
     }
   });
 
-  /** Filtered FeedPosts for the card component */
-  protected readonly filteredFeedPosts = computed<readonly FeedPost[]>(() => {
-    const filteredProfilePosts = this.filteredPosts();
-    const author = this.feedAuthor();
-    return filteredProfilePosts.map((p) => profilePostToFeedPost(p, author));
-  });
-
-  /** Whether the filtered view is empty (posts exist but none match filter) */
+  /** Whether the filtered view is empty (content exists but none match filter) */
   protected readonly isFilteredEmpty = computed(() => {
-    return this.isEmpty() || this.filteredPosts().length === 0;
+    if (this.isEmpty()) return true;
+    return this.filteredFeedPosts().length === 0;
   });
 
   // ============================================
@@ -560,31 +598,47 @@ export class ProfileTimelineComponent {
   }
 
   // ============================================
-  // EVENT HANDLERS — Translate FeedPost events back to ProfilePost
+  // EVENT HANDLERS
+  // Resolve FeedPost → ProfilePost by matching ID for backward compat.
+  // Activity-only items (offers, stats, etc.) have no matching ProfilePost,
+  // so we find the closest match or skip.
   // ============================================
 
+  /**
+   * Finds the source ProfilePost for a given FeedPost index.
+   * Returns null for activity-only items (offers, stats, etc.) that
+   * have no backing ProfilePost.
+   */
+  private resolveProfilePost(feedIndex: number): ProfilePost | null {
+    const feedPost = this.filteredFeedPosts()[feedIndex];
+    if (!feedPost) return null;
+
+    // Match by ID — profilePostToFeedPost preserves the original post ID
+    return this.posts().find((p) => p.id === feedPost.id) ?? null;
+  }
+
   protected handlePostClick(index: number): void {
-    const post = this.filteredPosts()[index];
+    const post = this.resolveProfilePost(index);
     if (post) this.postClick.emit(post);
   }
 
   protected handleLikeClick(index: number): void {
-    const post = this.filteredPosts()[index];
+    const post = this.resolveProfilePost(index);
     if (post) this.reactClick.emit(post);
   }
 
   protected handleCommentClick(index: number): void {
-    const post = this.filteredPosts()[index];
+    const post = this.resolveProfilePost(index);
     if (post) this.repostClick.emit(post);
   }
 
   protected handleShareClick(index: number): void {
-    const post = this.filteredPosts()[index];
+    const post = this.resolveProfilePost(index);
     if (post) this.shareClick.emit(post);
   }
 
   protected handleMenuClick(index: number): void {
-    const post = this.filteredPosts()[index];
+    const post = this.resolveProfilePost(index);
     if (post) this.menuClick.emit(post);
   }
 }

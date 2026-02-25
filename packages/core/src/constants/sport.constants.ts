@@ -4,26 +4,48 @@
  *
  * Consolidated sport identifiers, positions, stats, athletic info,
  * display helpers, and emoji utilities. 100% portable, no framework deps.
+ *
+ * 2026 ROLE: These constants serve three purposes:
+ *   1. AGENT X NORMALIZATION — When Agent X scrapes data from MaxPreps, Hudl,
+ *      etc., it uses these field definitions to normalize labels, units, and
+ *      categories into VerifiedMetric/VerifiedStat objects.
+ *   2. MANUAL ENTRY SUGGESTIONS — When a user adds stats/metrics manually,
+ *      the UI uses these as dropdown suggestions (with a "Custom" option).
+ *   3. GOLDEN PATH PROMPTING — Agent X is prompted to prioritize these fields
+ *      when selecting featuredMetrics/featuredStats on the SportProfile.
+ *
+ * These constants are NOT database schemas. The database stores agnostic
+ * VerifiedMetric[] and VerifiedStat[] arrays that accept ANY label/value.
  */
 
 // ============================================
 // TYPE DEFINITIONS
 // ============================================
 
+/**
+ * Field definition for sport-specific metrics and stats.
+ *
+ * 2026 USAGE:
+ * - Agent X uses `field` to normalize scraped data (e.g., "Pass Yds" → field: 'passing_yards')
+ * - Agent X uses `label` to set the display-ready label on VerifiedMetric/VerifiedStat
+ * - Agent X uses `unit` to set the unit on VerifiedMetric/VerifiedStat
+ * - The UI uses `type` and `options` to render manual-entry forms
+ * - `required` indicates which fields Agent X should prioritize extracting
+ */
 export interface FieldDefinition {
-  /** Field identifier (snake_case) */
+  /** Field identifier (snake_case) — used as normalization key */
   field: string;
-  /** Display label */
+  /** Display label — copied to VerifiedMetric.label / VerifiedStat.label */
   label: string;
-  /** Input type */
+  /** Input type (for manual-entry UI forms) */
   type?: 'text' | 'number' | 'select' | 'time';
-  /** Whether field is required */
+  /** Whether field is a priority for Agent X extraction */
   required?: boolean;
-  /** Unit of measurement */
+  /** Unit of measurement — copied to VerifiedMetric.unit / VerifiedStat.unit */
   unit?: string;
-  /** Placeholder text */
+  /** Placeholder text (for manual-entry UI forms) */
   placeholder?: string;
-  /** Options for select type */
+  /** Options for select type (for manual-entry UI forms) */
   options?: string[];
 }
 

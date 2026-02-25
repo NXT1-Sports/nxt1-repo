@@ -64,7 +64,6 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
       [currentUser]="userInfo()"
       [profileUnicode]="profileUnicode()"
       [isOwnProfile]="isOwnProfile()"
-      [hideHeader]="isDesktop()"
       (avatarClick)="onAvatarClick()"
       (backClick)="onBackClick()"
       (tabChange)="onTabChange($event)"
@@ -106,15 +105,15 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
     `
       :host {
         /* Flex layout: stretch to fill shell__content.
-           Sits inside the shell's normal padded content zone,
-           consistent with /explore, /help-center, and all other pages. */
+           Full-bleed profile — cancels shell padding for edge-to-edge hero. */
         display: flex;
         flex-direction: column;
         flex: 1;
         min-height: 0;
-        /* Cancel the shell__content padding-top so profile page sits
-           flush against the top nav / mobile header — no black strip. */
+        /* Cancel the shell__content padding so profile page sits
+           flush against edges — full-bleed Madden Franchise layout. */
         margin-top: calc(-1 * (var(--nxt1-spacing-4, 1rem) + 7px));
+        margin-inline: calc(-1 * var(--shell-content-padding-x, 0px));
       }
 
       /* Profile shell fills the entire visible area.
@@ -146,9 +145,6 @@ export class ProfileComponent implements OnInit {
   private readonly fetchedProfile = signal<User | null>(null);
   private readonly destroyRef = inject(DestroyRef);
 
-  /** Desktop detection for hiding redundant page header (sidebar provides nav) */
-  protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
-
   /** Whether current user is logged in (CTA banner hidden when authenticated) */
   protected readonly isLoggedIn = computed(() => this.authFlow.isAuthenticated());
 
@@ -161,19 +157,19 @@ export class ProfileComponent implements OnInit {
     if (!profile?.unicode) return null;
 
     const primarySport = profile.sports?.[profile.activeSportIndex || 0];
-    const city = profile.location?.city || profile.city || '';
-    const state = profile.location?.state || profile.state || '';
+    const city = profile.location?.city || '';
+    const state = profile.location?.state || '';
     const location = [city, state].filter(Boolean).join(', ');
 
     return {
       id: profile.unicode,
       athleteName: `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'NXT1 Athlete',
-      position: primarySport?.positions?.[0] || profile.position || undefined,
-      classYear: profile.athlete?.classOf || profile.classOf || undefined,
-      school: primarySport?.team?.name || profile.highSchool || undefined,
-      sport: primarySport?.sport || profile.primarySport || profile.sport || undefined,
+      position: primarySport?.positions?.[0] || undefined,
+      classYear: profile.classOf || undefined,
+      school: primarySport?.team?.name || undefined,
+      sport: primarySport?.sport || undefined,
       location: location || undefined,
-      imageUrl: profile.profileImg || undefined,
+      imageUrl: (profile.userImgs?.profileImg ?? profile.profileImg) || undefined,
     };
   });
 
@@ -183,7 +179,7 @@ export class ProfileComponent implements OnInit {
   /** State/region context for the Related Athletes section */
   protected readonly relatedState = computed<string>(() => {
     const profile = this.fetchedProfile();
-    return profile?.location?.state || profile?.state || 'your area';
+    return profile?.location?.state || 'your area';
   });
 
   /**
@@ -231,7 +227,7 @@ export class ProfileComponent implements OnInit {
       const profile = this.fetchedProfile();
       if (!profile) return null;
       return {
-        profileImg: profile.profileImg,
+        profileImg: profile.userImgs?.profileImg ?? profile.profileImg,
         displayName: `${profile.firstName} ${profile.lastName}`,
       };
     }
@@ -281,7 +277,7 @@ export class ProfileComponent implements OnInit {
 
             this.analytics.trackEvent(APP_EVENTS.PROFILE_VIEWED, {
               profile_id: meta.id,
-              profile_type: profile.athleteOrParentOrCoach || 'athlete',
+              profile_type: profile.role || 'athlete',
               is_own_profile: this.isOwnProfile(),
               has_image: !!meta.imageUrl,
               sport: meta.sport,

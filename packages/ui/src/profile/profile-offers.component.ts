@@ -16,7 +16,7 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type { ProfileOffer, OfferType, TimelineItem, TimelineCardLayout } from '@nxt1/core';
+import type { ProfileOffer, TimelineItem, TimelineCardLayout } from '@nxt1/core';
 import {
   OFFER_TYPE_ICONS,
   OFFER_TYPE_LABELS,

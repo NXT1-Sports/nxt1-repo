@@ -183,7 +183,6 @@ function createSportProfile(
     accountType: 'athlete',
     positions: options?.positions ?? [],
     metrics: {},
-    seasonStats: [],
     team: { type: 'club', name: '', logo: '', colors: [] },
   };
   if (options?.teamName || options?.teamLogo || options?.teamColors?.length || options?.teamType) {

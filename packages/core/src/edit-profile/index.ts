@@ -26,6 +26,7 @@ export type {
   EditProfileAcademics,
   EditProfilePhysical,
   EditProfileSocialLinks,
+  EditProfileSocialLinkEntry,
   EditProfileContact,
   EditProfileFormData,
   // API types

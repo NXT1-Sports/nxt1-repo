@@ -17,13 +17,7 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type {
-  ProfileEvent,
-  EventType,
-  TimelineItem,
-  TimelineVariant,
-  TimelineCardLayout,
-} from '@nxt1/core';
+import type { ProfileEvent, TimelineItem, TimelineVariant, TimelineCardLayout } from '@nxt1/core';
 import { EVENT_TYPE_ICONS, EVENT_TYPE_LABELS } from '@nxt1/core';
 import { NxtTimelineComponent } from '../components/timeline';
 

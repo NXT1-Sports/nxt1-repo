@@ -49,7 +49,7 @@ import { NxtImageComponent } from '../../components/image';
           </div>
         }
 
-        <!-- Identity overlay (hidden when desktop page header shows it) -->
+        <!-- Identity overlay (hidden when profile page header shows it) -->
         @if (!hideIdentity()) {
           <div class="mc-hero">
             <!-- Team Logo (large, like Madden's team crest) -->

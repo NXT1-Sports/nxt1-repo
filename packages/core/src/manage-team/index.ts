@@ -42,7 +42,7 @@ export type {
   RosterPlayerStatus,
   RosterSortOption,
   // Schedule types
-  ScheduleEvent,
+  TeamScheduleEvent,
   ScheduleEventType,
   GameResult,
   ScheduleEventStatus,
