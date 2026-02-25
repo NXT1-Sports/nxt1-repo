@@ -12,7 +12,7 @@ export const environment = {
   // Backend API URLs (Local Development)
   apiURL: 'http://localhost:3000/api/v1/staging',
   sentryDsn: '', // Empty in dev - no Sentry
-  loggingEndpoint: 'http://localhost:3000/api/v1/staging/logs', // Remote logging endpoint
+  loggingEndpoint: '', // No remote logging in local development
 
   // Firebase Configuration (Staging)
   firebase: {

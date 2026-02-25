@@ -112,6 +112,9 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
         flex-direction: column;
         flex: 1;
         min-height: 0;
+        /* Cancel the shell__content padding-top so profile page sits
+           flush against the top nav / mobile header — no black strip. */
+        margin-top: calc(-1 * (var(--nxt1-spacing-4, 1rem) + 7px));
       }
 
       /* Profile shell fills the entire visible area.

@@ -382,6 +382,12 @@ import { FeedPostCardComponent } from '../feed/feed-post-card.component';
           transform: rotate(360deg);
         }
       }
+
+      .timeline-posts {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,

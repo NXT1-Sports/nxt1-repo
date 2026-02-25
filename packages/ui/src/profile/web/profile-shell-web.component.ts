@@ -294,6 +294,134 @@ interface StatsComparisonItem {
                     @if (mobileSubtitleLine()) {
                       <p class="madden-mobile-hero__meta">{{ mobileSubtitleLine() }}</p>
                     }
+                    @if (!isOwnProfile()) {
+                      <button
+                        type="button"
+                        class="madden-mobile-hero__follow-btn"
+                        aria-label="Follow athlete"
+                        (click)="followClick.emit()"
+                      >
+                        <nxt1-icon name="plus" [size]="13" />
+                        Follow
+                      </button>
+                    }
+                    <!-- Mobile hero stats (Class, Height, Weight, Location) -->
+                    <div class="madden-mobile-hero__stats">
+                      @if (profile.user()?.classYear) {
+                        <div class="mobile-hero-stat">
+                          <span class="mobile-hero-stat__key">Class:</span>
+                          <span class="mobile-hero-stat__val">{{ profile.user()?.classYear }}</span>
+                        </div>
+                      }
+                      @if (profile.user()?.height) {
+                        <div class="mobile-hero-stat">
+                          <span class="mobile-hero-stat__key">Height:</span>
+                          <span class="mobile-hero-stat__val-wrap">
+                            <span class="mobile-hero-stat__val">{{ profile.user()?.height }}</span>
+                            @if (profile.user()?.measurablesVerifiedBy) {
+                              @if (measurablesProviderUrl()) {
+                                <a
+                                  class="ov-verified-badge ov-verified-link"
+                                  [href]="measurablesProviderUrl()!"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <span class="ov-verified-logo">
+                                    <nxt1-image
+                                      class="ov-verified-logo-img"
+                                      [src]="measurablesProviderLogoSrc()"
+                                      [alt]="
+                                        (profile.user()?.measurablesVerifiedBy || 'provider') +
+                                        ' logo'
+                                      "
+                                      [width]="60"
+                                      [height]="14"
+                                      fit="contain"
+                                      [showPlaceholder]="false"
+                                    />
+                                  </span>
+                                </a>
+                              } @else {
+                                <span class="ov-verified-badge">
+                                  <span class="ov-verified-logo">
+                                    <nxt1-image
+                                      class="ov-verified-logo-img"
+                                      [src]="measurablesProviderLogoFallbackSrc()"
+                                      [alt]="
+                                        (profile.user()?.measurablesVerifiedBy || 'provider') +
+                                        ' logo'
+                                      "
+                                      [width]="60"
+                                      [height]="14"
+                                      fit="contain"
+                                      [showPlaceholder]="false"
+                                    />
+                                  </span>
+                                </span>
+                              }
+                            }
+                          </span>
+                        </div>
+                      }
+                      @if (profile.user()?.weight) {
+                        <div class="mobile-hero-stat">
+                          <span class="mobile-hero-stat__key">Weight:</span>
+                          <span class="mobile-hero-stat__val-wrap">
+                            <span class="mobile-hero-stat__val"
+                              >{{ profile.user()?.weight }} lb</span
+                            >
+                            @if (profile.user()?.measurablesVerifiedBy) {
+                              @if (measurablesProviderUrl()) {
+                                <a
+                                  class="ov-verified-badge ov-verified-link"
+                                  [href]="measurablesProviderUrl()!"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <span class="ov-verified-logo">
+                                    <nxt1-image
+                                      class="ov-verified-logo-img"
+                                      [src]="measurablesProviderLogoSrc()"
+                                      [alt]="
+                                        (profile.user()?.measurablesVerifiedBy || 'provider') +
+                                        ' logo'
+                                      "
+                                      [width]="60"
+                                      [height]="14"
+                                      fit="contain"
+                                      [showPlaceholder]="false"
+                                    />
+                                  </span>
+                                </a>
+                              } @else {
+                                <span class="ov-verified-badge">
+                                  <span class="ov-verified-logo">
+                                    <nxt1-image
+                                      class="ov-verified-logo-img"
+                                      [src]="measurablesProviderLogoFallbackSrc()"
+                                      [alt]="
+                                        (profile.user()?.measurablesVerifiedBy || 'provider') +
+                                        ' logo'
+                                      "
+                                      [width]="60"
+                                      [height]="14"
+                                      fit="contain"
+                                      [showPlaceholder]="false"
+                                    />
+                                  </span>
+                                </span>
+                              }
+                            }
+                          </span>
+                        </div>
+                      }
+                      @if (profile.user()?.location) {
+                        <div class="mobile-hero-stat">
+                          <span class="mobile-hero-stat__key">Location:</span>
+                          <span class="mobile-hero-stat__val">{{ profile.user()?.location }}</span>
+                        </div>
+                      }
+                    </div>
                   </div>
                 </section>
               }
@@ -428,10 +556,59 @@ interface StatsComparisonItem {
                       >
                         <h2 id="overview-heading" class="sr-only">Player Overview</h2>
 
+                        <!-- Mobile-only team affiliations (swapped from hero) -->
+                        @if (
+                          activeSideTab() === 'player-profile' && teamAffiliations().length > 0
+                        ) {
+                          <div class="ov-mobile-teams">
+                            <div class="madden-team-stack">
+                              @for (
+                                team of teamAffiliations();
+                                track team.name + '-' + (team.type || 'other')
+                              ) {
+                                <div
+                                  class="madden-team-block madden-team-block--clickable"
+                                  role="button"
+                                  tabindex="0"
+                                  (click)="onEditTeam()"
+                                  (keydown.enter)="onEditTeam()"
+                                  (keydown.space)="onEditTeam(); $event.preventDefault()"
+                                >
+                                  @if (team.logoUrl) {
+                                    <nxt1-image
+                                      class="madden-team-logo"
+                                      [src]="team.logoUrl"
+                                      [alt]="team.name"
+                                      [width]="32"
+                                      [height]="32"
+                                      variant="avatar"
+                                      fit="contain"
+                                      [priority]="true"
+                                      [showPlaceholder]="false"
+                                    />
+                                  } @else {
+                                    <div class="madden-team-logo-placeholder">
+                                      <nxt1-icon [name]="teamIconName(team.type)" [size]="22" />
+                                    </div>
+                                  }
+                                  <div class="madden-team-info">
+                                    <div class="madden-team-headline">
+                                      <span class="madden-team-name">{{ team.name }}</span>
+                                    </div>
+                                    @if (team.location) {
+                                      <span class="madden-team-location">{{ team.location }}</span>
+                                    }
+                                  </div>
+                                </div>
+                              }
+                            </div>
+                          </div>
+                        }
+
                         @if (activeSideTab() === 'player-profile') {
                           <div class="ov-top-row">
                             <!-- ═══ PLAYER PROFILE — Key/Value Pairs (like Madden) ═══ -->
-                            <div class="ov-section ov-section--profile">
+                            <div class="ov-section ov-section--profile ov-section--player-stats">
                               <div class="ov-profile-grid">
                                 @if (profile.user()?.classYear) {
                                   <div class="ov-profile-row">
@@ -2548,6 +2725,16 @@ interface StatsComparisonItem {
         color: var(--m-text-3);
       }
 
+      /* Mobile hero stats — hidden on desktop (shown at <=768px) */
+      .madden-mobile-hero__stats {
+        display: none;
+      }
+
+      /* Mobile-only team affiliations in overview — hidden on desktop */
+      .ov-mobile-teams {
+        display: none;
+      }
+
       /* ─── TOP TAB BAR ─── */
       .madden-top-tabs {
         padding: 0 8px;
@@ -4656,7 +4843,7 @@ interface StatsComparisonItem {
           grid-template-columns: 148px minmax(0, 1fr);
           gap: 12px;
           align-items: start;
-          margin: 6px 12px 10px;
+          margin: 32px 12px 10px;
         }
         .madden-mobile-hero__carousel {
           width: 148px;
@@ -4664,7 +4851,7 @@ interface StatsComparisonItem {
         .madden-mobile-hero__carousel .carousel-glow-wrap {
           width: 148px;
           max-width: none;
-          height: 214px;
+          height: 228px;
           border-radius: 14px;
         }
         .madden-mobile-hero__carousel .madden-player-carousel,
@@ -4694,21 +4881,113 @@ interface StatsComparisonItem {
           line-height: 1.35;
           color: var(--m-text-2);
         }
+        .madden-mobile-hero__follow-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          margin-top: 6px;
+          align-self: flex-start;
+          border: 1.5px solid var(--nxt1-color-primary);
+          background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
+          color: var(--nxt1-color-primary);
+          border-radius: var(--nxt1-radius-md, 8px);
+          font-family: var(--nxt1-fontFamily-brand);
+          font-size: 13px;
+          font-weight: var(--nxt1-fontWeight-semibold);
+          letter-spacing: 0.01em;
+          line-height: 1;
+          padding: 7px 16px;
+          cursor: pointer;
+        }
+        .madden-mobile-hero__follow-btn:active {
+          transform: scale(0.97);
+        }
+        .madden-mobile-hero__stats {
+          display: flex;
+          flex-direction: column;
+          margin-top: 8px;
+        }
+        .mobile-hero-stat {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 6px 0;
+          border-bottom: 1px solid var(--m-border);
+        }
+        .mobile-hero-stat:last-child {
+          border-bottom: none;
+        }
+        .mobile-hero-stat__key {
+          font-size: 13px;
+          color: var(--m-text-3);
+          min-width: 50px;
+          font-weight: 500;
+        }
+        .mobile-hero-stat__val {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--m-text);
+        }
+        .mobile-hero-stat__val-wrap {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .ov-mobile-teams {
+          display: block;
+          margin-bottom: 12px;
+        }
+        .ov-mobile-teams .madden-team-block {
+          padding: 10px 12px;
+          border-radius: 10px;
+          gap: 10px;
+        }
+        .ov-mobile-teams .madden-team-logo,
+        .ov-mobile-teams .madden-team-logo-placeholder {
+          width: 36px;
+          height: 36px;
+          border-radius: 8px;
+        }
+        .ov-mobile-teams .madden-team-name {
+          font-size: 13px;
+        }
+        .ov-mobile-teams .madden-team-location {
+          font-size: 11px;
+        }
+        .ov-section--player-stats {
+          display: none;
+        }
+        .ov-archetype-badges {
+          gap: 8px;
+        }
+        .ov-archetype-badge {
+          padding: 7px 14px;
+          gap: 6px;
+          border-radius: 999px;
+        }
+        .ov-archetype-badge nxt1-icon {
+          width: 14px;
+          height: 14px;
+        }
+        .ov-archetype-badge-name {
+          font-size: 12.5px;
+        }
+
         .madden-mobile-hero__xp-area {
           display: none;
         }
-        /* — Mobile XP section (below connected accounts) — */
         .ov-mobile-xp-section {
           display: flex;
           flex-direction: column;
           align-items: center;
-          gap: 10px;
-          padding: 20px 0 8px;
+          gap: 16px;
+          padding: 28px 0 14px;
         }
         .ov-mobile-xp-ring {
           position: relative;
-          width: 88px;
-          height: 88px;
+          width: 130px;
+          height: 130px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -4735,7 +5014,7 @@ interface StatsComparisonItem {
         }
         .ov-mobile-xp-arc {
           transition: stroke-dasharray 1.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-          filter: drop-shadow(0 0 3px var(--m-accent, #ceff00));
+          filter: drop-shadow(0 0 4px var(--m-accent, #ceff00));
         }
         .ov-mobile-xp-inner {
           position: relative;
@@ -4745,18 +5024,18 @@ interface StatsComparisonItem {
           align-items: center;
           justify-content: center;
           text-align: center;
-          gap: 1px;
+          gap: 2px;
         }
         .ov-mobile-xp-lvl {
           font-family: var(--nxt1-fontFamily-brand, sans-serif);
-          font-size: 18px;
+          font-size: 28px;
           font-weight: 800;
           line-height: 1;
           color: var(--m-text);
           letter-spacing: -0.02em;
         }
         .ov-mobile-xp-tier {
-          font-size: 8px;
+          font-size: 11px;
           font-weight: 700;
           letter-spacing: 0.14em;
           text-transform: uppercase;
@@ -4767,14 +5046,14 @@ interface StatsComparisonItem {
         .ov-mobile-xp-badge-grid {
           display: flex;
           align-items: center;
-          gap: 6px;
+          gap: 8px;
           justify-content: center;
           flex-wrap: wrap;
         }
         .ov-mobile-xp-badge-orb {
-          width: 26px;
-          height: 26px;
-          border-radius: 7px;
+          width: 38px;
+          height: 38px;
+          border-radius: 10px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -4816,7 +5095,7 @@ interface StatsComparisonItem {
           animation: mobile-badge-shimmer 3s ease-in-out infinite;
         }
         .ov-mobile-xp-badge-more {
-          font-size: 10px;
+          font-size: 13px;
           font-weight: 700;
           color: var(--m-text-2);
           padding-left: 2px;
@@ -4941,6 +5220,12 @@ interface StatsComparisonItem {
           min-height: auto;
           overflow: visible;
         }
+        .madden-side-nav-column {
+          display: contents;
+        }
+        .madden-side-nav-column > nxt1-section-nav-web {
+          order: 0;
+        }
         .madden-content-scroll {
           order: 1;
           max-width: 100%;
@@ -4955,24 +5240,53 @@ interface StatsComparisonItem {
           display: none;
         }
         .madden-side-nav-column {
-          order: 2;
+          order: 0;
           width: 100%;
           position: static;
           max-height: none;
           flex-direction: column;
           gap: var(--nxt1-spacing-3);
-          margin-top: var(--nxt1-spacing-4);
+          margin-top: 0;
           margin-bottom: 0;
+          padding-bottom: 0;
+        }
+        /* Section nav pills — match profile dark theme on mobile */
+        .madden-side-nav-column ::ng-deep .section-nav {
+          gap: 6px;
+          padding-bottom: 10px;
+          border-bottom: none;
+        }
+        .madden-side-nav-column ::ng-deep .nav-item {
+          width: auto;
+          padding: 6px 14px;
+          font-size: 12px;
+          font-weight: 600;
+          font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+          letter-spacing: 0.02em;
+          background: rgba(255, 255, 255, 0.04);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-radius: 999px;
+          color: var(--m-text-2, rgba(255, 255, 255, 0.55));
+        }
+        .madden-side-nav-column ::ng-deep .nav-item--active {
+          background: color-mix(in srgb, var(--m-accent) 12%, transparent);
+          border-color: color-mix(in srgb, var(--m-accent) 35%, transparent);
+          color: var(--m-text, #fff);
+        }
+        .madden-side-nav-column ::ng-deep .nav-group-header {
+          display: none;
         }
         /* Sport switcher: horizontal scroll on mobile */
         .sport-switcher {
+          order: 2;
           position: static;
           bottom: auto;
           left: auto;
           width: 100%;
+          margin-top: var(--nxt1-spacing-5);
           border-top: none;
           padding-top: 0;
-          border-bottom: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+          border-bottom: none;
           padding-bottom: var(--nxt1-spacing-3);
         }
         .sport-switcher__list {

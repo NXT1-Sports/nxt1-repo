@@ -647,7 +647,7 @@ const MOCK_RELATED_ATHLETES: readonly RelatedAthlete[] = [
           padding: 0 14px 12px;
         }
         .related-scroll-wrapper {
-          padding-left: 0;
+          padding-left: 12px;
         }
         .related-header-icon {
           width: 28px;
@@ -662,7 +662,7 @@ const MOCK_RELATED_ATHLETES: readonly RelatedAthlete[] = [
         }
         .related-scroll-track {
           gap: 10px;
-          padding: 4px 14px 6px;
+          padding: 4px 20px 6px 0;
         }
         .related-card {
           width: 132px;
@@ -714,7 +714,7 @@ const MOCK_RELATED_ATHLETES: readonly RelatedAthlete[] = [
         }
         .related-scroll-track {
           gap: 8px;
-          padding: 4px 12px 6px;
+          padding: 4px 20px 6px 0;
         }
         .related-card {
           width: 122px;

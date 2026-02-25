@@ -335,15 +335,13 @@ import { HapticsService } from '../services/haptics/haptics.service';
         -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         box-shadow: var(--nxt1-glass-shadowInner, inset 0 1px 0 rgba(255, 255, 255, 0.06));
-        border-bottom: 1px solid var(--post-border);
+        border: 1px solid var(--post-border);
+        border-radius: var(--nxt1-radius-lg, 12px);
+        margin-bottom: 12px;
         overflow: hidden;
         transition: background 0.2s ease;
 
         @media (min-width: 768px) {
-          border-radius: var(--nxt1-radius-lg, 12px);
-          margin-bottom: 12px;
-          border: 1px solid var(--post-border);
-
           &:hover {
             background: var(--post-bg-hover);
           }

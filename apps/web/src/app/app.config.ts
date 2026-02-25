@@ -238,7 +238,8 @@ export const appConfig: ApplicationConfig = {
       provide: LOGGING_CONFIG,
       useValue: {
         appVersion: environment.version || '1.0.0',
-        remoteEndpoint: environment.loggingEndpoint,
+        environment: environment.production ? 'production' : 'development',
+        remoteEndpoint: environment.production ? environment.loggingEndpoint : undefined,
       },
     },
 
