@@ -1,0 +1,174 @@
+/**
+ * @fileoverview NXT1 QR Code Modal Styles
+ * @module @nxt1/ui/styles/components/qr-code-modal
+ * @version 1.0.0
+ *
+ * Platform-adaptive styles for the QR Code modal/bottom sheet.
+ * Uses NXT1 design tokens for theme-aware colors.
+ *
+ * Targets:
+ * - .nxt1-qr-code-modal           — Base sheet (mobile bottom sheet)
+ * - .nxt1-qr-code-modal--centered — Centered dialog (web desktop)
+ *
+ * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
+ */
+
+/* ============================================
+   BASE QR CODE MODAL (Bottom Sheet)
+   ============================================ */
+
+.nxt1-qr-code-modal {
+  --background: var(--nxt1-color-bg-primary, #ffffff);
+  --width: 100%;
+  --max-width: 100%;
+}
+
+.nxt1-qr-code-modal::part(content) {
+  background: var(--nxt1-color-bg-primary, #ffffff);
+}
+
+/* Native drag handle */
+.nxt1-qr-code-modal::part(handle) {
+  background: var(--nxt1-color-surface-400, #9ca3af);
+  width: var(--nxt1-spacing-9, 2.25rem);
+  height: var(--nxt1-spacing-1, 0.25rem);
+  border-radius: var(--nxt1-borderRadius-full, 9999px);
+  margin-top: var(--nxt1-spacing-2, 0.5rem);
+  margin-bottom: var(--nxt1-spacing-1, 0.25rem);
+}
+
+/* Backdrop */
+.nxt1-qr-code-modal::part(backdrop) {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* iOS sheet styling */
+.nxt1-qr-code-modal.ios {
+  --border-radius: 1.5rem 1.5rem 0 0;
+}
+
+.nxt1-qr-code-modal.ios::part(content) {
+  border-top-left-radius: 1.5rem;
+  border-top-right-radius: 1.5rem;
+}
+
+/* Android sheet styling */
+.nxt1-qr-code-modal.md {
+  --border-radius: 1.25rem 1.25rem 0 0;
+  --box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05), 0 -8px 30px rgba(0, 0, 0, 0.08);
+}
+
+.nxt1-qr-code-modal.md::part(content) {
+  border-top-left-radius: 1.25rem;
+  border-top-right-radius: 1.25rem;
+}
+
+/* ============================================
+   CENTERED WEB MODAL (Desktop)
+   ============================================ */
+
+.nxt1-qr-code-modal--centered {
+  --width: 620px;
+  --max-width: 90vw;
+  --height: auto;
+  --max-height: 85vh;
+  --border-radius: 1.5rem;
+  --box-shadow:
+    0 4px 6px rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.08), 0 25px 50px rgba(0, 0, 0, 0.06);
+}
+
+.nxt1-qr-code-modal--centered::part(content) {
+  border-radius: 1.5rem;
+  overflow: hidden;
+}
+
+.nxt1-qr-code-modal--centered::part(handle) {
+  display: none;
+}
+
+.nxt1-qr-code-modal--centered::part(backdrop) {
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* ============================================
+   DARK MODE
+   ============================================ */
+
+@media (prefers-color-scheme: dark) {
+  .nxt1-qr-code-modal {
+    --background: var(--nxt1-color-bg-primary, #1a1a1a);
+  }
+
+  .nxt1-qr-code-modal::part(content) {
+    background: var(--nxt1-color-bg-primary, #1a1a1a);
+  }
+
+  .nxt1-qr-code-modal::part(handle) {
+    background: var(--nxt1-color-surface-500, #6b7280);
+  }
+
+  .nxt1-qr-code-modal--centered {
+    --box-shadow:
+      0 4px 6px rgba(0, 0, 0, 0.2), 0 10px 30px rgba(0, 0, 0, 0.3), 0 25px 50px rgba(0, 0, 0, 0.25);
+  }
+}
+
+/* ============================================
+   ENTER/EXIT ANIMATIONS
+   ============================================ */
+
+/* Centered modal: fade + scale */
+@keyframes nxt1-qr-modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes nxt1-qr-modal-exit {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+}
+
+.nxt1-qr-code-modal--centered::part(content) {
+  animation: nxt1-qr-modal-enter 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* ============================================
+   ACCESSIBILITY
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .nxt1-qr-code-modal--centered::part(content) {
+    animation: none;
+  }
+}
+
+/* High contrast mode */
+@media (forced-colors: active) {
+  .nxt1-qr-code-modal::part(content) {
+    border: 2px solid CanvasText;
+  }
+}
+
+/* ============================================
+   SAFE AREA (iPhone notch / home indicator)
+   ============================================ */
+
+.nxt1-qr-code-modal {
+  --padding-bottom: env(safe-area-inset-bottom, 0);
+}

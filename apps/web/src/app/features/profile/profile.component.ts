@@ -41,23 +41,24 @@ import {
   RelatedAthletesComponent,
   type RelatedAthlete,
 } from '@nxt1/ui/profile';
+import { NxtCtaBannerComponent } from '@nxt1/ui/components/cta-banner';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { AuthModalService } from '@nxt1/ui/auth';
-import type { ProfileTabId } from '@nxt1/core';
+import { QrCodeService } from '@nxt1/ui/qr-code';
+import type { ProfileTabId, ProfileShareSource, User } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { AuthFlowService } from '../auth/services';
 import { SeoService, AnalyticsService, ShareService } from '../../core/services';
 import { ProfileService } from './services/profile.service';
-import { toSignal } from '@angular/core/rxjs-interop';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 
 @Component({
   selector: 'app-profile',
   standalone: true,
-  imports: [ProfileShellWebComponent, RelatedAthletesComponent],
+  imports: [ProfileShellWebComponent, RelatedAthletesComponent, NxtCtaBannerComponent],
   template: `
     <nxt1-profile-shell-web
       [currentUser]="userInfo()"
@@ -87,12 +88,37 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
     } @placeholder {
       <div style="height: 200px;"></div>
     }
+
+    <!-- ═══ CTA BANNER — Logged-out users only ═══ -->
+    @if (!isLoggedIn()) {
+      <nxt1-cta-banner
+        variant="conversion"
+        badgeLabel="Super Profile"
+        title="Drop Your Links. We Build the Rest."
+        subtitle="Paste your Hudl, MaxPreps, or social links — NXT1 auto-generates a verified Super Profile that stays updated with your latest stats, highlights, and academics. Coaches see everything in one tap."
+        ctaLabel="Get Your Super Profile Free"
+        ctaRoute="/auth"
+        titleId="profile-cta-banner-title"
+      />
+    }
   `,
   styles: [
     `
       :host {
-        display: block;
-        margin-top: calc(-1 * (var(--nxt1-spacing-4, 1rem) + 7px));
+        /* Flex layout: stretch to fill shell__content.
+           Sits inside the shell's normal padded content zone,
+           consistent with /explore, /help-center, and all other pages. */
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+      }
+
+      /* Profile shell fills the entire visible area.
+         flex-shrink:0 prevents the shell from collapsing when the
+         related-athletes section overflows below the fold. */
+      nxt1-profile-shell-web {
+        flex-shrink: 0;
       }
     `,
   ],
@@ -102,6 +128,7 @@ export class ProfileComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly authFlow = inject(AuthFlowService);
   private readonly authModal = inject(AuthModalService);
+  private readonly qrCode = inject(QrCodeService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly platform = inject(NxtPlatformService);
   private readonly router = inject(Router);
@@ -113,18 +140,42 @@ export class ProfileComponent implements OnInit {
   private readonly share = inject(ShareService);
   private readonly profileService = inject(ProfileService);
   private readonly platformId = inject(PLATFORM_ID);
-  private readonly fetchedProfile = signal<any>(null);
+  private readonly fetchedProfile = signal<User | null>(null);
   private readonly destroyRef = inject(DestroyRef);
 
   /** Desktop detection for hiding redundant page header (sidebar provides nav) */
   protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
 
-  /** Sport context for the Related Athletes section */
-  protected readonly relatedSport = computed<string>(() => {
+  /** Whether current user is logged in (CTA banner hidden when authenticated) */
+  protected readonly isLoggedIn = computed(() => this.authFlow.isAuthenticated());
+
+  /**
+   * Resolved profile metadata for SEO, sharing, and QR code.
+   * Single source of truth — eliminates field extraction duplication.
+   */
+  private readonly profileMeta = computed<ProfileShareSource | null>(() => {
     const profile = this.fetchedProfile();
-    const primarySport = profile?.sports?.[profile?.activeSportIndex || 0];
-    return primarySport?.sport || profile?.primarySport || 'Football';
+    if (!profile?.unicode) return null;
+
+    const primarySport = profile.sports?.[profile.activeSportIndex || 0];
+    const city = profile.location?.city || profile.city || '';
+    const state = profile.location?.state || profile.state || '';
+    const location = [city, state].filter(Boolean).join(', ');
+
+    return {
+      id: profile.unicode,
+      athleteName: `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'NXT1 Athlete',
+      position: primarySport?.positions?.[0] || profile.position || undefined,
+      classYear: profile.athlete?.classOf || profile.classOf || undefined,
+      school: primarySport?.team?.name || profile.highSchool || undefined,
+      sport: primarySport?.sport || profile.primarySport || profile.sport || undefined,
+      location: location || undefined,
+      imageUrl: profile.profileImg || undefined,
+    };
   });
+
+  /** Sport context for the Related Athletes section */
+  protected readonly relatedSport = computed<string>(() => this.profileMeta()?.sport || 'Football');
 
   /** State/region context for the Related Athletes section */
   protected readonly relatedState = computed<string>(() => {
@@ -154,8 +205,9 @@ export class ProfileComponent implements OnInit {
     const user = this.authService.user();
     const routeUnicode = this.route.snapshot.paramMap.get('unicode');
 
-    // If no route unicode, we're viewing own profile
-    if (!routeUnicode) return true;
+    // If no route unicode, it's own profile ONLY when authenticated.
+    // Logged-out users on /profile should be treated as viewing a public profile.
+    if (!routeUnicode) return !!user;
 
     // Check if route unicode matches current user's unicode
     return user?.unicode === routeUnicode;
@@ -176,7 +228,7 @@ export class ProfileComponent implements OnInit {
       const profile = this.fetchedProfile();
       if (!profile) return null;
       return {
-        profileImg: profile.profileImg || profile.imageUrl, // Handle variations in API response
+        profileImg: profile.profileImg,
         displayName: `${profile.firstName} ${profile.lastName}`,
       };
     }
@@ -199,7 +251,7 @@ export class ProfileComponent implements OnInit {
     });
   }
 
-  private loadProfileAndSeo(unicode: string) {
+  private loadProfileAndSeo(unicode: string): void {
     this.profileService
       .getProfile(unicode)
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -209,70 +261,37 @@ export class ProfileComponent implements OnInit {
             const profile = response.data;
             this.fetchedProfile.set(profile);
 
-            // Build full name
-            const athleteName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
-
-            // Build location string from structured location or legacy fields
-            const city = profile.location?.city || profile.city || '';
-            const state = profile.location?.state || profile.state || '';
-            const location = [city, state].filter(Boolean).join(', ');
-
-            // Get school name from sports profile or legacy fields
-            const primarySport = profile.sports?.[profile.activeSportIndex || 0];
-            const school = primarySport?.team?.name || profile.highSchool || undefined;
-
-            // Get sport and position from sports array or legacy fields
-            const sport = primarySport?.sport || profile.primarySport || profile.sport || undefined;
-            const position = primarySport?.positions?.[0] || profile.position || undefined;
-
-            // Get class year from athlete data or legacy field
-            const classYear = profile.athlete?.classOf || profile.classOf || undefined;
-
-            // Get image URL - profileImg is the main field
-            const imageUrl = profile.profileImg || undefined;
-
-            // Validate unicode exists
-            if (!profile.unicode) {
+            // profileMeta computed updates automatically via fetchedProfile signal
+            const meta = this.profileMeta();
+            if (!meta) {
               this.logger.warn('Profile missing unicode', { profileId: profile.id });
               return;
             }
 
-            // Update SEO tags with complete data
-            this.seo.updateForProfile({
-              id: profile.unicode,
-              athleteName,
-              position,
-              classYear,
-              school,
-              sport,
-              location: location || undefined,
-              imageUrl,
-            });
+            this.seo.updateForProfile(meta);
 
             this.logger.info('Profile SEO updated', {
-              unicode: profile.unicode,
-              athleteName,
-              hasImage: !!imageUrl,
+              unicode: meta.id,
+              athleteName: meta.athleteName,
+              hasImage: !!meta.imageUrl,
             });
 
-            // Track profile view for analytics
             this.analytics.trackEvent(APP_EVENTS.PROFILE_VIEWED, {
-              profile_id: profile.unicode,
+              profile_id: meta.id,
               profile_type: profile.athleteOrParentOrCoach || 'athlete',
               is_own_profile: this.isOwnProfile(),
-              has_image: !!imageUrl,
-              sport: sport,
+              has_image: !!meta.imageUrl,
+              sport: meta.sport,
             });
           }
         },
         error: (err) => {
           this.logger.error('Failed to load profile for SEO', err);
 
-          // Set basic SEO even on error (prevents empty meta tags)
           this.seo.updatePage({
             title: 'Profile',
             description: 'View athlete profile on NXT1 Sports',
-            noIndex: true, // Don't index error pages
+            noIndex: true,
           });
         },
       });
@@ -300,12 +319,14 @@ export class ProfileComponent implements OnInit {
   }
 
   /**
-   * Handle tab changes for analytics/logging.
+   * Handle tab changes for analytics.
    */
   protected onTabChange(tab: ProfileTabId): void {
-    this.logger.debug('Profile tab changed', { tab });
-    // In production: track analytics event
-    // this.analytics.track('profile_tab_change', { tab });
+    this.analytics.trackEvent(APP_EVENTS.PROFILE_TAB_CHANGED, {
+      tab,
+      profile_id: this.profileUnicode(),
+      is_own_profile: this.isOwnProfile(),
+    });
   }
 
   /**
@@ -353,60 +374,47 @@ export class ProfileComponent implements OnInit {
   protected async onShare(): Promise<void> {
     if (!isPlatformBrowser(this.platformId)) return;
 
-    const unicode = this.profileUnicode();
-    if (!unicode) return;
+    const meta = this.profileMeta();
+    if (!meta) return;
 
-    const profile = this.fetchedProfile();
-    const athleteName = profile
-      ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim()
-      : this.authService.user()?.displayName || 'NXT1 Athlete';
-
-    const city = profile?.location?.city || profile?.city || '';
-    const state = profile?.location?.state || profile?.state || '';
-    const location = [city, state].filter(Boolean).join(', ');
-
-    const primarySport = profile?.sports?.[profile?.activeSportIndex || 0];
-    const school = primarySport?.team?.name || profile?.highSchool || undefined;
-    const sport = primarySport?.sport || profile?.primarySport || profile?.sport || undefined;
-    const position = primarySport?.positions?.[0] || profile?.position || undefined;
-    const classYear = profile?.athlete?.classOf || profile?.classOf || undefined;
-    const imageUrl = profile?.profileImg || profile?.imageUrl || undefined;
-
-    await this.share.shareProfile(
-      {
-        id: unicode,
-        slug: profile?.slug,
-        athleteName: athleteName || 'NXT1 Athlete',
-        position,
-        classYear,
-        school,
-        sport,
-        location: location || undefined,
-        imageUrl,
-      },
-      {
-        analyticsProps: {
-          is_own_profile: this.isOwnProfile(),
-        },
-      }
-    );
+    await this.share.shareProfile(meta, {
+      analyticsProps: { is_own_profile: this.isOwnProfile() },
+    });
   }
 
   /**
    * Handle QR code display.
+   * Opens adaptive QR code modal (centered on desktop, bottom sheet on mobile).
    */
-  protected onQrCode(): void {
-    this.logger.info('QR code clicked');
-    // TODO: Open QR code modal with profile URL
-    this.toast.info('QR code feature coming soon');
+  protected async onQrCode(): Promise<void> {
+    const meta = this.profileMeta();
+    const unicode = meta?.id || this.profileUnicode() || 'demo';
+
+    const user = this.authService.user();
+    const profileImg = meta?.imageUrl || user?.profileImg || undefined;
+    const displayName = meta?.athleteName || user?.displayName || 'NXT1 Athlete';
+
+    try {
+      await this.qrCode.open({
+        url: `https://nxt1sports.com/profile/${unicode}`,
+        displayName,
+        profileImg,
+        sport: meta?.sport || 'Football',
+        unicode,
+        isOwnProfile: this.isOwnProfile(),
+      });
+    } catch (err) {
+      this.logger.error('Failed to open QR code modal', err);
+      this.toast.error('Unable to open QR code');
+    }
   }
 
   /**
    * Handle AI summary request.
+   * Opens the AI-powered profile summary modal (powered by OpenRouter on backend).
    */
   protected onAiSummary(): void {
-    this.logger.info('AI summary clicked');
-    // TODO: Open AI summary modal
+    this.logger.info('AI summary requested', { unicode: this.profileUnicode() });
     this.toast.info('AI summary feature coming soon');
   }
 

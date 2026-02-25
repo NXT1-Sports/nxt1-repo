@@ -29,7 +29,7 @@
  *   (loadMore)="onLoadMore()"
  *   (retry)="onRetry()"
  *   (postClick)="onPostClick($event)"
- *   (likeClick)="onLike($event)"
+ *   (reactClick)="onLike($event)"
  * />
  * ```
  */
@@ -107,8 +107,8 @@ import { FeedEmptyStateComponent } from './feed-empty-state.component';
                 [showMenu]="showMenu()"
                 (postClick)="postClick.emit($event)"
                 (authorClick)="authorClick.emit($event)"
-                (likeClick)="likeClick.emit($event)"
-                (commentClick)="commentClick.emit($event)"
+                (reactClick)="reactClick.emit($event)"
+                (repostClick)="repostClick.emit($event)"
                 (shareClick)="shareClick.emit($event)"
                 (bookmarkClick)="bookmarkClick.emit($event)"
                 (menuClick)="menuClick.emit($event)"
@@ -332,8 +332,8 @@ export class FeedListComponent {
 
   readonly postClick = output<FeedPost>();
   readonly authorClick = output<FeedAuthor>();
-  readonly likeClick = output<FeedPost>();
-  readonly commentClick = output<FeedPost>();
+  readonly reactClick = output<FeedPost>();
+  readonly repostClick = output<FeedPost>();
   readonly shareClick = output<FeedPost>();
   readonly bookmarkClick = output<FeedPost>();
   readonly menuClick = output<FeedPost>();

@@ -52,7 +52,7 @@ export { RelatedAthletesComponent, type RelatedAthlete } from './web/related-ath
 export { ProfileTimelineComponent } from './profile-timeline.component';
 export { ProfileOffersComponent } from './profile-offers.component';
 export { ProfileRankingsComponent } from './rankings/profile-rankings.component';
-export type { RankingSource, VerifiedProvider } from './rankings/profile-rankings.component';
+export type { RankingSource } from './rankings/profile-rankings.component';
 export { ProfileEventsComponent } from './profile-events.component';
 export {
   ProfileSkeletonComponent,

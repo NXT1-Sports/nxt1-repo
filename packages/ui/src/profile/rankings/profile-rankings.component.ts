@@ -1,6 +1,8 @@
-import { Component, ChangeDetectionStrategy, signal } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
 import { LOGO_PATHS } from '@nxt1/design-tokens/assets';
 import { NxtIconComponent } from '../../components/icon';
+import { NxtImageComponent } from '../../components/image';
+import { ProfileService } from '../profile.service';
 
 export interface RankingSource {
   readonly id: string;
@@ -15,19 +17,11 @@ export interface RankingSource {
   readonly score: number | null;
 }
 
-export interface VerifiedProvider {
-  readonly id: string;
-  readonly name: string;
-  readonly website: string;
-  readonly logoUrl: string;
-  readonly logoFallbackUrl: string;
-}
-
 const clearbitLogo = (domain: string): string => `https://logo.clearbit.com/${domain}`;
 const faviconLogo = (domain: string): string =>
   `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
 
-const MOCK_RANKINGS: RankingSource[] = [
+export const MOCK_RANKINGS: RankingSource[] = [
   {
     id: 'nxt1',
     name: 'NXT1',
@@ -105,50 +99,23 @@ const MOCK_RANKINGS: RankingSource[] = [
 @Component({
   selector: 'nxt1-profile-rankings',
   standalone: true,
-  imports: [NxtIconComponent],
+  imports: [NxtIconComponent, NxtImageComponent],
   template: `
     <section class="rankings-shell" aria-label="Recruiting rankings">
-      <div class="verified-by" role="status" aria-label="Verified by ranking providers">
-        <span class="verified-by__label">Verified by</span>
-        <div class="verified-by__list">
-          @for (provider of providers(); track provider.id) {
-            <a
-              class="verified-by__chip"
-              [href]="
-                provider.website.startsWith('http')
-                  ? provider.website
-                  : 'https://' + provider.website
-              "
-              target="_blank"
-              rel="noopener noreferrer"
-              [attr.aria-label]="'Open ' + provider.name + ' (opens in new tab)'"
-            >
-              <img
-                class="verified-by__logo"
-                [src]="provider.logoUrl"
-                [alt]="provider.name + ' logo'"
-                loading="lazy"
-                decoding="async"
-                (error)="onProviderLogoError($event, provider)"
-              />
-              <span class="verified-by__name">{{ provider.name }}</span>
-            </a>
-          }
-        </div>
-      </div>
-
       <div class="rankings-grid">
         @for (source of rankings(); track source.id) {
           <article class="ranking-card">
             <div class="ranking-card__header">
               <div class="ranking-card__source">
-                <img
+                <nxt1-image
                   class="ranking-card__logo"
                   [src]="source.logoUrl"
                   [alt]="source.name + ' logo'"
-                  loading="lazy"
-                  decoding="async"
-                  (error)="onSourceLogoError($event, source)"
+                  [width]="24"
+                  [height]="24"
+                  variant="avatar"
+                  fit="contain"
+                  [showPlaceholder]="false"
                 />
                 <span class="ranking-card__name">{{ source.name }}</span>
               </div>
@@ -204,75 +171,12 @@ const MOCK_RANKINGS: RankingSource[] = [
     `
       :host {
         display: block;
-        padding: var(--nxt1-spacing-3);
+        padding: 0;
       }
 
       .rankings-shell {
         display: grid;
         gap: var(--nxt1-spacing-4);
-      }
-
-      .verified-by {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-3);
-        flex-wrap: wrap;
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.12));
-        border-radius: var(--nxt1-radius-xl, 16px);
-        padding: var(--nxt1-spacing-3);
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.03));
-      }
-
-      .verified-by__label {
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.6));
-        font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        font-weight: var(--nxt1-fontWeight-semibold, 600);
-        white-space: nowrap;
-      }
-
-      .verified-by__list {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-2);
-        flex-wrap: wrap;
-      }
-
-      .verified-by__chip {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-1-5, 0.375rem);
-        padding: 0.375rem 0.625rem;
-        border-radius: var(--nxt1-radius-full, 999px);
-        text-decoration: none;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.8));
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.12));
-        background: color-mix(
-          in srgb,
-          var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04)) 75%,
-          transparent
-        );
-        transition:
-          border-color var(--nxt1-duration-fast, 120ms) var(--nxt1-easing-out, ease-out),
-          background var(--nxt1-duration-fast, 120ms) var(--nxt1-easing-out, ease-out);
-      }
-
-      .verified-by__chip:hover {
-        border-color: var(--nxt1-color-primary, #d4ff00);
-        background: color-mix(in srgb, var(--nxt1-color-primary, #d4ff00) 10%, transparent);
-      }
-
-      .verified-by__logo {
-        width: 16px;
-        height: 16px;
-        object-fit: contain;
-        border-radius: 3px;
-        flex-shrink: 0;
-      }
-
-      .verified-by__name {
-        font-size: var(--nxt1-fontSize-xs, 0.75rem);
-        font-weight: var(--nxt1-fontWeight-medium, 500);
-        line-height: 1;
       }
 
       .rankings-grid {
@@ -301,8 +205,7 @@ const MOCK_RANKINGS: RankingSource[] = [
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .ranking-card,
-        .verified-by__chip {
+        .ranking-card {
           transition: none;
         }
 
@@ -417,16 +320,8 @@ const MOCK_RANKINGS: RankingSource[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProfileRankingsComponent {
-  protected readonly rankings = signal<RankingSource[]>(MOCK_RANKINGS);
-  protected readonly providers = signal<VerifiedProvider[]>(
-    MOCK_RANKINGS.map(({ id, name, website, logoUrl, logoFallbackUrl }) => ({
-      id,
-      name,
-      website,
-      logoUrl,
-      logoFallbackUrl,
-    }))
-  );
+  private readonly profile = inject(ProfileService);
+  protected readonly rankings = this.profile.rankings;
 
   protected onSourceLogoError(event: Event, source: RankingSource): void {
     const image = event.target as HTMLImageElement | null;
@@ -439,18 +334,5 @@ export class ProfileRankingsComponent {
 
     image.dataset['fallbackApplied'] = 'true';
     image.src = source.logoFallbackUrl;
-  }
-
-  protected onProviderLogoError(event: Event, provider: VerifiedProvider): void {
-    const image = event.target as HTMLImageElement | null;
-    if (!image) return;
-
-    if (image.dataset['fallbackApplied'] === 'true') {
-      image.src = LOGO_PATHS.icon;
-      return;
-    }
-
-    image.dataset['fallbackApplied'] = 'true';
-    image.src = provider.logoFallbackUrl;
   }
 }

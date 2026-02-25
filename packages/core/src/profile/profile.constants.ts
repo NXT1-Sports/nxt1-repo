@@ -14,6 +14,8 @@ import type {
   ProfileTab,
   ProfileTabId,
   ProfilePostType,
+  ProfileTimelineFilter,
+  ProfileTimelineFilterId,
   OfferType,
   EventType,
   ProfileHeaderAction,
@@ -54,9 +56,19 @@ export const PROFILE_TABS: readonly ProfileTab[] = [
     icon: 'trophy',
   },
   {
+    id: 'metrics',
+    label: 'Metrics',
+    icon: 'barbell',
+  },
+  {
     id: 'stats',
     label: 'Stats',
     icon: 'stats-chart',
+  },
+  {
+    id: 'academic',
+    label: 'Academic',
+    icon: 'school',
   },
   {
     id: 'schedule',
@@ -86,6 +98,43 @@ export const PROFILE_DEFAULT_TAB: ProfileTabId = 'overview';
  * Override by providing a custom set via input if needed.
  */
 export const PROFILE_VERIFICATION_HIDDEN_TABS: ReadonlySet<ProfileTabId> = new Set(['contact']);
+
+// ============================================
+// TIMELINE FILTER CONFIGURATION
+// ============================================
+
+/**
+ * Sub-filters within the Timeline tab.
+ * Allows users to quickly switch between All, Pinned, and Media posts.
+ */
+export const PROFILE_TIMELINE_FILTERS: readonly ProfileTimelineFilter[] = [
+  {
+    id: 'all',
+    label: 'All Posts',
+    icon: 'newspaper',
+    emptyTitle: 'No posts yet',
+    emptyMessage: 'Start sharing your journey',
+  },
+  {
+    id: 'pinned',
+    label: 'Pinned',
+    icon: 'pin',
+    emptyTitle: 'No pinned posts',
+    emptyMessage: 'Pin your best content to the top of your profile',
+  },
+  {
+    id: 'media',
+    label: 'Media',
+    icon: 'image',
+    emptyTitle: 'No media posts',
+    emptyMessage: 'Share photos and videos to showcase your talent',
+  },
+] as const;
+
+/**
+ * Default timeline filter.
+ */
+export const PROFILE_TIMELINE_DEFAULT_FILTER: ProfileTimelineFilterId = 'all';
 
 // ============================================
 // POST TYPE CONFIGURATION
@@ -319,6 +368,12 @@ export const PROFILE_EMPTY_STATES: Record<
     message: 'Your recruiting journey is just getting started. Keep working!',
     icon: 'trophy',
     ctaLabel: 'Add Recruit Update',
+  },
+  metrics: {
+    title: 'No metrics recorded',
+    message: 'Add your combine results and measurables to showcase your athleticism.',
+    icon: 'barbell',
+    ctaLabel: 'Add Metrics',
   },
   stats: {
     title: 'No stats recorded',

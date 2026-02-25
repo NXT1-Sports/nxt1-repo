@@ -41,6 +41,7 @@ import {
   PROFILE_EMPTY_STATES,
   type ProfileOffer,
   type ProfileEvent,
+  type ProfilePost,
 } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtIconComponent } from '../components/icon';
@@ -192,19 +193,17 @@ export interface ProfileShellUser {
               @case ('timeline') {
                 <nxt1-profile-timeline
                   [posts]="profile.filteredPosts()"
+                  [profileUser]="profile.user()"
                   [isLoading]="false"
                   [isLoadingMore]="profile.isLoadingMore()"
                   [isEmpty]="profile.isEmpty()"
                   [hasMore]="profile.hasMore()"
                   [isOwnProfile]="profile.isOwnProfile()"
                   [showMenu]="profile.isOwnProfile()"
-                  [emptyIcon]="emptyState().icon"
-                  [emptyTitle]="emptyState().title"
-                  [emptyMessage]="emptyState().message"
                   [emptyCta]="profile.isOwnProfile() ? (emptyState().ctaLabel ?? null) : null"
                   (postClick)="onPostClick($event)"
-                  (likeClick)="onLikePost($event)"
-                  (commentClick)="onCommentPost($event)"
+                  (reactClick)="onLikePost($event)"
+                  (repostClick)="onCommentPost($event)"
                   (shareClick)="onSharePost($event)"
                   (menuClick)="onPostMenu($event)"
                   (loadMore)="onLoadMore()"
@@ -215,15 +214,17 @@ export interface ProfileShellUser {
               @case ('news') {
                 <nxt1-profile-timeline
                   [posts]="profile.newsPosts()"
+                  [profileUser]="profile.user()"
                   [isLoading]="false"
                   [isEmpty]="profile.newsPosts().length === 0"
                   [isOwnProfile]="profile.isOwnProfile()"
+                  [showFilters]="false"
                   emptyIcon="newspaper"
                   emptyTitle="No news yet"
                   emptyMessage="News updates, announcements, and media mentions will appear here."
                   [emptyCta]="profile.isOwnProfile() ? 'Create News Post' : null"
                   (postClick)="onPostClick($event)"
-                  (likeClick)="onLikePost($event)"
+                  (reactClick)="onLikePost($event)"
                   (shareClick)="onSharePost($event)"
                   (emptyCtaClick)="onCreatePost()"
                 />
@@ -232,15 +233,17 @@ export interface ProfileShellUser {
               @case ('videos') {
                 <nxt1-profile-timeline
                   [posts]="profile.videoPosts()"
+                  [profileUser]="profile.user()"
                   [isLoading]="false"
                   [isEmpty]="profile.videoPosts().length === 0"
                   [isOwnProfile]="profile.isOwnProfile()"
+                  [showFilters]="false"
                   emptyIcon="videocam"
                   emptyTitle="No videos yet"
                   emptyMessage="Upload highlights and game footage to showcase your skills."
                   [emptyCta]="profile.isOwnProfile() ? 'Upload Video' : null"
                   (postClick)="onPostClick($event)"
-                  (likeClick)="onLikePost($event)"
+                  (reactClick)="onLikePost($event)"
                   (shareClick)="onSharePost($event)"
                   (emptyCtaClick)="onUploadVideo()"
                 />
@@ -258,6 +261,55 @@ export interface ProfileShellUser {
                   (addOfferClick)="onAddOffer()"
                   (addCommitmentClick)="onAddOffer()"
                 />
+              }
+
+              @case ('metrics') {
+                <div class="stats-section">
+                  @if (profile.metrics().length === 0) {
+                    <div class="section-empty">
+                      <nxt1-icon name="barbell" [size]="48" />
+                      <h3>No metrics recorded</h3>
+                      <p>Add your combine results and measurables to complete your profile.</p>
+                      @if (profile.isOwnProfile()) {
+                        <button class="empty-cta" (click)="onAddStats()">Add Metrics</button>
+                      }
+                    </div>
+                  } @else {
+                    @for (category of profile.metrics(); track category.name) {
+                      <div class="stats-category">
+                        <h4 class="category-title">{{ category.name }}</h4>
+                        @if (category.measuredAt || category.source) {
+                          <p class="category-meta">
+                            @if (category.measuredAt) {
+                              <time [attr.datetime]="category.measuredAt"
+                                >Measured {{ category.measuredAt | date: 'MMM d, yyyy' }}</time
+                              >
+                            }
+                            @if (category.measuredAt && category.source) {
+                              <span aria-hidden="true"> · </span>
+                            }
+                            @if (category.source) {
+                              <span>{{ category.source }}</span>
+                            }
+                          </p>
+                        }
+                        <div class="stats-grid">
+                          @for (stat of category.stats; track stat.label) {
+                            <div class="stat-item">
+                              <span class="stat-value"
+                                >{{ stat.value }}{{ stat.unit ? ' ' + stat.unit : '' }}</span
+                              >
+                              <span class="stat-label">{{ stat.label }}</span>
+                              @if (stat.verified) {
+                                <span class="verified-badge">✓</span>
+                              }
+                            </div>
+                          }
+                        </div>
+                      </div>
+                    }
+                  }
+                </div>
               }
 
               @case ('stats') {
@@ -715,7 +767,18 @@ export interface ProfileShellUser {
         color: var(--profile-text-secondary);
         text-transform: uppercase;
         letter-spacing: 0.5px;
+        margin: 0 0 4px;
+      }
+
+      .category-meta {
+        font-size: 12px;
+        color: var(--profile-text-tertiary, #888);
         margin: 0 0 12px;
+        line-height: 1.4;
+      }
+
+      .category-meta time {
+        font-weight: 500;
       }
 
       .stats-grid {
@@ -1109,27 +1172,27 @@ export class ProfileShellComponent implements OnInit {
   }
 
   // Post actions - using minimal interface since we only need id
-  protected onPostClick(post: { id: string }): void {
+  protected onPostClick(post: ProfilePost): void {
     this.logger.debug('Post click', { postId: post.id });
     // TODO: Open post detail
   }
 
-  protected onLikePost(post: { id: string }): void {
+  protected onLikePost(post: ProfilePost): void {
     this.logger.debug('Like post', { postId: post.id });
     // TODO: Toggle like
   }
 
-  protected onCommentPost(post: { id: string }): void {
+  protected onCommentPost(post: ProfilePost): void {
     this.logger.debug('Comment post', { postId: post.id });
     // TODO: Open comments
   }
 
-  protected onSharePost(post: { id: string }): void {
+  protected onSharePost(post: ProfilePost): void {
     this.logger.debug('Share post', { postId: post.id });
     // TODO: Open share sheet
   }
 
-  protected onPostMenu(post: { id: string }): void {
+  protected onPostMenu(post: ProfilePost): void {
     this.logger.debug('Post menu', { postId: post.id });
     // TODO: Open post menu
   }

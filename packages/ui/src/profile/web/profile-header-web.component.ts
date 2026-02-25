@@ -11,11 +11,12 @@ import { Component, ChangeDetectionStrategy, input, output, computed } from '@an
 import { CommonModule } from '@angular/common';
 import type { ProfileUser, PlayerCardData, ProspectTier } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
+import { NxtImageComponent } from '../../components/image';
 
 @Component({
   selector: 'nxt1-profile-header-web',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent],
+  imports: [CommonModule, NxtIconComponent, NxtImageComponent],
   template: `
     <header
       class="madden-card"
@@ -36,7 +37,15 @@ import { NxtIconComponent } from '../../components/icon';
         <!-- Player portrait: Right side, contained rectangle, fades on left edge -->
         @if (user()?.profileImg) {
           <div class="mc-player-render">
-            <img [src]="user()?.profileImg" [alt]="displayName()" loading="eager" />
+            <nxt1-image
+              [src]="user()?.profileImg"
+              [alt]="displayName()"
+              [width]="400"
+              [height]="500"
+              fit="cover"
+              [priority]="true"
+              [showPlaceholder]="false"
+            />
           </div>
         }
 
@@ -46,7 +55,15 @@ import { NxtIconComponent } from '../../components/icon';
             <!-- Team Logo (large, like Madden's team crest) -->
             <div class="mc-team-logo">
               @if (user()?.school?.logoUrl) {
-                <img [src]="user()?.school?.logoUrl" [alt]="user()?.school?.name" loading="lazy" />
+                <nxt1-image
+                  [src]="user()?.school?.logoUrl"
+                  [alt]="user()?.school?.name || ''"
+                  [width]="36"
+                  [height]="36"
+                  variant="avatar"
+                  fit="contain"
+                  [showPlaceholder]="false"
+                />
               } @else {
                 <div class="mc-team-placeholder">
                   <nxt1-icon name="school" [size]="36" />

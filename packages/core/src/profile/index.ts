@@ -24,6 +24,8 @@ export {
   type ProfileSchool,
   type ProfileSocialLinks,
   type ProfileContact,
+  type ProfileAward,
+  type ProfileCoachContact,
   type ProfileUser,
   // Social types
   type ProfileFollowStats,
@@ -32,10 +34,18 @@ export {
   type ProfileStatItem,
   type AthleticStat,
   type AthleticStatsCategory,
+  // Game log types (MaxPreps-style)
+  type GameLogColumn,
+  type GameLogEntry,
+  type GameLogSeasonTotals,
+  type ProfileSeasonGameLog,
   // Content types
   type ProfilePostType,
   type ProfilePost,
   type ProfilePinnedVideo,
+  // Timeline filter types
+  type ProfileTimelineFilterId,
+  type ProfileTimelineFilter,
   // Offer types
   type OfferType,
   type ProfileOffer,
@@ -66,6 +76,9 @@ export {
   PROFILE_TABS,
   PROFILE_DEFAULT_TAB,
   PROFILE_VERIFICATION_HIDDEN_TABS,
+  // Timeline filters
+  PROFILE_TIMELINE_FILTERS,
+  PROFILE_TIMELINE_DEFAULT_FILTER,
   // Post types
   PROFILE_POST_TYPE_ICONS,
   PROFILE_POST_TYPE_LABELS,

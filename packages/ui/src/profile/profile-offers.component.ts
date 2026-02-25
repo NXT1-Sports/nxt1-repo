@@ -16,7 +16,7 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type { ProfileOffer, OfferType, TimelineItem } from '@nxt1/core';
+import type { ProfileOffer, OfferType, TimelineItem, TimelineCardLayout } from '@nxt1/core';
 import {
   OFFER_TYPE_ICONS,
   OFFER_TYPE_LABELS,
@@ -36,6 +36,7 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="committedEmpty"
+        [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
       />
     }
@@ -46,6 +47,7 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="offersEmpty"
+        [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
       />
     }
@@ -56,6 +58,7 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="interestsEmpty"
+        [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
       />
     }
@@ -67,6 +70,7 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="globalEmpty"
+        [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
       />
     }
@@ -107,6 +111,9 @@ export class ProfileOffersComponent {
    * Values: 'timeline' | 'committed' | 'all-offers' | 'interests'
    */
   readonly activeSection = input<string>('timeline');
+
+  /** Card layout: vertical (mobile) or horizontal (desktop). */
+  readonly cardLayout = input<TimelineCardLayout>('vertical');
 
   // ============================================
   // OUTPUTS

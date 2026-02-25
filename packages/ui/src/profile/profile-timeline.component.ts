@@ -1,28 +1,80 @@
 /**
- * @fileoverview Profile Timeline Component - Posts Feed
+ * @fileoverview Profile Timeline Component - Posts Feed with Filters
  * @module @nxt1/ui/profile
- * @version 1.0.0
+ * @version 3.0.0
  *
- * Timeline content feed showing posts with filtering by type.
+ * Timeline content feed with sub-filters (All Posts, Pinned, Media).
  * Supports loading states, empty states, and infinite scroll.
+ *
+ * Uses the shared FeedPostCardComponent for consistent post card
+ * rendering across the entire app (feed, explore, profile).
+ * This follows the Instagram/Twitter pattern: one card component everywhere.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  input,
+  output,
+  computed,
+  signal,
+  effect,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type { ProfilePost, ProfilePostType } from '@nxt1/core';
-import { PROFILE_POST_TYPE_ICONS, PROFILE_POST_TYPE_LABELS } from '@nxt1/core';
+import type {
+  ProfilePost,
+  ProfileUser,
+  FeedPost,
+  FeedAuthor,
+  ProfileTimelineFilterId,
+} from '@nxt1/core';
+import {
+  profilePostToFeedPost,
+  profileUserToFeedAuthor,
+  PROFILE_TIMELINE_FILTERS,
+  PROFILE_TIMELINE_DEFAULT_FILTER,
+} from '@nxt1/core';
 import { ProfileSkeletonComponent } from './profile-skeleton.component';
 import { NxtIconComponent } from '../components/icon';
+import { FeedPostCardComponent } from '../feed/feed-post-card.component';
 
-// Register icons
 @Component({
   selector: 'nxt1-profile-timeline',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, ProfileSkeletonComponent],
+  imports: [CommonModule, NxtIconComponent, ProfileSkeletonComponent, FeedPostCardComponent],
   template: `
     <div class="profile-timeline">
+      <!-- Filter Tabs (only shown when filters enabled) -->
+      @if (showFilters()) {
+        <nav class="timeline-filters" role="tablist" aria-label="Timeline filters">
+          @for (filter of filters; track filter.id) {
+            <button
+              type="button"
+              role="tab"
+              class="timeline-filter"
+              [class.timeline-filter--active]="activeFilter() === filter.id"
+              [attr.aria-selected]="activeFilter() === filter.id"
+              [attr.aria-controls]="'timeline-panel-' + filter.id"
+              (click)="setFilter(filter.id)"
+            >
+              <nxt1-icon [name]="filter.icon" [size]="14" />
+              <span>{{ filter.label }}</span>
+              @if (filter.id === 'pinned' && pinnedCount() > 0) {
+                <span class="timeline-filter__badge">{{ pinnedCount() }}</span>
+              }
+            </button>
+          }
+          <!-- Active indicator bar -->
+          <div
+            class="timeline-filters__indicator"
+            [style.width.%]="100 / filters.length"
+            [style.transform]="'translateX(' + activeFilterIndex() * 100 + '%)'"
+          ></div>
+        </nav>
+      }
+
       <!-- Loading State -->
       @if (isLoading()) {
         <div class="timeline-loading">
@@ -42,15 +94,15 @@ import { NxtIconComponent } from '../components/icon';
         </div>
       }
 
-      <!-- Empty State -->
-      @else if (isEmpty()) {
+      <!-- Filtered Empty State -->
+      @else if (isFilteredEmpty()) {
         <div class="timeline-empty">
           <div class="empty-icon">
-            <nxt1-icon [name]="emptyIcon()" [size]="36" />
+            <nxt1-icon [name]="resolvedEmptyIcon()" [size]="36" />
           </div>
-          <h3 class="empty-title">{{ emptyTitle() }}</h3>
-          <p class="empty-message">{{ emptyMessage() }}</p>
-          @if (isOwnProfile() && emptyCta()) {
+          <h3 class="empty-title">{{ resolvedEmptyTitle() }}</h3>
+          <p class="empty-message">{{ resolvedEmptyMessage() }}</p>
+          @if (isOwnProfile() && (!showFilters() || activeFilter() === 'all') && emptyCta()) {
             <button class="empty-cta" (click)="emptyCtaClick.emit()">
               {{ emptyCta() }}
             </button>
@@ -58,95 +110,24 @@ import { NxtIconComponent } from '../components/icon';
         </div>
       }
 
-      <!-- Posts List -->
+      <!-- Posts List — Uses shared FeedPostCardComponent for consistent styles -->
       @else {
-        <div class="timeline-posts">
-          @for (post of posts(); track post.id) {
-            <article class="post-card" [class.post-card--pinned]="post.isPinned">
-              <!-- Pinned Badge -->
-              @if (post.isPinned) {
-                <div class="pinned-badge">
-                  <nxt1-icon name="pin" [size]="14" />
-                  <span>Pinned</span>
-                </div>
-              }
-
-              <!-- Post Header -->
-              <header class="post-header">
-                <div class="post-type-badge" [attr.data-type]="post.type">
-                  <nxt1-icon [name]="getPostTypeIcon(post.type)" [size]="14" />
-                  <span>{{ getPostTypeLabel(post.type) }}</span>
-                </div>
-                <time class="post-time">{{ formatRelativeTime(post.createdAt) }}</time>
-                @if (showMenu()) {
-                  <button class="post-menu-btn" (click)="menuClick.emit(post)">
-                    <nxt1-icon name="ellipsis-horizontal" [size]="16" />
-                  </button>
-                }
-              </header>
-
-              <!-- Post Content -->
-              <div class="post-content" (click)="postClick.emit(post)">
-                @if (post.title) {
-                  <h3 class="post-title">{{ post.title }}</h3>
-                }
-                @if (post.body) {
-                  <p class="post-body">{{ post.body }}</p>
-                }
-
-                <!-- Media -->
-                @if (post.thumbnailUrl || post.mediaUrl) {
-                  <div
-                    class="post-media"
-                    [class.post-media--video]="post.type === 'video' || post.type === 'highlight'"
-                  >
-                    <img
-                      [src]="post.thumbnailUrl || post.mediaUrl"
-                      [alt]="post.title || 'Post media'"
-                      loading="lazy"
-                    />
-                    @if (post.type === 'video' || post.type === 'highlight') {
-                      <div class="video-overlay">
-                        <nxt1-icon name="play-circle" [size]="64" />
-                        @if (post.duration) {
-                          <span class="video-duration">{{ formatDuration(post.duration) }}</span>
-                        }
-                      </div>
-                    }
-                  </div>
-                }
-              </div>
-
-              <!-- Post Actions -->
-              <footer class="post-actions">
-                <button
-                  class="action-btn"
-                  [class.action-btn--active]="post.isLiked"
-                  (click)="likeClick.emit(post)"
-                >
-                  <nxt1-icon [name]="post.isLiked ? 'heart' : 'heart'" [size]="20" />
-                  <span>{{ formatCount(post.likeCount) }}</span>
-                </button>
-                <button class="action-btn" (click)="commentClick.emit(post)">
-                  <nxt1-icon name="chatbubble" [size]="20" />
-                  <span>{{ formatCount(post.commentCount) }}</span>
-                </button>
-                <button class="action-btn" (click)="shareClick.emit(post)">
-                  <nxt1-icon name="share" [size]="20" />
-                  <span>{{ formatCount(post.shareCount) }}</span>
-                </button>
-                @if (post.viewCount !== undefined) {
-                  <span class="view-count">
-                    <nxt1-icon name="play" [size]="16" />
-                    {{ formatCount(post.viewCount) }} views
-                  </span>
-                }
-              </footer>
-            </article>
+        <div class="timeline-posts" role="tabpanel" [id]="'timeline-panel-' + activeFilter()">
+          @for (post of filteredFeedPosts(); track post.id; let idx = $index) {
+            <nxt1-feed-post-card
+              [post]="post"
+              [hideAuthor]="true"
+              [showMenu]="showMenu()"
+              (postClick)="handlePostClick(idx)"
+              (reactClick)="handleLikeClick(idx)"
+              (repostClick)="handleCommentClick(idx)"
+              (shareClick)="handleShareClick(idx)"
+              (menuClick)="handleMenuClick(idx)"
+            />
           }
 
-          <!-- Load More -->
-          @if (hasMore()) {
+          <!-- Load More (only for 'all' filter) -->
+          @if (hasMore() && activeFilter() === 'all') {
             <div class="load-more">
               @if (isLoadingMore()) {
                 <span class="load-more-spinner" aria-hidden="true"></span>
@@ -164,6 +145,7 @@ import { NxtIconComponent } from '../components/icon';
       /* ============================================
        PROFILE TIMELINE - Posts Feed
        2026 Professional Native-Style Design
+       Card styles delegated to shared FeedPostCardComponent
        ============================================ */
 
       :host {
@@ -181,6 +163,71 @@ import { NxtIconComponent } from '../components/icon';
 
       .profile-timeline {
         min-height: 200px;
+      }
+
+      /* ============================================
+         FILTER TABS (Twitter/Instagram style)
+         ============================================ */
+
+      .timeline-filters {
+        position: relative;
+        display: flex;
+        align-items: stretch;
+        border-bottom: 1px solid var(--timeline-border);
+        background: var(--timeline-bg);
+        overflow: hidden;
+      }
+
+      .timeline-filter {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 12px 16px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--timeline-text-tertiary);
+        transition: color 0.2s ease;
+        position: relative;
+        white-space: nowrap;
+        -webkit-tap-highlight-color: transparent;
+
+        &:hover {
+          color: var(--timeline-text-secondary);
+        }
+      }
+
+      .timeline-filter--active {
+        color: var(--timeline-primary);
+      }
+
+      .timeline-filter__badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--timeline-primary) 15%, transparent);
+        color: var(--timeline-primary);
+        font-size: 10px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .timeline-filters__indicator {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        height: 2px;
+        background: var(--timeline-primary);
+        border-radius: 2px 2px 0 0;
+        transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
       /* ============================================
@@ -295,242 +342,6 @@ import { NxtIconComponent } from '../components/icon';
       }
 
       /* ============================================
-         POST CARD
-         ============================================ */
-
-      .post-card {
-        padding: 16px 24px;
-        border-bottom: 1px solid var(--timeline-border);
-        transition: background 0.2s ease;
-
-        @media (max-width: 768px) {
-          padding: 14px 16px;
-        }
-
-        &:hover {
-          background: var(--timeline-surface);
-        }
-      }
-
-      .post-card--pinned {
-        background: rgba(212, 255, 0, 0.02);
-        border-left: 3px solid var(--timeline-primary);
-      }
-
-      .pinned-badge {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 12px;
-        color: var(--timeline-text-tertiary);
-        margin-bottom: 8px;
-
-        nxt1-icon {
-          font-size: 14px;
-        }
-      }
-
-      /* ============================================
-         POST HEADER
-         ============================================ */
-
-      .post-header {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 12px;
-      }
-
-      .post-type-badge {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 10px;
-        background: var(--timeline-surface);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--timeline-text-secondary);
-
-        nxt1-icon {
-          font-size: 14px;
-        }
-
-        &[data-type='video'],
-        &[data-type='highlight'] {
-          background: rgba(212, 255, 0, 0.1);
-          color: var(--timeline-primary);
-        }
-
-        &[data-type='offer'] {
-          background: rgba(74, 222, 128, 0.1);
-          color: var(--nxt1-color-success, #4ade80);
-        }
-      }
-
-      .post-time {
-        font-size: 13px;
-        color: var(--timeline-text-tertiary);
-        margin-left: auto;
-      }
-
-      .post-menu-btn {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        background: none;
-        border: none;
-        color: var(--timeline-text-secondary);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s ease;
-
-        &:hover {
-          background: var(--timeline-surface);
-          color: var(--timeline-text-primary);
-        }
-      }
-
-      /* ============================================
-         POST CONTENT
-         ============================================ */
-
-      .post-content {
-        cursor: pointer;
-      }
-
-      .post-title {
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--timeline-text-primary);
-        margin: 0 0 8px;
-        line-height: 1.4;
-      }
-
-      .post-body {
-        font-size: 15px;
-        color: var(--timeline-text-secondary);
-        margin: 0 0 12px;
-        line-height: 1.5;
-        display: -webkit-box;
-        -webkit-line-clamp: 3;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-      }
-
-      /* ============================================
-         POST MEDIA
-         ============================================ */
-
-      .post-media {
-        position: relative;
-        border-radius: var(--nxt1-radius-lg, 12px);
-        overflow: hidden;
-        margin-bottom: 12px;
-        background: var(--timeline-surface);
-
-        img {
-          width: 100%;
-          height: auto;
-          max-height: 400px;
-          object-fit: cover;
-          display: block;
-        }
-      }
-
-      .post-media--video {
-        cursor: pointer;
-      }
-
-      .video-overlay {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.4);
-        transition: background 0.2s ease;
-
-        nxt1-icon {
-          font-size: 64px;
-          color: white;
-          filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
-        }
-
-        &:hover {
-          background: rgba(0, 0, 0, 0.5);
-        }
-      }
-
-      .video-duration {
-        position: absolute;
-        bottom: 12px;
-        right: 12px;
-        padding: 4px 8px;
-        background: rgba(0, 0, 0, 0.85);
-        border-radius: 4px;
-        font-size: 12px;
-        color: white;
-        font-weight: 500;
-        font-variant-numeric: tabular-nums;
-      }
-
-      /* ============================================
-         POST ACTIONS
-         ============================================ */
-
-      .post-actions {
-        display: flex;
-        align-items: center;
-        gap: 20px;
-        margin-top: 12px;
-      }
-
-      .action-btn {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 0;
-        background: none;
-        border: none;
-        color: var(--timeline-text-secondary);
-        font-size: 14px;
-        cursor: pointer;
-        transition: color 0.2s ease;
-
-        nxt1-icon {
-          font-size: 20px;
-        }
-
-        &:hover {
-          color: var(--timeline-text-primary);
-        }
-      }
-
-      .action-btn--active {
-        color: var(--timeline-error);
-
-        &:hover {
-          color: var(--timeline-error);
-        }
-      }
-
-      .view-count {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        margin-left: auto;
-        font-size: 13px;
-        color: var(--timeline-text-tertiary);
-
-        nxt1-icon {
-          font-size: 16px;
-        }
-      }
-
-      /* ============================================
          LOAD MORE
          ============================================ */
 
@@ -580,7 +391,12 @@ export class ProfileTimelineComponent {
   // INPUTS
   // ============================================
 
+  /** Profile posts to display */
   readonly posts = input<readonly ProfilePost[]>([]);
+
+  /** Profile owner — used to build FeedAuthor for card rendering */
+  readonly profileUser = input<ProfileUser | null>(null);
+
   readonly isLoading = input(false);
   readonly isLoadingMore = input(false);
   readonly isEmpty = input(false);
@@ -588,68 +404,181 @@ export class ProfileTimelineComponent {
   readonly hasMore = input(false);
   readonly isOwnProfile = input(false);
   readonly showMenu = input(false);
-  readonly emptyIcon = input('newspaper');
-  readonly emptyTitle = input('No posts yet');
-  readonly emptyMessage = input('Start sharing your journey');
+  /** Show the filter tabs (All Posts / Pinned / Media). Disable for news/videos sub-tabs. */
+  readonly showFilters = input(true);
+  /** External filter override — when set, drives filtering from outside (e.g. web sidebar). */
+  readonly filter = input<ProfileTimelineFilterId | null>(null);
+  /** Override empty state icon (used when filters are hidden) */
+  readonly emptyIcon = input<string | null>(null);
+  /** Override empty state title */
+  readonly emptyTitle = input<string | null>(null);
+  /** Override empty state message */
+  readonly emptyMessage = input<string | null>(null);
   readonly emptyCta = input<string | null>(null);
 
   // ============================================
-  // OUTPUTS
+  // OUTPUTS — Still emit ProfilePost for backward compatibility
   // ============================================
 
   readonly postClick = output<ProfilePost>();
-  readonly likeClick = output<ProfilePost>();
-  readonly commentClick = output<ProfilePost>();
+  readonly reactClick = output<ProfilePost>();
+  readonly repostClick = output<ProfilePost>();
   readonly shareClick = output<ProfilePost>();
   readonly menuClick = output<ProfilePost>();
   readonly loadMore = output<void>();
   readonly retry = output<void>();
   readonly emptyCtaClick = output<void>();
+  readonly filterChange = output<ProfileTimelineFilterId>();
 
   // ============================================
-  // HELPERS
+  // FILTER STATE
   // ============================================
 
-  protected getPostTypeIcon(type: ProfilePostType): string {
-    return PROFILE_POST_TYPE_ICONS[type] ?? 'document-text';
-  }
+  /** Available filter tabs */
+  protected readonly filters = PROFILE_TIMELINE_FILTERS;
 
-  protected getPostTypeLabel(type: ProfilePostType): string {
-    return PROFILE_POST_TYPE_LABELS[type] ?? 'Post';
-  }
+  /** Currently active filter */
+  private readonly _activeFilter = signal<ProfileTimelineFilterId>(PROFILE_TIMELINE_DEFAULT_FILTER);
+  protected readonly activeFilter = this._activeFilter.asReadonly();
 
-  protected formatCount(count: number): string {
-    if (count >= 1000000) {
-      return (count / 1000000).toFixed(1) + 'M';
+  /** Sync external filter input to internal state */
+  private readonly filterSync = effect(() => {
+    const external = this.filter();
+    if (external !== null) {
+      this._activeFilter.set(external);
     }
-    if (count >= 1000) {
-      return (count / 1000).toFixed(1) + 'K';
+  });
+
+  /** Index of the active filter (for indicator positioning) */
+  protected readonly activeFilterIndex = computed(() => {
+    return this.filters.findIndex((f) => f.id === this._activeFilter());
+  });
+
+  /** Config for the currently active filter (for empty state text) */
+  protected readonly activeFilterConfig = computed(() => {
+    return this.filters.find((f) => f.id === this._activeFilter()) ?? this.filters[0];
+  });
+
+  /** Count of pinned posts (for badge on Pinned tab) */
+  protected readonly pinnedCount = computed(() => {
+    return this.posts().filter((p) => p.isPinned).length;
+  });
+
+  /** Resolved empty icon: input override → filter config */
+  protected readonly resolvedEmptyIcon = computed(() => {
+    return this.emptyIcon() ?? this.activeFilterConfig().icon;
+  });
+
+  /** Resolved empty title: input override → filter config */
+  protected readonly resolvedEmptyTitle = computed(() => {
+    return this.emptyTitle() ?? this.activeFilterConfig().emptyTitle;
+  });
+
+  /** Resolved empty message: input override → filter config */
+  protected readonly resolvedEmptyMessage = computed(() => {
+    return this.emptyMessage() ?? this.activeFilterConfig().emptyMessage;
+  });
+
+  // ============================================
+  // COMPUTED — Map ProfilePost[] → FeedPost[] for unified rendering
+  // ============================================
+
+  /** Build FeedAuthor from profile user (shared across all posts) */
+  private readonly feedAuthor = computed<FeedAuthor>(() => {
+    const user = this.profileUser();
+    if (user) return profileUserToFeedAuthor(user);
+
+    // Fallback author when profileUser is not provided
+    return {
+      uid: '',
+      profileCode: '',
+      displayName: '',
+      firstName: '',
+      lastName: '',
+      role: 'athlete',
+      verificationStatus: 'unverified',
+      isVerified: false,
+    };
+  });
+
+  /** All ProfilePosts mapped to FeedPosts (before filtering) */
+  private readonly allFeedPosts = computed<readonly FeedPost[]>(() => {
+    const posts = this.posts();
+    const author = this.feedAuthor();
+    return posts.map((p) => profilePostToFeedPost(p, author));
+  });
+
+  /** Filtered posts based on active filter */
+  protected readonly filteredPosts = computed<readonly ProfilePost[]>(() => {
+    const posts = this.posts();
+    const filter = this._activeFilter();
+
+    switch (filter) {
+      case 'pinned':
+        return posts.filter((p) => p.isPinned);
+      case 'media':
+        return posts.filter(
+          (p) =>
+            p.type === 'image' ||
+            p.type === 'video' ||
+            p.type === 'highlight' ||
+            !!p.thumbnailUrl ||
+            !!p.mediaUrl
+        );
+      case 'all':
+      default:
+        return posts;
     }
-    return count.toString();
+  });
+
+  /** Filtered FeedPosts for the card component */
+  protected readonly filteredFeedPosts = computed<readonly FeedPost[]>(() => {
+    const filteredProfilePosts = this.filteredPosts();
+    const author = this.feedAuthor();
+    return filteredProfilePosts.map((p) => profilePostToFeedPost(p, author));
+  });
+
+  /** Whether the filtered view is empty (posts exist but none match filter) */
+  protected readonly isFilteredEmpty = computed(() => {
+    return this.isEmpty() || this.filteredPosts().length === 0;
+  });
+
+  // ============================================
+  // FILTER ACTIONS
+  // ============================================
+
+  protected setFilter(filterId: ProfileTimelineFilterId): void {
+    if (this._activeFilter() === filterId) return;
+    this._activeFilter.set(filterId);
+    this.filterChange.emit(filterId);
   }
 
-  protected formatDuration(seconds: number): string {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  // ============================================
+  // EVENT HANDLERS — Translate FeedPost events back to ProfilePost
+  // ============================================
+
+  protected handlePostClick(index: number): void {
+    const post = this.filteredPosts()[index];
+    if (post) this.postClick.emit(post);
   }
 
-  protected formatRelativeTime(dateString: string): string {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
+  protected handleLikeClick(index: number): void {
+    const post = this.filteredPosts()[index];
+    if (post) this.reactClick.emit(post);
+  }
 
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m`;
-    if (diffHours < 24) return `${diffHours}h`;
-    if (diffDays < 7) return `${diffDays}d`;
+  protected handleCommentClick(index: number): void {
+    const post = this.filteredPosts()[index];
+    if (post) this.repostClick.emit(post);
+  }
 
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-    });
+  protected handleShareClick(index: number): void {
+    const post = this.filteredPosts()[index];
+    if (post) this.shareClick.emit(post);
+  }
+
+  protected handleMenuClick(index: number): void {
+    const post = this.filteredPosts()[index];
+    if (post) this.menuClick.emit(post);
   }
 }

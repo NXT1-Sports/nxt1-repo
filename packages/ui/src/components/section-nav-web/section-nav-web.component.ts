@@ -37,6 +37,11 @@ export interface SectionNavItem {
   readonly label: string;
   /** Optional badge count shown beside the label. */
   readonly badge?: number;
+  /**
+   * Optional group header. When the group value changes between
+   * consecutive items, a visual group header is rendered.
+   */
+  readonly group?: string;
 }
 
 /** Emitted when the user clicks a different section. */
@@ -52,10 +57,14 @@ export interface SectionNavChangeEvent {
   standalone: true,
   template: `
     <nav class="section-nav" role="tablist" [attr.aria-label]="ariaLabel()">
-      @for (item of items(); track item.id) {
+      @for (item of items(); track item.id; let i = $index) {
+        @if (item.group && (i === 0 || items()[i - 1]?.group !== item.group)) {
+          <span class="nav-group-header" role="presentation">{{ item.group }}</span>
+        }
         <button
           class="nav-item"
           [class.nav-item--active]="activeId() === item.id"
+          [class.nav-item--grouped]="!!item.group"
           role="tab"
           [attr.aria-selected]="activeId() === item.id"
           [attr.aria-controls]="'section-' + item.id"
@@ -145,6 +154,30 @@ export interface SectionNavChangeEvent {
         background: var(--nxt1-color-alpha-primary20);
       }
 
+      /* ==============================
+         GROUP HEADERS
+         ============================== */
+
+      .nav-group-header {
+        display: block;
+        padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
+        margin-top: var(--nxt1-spacing-2);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--nxt1-color-text-tertiary, #999);
+        user-select: none;
+      }
+
+      .nav-group-header:first-child {
+        margin-top: 0;
+      }
+
+      .nav-item--grouped {
+        padding-left: var(--nxt1-spacing-4, 16px);
+      }
+
       .nav-item:focus,
       .nav-item:focus-visible {
         outline: none;
@@ -198,6 +231,19 @@ export interface SectionNavChangeEvent {
           height: 18px;
           padding: 0 5px;
           font-size: 9px;
+        }
+
+        .nav-group-header {
+          flex-shrink: 0;
+          margin-top: 0;
+          padding: var(--nxt1-spacing-1) var(--nxt1-spacing-2);
+          font-size: 9px;
+          color: var(--nxt1-color-text-tertiary, #999);
+          align-self: center;
+        }
+
+        .nav-item--grouped {
+          padding-left: var(--nxt1-spacing-3);
         }
       }
     `,

@@ -25,8 +25,14 @@ export {
   type FeedCommitmentData,
   type FeedMilestoneData,
   // Engagement types
+  type FeedReactionType,
   type FeedEngagement,
   type FeedUserEngagement,
+  // Tag/chip types
+  type FeedPostTagType,
+  type FeedPostTag,
+  // Repost types
+  type FeedRepostData,
   // Main post type
   type FeedPost,
   // Filter types
@@ -66,6 +72,9 @@ export {
   FEED_POST_TYPE_ICONS,
   FEED_POST_TYPE_LABELS,
   FEED_POST_TYPE_COLORS,
+  // Tag/chip config
+  FEED_TAG_TYPE_ICONS,
+  FEED_MAX_VISIBLE_TAGS,
   // Engagement
   type FeedEngagementAction,
   FEED_ENGAGEMENT_ICONS,
@@ -82,3 +91,12 @@ export {
 // FEED API
 // ============================================
 export { createFeedApi, type FeedApi } from './feed.api';
+
+// ============================================
+// FEED MAPPERS
+// ============================================
+export {
+  profileUserToFeedAuthor,
+  profilePostToFeedPost,
+  profilePostsToFeedPosts,
+} from './feed.mappers';

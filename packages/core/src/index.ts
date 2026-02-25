@@ -1017,6 +1017,12 @@ export {
   // Engagement types
   type FeedEngagement,
   type FeedUserEngagement,
+  type FeedReactionType,
+  // Tag types
+  type FeedPostTagType,
+  type FeedPostTag,
+  // Repost types
+  type FeedRepostData,
   // Main post type
   type FeedPost,
   // Filter types
@@ -1040,6 +1046,8 @@ export {
   FEED_POST_TYPE_ICONS,
   FEED_POST_TYPE_LABELS,
   FEED_POST_TYPE_COLORS,
+  FEED_TAG_TYPE_ICONS,
+  FEED_MAX_VISIBLE_TAGS,
   type FeedEngagementAction,
   FEED_ENGAGEMENT_ICONS,
   FEED_EMPTY_STATES,
@@ -1049,6 +1057,10 @@ export {
   // API Factory
   createFeedApi,
   type FeedApi,
+  // Mappers
+  profileUserToFeedAuthor,
+  profilePostToFeedPost,
+  profilePostsToFeedPosts,
 } from './feed';
 
 // ============================================

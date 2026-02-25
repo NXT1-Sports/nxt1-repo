@@ -26,7 +26,8 @@
     "./styles/components/biometric-modal": "./src/styles/components/biometric-modal.css",
     "./styles/components/bottom-sheet": "./src/styles/components/bottom-sheet.css",
     "./styles/components/sheet-modal": "./src/styles/components/sheet-modal.css",
-    "./styles/components/navigation": "./src/styles/components/navigation.css"
+    "./styles/components/navigation": "./src/styles/components/navigation.css",
+    "./styles/components/qr-code-modal": "./src/styles/components/qr-code-modal.css"
   },
   "scripts": {
     "build": "ng-packagr -p ng-package.json",

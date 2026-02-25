@@ -19,11 +19,12 @@ import type {
 } from '@nxt1/core';
 import { NxtAvatarComponent } from '../components/avatar';
 import { NxtIconComponent } from '../components/icon';
+import { NxtImageComponent } from '../components/image';
 
 @Component({
   selector: 'nxt1-profile-header',
   standalone: true,
-  imports: [CommonModule, NxtAvatarComponent, NxtIconComponent],
+  imports: [CommonModule, NxtAvatarComponent, NxtIconComponent, NxtImageComponent],
   template: `
     <header class="madden-card" [attr.data-tier]="currentTier()">
       <!-- ═══ BANNER (Dark cinematic) ═══ -->
@@ -39,7 +40,15 @@ import { NxtIconComponent } from '../components/icon';
         <!-- Team Logo (large, like Vikings logo in Madden) -->
         <div class="mc-team-logo">
           @if (user()?.school?.logoUrl) {
-            <img [src]="user()?.school?.logoUrl" [alt]="user()?.school?.name" loading="lazy" />
+            <nxt1-image
+              [src]="user()?.school?.logoUrl"
+              [alt]="user()?.school?.name || ''"
+              [width]="28"
+              [height]="28"
+              variant="avatar"
+              fit="contain"
+              [showPlaceholder]="false"
+            />
           } @else {
             <div class="mc-team-placeholder">
               <nxt1-icon name="school" [size]="28" />
@@ -144,10 +153,14 @@ import { NxtIconComponent } from '../components/icon';
                       />
                     </svg>
                     <span class="mc-verified-text">Verified by</span>
-                    <img
+                    <nxt1-image
                       class="mc-verified-logo"
                       src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Rivals.com_logo.svg/200px-Rivals.com_logo.svg.png"
-                      [alt]="user()?.measurablesVerifiedBy"
+                      [alt]="user()?.measurablesVerifiedBy || ''"
+                      [width]="60"
+                      [height]="14"
+                      fit="contain"
+                      [showPlaceholder]="false"
                     />
                   </a>
                 }
@@ -179,10 +192,14 @@ import { NxtIconComponent } from '../components/icon';
                       />
                     </svg>
                     <span class="mc-verified-text">Verified by</span>
-                    <img
+                    <nxt1-image
                       class="mc-verified-logo"
                       src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Rivals.com_logo.svg/200px-Rivals.com_logo.svg.png"
-                      [alt]="user()?.measurablesVerifiedBy"
+                      [alt]="user()?.measurablesVerifiedBy || ''"
+                      [width]="60"
+                      [height]="14"
+                      fit="contain"
+                      [showPlaceholder]="false"
                     />
                   </a>
                 }
@@ -341,7 +358,15 @@ import { NxtIconComponent } from '../components/icon';
             <button class="mc-showreel-card" (click)="pinnedVideoClick.emit()">
               <div class="mc-showreel-thumb">
                 @if (pinnedVideo()?.previewImage) {
-                  <img [src]="pinnedVideo()?.previewImage" [alt]="pinnedVideo()?.name" />
+                  <nxt1-image
+                    [src]="pinnedVideo()?.previewImage"
+                    [alt]="pinnedVideo()?.name || ''"
+                    [width]="320"
+                    [height]="180"
+                    fit="cover"
+                    variant="card"
+                    [showPlaceholder]="true"
+                  />
                 }
                 <div class="mc-showreel-play">
                   <nxt1-icon name="playCircle" [size]="36" />

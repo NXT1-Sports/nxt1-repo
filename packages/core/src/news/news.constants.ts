@@ -326,8 +326,8 @@ export const NEWS_API_ENDPOINTS = {
  */
 export const NEWS_AI_SOURCE = {
   id: 'agent-x',
-  name: 'Agent X',
-  avatarUrl: '/assets/agent-x-avatar.png',
+  name: 'NXT 1',
+  avatarUrl: 'assets/shared/logo/nxt1_icon.png',
   type: 'ai-agent' as const,
   isVerified: true,
 } as const;

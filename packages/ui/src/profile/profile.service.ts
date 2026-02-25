@@ -23,6 +23,7 @@ import {
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { MOCK_PROFILE_PAGE_DATA, getMockOwnProfileData } from './profile.mock-data';
+import { type RankingSource, MOCK_RANKINGS } from './rankings/profile-rankings.component';
 
 type ProfileUserTeamExtension = {
   readonly teamId?: string;
@@ -45,6 +46,7 @@ export class ProfileService {
   private readonly _isEditMode = signal(false);
   private readonly _editSection = signal<string | null>(null);
   private readonly _activeSportIndex = signal(0);
+  private readonly _rankings = signal<RankingSource[]>(MOCK_RANKINGS);
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS (READ-ONLY)
@@ -77,6 +79,12 @@ export class ProfileService {
   /** Athletic stats by category */
   readonly athleticStats = computed(() => this._profileData()?.athleticStats ?? []);
 
+  /** Game log data — all seasons (MaxPreps-style game-by-game rows) */
+  readonly gameLog = computed(() => this._profileData()?.gameLog ?? []);
+
+  /** Metrics (Combine/Measurables) by category */
+  readonly metrics = computed(() => this._profileData()?.metrics ?? []);
+
   /** Pinned video/mixtape */
   readonly pinnedVideo = computed(() => this._profileData()?.pinnedVideo ?? null);
 
@@ -103,6 +111,12 @@ export class ProfileService {
 
   /** Whether the user has any recruiting activity at all */
   readonly hasRecruitingActivity = computed<boolean>(() => this.offers().length > 0);
+
+  /** Rankings from various scouting services */
+  readonly rankings = computed(() => this._rankings());
+
+  /** Awards list */
+  readonly awards = computed(() => this._profileData()?.user?.awards ?? []);
 
   /** Events list */
   readonly events = computed(() => this._profileData()?.events ?? []);
@@ -275,6 +289,7 @@ export class ProfileService {
       news: this.newsPosts().length,
       videos: this.videoPosts().length,
       offers: offers.length,
+      metrics: 0,
       stats: 0,
       academic: 0,
       events: events.length,

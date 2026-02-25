@@ -4,6 +4,7 @@
  */
 export {
   type TimelineVariant,
+  type TimelineCardLayout,
   type TimelineCardTag,
   type TimelineBadge,
   type TimelineItem,

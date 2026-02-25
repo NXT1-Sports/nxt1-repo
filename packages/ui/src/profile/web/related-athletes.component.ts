@@ -20,6 +20,7 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { NxtIconComponent } from '../../components/icon';
+import { NxtImageComponent } from '../../components/image';
 
 // ============================================
 // TYPES
@@ -162,7 +163,7 @@ const MOCK_RELATED_ATHLETES: readonly RelatedAthlete[] = [
 @Component({
   selector: 'nxt1-related-athletes',
   standalone: true,
-  imports: [NxtIconComponent],
+  imports: [NxtIconComponent, NxtImageComponent],
   template: `
     <section class="related-section" aria-labelledby="related-heading">
       <!-- Section Header -->
@@ -213,12 +214,15 @@ const MOCK_RELATED_ATHLETES: readonly RelatedAthlete[] = [
               <!-- Avatar -->
               <div class="related-card-avatar-wrap">
                 @if (athlete.profileImg) {
-                  <img
+                  <nxt1-image
                     class="related-card-avatar"
                     [src]="athlete.profileImg"
                     [alt]="athlete.firstName + ' ' + athlete.lastName"
-                    loading="lazy"
-                    decoding="async"
+                    [width]="48"
+                    [height]="48"
+                    variant="avatar"
+                    fit="cover"
+                    [showPlaceholder]="false"
                   />
                 } @else {
                   <div class="related-card-avatar-fallback" aria-hidden="true">
@@ -280,7 +284,7 @@ const MOCK_RELATED_ATHLETES: readonly RelatedAthlete[] = [
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0 20px 16px;
+        padding: 0 20px 16px 12px;
         gap: 12px;
       }
 
@@ -363,12 +367,16 @@ const MOCK_RELATED_ATHLETES: readonly RelatedAthlete[] = [
         position: relative;
         width: 100%;
         overflow: hidden;
+        /* Left indent aligns cards with Sport Profiles sidebar label.
+           Applied on the non-scrollable wrapper so scroll-snap cannot override it. */
+        padding-left: 12px;
+        box-sizing: border-box;
       }
 
       .related-scroll-track {
         display: flex;
         gap: 12px;
-        padding: 4px 20px 8px;
+        padding: 4px 20px 8px 0;
         overflow-x: auto;
         overflow-y: hidden;
         scroll-behavior: smooth;
@@ -605,11 +613,14 @@ const MOCK_RELATED_ATHLETES: readonly RelatedAthlete[] = [
       /* Tablet: slightly smaller cards */
       @media (max-width: 1024px) {
         .related-header {
-          padding: 0 16px 14px;
+          padding: 0 16px 14px 10px;
+        }
+        .related-scroll-wrapper {
+          padding-left: 10px;
         }
         .related-scroll-track {
           gap: 10px;
-          padding: 4px 16px 8px;
+          padding: 4px 16px 8px 0;
         }
         .related-card {
           width: 142px;
@@ -634,6 +645,9 @@ const MOCK_RELATED_ATHLETES: readonly RelatedAthlete[] = [
         }
         .related-header {
           padding: 0 14px 12px;
+        }
+        .related-scroll-wrapper {
+          padding-left: 0;
         }
         .related-header-icon {
           width: 28px;

@@ -80,9 +80,8 @@ import { SeoService, AnalyticsService } from '../../core/services';
                 [filterType]="'following'"
                 (postClick)="onPostSelect($event)"
                 (authorClick)="onAuthorSelect($event)"
-                (likeClick)="onLikeClick($event)"
-                (commentClick)="onCommentClick($event)"
-                (shareClick)="onShareClick($event)"
+                (reactClick)="onLikeClick($event)"
+                (repostClick)="onRepostClick($event)"
                 (bookmarkClick)="onBookmarkClick($event)"
                 (loadMore)="onLoadMore()"
                 (retry)="onRetry()"
@@ -97,9 +96,8 @@ import { SeoService, AnalyticsService } from '../../core/services';
                 [filterType]="'for-you'"
                 (postClick)="onPostSelect($event)"
                 (authorClick)="onAuthorSelect($event)"
-                (likeClick)="onLikeClick($event)"
-                (commentClick)="onCommentClick($event)"
-                (shareClick)="onShareClick($event)"
+                (reactClick)="onLikeClick($event)"
+                (repostClick)="onRepostClick($event)"
                 (bookmarkClick)="onBookmarkClick($event)"
                 (loadMore)="onLoadMore()"
                 (retry)="onRetry()"
@@ -268,14 +266,24 @@ export class HomeComponent implements OnInit {
   onCommentClick(post: FeedPost): void {
     this.logger.debug('Comment clicked', { postId: post.id });
 
-    // Track comment intent (actual comment submission would be tracked separately)
     this.analytics.trackEvent('comment_intent', {
       post_id: post.id,
       post_type: post.type,
       author_id: post.author.uid,
     });
+  }
 
-    // TODO: Open comment modal or navigate to post detail
+  /**
+   * Handle repost click
+   */
+  async onRepostClick(post: FeedPost): Promise<void> {
+    this.logger.debug('Repost clicked', { postId: post.id });
+
+    this.analytics.trackEvent('repost_intent', {
+      post_id: post.id,
+      post_type: post.type,
+      author_id: post.author.uid,
+    });
   }
 
   /**

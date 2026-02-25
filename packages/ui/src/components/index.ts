@@ -446,3 +446,8 @@ export { NxtLimitlessBoxSectionComponent, type LimitlessBurstNode } from './limi
 // ============================================
 export { NxtTimelineCardComponent } from './timeline-card';
 export { NxtTimelineComponent } from './timeline';
+
+// ============================================
+// CONTENT CARD (Shared glass-morphism card shell)
+// ============================================
+export { NxtContentCardWebComponent } from './content-card';

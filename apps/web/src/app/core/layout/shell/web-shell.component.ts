@@ -648,6 +648,11 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
         background: var(--shell-content-bg);
         min-height: 0; /* Critical for flex overflow scrolling */
         padding-top: calc(var(--nxt1-spacing-4, 1rem) + 7px);
+
+        /* Flex column so full-bleed pages (profile, explore) can stretch
+           to fill the visible area with flex:1 — YouTube/Twitter pattern */
+        display: flex;
+        flex-direction: column;
       }
 
       /* ============================================

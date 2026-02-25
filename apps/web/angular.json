@@ -88,8 +88,8 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "30kb",
-                  "maximumError": "40kb"
+                  "maximumWarning": "45kb",
+                  "maximumError": "55kb"
                 }
               ],
               "fileReplacements": [
@@ -119,8 +119,8 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "30kb",
-                  "maximumError": "40kb"
+                  "maximumWarning": "45kb",
+                  "maximumError": "55kb"
                 }
               ],
               "fileReplacements": [

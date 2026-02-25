@@ -17,7 +17,13 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type { ProfileEvent, EventType, TimelineItem, TimelineVariant } from '@nxt1/core';
+import type {
+  ProfileEvent,
+  EventType,
+  TimelineItem,
+  TimelineVariant,
+  TimelineCardLayout,
+} from '@nxt1/core';
 import { EVENT_TYPE_ICONS, EVENT_TYPE_LABELS } from '@nxt1/core';
 import { NxtTimelineComponent } from '../components/timeline';
 
@@ -33,6 +39,7 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="visitsEmpty"
+        [cardLayout]="cardLayout()"
         fallbackIcon="school"
         (itemClick)="onItemClick($event)"
       />
@@ -45,6 +52,7 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="campsEmpty"
+        [cardLayout]="cardLayout()"
         fallbackIcon="flag"
         (itemClick)="onItemClick($event)"
       />
@@ -57,6 +65,7 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="generalEmpty"
+        [cardLayout]="cardLayout()"
         fallbackIcon="calendar"
         (itemClick)="onItemClick($event)"
       />
@@ -69,6 +78,7 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="globalEmpty"
+        [cardLayout]="cardLayout()"
         fallbackIcon="calendar"
         (itemClick)="onItemClick($event)"
       />
@@ -109,6 +119,9 @@ export class ProfileEventsComponent {
    * Values: 'timeline' | 'visits' | 'camps' | 'events'
    */
   readonly activeSection = input<string>('timeline');
+
+  /** Card layout: vertical (mobile) or horizontal (desktop). */
+  readonly cardLayout = input<TimelineCardLayout>('vertical');
 
   // ============================================
   // OUTPUTS

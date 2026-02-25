@@ -14,7 +14,12 @@
 
 import { Component, ChangeDetectionStrategy, input, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type { TimelineVariant, TimelineCardTag, TimelineBadge } from '@nxt1/core';
+import type {
+  TimelineVariant,
+  TimelineCardTag,
+  TimelineBadge,
+  TimelineCardLayout,
+} from '@nxt1/core';
 import { getTimelineVariantClass } from '@nxt1/core';
 import { NxtIconComponent } from '../icon';
 
@@ -134,11 +139,6 @@ import { NxtIconComponent } from '../icon';
         border: 1px solid var(--tl-border-subtle);
         background: var(--tl-surface);
         transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        max-width: 420px;
-
-        @media (max-width: 768px) {
-          max-width: 100%;
-        }
       }
 
       .tl-card--committed {
@@ -365,9 +365,9 @@ import { NxtIconComponent } from '../icon';
       }
 
       .tl-card__status[data-variant='primary'] {
-        background: var(--tl-accent-alpha-15);
-        color: var(--tl-accent);
-        border: 1px solid var(--tl-accent-alpha-20);
+        background: var(--tl-accent);
+        color: var(--tl-bg);
+        border: 1px solid color-mix(in srgb, var(--tl-accent) 70%, var(--tl-bg) 30%);
       }
 
       .tl-card__status[data-variant='secondary'] {
@@ -460,6 +460,153 @@ import { NxtIconComponent } from '../icon';
         font-weight: 500;
         color: var(--tl-text-3);
       }
+
+      /* ═══════════════════════════════════════════════
+         HORIZONTAL LAYOUT — Desktop variant
+         Body on left, square graphic on right.
+         Customizable via --tl-horizontal-graphic-size.
+         ═══════════════════════════════════════════════ */
+
+      .tl-card--horizontal {
+        --tl-horizontal-graphic-size: 180px;
+
+        display: flex;
+        flex-direction: row;
+
+        .tl-card__body {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          padding: 20px 24px;
+          order: 0;
+        }
+
+        .tl-card__graphic {
+          width: var(--tl-horizontal-graphic-size);
+          height: auto;
+          flex-shrink: 0;
+          aspect-ratio: 1;
+          order: 1;
+        }
+
+        .tl-card__title {
+          font-size: 17px;
+          margin-bottom: 6px;
+        }
+
+        .tl-card__big-logo {
+          img {
+            padding: 20px;
+          }
+
+          nxt1-icon {
+            width: 64px;
+            height: 64px;
+          }
+        }
+
+        .tl-card__logo-circle {
+          bottom: 8px;
+          right: 8px;
+          width: 40px;
+          height: 40px;
+
+          img {
+            width: 28px;
+            height: 28px;
+          }
+        }
+
+        .tl-card__status {
+          top: 8px;
+          left: auto;
+          right: 8px;
+          padding: 4px 8px;
+          font-size: 9px;
+        }
+
+        .tl-card__footer {
+          margin-top: 8px;
+          padding-top: 8px;
+        }
+
+        .tl-card__coach {
+          font-size: 12px;
+        }
+
+        .tl-card__tag {
+          font-size: 9px;
+          padding: 2px 8px;
+        }
+      }
+
+      /* Responsive: horizontal falls back to vertical on small screens.
+         Resets ALL horizontal overrides to match true vertical < 768px styles. */
+      @media (max-width: 540px) {
+        .tl-card--horizontal {
+          flex-direction: column;
+
+          .tl-card__graphic {
+            width: 100%;
+            height: 160px;
+            aspect-ratio: auto;
+            order: 0;
+          }
+
+          .tl-card__body {
+            order: 1;
+            padding: 12px 14px 14px;
+          }
+
+          .tl-card__title {
+            font-size: 16px;
+            margin-bottom: 8px;
+          }
+
+          .tl-card__tag {
+            font-size: 10px;
+            padding: 3px 10px;
+          }
+
+          .tl-card__status {
+            left: 12px;
+            right: auto;
+            top: 12px;
+            padding: 5px 12px;
+            font-size: 11px;
+          }
+
+          .tl-card__logo-circle {
+            bottom: 12px;
+            right: 12px;
+            width: 44px;
+            height: 44px;
+
+            img {
+              width: 30px;
+              height: 30px;
+            }
+          }
+
+          .tl-card__big-logo {
+            img {
+              padding: 20px;
+            }
+
+            nxt1-icon {
+              width: 72px;
+              height: 72px;
+            }
+          }
+
+          .tl-card__footer {
+            margin-top: 10px;
+            padding-top: 10px;
+          }
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -471,6 +618,9 @@ export class NxtTimelineCardComponent {
 
   /** Visual variant — controls gradient, badge, tag colors */
   readonly variant = input<TimelineVariant>('primary');
+
+  /** Card layout orientation */
+  readonly layout = input<TimelineCardLayout>('vertical');
 
   /** Primary heading */
   readonly title = input.required<string>();
@@ -505,9 +655,11 @@ export class NxtTimelineCardComponent {
 
   protected readonly variantCss = computed(() => this.variant());
 
-  protected readonly cardClass = computed(
-    () => `tl-card tl-card--${getTimelineVariantClass(this.variant())}`
-  );
+  protected readonly cardClass = computed(() => {
+    const variant = `tl-card--${getTimelineVariantClass(this.variant())}`;
+    const layoutMod = this.layout() === 'horizontal' ? ' tl-card--horizontal' : '';
+    return `tl-card ${variant}${layoutMod}`;
+  });
 
   protected readonly graphicBgClass = computed(
     () => `tl-card__graphic-bg tl-card__graphic-bg--${getTimelineVariantClass(this.variant())}`

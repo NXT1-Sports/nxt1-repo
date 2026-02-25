@@ -102,6 +102,7 @@
 @import './components/navigation.css';
 @import './components/modal.css';
 @import './components/auth-modal.css';
+@import './components/qr-code-modal.css';
 
 /* ============================================
    FEATURE-SPECIFIC STYLES

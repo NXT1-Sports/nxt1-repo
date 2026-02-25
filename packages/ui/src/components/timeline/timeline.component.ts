@@ -16,7 +16,12 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type { TimelineItem, TimelineEmptyConfig, TimelineDotConfig } from '@nxt1/core';
+import type {
+  TimelineItem,
+  TimelineEmptyConfig,
+  TimelineDotConfig,
+  TimelineCardLayout,
+} from '@nxt1/core';
 import { TIMELINE_DOT_DEFAULTS, getTimelineVariantClass } from '@nxt1/core';
 import { NxtIconComponent } from '../icon';
 import { NxtTimelineCardComponent } from '../timeline-card';
@@ -95,6 +100,7 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
             <!-- Card -->
             <nxt1-timeline-card
               [variant]="item.variant"
+              [layout]="cardLayout()"
               [title]="item.title"
               [logoUrl]="item.logoUrl"
               [graphicUrl]="item.graphicUrl"
@@ -144,7 +150,7 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
 
         /* Layout constants */
         --tl-rail-color: var(--nxt1-color-alpha-primary6);
-        --tl-rail-left: 32px;
+        --tl-rail-left: 16px;
         --tl-card-radius: 14px;
       }
 
@@ -152,13 +158,13 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
 
       .tl-layout {
         position: relative;
-        padding: 8px 16px 8px 72px;
+        padding: 0 0 8px 48px;
         display: flex;
         flex-direction: column;
         gap: 0;
 
         @media (max-width: 768px) {
-          padding: 4px 12px 4px 60px;
+          padding: 0 0 4px 44px;
         }
       }
 
@@ -179,7 +185,7 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
         );
 
         @media (max-width: 768px) {
-          left: 24px;
+          left: 14px;
         }
       }
 
@@ -187,8 +193,12 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
 
       .tl-entry {
         position: relative;
-        padding: 16px 0;
+        padding: 12px 0;
         cursor: pointer;
+
+        &:first-of-type {
+          padding-top: 4px;
+        }
 
         &:hover nxt1-timeline-card {
           --hover-active: 1;
@@ -212,7 +222,7 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
       .tl-dot {
         position: absolute;
         top: 28px;
-        left: calc(-1 * (72px - var(--tl-rail-left)));
+        left: calc(-1 * (48px - var(--tl-rail-left)));
         width: 28px;
         height: 28px;
         border-radius: 50%;
@@ -224,7 +234,7 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
         transform: translateX(-50%);
 
         @media (max-width: 768px) {
-          left: calc(-1 * (60px - 24px));
+          left: calc(-1 * (44px - 14px));
           width: 24px;
           height: 24px;
         }
@@ -256,7 +266,7 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
       .tl-date-label {
         position: absolute;
         top: 58px;
-        left: calc(-1 * (72px - var(--tl-rail-left)));
+        left: calc(-1 * (48px - var(--tl-rail-left)));
         transform: translateX(-50%);
         display: flex;
         flex-direction: column;
@@ -265,7 +275,7 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
         z-index: 1;
 
         @media (max-width: 768px) {
-          left: calc(-1 * (60px - 24px));
+          left: calc(-1 * (44px - 14px));
           top: 52px;
         }
       }
@@ -312,7 +322,7 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
 
       .tl-end__diamond {
         position: absolute;
-        left: calc(-1 * (72px - var(--tl-rail-left)));
+        left: calc(-1 * (48px - var(--tl-rail-left)));
         top: 8px;
         width: 10px;
         height: 10px;
@@ -321,7 +331,7 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
         border-radius: 2px;
 
         @media (max-width: 768px) {
-          left: calc(-1 * (60px - 24px));
+          left: calc(-1 * (44px - 14px));
         }
       }
 
@@ -457,6 +467,9 @@ export class NxtTimelineComponent {
 
   /** Fallback icon name when no logo URL on a card (defaults to 'school'). */
   readonly fallbackIcon = input<string>('school');
+
+  /** Card layout orientation: vertical (default) or horizontal (desktop). */
+  readonly cardLayout = input<TimelineCardLayout>('vertical');
 
   /** Custom dot configs keyed by variant (merges with defaults). */
   readonly dotOverrides = input<Partial<Record<string, TimelineDotConfig>> | undefined>(undefined);

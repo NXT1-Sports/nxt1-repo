@@ -22,6 +22,18 @@
 export type TimelineVariant = 'committed' | 'primary' | 'secondary';
 
 // ============================================
+// CARD LAYOUT
+// ============================================
+
+/**
+ * Layout orientation for a timeline card.
+ *
+ * - `vertical`   — Image on top, body below (default, mobile-friendly)
+ * - `horizontal` — Body on left, square graphic on right (desktop-optimized)
+ */
+export type TimelineCardLayout = 'vertical' | 'horizontal';
+
+// ============================================
 // TAG
 // ============================================
 

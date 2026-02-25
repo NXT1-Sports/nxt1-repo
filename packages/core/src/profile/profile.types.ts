@@ -24,6 +24,7 @@ export type ProfileTabId =
   | 'news'
   | 'videos'
   | 'offers'
+  | 'metrics'
   | 'stats'
   | 'academic'
   | 'events'
@@ -164,6 +165,38 @@ export interface ProfileContact {
 }
 
 /**
+ * A single award or honor earned by the athlete.
+ */
+export interface ProfileAward {
+  /** Unique award identifier */
+  readonly id: string;
+  /** Award title (e.g., "All-State First Team", "Camp MVP") */
+  readonly title: string;
+  /** Issuing organization or event (e.g., "THSCA", "Elite 11") */
+  readonly issuer?: string;
+  /** Season or date the award was earned (e.g., "2025", "June 2025") */
+  readonly season?: string;
+  /** Sport the award is associated with */
+  readonly sport?: string;
+}
+
+/**
+ * Coach contact information displayed on athlete profiles.
+ */
+export interface ProfileCoachContact {
+  /** Coach first name */
+  readonly firstName: string;
+  /** Coach last name */
+  readonly lastName: string;
+  /** Coach email */
+  readonly email?: string;
+  /** Coach phone */
+  readonly phone?: string;
+  /** Coach title (e.g., "Head Coach", "Position Coach") */
+  readonly title?: string;
+}
+
+/**
  * Profile user data.
  */
 export interface ProfileUser {
@@ -227,6 +260,10 @@ export interface ProfileUser {
   readonly social?: ProfileSocialLinks;
   /** Contact information */
   readonly contact?: ProfileContact;
+  /** Coach contact information (for athlete profiles) */
+  readonly coachContact?: ProfileCoachContact;
+  /** Awards and honors (e.g., "All-State", "Camp MVP") */
+  readonly awards?: readonly ProfileAward[];
   /** College team name (for college coaches) */
   readonly collegeTeamName?: string;
   /** Title/position (for coaches) */
@@ -327,11 +364,110 @@ export interface AthleticStatsCategory {
   readonly name: string;
   /** Stats in this category */
   readonly stats: readonly AthleticStat[];
+  /** ISO date string when these metrics were last measured */
+  readonly measuredAt?: string;
+  /** Source event or organization (e.g., "PrepSports Regional Combine") */
+  readonly source?: string;
+}
+
+// ============================================
+// GAME LOG / SEASON STATS TYPES (MaxPreps-style)
+// ============================================
+
+/**
+ * Column definition for the game-log table.
+ * Drives dynamic header rendering and cell alignment.
+ */
+export interface GameLogColumn {
+  /** Machine key matching the GameLogEntry.stats keys (e.g., "C", "ATT", "YDS") */
+  readonly key: string;
+  /** Short header label displayed in the table (e.g., "C", "Att", "Yds") */
+  readonly label: string;
+  /** Tooltip / full name shown on hover (e.g., "Completions") */
+  readonly tooltip?: string;
+  /** Whether higher values are better (used for color-coding) — defaults to true */
+  readonly higherIsBetter?: boolean;
+  /** Optional format hint: 'number', 'pct' (percentage), 'text' */
+  readonly format?: 'number' | 'pct' | 'text';
+}
+
+/**
+ * A single game-log entry (one row in the table).
+ */
+export interface GameLogEntry {
+  /** Game date — display string such as "08/28" or "2025-08-28" */
+  readonly date: string;
+  /** Game result — "W 44-0", "L 20-51", "T 14-14" */
+  readonly result: string;
+  /** Whether the game was a win, loss, or tie (drives green/red coloring) */
+  readonly outcome: 'win' | 'loss' | 'tie';
+  /** Opponent team name — "Selma", "Thomasville" */
+  readonly opponent: string;
+  /** Dynamic stat values keyed by GameLogColumn.key */
+  readonly stats: Readonly<Record<string, string | number>>;
+}
+
+/**
+ * Summary/total row displayed above the game-log table.
+ * Shows aggregated season stats (or per-game averages).
+ */
+export interface GameLogSeasonTotals {
+  /** Label for the summary row — e.g., "Season Totals", "Per Game Avg" */
+  readonly label: string;
+  /** Dynamic stat values keyed by GameLogColumn.key */
+  readonly stats: Readonly<Record<string, string | number>>;
+}
+
+/**
+ * A full season of game-log data.
+ * Groups column definitions, per-game entries, and season totals together.
+ */
+export interface ProfileSeasonGameLog {
+  /** Season label — e.g., "2025-2026", "2024-2025" */
+  readonly season: string;
+  /** Category — e.g., "Passing", "Rushing", "Receiving", "Defense" */
+  readonly category: string;
+  /** Team type — distinguishes school (varsity) stats from club/travel team stats */
+  readonly teamType?: 'school' | 'club';
+  /** Column definitions for this stat category */
+  readonly columns: readonly GameLogColumn[];
+  /** Per-game entries (rows) */
+  readonly games: readonly GameLogEntry[];
+  /** Season totals / averages summary row(s) */
+  readonly totals?: readonly GameLogSeasonTotals[];
+  /** Team season record — e.g., "13-1" */
+  readonly seasonRecord?: string;
+  /** Whether stats are verified */
+  readonly verified?: boolean;
+  /** Verification source — e.g., "MaxPreps" */
+  readonly verifiedBy?: string;
 }
 
 // ============================================
 // CONTENT/TIMELINE TYPES
 // ============================================
+
+/**
+ * Timeline sub-filter identifiers.
+ * Used to filter posts within the Timeline tab (Pinned, All, Media).
+ */
+export type ProfileTimelineFilterId = 'all' | 'pinned' | 'media';
+
+/**
+ * Configuration for a timeline filter option.
+ */
+export interface ProfileTimelineFilter {
+  /** Filter identifier */
+  readonly id: ProfileTimelineFilterId;
+  /** Display label */
+  readonly label: string;
+  /** Icon name (design-token icon) */
+  readonly icon: string;
+  /** Empty state title when no posts match */
+  readonly emptyTitle: string;
+  /** Empty state message when no posts match */
+  readonly emptyMessage: string;
+}
 
 /**
  * Post/content type.
@@ -645,6 +781,10 @@ export interface ProfilePageData {
   readonly quickStats: ProfileQuickStats;
   /** Athletic stats by category */
   readonly athleticStats?: readonly AthleticStatsCategory[];
+  /** Game log data per season (MaxPreps-style game-by-game breakdown) */
+  readonly gameLog?: readonly ProfileSeasonGameLog[];
+  /** Metrics (Combine/Measurables) by category */
+  readonly metrics?: readonly AthleticStatsCategory[];
   /** Pinned video/mixtape */
   readonly pinnedVideo?: ProfilePinnedVideo;
   /** Recent posts */

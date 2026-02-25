@@ -1,81 +1,105 @@
 /**
  * @fileoverview Profile News Web Component
  * @module @nxt1/ui/profile/web
- * @version 1.0.0
+ * @version 3.0.0
  *
- * Web-optimized news section for the Profile page.
- * Uses mock data for development — pure Tailwind CSS, zero Ionic, SSR-safe.
+ * Profile-contextual news section for the athlete profile page.
+ * Displays news articles in a responsive 2-column grid using the shared
+ * NxtContentCardWebComponent for consistent glass-morphism card design.
+ *
+ * Uses mock data for development. SSR-safe: renders content immediately
+ * on the server for SEO crawlers; shimmer skeleton is browser-only on
+ * first mount. Design-token CSS only (no Tailwind, no Ionic).
  *
  * Features:
- * - Responsive article card grid (1 → 2 → 3 columns)
- * - Hero image with lazy loading
- * - Category badge with color coding
- * - Reading time and view count metadata
- * - Bookmark icon, XP badge, Breaking indicator
- * - Empty state for filtered views
- * - Skeleton loading state
+ * - Responsive article card grid (1 → 2 columns)
+ * - Shared glass card shell (hero image, title, excerpt, source pill, meta)
+ * - Shimmer skeleton loader (design-system consistent, browser-only)
+ * - Section-aware filtering (All News, Announcements, Media Mentions)
+ * - Accessible empty states per section
+ * - Full keyboard navigation (Enter / Space activation)
+ * - Reduced motion support
  *
- * ⭐ WEB ONLY — Pure Tailwind, Zero Ionic, SSR-optimized ⭐
+ * ⭐ WEB ONLY — SSR-optimized, zero Ionic ⭐
  */
 
 import {
   Component,
   ChangeDetectionStrategy,
+  DestroyRef,
+  inject,
+  input,
   signal,
   computed,
   OnInit,
   output,
+  PLATFORM_ID,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { isPlatformBrowser } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
-import { NxtImageComponent } from '../../components/image';
-import { NxtAvatarComponent } from '../../components/avatar';
-import {
-  type NewsArticle,
-  type NewsCategoryId,
-  NEWS_CATEGORIES,
-  NEWS_CATEGORY_BG_COLORS,
-} from '@nxt1/core';
+import { type NewsArticle } from '@nxt1/core';
 import { MOCK_NEWS_ARTICLES } from '../../news/news.mock-data';
+import { NxtContentCardWebComponent } from '../../components/content-card';
+
+type ProfileNewsSectionId = 'all-news' | 'announcements' | 'media-mentions';
+
+/** Number of skeleton placeholder cards (2×2 grid). */
+const SKELETON_SLOTS = [1, 2, 3, 4] as const;
 
 // ============================================
-// HELPER: Format view count (e.g., 2.8K)
+// HELPERS (pure, zero dependencies)
 // ============================================
 
-function formatCount(count: number): string {
-  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
-  return count.toString();
+/** Relative time label: "3m ago", "2h ago", "1d ago" */
+function timeAgo(isoDate: string): string {
+  const diffMs = Date.now() - new Date(isoDate).getTime();
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(isoDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+
+/**
+ * Module-level flag — browser-only.
+ * Ensures the shimmer skeleton only shows on the very first mount.
+ */
+let _hasLoadedOnce = false;
 
 @Component({
   selector: 'nxt1-profile-news-web',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, NxtImageComponent, NxtAvatarComponent],
+  imports: [NxtIconComponent, NxtContentCardWebComponent],
   template: `
     <section class="profile-news" aria-labelledby="news-heading">
       <h2 id="news-heading" class="sr-only">News</h2>
 
-      <!-- Loading Skeleton -->
+      <!-- ═══ Skeleton Loading State ═══ -->
       @if (isLoading()) {
-        <div class="profile-news__grid" aria-busy="true">
-          @for (i of [1, 2, 3, 4, 5, 6]; track i) {
-            <div class="news-card-skeleton">
-              <div class="news-card-skeleton__image"></div>
-              <div class="news-card-skeleton__body">
-                <div class="news-card-skeleton__badge"></div>
-                <div class="news-card-skeleton__title"></div>
-                <div class="news-card-skeleton__title news-card-skeleton__title--short"></div>
-                <div class="news-card-skeleton__excerpt"></div>
-                <div class="news-card-skeleton__excerpt news-card-skeleton__excerpt--short"></div>
-                <div class="news-card-skeleton__meta"></div>
+        <div class="profile-news__grid" aria-busy="true" aria-label="Loading news articles">
+          @for (i of skeletonSlots; track i) {
+            <div class="news-skel" role="presentation">
+              <div class="news-skel__image skeleton-animate"></div>
+              <div class="news-skel__body">
+                <div class="news-skel__chip skeleton-animate"></div>
+                <div class="news-skel__title skeleton-animate"></div>
+                <div class="news-skel__title news-skel__title--short skeleton-animate"></div>
+                <div class="news-skel__excerpt skeleton-animate"></div>
+                <div class="news-skel__excerpt news-skel__excerpt--short skeleton-animate"></div>
+                <div class="news-skel__meta">
+                  <div class="news-skel__avatar skeleton-animate"></div>
+                  <div class="news-skel__meta-text skeleton-animate"></div>
+                </div>
               </div>
             </div>
           }
         </div>
       }
 
-      <!-- Empty State -->
+      <!-- ═══ Empty State ═══ -->
       @else if (filteredArticles().length === 0) {
         <div class="profile-news__empty" role="status">
           <div class="profile-news__empty-icon" aria-hidden="true">
@@ -86,99 +110,23 @@ function formatCount(count: number): string {
         </div>
       }
 
-      <!-- Article Grid -->
+      <!-- ═══ Article Grid ═══ -->
       @else {
         <div class="profile-news__grid">
           @for (article of filteredArticles(); track article.id) {
-            <article
-              class="news-card"
-              [class.news-card--featured]="article.isFeatured"
-              [class.news-card--breaking]="!!article.isBreaking"
-              [class.news-card--read]="article.isRead"
-              (click)="onArticleClick(article)"
-              role="article"
-              [attr.aria-label]="article.title"
-              tabindex="0"
-            >
-              <!-- Hero Image -->
-              <div class="news-card__image-wrap">
-                <nxt1-image
-                  [src]="article.thumbnailUrl || article.heroImageUrl || ''"
-                  [alt]="article.title"
-                  class="news-card__image"
-                  fit="cover"
-                />
-
-                <!-- Category Badge (top-left) -->
-                <span
-                  class="news-card__category"
-                  [style.background]="getCategoryColor(article.category)"
-                >
-                  {{ getCategoryLabel(article.category) }}
-                </span>
-
-                <!-- Breaking Badge -->
-                @if (article.isBreaking) {
-                  <span class="news-card__breaking">
-                    <nxt1-icon name="bolt" [size]="12" />
-                    Breaking
-                  </span>
-                }
-
-                <!-- XP Badge (top-right) -->
-                @if (article.xpReward > 0 && !article.isRead) {
-                  <span class="news-card__xp">
-                    <nxt1-icon name="sparkles" [size]="12" />
-                    +{{ article.xpReward }} XP
-                  </span>
-                }
-              </div>
-
-              <!-- Content -->
-              <div class="news-card__body">
-                <h3 class="news-card__title">{{ article.title }}</h3>
-                <p class="news-card__excerpt">{{ article.excerpt }}</p>
-
-                <!-- Metadata Row -->
-                <div class="news-card__meta">
-                  <div class="news-card__source">
-                    <nxt1-avatar
-                      [src]="article.source.avatarUrl"
-                      [name]="article.source.name"
-                      size="xs"
-                    />
-                    <span class="news-card__source-name">{{ article.source.name }}</span>
-                    @if (article.source.isVerified) {
-                      <nxt1-icon name="checkmarkCircle" [size]="14" class="news-card__verified" />
-                    }
-                  </div>
-                  <div class="news-card__stats">
-                    <span class="news-card__stat">
-                      <nxt1-icon name="time" [size]="12" />
-                      {{ article.readingTimeMinutes }}m
-                    </span>
-                    <span class="news-card__stat">
-                      <nxt1-icon name="eye" [size]="12" />
-                      {{ formatViewCount(article.viewCount) }}
-                    </span>
-                  </div>
-                </div>
-
-                <!-- Bookmark -->
-                <button
-                  type="button"
-                  class="news-card__bookmark"
-                  [class.news-card__bookmark--active]="article.isBookmarked"
-                  [attr.aria-label]="article.isBookmarked ? 'Remove bookmark' : 'Bookmark article'"
-                  (click)="onBookmarkClick($event, article)"
-                >
-                  <nxt1-icon
-                    [name]="article.isBookmarked ? 'bookmark' : 'bookmarkOutline'"
-                    [size]="18"
-                  />
-                </button>
-              </div>
-            </article>
+            <nxt1-content-card
+              [imageUrl]="article.thumbnailUrl || article.heroImageUrl"
+              [imageAlt]="article.title"
+              [title]="article.title"
+              [excerpt]="article.excerpt"
+              [sourceAvatarUrl]="article.source.avatarUrl || ''"
+              [sourceName]="article.source.name"
+              [metaLeft]="getTimeAgo(article.publishedAt)"
+              [metaRight]="article.readingTimeMinutes + 'm read'"
+              [ctaLabel]="'Read Article'"
+              [ariaLabel]="article.title"
+              (cardClick)="onArticleClick(article)"
+            />
           }
         </div>
       }
@@ -187,8 +135,10 @@ function formatCount(count: number): string {
   styles: [
     `
       /* ============================================
-         PROFILE NEWS WEB — Pure Tailwind/CSS
-         ============================================ */
+       PROFILE NEWS — Web (Pure CSS / Design Tokens)
+       Grid layout + skeleton + empty state.
+       Card rendering delegated to shared NxtContentCardWebComponent.
+       ============================================ */
 
       :host {
         display: block;
@@ -197,15 +147,14 @@ function formatCount(count: number): string {
       .profile-news {
         display: flex;
         flex-direction: column;
-        gap: 16px;
       }
 
-      /* ── Article Grid ── */
+      /* ── Article Grid (1 col → 2 col) ── */
+
       .profile-news__grid {
         display: grid;
         grid-template-columns: 1fr;
-        gap: 16px;
-        padding: 0 4px;
+        gap: var(--nxt1-spacing-4, 16px);
       }
 
       @media (min-width: 640px) {
@@ -214,356 +163,144 @@ function formatCount(count: number): string {
         }
       }
 
-      @media (min-width: 1024px) {
-        .profile-news__grid {
-          grid-template-columns: repeat(3, 1fr);
-        }
-      }
-
-      /* ── Article Card ── */
-      .news-card {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        background: var(--nxt1-color-surface-100, #141414);
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
-        border-radius: var(--nxt1-radius-lg, 12px);
-        overflow: hidden;
-        cursor: pointer;
-        transition:
-          transform 0.15s ease,
-          box-shadow 0.15s ease,
-          border-color 0.15s ease;
-      }
-
-      .news-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-        border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-      }
-
-      .news-card:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary, #ccff00);
-        outline-offset: 2px;
-      }
-
-      .news-card--featured {
-        border-color: rgba(204, 255, 0, 0.2);
-      }
-
-      .news-card--featured:hover {
-        border-color: rgba(204, 255, 0, 0.4);
-      }
-
-      .news-card--read {
-        opacity: 0.7;
-      }
-
-      .news-card--read:hover {
-        opacity: 1;
-      }
-
-      /* ── Card Image ── */
-      .news-card__image-wrap {
-        position: relative;
-        aspect-ratio: 16 / 9;
-        overflow: hidden;
-        background: var(--nxt1-color-surface-200, #1a1a1a);
-      }
-
-      .news-card__image-wrap :host ::ng-deep nxt1-image,
-      .news-card__image-wrap ::ng-deep nxt1-image {
-        width: 100%;
-        height: 100%;
-      }
-
-      .news-card__image {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-
-      /* ── Category Badge ── */
-      .news-card__category {
-        position: absolute;
-        top: 8px;
-        left: 8px;
-        padding: 3px 8px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.02em;
-        text-transform: uppercase;
-        color: #fff;
-        line-height: 1.4;
-        backdrop-filter: blur(4px);
-      }
-
-      /* ── Breaking Badge ── */
-      .news-card__breaking {
-        position: absolute;
-        bottom: 8px;
-        left: 8px;
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding: 3px 8px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        background: var(--nxt1-color-feedback-error, #ef4444);
-        font-size: 11px;
-        font-weight: 700;
-        text-transform: uppercase;
-        color: #fff;
-        animation: pulse-glow 2s ease-in-out infinite;
-      }
-
-      @keyframes pulse-glow {
-        0%,
-        100% {
-          box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
-        }
-        50% {
-          box-shadow: 0 0 14px rgba(239, 68, 68, 0.7);
-        }
-      }
-
-      /* ── XP Badge ── */
-      .news-card__xp {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        display: flex;
-        align-items: center;
-        gap: 3px;
-        padding: 3px 8px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        background: linear-gradient(
-          135deg,
-          rgba(204, 255, 0, 0.2) 0%,
-          rgba(204, 255, 0, 0.08) 100%
-        );
-        border: 1px solid rgba(204, 255, 0, 0.3);
-        font-size: 11px;
-        font-weight: 700;
-        color: var(--nxt1-color-primary, #ccff00);
-        backdrop-filter: blur(4px);
-      }
-
-      /* ── Card Body ── */
-      .news-card__body {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        padding: 12px;
-        flex: 1;
-      }
-
-      .news-card__title {
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #fff);
-        line-height: 1.35;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-        margin: 0;
-        padding-right: 28px;
-      }
-
-      .news-card__excerpt {
-        font-size: 13px;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
-        line-height: 1.45;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-        margin: 0;
-      }
-
-      /* ── Metadata Row ── */
-      .news-card__meta {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        margin-top: auto;
-        padding-top: 8px;
-        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.04));
-      }
-
-      .news-card__source {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        min-width: 0;
-      }
-
-      .news-card__source-name {
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .news-card__verified {
-        color: var(--nxt1-color-primary, #ccff00);
-        flex-shrink: 0;
-      }
-
-      .news-card__stats {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex-shrink: 0;
-      }
-
-      .news-card__stat {
-        display: flex;
-        align-items: center;
-        gap: 3px;
-        font-size: 11px;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-      }
-
-      /* ── Bookmark Button ── */
-      .news-card__bookmark {
-        position: absolute;
-        top: 12px;
-        right: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 28px;
-        height: 28px;
-        border: none;
-        background: transparent;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-        cursor: pointer;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        transition:
-          color 0.15s ease,
-          background 0.15s ease;
-      }
-
-      .news-card__bookmark:hover {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
-        color: var(--nxt1-color-text-primary, #fff);
-      }
-
-      .news-card__bookmark--active {
-        color: var(--nxt1-color-primary, #ccff00);
-      }
-
-      .news-card__bookmark--active:hover {
-        color: var(--nxt1-color-primary, #ccff00);
-      }
-
       /* ── Empty State ── */
+
       .profile-news__empty {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 12px;
-        padding: 48px 24px;
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-12, 48px) var(--nxt1-spacing-6, 24px);
         text-align: center;
       }
 
       .profile-news__empty-icon {
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.3));
-        margin-bottom: 4px;
+        margin-bottom: var(--nxt1-spacing-1, 4px);
       }
 
       .profile-news__empty-title {
-        font-size: 18px;
+        font-size: var(--nxt1-font-size-lg, 18px);
         font-weight: 700;
         color: var(--nxt1-color-text-primary, #fff);
         margin: 0;
       }
 
       .profile-news__empty-msg {
-        font-size: 14px;
+        font-size: var(--nxt1-font-size-sm, 14px);
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
         max-width: 360px;
         margin: 0;
         line-height: 1.5;
       }
 
-      /* ── Skeleton Loading ── */
-      .news-card-skeleton {
+      /* ============================================
+       SKELETON — Canonical Shimmer Gradient
+       Uses @nxt1/design-tokens skeleton tokens.
+       ============================================ */
+
+      .skeleton-animate {
+        background: var(
+          --nxt1-skeleton-gradient,
+          linear-gradient(
+            90deg,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
+            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+          )
+        );
+        background-size: 200% 100%;
+        animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s)
+          var(--nxt1-skeleton-animation-timing, ease-in-out) infinite;
+      }
+
+      @keyframes skeleton-shimmer {
+        0% {
+          background-position: 200% 0;
+        }
+        100% {
+          background-position: -200% 0;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .skeleton-animate {
+          animation: none;
+          background: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08));
+        }
+      }
+
+      /* ── Skeleton Card ── */
+
+      .news-skel {
         border-radius: var(--nxt1-radius-lg, 12px);
-        background: var(--nxt1-color-surface-100, #141414);
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
+        background: var(--nxt1-glass-bg, rgba(20, 20, 20, 0.88));
+        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        border: 1px solid var(--nxt1-glass-border, rgba(255, 255, 255, 0.12));
+        box-shadow: var(--nxt1-glass-shadowInner, inset 0 1px 0 rgba(255, 255, 255, 0.06));
         overflow: hidden;
       }
 
-      .news-card-skeleton__image {
+      .news-skel__image {
         aspect-ratio: 16 / 9;
-        background: var(--nxt1-color-surface-200, #1a1a1a);
-        animation: skeleton-pulse 1.5s ease-in-out infinite;
+        border-radius: 0;
       }
 
-      .news-card-skeleton__body {
-        padding: 12px;
+      .news-skel__body {
+        padding: var(--nxt1-spacing-3, 12px);
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: var(--nxt1-spacing-2, 8px);
       }
 
-      .news-card-skeleton__badge {
-        width: 60px;
-        height: 18px;
-        border-radius: 9999px;
-        background: var(--nxt1-color-surface-200, #1a1a1a);
-        animation: skeleton-pulse 1.5s ease-in-out 0.1s infinite;
+      .news-skel__chip {
+        width: 64px;
+        height: var(--nxt1-skeleton-height-sm, 16px);
+        border-radius: var(--nxt1-radius-full, 9999px);
       }
 
-      .news-card-skeleton__title {
-        width: 90%;
-        height: 16px;
-        border-radius: 4px;
-        background: var(--nxt1-color-surface-200, #1a1a1a);
-        animation: skeleton-pulse 1.5s ease-in-out 0.2s infinite;
+      .news-skel__title {
+        width: 92%;
+        height: var(--nxt1-skeleton-height-sm, 16px);
+        border-radius: var(--nxt1-skeleton-radius-sm, var(--nxt1-radius-sm, 4px));
       }
 
-      .news-card-skeleton__title--short {
-        width: 60%;
+      .news-skel__title--short {
+        width: 58%;
       }
 
-      .news-card-skeleton__excerpt {
+      .news-skel__excerpt {
         width: 100%;
-        height: 12px;
-        border-radius: 4px;
-        background: var(--nxt1-color-surface-200, #1a1a1a);
-        animation: skeleton-pulse 1.5s ease-in-out 0.3s infinite;
+        height: var(--nxt1-skeleton-height-xs, 12px);
+        border-radius: var(--nxt1-skeleton-radius-sm, var(--nxt1-radius-sm, 4px));
       }
 
-      .news-card-skeleton__excerpt--short {
-        width: 75%;
+      .news-skel__excerpt--short {
+        width: 72%;
       }
 
-      .news-card-skeleton__meta {
-        width: 40%;
-        height: 12px;
-        border-radius: 4px;
-        background: var(--nxt1-color-surface-200, #1a1a1a);
-        margin-top: 4px;
-        animation: skeleton-pulse 1.5s ease-in-out 0.4s infinite;
+      .news-skel__meta {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        margin-top: var(--nxt1-spacing-1, 4px);
+        padding-top: var(--nxt1-spacing-2, 8px);
+        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.04));
       }
 
-      @keyframes skeleton-pulse {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.4;
-        }
+      .news-skel__avatar {
+        width: 20px;
+        height: 20px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        flex-shrink: 0;
+      }
+
+      .news-skel__meta-text {
+        width: 80px;
+        height: var(--nxt1-skeleton-height-xs, 12px);
+        border-radius: var(--nxt1-skeleton-radius-sm, var(--nxt1-radius-sm, 4px));
       }
     `,
   ],
@@ -571,36 +308,83 @@ function formatCount(count: number): string {
 })
 export class ProfileNewsWebComponent implements OnInit {
   // ============================================
+  // DEPENDENCIES
+  // ============================================
+
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly destroyRef = inject(DestroyRef);
+
+  // ============================================
+  // INPUTS
+  // ============================================
+
+  /** Active side section from profile shell (all-news | announcements | media-mentions) */
+  readonly activeSection = input<string>('all-news');
+
+  // ============================================
   // OUTPUTS
   // ============================================
 
-  /** Emitted when an article card is clicked */
+  /** Emitted when an article card is clicked. */
   readonly articleClick = output<NewsArticle>();
 
-  /** Emitted when a bookmark button is toggled */
-  readonly bookmarkToggle = output<NewsArticle>();
-
   // ============================================
-  // INTERNAL STATE
+  // STATE
   // ============================================
 
-  /** Loading state (brief simulated delay on init) */
-  readonly isLoading = signal(true);
+  /**
+   * Loading state — false on server (SSR renders content for SEO crawlers).
+   * On the browser, true only on the very first mount.
+   */
+  readonly isLoading = signal(!_hasLoadedOnce && isPlatformBrowser(this.platformId));
+
+  /** Skeleton placeholder slot count. */
+  readonly skeletonSlots = SKELETON_SLOTS;
 
   // ============================================
   // COMPUTED
   // ============================================
 
-  /** All mock articles for the profile news feed */
-  readonly filteredArticles = computed((): NewsArticle[] => {
-    return MOCK_NEWS_ARTICLES;
+  /** Base article set for profile news feed. */
+  private readonly allArticles = computed((): readonly NewsArticle[] => MOCK_NEWS_ARTICLES);
+
+  private readonly normalizedSection = computed((): ProfileNewsSectionId => {
+    const section = this.activeSection();
+    if (section === 'announcements' || section === 'media-mentions') return section;
+    return 'all-news';
   });
 
-  /** Empty state title */
-  readonly emptyTitle = computed((): string => 'No news yet');
+  /** Section-aware filtered article list. */
+  readonly filteredArticles = computed((): readonly NewsArticle[] => {
+    const section = this.normalizedSection();
+    const articles = this.allArticles();
 
-  /** Empty state message */
+    if (section === 'announcements') {
+      return articles.filter((a) => a.source.type === 'editorial' || a.source.type === 'ai-agent');
+    }
+
+    if (section === 'media-mentions') {
+      return articles.filter((a) => a.source.type === 'syndicated');
+    }
+
+    return articles;
+  });
+
+  readonly emptyTitle = computed((): string => {
+    const section = this.normalizedSection();
+    if (section === 'announcements') return 'No announcements yet';
+    if (section === 'media-mentions') return 'No media mentions yet';
+    return 'No news yet';
+  });
+
   readonly emptyMessage = computed((): string => {
+    const section = this.normalizedSection();
+    if (section === 'announcements') {
+      return 'NXT 1 announcements and official updates will appear here.';
+    }
+    if (section === 'media-mentions') {
+      return 'Media mentions from outlets like ESPN, Rivals, and other external brands will appear here.';
+    }
     return 'News updates, announcements, and media mentions will appear here.';
   });
 
@@ -609,39 +393,29 @@ export class ProfileNewsWebComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
-    // Simulate brief loading state, then show mock data
-    setTimeout(() => {
+    if (_hasLoadedOnce || !isPlatformBrowser(this.platformId)) return;
+
+    const timer = setTimeout(() => {
+      _hasLoadedOnce = true;
       this.isLoading.set(false);
     }, 400);
+
+    this.destroyRef.onDestroy(() => clearTimeout(timer));
   }
 
   // ============================================
-  // ARTICLE INTERACTIONS
+  // EVENT HANDLERS
   // ============================================
 
   onArticleClick(article: NewsArticle): void {
     this.articleClick.emit(article);
   }
 
-  onBookmarkClick(event: MouseEvent, article: NewsArticle): void {
-    event.stopPropagation();
-    this.bookmarkToggle.emit(article);
-  }
-
   // ============================================
   // TEMPLATE HELPERS
   // ============================================
 
-  getCategoryColor(categoryId: string): string {
-    return NEWS_CATEGORY_BG_COLORS[categoryId as NewsCategoryId] ?? 'var(--nxt1-color-surface-300)';
-  }
-
-  getCategoryLabel(categoryId: string): string {
-    const cat = NEWS_CATEGORIES.find((c) => c.id === categoryId);
-    return cat?.label ?? categoryId;
-  }
-
-  formatViewCount(count: number): string {
-    return formatCount(count);
+  getTimeAgo(isoDate: string): string {
+    return timeAgo(isoDate);
   }
 }

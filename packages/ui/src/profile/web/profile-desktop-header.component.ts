@@ -125,9 +125,22 @@ const ARC_LENGTH = ARC_CIRCUMFERENCE * (ARC_DEGREES / 360); // visible arc ≈ 1
         <!-- Identity (LEFT side — name only) -->
         <div class="mdh-identity">
           <div class="mdh-name-block">
-            <span class="mdh-last">{{ fullName() }}</span>
+            <div class="mdh-name-row">
+              <span class="mdh-last">{{ fullName() }}</span>
+              <button
+                type="button"
+                class="mdh-follow-btn"
+                (click)="follow.emit()"
+                aria-label="Follow athlete"
+              >
+                <nxt1-icon name="plus" [size]="13" />
+                Follow
+              </button>
+            </div>
             @if (subtitleLine()) {
-              <span class="mdh-first">{{ subtitleLine() }}</span>
+              <div class="mdh-subline">
+                <span class="mdh-first">{{ subtitleLine() }}</span>
+              </div>
             }
           </div>
         </div>
@@ -283,12 +296,23 @@ const ARC_LENGTH = ARC_CIRCUMFERENCE * (ARC_DEGREES / 360); // visible arc ≈ 1
         flex-direction: column;
         min-width: 0;
       }
+      .mdh-name-row {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3);
+        min-width: 0;
+      }
+      .mdh-subline {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+        min-width: 0;
+      }
       .mdh-last {
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-2xl);
         font-weight: var(--nxt1-fontWeight-bold);
         color: var(--nxt1-color-text-primary);
-        text-transform: uppercase;
         line-height: var(--nxt1-lineHeight-tight);
         white-space: nowrap;
         overflow: hidden;
@@ -303,6 +327,43 @@ const ARC_LENGTH = ARC_CIRCUMFERENCE * (ARC_DEGREES / 360); // visible arc ≈ 1
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+      .mdh-follow-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        flex-shrink: 0;
+        border: 1.5px solid var(--nxt1-color-primary);
+        background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
+        color: var(--nxt1-color-primary);
+        border-radius: var(--nxt1-radius-md, 8px);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: 13px;
+        font-weight: var(--nxt1-fontWeight-semibold);
+        letter-spacing: 0.01em;
+        line-height: 1;
+        padding: 7px 16px;
+        cursor: pointer;
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        transition:
+          transform 0.1s ease,
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease;
+      }
+      .mdh-follow-btn:hover {
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-bg-primary);
+        border-color: var(--nxt1-color-primary);
+      }
+      .mdh-follow-btn:active {
+        transform: scale(0.97);
+      }
+      .mdh-follow-btn:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary);
+        outline-offset: 2px;
       }
 
       /* ============================================
@@ -510,7 +571,9 @@ export class ProfileDesktopHeaderComponent {
   /* ── Inputs / Outputs ── */
   readonly user = input<ProfileUser | null>(null);
   readonly playerCard = input<PlayerCardData | null>(null);
+  readonly showFollowAction = input(false);
   readonly back = output<void>();
+  readonly follow = output<void>();
 
   /** SVG arc measurements exposed for template binding. */
   protected readonly arcLength = ARC_LENGTH;

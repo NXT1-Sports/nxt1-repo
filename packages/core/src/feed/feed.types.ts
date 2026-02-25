@@ -30,7 +30,17 @@ export type FeedPostType =
   | 'commitment'
   | 'article'
   | 'milestone'
-  | 'repost';
+  | 'repost'
+  | 'stats'
+  | 'metrics'
+  | 'award'
+  | 'camp'
+  | 'visit'
+  | 'schedule'
+  | 'graphic'
+  | 'game'
+  | 'playoffs'
+  | 'news';
 
 /**
  * Post visibility settings.
@@ -171,21 +181,95 @@ export interface FeedMilestoneData {
 }
 
 // ============================================
+// POST TAGS / ATTACHED DATA
+// ============================================
+
+/**
+ * Tag/chip type identifiers for attached profile data.
+ * Maps to the old NXT1 `attachedProfileData.type`.
+ */
+export type FeedPostTagType =
+  | 'offers'
+  | 'stat'
+  | 'stats'
+  | 'metric'
+  | 'metrics'
+  | 'award'
+  | 'commit'
+  | 'schedule'
+  | 'visit'
+  | 'camps'
+  | 'video-tag'
+  | 'content-tag'
+  | 'highlight'
+  | 'custom';
+
+/**
+ * Attached profile data tag/chip.
+ * Displayed as colored pills on the post card (e.g., "Avg: .423", "Highlight").
+ */
+export interface FeedPostTag {
+  /** Unique tag ID */
+  readonly id: string;
+  /** Tag category type */
+  readonly type: FeedPostTagType;
+  /** Display label (e.g., "Avg: .423", "Height: 72") */
+  readonly label: string;
+  /** Optional description */
+  readonly description?: string;
+  /** Raw value */
+  readonly value?: string | number;
+  /** Date associated with tag */
+  readonly date?: string;
+  /** Hex color for chip styling (default: primary accent) */
+  readonly color?: string;
+}
+
+// ============================================
+// REPOST DATA
+// ============================================
+
+/**
+ * Repost metadata when a post is shared/reposted by another user.
+ */
+export interface FeedRepostData {
+  /** Reposter's user ID */
+  readonly reposterId: string;
+  /** Reposter's display name */
+  readonly reposterName: string;
+  /** Reposter's profile image URL */
+  readonly reposterAvatarUrl?: string;
+  /** Reposter's profile code for navigation */
+  readonly reposterProfileCode?: string;
+  /** When the repost was created */
+  readonly repostedAt: string;
+}
+
+// ============================================
 // ENGAGEMENT TYPES
 // ============================================
+
+/**
+ * Reaction type for fire/emoji reactions.
+ */
+export type FeedReactionType = 'like' | 'love' | 'celebrate' | 'support' | 'insightful' | null;
 
 /**
  * Engagement metrics for a post.
  */
 export interface FeedEngagement {
-  /** Number of likes */
-  readonly likeCount: number;
+  /** Number of reactions (fire/emoji) */
+  readonly reactionCount: number;
   /** Number of comments */
   readonly commentCount: number;
-  /** Number of shares/reposts */
+  /** Number of reposts */
+  readonly repostCount: number;
+  /** Number of shares */
   readonly shareCount: number;
-  /** Number of views (for videos) */
-  readonly viewCount?: number;
+  /** Number of views */
+  readonly viewCount: number;
+  /** Legacy: Number of likes (alias for reactionCount) */
+  readonly likeCount: number;
   /** Number of bookmarks */
   readonly bookmarkCount?: number;
 }
@@ -194,7 +278,11 @@ export interface FeedEngagement {
  * User's engagement state with a post.
  */
 export interface FeedUserEngagement {
-  /** Whether current user has liked */
+  /** Whether current user has reacted */
+  readonly isReacted: boolean;
+  /** Current user's reaction type */
+  readonly reactionType: FeedReactionType;
+  /** Whether current user has liked (legacy alias for isReacted) */
   readonly isLiked: boolean;
   /** Whether current user has bookmarked */
   readonly isBookmarked: boolean;
@@ -220,7 +308,9 @@ export interface FeedPost {
   readonly visibility: FeedPostVisibility;
   /** Post author */
   readonly author: FeedAuthor;
-  /** Post text content */
+  /** Post title (bold heading) */
+  readonly title?: string;
+  /** Post text content / description */
   readonly content?: string;
   /** Rich text content (markdown or HTML) */
   readonly richContent?: string;
@@ -234,14 +324,18 @@ export interface FeedPost {
   readonly milestoneData?: FeedMilestoneData;
   /** Original post (for reposts) */
   readonly originalPost?: FeedPost;
+  /** Repost metadata (if this post was reposted) */
+  readonly repostData?: FeedRepostData;
   /** Engagement metrics */
   readonly engagement: FeedEngagement;
   /** Current user's engagement state */
   readonly userEngagement: FeedUserEngagement;
-  /** Tags/mentions in the post */
-  readonly tags?: readonly string[];
-  /** Hashtags in the post */
+  /** Attached profile data tags (stat chips, award chips, etc.) */
+  readonly postTags?: readonly FeedPostTag[];
+  /** Hashtag strings in the post */
   readonly hashtags?: readonly string[];
+  /** Mention strings */
+  readonly mentions?: readonly string[];
   /** Location tag */
   readonly location?: string;
   /** Whether post is pinned to top */

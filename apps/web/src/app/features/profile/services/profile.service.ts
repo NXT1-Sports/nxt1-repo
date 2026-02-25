@@ -45,11 +45,11 @@ export class ProfileService {
   }
 
   /**
-   * Get public SEO data for a profile
-   * Some backends have specific lightweight SEO endpoints
+   * Get public SEO data for a profile.
+   * Some backends have specific lightweight SEO endpoints.
    */
-  getProfileSeoData(unicode: string): Observable<any> {
-    return this.http.get(`${this.ssrUrl}/${unicode}`);
+  getProfileSeoData(unicode: string): Observable<Record<string, unknown>> {
+    return this.http.get<Record<string, unknown>>(`${this.ssrUrl}/${unicode}`);
   }
 
   // ============================================

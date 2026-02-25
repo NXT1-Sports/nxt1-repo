@@ -7,7 +7,7 @@
  * 100% portable - NO platform dependencies.
  */
 
-import type { FeedFilterType, FeedPostType } from './feed.types';
+import type { FeedFilterType, FeedPostType, FeedPostTagType } from './feed.types';
 
 // ============================================
 // API ENDPOINTS
@@ -146,6 +146,16 @@ export const FEED_POST_TYPE_ICONS: Record<FeedPostType, string> = {
   article: 'newspaper-outline',
   milestone: 'ribbon-outline',
   repost: 'repeat-outline',
+  stats: 'bar-chart-outline',
+  metrics: 'trending-up-outline',
+  award: 'ribbon-outline',
+  camp: 'barbell-outline',
+  visit: 'school-outline',
+  schedule: 'calendar-outline',
+  graphic: 'image-outline',
+  game: 'football-outline',
+  playoffs: 'trophy-outline',
+  news: 'newspaper-outline',
 } as const;
 
 /**
@@ -161,17 +171,68 @@ export const FEED_POST_TYPE_LABELS: Record<FeedPostType, string> = {
   article: 'Article',
   milestone: 'Milestone',
   repost: 'Repost',
+  stats: 'Stats',
+  metrics: 'Metrics',
+  award: 'Award',
+  camp: 'Camp',
+  visit: 'College Visit',
+  schedule: 'Schedule',
+  graphic: 'Graphic',
+  game: 'Game',
+  playoffs: 'Playoffs',
+  news: 'News',
 } as const;
 
 /**
  * Colors for special post types (for badges).
  */
 export const FEED_POST_TYPE_COLORS: Partial<Record<FeedPostType, string>> = {
-  offer: 'var(--nxt1-color-success)',
-  commitment: 'var(--nxt1-color-primary)',
-  milestone: 'var(--nxt1-color-warning)',
-  highlight: 'var(--nxt1-color-primary)',
+  offer: '#ff0000',
+  commitment: '#4ECDC4',
+  milestone: '#FFD700',
+  highlight: 'var(--nxt1-color-primary, #d4ff00)',
+  video: '#002eff',
+  graphic: '#FF6B6B',
+  stats: '#A855F7',
+  metrics: '#10B981',
+  award: '#f5940b',
+  camp: '#F97316',
+  visit: '#3B82F6',
+  schedule: '#EF4444',
+  game: '#37ff00',
+  playoffs: '#FFD700',
+  news: '#06B6D4',
 } as const;
+
+// ============================================
+// TAG/CHIP CONFIGURATION
+// ============================================
+
+/**
+ * Icons for post tag types (attached profile data chips).
+ * These map tag categories to design-token icon names.
+ */
+export const FEED_TAG_TYPE_ICONS: Record<FeedPostTagType, string> = {
+  offers: 'school',
+  stat: 'barChart',
+  stats: 'barChart',
+  metric: 'trendingUp',
+  metrics: 'trendingUp',
+  award: 'ribbon',
+  commit: 'trophy',
+  schedule: 'calendar',
+  visit: 'school',
+  camps: 'barbell',
+  'video-tag': 'videocam',
+  'content-tag': 'newspaper',
+  highlight: 'play',
+  custom: 'sparkles',
+} as const;
+
+/**
+ * Maximum number of visible tags before showing "+N more".
+ */
+export const FEED_MAX_VISIBLE_TAGS = 3;
 
 // ============================================
 // ENGAGEMENT CONFIGURATION

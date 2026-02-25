@@ -25,7 +25,14 @@
  * ```
  */
 
-import { Component, ChangeDetectionStrategy, inject, output, OnInit } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  output,
+  OnInit,
+  ElementRef,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   IonContent,
@@ -117,8 +124,8 @@ import { HapticsService } from '../services/haptics/haptics.service';
           [filterType]="feedService.activeFilter()"
           (postClick)="onPostClick($event)"
           (authorClick)="onAuthorClick($event)"
-          (likeClick)="onLikeClick($event)"
-          (commentClick)="onCommentClick($event)"
+          (reactClick)="onLikeClick($event)"
+          (repostClick)="onRepostClick($event)"
           (shareClick)="onShareClick($event)"
           (bookmarkClick)="onBookmarkClick($event)"
           (menuClick)="onMenuClick($event)"
@@ -286,6 +293,7 @@ export class FeedShellComponent implements OnInit {
 
   protected readonly feedService = inject(FeedService);
   private readonly haptics = inject(HapticsService);
+  private readonly elementRef = inject(ElementRef);
 
   // ============================================
   // OUTPUTS
@@ -337,8 +345,10 @@ export class FeedShellComponent implements OnInit {
     await this.haptics.impact('medium');
     await this.feedService.refresh();
 
-    // Scroll to top
-    const content = document.querySelector('ion-content');
+    // Scroll to top (SSR-safe: query within component host)
+    const content = this.elementRef.nativeElement.querySelector(
+      'ion-content'
+    ) as HTMLIonContentElement | null;
     content?.scrollToTop(300);
   }
 
@@ -357,6 +367,10 @@ export class FeedShellComponent implements OnInit {
 
   protected onCommentClick(post: FeedPost): void {
     this.commentOpen.emit(post);
+  }
+
+  protected async onRepostClick(_post: FeedPost): Promise<void> {
+    // Repost functionality — to be implemented
   }
 
   protected async onShareClick(post: FeedPost): Promise<void> {

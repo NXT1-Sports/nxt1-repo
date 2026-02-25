@@ -23,8 +23,8 @@
  * <nxt1-feed-post-card
  *   [post]="post"
  *   (postClick)="onPostClick($event)"
- *   (likeClick)="onLike($event)"
- *   (commentClick)="onComment($event)"
+ *   (reactClick)="onLike($event)"
+ *   (repostClick)="onComment($event)"
  *   (shareClick)="onShare($event)"
  *   (bookmarkClick)="onBookmark($event)"
  *   (authorClick)="onAuthorClick($event)"
@@ -38,9 +38,12 @@ import { IonRippleEffect } from '@ionic/angular/standalone';
 import {
   type FeedPost,
   type FeedAuthor,
+  type FeedPostTag,
   FEED_POST_TYPE_ICONS,
   FEED_POST_TYPE_LABELS,
   FEED_POST_TYPE_COLORS,
+  FEED_TAG_TYPE_ICONS,
+  FEED_MAX_VISIBLE_TAGS,
 } from '@nxt1/core';
 import { NxtAvatarComponent } from '../components/avatar';
 import { NxtImageComponent } from '../components/image';
@@ -52,6 +55,14 @@ import { HapticsService } from '../services/haptics/haptics.service';
   standalone: true,
   imports: [CommonModule, IonRippleEffect, NxtAvatarComponent, NxtImageComponent, NxtIconComponent],
   template: `
+    <!-- Repost Header -->
+    @if (post().repostData) {
+      <div class="feed-post__repost-header" (click)="handleRepostAuthorClick($event)">
+        <nxt1-icon name="repeat" [size]="14" />
+        <span>{{ post().repostData!.reposterName }} reposted</span>
+      </div>
+    }
+
     <article
       class="feed-post"
       [class.feed-post--featured]="post().isFeatured"
@@ -61,68 +72,106 @@ import { HapticsService } from '../services/haptics/haptics.service';
     >
       <ion-ripple-effect></ion-ripple-effect>
 
-      <!-- Post Header: Author Info -->
-      <header class="feed-post__header">
-        <!-- Author Avatar -->
-        <button
-          type="button"
-          class="feed-post__avatar-btn"
-          (click)="handleAuthorClick($event)"
-          [attr.aria-label]="'View ' + post().author.displayName + ' profile'"
-        >
-          <nxt1-avatar
-            [src]="post().author.avatarUrl"
-            [name]="post().author.displayName"
-            size="md"
-            [badge]="post().author.isVerified ? { type: 'verified' } : undefined"
-          />
-        </button>
-
-        <!-- Author Details -->
-        <div class="feed-post__author" (click)="handleAuthorClick($event)">
-          <div class="feed-post__author-row">
-            <span class="feed-post__author-name">{{ post().author.displayName }}</span>
-            @if (post().author.isVerified) {
-              <nxt1-icon name="checkmarkCircle" [size]="16" class="feed-post__verified" />
-            }
-          </div>
-          <div class="feed-post__author-meta">
-            @if (post().author.sport && post().author.position) {
-              <span class="feed-post__position">{{ post().author.position }}</span>
-              <span class="feed-post__separator">•</span>
-            }
-            @if (post().author.schoolName) {
-              <span class="feed-post__school">{{ post().author.schoolName }}</span>
-              <span class="feed-post__separator">•</span>
-            }
-            <span class="feed-post__time">{{ timeAgo() }}</span>
-          </div>
+      <!-- Media Preview (above header, like old NXT1 design) -->
+      @if (hasMedia()) {
+        <div class="feed-post__media" [class]="mediaGridClass()" (click)="handlePostClick($event)">
+          @for (media of visibleMedia(); track media.id; let i = $index) {
+            <div
+              class="feed-post__media-item"
+              [class.feed-post__media-item--video]="media.type === 'video'"
+            >
+              <nxt1-image
+                [src]="media.thumbnailUrl || media.url"
+                [alt]="media.altText || 'Post media'"
+                fit="cover"
+              />
+              @if (media.type === 'video') {
+                <div class="feed-post__video-overlay">
+                  <nxt1-icon name="playCircle" [size]="48" />
+                </div>
+                @if (media.duration) {
+                  <span class="feed-post__video-duration">{{
+                    formatDuration(media.duration)
+                  }}</span>
+                }
+              }
+              @if (i === 3 && moreMediaCount() > 0) {
+                <div class="feed-post__media-more">+{{ moreMediaCount() }}</div>
+              }
+            </div>
+          }
         </div>
+      }
 
-        <!-- Menu Button -->
-        @if (showMenu()) {
+      <!-- Post Header: Author Info + Type Badge -->
+      @if (!hideAuthor()) {
+        <header class="feed-post__header">
+          <!-- Author Avatar -->
           <button
             type="button"
-            class="feed-post__menu-btn"
-            (click)="handleMenuClick($event)"
-            aria-label="Post options"
+            class="feed-post__avatar-btn"
+            (click)="handleAuthorClick($event)"
+            [attr.aria-label]="'View ' + post().author.displayName + ' profile'"
           >
-            <nxt1-icon name="moreHorizontal" [size]="20" />
+            <nxt1-avatar
+              [src]="post().author.avatarUrl"
+              [name]="post().author.displayName"
+              size="md"
+              [badge]="post().author.isVerified ? { type: 'verified' } : undefined"
+            />
           </button>
-        }
-      </header>
 
-      <!-- Post Type Badge (for special posts) -->
-      @if (showTypeBadge()) {
-        <div class="feed-post__type-badge" [style.--badge-color]="typeBadgeColor()">
-          <nxt1-icon [name]="typeBadgeIcon()" [size]="16" />
-          <span>{{ typeBadgeLabel() }}</span>
-        </div>
+          <!-- Author Details -->
+          <div class="feed-post__author" (click)="handleAuthorClick($event)">
+            <div class="feed-post__author-row">
+              <span class="feed-post__author-name">{{ post().author.displayName }}</span>
+              @if (post().author.isVerified) {
+                <nxt1-icon name="checkmarkCircle" [size]="16" class="feed-post__verified" />
+              }
+            </div>
+            <div class="feed-post__author-meta">
+              <span class="feed-post__time">{{ timeAgo() }}</span>
+            </div>
+          </div>
+
+          <!-- Type Badge (next to author, right-aligned) -->
+          @if (showTypeBadge()) {
+            <div class="feed-post__type-badge" [style.--badge-color]="typeBadgeColor()">
+              <nxt1-icon [name]="typeBadgeIcon()" [size]="14" />
+              <span>{{ typeBadgeLabel() }}</span>
+            </div>
+          }
+
+          <!-- Menu Button -->
+          @if (showMenu()) {
+            <button
+              type="button"
+              class="feed-post__menu-btn"
+              (click)="handleMenuClick($event)"
+              aria-label="Post options"
+            >
+              <nxt1-icon name="moreHorizontal" [size]="20" />
+            </button>
+          }
+        </header>
       }
 
       <!-- Post Content (clickable) -->
       <div class="feed-post__content" (click)="handlePostClick($event)">
-        <!-- Text Content -->
+        <!-- Pinned Badge -->
+        @if (post().isPinned) {
+          <div class="feed-post__pinned-badge">
+            <nxt1-icon name="pin" [size]="12" />
+            <span>Pinned</span>
+          </div>
+        }
+
+        <!-- Post Title (bold heading) -->
+        @if (post().title) {
+          <h3 class="feed-post__title">{{ post().title }}</h3>
+        }
+
+        <!-- Text Content / Description -->
         @if (post().content) {
           <p class="feed-post__text" [innerHTML]="formattedContent()"></p>
         }
@@ -170,32 +219,18 @@ import { HapticsService } from '../services/haptics/haptics.service';
           </div>
         }
 
-        <!-- Media Grid -->
-        @if (hasMedia()) {
-          <div class="feed-post__media" [class]="mediaGridClass()">
-            @for (media of visibleMedia(); track media.id; let i = $index) {
-              <div
-                class="feed-post__media-item"
-                [class.feed-post__media-item--video]="media.type === 'video'"
-              >
-                <nxt1-image
-                  [src]="media.thumbnailUrl || media.url"
-                  [alt]="media.altText || 'Post media'"
-                  fit="cover"
-                />
-                @if (media.type === 'video') {
-                  <div class="feed-post__video-overlay">
-                    <nxt1-icon name="playCircle" [size]="48" />
-                    @if (media.duration) {
-                      <span class="feed-post__video-duration">{{
-                        formatDuration(media.duration)
-                      }}</span>
-                    }
-                  </div>
-                }
-                @if (i === 3 && moreMediaCount() > 0) {
-                  <div class="feed-post__media-more">+{{ moreMediaCount() }}</div>
-                }
+        <!-- Post Tags / Attached Profile Data Chips -->
+        @if (hasTags()) {
+          <div class="feed-post__tags">
+            @for (tag of visibleTags(); track tag.id) {
+              <div class="feed-post__tag" [style.--tag-color]="tag.color || 'var(--post-primary)'">
+                <nxt1-icon [name]="getTagIcon(tag.type)" [size]="14" />
+                <span class="feed-post__tag-label">{{ tag.label }}</span>
+              </div>
+            }
+            @if (hiddenTagCount() > 0) {
+              <div class="feed-post__tag feed-post__tag--more">
+                <span>+{{ hiddenTagCount() }} more</span>
               </div>
             }
           </div>
@@ -210,119 +245,101 @@ import { HapticsService } from '../services/haptics/haptics.service';
         }
       </div>
 
-      <!-- Engagement Stats (if large numbers) -->
-      @if (showEngagementStats()) {
-        <div class="feed-post__stats">
-          @if (post().engagement.likeCount > 0) {
-            <span class="feed-post__stat"
-              >{{ formatCount(post().engagement.likeCount) }} likes</span
-            >
-          }
-          @if (post().engagement.commentCount > 0) {
-            <span class="feed-post__stat"
-              >{{ formatCount(post().engagement.commentCount) }} comments</span
-            >
-          }
-          @if ((post().engagement.viewCount ?? 0) > 1000) {
-            <span class="feed-post__stat"
-              >{{ formatCount(post().engagement.viewCount ?? 0) }} views</span
-            >
-          }
+      <!-- Engagement Stats Bar -->
+      <div class="feed-post__stats">
+        <div class="feed-post__stat">
+          <nxt1-icon name="flame" [size]="14" />
+          <span class="feed-post__stat-count">{{
+            formatCount(post().engagement.reactionCount)
+          }}</span>
+          <span class="feed-post__stat-label">REACT</span>
         </div>
+        <div class="feed-post__stat">
+          <nxt1-icon name="repeat" [size]="14" />
+          <span class="feed-post__stat-count">{{
+            formatCount(post().engagement.repostCount)
+          }}</span>
+          <span class="feed-post__stat-label">REPOST</span>
+        </div>
+        <div class="feed-post__stat">
+          <nxt1-icon name="share" [size]="14" />
+          <span class="feed-post__stat-count">{{ formatCount(post().engagement.shareCount) }}</span>
+          <span class="feed-post__stat-label">SHARES</span>
+        </div>
+        <div class="feed-post__stat">
+          <nxt1-icon name="barChart" [size]="14" />
+          <span class="feed-post__stat-count">{{ formatCount(post().engagement.viewCount) }}</span>
+          <span class="feed-post__stat-label">VIEWS</span>
+        </div>
+      </div>
+
+      <!-- View Profile Button -->
+      @if (showViewProfile()) {
+        <button type="button" class="feed-post__view-profile" (click)="handleAuthorClick($event)">
+          <nxt1-icon name="link" [size]="16" />
+          <span>VIEW PROFILE</span>
+        </button>
       }
-
-      <!-- Engagement Actions -->
-      <footer class="feed-post__actions">
-        <!-- Like -->
-        <button
-          type="button"
-          class="feed-post__action"
-          [class.feed-post__action--active]="post().userEngagement.isLiked"
-          (click)="handleLikeClick($event)"
-          [attr.aria-label]="post().userEngagement.isLiked ? 'Unlike' : 'Like'"
-          [attr.aria-pressed]="post().userEngagement.isLiked"
-        >
-          <nxt1-icon [name]="post().userEngagement.isLiked ? 'heartFilled' : 'heart'" [size]="20" />
-          @if (post().engagement.likeCount > 0) {
-            <span>{{ formatCount(post().engagement.likeCount) }}</span>
-          }
-        </button>
-
-        <!-- Comment -->
-        <button
-          type="button"
-          class="feed-post__action"
-          (click)="handleCommentClick($event)"
-          aria-label="Comment"
-        >
-          <nxt1-icon name="chatBubble" [size]="20" />
-          @if (post().engagement.commentCount > 0) {
-            <span>{{ formatCount(post().engagement.commentCount) }}</span>
-          }
-        </button>
-
-        <!-- Share -->
-        <button
-          type="button"
-          class="feed-post__action"
-          (click)="handleShareClick($event)"
-          aria-label="Share"
-        >
-          <nxt1-icon name="share" [size]="20" />
-          @if (post().engagement.shareCount > 0) {
-            <span>{{ formatCount(post().engagement.shareCount) }}</span>
-          }
-        </button>
-
-        <!-- Bookmark (right-aligned) -->
-        <button
-          type="button"
-          class="feed-post__action feed-post__action--bookmark"
-          [class.feed-post__action--active]="post().userEngagement.isBookmarked"
-          (click)="handleBookmarkClick($event)"
-          [attr.aria-label]="post().userEngagement.isBookmarked ? 'Remove bookmark' : 'Bookmark'"
-          [attr.aria-pressed]="post().userEngagement.isBookmarked"
-        >
-          <nxt1-icon
-            [name]="post().userEngagement.isBookmarked ? 'bookmarkFilled' : 'bookmark'"
-            [size]="20"
-          />
-        </button>
-      </footer>
     </article>
   `,
   styles: [
     `
       /* ============================================
-         FEED POST CARD - Professional Social Post
-         2026 Native-Style Design System
+         FEED POST CARD - NXT1 2026 Design System
+         Professional sports recruiting post card
          ============================================ */
 
       :host {
         display: block;
 
-        /* Theme-aware design tokens */
-        --post-bg: var(--nxt1-color-surface-50, rgba(255, 255, 255, 0.02));
-        --post-bg-hover: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
-        --post-border: var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+        --post-bg: var(--nxt1-glass-bg, rgba(20, 20, 20, 0.88));
+        --post-bg-hover: var(--nxt1-glass-bgSolid, rgba(20, 20, 20, 0.95));
+        --post-border: var(--nxt1-glass-border, rgba(255, 255, 255, 0.12));
         --post-text-primary: var(--nxt1-color-text-primary, #ffffff);
         --post-text-secondary: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         --post-text-tertiary: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         --post-primary: var(--nxt1-color-primary, #d4ff00);
-        --post-like-active: var(--nxt1-color-error, #ff4757);
+        --post-react-active: #ff6b35;
+        --post-repost-active: var(--nxt1-color-primary, #d4ff00);
         --post-bookmark-active: var(--nxt1-color-primary, #d4ff00);
         --post-verified: var(--nxt1-color-info, #3b82f6);
       }
 
+      /* ============================================
+         REPOST HEADER
+         ============================================ */
+
+      .feed-post__repost-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px 4px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--post-repost-active);
+        cursor: pointer;
+
+        &:hover {
+          text-decoration: underline;
+        }
+      }
+
+      /* ============================================
+         CARD SHELL
+         ============================================ */
+
       .feed-post {
         position: relative;
-        padding: 16px;
+        padding: 0;
         background: var(--post-bg);
+        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        box-shadow: var(--nxt1-glass-shadowInner, inset 0 1px 0 rgba(255, 255, 255, 0.06));
         border-bottom: 1px solid var(--post-border);
+        overflow: hidden;
         transition: background 0.2s ease;
 
         @media (min-width: 768px) {
-          padding: 20px 24px;
           border-radius: var(--nxt1-radius-lg, 12px);
           margin-bottom: 12px;
           border: 1px solid var(--post-border);
@@ -334,11 +351,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
       }
 
       .feed-post--featured {
-        background: linear-gradient(
-          135deg,
-          rgba(212, 255, 0, 0.03) 0%,
-          rgba(212, 255, 0, 0.01) 100%
-        );
         border-left: 3px solid var(--post-primary);
 
         @media (min-width: 768px) {
@@ -352,226 +364,13 @@ import { HapticsService } from '../services/haptics/haptics.service';
       }
 
       /* ============================================
-         HEADER
-         ============================================ */
-
-      .feed-post__header {
-        display: flex;
-        align-items: flex-start;
-        gap: 12px;
-        margin-bottom: 12px;
-      }
-
-      .feed-post__avatar-btn {
-        background: none;
-        border: none;
-        padding: 0;
-        cursor: pointer;
-        flex-shrink: 0;
-      }
-
-      .feed-post__author {
-        flex: 1;
-        min-width: 0;
-        cursor: pointer;
-      }
-
-      .feed-post__author-row {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-      }
-
-      .feed-post__author-name {
-        font-size: 15px;
-        font-weight: 600;
-        color: var(--post-text-primary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .feed-post__verified {
-        font-size: 16px;
-        color: var(--post-verified);
-        flex-shrink: 0;
-      }
-
-      .feed-post__author-meta {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        margin-top: 2px;
-        font-size: 13px;
-        color: var(--post-text-secondary);
-        flex-wrap: wrap;
-      }
-
-      .feed-post__position {
-        font-weight: 500;
-        color: var(--post-primary);
-      }
-
-      .feed-post__separator {
-        color: var(--post-text-tertiary);
-      }
-
-      .feed-post__school {
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 150px;
-      }
-
-      .feed-post__time {
-        color: var(--post-text-tertiary);
-        white-space: nowrap;
-      }
-
-      .feed-post__menu-btn {
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        background: none;
-        border: none;
-        color: var(--post-text-secondary);
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: all 0.2s ease;
-        flex-shrink: 0;
-        margin: -8px -8px 0 0;
-
-        &:hover {
-          background: var(--post-bg-hover);
-          color: var(--post-text-primary);
-        }
-
-        ion-icon {
-          font-size: 20px;
-        }
-      }
-
-      /* ============================================
-         TYPE BADGE
-         ============================================ */
-
-      .feed-post__type-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 12px;
-        background: color-mix(in srgb, var(--badge-color, var(--post-primary)) 15%, transparent);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--badge-color, var(--post-primary));
-        margin-bottom: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-
-        ion-icon {
-          font-size: 14px;
-        }
-      }
-
-      /* ============================================
-         CONTENT
-         ============================================ */
-
-      .feed-post__content {
-        cursor: pointer;
-      }
-
-      .feed-post__text {
-        font-size: 15px;
-        line-height: 1.5;
-        color: var(--post-text-primary);
-        margin: 0 0 12px;
-        word-wrap: break-word;
-        white-space: pre-wrap;
-
-        :host ::ng-deep .hashtag,
-        :host ::ng-deep .mention {
-          color: var(--post-primary);
-          font-weight: 500;
-        }
-      }
-
-      /* ============================================
-         OFFER/COMMITMENT CARDS
-         ============================================ */
-
-      .feed-post__offer-card,
-      .feed-post__commitment-card {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        padding: 16px;
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
-        border-radius: var(--nxt1-radius-lg, 12px);
-        border: 1px solid var(--post-border);
-        margin-bottom: 12px;
-      }
-
-      .feed-post__offer-logo,
-      .feed-post__commitment-logo {
-        width: 56px;
-        height: 56px;
-        object-fit: contain;
-        flex-shrink: 0;
-      }
-
-      .feed-post__offer-info,
-      .feed-post__commitment-info {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-
-      .feed-post__offer-college,
-      .feed-post__commitment-college {
-        font-size: 16px;
-        font-weight: 600;
-        color: var(--post-text-primary);
-      }
-
-      .feed-post__offer-type {
-        font-size: 13px;
-        color: var(--nxt1-color-success, #4ade80);
-        font-weight: 500;
-      }
-
-      .feed-post__offer-division {
-        font-size: 12px;
-        color: var(--post-text-secondary);
-      }
-
-      .feed-post__commitment-label {
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--post-text-tertiary);
-        text-transform: uppercase;
-        letter-spacing: 1px;
-      }
-
-      .feed-post__commitment-signed {
-        font-size: 12px;
-        color: var(--post-primary);
-        font-weight: 500;
-      }
-
-      /* ============================================
-         MEDIA GRID
+         MEDIA (top of card, no padding)
          ============================================ */
 
       .feed-post__media {
         display: grid;
-        gap: 4px;
-        border-radius: var(--nxt1-radius-lg, 12px);
+        gap: 2px;
         overflow: hidden;
-        margin-bottom: 12px;
       }
 
       .feed-post__media--single {
@@ -579,7 +378,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
 
         .feed-post__media-item {
           aspect-ratio: 16 / 9;
-          max-height: 400px;
         }
       }
 
@@ -615,7 +413,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
 
       .feed-post__media-item {
         position: relative;
-        background: var(--nxt1-color-surface-100);
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
         overflow: hidden;
 
         nxt1-image {
@@ -637,8 +435,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
         background: rgba(0, 0, 0, 0.3);
         transition: background 0.2s ease;
 
-        ion-icon {
-          font-size: 64px;
+        nxt1-icon {
           color: white;
           filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.4));
         }
@@ -674,6 +471,259 @@ import { HapticsService } from '../services/haptics/haptics.service';
       }
 
       /* ============================================
+         HEADER (below media)
+         ============================================ */
+
+      .feed-post__header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px 0;
+      }
+
+      .feed-post__avatar-btn {
+        background: none;
+        border: none;
+        padding: 0;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+
+      .feed-post__author {
+        flex: 1;
+        min-width: 0;
+        cursor: pointer;
+      }
+
+      .feed-post__author-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .feed-post__author-name {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--post-text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .feed-post__verified {
+        font-size: 16px;
+        color: var(--post-verified);
+        flex-shrink: 0;
+      }
+
+      .feed-post__author-meta {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        margin-top: 1px;
+        font-size: 12px;
+        color: var(--post-text-tertiary);
+      }
+
+      .feed-post__time {
+        white-space: nowrap;
+      }
+
+      /* Type badge (inline next to author, right side) */
+      .feed-post__type-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 12px;
+        background: color-mix(in srgb, var(--badge-color, var(--post-primary)) 15%, transparent);
+        border: 1px solid
+          color-mix(in srgb, var(--badge-color, var(--post-primary)) 40%, transparent);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--badge-color, var(--post-primary));
+        text-transform: capitalize;
+        white-space: nowrap;
+        flex-shrink: 0;
+        margin-left: auto;
+      }
+
+      .feed-post__menu-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: none;
+        border: none;
+        color: var(--post-text-secondary);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+        flex-shrink: 0;
+
+        &:hover {
+          background: rgba(255, 255, 255, 0.06);
+          color: var(--post-text-primary);
+        }
+      }
+
+      /* ============================================
+         CONTENT
+         ============================================ */
+
+      .feed-post__content {
+        cursor: pointer;
+        padding: 10px 16px 0;
+      }
+
+      .feed-post__pinned-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--post-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+      }
+
+      .feed-post__title {
+        font-size: 17px;
+        font-weight: 700;
+        color: var(--post-text-primary);
+        margin: 0 0 4px;
+        line-height: 1.3;
+      }
+
+      .feed-post__text {
+        font-size: 14px;
+        line-height: 1.45;
+        color: var(--post-text-secondary);
+        margin: 0 0 8px;
+        word-wrap: break-word;
+        white-space: pre-wrap;
+
+        :host ::ng-deep .hashtag,
+        :host ::ng-deep .mention {
+          color: var(--post-primary);
+          font-weight: 500;
+        }
+      }
+
+      /* ============================================
+         OFFER/COMMITMENT CARDS
+         ============================================ */
+
+      .feed-post__offer-card,
+      .feed-post__commitment-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: var(--nxt1-radius-md, 8px);
+        border: 1px solid var(--post-border);
+        margin-bottom: 8px;
+      }
+
+      .feed-post__offer-logo,
+      .feed-post__commitment-logo {
+        width: 44px;
+        height: 44px;
+        object-fit: contain;
+        flex-shrink: 0;
+      }
+
+      .feed-post__offer-info,
+      .feed-post__commitment-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .feed-post__offer-college,
+      .feed-post__commitment-college {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--post-text-primary);
+      }
+
+      .feed-post__offer-type {
+        font-size: 13px;
+        color: var(--nxt1-color-success, #4ade80);
+        font-weight: 500;
+      }
+
+      .feed-post__offer-division {
+        font-size: 12px;
+        color: var(--post-text-secondary);
+      }
+
+      .feed-post__commitment-label {
+        font-size: 10px;
+        font-weight: 700;
+        color: var(--post-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+
+      .feed-post__commitment-signed {
+        font-size: 12px;
+        color: var(--post-primary);
+        font-weight: 500;
+      }
+
+      /* ============================================
+         TAGS / CHIPS (attached profile data)
+         ============================================ */
+
+      .feed-post__tags {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+
+      .feed-post__tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 6px 12px;
+        background: color-mix(in srgb, var(--tag-color, var(--post-primary)) 10%, transparent);
+        border: 1px solid color-mix(in srgb, var(--tag-color, var(--post-primary)) 35%, transparent);
+        border-radius: 16px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--tag-color, var(--post-primary));
+        white-space: nowrap;
+
+        nxt1-icon {
+          opacity: 0.8;
+        }
+      }
+
+      .feed-post__tag--more {
+        background: rgba(255, 255, 255, 0.05);
+        border-color: rgba(255, 255, 255, 0.12);
+        color: var(--post-text-secondary);
+        font-weight: 500;
+        cursor: pointer;
+
+        &:hover {
+          background: rgba(255, 255, 255, 0.08);
+        }
+      }
+
+      .feed-post__tag-label {
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      /* ============================================
          LOCATION
          ============================================ */
 
@@ -681,93 +731,82 @@ import { HapticsService } from '../services/haptics/haptics.service';
         display: flex;
         align-items: center;
         gap: 4px;
-        font-size: 13px;
-        color: var(--post-text-secondary);
-        margin-bottom: 12px;
-
-        ion-icon {
-          font-size: 14px;
-        }
+        font-size: 12px;
+        color: var(--post-text-tertiary);
+        margin-bottom: 4px;
       }
 
       /* ============================================
-         ENGAGEMENT STATS
+         ENGAGEMENT STATS BAR
          ============================================ */
 
       .feed-post__stats {
         display: flex;
         align-items: center;
-        gap: 16px;
-        padding: 8px 0;
+        gap: 0;
+        padding: 10px 16px;
         border-top: 1px solid var(--post-border);
         margin-top: 8px;
       }
 
       .feed-post__stat {
-        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex: 1;
+        justify-content: center;
+        font-variant-numeric: tabular-nums;
         color: var(--post-text-secondary);
+      }
+
+      .feed-post__stat-count {
+        font-size: 13px;
+        font-weight: 700;
+        color: var(--post-text-primary);
+      }
+
+      .feed-post__stat-label {
+        font-size: 10px;
+        font-weight: 600;
+        color: var(--post-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+
+        @media (max-width: 480px) {
+          display: none;
+        }
       }
 
       /* ============================================
-         ACTIONS
+         VIEW PROFILE BUTTON
          ============================================ */
 
-      .feed-post__actions {
+      .feed-post__view-profile {
         display: flex;
         align-items: center;
-        gap: 4px;
-        margin-top: 12px;
-        padding-top: 12px;
-        border-top: 1px solid var(--post-border);
-      }
-
-      .feed-post__action {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 8px 12px;
-        background: none;
-        border: none;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        color: var(--post-text-secondary);
-        font-size: 13px;
-        font-weight: 500;
+        justify-content: center;
+        gap: 8px;
+        width: calc(100% - 32px);
+        margin: 0 16px 12px;
+        padding: 10px 20px;
+        background: transparent;
+        border: 1px solid color-mix(in srgb, var(--post-primary) 40%, transparent);
+        border-radius: var(--nxt1-radius-md, 8px);
+        color: var(--post-primary);
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 1.5px;
         cursor: pointer;
         transition: all 0.2s ease;
 
-        ion-icon {
-          font-size: 20px;
-        }
-
         &:hover {
-          background: var(--post-bg-hover);
-          color: var(--post-text-primary);
+          background: color-mix(in srgb, var(--post-primary) 8%, transparent);
+          border-color: var(--post-primary);
         }
 
         &:active {
-          transform: scale(0.95);
-        }
-      }
-
-      .feed-post__action--active {
-        &:first-of-type {
-          color: var(--post-like-active);
-
-          &:hover {
-            color: var(--post-like-active);
-          }
-        }
-      }
-
-      .feed-post__action--bookmark {
-        margin-left: auto;
-
-        &.feed-post__action--active {
-          color: var(--post-bookmark-active);
-
-          &:hover {
-            color: var(--post-bookmark-active);
-          }
+          transform: scale(0.98);
         }
       }
     `,
@@ -783,6 +822,9 @@ export class FeedPostCardComponent {
 
   readonly post = input.required<FeedPost>();
   readonly showMenu = input(true);
+  readonly hideAuthor = input(false);
+  /** Show the "View Profile" button at the bottom */
+  readonly showProfileLink = input(true);
 
   // ============================================
   // OUTPUTS
@@ -790,11 +832,13 @@ export class FeedPostCardComponent {
 
   readonly postClick = output<FeedPost>();
   readonly authorClick = output<FeedAuthor>();
-  readonly likeClick = output<FeedPost>();
-  readonly commentClick = output<FeedPost>();
+  readonly reactClick = output<FeedPost>();
+  readonly repostClick = output<FeedPost>();
   readonly shareClick = output<FeedPost>();
   readonly bookmarkClick = output<FeedPost>();
   readonly menuClick = output<FeedPost>();
+  readonly viewProfileClick = output<FeedAuthor>();
+  readonly repostAuthorClick = output<string>();
 
   // ============================================
   // COMPUTED
@@ -802,7 +846,8 @@ export class FeedPostCardComponent {
 
   protected readonly ariaLabel = computed(() => {
     const p = this.post();
-    return `Post by ${p.author.displayName}: ${p.content?.substring(0, 100) || p.type}`;
+    const label = p.title || p.content?.substring(0, 100) || p.type;
+    return `Post by ${p.author.displayName}: ${label}`;
   });
 
   protected readonly timeAgo = computed(() => {
@@ -813,7 +858,6 @@ export class FeedPostCardComponent {
     const content = this.post().content;
     if (!content) return '';
 
-    // Highlight hashtags and mentions
     return content
       .replace(/#(\w+)/g, '<span class="hashtag">#$1</span>')
       .replace(/@(\w+)/g, '<span class="mention">@$1</span>');
@@ -821,7 +865,8 @@ export class FeedPostCardComponent {
 
   protected readonly showTypeBadge = computed(() => {
     const type = this.post().type;
-    return ['offer', 'commitment', 'milestone', 'highlight'].includes(type);
+    // Show badge for all non-generic types
+    return type !== 'text' && type !== 'repost';
   });
 
   protected readonly typeBadgeIcon = computed(() => {
@@ -856,10 +901,29 @@ export class FeedPostCardComponent {
     return 'feed-post__media--grid';
   });
 
-  protected readonly showEngagementStats = computed(() => {
-    const e = this.post().engagement;
-    return e.likeCount > 100 || e.commentCount > 20 || (e.viewCount ?? 0) > 1000;
+  protected readonly hasTags = computed(() => {
+    return (this.post().postTags?.length ?? 0) > 0;
   });
+
+  protected readonly visibleTags = computed(() => {
+    return (this.post().postTags ?? []).slice(0, FEED_MAX_VISIBLE_TAGS);
+  });
+
+  protected readonly hiddenTagCount = computed(() => {
+    return Math.max(0, (this.post().postTags?.length ?? 0) - FEED_MAX_VISIBLE_TAGS);
+  });
+
+  protected readonly showViewProfile = computed(() => {
+    return this.showProfileLink() && !this.hideAuthor();
+  });
+
+  // ============================================
+  // HELPERS
+  // ============================================
+
+  protected getTagIcon(type: FeedPostTag['type']): string {
+    return FEED_TAG_TYPE_ICONS[type] ?? 'sparkles';
+  }
 
   // ============================================
   // EVENT HANDLERS
@@ -876,16 +940,16 @@ export class FeedPostCardComponent {
     this.postClick.emit(this.post());
   }
 
-  protected async handleLikeClick(event: Event): Promise<void> {
+  protected async handleReactClick(event: Event): Promise<void> {
     event.stopPropagation();
     await this.haptics.impact('light');
-    this.likeClick.emit(this.post());
+    this.reactClick.emit(this.post());
   }
 
-  protected async handleCommentClick(event: Event): Promise<void> {
+  protected async handleRepostClick(event: Event): Promise<void> {
     event.stopPropagation();
-    await this.haptics.impact('light');
-    this.commentClick.emit(this.post());
+    await this.haptics.impact('medium');
+    this.repostClick.emit(this.post());
   }
 
   protected async handleShareClick(event: Event): Promise<void> {
@@ -906,8 +970,17 @@ export class FeedPostCardComponent {
     this.menuClick.emit(this.post());
   }
 
+  protected async handleRepostAuthorClick(event: Event): Promise<void> {
+    event.stopPropagation();
+    await this.haptics.impact('light');
+    const reposterId = this.post().repostData?.reposterId;
+    if (reposterId) {
+      this.repostAuthorClick.emit(reposterId);
+    }
+  }
+
   // ============================================
-  // HELPERS
+  // FORMAT HELPERS
   // ============================================
 
   protected formatCount(count: number): string {

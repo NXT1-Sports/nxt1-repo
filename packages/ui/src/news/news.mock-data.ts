@@ -13,23 +13,79 @@ import type { NewsArticle, NewsCategoryId, ReadingStats } from '@nxt1/core';
 const now = Date.now();
 
 // ============================================
-// AI SOURCE MOCK
+// MOCK NEWS SOURCES — Realistic Brand Portfolio
 // ============================================
 
+/** NXT 1 AI assistant (Agent X) */
 const MOCK_AI_SOURCE = {
   id: 'agent-x',
-  name: 'Agent X',
-  avatarUrl: 'https://api.dicebear.com/7.x/bottts/svg?seed=agentx&backgroundColor=ccff00',
+  name: 'NXT 1',
+  avatarUrl: 'assets/shared/logo/nxt1_icon.png',
   type: 'ai-agent' as const,
   confidenceScore: 95,
   isVerified: true,
 };
 
+/** NXT 1 in-house editorial team */
 const MOCK_EDITORIAL_SOURCE = {
   id: 'nxt1-editorial',
-  name: 'NXT1 Editorial',
-  avatarUrl: 'https://api.dicebear.com/7.x/shapes/svg?seed=nxt1&backgroundColor=1a1a1a',
+  name: 'NXT 1',
+  avatarUrl: 'assets/shared/logo/nxt1_icon.png',
   type: 'editorial' as const,
+  isVerified: true,
+};
+
+/** ESPN recruiting / syndicated content */
+const MOCK_ESPN_SOURCE = {
+  id: 'espn',
+  name: 'ESPN',
+  avatarUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=ESPN&backgroundColor=cc0000',
+  type: 'syndicated' as const,
+  isVerified: true,
+};
+
+/** Rivals recruiting network */
+const MOCK_RIVALS_SOURCE = {
+  id: 'rivals',
+  name: 'Rivals',
+  avatarUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=RIV&backgroundColor=ff6600',
+  type: 'syndicated' as const,
+  isVerified: true,
+};
+
+/** 247Sports recruiting */
+const MOCK_247_SOURCE = {
+  id: '247sports',
+  name: '247Sports',
+  avatarUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=247&backgroundColor=0066cc',
+  type: 'syndicated' as const,
+  isVerified: true,
+};
+
+/** On3 recruiting / NIL */
+const MOCK_ON3_SOURCE = {
+  id: 'on3',
+  name: 'On3',
+  avatarUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=ON3&backgroundColor=00b386',
+  type: 'syndicated' as const,
+  isVerified: true,
+};
+
+/** Elite 11 quarterback competition */
+const MOCK_ELITE11_SOURCE = {
+  id: 'elite-11',
+  name: 'Elite 11',
+  avatarUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=E11&backgroundColor=222222',
+  type: 'syndicated' as const,
+  isVerified: true,
+};
+
+/** MaxPreps high school coverage */
+const MOCK_MAXPREPS_SOURCE = {
+  id: 'maxpreps',
+  name: 'MaxPreps',
+  avatarUrl: 'https://api.dicebear.com/7.x/initials/svg?seed=MP&backgroundColor=1e3a5f',
+  type: 'syndicated' as const,
   isVerified: true,
 };
 
@@ -87,7 +143,7 @@ const MOCK_RECRUITING_ARTICLES: NewsArticle[] = [
     `,
     category: 'recruiting',
     tags: ['rankings', 'top-100', 'camps'],
-    source: MOCK_EDITORIAL_SOURCE,
+    source: MOCK_ESPN_SOURCE,
     heroImageUrl: 'https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=800&q=80',
     thumbnailUrl: 'https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=400&q=80',
     readingTimeMinutes: 5,
@@ -113,7 +169,7 @@ const MOCK_RECRUITING_ARTICLES: NewsArticle[] = [
     `,
     category: 'recruiting',
     tags: ['elite-11', 'quarterbacks', 'competition'],
-    source: MOCK_AI_SOURCE,
+    source: MOCK_ELITE11_SOURCE,
     heroImageUrl: 'https://images.unsplash.com/photo-1551958219-acbc608c6377?w=800&q=80',
     thumbnailUrl: 'https://images.unsplash.com/photo-1551958219-acbc608c6377?w=400&q=80',
     readingTimeMinutes: 4,
@@ -145,7 +201,7 @@ const MOCK_COMMITS_ARTICLES: NewsArticle[] = [
     `,
     category: 'commits',
     tags: ['commitment', 'wide-receiver', 'usc'],
-    source: MOCK_AI_SOURCE,
+    source: MOCK_RIVALS_SOURCE,
     heroImageUrl: 'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=800&q=80',
     thumbnailUrl: 'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?w=400&q=80',
     readingTimeMinutes: 2,
@@ -173,7 +229,7 @@ const MOCK_COMMITS_ARTICLES: NewsArticle[] = [
     `,
     category: 'commits',
     tags: ['commitment', 'basketball', 'duke'],
-    source: MOCK_AI_SOURCE,
+    source: MOCK_247_SOURCE,
     heroImageUrl: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=800&q=80',
     thumbnailUrl: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&q=80',
     readingTimeMinutes: 3,
@@ -203,7 +259,7 @@ const MOCK_TRANSFERS_ARTICLES: NewsArticle[] = [
     `,
     category: 'transfers',
     tags: ['transfer-portal', 'tracker', 'rankings'],
-    source: MOCK_EDITORIAL_SOURCE,
+    source: MOCK_ON3_SOURCE,
     heroImageUrl: 'https://images.unsplash.com/photo-1577223625816-7546f13df25d?w=800&q=80',
     thumbnailUrl: 'https://images.unsplash.com/photo-1577223625816-7546f13df25d?w=400&q=80',
     readingTimeMinutes: 6,
@@ -229,7 +285,7 @@ const MOCK_TRANSFERS_ARTICLES: NewsArticle[] = [
     `,
     category: 'transfers',
     tags: ['transfer', 'defensive-end', 'michigan'],
-    source: MOCK_AI_SOURCE,
+    source: MOCK_ESPN_SOURCE,
     heroImageUrl: 'https://images.unsplash.com/photo-1567427017947-545c5f8d16ad?w=800&q=80',
     thumbnailUrl: 'https://images.unsplash.com/photo-1567427017947-545c5f8d16ad?w=400&q=80',
     readingTimeMinutes: 3,
@@ -262,7 +318,7 @@ const MOCK_COLLEGE_ARTICLES: NewsArticle[] = [
     category: 'college',
     tags: ['cfp', 'analysis', 'recruiting-impact'],
     source: MOCK_EDITORIAL_SOURCE,
-    heroImageUrl: 'https://images.unsplash.com/photo-1461896836934- voices-of-ai?w=800&q=80',
+    heroImageUrl: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=800&q=80',
     thumbnailUrl: 'https://images.unsplash.com/photo-1461896836934-ffe607ba8211?w=400&q=80',
     readingTimeMinutes: 7,
     publishedAt: new Date(now - 1000 * 60 * 60 * 24).toISOString(), // 1 day ago
@@ -287,7 +343,7 @@ const MOCK_COLLEGE_ARTICLES: NewsArticle[] = [
     `,
     category: 'college',
     tags: ['basketball', 'march-madness', 'predictions'],
-    source: MOCK_AI_SOURCE,
+    source: MOCK_247_SOURCE,
     heroImageUrl: 'https://images.unsplash.com/photo-1504450758481-7338eba7524a?w=800&q=80',
     thumbnailUrl: 'https://images.unsplash.com/photo-1504450758481-7338eba7524a?w=400&q=80',
     readingTimeMinutes: 5,
@@ -316,7 +372,7 @@ const MOCK_HIGHLIGHTS_ARTICLES: NewsArticle[] = [
     `,
     category: 'highlights',
     tags: ['top-plays', 'highlights', 'weekly'],
-    source: MOCK_AI_SOURCE,
+    source: MOCK_MAXPREPS_SOURCE,
     heroImageUrl: 'https://images.unsplash.com/photo-1570498839593-e565b39455fc?w=800&q=80',
     thumbnailUrl: 'https://images.unsplash.com/photo-1570498839593-e565b39455fc?w=400&q=80',
     readingTimeMinutes: 2,
@@ -345,7 +401,7 @@ const MOCK_PRO_ARTICLES: NewsArticle[] = [
     `,
     category: 'pro',
     tags: ['nfl-draft', 'mock-draft', 'predictions'],
-    source: MOCK_EDITORIAL_SOURCE,
+    source: MOCK_RIVALS_SOURCE,
     heroImageUrl: 'https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=800&q=80',
     thumbnailUrl: 'https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=400&q=80',
     readingTimeMinutes: 8,
