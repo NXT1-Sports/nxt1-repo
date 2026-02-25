@@ -38,11 +38,20 @@ export function isFeedTab(tabId: ExploreTabId): boolean {
  * Available explore tabs with display configuration.
  * Order determines display order in tab bar.
  *
- * Feed tabs (Feed, Following, News) appear first — they replaced
+ * 'For You' is the first tab — a curated multi-category overview
+ * that displays personalized content from all categories without
+ * pre-selecting any single content section.
+ *
+ * Feed tabs (Feed, Following, News) appear second — they replaced
  * the former standalone /home page (2026 strategy: everything lives
  * under /explore).
  */
 export const EXPLORE_TABS: readonly ExploreTab[] = [
+  {
+    id: 'for-you',
+    label: 'For You',
+    icon: 'sparkles-outline',
+  },
   {
     id: 'feed',
     label: 'Feed',
@@ -102,9 +111,10 @@ export const EXPLORE_TABS: readonly ExploreTab[] = [
 
 /**
  * Default selected tab.
- * Feed is the default — the user's personalized content stream.
+ * 'for-you' is the default — a curated multi-category overview showing
+ * personalized content from all categories without pre-selecting any tab.
  */
-export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'feed';
+export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'for-you';
 
 // ============================================
 // SORT OPTIONS
@@ -114,6 +124,7 @@ export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'feed';
  * Available sort options per tab.
  */
 export const EXPLORE_SORT_OPTIONS: Record<ExploreTabId, readonly ExploreSortOption[]> = {
+  'for-you': ['relevance', 'popular'],
   feed: ['relevance', 'recent', 'popular'],
   following: ['recent', 'popular'],
   news: ['recent', 'popular', 'relevance'],
@@ -131,6 +142,7 @@ export const EXPLORE_SORT_OPTIONS: Record<ExploreTabId, readonly ExploreSortOpti
  * Default sort option per tab.
  */
 export const EXPLORE_DEFAULT_SORT: Record<ExploreTabId, ExploreSortOption> = {
+  'for-you': 'popular',
   feed: 'relevance',
   following: 'recent',
   news: 'recent',
@@ -229,6 +241,11 @@ export const EXPLORE_EMPTY_STATES: Record<
     readonly icon: string;
   }
 > = {
+  'for-you': {
+    title: 'Personalizing your experience',
+    message: 'Discover athletes, colleges, teams, camps, and more all in one place',
+    icon: 'sparkles-outline',
+  },
   feed: {
     title: 'Your feed is empty',
     message: 'Follow athletes, teams, and coaches to build your personalized feed',
@@ -296,6 +313,10 @@ export const EXPLORE_INITIAL_STATES: Record<
     readonly message: string;
   }
 > = {
+  'for-you': {
+    title: 'Discover Everything',
+    message: 'Your personalized hub for athletes, colleges, teams, camps, and more',
+  },
   feed: {
     title: 'Your Feed',
     message: 'Personalized content from athletes, teams, and coaches you care about',
@@ -402,6 +423,7 @@ export const EXPLORE_UI_CONFIG = {
  * Initial/default tab counts.
  */
 export const EXPLORE_INITIAL_TAB_COUNTS: ExploreTabCounts = {
+  'for-you': 0,
   feed: 0,
   following: 0,
   news: 0,
@@ -496,6 +518,15 @@ export const EXPLORE_TAB_FILTER_FIELDS: Record<
     readonly verifiedOnly: boolean;
   }
 > = {
+  'for-you': {
+    sport: true,
+    state: true,
+    division: false,
+    position: false,
+    classYear: false,
+    radius: false,
+    verifiedOnly: false,
+  },
   feed: {
     sport: true,
     state: true,

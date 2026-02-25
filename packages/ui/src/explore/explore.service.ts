@@ -86,6 +86,7 @@ export class ExploreService {
   private readonly _trendingSearches = signal<string[]>(MOCK_TRENDING_SEARCHES);
   private readonly _suggestions = signal<string[]>([]);
   private readonly _tabFilters = signal<Record<ExploreTabId, ExploreFilters>>({
+    'for-you': {},
     feed: {},
     following: {},
     news: {},
@@ -233,8 +234,8 @@ export class ExploreService {
     this._activeTab.set(tab);
     await this.haptics.impact('light');
 
-    // Feed tabs (feed, following, news) are handled by their own components/services
-    if (isFeedTab(tab)) return;
+    // For-You and feed tabs are handled by their own components/services
+    if (tab === 'for-you' || isFeedTab(tab)) return;
 
     // Re-search with current query for discovery tabs
     const query = this._query();

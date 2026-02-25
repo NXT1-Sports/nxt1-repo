@@ -42,6 +42,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
 import { ExploreService } from '../explore.service';
 import { ExploreListWebComponent } from './explore-list-web.component';
 import { ExploreSkeletonComponent } from '../explore-skeleton.component';
+import { ExploreForYouWebComponent } from './explore-for-you-web.component';
 import { ScoutReportsContentComponent } from '../../scout-reports/scout-reports-content.component';
 import { NewsContentComponent } from '../../news/news-content.component';
 import { FeedListComponent } from '../../feed/feed-list.component';
@@ -59,6 +60,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
     NxtDesktopPageHeaderComponent,
     ExploreListWebComponent,
     ExploreSkeletonComponent,
+    ExploreForYouWebComponent,
     ScoutReportsContentComponent,
     NewsContentComponent,
     FeedListComponent,
@@ -317,8 +319,15 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
 
         <!-- Main Content -->
         @if (!explore.isSearchFocused() || explore.hasQuery()) {
+          <!-- For You Tab: Multi-category curated landing view -->
+          @if (explore.activeTab() === 'for-you' && !explore.hasQuery()) {
+            <nxt1-explore-for-you-web
+              [user]="user()"
+              (itemTap)="onItemClick($event)"
+              (categorySelect)="onForYouCategorySelect($event)"
+            />
           <!-- Feed Tab: Personalized content stream -->
-          @if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
+          } @else if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
             <nxt1-feed-list
               [posts]="feedService.posts()"
               [isLoading]="feedService.isLoading()"
@@ -670,6 +679,16 @@ export class ExploreShellWebComponent implements OnInit {
     await this.explore.switchTab(id);
     await this.ensureFeedLoadedForTab(id);
     this.tabChange.emit(id);
+  }
+
+  /**
+   * Handle category selection from the "For You" landing view.
+   * Switches to the selected tab so the user can browse that category.
+   */
+  protected async onForYouCategorySelect(tab: ExploreTabId): Promise<void> {
+    await this.explore.switchTab(tab);
+    await this.ensureFeedLoadedForTab(tab);
+    this.tabChange.emit(tab);
   }
 
   // ── Feed / Following / News Handlers ──

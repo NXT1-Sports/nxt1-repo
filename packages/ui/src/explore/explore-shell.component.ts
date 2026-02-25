@@ -56,6 +56,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
 import { ExploreService } from './explore.service';
 import { ExploreListComponent } from './explore-list.component';
 import { ExploreSkeletonComponent } from './explore-skeleton.component';
+import { ExploreForYouComponent } from './explore-for-you.component';
 import { ScoutReportsContentComponent } from '../scout-reports/scout-reports-content.component';
 import { NewsContentComponent } from '../news/news-content.component';
 import { FeedListComponent } from '../feed/feed-list.component';
@@ -84,6 +85,7 @@ export interface ExploreUser {
     NxtOptionScrollerComponent,
     ExploreListComponent,
     ExploreSkeletonComponent,
+    ExploreForYouComponent,
     ScoutReportsContentComponent,
     NewsContentComponent,
     FeedListComponent,
@@ -179,8 +181,15 @@ export interface ExploreUser {
 
         <!-- Main Content -->
         @if (!explore.isSearchFocused() || explore.hasQuery()) {
+          <!-- For You Tab: Multi-category curated landing view -->
+          @if (explore.activeTab() === 'for-you' && !explore.hasQuery()) {
+            <nxt1-explore-for-you
+              [user]="user()"
+              (itemTap)="onItemClick($event)"
+              (categorySelect)="onForYouCategorySelect($event)"
+            />
           <!-- Feed Tab: Personalized content stream -->
-          @if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
+          } @else if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
             <nxt1-feed-list
               [posts]="feedService.posts()"
               [isLoading]="feedService.isLoading()"
@@ -518,6 +527,16 @@ export class ExploreShellComponent implements OnInit {
     await this.explore.switchTab(tabId);
     await this.ensureFeedLoadedForTab(tabId);
     this.tabChange.emit(tabId);
+  }
+
+  /**
+   * Handle category selection from the "For You" landing view.
+   * Switches to the selected tab so the user can browse that category.
+   */
+  protected async onForYouCategorySelect(tab: ExploreTabId): Promise<void> {
+    await this.explore.switchTab(tab);
+    await this.ensureFeedLoadedForTab(tab);
+    this.tabChange.emit(tab);
   }
 
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
