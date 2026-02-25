@@ -1281,6 +1281,9 @@ interface StatsComparisonItem {
                         [showMenu]="profile.isOwnProfile()"
                         [showFilters]="false"
                         [filter]="timelineFilter()"
+                        [emptyIcon]="emptyState().icon"
+                        [emptyTitle]="emptyState().title"
+                        [emptyMessage]="emptyState().message"
                         [emptyCta]="profile.isOwnProfile() ? (emptyState().ctaLabel ?? null) : null"
                         (postClick)="onPostClick($event)"
                         (reactClick)="onLikePost($event)"
@@ -1307,10 +1310,10 @@ interface StatsComparisonItem {
                         [isEmpty]="profile.videoPosts().length === 0"
                         [isOwnProfile]="profile.isOwnProfile()"
                         [showFilters]="false"
-                        emptyIcon="videocam"
-                        emptyTitle="No videos yet"
-                        emptyMessage="Upload highlights and game footage to showcase your skills."
-                        [emptyCta]="profile.isOwnProfile() ? 'Upload Video' : null"
+                        [emptyIcon]="emptyState().icon"
+                        [emptyTitle]="emptyState().title"
+                        [emptyMessage]="emptyState().message"
+                        [emptyCta]="profile.isOwnProfile() ? (emptyState().ctaLabel ?? null) : null"
                         (postClick)="onPostClick($event)"
                         (reactClick)="onLikePost($event)"
                         (shareClick)="onSharePost($event)"
@@ -1349,14 +1352,12 @@ interface StatsComparisonItem {
 
                         @if (profile.metrics().length === 0) {
                           <div class="madden-empty">
-                            <nxt1-icon name="barbell" [size]="48" />
-                            <h3>No metrics recorded</h3>
-                            <p>
-                              Add your combine results and measurables to complete your profile.
-                            </p>
+                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
+                            <h3>{{ emptyState().title }}</h3>
+                            <p>{{ emptyState().message }}</p>
                             @if (profile.isOwnProfile()) {
                               <button type="button" class="madden-cta-btn" (click)="onAddStats()">
-                                Add Metrics
+                                {{ emptyState().ctaLabel }}
                               </button>
                             }
                           </div>
@@ -1411,12 +1412,12 @@ interface StatsComparisonItem {
                           profile.gameLog().length === 0 && profile.athleticStats().length === 0
                         ) {
                           <div class="madden-empty">
-                            <nxt1-icon name="stats-chart" [size]="48" />
-                            <h3>No stats recorded</h3>
-                            <p>Add your athletic and academic stats to complete your profile.</p>
+                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
+                            <h3>{{ emptyState().title }}</h3>
+                            <p>{{ emptyState().message }}</p>
                             @if (profile.isOwnProfile()) {
                               <button type="button" class="madden-cta-btn" (click)="onAddStats()">
-                                Add Stats
+                                {{ emptyState().ctaLabel }}
                               </button>
                             }
                           </div>
@@ -1792,18 +1793,16 @@ interface StatsComparisonItem {
                           !profile.user()?.school?.name
                         ) {
                           <div class="madden-empty">
-                            <nxt1-icon name="school" [size]="48" />
-                            <h3>No academic info yet</h3>
-                            <p>
-                              Add GPA, test scores, and school details to strengthen your profile.
-                            </p>
+                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
+                            <h3>{{ emptyState().title }}</h3>
+                            <p>{{ emptyState().message }}</p>
                             @if (profile.isOwnProfile()) {
                               <button
                                 type="button"
                                 class="madden-cta-btn"
                                 (click)="onEditProfile()"
                               >
-                                Add Academic Info
+                                {{ emptyState().ctaLabel }}
                               </button>
                             }
                           </div>
@@ -1855,12 +1854,12 @@ interface StatsComparisonItem {
 
                         @if (scheduleEvents().length === 0) {
                           <div class="madden-empty">
-                            <nxt1-icon name="calendar" [size]="48" />
-                            <h3>No schedule yet</h3>
-                            <p>Add games and practices to show your full season schedule.</p>
+                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
+                            <h3>{{ emptyState().title }}</h3>
+                            <p>{{ emptyState().message }}</p>
                             @if (profile.isOwnProfile()) {
                               <button type="button" class="madden-cta-btn" (click)="onAddEvent()">
-                                Add Schedule Item
+                                {{ emptyState().ctaLabel }}
                               </button>
                             }
                           </div>
@@ -1952,16 +1951,16 @@ interface StatsComparisonItem {
                           !profile.user()?.coachContact
                         ) {
                           <div class="madden-empty">
-                            <nxt1-icon name="mail" [size]="48" />
-                            <h3>Contact info not set</h3>
-                            <p>Add your contact information so coaches can reach you.</p>
+                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
+                            <h3>{{ emptyState().title }}</h3>
+                            <p>{{ emptyState().message }}</p>
                             @if (profile.isOwnProfile()) {
                               <button
                                 type="button"
                                 class="madden-cta-btn"
                                 (click)="onEditContact()"
                               >
-                                Add Contact Info
+                                {{ emptyState().ctaLabel }}
                               </button>
                             }
                           </div>
