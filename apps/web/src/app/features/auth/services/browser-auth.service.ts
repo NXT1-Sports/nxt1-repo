@@ -157,25 +157,70 @@ export class BrowserAuthService implements IAuthService {
   }
 
   /**
-   * Sync user profile from backend
+   * Sync user profile from backend.
+   * Fetches real Firestore data so that `hasCompletedOnboarding` reflects
+   * the actual `onboardingCompleted` flag stored in the database.
+   * Falls back to Firebase-only data (hasCompletedOnboarding: false) only
+   * when the backend call fails (e.g. offline / cold-start).
    */
   private async syncUserProfile(firebaseUser: FirebaseUser): Promise<void> {
+    this._user.set({
+      uid: firebaseUser.uid,
+      email: firebaseUser.email ?? '',
+      displayName: firebaseUser.displayName ?? 'User',
+      profileImg: firebaseUser.photoURL ?? undefined,
+      role: 'athlete' as UserRole,
+      isPremium: false,
+      hasCompletedOnboarding: false,
+      createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
     try {
-      // Note: Full profile data will be fetched from backend API
-      // For now, create basic user from Firebase data
+      // Fetch real profile — this is the only source of truth for
+      // onboardingCompleted, role, isPremium, unicode, etc.
+      const profile = await this.authApi.getUserProfile(firebaseUser.uid);
+
+      // Backend User model uses `onboardingCompleted` (+ legacy `completeSignUp`)
+      const hasCompletedOnboarding =
+        profile.onboardingCompleted === true ||
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (profile as any).completeSignUp === true;
+
       this._user.set({
         uid: firebaseUser.uid,
-        email: firebaseUser.email ?? '',
-        displayName: firebaseUser.displayName ?? 'User',
-        profileImg: firebaseUser.photoURL ?? undefined,
-        role: 'athlete' as UserRole,
-        isPremium: false,
-        hasCompletedOnboarding: false,
-        createdAt: firebaseUser.metadata.creationTime ?? new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        email: profile.email ?? firebaseUser.email ?? '',
+        displayName:
+          (profile.displayName ?? `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim()) ||
+          (firebaseUser.displayName ?? 'User'),
+        profileImg: profile.profileImg ?? firebaseUser.photoURL ?? undefined,
+        role: (profile.role as UserRole) ?? 'athlete',
+        isPremium: false, // extend when backend exposes isPremium
+        hasCompletedOnboarding,
+        unicode: profile.unicode ?? undefined,
+        createdAt:
+          profile.createdAt instanceof Date
+            ? profile.createdAt.toISOString()
+            : (profile.createdAt ?? firebaseUser.metadata.creationTime ?? new Date().toISOString()),
+        updatedAt:
+          profile.updatedAt instanceof Date
+            ? profile.updatedAt.toISOString()
+            : (profile.updatedAt ?? new Date().toISOString()),
+      });
+
+      this.logger.info('User profile synced from backend', {
+        uid: firebaseUser.uid,
+        hasCompletedOnboarding,
+        role: profile.role,
       });
     } catch (err) {
-      this.logger.error('Failed to sync user profile', err);
+      // Keep the optimistic baseline — user is still authenticated.
+      // They'll hit onboarding if hasCompletedOnboarding stays false,
+      // which is safer than letting a broken backend silently skip onboarding.
+      this.logger.warn('Failed to fetch backend profile — using Firebase fallback', {
+        uid: firebaseUser.uid,
+        error: err,
+      });
     }
   }
 
@@ -188,10 +233,28 @@ export class BrowserAuthService implements IAuthService {
     this._error.set(null);
 
     try {
-      await signInWithEmailAndPassword(this.firebaseAuth, credentials.email, credentials.password);
+      const result = await signInWithEmailAndPassword(
+        this.firebaseAuth,
+        credentials.email,
+        credentials.password
+      );
 
-      const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
+      // Fetch real profile to get onboardingCompleted — do NOT rely on
+      // this.hasCompletedOnboarding() here because syncUserProfile() via
+      // onAuthStateChanged may not have finished yet (race condition).
+      let completed = false;
+      try {
+        const profile = await this.authApi.getUserProfile(result.user.uid);
+        completed =
+          profile.onboardingCompleted === true ||
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (profile as any).completeSignUp === true;
+      } catch {
+        // If backend is unreachable, fall back to local signal (best effort)
+        completed = this.hasCompletedOnboarding();
+      }
 
+      const redirectPath = completed ? '/home' : '/auth/onboarding';
       await this.router.navigate([redirectPath], { replaceUrl: true });
       return true;
     } catch (err) {
@@ -222,7 +285,22 @@ export class BrowserAuthService implements IAuthService {
         });
         await this.router.navigate(['/auth/onboarding']);
       } else {
-        const redirectPath = this.hasCompletedOnboarding() ? '/home' : '/auth/onboarding';
+        // Fetch real profile to get onboardingCompleted — do NOT rely on
+        // this.hasCompletedOnboarding() here because syncUserProfile() via
+        // onAuthStateChanged may not have finished yet (race condition).
+        let completed = false;
+        try {
+          const profile = await this.authApi.getUserProfile(result.user.uid);
+          completed =
+            profile.onboardingCompleted === true ||
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (profile as any).completeSignUp === true;
+        } catch {
+          // If backend is unreachable, fall back to local signal (best effort)
+          completed = this.hasCompletedOnboarding();
+        }
+
+        const redirectPath = completed ? '/home' : '/auth/onboarding';
         await this.router.navigate([redirectPath], { replaceUrl: true });
       }
 

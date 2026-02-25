@@ -608,6 +608,7 @@ export interface User {
   email: string;
   firstName: string;
   lastName: string;
+  displayName: string;
   profileImg: string | null;
   aboutMe: string;
 

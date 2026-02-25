@@ -81,7 +81,8 @@ export class AuthApiService {
           const response = await this.http.get(`${environment.apiURL}/auth/profile/${uid}`, {
             timeout: 3000, // 3 second timeout for faster failure when backend is down
           });
-          const profile = response as User;
+          const wrapped = response as { success?: boolean; data?: User };
+          const profile = wrapped?.data ?? (response as unknown as User);
           return profile;
         } catch (error) {
           console.error('❌ [AuthApi] Failed to fetch user profile', {
