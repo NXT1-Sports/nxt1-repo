@@ -21,15 +21,9 @@
  * - Respects prefers-reduced-motion
  */
 
-import {
-  Component,
-  ChangeDetectionStrategy,
-  input,
-  output,
-  computed,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonButton, IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
+import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {
   sparklesOutline,
@@ -45,12 +39,7 @@ import {
   checkmarkCircle,
 } from 'ionicons/icons';
 import type { ExploreItem, ExploreTabId } from '@nxt1/core';
-import {
-  MOCK_ATHLETES,
-  MOCK_COLLEGES,
-  MOCK_TEAMS,
-  MOCK_VIDEOS,
-} from './explore.mock-data';
+import { MOCK_ATHLETES, MOCK_COLLEGES, MOCK_TEAMS, MOCK_VIDEOS } from './explore.mock-data';
 import { NxtAvatarComponent } from '../components/avatar';
 import type { ExploreUser } from './explore-shell.component';
 
@@ -79,28 +68,9 @@ const CATEGORY_TILES: readonly CategoryTile[] = [
 @Component({
   selector: 'nxt1-explore-for-you',
   standalone: true,
-  imports: [CommonModule, IonButton, IonIcon, IonRippleEffect, NxtAvatarComponent],
+  imports: [CommonModule, IonIcon, IonRippleEffect, NxtAvatarComponent],
   template: `
     <section class="for-you" aria-label="For You — personalized explore">
-      <!-- ── Hero Banner ──────────────────────────────────── -->
-      <div class="hero" role="banner" aria-label="Explore NXT1">
-        <div class="hero__content">
-          <div class="hero__badge">
-            <ion-icon name="sparkles-outline" aria-hidden="true" />
-            <span>For You</span>
-          </div>
-          <h1 class="hero__title">
-            Discover Your<br />
-            Next Level
-          </h1>
-          <p class="hero__subtitle">
-            Athletes, colleges, teams, videos &amp; more — all in one place.
-          </p>
-        </div>
-        <!-- Decorative gradient orb -->
-        <div class="hero__orb" aria-hidden="true"></div>
-      </div>
-
       <!-- ── Category Quick Access ────────────────────────── -->
       <div class="section">
         <div class="section__header">
@@ -150,11 +120,7 @@ const CATEGORY_TILES: readonly CategoryTile[] = [
             >
               <ion-ripple-effect></ion-ripple-effect>
               <div class="athlete-card__avatar">
-                <nxt1-avatar
-                  [src]="athlete.imageUrl"
-                  [name]="athlete.name"
-                  size="xl"
-                />
+                <nxt1-avatar [src]="athlete.imageUrl" [name]="athlete.name" size="xl" />
                 @if (athlete.isVerified) {
                   <span class="athlete-card__verified" aria-label="Verified">
                     <ion-icon name="checkmark-circle" aria-hidden="true" />
@@ -196,11 +162,7 @@ const CATEGORY_TILES: readonly CategoryTile[] = [
             >
               <ion-ripple-effect></ion-ripple-effect>
               <div class="college-card__logo">
-                <nxt1-avatar
-                  [src]="college.imageUrl"
-                  [name]="college.name"
-                  size="lg"
-                />
+                <nxt1-avatar [src]="college.imageUrl" [name]="college.name" size="lg" />
               </div>
               <div class="college-card__info">
                 <p class="college-card__name">{{ college.name }}</p>
@@ -347,91 +309,6 @@ const CATEGORY_TILES: readonly CategoryTile[] = [
 
       .for-you {
         padding-bottom: var(--nxt1-spacing-10, 40px);
-      }
-
-      /* ── HERO BANNER ── */
-
-      .hero {
-        position: relative;
-        overflow: hidden;
-        padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-4, 16px)
-          var(--nxt1-spacing-8, 32px);
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--fy-primary) 12%, transparent) 0%,
-          var(--fy-surface) 60%
-        );
-        border-bottom: 1px solid var(--fy-border);
-      }
-
-      .hero__content {
-        position: relative;
-        z-index: 1;
-      }
-
-      .hero__badge {
-        display: inline-flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-1, 4px);
-        padding: var(--nxt1-spacing-1, 4px) var(--nxt1-spacing-3, 12px);
-        background: color-mix(in srgb, var(--fy-primary) 15%, transparent);
-        border: 1px solid color-mix(in srgb, var(--fy-primary) 30%, transparent);
-        border-radius: var(--fy-radius-full);
-        font-size: var(--nxt1-fontSize-xs, 12px);
-        font-weight: var(--nxt1-fontWeight-semibold, 600);
-        color: var(--fy-primary);
-        letter-spacing: 0.3px;
-        margin-bottom: var(--nxt1-spacing-3, 12px);
-        width: fit-content;
-      }
-
-      .hero__badge ion-icon {
-        font-size: 14px;
-      }
-
-      .hero__title {
-        font-size: var(--nxt1-fontSize-3xl, 30px);
-        font-weight: var(--nxt1-fontWeight-bold, 700);
-        color: var(--fy-text-primary);
-        line-height: var(--nxt1-lineHeight-tight, 1.2);
-        margin-bottom: var(--nxt1-spacing-2, 8px);
-        letter-spacing: -0.5px;
-      }
-
-      .hero__subtitle {
-        font-size: var(--nxt1-fontSize-sm, 14px);
-        color: var(--fy-text-secondary);
-        line-height: var(--nxt1-lineHeight-normal, 1.5);
-        margin: 0;
-        max-width: 280px;
-      }
-
-      .hero__orb {
-        position: absolute;
-        top: -40px;
-        right: -60px;
-        width: 200px;
-        height: 200px;
-        background: radial-gradient(
-          circle at center,
-          color-mix(in srgb, var(--fy-primary) 20%, transparent) 0%,
-          transparent 70%
-        );
-        border-radius: 50%;
-        pointer-events: none;
-        animation: orb-pulse 4s ease-in-out infinite;
-      }
-
-      @keyframes orb-pulse {
-        0%,
-        100% {
-          opacity: 0.6;
-          transform: scale(1);
-        }
-        50% {
-          opacity: 1;
-          transform: scale(1.1);
-        }
       }
 
       /* ── SECTION ── */
@@ -895,10 +772,6 @@ const CATEGORY_TILES: readonly CategoryTile[] = [
       /* ── REDUCED MOTION ── */
 
       @media (prefers-reduced-motion: reduce) {
-        .hero__orb {
-          animation: none;
-        }
-
         .category-tile,
         .athlete-card,
         .college-card,
