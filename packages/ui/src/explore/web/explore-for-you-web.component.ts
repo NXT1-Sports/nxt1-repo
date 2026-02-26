@@ -28,6 +28,8 @@ import { CommonModule } from '@angular/common';
 import type { ExploreItem, ExploreTabId } from '@nxt1/core';
 import type { ExploreUser } from '../explore-shell.component';
 import { MOCK_ATHLETES, MOCK_COLLEGES, MOCK_VIDEOS } from '../explore.mock-data';
+import { FeedPostCardComponent } from '../../feed/feed-post-card.component';
+import { MOCK_FEED_POSTS } from '../../feed/feed.mock-data';
 
 // ── Inline mock data for college-hosted camps ──
 const MOCK_COLLEGE_CAMPS = [
@@ -120,40 +122,19 @@ const MOCK_INTEL = [
   },
 ];
 
-const MOCK_SOCIAL_POSTS = [
-  {
-    id: 'post-1',
-    authorName: 'Marcus Johnson',
-    authorAvatar: 'https://i.pravatar.cc/150?img=12',
-    content: 'Blessed to announce my commitment to UCLA! #GoUCLA #Committed',
-    timestamp: '2h ago',
-    likes: 2847,
-    comments: 341,
-  },
-  {
-    id: 'post-2',
-    authorName: 'Sarah Williams',
-    authorAvatar: 'https://i.pravatar.cc/150?img=25',
-    content: 'New PR in the 100m today — 10.98! Hard work paying off.',
-    timestamp: '5h ago',
-    likes: 1204,
-    comments: 98,
-  },
-  {
-    id: 'post-3',
-    authorName: 'Carlos Rodriguez',
-    authorAvatar: 'https://i.pravatar.cc/150?img=33',
-    content: 'Game winner in overtime! Nothing better than this feeling.',
-    timestamp: '1d ago',
-    likes: 3510,
-    comments: 267,
-  },
+const STOCK_HERO_IMAGES = [
+  'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&h=640&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=400&h=640&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1556816213-354f1e24cb47?w=400&h=640&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1566577739112-5180d4bf9390?w=400&h=640&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1547347298-4074fc3086f0?w=400&h=640&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=400&h=640&fit=crop&q=80',
 ];
 
 @Component({
   selector: 'nxt1-explore-for-you-web',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FeedPostCardComponent],
   template: `
     <section class="for-you pb-10" aria-label="For You — personalized explore">
 
@@ -303,54 +284,30 @@ const MOCK_SOCIAL_POSTS = [
           >
             @for (mover of trendingMovers(); track mover.id; let i = $index) {
               <article
-                class="stock-card group flex w-52 flex-shrink-0 cursor-pointer flex-col rounded-2xl border border-border-subtle bg-surface-200 p-4 transition-all hover:-translate-y-1 hover:border-border-primary hover:bg-surface-300 hover:shadow-[0_8px_24px_var(--nxt1-color-alpha-primary20)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.97]"
+                class="group relative h-64 w-44 flex-shrink-0 cursor-pointer overflow-hidden rounded-2xl border border-border-subtle transition-all hover:-translate-y-1 hover:border-border-primary hover:shadow-[0_8px_24px_var(--nxt1-color-alpha-primary20)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.97]"
                 style="scroll-snap-align: start;"
                 role="listitem"
                 tabindex="0"
                 (click)="itemTap.emit(mover)"
                 (keydown.enter)="itemTap.emit(mover)"
+                (keydown.space)="$event.preventDefault(); itemTap.emit(mover)"
                 [attr.aria-label]="mover.name + ', ' + mover.sport"
               >
-                <div class="mb-3 flex items-start justify-between">
-                  <img
-                    [src]="mover.imageUrl"
-                    [alt]="mover.name"
-                    class="h-16 w-16 rounded-full object-cover ring-2 ring-border-subtle group-hover:ring-border-primary transition-all"
-                    loading="lazy"
-                  />
-                  @if (i % 3 !== 2) {
-                    <span class="rounded-full bg-primary/15 px-2.5 py-1 text-[11px] font-bold text-primary">
-                      +{{ 8 + i * 3 }}%
-                    </span>
-                  } @else {
-                    <span class="rounded-full bg-surface-300 px-2.5 py-1 text-[11px] font-medium text-text-secondary">
-                      Steady
-                    </span>
-                  }
+                <!-- Full-bleed athlete image -->
+                <img
+                  [src]="getHeroImage(i)"
+                  [alt]="mover.name"
+                  class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  loading="lazy"
+                />
+                <!-- Gradient overlay — fades bottom half -->
+                <div class="absolute inset-0 bg-gradient-to-t from-bg-primary from-30% via-bg-primary/65 via-55% to-transparent"></div>
+                <!-- Text overlaid on gradient -->
+                <div class="absolute bottom-0 left-0 right-0 p-3">
+                  <p class="truncate text-sm font-bold text-text-primary">{{ mover.name }}</p>
+                  <p class="truncate text-xs text-text-secondary">{{ mover['position'] || mover.sport }}</p>
+                  <p class="text-[11px] text-text-tertiary">Class of {{ mover['classYear'] || '2026' }}</p>
                 </div>
-
-                <p class="mb-0.5 truncate text-sm font-bold text-text-primary">{{ mover.name }}</p>
-                <p class="mb-1 truncate text-xs text-text-secondary">{{ mover.sport }}</p>
-                <p class="mb-3 text-[11px] text-text-tertiary">{{ mover['position'] || 'Athlete' }} · {{ mover['classYear'] || '2026' }}</p>
-
-                @if (mover['commitment']) {
-                  <span class="mb-3 self-start rounded-full bg-primary px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-bg-primary">
-                    Committed
-                  </span>
-                }
-
-                <div class="mt-auto h-1.5 w-full overflow-hidden rounded-full bg-surface-300">
-                  <div class="h-full rounded-full bg-primary transition-all" [style.width]="((i % 3 !== 2) ? (70 + i * 8) : 55) + '%'"></div>
-                </div>
-                <p class="mt-1 text-[10px] text-text-tertiary">Recruit Score</p>
-
-                <button
-                  type="button"
-                  class="mt-3 w-full rounded-lg border border-border-primary bg-transparent px-3 py-1.5 text-xs font-semibold text-primary opacity-0 transition-all group-hover:opacity-100 hover:bg-primary/10 active:scale-95"
-                  (click)="$event.stopPropagation()"
-                >
-                  View Profile
-                </button>
               </article>
             }
           </div>
@@ -360,7 +317,7 @@ const MOCK_SOCIAL_POSTS = [
           <div class="mb-3 h-6 w-40 animate-pulse rounded-lg bg-surface-300"></div>
           <div class="flex gap-3">
             @for (i of [1, 2, 3, 4]; track i) {
-              <div class="h-60 w-52 flex-shrink-0 animate-pulse rounded-2xl bg-surface-300"></div>
+              <div class="h-64 w-44 flex-shrink-0 animate-pulse rounded-2xl bg-surface-300"></div>
             }
           </div>
         </div>
@@ -369,7 +326,7 @@ const MOCK_SOCIAL_POSTS = [
           <div class="mb-3 h-6 w-40 animate-pulse rounded-lg bg-surface-300"></div>
           <div class="flex gap-3">
             @for (i of [1, 2, 3, 4]; track i) {
-              <div class="h-60 w-52 flex-shrink-0 animate-pulse rounded-2xl bg-surface-300"></div>
+              <div class="h-64 w-44 flex-shrink-0 animate-pulse rounded-2xl bg-surface-300"></div>
             }
           </div>
         </div>
@@ -591,40 +548,24 @@ const MOCK_SOCIAL_POSTS = [
             </button>
           </header>
 
-          <div class="columns-1 gap-3 px-4 md:columns-2 md:px-6 lg:columns-3" style="column-fill: balance;">
-            @for (post of socialPosts(); track post.id) {
-              <article class="mb-3 break-inside-avoid cursor-pointer rounded-xl border border-border-subtle bg-surface-200 p-4 transition-all hover:border-border-primary hover:bg-surface-300 focus-visible:outline-2 focus-visible:outline-primary active:scale-[0.99]" tabindex="0">
-                <header class="mb-3 flex items-center gap-3">
-                  <img [src]="post.authorAvatar" [alt]="post.authorName" class="h-8 w-8 flex-shrink-0 rounded-full object-cover ring-2 ring-border-subtle" loading="lazy" />
-                  <div class="min-w-0">
-                    <p class="truncate text-xs font-semibold text-text-primary">{{ post.authorName }}</p>
-                    <p class="text-[10px] text-text-secondary">{{ post.timestamp }}</p>
-                  </div>
-                </header>
-                <p class="mb-3 text-sm leading-relaxed text-text-primary">{{ post.content }}</p>
-                <footer class="flex items-center gap-4">
-                  <span class="flex items-center gap-1 text-xs text-text-secondary">
-                    <svg class="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                    {{ post.likes.toLocaleString() }}
-                  </span>
-                  <span class="flex items-center gap-1 text-xs text-text-secondary">
-                    <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
-                    {{ post.comments }}
-                  </span>
-                </footer>
-              </article>
+          <!-- Real feed post cards from shared FeedPostCardComponent -->
+          <div class="flex flex-col divide-y divide-border-subtle px-4 md:px-6">
+            @for (feedPost of feedPosts(); track feedPost.id) {
+              <nxt1-feed-post-card
+                [post]="feedPost"
+              />
             }
           </div>
         </section>
       } @placeholder {
         <div class="px-4 py-5 md:px-6">
           <div class="mb-3 h-6 w-36 animate-pulse rounded-lg bg-surface-300"></div>
-          @for (i of [1, 2, 3]; track i) { <div class="mb-3 h-28 animate-pulse rounded-xl bg-surface-300"></div> }
+          @for (i of [1, 2, 3, 4, 5, 6]; track i) { <div class="mb-3 h-36 animate-pulse rounded-xl bg-surface-300"></div> }
         </div>
       } @loading (minimum 300ms) {
         <div class="px-4 py-5 md:px-6">
           <div class="mb-3 h-6 w-36 animate-pulse rounded-lg bg-surface-300"></div>
-          @for (i of [1, 2, 3]; track i) { <div class="mb-3 h-28 animate-pulse rounded-xl bg-surface-300"></div> }
+          @for (i of [1, 2, 3, 4, 5, 6]; track i) { <div class="mb-3 h-36 animate-pulse rounded-xl bg-surface-300"></div> }
         </div>
       }
 
@@ -909,7 +850,7 @@ export class ExploreForYouWebComponent {
   readonly videoList = signal(MOCK_VIDEOS);
   readonly allColleges = signal(MOCK_COLLEGES);
   readonly bentoColleges = signal(MOCK_COLLEGES.slice(0, 4));
-  readonly socialPosts = signal(MOCK_SOCIAL_POSTS);
+  readonly feedPosts = signal(MOCK_FEED_POSTS.slice(0, 6));
   readonly campusColleges = signal(MOCK_COLLEGES.slice(0, 3));
   readonly intelArticles = signal(MOCK_INTEL);
   readonly collegeCamps = signal(MOCK_COLLEGE_CAMPS);
@@ -929,5 +870,9 @@ export class ExploreForYouWebComponent {
     if (views >= 1_000_000) return `${(views / 1_000_000).toFixed(1)}M`;
     if (views >= 1_000) return `${(views / 1_000).toFixed(0)}K`;
     return views.toString();
+  }
+
+  getHeroImage(index: number): string {
+    return STOCK_HERO_IMAGES[index % STOCK_HERO_IMAGES.length];
   }
 }

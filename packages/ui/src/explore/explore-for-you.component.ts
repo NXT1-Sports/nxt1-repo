@@ -40,6 +40,17 @@ import type { ExploreItem, ExploreTabId } from '@nxt1/core';
 import type { ExploreUser } from './explore-shell.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { MOCK_ATHLETES, MOCK_COLLEGES, MOCK_VIDEOS } from './explore.mock-data';
+import { FeedPostCardComponent } from '../feed/feed-post-card.component';
+import { MOCK_FEED_POSTS } from '../feed/feed.mock-data';
+
+const STOCK_HERO_IMAGES = [
+  'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=400&h=640&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=400&h=640&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1556816213-354f1e24cb47?w=400&h=640&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1566577739112-5180d4bf9390?w=400&h=640&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1547347298-4074fc3086f0?w=400&h=640&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=400&h=640&fit=crop&q=80',
+];
 
 // ── Inline mock data for college-hosted camps ──
 const MOCK_COLLEGE_CAMPS = [
@@ -128,36 +139,6 @@ const MOCK_INTEL = [
   },
 ];
 
-const MOCK_SOCIAL_POSTS = [
-  {
-    id: 'post-1',
-    authorName: 'Marcus Johnson',
-    authorAvatar: 'https://i.pravatar.cc/150?img=12',
-    content: 'Blessed to announce my commitment to UCLA! #GoUCLA #Committed',
-    timestamp: '2h ago',
-    likes: 2847,
-    comments: 341,
-  },
-  {
-    id: 'post-2',
-    authorName: 'Sarah Williams',
-    authorAvatar: 'https://i.pravatar.cc/150?img=25',
-    content: 'New PR in the 100m today — 10.98! Hard work paying off.',
-    timestamp: '5h ago',
-    likes: 1204,
-    comments: 98,
-  },
-  {
-    id: 'post-3',
-    authorName: 'Carlos Rodriguez',
-    authorAvatar: 'https://i.pravatar.cc/150?img=33',
-    content: 'Game winner in overtime! Nothing better than this feeling.',
-    timestamp: '1d ago',
-    likes: 3510,
-    comments: 267,
-  },
-];
-
 @Component({
   selector: 'nxt1-explore-for-you',
   standalone: true,
@@ -171,6 +152,7 @@ const MOCK_SOCIAL_POSTS = [
     IonAvatar,
     IonBadge,
     IonChip,
+    FeedPostCardComponent,
   ],
   template: `
     <section class="for-you" aria-label="For You — personalized explore">
@@ -314,30 +296,28 @@ const MOCK_SOCIAL_POSTS = [
 
           <div class="h-scroll" role="list">
             @for (mover of trendingMovers(); track mover.id; let i = $index) {
-              <ion-card
+              <article
                 class="mover-card"
-                button="true"
                 role="listitem"
+                tabindex="0"
                 (click)="onItemTap(mover)"
+                (keydown.enter)="onItemTap(mover)"
+                (keydown.space)="$event.preventDefault(); onItemTap(mover)"
+                [attr.aria-label]="mover.name + ', ' + mover.sport"
               >
-                <ion-avatar class="mover-avatar">
-                  <img [src]="mover.imageUrl" [alt]="mover.name" loading="lazy" />
-                </ion-avatar>
-                <ion-card-content class="mover-content">
+                <img
+                  [src]="getHeroImage(i)"
+                  [alt]="mover.name"
+                  class="mover-hero-img"
+                  loading="lazy"
+                />
+                <div class="mover-gradient"></div>
+                <div class="mover-info">
                   <p class="mover-name">{{ mover.name }}</p>
-                  <p class="mover-sport">{{ mover.sport }}</p>
-                  <div class="mover-trend">
-                    @if (i % 3 !== 2) {
-                      <span class="trend-up">↑ +{{ 8 + i * 3 }}%</span>
-                    } @else {
-                      <span class="trend-steady">→ Steady</span>
-                    }
-                  </div>
-                  @if (mover['commitment']) {
-                    <ion-badge class="committed-badge">Committed</ion-badge>
-                  }
-                </ion-card-content>
-              </ion-card>
+                  <p class="mover-position">{{ mover['position'] || mover.sport }}</p>
+                  <p class="mover-class">Class of {{ mover['classYear'] || '2026' }}</p>
+                </div>
+              </article>
             }
           </div>
         </section>
@@ -510,65 +490,26 @@ const MOCK_SOCIAL_POSTS = [
             </button>
           </header>
 
+          <!-- Real feed post cards from shared FeedPostCardComponent -->
           <div class="social-stack">
-            @for (post of socialPosts(); track post.id) {
-              <ion-card class="social-post-card">
-                <ion-card-content class="social-post-content">
-                  <div class="post-author-row">
-                    <img
-                      [src]="post.authorAvatar"
-                      [alt]="post.authorName"
-                      class="post-avatar"
-                      loading="lazy"
-                    />
-                    <div class="post-author-info">
-                      <p class="post-author-name">{{ post.authorName }}</p>
-                      <p class="post-timestamp">{{ post.timestamp }}</p>
-                    </div>
-                  </div>
-                  <p class="post-body">{{ post.content }}</p>
-                  <div class="post-engagement">
-                    <span class="engagement-item">
-                      <svg class="engagement-icon" fill="currentColor" viewBox="0 0 24 24">
-                        <path
-                          d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-                        />
-                      </svg>
-                      {{ post.likes.toLocaleString() }}
-                    </span>
-                    <span class="engagement-item">
-                      <svg
-                        class="engagement-icon"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                        />
-                      </svg>
-                      {{ post.comments }}
-                    </span>
-                  </div>
-                </ion-card-content>
-              </ion-card>
+            @for (feedPost of feedPosts(); track feedPost.id) {
+              <nxt1-feed-post-card
+                [post]="feedPost"
+              />
             }
           </div>
         </section>
       } @placeholder {
         <div class="skeleton-section">
           <div class="skeleton-title animate-pulse bg-surface-300"></div>
-          @for (i of [1, 2, 3]; track i) {
+          @for (i of [1, 2, 3, 4, 5, 6]; track i) {
             <div class="skeleton-post animate-pulse bg-surface-300"></div>
           }
         </div>
       } @loading (minimum 300ms) {
         <div class="skeleton-section">
           <div class="skeleton-title animate-pulse bg-surface-300"></div>
-          @for (i of [1, 2, 3]; track i) {
+          @for (i of [1, 2, 3, 4, 5, 6]; track i) {
             <div class="skeleton-post animate-pulse bg-surface-300"></div>
           }
         </div>
@@ -1035,40 +976,58 @@ const MOCK_SOCIAL_POSTS = [
          ══════════════════════════════ */
 
       .mover-card {
+        position: relative;
         flex-shrink: 0;
-        width: 120px;
+        width: 160px;
+        height: 240px;
         scroll-snap-align: start;
-        margin: 0;
-        border-radius: var(--nxt1-radius-md, 12px);
-        background: var(--nxt1-color-surface-200);
-        --background: var(--nxt1-color-surface-200);
+        border-radius: var(--nxt1-radius-xl, 16px);
+        overflow: hidden;
+        cursor: pointer;
         border: 1px solid var(--nxt1-color-border-subtle);
-        box-shadow: none;
         -webkit-tap-highlight-color: transparent;
+        display: block;
       }
 
       .mover-card:active {
         transform: scale(0.96);
       }
 
-      .mover-avatar {
-        width: 48px;
-        height: 48px;
-        margin: 12px auto 0;
+      .mover-hero-img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        transition: transform 0.3s ease;
       }
 
-      .mover-content {
-        text-align: center;
-        padding: 8px;
-        --padding-start: 8px;
-        --padding-end: 8px;
-        --padding-top: 8px;
-        --padding-bottom: 8px;
+      .mover-card:hover .mover-hero-img {
+        transform: scale(1.04);
+      }
+
+      .mover-gradient {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          to top,
+          var(--nxt1-color-bg-primary) 0%,
+          var(--nxt1-color-bg-primary) 25%,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 65%, transparent) 50%,
+          transparent 100%
+        );
+      }
+
+      .mover-info {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        padding: 12px;
       }
 
       .mover-name {
-        font-size: 11px;
-        font-weight: 600;
+        font-size: 13px;
+        font-weight: 700;
         color: var(--nxt1-color-text-primary);
         margin: 0 0 2px;
         white-space: nowrap;
@@ -1076,35 +1035,19 @@ const MOCK_SOCIAL_POSTS = [
         text-overflow: ellipsis;
       }
 
-      .mover-sport {
+      .mover-position {
+        font-size: 11px;
+        color: var(--nxt1-color-text-secondary);
+        margin: 0 0 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .mover-class {
         font-size: 10px;
         color: var(--nxt1-color-text-tertiary);
-        margin: 0 0 4px;
-      }
-
-      .mover-trend {
-        margin-bottom: 4px;
-      }
-
-      .trend-up {
-        font-size: 11px;
-        font-weight: 700;
-        color: var(--nxt1-color-primary);
-      }
-
-      .trend-steady {
-        font-size: 10px;
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .committed-badge {
-        font-size: 9px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        --background: var(--nxt1-color-primary);
-        --color: var(--nxt1-color-on-primary, #000);
-        border-radius: var(--nxt1-radius-full, 9999px);
+        margin: 0;
       }
 
       /* ══════════════════════════
@@ -1323,82 +1266,7 @@ const MOCK_SOCIAL_POSTS = [
       }
 
       .social-post-card {
-        margin: 0;
-        border-radius: var(--nxt1-radius-md, 12px);
-        background: var(--nxt1-color-surface-200);
-        --background: var(--nxt1-color-surface-200);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        box-shadow: none;
-      }
-
-      .social-post-content {
-        padding: 12px;
-        --padding-start: 12px;
-        --padding-end: 12px;
-        --padding-top: 12px;
-        --padding-bottom: 12px;
-      }
-
-      .post-author-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 10px;
-      }
-
-      .post-avatar {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        object-fit: cover;
-        flex-shrink: 0;
-        border: 1px solid var(--nxt1-color-border-subtle);
-      }
-
-      .post-author-info {
-        min-width: 0;
-      }
-
-      .post-author-name {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary);
-        margin: 0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .post-timestamp {
-        font-size: 10px;
-        color: var(--nxt1-color-text-secondary);
-        margin: 0;
-      }
-
-      .post-body {
-        font-size: 13px;
-        color: var(--nxt1-color-text-primary);
-        line-height: 1.5;
-        margin: 0 0 10px;
-      }
-
-      .post-engagement {
-        display: flex;
-        gap: 16px;
-      }
-
-      .engagement-item {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 11px;
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .engagement-icon {
-        width: 13px;
-        height: 13px;
-        flex-shrink: 0;
+        /* Replaced by nxt1-feed-post-card — keep for skeleton only */
       }
 
       /* ══════════════════════════
@@ -2032,10 +1900,10 @@ const MOCK_SOCIAL_POSTS = [
       }
 
       .skeleton-mover-card {
-        width: 120px;
-        height: 160px;
+        width: 160px;
+        height: 240px;
         flex-shrink: 0;
-        border-radius: var(--nxt1-radius-md, 12px);
+        border-radius: var(--nxt1-radius-xl, 16px);
       }
 
       .skeleton-video {
@@ -2122,7 +1990,7 @@ export class ExploreForYouComponent {
   readonly featuredVideo = signal(MOCK_VIDEOS[0]);
   readonly videoList = signal(MOCK_VIDEOS);
   readonly bentoColleges = signal(MOCK_COLLEGES.slice(0, 4));
-  readonly socialPosts = signal(MOCK_SOCIAL_POSTS);
+  readonly feedPosts = signal(MOCK_FEED_POSTS.slice(0, 6));
   readonly campusColleges = signal(MOCK_COLLEGES.slice(0, 3));
   readonly intelArticles = signal(MOCK_INTEL);
   readonly events = signal(MOCK_COLLEGE_CAMPS);
@@ -2166,5 +2034,9 @@ export class ExploreForYouComponent {
     if (views >= 1_000_000) return `${(views / 1_000_000).toFixed(1)}M`;
     if (views >= 1_000) return `${(views / 1_000).toFixed(0)}K`;
     return views.toString();
+  }
+
+  getHeroImage(index: number): string {
+    return STOCK_HERO_IMAGES[index % STOCK_HERO_IMAGES.length];
   }
 }
