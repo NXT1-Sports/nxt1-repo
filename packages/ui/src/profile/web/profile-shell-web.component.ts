@@ -1036,11 +1036,12 @@ interface StatsComparisonItem {
                                 !profile.user()?.school?.name
                               ) {
                                 <div class="madden-empty">
-                                  <nxt1-icon [name]="emptyStateFor('academic').icon" [size]="48" />
-                                  <h3>{{ emptyStateFor('academic').title }}</h3>
+                                  <nxt1-icon name="school" [size]="48" />
+                                  <h3>No academic info yet</h3>
                                   <p>
                                     @if (profile.isOwnProfile()) {
-                                      {{ emptyStateFor('academic').message }}
+                                      Add GPA, test scores, and school details to strengthen your
+                                      profile.
                                     } @else {
                                       This athlete hasn't added academic information yet.
                                     }
@@ -1051,7 +1052,7 @@ interface StatsComparisonItem {
                                       class="madden-cta-btn"
                                       (click)="onEditProfile()"
                                     >
-                                      {{ emptyStateFor('academic').ctaLabel }}
+                                      Add Academic Info
                                     </button>
                                   }
                                 </div>
@@ -1097,11 +1098,11 @@ interface StatsComparisonItem {
                             !profile.user()?.coachContact
                           ) {
                             <div class="madden-empty">
-                              <nxt1-icon [name]="emptyStateFor('contact').icon" [size]="48" />
-                              <h3>{{ emptyStateFor('contact').title }}</h3>
+                              <nxt1-icon name="mail" [size]="48" />
+                              <h3>Contact info not set</h3>
                               <p>
                                 @if (profile.isOwnProfile()) {
-                                  {{ emptyStateFor('contact').message }}
+                                  Add your contact information so coaches can reach you.
                                 } @else {
                                   This athlete hasn't added contact information yet.
                                 }
@@ -1112,7 +1113,7 @@ interface StatsComparisonItem {
                                   class="madden-cta-btn"
                                   (click)="onEditContact()"
                                 >
-                                  {{ emptyStateFor('contact').ctaLabel }}
+                                  Add Contact Info
                                 </button>
                               }
                             </div>
@@ -1330,11 +1331,11 @@ interface StatsComparisonItem {
 
                         @if (profile.metrics().length === 0) {
                           <div class="madden-empty">
-                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
-                            <h3>{{ emptyState().title }}</h3>
+                            <nxt1-icon name="barbell" [size]="48" />
+                            <h3>No metrics recorded</h3>
                             <p>
                               @if (profile.isOwnProfile()) {
-                                {{ emptyState().message }}
+                                Add your combine results and measurables to complete your profile.
                               } @else {
                                 This athlete hasn't recorded any metrics yet.
                               }
@@ -1396,11 +1397,11 @@ interface StatsComparisonItem {
                           profile.gameLog().length === 0 && profile.athleticStats().length === 0
                         ) {
                           <div class="madden-empty">
-                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
-                            <h3>{{ emptyState().title }}</h3>
+                            <nxt1-icon name="stats-chart" [size]="48" />
+                            <h3>No stats recorded</h3>
                             <p>
                               @if (profile.isOwnProfile()) {
-                                {{ emptyState().message }}
+                                Add your athletic and academic stats to complete your profile.
                               } @else {
                                 This athlete hasn't recorded any stats yet.
                               }
@@ -1735,11 +1736,11 @@ interface StatsComparisonItem {
                           !profile.user()?.school?.name
                         ) {
                           <div class="madden-empty">
-                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
-                            <h3>{{ emptyState().title }}</h3>
+                            <nxt1-icon name="school" [size]="48" />
+                            <h3>No academic info yet</h3>
                             <p>
                               @if (profile.isOwnProfile()) {
-                                {{ emptyState().message }}
+                                Add GPA, test scores, and school details to strengthen your profile.
                               } @else {
                                 This athlete hasn't added academic information yet.
                               }
@@ -1802,11 +1803,11 @@ interface StatsComparisonItem {
 
                         @if (scheduleEvents().length === 0) {
                           <div class="madden-empty">
-                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
-                            <h3>{{ emptyState().title }}</h3>
+                            <nxt1-icon name="calendar" [size]="48" />
+                            <h3>No schedule yet</h3>
                             <p>
                               @if (profile.isOwnProfile()) {
-                                {{ emptyState().message }}
+                                Add games and practices to show your full season schedule.
                               } @else {
                                 This athlete hasn't added any schedule items yet.
                               }
@@ -1905,11 +1906,11 @@ interface StatsComparisonItem {
                           !profile.user()?.coachContact
                         ) {
                           <div class="madden-empty">
-                            <nxt1-icon [name]="emptyState().icon" [size]="48" />
-                            <h3>{{ emptyState().title }}</h3>
+                            <nxt1-icon name="mail" [size]="48" />
+                            <h3>Contact info not set</h3>
                             <p>
                               @if (profile.isOwnProfile()) {
-                                {{ emptyState().message }}
+                                Add your contact information so coaches can reach you.
                               } @else {
                                 This athlete hasn't added contact information yet.
                               }
@@ -5385,17 +5386,6 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
   /** Hide mobile header (when sidebar provides navigation on desktop) */
   readonly hideHeader = input(false);
 
-  /**
-   * When true, the shell skips its internal `profile.loadProfile()` call in ngOnInit.
-   *
-   * Use this when the parent component (e.g., web `ProfileComponent`) fetches real
-   * profile data from a platform-specific API service and pushes it into the shared
-   * `ProfileService` state via `loadFromExternalData()`.
-   *
-   * This prevents the shell from overwriting real data with mock data.
-   */
-  readonly skipInternalLoad = input(false);
-
   // ============================================
   // OUTPUTS
   // ============================================
@@ -5639,13 +5629,6 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
     const tab = this.profile.activeTab();
     return PROFILE_EMPTY_STATES[tab] || PROFILE_EMPTY_STATES['timeline'];
   });
-
-  /** Look up the empty-state config for a specific tab, regardless of which tab is active.
-   *  Use this inside the overview sidebar sub-panels (academic, contact, etc.) where
-   *  emptyState() would return the 'overview' config instead. */
-  protected emptyStateFor(tab: ProfileTabId) {
-    return PROFILE_EMPTY_STATES[tab];
-  }
 
   protected readonly displayAgentXSummary = computed(() => {
     const summary = this.profile.playerCard()?.agentXSummary?.trim() ?? '';
@@ -6419,15 +6402,6 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
   // ============================================
 
   ngOnInit(): void {
-    // When skipInternalLoad is true, the parent component is responsible for
-    // fetching real profile data and pushing it into ProfileService via
-    // loadFromExternalData(). The shell will react to the signal update
-    // automatically. Calling loadProfile() here would overwrite real data
-    // with mock data.
-    if (this.skipInternalLoad()) {
-      return;
-    }
-
     const unicode = this.profileUnicode();
     const isOwn = this.isOwnProfile();
 
