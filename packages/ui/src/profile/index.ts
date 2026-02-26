@@ -24,6 +24,12 @@
 export { ProfileService } from './profile.service';
 
 // ============================================
+// MAPPERS (Platform-agnostic, shared web+mobile)
+// ============================================
+
+export { userToProfilePageData } from './profile-mappers';
+
+// ============================================
 // SHELL COMPONENTS
 // ============================================
 

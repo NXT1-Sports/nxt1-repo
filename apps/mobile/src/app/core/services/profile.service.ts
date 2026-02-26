@@ -77,8 +77,10 @@ export interface IProfileService {
 // CACHE CONFIGURATION
 // ============================================
 
-/** Cache TTL: 15 minutes */
-const CACHE_TTL = 15 * 60 * 1000;
+import { CACHE_CONFIG } from '@nxt1/core/cache';
+
+/** Cache TTL: aligned with CACHE_CONFIG.MEDIUM_TTL (15 min) */
+const CACHE_TTL = CACHE_CONFIG.MEDIUM_TTL;
 
 interface CacheEntry {
   user: User;

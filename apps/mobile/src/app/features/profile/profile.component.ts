@@ -21,10 +21,11 @@
  * - Deep link handling (future)
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed, DestroyRef } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { toSignal } from '@angular/core/rxjs-interop';
-import { map } from 'rxjs/operators';
+import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { map, filter, distinctUntilChanged, switchMap, tap } from 'rxjs';
+import { from } from 'rxjs';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 
 // Shared UI from @nxt1/ui (95% of the code)
@@ -33,12 +34,16 @@ import {
   EditProfileBottomSheetService,
   ManageTeamBottomSheetService,
   NxtSidenavService,
-  ProfileService,
+  ProfileService as UiProfileService,
+  userToProfilePageData,
 } from '@nxt1/ui';
+import { parseApiError, requiresAuth } from '@nxt1/core';
+import type { User } from '@nxt1/core';
 
 // Mobile-specific services
 import { MobileAuthService } from '../auth/services/mobile-auth.service';
 import { ShareService } from '../../core/services/share.service';
+import { ProfileApiService } from '../../core/services/profile-api.service';
 
 /**
  * Mobile Profile Feature Component
@@ -64,6 +69,7 @@ import { ShareService } from '../../core/services/share.service';
       <nxt1-profile-shell
         [currentUser]="currentUser()"
         [profileUnicode]="profileUnicode()"
+        [skipInternalLoad]="!!profileUnicode()"
         (avatarClick)="onAvatarClick()"
         (backClick)="onBackClick()"
         (editProfileClick)="onEditProfile()"
@@ -108,8 +114,10 @@ export class ProfileComponent {
   private readonly manageTeamSheet = inject(ManageTeamBottomSheetService);
   private readonly navController = inject(NavController);
   private readonly sidenavService = inject(NxtSidenavService);
-  private readonly profileService = inject(ProfileService);
+  private readonly uiProfileService = inject(UiProfileService);
+  private readonly profileApiService = inject(ProfileApiService);
   private readonly shareService = inject(ShareService);
+  private readonly destroyRef = inject(DestroyRef);
 
   // ============================================
   // STATE
@@ -131,6 +139,40 @@ export class ProfileComponent {
       displayName: user.displayName ?? 'User',
     };
   });
+
+  constructor() {
+    /**
+     * Bridge: fetch real API data → push into UIProfileService.
+     * distinctUntilChanged prevents duplicate fetches when signals re-emit
+     * with same unicode. switchMap cancels any previous in-flight request.
+     */
+    toObservable(this.profileUnicode)
+      .pipe(
+        filter((unicode) => !!unicode),
+        distinctUntilChanged(),
+        tap(() => this.uiProfileService.startLoading()),
+        switchMap((unicode) => from(this.profileApiService.getProfile(unicode))),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe({
+        next: (response) => {
+          if (response.success && response.data) {
+            const profilePageData = userToProfilePageData(
+              response.data,
+              this.uiProfileService.isOwnProfile()
+            );
+            this.uiProfileService.loadFromExternalData(profilePageData);
+          }
+        },
+        error: (err: unknown) => {
+          const parsed = parseApiError(err);
+          this.uiProfileService.setError(parsed.message);
+          if (requiresAuth(err)) {
+            void this.authService.signOut();
+          }
+        },
+      });
+  }
 
   // ============================================
   // ACTIONS
@@ -181,7 +223,7 @@ export class ProfileComponent {
    * Handles native share for the profile using the centralized ShareService.
    */
   protected async onShare(): Promise<void> {
-    const user = this.profileService.user();
+    const user = this.uiProfileService.user();
     if (!user) return;
 
     const profileId = this.profileUnicode() || user.profileCode || user.uid;
@@ -202,7 +244,7 @@ export class ProfileComponent {
       },
       {
         analyticsProps: {
-          is_own_profile: this.profileService.isOwnProfile(),
+          is_own_profile: this.uiProfileService.isOwnProfile(),
         },
       }
     );

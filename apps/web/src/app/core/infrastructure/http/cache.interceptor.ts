@@ -111,6 +111,8 @@ const DEFAULT_TTL_CONFIG: CacheTTLConfig[] = [
   { pattern: /\/api\/v1\/college/, ttl: CACHE_CONFIG.LONG_TTL },
 
   // Profiles - Medium TTL
+  // Note: core profile API routes to /auth/profile/:id (not /api/v1/profile)
+  { pattern: /\/auth\/profile/, ttl: CACHE_CONFIG.MEDIUM_TTL },
   { pattern: /\/api\/v1\/profile/, ttl: CACHE_CONFIG.MEDIUM_TTL },
 
   // Teams - Medium TTL

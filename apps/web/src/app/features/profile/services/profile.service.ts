@@ -1,18 +1,35 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, from } from 'rxjs';
+import { Observable, from, of } from 'rxjs';
+import { tap } from 'rxjs/operators';
 import { environment } from '../../../../environments/environment';
 import { createProfileApi, type ProfileApi, type ApiResponse } from '@nxt1/core/profile';
 import { User } from '@nxt1/core';
+import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
+import { CACHE_CONFIG } from '@nxt1/core/cache';
 import { AngularHttpAdapter } from '../../../core/infrastructure';
 import { PerformanceService } from '../../../core/services/performance.service';
 import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
+
+/**
+ * In-memory cache entry for profile responses.
+ */
+interface ProfileCacheEntry {
+  data: ApiResponse<User>;
+  expiresAt: number;
+}
 
 /**
  * Angular Profile Service
  *
  * Wraps @nxt1/core profile API for use in Angular with RxJS Observables.
  * Uses shared core logic to avoid code duplication between platforms.
+ *
+ * Caching strategy:
+ * - Service-level: in-memory Map keyed by PROFILE_CACHE_KEYS with MEDIUM_TTL (15 min)
+ * - HTTP-level: httpCacheInterceptor matches /auth/profile/* with MEDIUM_TTL
+ * Both layers work together: service cache avoids Observable creation overhead;
+ * HTTP cache deduplicates in-flight requests and survives across navigations.
  */
 @Injectable({
   providedIn: 'root',
@@ -23,6 +40,9 @@ export class ProfileService {
   private readonly ssrUrl = environment.apiURL;
   private readonly performance = inject(PerformanceService);
 
+  /** Service-level in-memory cache — keyed by PROFILE_CACHE_KEYS prefix + unicode */
+  private readonly profileCache = new Map<string, ProfileCacheEntry>();
+
   constructor() {
     // Create profile API instance with Angular HTTP adapter
     const httpAdapter = inject(AngularHttpAdapter);
@@ -30,16 +50,65 @@ export class ProfileService {
   }
 
   /**
-   * Get user profile by unicode (public access)
-   * This is used for SEO and public profile viewing
+   * Build a cache key using the shared PROFILE_CACHE_KEYS constant.
+   * Keeps key format consistent across web, mobile, and backend.
+   */
+  private cacheKey(prefix: string, id: string): string {
+    return `${prefix}${id}`;
+  }
+
+  /**
+   * Return a cached entry if it's still within MEDIUM_TTL, otherwise null.
+   */
+  private getFromCache(key: string): ApiResponse<User> | null {
+    const entry = this.profileCache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.profileCache.delete(key);
+      return null;
+    }
+    return entry.data;
+  }
+
+  /**
+   * Store a response in the in-memory cache with MEDIUM_TTL expiry.
+   */
+  private setCache(key: string, data: ApiResponse<User>): void {
+    this.profileCache.set(key, {
+      data,
+      expiresAt: Date.now() + CACHE_CONFIG.MEDIUM_TTL,
+    });
+  }
+
+  /**
+   * Invalidate cached data for a specific unicode.
+   * Call after profile updates so the next fetch reflects changes.
+   */
+  invalidateCache(unicode: string): void {
+    this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, unicode));
+    this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_USERNAME, unicode));
+  }
+
+  /**
+   * Get user profile by unicode (public access).
+   * Checks service-level in-memory cache (MEDIUM_TTL) before hitting the network.
+   * HTTP-level cache (httpCacheInterceptor) provides a second caching layer.
    */
   getProfile(unicode: string): Observable<ApiResponse<User>> {
+    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, unicode);
+    const cached = this.getFromCache(key);
+    if (cached) return of(cached);
+
     return from(
       this.performance.trace(TRACE_NAMES.PROFILE_LOAD, () => this.api.getProfile(unicode), {
         attributes: {
           [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_view',
           profile_id: unicode,
         },
+      })
+    ).pipe(
+      tap((response) => {
+        if (response.success) this.setCache(key, response);
       })
     );
   }
@@ -57,9 +126,14 @@ export class ProfileService {
   // ============================================
 
   /**
-   * Get user profile by username
+   * Get user profile by username.
+   * Checks service-level cache before hitting the network.
    */
   getProfileByUsername(username: string): Observable<ApiResponse<User>> {
+    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_USERNAME, username);
+    const cached = this.getFromCache(key);
+    if (cached) return of(cached);
+
     return from(
       this.performance.trace(
         TRACE_NAMES.PROFILE_LOAD,
@@ -71,6 +145,10 @@ export class ProfileService {
           },
         }
       )
+    ).pipe(
+      tap((response) => {
+        if (response.success) this.setCache(key, response);
+      })
     );
   }
 
@@ -78,6 +156,7 @@ export class ProfileService {
    * Update user profile
    */
   updateProfile(userId: string, data: Parameters<ProfileApi['updateProfile']>[1]) {
+    this.invalidateCache(userId);
     return from(
       this.performance.trace(
         TRACE_NAMES.PROFILE_UPDATE,

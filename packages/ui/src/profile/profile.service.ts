@@ -22,9 +22,11 @@ import {
   PROFILE_DEFAULT_TAB,
   profileUserToFeedAuthor,
   buildUnifiedActivityFeed,
+  parseApiError,
 } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { NxtToastService } from '../services/toast/toast.service';
 import {
   MOCK_PROFILE_PAGE_DATA,
   getMockOwnProfileData,
@@ -40,6 +42,7 @@ type ProfileUserTeamExtension = {
 @Injectable({ providedIn: 'root' })
 export class ProfileService {
   private readonly logger = inject(NxtLoggingService).child('ProfileService');
+  private readonly toast = inject(NxtToastService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -379,11 +382,72 @@ export class ProfileService {
   // PUBLIC METHODS
   // ============================================
 
+  // ============================================
+  // PUBLIC METHODS — External Data Bridge
+  // ============================================
+
+  /**
+   * Signal loading state externally.
+   * Call this BEFORE making a platform-specific API request so the shell
+   * immediately shows the skeleton loader.
+   */
+  startLoading(): void {
+    this._isLoading.set(true);
+    this._error.set(null);
+  }
+
+  /**
+   * Set an error state externally.
+   * Call this when a platform-specific API request fails.
+   */
+  setError(message: string | null): void {
+    this._error.set(message);
+    this._isLoading.set(false);
+    if (message) {
+      this.toast.error(message);
+    }
+  }
+
+  /**
+   * Load profile data from an externally fetched source.
+   *
+   * Used by platform-specific wrappers (web / mobile) to inject real API data
+   * into the shared UI state, bypassing the internal mock-data fallback.
+   *
+   * Pattern:
+   * ```
+   * // 1. Signal loading to the shell
+   * uiProfileService.startLoading();
+   * // 2. Fetch real data via platform API service
+   * apiService.getProfile(unicode).subscribe(response => {
+   *   const data = buildProfilePageData(response.data, isOwnProfile);
+   *   // 3. Push into shared state — shell updates reactively
+   *   uiProfileService.loadFromExternalData(data);
+   * });
+   * ```
+   */
+  loadFromExternalData(data: ProfilePageData): void {
+    this.logger.info('Profile loaded from external data source', {
+      profileCode: data.user?.profileCode,
+      isOwnProfile: data.isOwnProfile,
+    });
+    this._profileData.set(data);
+    this._isLoading.set(false);
+    this._error.set(null);
+  }
+
+  // ============================================
+  // PUBLIC METHODS — Data Fetching (Internal / Mock)
+  // ============================================
+
   /**
    * Load profile data by profile code.
+   * @internal Uses mock data — replace TODO with real API call once backend is ready.
+   *           For production web/mobile, prefer calling `startLoading()` then
+   *           `loadFromExternalData()` with data fetched from the platform API service.
    */
   async loadProfile(profileCode: string, isOwnProfile = false): Promise<void> {
-    this.logger.info('Loading profile', { profileCode, isOwnProfile });
+    this.logger.info('Loading profile (internal/mock)', { profileCode, isOwnProfile });
     this._isLoading.set(true);
     this._error.set(null);
 
@@ -397,9 +461,9 @@ export class ProfileService {
 
       this.logger.info('Profile loaded successfully', { profileCode });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load profile';
-      this._error.set(message);
+      const message = parseApiError(err).message;
       this.logger.error('Failed to load profile', { profileCode, error: err });
+      this.setError(message);
     } finally {
       this._isLoading.set(false);
     }

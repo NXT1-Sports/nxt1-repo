@@ -1030,6 +1030,12 @@ export class ProfileShellComponent implements OnInit {
   /** Whether viewing own profile */
   readonly isOwnProfile = input(false);
 
+  /**
+   * When true, the shell skips its internal profile.loadProfile() call in ngOnInit.
+   * Use when parent component fetches real data and calls loadFromExternalData().
+   */
+  readonly skipInternalLoad = input(false);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -1074,6 +1080,10 @@ export class ProfileShellComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
+    if (this.skipInternalLoad()) {
+      return; // Parent component handles data loading via loadFromExternalData()
+    }
+
     const unicode = this.profileUnicode();
     const isOwn = this.isOwnProfile();
 

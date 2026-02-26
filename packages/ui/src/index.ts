@@ -614,6 +614,8 @@ export {
 export {
   // Service
   ProfileService,
+  // Mappers
+  userToProfilePageData,
   // Components
   ProfileShellComponent,
   ProfileShellWebComponent,

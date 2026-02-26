@@ -28,18 +28,20 @@ import {
   computed,
   OnInit,
   signal,
-  effect,
   PLATFORM_ID,
   DestroyRef,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal, toObservable } from '@angular/core/rxjs-interop';
+import { filter, distinctUntilChanged, switchMap, tap } from 'rxjs';
 import {
   ProfileShellWebComponent,
+  ProfileService as UiProfileService,
   type ProfileShellUser,
   RelatedAthletesComponent,
   type RelatedAthlete,
+  userToProfilePageData,
 } from '@nxt1/ui/profile';
 import { NxtCtaBannerComponent } from '@nxt1/ui/components/cta-banner';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
@@ -48,11 +50,13 @@ import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { AuthModalService } from '@nxt1/ui/auth';
 import { QrCodeService } from '@nxt1/ui/qr-code';
+import { parseApiError, requiresAuth } from '@nxt1/core';
 import type { ProfileTabId, ProfileShareSource, User } from '@nxt1/core';
+import type { ApiResponse } from '@nxt1/core/profile';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { AuthFlowService } from '../auth/services';
 import { SeoService, AnalyticsService, ShareService } from '../../core/services';
-import { ProfileService } from './services/profile.service';
+import { ProfileService as ApiProfileService } from './services/profile.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 
 @Component({
@@ -64,6 +68,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
       [currentUser]="userInfo()"
       [profileUnicode]="profileUnicode()"
       [isOwnProfile]="isOwnProfile()"
+      [skipInternalLoad]="!!profileUnicode()"
       (avatarClick)="onAvatarClick()"
       (backClick)="onBackClick()"
       (tabChange)="onTabChange($event)"
@@ -140,8 +145,26 @@ export class ProfileComponent implements OnInit {
   private readonly seo = inject(SeoService);
   private readonly analytics = inject(AnalyticsService);
   private readonly share = inject(ShareService);
-  private readonly profileService = inject(ProfileService);
+  /**
+   * Platform-specific API service — fetches real profile data from the backend.
+   * @see apps/web/src/app/features/profile/services/profile.service.ts
+   */
+  private readonly apiProfileService = inject(ApiProfileService);
+
+  /**
+   * Shared UI state service — single source of truth for the profile shell.
+   * Injected here so we can push real API data into it, bypassing mock data.
+   * @see packages/ui/src/profile/profile.service.ts
+   */
+  private readonly uiProfileService = inject(UiProfileService);
+
   private readonly platformId = inject(PLATFORM_ID);
+
+  /**
+   * Raw User object returned by the API — kept for SEO/share/QR computed
+   * properties that need User-specific fields not mapped into ProfileUser.
+   * The shell itself reads from uiProfileService (real ProfilePageData).
+   */
   private readonly fetchedProfile = signal<User | null>(null);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -183,13 +206,22 @@ export class ProfileComponent implements OnInit {
   });
 
   /**
+   * Reactive route params signal — updates correctly when navigating between
+   * /profile/:unicode1 → /profile/:unicode2 without leaving the component.
+   * Using snapshot alone would be stale after the first render.
+   */
+  private readonly routeParams = toSignal(this.route.paramMap, {
+    initialValue: this.route.snapshot.paramMap,
+  });
+
+  /**
    * Profile unicode from route parameter.
    * Unicode is the unique identifier for profiles (e.g., /profile/abc123).
    * This matches the v1 app's approach for single source of truth.
    */
   protected readonly profileUnicode = computed<string>(() => {
-    // Get unicode from route params
-    const routeUnicode = this.route.snapshot.paramMap.get('unicode');
+    // Get unicode from reactive route params signal
+    const routeUnicode = this.routeParams().get('unicode');
     if (routeUnicode) return routeUnicode;
 
     // Fall back to current user's unicode
@@ -202,7 +234,7 @@ export class ProfileComponent implements OnInit {
    */
   protected readonly isOwnProfile = computed<boolean>(() => {
     const user = this.authService.user();
-    const routeUnicode = this.route.snapshot.paramMap.get('unicode');
+    const routeUnicode = this.routeParams().get('unicode');
 
     // If no route unicode, it's own profile ONLY when authenticated.
     // Logged-out users on /profile should be treated as viewing a public profile.
@@ -234,13 +266,27 @@ export class ProfileComponent implements OnInit {
   });
 
   constructor() {
-    // Effect to fetch profile data when unicode changes and it's not own profile (or even if it is, for completeness/SEO)
-    effect(() => {
-      const unicode = this.profileUnicode();
-      if (unicode) {
-        this.loadProfileAndSeo(unicode);
-      }
-    });
+    /**
+     * Single subscription for the component lifetime.
+     * - toObservable: converts profileUnicode signal → Observable
+     * - distinctUntilChanged: skips re-fetch when same unicode emits twice
+     *   (e.g. authService.user() re-emits but unicode hasn't changed)
+     * - switchMap: CANCELS the previous HTTP request when a new unicode arrives,
+     *   eliminating the double-load caused by the old effect()+subscribe() pattern
+     *   that accumulated multiple active subscriptions.
+     */
+    toObservable(this.profileUnicode)
+      .pipe(
+        filter((unicode) => !!unicode),
+        distinctUntilChanged(),
+        tap(() => this.uiProfileService.startLoading()),
+        switchMap((unicode) => this.apiProfileService.getProfile(unicode)),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe({
+        next: (response) => this.handleProfileResponse(response),
+        error: (err) => this.handleProfileError(err),
+      });
   }
 
   ngOnInit(): void {
@@ -250,50 +296,61 @@ export class ProfileComponent implements OnInit {
     });
   }
 
-  private loadProfileAndSeo(unicode: string): void {
-    this.profileService
-      .getProfile(unicode)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (response) => {
-          if (response.success && response.data) {
-            const profile = response.data;
-            this.fetchedProfile.set(profile);
+  private handleProfileResponse(response: ApiResponse<User>): void {
+    if (!response.success || !response.data) return;
 
-            // profileMeta computed updates automatically via fetchedProfile signal
-            const meta = this.profileMeta();
-            if (!meta) {
-              this.logger.warn('Profile missing unicode', { profileId: profile.id });
-              return;
-            }
+    const profile = response.data;
 
-            this.seo.updateForProfile(meta);
+    // Keep raw User for SEO/share computeds (they need User-specific fields)
+    this.fetchedProfile.set(profile);
 
-            this.logger.info('Profile SEO updated', {
-              unicode: meta.id,
-              athleteName: meta.athleteName,
-              hasImage: !!meta.imageUrl,
-            });
+    // Push real data into the shared UI service so the shell displays
+    // actual profile data instead of mock data.
+    const profilePageData = userToProfilePageData(profile, this.isOwnProfile());
+    this.uiProfileService.loadFromExternalData(profilePageData);
 
-            this.analytics.trackEvent(APP_EVENTS.PROFILE_VIEWED, {
-              profile_id: meta.id,
-              profile_type: profile.role || 'athlete',
-              is_own_profile: this.isOwnProfile(),
-              has_image: !!meta.imageUrl,
-              sport: meta.sport,
-            });
-          }
-        },
-        error: (err) => {
-          this.logger.error('Failed to load profile for SEO', err);
+    // profileMeta computed updates automatically via fetchedProfile signal
+    const meta = this.profileMeta();
+    if (!meta) {
+      this.logger.warn('Profile missing unicode', { profileId: profile.id });
+      return;
+    }
 
-          this.seo.updatePage({
-            title: 'Profile',
-            description: 'View athlete profile on NXT1 Sports',
-            noIndex: true,
-          });
-        },
-      });
+    this.seo.updateForProfile(meta);
+
+    this.logger.info('Profile SEO updated', {
+      unicode: meta.id,
+      athleteName: meta.athleteName,
+      hasImage: !!meta.imageUrl,
+    });
+
+    this.analytics.trackEvent(APP_EVENTS.PROFILE_VIEWED, {
+      profile_id: meta.id,
+      profile_type: profile.role || 'athlete',
+      is_own_profile: this.isOwnProfile(),
+      has_image: !!meta.imageUrl,
+      sport: meta.sport,
+    });
+  }
+
+  private handleProfileError(err: unknown): void {
+    const parsed = parseApiError(err);
+    this.logger.error('Failed to load profile', {
+      code: parsed.code,
+      statusCode: parsed.statusCode,
+    });
+    this.uiProfileService.setError(parsed.message);
+
+    if (requiresAuth(err)) {
+      this.router.navigate(['/login']);
+      return;
+    }
+
+    this.seo.updatePage({
+      title: 'Profile',
+      description: 'View athlete profile on NXT1 Sports',
+      noIndex: true,
+    });
   }
 
   /**
