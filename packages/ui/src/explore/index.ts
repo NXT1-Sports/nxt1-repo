@@ -24,6 +24,12 @@ export { ExploreShellWebComponent } from './web/explore-shell-web.component';
 export { ExploreListWebComponent } from './web/explore-list-web.component';
 export { ExploreItemWebComponent } from './web/explore-item-web.component';
 export { ExploreForYouWebComponent } from './web/explore-for-you-web.component';
+export { ExploreAthletesWebComponent } from './web/explore-athletes-web.component';
+
+// ============================================
+// MOBILE — Athletes Dashboard (Ionic)
+// ============================================
+export { ExploreAthletesMobileComponent } from './mobile/explore-athletes-mobile.component';
 
 // ============================================
 // SHARED — Works on both platforms
