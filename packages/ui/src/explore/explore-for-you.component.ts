@@ -21,215 +21,16 @@
  * - Respects prefers-reduced-motion
  */
 
-import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  sparklesOutline,
-  chevronForwardOutline,
-  schoolOutline,
-  personOutline,
-  peopleOutline,
-  playCircleOutline,
-  calendarOutline,
-  trophyOutline,
-  heartOutline,
-  eyeOutline,
-  checkmarkCircle,
-} from 'ionicons/icons';
 import type { ExploreItem, ExploreTabId } from '@nxt1/core';
-import { MOCK_ATHLETES, MOCK_COLLEGES, MOCK_TEAMS, MOCK_VIDEOS } from './explore.mock-data';
-import { NxtAvatarComponent } from '../components/avatar';
 import type { ExploreUser } from './explore-shell.component';
 
 @Component({
   selector: 'nxt1-explore-for-you',
   standalone: true,
-  imports: [CommonModule, IonIcon, IonRippleEffect, NxtAvatarComponent],
-  template: `
-    <section class="for-you" aria-label="For You — personalized explore">
-      <!-- ── Trending Athletes ─────────────────────────────── -->
-      <div class="section">
-        <div class="section__header">
-          <h2 class="section__title">Trending Athletes</h2>
-          <button
-            type="button"
-            class="section__see-all"
-            aria-label="See all athletes"
-            (click)="onSeeAllTap('athletes')"
-          >
-            See All
-            <ion-icon name="chevron-forward-outline" aria-hidden="true" />
-          </button>
-        </div>
-        <div class="h-scroll" role="list" aria-label="Trending athletes">
-          @for (athlete of trendingAthletes(); track athlete.id) {
-            <button
-              class="athlete-card"
-              type="button"
-              role="listitem"
-              [attr.aria-label]="athlete.name + ', ' + athlete.subtitle"
-              (click)="onItemTap(athlete)"
-            >
-              <ion-ripple-effect></ion-ripple-effect>
-              <div class="athlete-card__avatar">
-                <nxt1-avatar [src]="athlete.imageUrl" [name]="athlete.name" size="xl" />
-                @if (athlete.isVerified) {
-                  <span class="athlete-card__verified" aria-label="Verified">
-                    <ion-icon name="checkmark-circle" aria-hidden="true" />
-                  </span>
-                }
-              </div>
-              <p class="athlete-card__name">{{ athlete.name }}</p>
-              <p class="athlete-card__meta">{{ athlete.sport }}</p>
-              @if (athlete.commitment) {
-                <span class="athlete-card__committed">Committed</span>
-              }
-            </button>
-          }
-        </div>
-      </div>
-
-      <!-- ── Top Colleges ──────────────────────────────────── -->
-      <div class="section">
-        <div class="section__header">
-          <h2 class="section__title">Top Colleges</h2>
-          <button
-            type="button"
-            class="section__see-all"
-            aria-label="See all colleges"
-            (click)="onSeeAllTap('colleges')"
-          >
-            See All
-            <ion-icon name="chevron-forward-outline" aria-hidden="true" />
-          </button>
-        </div>
-        <div class="h-scroll" role="list" aria-label="Top colleges">
-          @for (college of topColleges(); track college.id) {
-            <button
-              class="college-card"
-              type="button"
-              role="listitem"
-              [attr.aria-label]="college.name + ', ' + college.division"
-              (click)="onItemTap(college)"
-            >
-              <ion-ripple-effect></ion-ripple-effect>
-              <div class="college-card__logo">
-                <nxt1-avatar [src]="college.imageUrl" [name]="college.name" size="lg" />
-              </div>
-              <div class="college-card__info">
-                <p class="college-card__name">{{ college.name }}</p>
-                <p class="college-card__meta">{{ college.division }}</p>
-                @if (college.conference) {
-                  <p class="college-card__conference">{{ college.conference }}</p>
-                }
-              </div>
-              <ion-icon
-                name="chevron-forward-outline"
-                class="college-card__arrow"
-                aria-hidden="true"
-              />
-            </button>
-          }
-        </div>
-      </div>
-
-      <!-- ── Latest Videos ─────────────────────────────────── -->
-      <div class="section">
-        <div class="section__header">
-          <h2 class="section__title">Latest Videos</h2>
-          <button
-            type="button"
-            class="section__see-all"
-            aria-label="See all videos"
-            (click)="onSeeAllTap('videos')"
-          >
-            See All
-            <ion-icon name="chevron-forward-outline" aria-hidden="true" />
-          </button>
-        </div>
-        <div class="h-scroll h-scroll--videos" role="list" aria-label="Latest videos">
-          @for (video of latestVideos(); track video.id) {
-            <button
-              class="video-card"
-              type="button"
-              role="listitem"
-              [attr.aria-label]="video.name + ' by ' + video.creator.name"
-              (click)="onItemTap(video)"
-            >
-              <ion-ripple-effect></ion-ripple-effect>
-              <div class="video-card__thumb">
-                <img
-                  [src]="video.thumbnailUrl"
-                  [alt]="video.name"
-                  loading="lazy"
-                  class="video-card__img"
-                />
-                <span class="video-card__duration" aria-label="Duration">
-                  {{ formatDuration(video.duration) }}
-                </span>
-                <div class="video-card__play" aria-hidden="true">
-                  <ion-icon name="play-circle-outline" />
-                </div>
-              </div>
-              <div class="video-card__info">
-                <p class="video-card__title">{{ video.name }}</p>
-                <div class="video-card__stats">
-                  <span class="video-card__stat">
-                    <ion-icon name="eye-outline" aria-hidden="true" />
-                    {{ formatCount(video.views) }}
-                  </span>
-                  <span class="video-card__stat">
-                    <ion-icon name="heart-outline" aria-hidden="true" />
-                    {{ formatCount(video.likes) }}
-                  </span>
-                </div>
-              </div>
-            </button>
-          }
-        </div>
-      </div>
-
-      <!-- ── Top Teams ─────────────────────────────────────── -->
-      <div class="section section--last">
-        <div class="section__header">
-          <h2 class="section__title">Top Teams</h2>
-          <button
-            type="button"
-            class="section__see-all"
-            aria-label="See all teams"
-            (click)="onSeeAllTap('teams')"
-          >
-            See All
-            <ion-icon name="chevron-forward-outline" aria-hidden="true" />
-          </button>
-        </div>
-        <div class="team-list" role="list" aria-label="Top teams">
-          @for (team of topTeams(); track team.id) {
-            <button
-              class="team-row"
-              type="button"
-              role="listitem"
-              [attr.aria-label]="team.name + ', ' + team.sport"
-              (click)="onItemTap(team)"
-            >
-              <ion-ripple-effect></ion-ripple-effect>
-              <nxt1-avatar [src]="team.imageUrl" [name]="team.name" size="md" />
-              <div class="team-row__info">
-                <p class="team-row__name">{{ team.name }}</p>
-                <p class="team-row__meta">{{ team.sport }} · {{ team.location }}</p>
-              </div>
-              @if (team.record) {
-                <span class="team-row__record">{{ team.record }}</span>
-              }
-              <ion-icon name="chevron-forward-outline" class="team-row__arrow" aria-hidden="true" />
-            </button>
-          }
-        </div>
-      </div>
-    </section>
-  `,
+  imports: [CommonModule],
+  template: ` <section class="for-you" aria-label="For You — personalized explore"></section> `,
   styles: [
     `
       /* ============================================================
@@ -691,22 +492,6 @@ import type { ExploreUser } from './explore-shell.component';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExploreForYouComponent {
-  constructor() {
-    addIcons({
-      sparklesOutline,
-      chevronForwardOutline,
-      schoolOutline,
-      personOutline,
-      peopleOutline,
-      playCircleOutline,
-      calendarOutline,
-      trophyOutline,
-      heartOutline,
-      eyeOutline,
-      checkmarkCircle,
-    });
-  }
-
   // ── Inputs ──────────────────────────────────────────────
   readonly user = input<ExploreUser | null>(null);
 
@@ -715,37 +500,4 @@ export class ExploreForYouComponent {
   readonly itemTap = output<ExploreItem>();
   /** Emitted when the user taps "See All" or a category tile */
   readonly categorySelect = output<ExploreTabId>();
-
-  // ── Constants ────────────────────────────────────────────
-
-  // ── Computed mock data slices ────────────────────────────
-
-  protected readonly trendingAthletes = computed(() => MOCK_ATHLETES.slice(0, 5));
-  protected readonly topColleges = computed(() => MOCK_COLLEGES.slice(0, 4));
-  protected readonly latestVideos = computed(() => MOCK_VIDEOS.slice(0, 4));
-  protected readonly topTeams = computed(() => MOCK_TEAMS.slice(0, 3));
-
-  // ── Event handlers ────────────────────────────────────────
-
-  protected onItemTap(item: ExploreItem): void {
-    this.itemTap.emit(item);
-  }
-
-  protected onSeeAllTap(tab: ExploreTabId): void {
-    this.categorySelect.emit(tab);
-  }
-
-  // ── Formatters ────────────────────────────────────────────
-
-  protected formatDuration(seconds: number): string {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  }
-
-  protected formatCount(count: number): string {
-    if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-    if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
-    return count.toString();
-  }
 }
