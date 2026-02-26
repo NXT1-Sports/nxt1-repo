@@ -17,8 +17,9 @@
  * - SEO Metadata
  *
  * Routes:
- * - /profile/:unicode — View profile by unicode (unique profile identifier)
- * - /profile — View own profile (redirects to own unicode)
+ * - /profile              — View own profile (me)
+ * - /profile/:username    — View profile by username  (e.g. /profile/devmonster)
+ * - /profile/:unicode     — View profile by unicode   (e.g. /profile/180798)
  */
 
 import {
@@ -26,7 +27,9 @@ import {
   ChangeDetectionStrategy,
   inject,
   computed,
+  effect,
   OnInit,
+  OnDestroy,
   signal,
   PLATFORM_ID,
   DestroyRef,
@@ -34,7 +37,7 @@ import {
 import { isPlatformBrowser } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed, toSignal, toObservable } from '@angular/core/rxjs-interop';
-import { filter, distinctUntilChanged, switchMap, tap } from 'rxjs';
+import { distinctUntilChanged, switchMap, tap, filter } from 'rxjs';
 import {
   ProfileShellWebComponent,
   ProfileService as UiProfileService,
@@ -68,7 +71,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
       [currentUser]="userInfo()"
       [profileUnicode]="profileUnicode()"
       [isOwnProfile]="isOwnProfile()"
-      [skipInternalLoad]="!!profileUnicode()"
+      [skipInternalLoad]="true"
       (avatarClick)="onAvatarClick()"
       (backClick)="onBackClick()"
       (tabChange)="onTabChange($event)"
@@ -131,7 +134,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ProfileComponent implements OnInit {
+export class ProfileComponent implements OnInit, OnDestroy {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly authFlow = inject(AuthFlowService);
   private readonly authModal = inject(AuthModalService);
@@ -184,8 +187,13 @@ export class ProfileComponent implements OnInit {
     const state = profile.location?.state || '';
     const location = [city, state].filter(Boolean).join(', ');
 
+    // Prefer username as URL slug so canonical = /profile/devmonster (human-readable)
+    // rather than /profile/180798 (numeric). Google ranks clean URLs higher.
+    const slug = profile.username || undefined;
+
     return {
       id: profile.unicode,
+      slug,
       athleteName: `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || 'NXT1 Athlete',
       position: primarySport?.positions?.[0] || undefined,
       classYear: profile.classOf || undefined,
@@ -207,7 +215,7 @@ export class ProfileComponent implements OnInit {
 
   /**
    * Reactive route params signal — updates correctly when navigating between
-   * /profile/:unicode1 → /profile/:unicode2 without leaving the component.
+   * profiles without leaving the component.
    * Using snapshot alone would be stale after the first render.
    */
   private readonly routeParams = toSignal(this.route.paramMap, {
@@ -215,18 +223,57 @@ export class ProfileComponent implements OnInit {
   });
 
   /**
-   * Profile unicode from route parameter.
-   * Unicode is the unique identifier for profiles (e.g., /profile/abc123).
-   * This matches the v1 app's approach for single source of truth.
+   * Raw route parameter (:param wildcard — catches both username and unicode).
+   */
+  private readonly routeParam = computed<string>(() => this.routeParams().get('param') ?? '');
+
+  /**
+   * Route mode derived from the presence and shape of :param.
+   * - 'me'       — no param  → load authenticated user's own profile
+   * - 'unicode'  — param is purely numeric (e.g. '180798')  → lookup by unicode
+   * - 'username' — param contains non-digit chars (e.g. 'devmonster')  → lookup by username
+   */
+  private readonly routeMode = computed<'me' | 'unicode' | 'username'>(() => {
+    const param = this.routeParam();
+    if (!param) return 'me';
+    return /^\d+$/.test(param) ? 'unicode' : 'username';
+  });
+
+  /**
+   * Fetch source — drives the switchMap in the constructor.
+   * For 'me' mode, returns null until auth has finished initializing so
+   * we never fire a request while uid is still null after a page reload
+   * (Firebase restores sessions asynchronously from IndexedDB).
+   * uid is included so that logging in via auth modal triggers a re-fetch.
+   */
+  private readonly fetchSource = computed<{
+    mode: 'me' | 'unicode' | 'username';
+    param: string;
+    uid: string | undefined;
+  } | null>(() => {
+    const mode = this.routeMode();
+    const param = this.routeParam();
+    const uid = this.authService.user()?.uid;
+    // For own profile: block until Firebase auth state is resolved
+    if (mode === 'me' && !this.authService.isInitialized()) return null;
+    // Don't emit if uid is still missing after init — the unauthenticated
+    // effect below will handle that case directly without an API call.
+    if (mode === 'me' && !uid) return null;
+    return { mode, param, uid };
+  });
+
+  /**
+   * Profile unicode resolved from the fetched profile.
+   * Falls back to the auth user's unicode while the fetch is in-flight.
+   * This is the canonical unicode used for share/QR/SEO — it comes from the
+   * API response, NOT from the raw route param (which may be a username or
+   * a numeric code, not the actual unicode field).
    */
   protected readonly profileUnicode = computed<string>(() => {
-    // Get unicode from reactive route params signal
-    const routeUnicode = this.routeParams().get('unicode');
-    if (routeUnicode) return routeUnicode;
-
-    // Fall back to current user's unicode
-    const user = this.authService.user();
-    return user?.unicode ?? '';
+    const profile = this.fetchedProfile();
+    if (profile?.unicode) return profile.unicode;
+    // Fallback: own profile before first fetch completes
+    return this.authService.user()?.unicode ?? '';
   });
 
   /**
@@ -234,14 +281,16 @@ export class ProfileComponent implements OnInit {
    */
   protected readonly isOwnProfile = computed<boolean>(() => {
     const user = this.authService.user();
-    const routeUnicode = this.routeParams().get('unicode');
+    const mode = this.routeMode();
 
-    // If no route unicode, it's own profile ONLY when authenticated.
-    // Logged-out users on /profile should be treated as viewing a public profile.
-    if (!routeUnicode) return !!user;
+    // No route param — own profile (only authenticated users reach /profile)
+    if (mode === 'me') return !!user;
+    if (!user) return false;
 
-    // Check if route unicode matches current user's unicode
-    return user?.unicode === routeUnicode;
+    const param = this.routeParam();
+    if (mode === 'unicode') return user.unicode === param;
+    // username mode — compare against the username field on AppUser
+    return user.username === param;
   });
 
   /**
@@ -266,27 +315,87 @@ export class ProfileComponent implements OnInit {
   });
 
   constructor() {
+    // Clear any stale error/data state immediately so the skeleton loader
+    // shows from the first render instead of flashing a leftover error
+    // (ProfileService is providedIn:'root' — it persists across navigations).
+    this.uiProfileService.startLoading();
+
+    // SSR: own profile (/profile) — auth is not initialized server-side so no API fetch
+    // happens during SSR. Set minimal noIndex meta so the empty shell HTML is never
+    // accidentally crawled. This effect fires immediately on both SSR and client.
+    effect(() => {
+      if (this.routeMode() === 'me' && !this.fetchedProfile()) {
+        this.seo.updatePage({
+          title: 'My Profile | NXT1 Sports',
+          description: 'View and manage your NXT1 athlete recruiting profile.',
+          noIndex: true,
+        });
+      }
+    });
+
+    // When the user visits /profile but is not logged in (after Firebase has
+    // fully resolved), skip the API call and immediately open the auth modal.
+    // This prevents the 401 → error flash cycle.
+    // IMPORTANT: guard with isBrowser — toast and auth modal require browser APIs;
+    // firing them during SSR logs bogus errors and breaks server rendering.
+    effect(() => {
+      if (
+        isPlatformBrowser(this.platformId) &&
+        this.routeMode() === 'me' &&
+        this.authService.isInitialized() &&
+        !this.authService.user()
+      ) {
+        this.uiProfileService.setError('Please sign in to continue.');
+        this.authModal.present();
+      }
+    });
+
     /**
-     * Single subscription for the component lifetime.
-     * - toObservable: converts profileUnicode signal → Observable
-     * - distinctUntilChanged: skips re-fetch when same unicode emits twice
-     *   (e.g. authService.user() re-emits but unicode hasn't changed)
-     * - switchMap: CANCELS the previous HTTP request when a new unicode arrives,
-     *   eliminating the double-load caused by the old effect()+subscribe() pattern
-     *   that accumulated multiple active subscriptions.
+     * Single reactive subscription for the component lifetime.
+     *
+     * fetchSource signal encodes both the mode and the param value so
+     * distinctUntilChanged can skip re-fetches when nothing has changed.
+     * switchMap cancels the in-flight request when the route changes.
+     *
+     * Route modes:
+     *   'me'       → GET /auth/profile/me       (authenticated user)
+     *   'unicode'  → GET /auth/profile/unicode/:unicode
+     *   'username' → GET /auth/profile/username/:username
      */
-    toObservable(this.profileUnicode)
+    toObservable(this.fetchSource)
       .pipe(
-        filter((unicode) => !!unicode),
-        distinctUntilChanged(),
+        // Skip null emissions (auth not yet initialized for 'me' mode)
+        filter(
+          (
+            source
+          ): source is {
+            mode: 'me' | 'unicode' | 'username';
+            param: string;
+            uid: string | undefined;
+          } => source !== null
+        ),
+        distinctUntilChanged((a, b) => a.mode === b.mode && a.param === b.param && a.uid === b.uid),
         tap(() => this.uiProfileService.startLoading()),
-        switchMap((unicode) => this.apiProfileService.getProfile(unicode)),
+        switchMap(({ mode, param, uid }) => {
+          if (mode === 'me') {
+            // uid is always defined here (fetchSource blocks when uid is missing)
+            return this.apiProfileService.getProfile(uid!);
+          }
+          if (mode === 'unicode') return this.apiProfileService.getProfileByUnicode(param);
+          return this.apiProfileService.getProfileByUsername(param);
+        }),
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe({
         next: (response) => this.handleProfileResponse(response),
         error: (err) => this.handleProfileError(err),
       });
+  }
+
+  ngOnDestroy(): void {
+    // Reset to loading state so if user navigates back to /profile the
+    // skeleton shows immediately instead of flashing stale error/data.
+    this.uiProfileService.startLoading();
   }
 
   ngOnInit(): void {
@@ -297,17 +406,32 @@ export class ProfileComponent implements OnInit {
   }
 
   private handleProfileResponse(response: ApiResponse<User>): void {
-    if (!response.success || !response.data) return;
+    if (!response.success || !response.data) {
+      // API returned a non-success response — treat as an error so the shell
+      // shows the error state instead of stale data.
+      this.uiProfileService.setError(response.error ?? 'Failed to load profile');
+      this.logger.warn('Profile API returned non-success response', {
+        error: response.error,
+      });
+      return;
+    }
 
     const profile = response.data;
 
     // Keep raw User for SEO/share computeds (they need User-specific fields)
     this.fetchedProfile.set(profile);
 
+    // Determine isOwnProfile reliably at response time (avoids auth race condition):
+    // - 'me' mode: always true — getMe() only succeeds for the authenticated user
+    // - other modes: compare fetched profile.id with authenticated user's uid
+    //   (authService.user() is guaranteed populated by the time a network response arrives)
+    const isOwn = this.routeMode() === 'me' ? true : profile.id === this.authService.user()?.uid;
+
     // Push real data into the shared UI service so the shell displays
     // actual profile data instead of mock data.
-    const profilePageData = userToProfilePageData(profile, this.isOwnProfile());
-    this.uiProfileService.loadFromExternalData(profilePageData);
+    // Pass the raw User so ProfileService can re-map tab content on sport switch.
+    const profilePageData = userToProfilePageData(profile, isOwn);
+    this.uiProfileService.loadFromExternalData(profilePageData, profile, isOwn);
 
     // profileMeta computed updates automatically via fetchedProfile signal
     const meta = this.profileMeta();
@@ -327,7 +451,7 @@ export class ProfileComponent implements OnInit {
     this.analytics.trackEvent(APP_EVENTS.PROFILE_VIEWED, {
       profile_id: meta.id,
       profile_type: profile.role || 'athlete',
-      is_own_profile: this.isOwnProfile(),
+      is_own_profile: isOwn,
       has_image: !!meta.imageUrl,
       sport: meta.sport,
     });
@@ -341,8 +465,8 @@ export class ProfileComponent implements OnInit {
     });
     this.uiProfileService.setError(parsed.message);
 
-    if (requiresAuth(err)) {
-      this.router.navigate(['/login']);
+    if (requiresAuth(err) && isPlatformBrowser(this.platformId)) {
+      this.authModal.present();
       return;
     }
 

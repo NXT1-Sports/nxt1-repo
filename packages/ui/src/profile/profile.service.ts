@@ -19,6 +19,7 @@ import {
   type ProfileStatItem,
   type ProfileSport,
   type FeedPost,
+  type User,
   PROFILE_DEFAULT_TAB,
   profileUserToFeedAuthor,
   buildUnifiedActivityFeed,
@@ -27,6 +28,7 @@ import {
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
+import { userToProfilePageData } from './profile-mappers';
 import {
   MOCK_PROFILE_PAGE_DATA,
   getMockOwnProfileData,
@@ -48,8 +50,16 @@ export class ProfileService {
   // PRIVATE WRITEABLE SIGNALS
   // ============================================
 
-  private readonly _isLoading = signal(false);
+  // Start in loading state so the skeleton always shows on first render —
+  // regardless of whether the consumer calls startLoading() before the first
+  // change-detection tick (SSR hydration, singleton reuse, etc.).
+  private readonly _isLoading = signal(true);
   private readonly _isLoadingMore = signal(false);
+
+  /** Raw User from the API response — stored so sport switching can re-map tab data. */
+  private readonly _rawUser = signal<User | null>(null);
+  /** Whether the loaded profile is the current user's own profile. */
+  private _profileIsOwn = false;
   private readonly _error = signal<string | null>(null);
   private readonly _activeTab = signal<ProfileTabId>(PROFILE_DEFAULT_TAB);
   private readonly _profileData = signal<ProfilePageData | null>(null);
@@ -403,6 +413,9 @@ export class ProfileService {
   startLoading(): void {
     this._isLoading.set(true);
     this._error.set(null);
+    // Clear stale/mock data so the skeleton loader shows while fetching real data.
+    // Without this, old mock data persists if the API call fails.
+    this._profileData.set(null);
   }
 
   /**
@@ -435,11 +448,16 @@ export class ProfileService {
    * });
    * ```
    */
-  loadFromExternalData(data: ProfilePageData): void {
+  loadFromExternalData(data: ProfilePageData, rawUser?: User, isOwn?: boolean): void {
     this.logger.info('Profile loaded from external data source', {
       profileCode: data.user?.profileCode,
       isOwnProfile: data.isOwnProfile,
     });
+    // Store raw User so sport switching can re-map tab content reactively.
+    if (rawUser !== undefined) {
+      this._rawUser.set(rawUser);
+      this._profileIsOwn = isOwn ?? data.isOwnProfile ?? false;
+    }
     this._profileData.set(data);
     this._isLoading.set(false);
     this._error.set(null);
@@ -568,6 +586,17 @@ export class ProfileService {
         sport: sports[index]?.name,
       });
       this._activeSportIndex.set(index);
+
+      // Re-map full profile data so tab content (stats, metrics, events, recruiting)
+      // reflects the newly selected sport rather than the original load.
+      const rawUser = this._rawUser();
+      if (rawUser) {
+        const remapped = userToProfilePageData(
+          { ...rawUser, activeSportIndex: index } as User,
+          this._profileIsOwn
+        );
+        this._profileData.set(remapped);
+      }
     }
   }
 
@@ -598,6 +627,8 @@ export class ProfileService {
     this._error.set(null);
     this._activeTab.set(PROFILE_DEFAULT_TAB);
     this._profileData.set(null);
+    this._rawUser.set(null);
+    this._profileIsOwn = false;
     this._activityFeedItems.set([]);
     this._isEditMode.set(false);
     this._editSection.set(null);

@@ -48,9 +48,10 @@ export const routes: Routes = [
    * Public Profile Pages
    * SEO-critical: Used for recruiting, social sharing
    * Example: nxt1sports.com/profile/john-doe-2026
+   * NOTE: param name must be ':param' to match routeParam() in profile.component.ts
    */
   {
-    path: 'profile/:unicode',
+    path: 'profile/:param',
     loadComponent: () =>
       import('./features/profile/profile.component').then((m) => m.ProfileComponent),
   },

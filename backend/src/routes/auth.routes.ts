@@ -23,7 +23,7 @@ import type {
   SportProfile,
   Location,
   ContactInfo,
-  SocialLinks,
+  // SocialLinks,
   UserSocialLink,
 } from '@nxt1/core';
 import { isValidEmail, isValidTeamCode, USER_SCHEMA_VERSION } from '@nxt1/core';

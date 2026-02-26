@@ -100,20 +100,14 @@ export const authInterceptor: HttpInterceptorFn = (
     return next(req);
   }
 
-  // Get current user
-  const currentUser = auth.currentUser;
-
-  // No user - pass through (will likely fail with 401 on backend)
-  if (!currentUser) {
-    logger.debug('No user signed in, request may fail');
-    return next(req);
-  }
-
-  // Get token and add to request
-  return from(currentUser.getIdToken()).pipe(
+  // Wait for Firebase to restore auth state from persistence (IndexedDB),
+  // then get a fresh ID token. This fixes the race condition where
+  // auth.currentUser is null on initial page load even though the user
+  // is signed in (Firebase restores the session asynchronously).
+  return from(auth.authStateReady().then(() => auth.currentUser?.getIdToken() ?? null)).pipe(
     switchMap((token) => {
       if (!token) {
-        logger.warn('Could not get ID token');
+        logger.debug('No user signed in, request may fail');
         return next(req);
       }
 

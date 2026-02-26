@@ -30,7 +30,9 @@ import { createNewsApi, type NewsApi } from '@nxt1/core';
  */
 export const NEWS_API_BASE_URL = new InjectionToken<string>('NEWS_API_BASE_URL', {
   providedIn: 'root',
-  factory: () => '/api/v1', // Default, override in environment
+  // Constants in @nxt1/core already include the full /api/v1 prefix, so the
+  // base URL here is the origin-only part (empty = same origin in dev).
+  factory: () => '',
 });
 
 /**

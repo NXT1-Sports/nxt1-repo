@@ -80,6 +80,9 @@ export {
   type VerifiedMetric,
   type VerifiedStat,
   type ScheduleEvent,
+  // Agent X & Scouting (source-of-truth domain types)
+  type PlayerArchetype,
+  type AgentXTrait,
   // @deprecated — use VerifiedMetric[] / VerifiedStat[] instead
   type AthleticMetrics,
   type SeasonStats,

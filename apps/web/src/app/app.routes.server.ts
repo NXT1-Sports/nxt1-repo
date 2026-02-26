@@ -37,8 +37,13 @@ export const serverRoutes: ServerRoute[] = [
   // ============================================
 
   // Profile Pages - Individual athlete profiles
+  // NOTE: path param must match profile.routes.ts where it's defined as ':param'
   {
-    path: 'profile/:unicode',
+    path: 'profile/:param',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'profile',
     renderMode: RenderMode.Server,
   },
 
@@ -152,10 +157,6 @@ export const serverRoutes: ServerRoute[] = [
   },
   {
     path: 'xp/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'profile',
     renderMode: RenderMode.Server,
   },
   {

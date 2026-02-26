@@ -9,7 +9,26 @@
  */
 
 import type { HttpAdapter } from '../api/http-adapter';
-import type { User, UserSummary, SportProfile, SocialLink } from '../models/user.model';
+import type {
+  User,
+  UserSummary,
+  SportProfile,
+  SocialLink,
+  Location,
+  ContactInfo,
+  TeamHistoryEntry,
+  UserAward,
+  ConnectedSource,
+  AthleteData,
+  CoachData,
+  CollegeCoachData,
+  DirectorData,
+  ScoutData,
+  RecruitingServiceData,
+  MediaData,
+  ParentData,
+  UserPreferences,
+} from '../models/user.model';
 
 // ============================================
 // COMMON API RESPONSE TYPES
@@ -38,20 +57,64 @@ export interface PaginatedResponse<T> {
 // REQUEST/RESPONSE TYPES
 // ============================================
 
+/**
+ * Full profile update request — accepts all writable User model fields.
+ * Backend whitelists these fields server-side to prevent mass-assignment
+ * of system/read-only fields (id, planTier, _counters, etc.).
+ */
 export interface UpdateProfileRequest {
+  // ── Core Identity ──────────────────────────────────────────────────────
   firstName?: string;
   lastName?: string;
+  /** Preferred display name (overrides firstName + lastName in UI) */
+  displayName?: string;
+  username?: string;
+  aboutMe?: string;
   profileImg?: string;
   bannerImg?: string;
   profileImages?: string[];
-  aboutMe?: string;
-  location?: {
-    city?: string;
-    state?: string;
-    country?: string;
-  };
+  gender?: string;
+
+  // ── Physical / Class ───────────────────────────────────────────────────
+  /** Height string e.g. "6'2\"" */
+  height?: string;
+  /** Weight string e.g. "185 lbs" */
+  weight?: string;
+  /** Graduation year e.g. 2027 */
+  classOf?: number;
+
+  // ── Location & Contact ─────────────────────────────────────────────────
+  location?: Partial<Location>;
+  contact?: Partial<ContactInfo>;
+
+  // ── Social Links ───────────────────────────────────────────────────────
   /** Social links (agnostic array — supports any platform) */
   social?: SocialLink[];
+
+  // ── Sports ─────────────────────────────────────────────────────────────
+  /** Full sports array replacement */
+  sports?: SportProfile[];
+  activeSportIndex?: number;
+
+  // ── Team History & Awards ──────────────────────────────────────────────
+  teamHistory?: TeamHistoryEntry[];
+  awards?: UserAward[];
+
+  // ── Connected Sources (Agent X) ────────────────────────────────────────
+  connectedSources?: ConnectedSource[];
+
+  // ── Role-specific Data ─────────────────────────────────────────────────
+  athlete?: Partial<AthleteData>;
+  coach?: Partial<CoachData>;
+  collegeCoach?: Partial<CollegeCoachData>;
+  director?: Partial<DirectorData>;
+  scout?: Partial<ScoutData>;
+  recruitingService?: Partial<RecruitingServiceData>;
+  media?: Partial<MediaData>;
+  parent?: Partial<ParentData>;
+
+  // ── Preferences ────────────────────────────────────────────────────────
+  preferences?: Partial<UserPreferences>;
 }
 
 export interface UpdateSportProfileRequest {
@@ -100,6 +163,20 @@ export function createProfileApi(http: HttpAdapter, baseUrl: string) {
      */
     async getProfile(userId: string): Promise<ApiResponse<User>> {
       return http.get<ApiResponse<User>>(`${baseUrl}/auth/profile/${userId}`);
+    },
+
+    /**
+     * Get current authenticated user's own profile
+     */
+    async getMe(): Promise<ApiResponse<User>> {
+      return http.get<ApiResponse<User>>(`${baseUrl}/auth/profile/me`);
+    },
+
+    /**
+     * Get user profile by unicode (shareable profile code)
+     */
+    async getProfileByUnicode(unicode: string): Promise<ApiResponse<User>> {
+      return http.get<ApiResponse<User>>(`${baseUrl}/auth/profile/unicode/${unicode}`);
     },
 
     /**

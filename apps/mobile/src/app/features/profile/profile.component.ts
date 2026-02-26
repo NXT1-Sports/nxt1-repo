@@ -24,8 +24,7 @@
 import { Component, ChangeDetectionStrategy, inject, computed, DestroyRef } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { map, filter, distinctUntilChanged, switchMap, tap } from 'rxjs';
-import { from } from 'rxjs';
+import { map, distinctUntilChanged, switchMap, tap, from, of, combineLatest, filter } from 'rxjs';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 
 // Shared UI from @nxt1/ui (95% of the code)
@@ -69,7 +68,7 @@ import { ProfileApiService } from '../../core/services/profile-api.service';
       <nxt1-profile-shell
         [currentUser]="currentUser()"
         [profileUnicode]="profileUnicode()"
-        [skipInternalLoad]="!!profileUnicode()"
+        [skipInternalLoad]="true"
         (avatarClick)="onAvatarClick()"
         (backClick)="onBackClick()"
         (editProfileClick)="onEditProfile()"
@@ -123,11 +122,20 @@ export class ProfileComponent {
   // STATE
   // ============================================
 
-  /** Unicode from route params - required for profile loading */
-  protected readonly profileUnicode = toSignal(
+  /**
+   * Raw route param — empty string means own profile (/profile),
+   * numeric string means profile by unicode/ID, other string means username.
+   */
+  protected readonly routeParam = toSignal(
     this.route.paramMap.pipe(map((params) => params.get('unicode') ?? '')),
     { initialValue: '' }
   );
+
+  /**
+   * Forwarded to ProfileShellComponent as profileUnicode input.
+   * Data loading is always handled externally by this component.
+   */
+  protected readonly profileUnicode = this.routeParam;
 
   /** Current authenticated user for header display */
   protected readonly currentUser = computed(() => {
@@ -146,22 +154,58 @@ export class ProfileComponent {
      * distinctUntilChanged prevents duplicate fetches when signals re-emit
      * with same unicode. switchMap cancels any previous in-flight request.
      */
-    toObservable(this.profileUnicode)
+    // Wait for auth to finish initializing before reacting to route changes.
+    // Without this, the first emit happens before auth.user() is populated,
+    // causing "Not authenticated" on /profile (own profile route).
+    const authReady$ = toObservable(this.authService.isInitialized).pipe(
+      filter((initialized) => initialized)
+    );
+
+    combineLatest([toObservable(this.routeParam).pipe(distinctUntilChanged()), authReady$])
       .pipe(
-        filter((unicode) => !!unicode),
+        map(([param]) => param),
         distinctUntilChanged(),
         tap(() => this.uiProfileService.startLoading()),
-        switchMap((unicode) => from(this.profileApiService.getProfile(unicode))),
+        switchMap((param) => {
+          const authUser = this.authService.user();
+
+          // Case 1: /profile — load own profile via auth UID
+          if (!param) {
+            if (!authUser?.uid) {
+              return of({
+                success: false as const,
+                error: 'Not authenticated',
+                _isOwnProfile: true,
+              });
+            }
+            return from(this.profileApiService.getProfile(authUser.uid)).pipe(
+              map((res) => ({ ...res, _isOwnProfile: true }))
+            );
+          }
+
+          // Case 2: /profile/:unicode (numeric) — load by ID
+          // Case 3: /profile/:username (string) — load by username
+          const isNumeric = /^\d+$/.test(param);
+          const request$ = isNumeric
+            ? from(this.profileApiService.getProfile(param))
+            : from(this.profileApiService.getProfileByUsername(param));
+
+          return request$.pipe(
+            map((res) => ({
+              ...res,
+              _isOwnProfile: !!(res.success && res.data && res.data.id === authUser?.uid),
+            }))
+          );
+        }),
         takeUntilDestroyed(this.destroyRef)
       )
       .subscribe({
         next: (response) => {
           if (response.success && response.data) {
-            const profilePageData = userToProfilePageData(
-              response.data,
-              this.uiProfileService.isOwnProfile()
-            );
+            const profilePageData = userToProfilePageData(response.data, response._isOwnProfile);
             this.uiProfileService.loadFromExternalData(profilePageData);
+          } else {
+            this.uiProfileService.setError(response.error ?? 'Failed to load profile');
           }
         },
         error: (err: unknown) => {

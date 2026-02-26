@@ -7,7 +7,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
-import { auth } from '../utils/firebase.js';
+import { auth as prodAuth } from '../utils/firebase.js';
 import { unauthorizedError, forbiddenError } from '@nxt1/core/errors';
 
 /**
@@ -43,8 +43,10 @@ export async function appGuard(req: Request, res: Response, next: NextFunction):
       return;
     }
 
-    // Verify the ID token
-    const decodedToken = await auth.verifyIdToken(idToken);
+    // Use the Firebase instance injected by firebaseContext middleware
+    // (stagingAuth for /staging/ routes, prodAuth otherwise)
+    const firebaseAuth = req.firebase?.auth ?? prodAuth;
+    const decodedToken = await firebaseAuth.verifyIdToken(idToken);
 
     // Attach user info to request
     req.user = {
@@ -93,7 +95,8 @@ export async function optionalAuth(
       const idToken = authHeader.split('Bearer ')[1];
 
       if (idToken) {
-        const decodedToken = await auth.verifyIdToken(idToken);
+        const firebaseAuth = req.firebase?.auth ?? prodAuth;
+        const decodedToken = await firebaseAuth.verifyIdToken(idToken);
         req.user = {
           uid: decodedToken.uid,
           email: decodedToken.email || '',
@@ -129,7 +132,10 @@ export async function adminGuard(req: Request, res: Response, next: NextFunction
     }
 
     // Check admin claim
-    const decodedToken = await auth.verifyIdToken(req.headers.authorization!.split('Bearer ')[1]);
+    const firebaseAuth = req.firebase?.auth ?? prodAuth;
+    const decodedToken = await firebaseAuth.verifyIdToken(
+      req.headers.authorization!.split('Bearer ')[1]
+    );
 
     if (!decodedToken['admin']) {
       const error = forbiddenError('admin');

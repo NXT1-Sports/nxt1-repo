@@ -65,6 +65,8 @@ import eventsRoutes from './routes/events.routes.js';
 // Billing routes
 import billingRoutes from './routes/billing.routes.js';
 import webhookRoutes from './routes/webhook.routes.js';
+// Staging-only dev utilities
+import seedRoutes from './routes/seed.routes.js';
 
 const app: ReturnType<typeof express> = express();
 const PORT = process.env['PORT'] || 3000;
@@ -284,6 +286,10 @@ async function setupApplication() {
 
   // Setup staging routes: /api/v1/staging/*
   await setupRoutes('/api/v1/staging', routeConfigs);
+
+  // Staging-only: seed helper (never exposed on /api/v1/ prod path)
+  const seedLimiter = await getRedisRateLimiter('api');
+  app.use('/api/v1/staging/seed', seedLimiter, seedRoutes);
 
   // Log all protected endpoints
   logger.info('🛡️ Rate Limiting Coverage:');

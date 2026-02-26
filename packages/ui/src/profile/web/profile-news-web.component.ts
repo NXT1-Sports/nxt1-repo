@@ -38,7 +38,7 @@ import {
 import { isPlatformBrowser } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import { type NewsArticle } from '@nxt1/core';
-import { MOCK_NEWS_ARTICLES } from '../../news/news.mock-data';
+import { NewsApiService } from '../../news/news-api.service';
 import { NxtContentCardWebComponent } from '../../components/content-card';
 
 type ProfileNewsSectionId = 'all-news' | 'announcements' | 'media-mentions';
@@ -345,8 +345,10 @@ export class ProfileNewsWebComponent implements OnInit {
   // COMPUTED
   // ============================================
 
-  /** Base article set for profile news feed. */
-  private readonly allArticles = computed((): readonly NewsArticle[] => MOCK_NEWS_ARTICLES);
+  private readonly newsApi = inject(NewsApiService);
+
+  /** Populated after the first API fetch. */
+  private readonly allArticles = signal<readonly NewsArticle[]>([]);
 
   private readonly normalizedSection = computed((): ProfileNewsSectionId => {
     const section = this.activeSection();
@@ -396,9 +398,21 @@ export class ProfileNewsWebComponent implements OnInit {
     if (_hasLoadedOnce || !isPlatformBrowser(this.platformId)) return;
 
     const timer = setTimeout(() => {
-      _hasLoadedOnce = true;
-      this.isLoading.set(false);
-    }, 400);
+      this.newsApi
+        .getFeed()
+        .then((response) => {
+          if (response.success && response.data) {
+            this.allArticles.set(response.data);
+          }
+        })
+        .catch(() => {
+          // leave empty — show empty state instead of crashing
+        })
+        .finally(() => {
+          _hasLoadedOnce = true;
+          this.isLoading.set(false);
+        });
+    }, 300);
 
     this.destroyRef.onDestroy(() => clearTimeout(timer));
   }

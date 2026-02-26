@@ -511,6 +511,8 @@ export const PROFILE_CACHE_KEYS = {
   BY_ID: 'user:profile:',
   /** Profile data keyed by username — MEDIUM_TTL (15 min) */
   BY_USERNAME: 'user:profile:username:',
+  /** Profile data keyed by unicode — MEDIUM_TTL (15 min) */
+  BY_UNICODE: 'user:profile:unicode:',
   /** Full-text / filtered profile search results — SEARCH TTL (15 min) */
   SEARCH: 'user:profile:search:',
 } as const;

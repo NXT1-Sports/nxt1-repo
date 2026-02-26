@@ -7,6 +7,7 @@ import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
 import { environment } from './environments/environment';
 import { PerformanceService } from './app/core/services/performance.service';
+import { Auth } from '@angular/fire/auth';
 
 if (environment.production) {
   enableProdMode();
@@ -14,14 +15,30 @@ if (environment.production) {
 
 bootstrapApplication(AppComponent, appConfig)
   .then((appRef) => {
-    // Expose performance test helper to window for staging verification
-    // Usage: Open browser console and run: testPerformance()
     if (!environment.production) {
       const performanceService = appRef.injector.get(PerformanceService);
       (window as unknown as { testPerformance: () => Promise<unknown> }).testPerformance = () =>
         performanceService.testPerformance();
 
-      console.log('🔧 Performance test available. Run: testPerformance()');
+      // Dev helper: get fresh Firebase ID token and copy to clipboard.
+      // Usage in browser console: await __getToken()
+      const auth = appRef.injector.get(Auth);
+      (window as unknown as { __getToken: () => Promise<string | null> }).__getToken = async () => {
+        await auth.authStateReady();
+        if (!auth.currentUser) {
+          console.warn('Not logged in');
+          return null;
+        }
+        const token = await auth.currentUser.getIdToken(true); // force refresh
+        console.log(
+          '%c✅ Copy token below (triple-click to select all):',
+          'color: green; font-weight: bold'
+        );
+        console.log('Bearer ' + token);
+        return token;
+      };
+
+      console.log('🔧 Dev tools: testPerformance() | await __getToken()');
     }
   })
   .catch((err) => console.error('Bootstrap error:', err));

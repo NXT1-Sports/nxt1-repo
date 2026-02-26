@@ -81,29 +81,84 @@ export class ProfileService {
   }
 
   /**
-   * Invalidate cached data for a specific unicode.
+   * Invalidate cached data for a specific user.
    * Call after profile updates so the next fetch reflects changes.
    */
-  invalidateCache(unicode: string): void {
-    this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, unicode));
-    this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_USERNAME, unicode));
+  invalidateCache(userId: string, username?: string, unicode?: string | null): void {
+    this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, userId));
+    if (username) {
+      this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_USERNAME, username));
+    }
+    if (unicode) {
+      this.profileCache.delete(this.cacheKey(PROFILE_CACHE_KEYS.BY_UNICODE, unicode));
+    }
   }
 
   /**
-   * Get user profile by unicode (public access).
-   * Checks service-level in-memory cache (MEDIUM_TTL) before hitting the network.
-   * HTTP-level cache (httpCacheInterceptor) provides a second caching layer.
+   * Get current authenticated user's own profile.
+   * Uses the /profile/me endpoint — no userId required.
+   * Caches under the authenticated user's ID (from response).
    */
-  getProfile(unicode: string): Observable<ApiResponse<User>> {
-    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, unicode);
+  getMe(): Observable<ApiResponse<User>> {
+    return from(
+      this.performance.trace(TRACE_NAMES.PROFILE_LOAD, () => this.api.getMe(), {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_me',
+        },
+      })
+    ).pipe(
+      tap((response) => {
+        if (response.success && response.data?.id) {
+          // Cache under the resolved user ID so further navigations to /:id hit cache
+          const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, response.data.id);
+          this.setCache(key, response);
+        }
+      })
+    );
+  }
+
+  /**
+   * Get user profile by unicode (shareable numeric code).
+   * Checks service-level cache before hitting the network.
+   */
+  getProfileByUnicode(unicode: string): Observable<ApiResponse<User>> {
+    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_UNICODE, unicode);
     const cached = this.getFromCache(key);
     if (cached) return of(cached);
 
     return from(
-      this.performance.trace(TRACE_NAMES.PROFILE_LOAD, () => this.api.getProfile(unicode), {
+      this.performance.trace(
+        TRACE_NAMES.PROFILE_LOAD,
+        () => this.api.getProfileByUnicode(unicode),
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_view',
+            unicode,
+          },
+        }
+      )
+    ).pipe(
+      tap((response) => {
+        if (response.success) this.setCache(key, response);
+      })
+    );
+  }
+
+  /**
+   * Get user profile by user ID.
+   * Checks service-level in-memory cache (MEDIUM_TTL) before hitting the network.
+   * HTTP-level cache (httpCacheInterceptor) provides a second caching layer.
+   */
+  getProfile(userId: string): Observable<ApiResponse<User>> {
+    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_ID, userId);
+    const cached = this.getFromCache(key);
+    if (cached) return of(cached);
+
+    return from(
+      this.performance.trace(TRACE_NAMES.PROFILE_LOAD, () => this.api.getProfile(userId), {
         attributes: {
           [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_view',
-          profile_id: unicode,
+          profile_id: userId,
         },
       })
     ).pipe(

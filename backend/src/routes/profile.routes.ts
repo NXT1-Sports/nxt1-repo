@@ -49,16 +49,26 @@ const USERS_COLLECTION = 'Users';
 type UserFirestoreDoc = DocumentData & {
   // Identity
   email?: string;
+  emailVerified?: boolean;
   firstName?: string;
   lastName?: string;
+  displayName?: string;
   username?: string;
+  unicode?: string | null;
+  gender?: string;
   role?: string;
+  status?: string;
 
   // Profile
   profileImg?: string | null;
   bannerImg?: string | null;
   profileImages?: string[];
   aboutMe?: string;
+
+  // Physical attributes (top-level)
+  height?: string;
+  weight?: string;
+  classOf?: number;
 
   // Sport
   sports?: SportProfile[];
@@ -76,15 +86,18 @@ type UserFirestoreDoc = DocumentData & {
     verified?: boolean;
   }>;
   state?: string;
+  city?: string;
 
-  // Athlete-specific
+  // Role-specific data
   athlete?: Record<string, unknown>;
-  classOf?: number;
-  height?: string;
-  weight?: string;
-
-  // Coach-specific
   coach?: Record<string, unknown>;
+  collegeCoach?: Record<string, unknown>;
+  director?: Record<string, unknown>;
+  scout?: Record<string, unknown>;
+  recruitingService?: Record<string, unknown>;
+  media?: Record<string, unknown>;
+  parent?: Record<string, unknown>;
+  fan?: Record<string, unknown>;
 
   // Verification & AI
   verificationStatus?: string;
@@ -96,7 +109,7 @@ type UserFirestoreDoc = DocumentData & {
     syncedFields?: string[];
     lastError?: string;
   }>;
-  agentX?: Record<string, unknown>;
+  connectedEmails?: Array<Record<string, unknown>>;
 
   // Awards & team history
   awards?: Array<Record<string, unknown>>;
@@ -105,10 +118,29 @@ type UserFirestoreDoc = DocumentData & {
   // Subscription
   planTier?: string;
 
-  // Meta
+  // Preferences & counters
+  preferences?: Record<string, unknown>;
+  _counters?: Record<string, unknown>;
+
+  // Onboarding
   onboardingCompleted?: boolean;
+
+  // Timestamps
   updatedAt?: string;
   createdAt?: string;
+  lastLoginAt?: string;
+
+  // Push notifications
+  fcmToken?: string | null;
+
+  // Schema version
+  _schemaVersion?: number;
+
+  // Team code
+  teamCode?: Record<string, unknown> | string | null;
+  teamCodeTrial?: Record<string, unknown>;
+  teamLinks?: Record<string, unknown>;
+  profileCode?: string;
 };
 
 // ============================================
@@ -130,6 +162,13 @@ function buildProfileByUsernameCacheKey(username: string): string {
 }
 
 /**
+ * Build Redis cache key for a profile by unicode (case-insensitive).
+ */
+function buildProfileByUnicodeCacheKey(unicode: string): string {
+  return `${PROFILE_CACHE_KEYS.BY_UNICODE}${unicode.toLowerCase()}`;
+}
+
+/**
  * Build Redis cache key for profile search results.
  * Keys are sorted for deterministic caching regardless of param order.
  */
@@ -148,12 +187,19 @@ function buildProfileSearchCacheKey(params: ProfileSearchParams): string {
  * Invalidate all cached representations of a user profile.
  * Called after any write operation.
  */
-async function invalidateProfileCaches(userId: string, username?: string): Promise<void> {
+async function invalidateProfileCaches(
+  userId: string,
+  username?: string,
+  unicode?: string | null
+): Promise<void> {
   const cache = getCacheService();
 
   const keysToDelete: string[] = [buildProfileByIdCacheKey(userId)];
   if (username) {
     keysToDelete.push(buildProfileByUsernameCacheKey(username));
+  }
+  if (unicode) {
+    keysToDelete.push(buildProfileByUnicodeCacheKey(unicode));
   }
 
   await Promise.all(keysToDelete.map((k) => cache.del(k)));
@@ -161,7 +207,7 @@ async function invalidateProfileCaches(userId: string, username?: string): Promi
   // Invalidate all profile search results (pattern delete)
   await cache.del(`${PROFILE_CACHE_KEYS.SEARCH}*`);
 
-  logger.debug('[Profile] Cache invalidated', { userId, username });
+  logger.debug('[Profile] Cache invalidated', { userId, username, unicode });
 }
 
 // ============================================
@@ -180,25 +226,130 @@ function docToUser(docId: string, data: UserFirestoreDoc): User {
  * Convert Firestore document data + doc ID into a lightweight UserSummary.
  */
 function docToUserSummary(docId: string, data: UserFirestoreDoc): UserSummary {
+  const sports = data['sports'] as SportProfile[] | undefined;
+  const primarySport = sports?.find((s) => s.order === 0) ?? sports?.[0];
   return {
     id: docId,
     firstName: data['firstName'] ?? '',
     lastName: data['lastName'] ?? '',
+    displayName: data['displayName'] as string | undefined,
     profileImg: (data['profileImg'] as string | null) ?? null,
     role: data['role'] as UserSummary['role'],
+    verificationStatus: data['verificationStatus'] as UserSummary['verificationStatus'],
     location: {
       city: (data['location']?.['city'] as string | undefined) ?? data['city'] ?? '',
       state: (data['location']?.['state'] as string | undefined) ?? data['state'] ?? '',
     },
-    primarySport: data['primarySport'] as string | undefined,
-    primaryPosition: (data['sports'] as SportProfile[] | undefined)?.[0]?.positions?.[0],
-    classOf: data['athlete']?.['classOf'] as number | undefined,
+    primarySport: primarySport?.sport ?? (data['primarySport'] as string | undefined),
+    primaryPosition: primarySport?.positions?.[0],
+    // classOf lives at top-level on User (moved from athlete.classOf in schema v2)
+    classOf:
+      (data['classOf'] as number | undefined) ??
+      (data['athlete']?.['classOf'] as number | undefined),
+    height: data['height'] as string | undefined,
+    weight: data['weight'] as string | undefined,
   };
 }
 
 // ============================================
 // ROUTES
 // ============================================
+
+/**
+ * Get current authenticated user's own profile.
+ * GET /api/v1/auth/profile/me
+ */
+router.get(
+  '/me',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const userId = req.user!.uid;
+    const cacheKey = buildProfileByIdCacheKey(userId);
+    const cache = getCacheService();
+
+    // --- Cache hit ---
+    const cached = await cache.get<User>(cacheKey);
+    if (cached) {
+      logger.debug('[Profile] /me cache hit', { userId });
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: cached });
+      return;
+    }
+
+    // --- Cache miss: fetch from Firestore ---
+    const db = req.firebase!.db;
+    const doc = await db.collection(USERS_COLLECTION).doc(userId).get();
+
+    if (!doc.exists) {
+      sendError(res, notFoundError('profile'));
+      return;
+    }
+
+    const user = docToUser(doc.id, doc.data() as UserFirestoreDoc);
+
+    await cache.set(cacheKey, user, { ttl: CACHE_TTL.PROFILES });
+    logger.debug('[Profile] /me cache set', { userId });
+
+    res.json({ success: true, data: user });
+  })
+);
+
+/**
+ * Get user profile by unicode (shareable profile code).
+ * GET /api/v1/auth/profile/unicode/:unicode
+ */
+router.get(
+  '/unicode/:unicode',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { unicode } = req.params as { unicode: string };
+
+    if (!unicode?.trim()) {
+      sendError(
+        res,
+        validationError([{ field: 'unicode', message: 'Unicode is required', rule: 'required' }])
+      );
+      return;
+    }
+
+    const cacheKey = buildProfileByUnicodeCacheKey(unicode);
+    const cache = getCacheService();
+
+    // --- Cache hit ---
+    const cached = await cache.get<User>(cacheKey);
+    if (cached) {
+      logger.debug('[Profile] Unicode cache hit', { unicode });
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: cached });
+      return;
+    }
+
+    // --- Cache miss: query Firestore ---
+    const db = req.firebase!.db;
+    const snapshot = await db
+      .collection(USERS_COLLECTION)
+      .where('unicode', '==', unicode)
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) {
+      sendError(res, notFoundError('profile'));
+      return;
+    }
+
+    const doc = snapshot.docs[0]!;
+    const user = docToUser(doc.id, doc.data() as UserFirestoreDoc);
+
+    // Populate both cache keys so both lookup paths benefit
+    await Promise.all([
+      cache.set(cacheKey, user, { ttl: CACHE_TTL.PROFILES }),
+      cache.set(buildProfileByIdCacheKey(doc.id), user, { ttl: CACHE_TTL.PROFILES }),
+    ]);
+
+    logger.debug('[Profile] Unicode cache set', { unicode, userId: doc.id });
+    res.json({ success: true, data: user });
+  })
+);
 
 /**
  * Search profiles by sport / state / classOf / position / free-text.
@@ -408,22 +559,54 @@ router.put(
 
     const body = req.body as UpdateProfileRequest;
 
-    // Validate allowed fields (whitelist to prevent mass-assignment)
-    const allowedFields: Array<keyof UpdateProfileRequest> = [
+    // Whitelist of all writable User fields — system/read-only fields
+    // (id, email, planTier, _counters, _schemaVersion, unicode, profileCode,
+    //  fcmToken, onboardingCompleted, role, status, teamCode) are excluded.
+    const allowedFields: string[] = [
+      // Core identity
       'firstName',
       'lastName',
+      'displayName',
+      'username',
+      'aboutMe',
       'profileImg',
       'bannerImg',
       'profileImages',
-      'aboutMe',
+      'gender',
+      // Physical / class
+      'height',
+      'weight',
+      'classOf',
+      // Location & contact
       'location',
+      'contact',
+      // Social
       'social',
+      // Sports
+      'sports',
+      'activeSportIndex',
+      // History & awards
+      'teamHistory',
+      'awards',
+      // Connected sources
+      'connectedSources',
+      // Role-specific data
+      'athlete',
+      'coach',
+      'collegeCoach',
+      'director',
+      'scout',
+      'recruitingService',
+      'media',
+      'parent',
+      // Preferences
+      'preferences',
     ];
     const updates: Partial<Record<string, unknown>> = {};
 
     for (const field of allowedFields) {
-      if (body[field] !== undefined) {
-        updates[field] = body[field];
+      if ((body as Record<string, unknown>)[field] !== undefined) {
+        updates[field] = (body as Record<string, unknown>)[field];
       }
     }
 
@@ -447,6 +630,7 @@ router.put(
 
     const currentData = currentDoc.data() as UserFirestoreDoc;
     const currentUsername = currentData['username'] as string | undefined;
+    const currentUnicode = currentData['unicode'] as string | null | undefined;
 
     updates['updatedAt'] = new Date().toISOString();
 
@@ -457,7 +641,7 @@ router.put(
     const updatedUser = docToUser(updatedDoc.id, updatedDoc.data() as UserFirestoreDoc);
 
     // Invalidate stale cache entries
-    await invalidateProfileCaches(userId, currentUsername);
+    await invalidateProfileCaches(userId, currentUsername, currentUnicode);
 
     logger.info('[Profile] Profile updated', { userId });
     res.json({ success: true, data: updatedUser });
@@ -502,13 +686,14 @@ router.post(
 
     const currentData = currentDoc.data() as UserFirestoreDoc;
     const currentUsername = currentData['username'] as string | undefined;
+    const currentUnicode = currentData['unicode'] as string | null | undefined;
 
     await userRef.update({
       profileImg: imageUrl.trim(),
       updatedAt: new Date().toISOString(),
     });
 
-    await invalidateProfileCaches(userId, currentUsername);
+    await invalidateProfileCaches(userId, currentUsername, currentUnicode);
 
     logger.info('[Profile] Profile image updated', { userId });
     res.json({ success: true, data: { url: imageUrl.trim() } });
@@ -582,7 +767,8 @@ router.put(
     });
 
     const currentUsername = currentData['username'] as string | undefined;
-    await invalidateProfileCaches(userId, currentUsername);
+    const currentUnicode = currentData['unicode'] as string | null | undefined;
+    await invalidateProfileCaches(userId, currentUsername, currentUnicode);
 
     logger.info('[Profile] Sport updated', { userId, sportIndex });
     res.json({ success: true, data: updatedSport });
@@ -640,7 +826,8 @@ router.post(
     });
 
     const currentUsername = currentData['username'] as string | undefined;
-    await invalidateProfileCaches(userId, currentUsername);
+    const currentUnicode = currentData['unicode'] as string | null | undefined;
+    await invalidateProfileCaches(userId, currentUsername, currentUnicode);
 
     logger.info('[Profile] Sport added', { userId, sport: newSport.sport });
     res.status(201).json({ success: true, data: newSport });
@@ -715,7 +902,8 @@ router.delete(
     });
 
     const currentUsername = currentData['username'] as string | undefined;
-    await invalidateProfileCaches(userId, currentUsername);
+    const currentUnicode = currentData['unicode'] as string | null | undefined;
+    await invalidateProfileCaches(userId, currentUsername, currentUnicode);
 
     logger.info('[Profile] Sport removed', { userId, sportIndex });
     res.json({ success: true, data: null });

@@ -88,8 +88,8 @@ export {
   // Agent X & Scouting (source-of-truth types)
   // Note: Display-DTO versions with same names exist in profile.types.ts
   // Import from @nxt1/core/models when you need domain types
-  type PlayerArchetype as DomainPlayerArchetype,
-  type AgentXTrait as DomainAgentXTrait,
+  type PlayerArchetype,
+  type AgentXTrait,
   // History & Awards
   type TeamHistoryEntry,
   type UserAward,

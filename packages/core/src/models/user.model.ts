@@ -759,6 +759,18 @@ export interface SportProfile {
    */
   upcomingEvents?: ScheduleEvent[];
 
+  /**
+   * Player archetype assigned by Agent X (e.g., 'Floor General', 'Pocket Passer').
+   * Backend keeps this in sync — frontend NEVER writes this directly.
+   */
+  archetype?: PlayerArchetype;
+
+  /**
+   * Agent X trait analysis for this sport profile.
+   * Backend keeps this in sync — frontend NEVER writes this directly.
+   */
+  traits?: AgentXTrait[];
+
   /** Team information - optional, added during profile completion */
   team?: TeamInfo;
 
@@ -1062,6 +1074,7 @@ export interface User {
   lastName: string;
   /** Preferred display name (if different from firstName + lastName) */
   displayName?: string;
+  username: string;
 
   /** Optional bio/about text */
   aboutMe?: string;
