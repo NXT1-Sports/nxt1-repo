@@ -24,7 +24,6 @@ import {
   Component,
   ChangeDetectionStrategy,
   signal,
-  computed,
   afterNextRender,
   inject,
   PLATFORM_ID,
@@ -2122,11 +2121,7 @@ const MOCK_UNCOMMITTED: UncommittedAthlete[] = [
         right: 6px;
         padding: 2px 6px;
         background: rgba(0, 0, 0, 0.8);
-        color: var(--nxt1-color-text-inverse, #0a0a0a);
-        font-size: var(--nxt1-fontSize-2xs, 0.625rem);
-        font-weight: var(--nxt1-fontWeight-medium, 500);
-        border-radius: var(--nxt1-radius-sm, 0.25rem);
-        line-height: 1.4;
+        color: var(--nxt1-color-text-primary, #ffffff);
       }
 
       .video-card__info {
@@ -2137,7 +2132,7 @@ const MOCK_UNCOMMITTED: UncommittedAthlete[] = [
 
       .video-card__athlete {
         margin: 0 0 4px;
-        color: var(--nxt1-color-text-inverse, #ffffff);
+        color: var(--nxt1-color-text-primary, #ffffff);
       }
 
       .video-card__footer {
@@ -2347,7 +2342,7 @@ const MOCK_UNCOMMITTED: UncommittedAthlete[] = [
         justify-content: center;
         border-radius: var(--nxt1-radius-full, 9999px);
         background: var(--nxt1-color-info, #3b82f6);
-        color: var(--nxt1-color-text-inverse, #ffffff);
+        color: var(--nxt1-color-text-primary, #ffffff);
         border: 2px solid var(--nxt1-color-bg-primary, #0a0a0a);
       }
 
@@ -2650,10 +2645,6 @@ export class ExploreAthletesWebComponent {
   readonly uncommittedAthletes = signal<UncommittedAthlete[]>(MOCK_UNCOMMITTED);
 
   readonly classYears = signal(['2026', '2027', '2028']);
-
-  // ── Computed ──────────────────────────────────────────────────────────────
-  /** Filtered stat leaders by active category */
-  readonly filteredStatLeaders = computed(() => this.statLeaders());
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
