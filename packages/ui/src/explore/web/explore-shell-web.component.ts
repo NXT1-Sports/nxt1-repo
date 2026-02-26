@@ -45,6 +45,7 @@ import { ExploreService } from '../explore.service';
 import { ExploreListWebComponent } from './explore-list-web.component';
 import { ExploreSkeletonComponent } from '../explore-skeleton.component';
 import { ExploreForYouWebComponent } from './explore-for-you-web.component';
+import { ExploreCollegesWebComponent } from './explore-colleges-web.component';
 import { ScoutReportsContentComponent } from '../../scout-reports/scout-reports-content.component';
 import { NewsContentComponent } from '../../news/news-content.component';
 import { FeedListComponent } from '../../feed/feed-list.component';
@@ -64,6 +65,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
     ExploreListWebComponent,
     ExploreSkeletonComponent,
     ExploreForYouWebComponent,
+    ExploreCollegesWebComponent,
     ScoutReportsContentComponent,
     NewsContentComponent,
     FeedListComponent,
@@ -316,6 +318,9 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
                   (itemTap)="onItemClick($event)"
                   (categorySelect)="onForYouCategorySelect($event)"
                 />
+                <!-- Colleges Tab: Elite 8-section recruiting dashboard -->
+              } @else if (explore.activeTab() === 'colleges' && !explore.hasQuery()) {
+                <nxt1-explore-colleges-web />
                 <!-- Feed Tab: Personalized content stream -->
               } @else if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
                 <nxt1-feed-list
