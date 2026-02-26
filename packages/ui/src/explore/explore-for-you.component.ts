@@ -41,39 +41,55 @@ import type { ExploreUser } from './explore-shell.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { MOCK_ATHLETES, MOCK_COLLEGES, MOCK_VIDEOS } from './explore.mock-data';
 
-// ── Inline mock data for new section types ──
-const MOCK_EVENTS = [
+// ── Inline mock data for college-hosted camps ──
+const MOCK_COLLEGE_CAMPS = [
   {
-    id: 'evt-1',
-    title: 'Elite Showcase Camp',
-    sport: 'Basketball',
-    date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
-    location: 'Los Angeles, CA',
-    spots: 12,
-  },
-  {
-    id: 'evt-2',
-    title: 'National Combine',
-    sport: 'Football',
+    id: 'camp-1',
+    collegeName: 'UCLA',
+    collegeLogo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6c/UCLA_Bruins_script.svg/200px-UCLA_Bruins_script.svg.png',
+    campName: 'UCLA Basketball Elite Camp',
     date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14),
-    location: 'Dallas, TX',
-    spots: 8,
+    location: 'Los Angeles, CA',
+    sport: 'Basketball',
+    matchPercent: 94,
+    division: 'Division I · Big Ten',
+    spotsLeft: 8,
   },
   {
-    id: 'evt-3',
-    title: 'Volleyball Summit',
-    sport: 'Volleyball',
+    id: 'camp-2',
+    collegeName: 'Duke',
+    collegeLogo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Duke_Athletics_logo.svg/200px-Duke_Athletics_logo.svg.png',
+    campName: 'Duke Elite Prospects Camp',
     date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 21),
-    location: 'San Diego, CA',
-    spots: 20,
+    location: 'Durham, NC',
+    sport: 'Basketball',
+    matchPercent: 87,
+    division: 'Division I · ACC',
+    spotsLeft: 12,
   },
   {
-    id: 'evt-4',
-    title: 'Soccer Academy Trials',
-    sport: 'Soccer',
+    id: 'camp-3',
+    collegeName: 'Texas',
+    collegeLogo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Texas_Longhorns_logo.svg/200px-Texas_Longhorns_logo.svg.png',
+    campName: 'Texas Football Showcase',
     date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 28),
-    location: 'Miami, FL',
-    spots: 15,
+    location: 'Austin, TX',
+    sport: 'Football',
+    matchPercent: 82,
+    division: 'Division I · SEC',
+    spotsLeft: 5,
+  },
+  {
+    id: 'camp-4',
+    collegeName: 'Stanford',
+    collegeLogo: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/4b/Stanford_Cardinal_logo.svg/200px-Stanford_Cardinal_logo.svg.png',
+    campName: 'Stanford Basketball Academy',
+    date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 35),
+    location: 'Stanford, CA',
+    sport: 'Basketball',
+    matchPercent: 78,
+    division: 'Division I · ACC',
+    spotsLeft: 20,
   },
 ];
 
@@ -117,7 +133,7 @@ const MOCK_SOCIAL_POSTS = [
     id: 'post-1',
     authorName: 'Marcus Johnson',
     authorAvatar: 'https://i.pravatar.cc/150?img=12',
-    content: 'Blessed to announce my commitment to UCLA! 🐻💙 #GoUCLA #Committed',
+    content: 'Blessed to announce my commitment to UCLA! #GoUCLA #Committed',
     timestamp: '2h ago',
     likes: 2847,
     comments: 341,
@@ -126,7 +142,7 @@ const MOCK_SOCIAL_POSTS = [
     id: 'post-2',
     authorName: 'Sarah Williams',
     authorAvatar: 'https://i.pravatar.cc/150?img=25',
-    content: 'New PR in the 100m today — 10.98! Hard work paying off 🏃‍♀️⚡',
+    content: 'New PR in the 100m today — 10.98! Hard work paying off.',
     timestamp: '5h ago',
     likes: 1204,
     comments: 98,
@@ -135,7 +151,7 @@ const MOCK_SOCIAL_POSTS = [
     id: 'post-3',
     authorName: 'Carlos Rodriguez',
     authorAvatar: 'https://i.pravatar.cc/150?img=33',
-    content: 'Game winner in overtime! Nothing better than this feeling ⚽🔥',
+    content: 'Game winner in overtime! Nothing better than this feeling.',
     timestamp: '1d ago',
     likes: 3510,
     comments: 267,
@@ -158,8 +174,84 @@ const MOCK_SOCIAL_POSTS = [
   ],
   template: `
     <section class="for-you" aria-label="For You — personalized explore">
+
       <!-- ═══════════════════════════════════════════════════════
-           SECTION 1: AI Executive Summary (Hero)
+           SECTION 1: Agent X Brief (TOP — no @defer)
+           Typewriter-style personalized intelligence brief
+           ═══════════════════════════════════════════════════════ -->
+      <section class="section agent-x-section" aria-labelledby="mob-agent-x">
+        <ion-card class="agent-x-card" aria-labelledby="mob-agent-x">
+          <ion-card-content class="agent-x-content">
+            <!-- Agent header -->
+            <div class="agent-header">
+              <div class="agent-icon">
+                <svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm-1-11h2v6h-2zm0-4h2v2h-2z"/>
+                </svg>
+              </div>
+              <div>
+                <h2 id="mob-agent-x" class="agent-name">Agent X</h2>
+                <p class="agent-role">Personalized Intelligence Brief</p>
+              </div>
+              <span class="agent-live-badge">Live</span>
+            </div>
+
+            <!-- 4-sentence typewriter brief -->
+            <div class="agent-message">
+              <p class="agent-message-label">Daily Brief</p>
+              <div class="agent-brief-sentences">
+                <p class="agent-message-body">
+                  Your Class of 2026 Point Guard profile ranks in the
+                  <strong class="agent-highlight">top 8% of recruits nationally</strong>
+                  based on verified highlights and scout activity this week.
+                </p>
+                <p class="agent-message-body">
+                  Coaching staff from
+                  <strong class="agent-highlight">UCLA, Michigan, and Duke</strong>
+                  have actively viewed your highlight reel in the last 48 hours.
+                </p>
+                <p class="agent-message-body">
+                  Your commitment window is entering a
+                  <strong class="agent-highlight">critical 60-day stage</strong>
+                  — 3 Division I programs have flagged your profile as a priority target.
+                </p>
+                <p class="agent-message-body">
+                  Open your personalized action plan to review scholarship timelines,
+                  camp invites, and your next move.<span class="agent-cursor"></span>
+                </p>
+              </div>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="agent-actions">
+              <button
+                type="button"
+                class="agent-btn-primary"
+                (click)="onCategorySelect('colleges')"
+              >
+                Open My Action Plan
+              </button>
+              <button
+                type="button"
+                class="agent-btn-secondary"
+                (click)="onAgentXTap()"
+              >
+                Ask Agent X
+              </button>
+            </div>
+
+            <!-- Contextual chips -->
+            <div class="agent-chips">
+              <ion-chip class="agent-chip">Basketball · Class of 2026</ion-chip>
+              <ion-chip class="agent-chip">4.2 GPA · Div I Eligible</ion-chip>
+              <ion-chip class="agent-chip">3 Programs Active</ion-chip>
+            </div>
+          </ion-card-content>
+        </ion-card>
+      </section>
+
+      <!-- ═══════════════════════════════════════════════════════
+           SECTION 2: AI Executive Summary (Hero)
            No @defer — LCP critical, loads immediately
            Full-width IonCard with no margins
            ═══════════════════════════════════════════════════════ -->
@@ -178,7 +270,7 @@ const MOCK_SOCIAL_POSTS = [
         <ion-card-content class="hero-content">
           <!-- AI Badge -->
           <div class="hero-badges">
-            <span class="ai-badge">⚡ AI Executive Summary</span>
+            <span class="ai-badge">AI Executive Summary</span>
             <span class="time-badge">Updated 2 min ago</span>
           </div>
 
@@ -210,7 +302,7 @@ const MOCK_SOCIAL_POSTS = [
       @defer (on viewport; prefetch on idle) {
         <section class="section" aria-labelledby="mob-stock-exchange">
           <header class="section-header">
-            <h2 id="mob-stock-exchange" class="section-title">📈 Stock Exchange</h2>
+            <h2 id="mob-stock-exchange" class="section-title">Stock Exchange</h2>
             <button
               type="button"
               class="see-all-btn"
@@ -276,7 +368,7 @@ const MOCK_SOCIAL_POSTS = [
       @defer (on viewport; prefetch on idle) {
         <section class="section film-room-section" aria-labelledby="mob-film-room">
           <header class="section-header">
-            <h2 id="mob-film-room" class="section-title">🎬 Film Room</h2>
+            <h2 id="mob-film-room" class="section-title">Film Room</h2>
             <button
               type="button"
               class="see-all-btn"
@@ -345,7 +437,7 @@ const MOCK_SOCIAL_POSTS = [
       @defer (on viewport; prefetch on idle) {
         <section class="section" aria-labelledby="mob-war-room">
           <header class="section-header">
-            <h2 id="mob-war-room" class="section-title">🧠 Matchmaker / War Room</h2>
+            <h2 id="mob-war-room" class="section-title">Matchmaker</h2>
             <button
               type="button"
               class="see-all-btn"
@@ -408,7 +500,7 @@ const MOCK_SOCIAL_POSTS = [
       @defer (on viewport; prefetch on idle) {
         <section class="section" aria-labelledby="mob-social-pulse">
           <header class="section-header">
-            <h2 id="mob-social-pulse" class="section-title">💬 Social Pulse</h2>
+            <h2 id="mob-social-pulse" class="section-title">Social Pulse</h2>
             <button
               type="button"
               class="see-all-btn"
@@ -489,7 +581,7 @@ const MOCK_SOCIAL_POSTS = [
       @defer (on viewport; prefetch on idle) {
         <section class="section" aria-labelledby="mob-campus-radar">
           <header class="section-header">
-            <h2 id="mob-campus-radar" class="section-title">🎓 Campus Radar</h2>
+            <h2 id="mob-campus-radar" class="section-title">Campus Radar</h2>
             <button
               type="button"
               class="see-all-btn"
@@ -557,7 +649,7 @@ const MOCK_SOCIAL_POSTS = [
       @defer (on viewport; prefetch on idle) {
         <section class="section" aria-labelledby="mob-intel-desk">
           <header class="section-header">
-            <h2 id="mob-intel-desk" class="section-title">📡 Intel Desk</h2>
+            <h2 id="mob-intel-desk" class="section-title">Intel Desk</h2>
             <button
               type="button"
               class="see-all-btn"
@@ -619,7 +711,10 @@ const MOCK_SOCIAL_POSTS = [
       @defer (on viewport; prefetch on idle) {
         <section class="section" aria-labelledby="mob-proving-grounds">
           <header class="section-header">
-            <h2 id="mob-proving-grounds" class="section-title">🏟️ Proving Grounds</h2>
+            <div>
+              <h2 id="mob-proving-grounds" class="section-title">Proving Grounds</h2>
+              <p class="section-subtitle">College camps matched to your profile</p>
+            </div>
             <button
               type="button"
               class="see-all-btn"
@@ -638,14 +733,21 @@ const MOCK_SOCIAL_POSTS = [
                     <span class="event-month">{{ event.date | date: 'MMM' }}</span>
                     <span class="event-day">{{ event.date | date: 'd' }}</span>
                   </div>
-                  <!-- Event info -->
+                  <!-- Camp info -->
                   <div class="event-info">
-                    <h3 class="event-title">{{ event.title }}</h3>
-                    <p class="event-sport">{{ event.sport }}</p>
-                    <p class="event-location">📍 {{ event.location }}</p>
+                    <div class="camp-college-row">
+                      <img [src]="event['collegeLogo']" [alt]="event['collegeName']" class="camp-college-logo" loading="lazy" />
+                      <span class="camp-college-name">{{ event['collegeName'] }}</span>
+                    </div>
+                    <h3 class="event-title">{{ event['campName'] }}</h3>
+                    <p class="event-sport">{{ event['division'] }}</p>
+                    <p class="event-location">{{ event.location }}</p>
                   </div>
-                  <!-- Spots remaining -->
-                  <ion-badge class="event-spots-badge">{{ event.spots }} spots</ion-badge>
+                  <!-- Match % + spots -->
+                  <div class="camp-right-col">
+                    <ion-badge class="event-spots-badge">{{ event['matchPercent'] }}% match</ion-badge>
+                    <span class="camp-spots-left">{{ event['spotsLeft'] }} spots</span>
+                  </div>
                 </ion-card-content>
               </ion-card>
             }
@@ -674,7 +776,7 @@ const MOCK_SOCIAL_POSTS = [
       @defer (on viewport; prefetch on idle) {
         <section class="section" aria-labelledby="mob-inner-circle">
           <header class="section-header">
-            <h2 id="mob-inner-circle" class="section-title">🔥 Inner Circle</h2>
+            <h2 id="mob-inner-circle" class="section-title">Inner Circle</h2>
             <button
               type="button"
               class="see-all-btn"
@@ -739,78 +841,6 @@ const MOCK_SOCIAL_POSTS = [
           @for (i of [1, 2, 3]; track i) {
             <div class="skeleton-activity animate-pulse bg-surface-300"></div>
           }
-        </div>
-      }
-
-      <!-- ═══════════════════════════════════════════════════════
-           SECTION 10: Agent X Contextual Inject (The Closer)
-           AI conversational block at the bottom of the feed
-           ═══════════════════════════════════════════════════════ -->
-      @defer (on viewport; prefetch on idle) {
-        <section class="section section--last agent-x-section" aria-labelledby="mob-agent-x">
-          <ion-card class="agent-x-card" aria-labelledby="mob-agent-x">
-            <ion-card-content class="agent-x-content">
-              <!-- Agent header -->
-              <div class="agent-header">
-                <div class="agent-icon">
-                  <svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"
-                    />
-                  </svg>
-                </div>
-                <div>
-                  <h2 id="mob-agent-x" class="agent-name">Agent X</h2>
-                  <p class="agent-role">Your AI recruiting strategist</p>
-                </div>
-                <span class="agent-live-badge">⚡ Live</span>
-              </div>
-
-              <!-- AI Message -->
-              <div class="agent-message">
-                <p class="agent-message-label">Agent X says:</p>
-                <p class="agent-message-body">
-                  Based on your profile and recent activity, I've identified
-                  <strong class="agent-highlight">3 new college programs</strong> actively
-                  recruiting athletes with your exact skill set. Your commitment window is opening in
-                  <strong class="agent-highlight">the next 60 days</strong>. Ready to take action?
-                </p>
-              </div>
-
-              <!-- Action buttons -->
-              <div class="agent-actions">
-                <button
-                  type="button"
-                  class="agent-btn-primary"
-                  (click)="onCategorySelect('colleges')"
-                >
-                  Show Me the Programs
-                </button>
-                <button
-                  type="button"
-                  class="agent-btn-secondary"
-                  (click)="onAgentXTap()"
-                >
-                  Ask Agent X
-                </button>
-              </div>
-
-              <!-- Contextual chips -->
-              <div class="agent-chips">
-                <ion-chip class="agent-chip">🏀 Basketball profile matched</ion-chip>
-                <ion-chip class="agent-chip">📊 4.2 GPA compatible</ion-chip>
-                <ion-chip class="agent-chip">🎓 Division I eligible</ion-chip>
-              </div>
-            </ion-card-content>
-          </ion-card>
-        </section>
-      } @placeholder {
-        <div class="skeleton-section">
-          <div class="skeleton-agent animate-pulse bg-surface-300"></div>
-        </div>
-      } @loading (minimum 300ms) {
-        <div class="skeleton-section">
-          <div class="skeleton-agent animate-pulse bg-surface-300"></div>
         </div>
       }
     </section>
@@ -1600,6 +1630,45 @@ const MOCK_SOCIAL_POSTS = [
         --padding-bottom: 12px;
       }
 
+      .camp-college-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 3px;
+      }
+
+      .camp-college-logo {
+        width: 18px;
+        height: 18px;
+        object-fit: contain;
+        flex-shrink: 0;
+      }
+
+      .camp-college-name {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .camp-right-col {
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+      }
+
+      .camp-spots-left {
+        font-size: 10px;
+        color: var(--nxt1-color-text-tertiary);
+      }
+
+      .section-subtitle {
+        font-size: 11px;
+        color: var(--nxt1-color-text-tertiary);
+        margin: 0;
+      }
+
       .event-date-badge {
         flex-shrink: 0;
         width: 52px;
@@ -1832,6 +1901,27 @@ const MOCK_SOCIAL_POSTS = [
         font-weight: 700;
       }
 
+      .agent-cursor {
+        display: inline-block;
+        width: 2px;
+        height: 13px;
+        background: var(--nxt1-color-primary);
+        margin-left: 2px;
+        vertical-align: text-bottom;
+        animation: blink 1s step-end infinite;
+      }
+
+      @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50%       { opacity: 0; }
+      }
+
+      .agent-brief-sentences {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
       .agent-message {
         padding: 12px;
         border-radius: var(--nxt1-radius-md, 12px);
@@ -1842,10 +1932,10 @@ const MOCK_SOCIAL_POSTS = [
       .agent-message-label {
         font-size: 10px;
         font-weight: 600;
-        color: var(--nxt1-color-text-secondary);
-        margin: 0 0 4px;
+        color: var(--nxt1-color-text-tertiary);
+        margin: 0 0 8px;
         text-transform: uppercase;
-        letter-spacing: 0.3px;
+        letter-spacing: 0.05em;
       }
 
       .agent-message-body {
@@ -2035,7 +2125,7 @@ export class ExploreForYouComponent {
   readonly socialPosts = signal(MOCK_SOCIAL_POSTS);
   readonly campusColleges = signal(MOCK_COLLEGES.slice(0, 3));
   readonly intelArticles = signal(MOCK_INTEL);
-  readonly events = signal(MOCK_EVENTS);
+  readonly events = signal(MOCK_COLLEGE_CAMPS);
   readonly innerCircleAvatars = signal(MOCK_ATHLETES.slice(0, 5));
 
   // ── Interaction Handlers ─────────────────────────────────
