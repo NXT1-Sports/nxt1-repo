@@ -212,7 +212,7 @@ export interface EditProfileBasicInfo {
 export interface EditProfilePhotos {
   readonly profileImg?: string;
   readonly bannerImg?: string;
-  readonly gallery?: readonly string[];
+  readonly profileImages?: readonly string[];
 }
 
 /**

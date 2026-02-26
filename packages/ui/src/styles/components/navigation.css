@@ -690,8 +690,9 @@
   height: 100%;
   padding: 0 var(--nxt1-spacing-10, 2.5rem);
   background: transparent;
-  border: none;
-  border-radius: calc(var(--nxt1-ui-radius-2xl, 20px) - 2px);
+  -webkit-appearance: none;
+  appearance: none;
+  box-shadow: none;
   color: var(--nxt1-nav-text);
   font-size: var(--nxt1-fontSize-sm, 0.875rem);
   outline: none;
@@ -718,7 +719,13 @@
 }
 
 :where(.nxt1-desktop-nav, .nxt1-nav-search) .search-input:focus {
+  box-shadow: none;
   color: var(--nxt1-nav-text);
+}
+
+:where(.nxt1-desktop-nav, .nxt1-nav-search) .search-input:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 :where(.nxt1-desktop-nav, .nxt1-nav-search) .search-icon {

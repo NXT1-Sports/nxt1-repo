@@ -24,6 +24,7 @@ import type {
   Location,
   ContactInfo,
   SocialLinks,
+  UserSocialLink,
 } from '@nxt1/core';
 import { isValidEmail, isValidTeamCode, USER_SCHEMA_VERSION } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
@@ -69,7 +70,7 @@ interface UserV2Document {
   // V2: Nested objects
   location?: Location;
   contact?: ContactInfo;
-  social?: SocialLinks;
+  social?: UserSocialLink[];
 
   // Athlete-specific
   athlete?: {
@@ -1016,16 +1017,39 @@ router.post(
         };
         updateData.contact = contact;
 
-        // V2: Build social object
-        const social: SocialLinks = {
-          ...currentUser?.social,
-          instagram: (stepData['instagram'] as string)?.trim() || currentUser?.social?.instagram,
-          twitter: (stepData['twitter'] as string)?.trim() || currentUser?.social?.twitter,
-          tiktok: (stepData['tiktok'] as string)?.trim() || currentUser?.social?.tiktok,
-          hudl: (stepData['hudlAccountLink'] as string)?.trim() || currentUser?.social?.hudl,
-          youtube:
-            (stepData['youtubeAccountLink'] as string)?.trim() || currentUser?.social?.youtube,
-        };
+        // V2: Build social array (agnostic — supports any platform)
+        const existingSocial: UserSocialLink[] = Array.isArray(currentUser?.social)
+          ? (currentUser.social as UserSocialLink[])
+          : [];
+
+        // Map onboarding step fields → platform entries
+        const onboardingLinks: Array<{ platform: string; value: string | undefined }> = [
+          { platform: 'instagram', value: (stepData['instagram'] as string)?.trim() },
+          { platform: 'twitter', value: (stepData['twitter'] as string)?.trim() },
+          { platform: 'tiktok', value: (stepData['tiktok'] as string)?.trim() },
+          { platform: 'hudl', value: (stepData['hudlAccountLink'] as string)?.trim() },
+          { platform: 'youtube', value: (stepData['youtubeAccountLink'] as string)?.trim() },
+        ];
+
+        // Merge: new values override existing entries for the same platform
+        const socialMap = new Map<string, UserSocialLink>();
+        for (const link of existingSocial) {
+          socialMap.set(link.platform.toLowerCase(), link);
+        }
+        let order = socialMap.size;
+        for (const { platform, value } of onboardingLinks) {
+          if (value) {
+            const existing = socialMap.get(platform);
+            socialMap.set(platform, {
+              platform,
+              url: value.startsWith('http') ? value : `https://${platform}.com/${value}`,
+              username: value.startsWith('http') ? undefined : value,
+              displayOrder: existing?.displayOrder ?? order++,
+              verified: false,
+            });
+          }
+        }
+        const social: UserSocialLink[] = Array.from(socialMap.values());
         updateData.social = social;
         // Note: No legacy flat fields - use contact{} and social{} objects
         break;

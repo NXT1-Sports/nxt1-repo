@@ -20,7 +20,6 @@ import { Router } from '@angular/router';
 import { ExploreShellWebComponent, type ExploreUser } from '@nxt1/ui/explore';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import type { ExploreItem, ExploreTabId, ScoutReport, FeedPost, FeedAuthor } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
@@ -32,7 +31,7 @@ import { SeoService } from '../../core/services';
   template: `
     <nxt1-explore-shell-web
       [user]="userInfo()"
-      [hideHeader]="isDesktop()"
+      [hideHeader]="true"
       (avatarClick)="onAvatarClick()"
       (tabChange)="onTabChange($event)"
       (itemClick)="onItemClick($event)"
@@ -52,10 +51,6 @@ export class ExploreComponent {
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('ExploreComponent');
   private readonly seo = inject(SeoService);
-  private readonly platform = inject(NxtPlatformService);
-
-  /** Desktop detection for hiding redundant page header (sidebar provides nav) */
-  protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
 
   ngOnInit(): void {
     this.seo.updatePage({

@@ -103,6 +103,9 @@ import {
 } from '@nxt1/ui/services';
 // ── Auth ──
 import { AuthModalService } from '@nxt1/ui/auth';
+// ── Explore (for global search dropdown) ──
+import { ExploreService } from '@nxt1/ui/explore';
+import type { TopNavSearchSubmitEvent } from '@nxt1/ui/components/top-nav';
 // ── App-level imports ──
 import { AuthFlowService } from '../../../features/auth/services';
 import { BadgeCountService } from '../../services/badge-count.service';
@@ -529,11 +532,19 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
           [user]="headerUserData()"
           [userMenuItems]="userMenuItems"
           [config]="headerConfig()"
+          [searchResults]="headerSearchResults()"
+          [searchResultsLoading]="headerSearchLoading()"
+          [searchRecentSearches]="headerRecentSearches()"
+          [searchTrendingSearches]="headerTrendingSearches()"
           (navigate)="onHeaderNavigate($event)"
           (userMenuAction)="onUserMenuAction($event)"
           (notificationsClick)="onNotificationsClick()"
           (createClick)="onCreateClick()"
           (logoClick)="onLogoClick()"
+          (searchInputChange)="onHeaderSearchInput($event)"
+          (search)="onHeaderSearchSubmit($event)"
+          (searchSeeAll)="onHeaderSeeAllResults($event)"
+          (clearRecentSearchesClick)="onClearRecentSearches()"
         />
 
         <!-- DESKTOP: Notification Popover — Lazy-loaded via @defer -->
@@ -772,6 +783,10 @@ export class WebShellComponent {
   private readonly notificationState = inject(NxtNotificationStateService);
   private readonly authModal = inject(AuthModalService);
   private readonly elementRef = inject(ElementRef);
+  private readonly exploreService = inject(ExploreService);
+
+  /** Debounce timer for search input */
+  private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ============================================
   // SIDEBAR CONFIGURATION (Desktop/Tablet)
@@ -868,6 +883,22 @@ export class WebShellComponent {
       roleBadge: undefined,
     };
   });
+
+  // ============================================
+  // HEADER SEARCH RESULTS (Global Search Dropdown)
+  // ============================================
+
+  /** Search results for the header dropdown (from shared ExploreService) */
+  readonly headerSearchResults = computed(() => this.exploreService.items());
+
+  /** Whether the header search is loading */
+  readonly headerSearchLoading = computed(() => this.exploreService.isLoading());
+
+  /** Recent searches for the header dropdown */
+  readonly headerRecentSearches = computed(() => this.exploreService.recentSearches());
+
+  /** Trending searches for the header dropdown */
+  readonly headerTrendingSearches = computed(() => this.exploreService.trendingSearches());
 
   // ============================================
   // MOBILE FOOTER CONFIGURATION
@@ -1001,6 +1032,14 @@ export class WebShellComponent {
   constructor() {
     this.setupRouteTracking();
     this.loadSidebarState();
+
+    // Clean up debounce timer on destroy to prevent memory leaks
+    this.destroyRef.onDestroy(() => {
+      if (this.searchDebounceTimer) {
+        clearTimeout(this.searchDebounceTimer);
+        this.searchDebounceTimer = null;
+      }
+    });
   }
 
   // ============================================
@@ -1139,6 +1178,56 @@ export class WebShellComponent {
     if (item.route) {
       this.router.navigate([item.route]);
     }
+  }
+
+  /**
+   * Handle header search input — debounced instant search.
+   * Calls ExploreService.search() after 300ms of no typing.
+   */
+  onHeaderSearchInput(query: string): void {
+    // Clear previous debounce
+    if (this.searchDebounceTimer) {
+      clearTimeout(this.searchDebounceTimer);
+    }
+
+    const trimmed = query.trim();
+
+    if (trimmed.length < 2) {
+      // Clear results when query is too short
+      this.exploreService.clearSearch();
+      return;
+    }
+
+    // Debounce search requests (300ms)
+    this.searchDebounceTimer = setTimeout(() => {
+      void this.exploreService.search(trimmed);
+    }, 300);
+  }
+
+  /**
+   * Handle header search submit (Enter key).
+   * Navigate to /explore with query param.
+   */
+  onHeaderSearchSubmit(event: TopNavSearchSubmitEvent): void {
+    const query = event.query.trim();
+    if (query) {
+      void this.router.navigate(['/explore'], { queryParams: { q: query } });
+    }
+  }
+
+  /**
+   * Handle "See all results" click from search dropdown.
+   * Navigate to /explore with query param.
+   */
+  onHeaderSeeAllResults(query: string): void {
+    void this.router.navigate(['/explore'], { queryParams: { q: query } });
+  }
+
+  /**
+   * Clear recent searches in ExploreService.
+   */
+  onClearRecentSearches(): void {
+    this.exploreService.clearRecentSearches();
   }
 
   /**

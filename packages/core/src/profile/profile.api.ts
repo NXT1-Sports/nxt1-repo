@@ -9,7 +9,7 @@
  */
 
 import type { HttpAdapter } from '../api/http-adapter';
-import type { User, UserSummary, SportProfile } from '../models/user.model';
+import type { User, UserSummary, SportProfile, SocialLink } from '../models/user.model';
 
 // ============================================
 // COMMON API RESPONSE TYPES
@@ -42,18 +42,16 @@ export interface UpdateProfileRequest {
   firstName?: string;
   lastName?: string;
   profileImg?: string;
+  bannerImg?: string;
+  profileImages?: string[];
   aboutMe?: string;
   location?: {
     city?: string;
     state?: string;
     country?: string;
   };
-  social?: {
-    twitter?: string;
-    instagram?: string;
-    tiktok?: string;
-    hudl?: string;
-  };
+  /** Social links (agnostic array — supports any platform) */
+  social?: SocialLink[];
 }
 
 export interface UpdateSportProfileRequest {

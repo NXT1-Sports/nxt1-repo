@@ -56,20 +56,26 @@ export {
   // EmailProvider is exported from campaigns section below
   type ConnectedEmail,
   type EmailTokenData,
-  // Images & Verification
-  type UserImages,
+  // Verification
   type VerificationStatus,
   // Sports architecture
   type SportProfile,
   type TeamInfo,
   type CoachContact,
   type SeasonRecord,
+  // Recruiting (2026 unified architecture)
+  type RecruitingActivity,
+  type RecruitingCategory,
+  // @deprecated — use RecruitingActivity instead
   type CollegeOffer,
   type CollegeInteraction,
   type Commitment,
   type RecruitingSummary,
   type AcademicInfo,
   type SportVerification,
+  // Agnostic verification (2026+)
+  type DataVerification,
+  type VerificationScope,
   // 2026 Agentic Architecture (schema-driven, self-describing)
   type DataSource,
   type VerifiedMetric,
@@ -121,10 +127,10 @@ export {
   getDisplayName,
   getProfileImg,
   getBannerImg,
+  getProfileImages,
   getGalleryImages,
   getSocialUrl,
   getClassOf,
-  hasAgentXProfile,
   getConnectedSource,
 } from './user.model';
 

@@ -47,6 +47,7 @@ import {
   inject,
   signal,
   computed,
+  viewChildren,
   HostBinding,
   PLATFORM_ID,
   afterNextRender,
@@ -60,8 +61,13 @@ import { Subject } from 'rxjs';
 import { NxtLogoComponent } from '../logo';
 import { NxtIconComponent } from '../icon';
 import { NxtSearchBarComponent, type SearchBarSubmitEvent } from '../search-bar';
+import {
+  NxtSearchResultsDropdownComponent,
+  type SearchDropdownResult,
+} from '../search-results-dropdown';
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
+import type { ExploreItem } from '@nxt1/core';
 import type { TopNavItem, TopNavUserMenuItem, TopNavUserData, TopNavConfig } from '@nxt1/core';
 import {
   DEFAULT_TOP_NAV_ITEMS,
@@ -78,7 +84,14 @@ import type {
 @Component({
   selector: 'nxt1-header',
   standalone: true,
-  imports: [CommonModule, RouterModule, NxtLogoComponent, NxtIconComponent, NxtSearchBarComponent],
+  imports: [
+    CommonModule,
+    RouterModule,
+    NxtLogoComponent,
+    NxtIconComponent,
+    NxtSearchBarComponent,
+    NxtSearchResultsDropdownComponent,
+  ],
   template: `
     <!--
       NxtHeaderComponent Template
@@ -126,13 +139,19 @@ import type {
              PRIMARY NAVIGATION / CENTERED SEARCH (hidden on mobile)
              ============================================ -->
         <nav
-          class="nav-primary absolute left-1/2 z-[1] hidden h-full -translate-x-1/2 items-center md:flex"
+          class="nav-primary z-[1] hidden h-full min-w-0 items-center md:flex"
+          [class.absolute]="config.showLogo !== false"
+          [class.left-1/2]="config.showLogo !== false"
+          [class.-translate-x-1/2]="config.showLogo !== false"
+          [class.flex-1]="config.showLogo === false"
+          [class.justify-center]="config.showLogo === false"
+          [class.px-2]="config.showLogo === false"
           role="navigation"
           aria-label="Main navigation"
         >
           <!-- When sidebar mode (showLogo=false), show centered search bar -->
           @if (config.showLogo === false && showSearch()) {
-            <div class="nav-search-centered relative w-[400px] lg:w-[500px] xl:w-[600px]">
+            <div class="nav-search-centered relative w-full max-w-[640px] min-w-0">
               <nxt1-search-bar
                 variant="desktop-centered"
                 [placeholder]="
@@ -145,6 +164,20 @@ import type {
                 (searchClear)="clearSearch()"
                 (searchFocus)="onSearchFocus()"
                 (searchBlur)="onSearchBlur()"
+                (keydown)="onSearchKeydown($event)"
+              />
+              <nxt1-search-results-dropdown
+                [results]="searchResults"
+                [query]="searchQuery()"
+                [isLoading]="searchResultsLoading"
+                [open]="searchDropdownOpen()"
+                [recentSearches]="searchRecentSearches"
+                [trendingSearches]="searchTrendingSearches"
+                (resultClick)="onSearchResultClick($event)"
+                (suggestionClick)="onSearchSuggestionClick($event)"
+                (seeAllClick)="onSeeAllResults($event)"
+                (dismissClick)="closeSearchDropdown()"
+                (clearRecentClick)="clearRecentSearchesClick.emit()"
               />
             </div>
           } @else {
@@ -287,6 +320,20 @@ import type {
                 (searchClear)="clearSearch()"
                 (searchFocus)="onSearchFocus()"
                 (searchBlur)="onSearchBlur()"
+                (keydown)="onSearchKeydown($event)"
+              />
+              <nxt1-search-results-dropdown
+                [results]="searchResults"
+                [query]="searchQuery()"
+                [isLoading]="searchResultsLoading"
+                [open]="searchDropdownOpen()"
+                [recentSearches]="searchRecentSearches"
+                [trendingSearches]="searchTrendingSearches"
+                (resultClick)="onSearchResultClick($event)"
+                (suggestionClick)="onSearchSuggestionClick($event)"
+                (seeAllClick)="onSeeAllResults($event)"
+                (dismissClick)="closeSearchDropdown()"
+                (clearRecentClick)="clearRecentSearchesClick.emit()"
               />
             </div>
           }
@@ -624,6 +671,18 @@ export class NxtHeaderComponent implements OnDestroy {
   /** Navigation configuration */
   @Input() config: TopNavConfig = createTopNavConfig();
 
+  /** Search results to display in dropdown */
+  @Input() searchResults: ExploreItem[] = [];
+
+  /** Whether search results are loading */
+  @Input() searchResultsLoading = false;
+
+  /** Recent search queries for suggestions */
+  @Input() searchRecentSearches: string[] = [];
+
+  /** Trending search queries for suggestions */
+  @Input() searchTrendingSearches: string[] = [];
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -646,6 +705,21 @@ export class NxtHeaderComponent implements OnDestroy {
   /** Emits when create button is clicked */
   @Output() createClick = new EventEmitter<Event>();
 
+  /** Emits on every search input keystroke (for instant results) */
+  @Output() searchInputChange = new EventEmitter<string>();
+
+  /** Emits when a search result item is clicked in the dropdown */
+  @Output() searchResultClick = new EventEmitter<SearchDropdownResult>();
+
+  /** Emits when a suggestion (recent/trending) is clicked in dropdown */
+  @Output() searchSuggestionClick = new EventEmitter<string>();
+
+  /** Emits when "See all results" is clicked in dropdown */
+  @Output() searchSeeAll = new EventEmitter<string>();
+
+  /** Emits when user clicks "Clear" on recent searches */
+  @Output() clearRecentSearchesClick = new EventEmitter<void>();
+
   // ============================================
   // INTERNAL STATE
   // ============================================
@@ -655,6 +729,12 @@ export class NxtHeaderComponent implements OnDestroy {
 
   /** Whether search is expanded/focused */
   readonly searchExpanded = signal(false);
+
+  /** Whether the search results dropdown is open */
+  readonly searchDropdownOpen = signal(false);
+
+  /** References to search dropdown components (one rendered at a time) */
+  private readonly searchDropdowns = viewChildren(NxtSearchResultsDropdownComponent);
 
   /** Whether user menu dropdown is open */
   readonly userMenuOpen = signal(false);
@@ -873,6 +953,12 @@ export class NxtHeaderComponent implements OnDestroy {
    */
   onSearchInputFromBar(value: string): void {
     this.searchQuery.set(value);
+    this.searchInputChange.emit(value);
+
+    // Open dropdown when typing, close when empty
+    if (value.trim().length > 0) {
+      this.searchDropdownOpen.set(true);
+    }
   }
 
   /**
@@ -898,6 +984,7 @@ export class NxtHeaderComponent implements OnDestroy {
     const query = event.query.trim();
     if (query) {
       this.haptics.impact('medium');
+      this.searchDropdownOpen.set(false);
       this.search.emit({
         query,
         event: new Event('submit'),
@@ -911,16 +998,78 @@ export class NxtHeaderComponent implements OnDestroy {
    */
   onSearchFocus(): void {
     this.searchExpanded.set(true);
+    this.searchDropdownOpen.set(true);
   }
 
   /**
    * Handle search blur
    */
   onSearchBlur(): void {
-    // Delay to allow click events on search suggestions
+    // Delay to allow click events on dropdown items
     setTimeout(() => {
       this.searchExpanded.set(false);
-    }, 200);
+      // Only close dropdown on blur if no query
+      // (clicking a result will close it explicitly)
+    }, 250);
+  }
+
+  /**
+   * Close the search results dropdown
+   */
+  closeSearchDropdown(): void {
+    this.searchDropdownOpen.set(false);
+  }
+
+  /**
+   * Handle search result click from dropdown
+   */
+  onSearchResultClick(result: SearchDropdownResult): void {
+    this.searchDropdownOpen.set(false);
+    this.searchResultClick.emit(result);
+    this.haptics.impact('light');
+
+    // Navigate to the result route
+    if (result.route) {
+      this.router.navigate([result.route]);
+    }
+  }
+
+  /**
+   * Handle suggestion click from dropdown
+   */
+  onSearchSuggestionClick(query: string): void {
+    this.searchQuery.set(query);
+    this.searchSuggestionClick.emit(query);
+    this.searchInputChange.emit(query);
+    this.haptics.impact('light');
+  }
+
+  /**
+   * Handle "See all results" click from dropdown
+   */
+  onSeeAllResults(query: string): void {
+    this.searchDropdownOpen.set(false);
+    this.searchSeeAll.emit(query);
+    this.haptics.impact('light');
+
+    // Navigate to explore with query
+    this.router.navigate(['/explore'], { queryParams: { q: query } });
+  }
+
+  /**
+   * Handle keydown on search input for dropdown navigation.
+   * Forwards keyboard events to the active dropdown component.
+   */
+  onSearchKeydown(event: KeyboardEvent): void {
+    if (!this.searchDropdownOpen()) return;
+
+    // Forward to the active dropdown instance
+    const dropdowns = this.searchDropdowns();
+    for (const dropdown of dropdowns) {
+      if (dropdown.handleKeydown(event)) {
+        return; // Event was handled
+      }
+    }
   }
 
   /**
@@ -928,6 +1077,8 @@ export class NxtHeaderComponent implements OnDestroy {
    */
   clearSearch(): void {
     this.searchQuery.set('');
+    this.searchDropdownOpen.set(false);
+    this.searchInputChange.emit('');
     this.haptics.impact('light');
   }
 

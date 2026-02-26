@@ -187,20 +187,6 @@ export interface EmailTokenData {
 }
 
 // ============================================
-// IMAGES
-// ============================================
-
-/** User's image collection */
-export interface UserImages {
-  /** Profile picture URL */
-  profileImg?: string | null;
-  /** Banner/cover image URL */
-  bannerImg?: string | null;
-  /** Gallery images (max enforced by backend) */
-  gallery?: string[];
-}
-
-// ============================================
 // VERIFICATION
 // ============================================
 
@@ -261,7 +247,47 @@ export interface UserAward {
 // SPORT VERIFICATION
 // ============================================
 
-/** Verification info for a sport profile's data */
+/**
+ * Verification scope — which section of a profile is verified.
+ * Open union supports known scopes + any future custom scope string.
+ */
+export type VerificationScope =
+  | 'measurables'
+  | 'stats'
+  | 'recruiting'
+  | 'schedule'
+  | 'academics'
+  | 'film'
+  | (string & Record<never, never>);
+
+/**
+ * Agnostic section-level verification entry.
+ * Any profile section (measurables, stats, recruiting, academics, film, etc.)
+ * can be verified by any source.
+ *
+ * @example
+ * { scope: 'measurables', verifiedBy: 'Rivals', sourceLogoUrl: '...', sourceUrl: '...' }
+ * { scope: 'stats', verifiedBy: 'MaxPreps', sourceLogoUrl: '...', sourceUrl: '...' }
+ */
+export interface DataVerification {
+  /** Which section this verification applies to */
+  scope: VerificationScope;
+  /** Who verified the data (e.g., 'Rivals', 'MaxPreps', '247Sports') */
+  verifiedBy: string;
+  /** Logo URL for the verification source (dynamic, not hardcoded) */
+  sourceLogoUrl?: string;
+  /** URL to the verification source page */
+  sourceUrl?: string;
+  /** When the verification was performed */
+  verifiedAt?: Date | string;
+  /** When this verification expires (optional) */
+  expiresAt?: Date | string;
+}
+
+/**
+ * @deprecated Use `DataVerification[]` with `VerificationScope` instead.
+ * Verification info for a sport profile's data.
+ */
 export interface SportVerification {
   /** Who verified measurables (e.g., 'NXT1 Verified', 'Combine Results') */
   measurablesVerifiedBy?: string;
@@ -284,8 +310,8 @@ export interface SportVerification {
 export interface PlayerArchetype {
   /** Archetype name (e.g., 'Floor General', 'Pocket Passer') */
   name: string;
-  /** Emoji representing the archetype */
-  emoji: string;
+  /** Badge representing the archetype */
+  badge: string;
   /** Short description */
   description: string;
 }
@@ -306,18 +332,30 @@ export interface AgentXTrait {
 
 /**
  * Lean recruiting summary stored on SportProfile.
- * Full offer/interaction data lives in sub-collections.
- * Backend keeps offerCount/interestCount in sync.
+ * Full activity data lives in users/{uid}/recruiting/{activityId} sub-collection.
+ * Backend keeps counts in sync via Cloud Functions.
  */
 export interface RecruitingSummary {
-  /** Commitment information (if committed) */
-  commitment?: Commitment;
+  /** Whether the athlete is committed */
+  isCommitted?: boolean;
+  /** College name (if committed) */
+  committedTo?: string;
+  /** College logo URL (if committed) */
+  committedLogoUrl?: string;
+  /** Commitment date (if committed) */
+  committedAt?: Date | string;
+  /** Commitment status (if committed) */
+  commitmentStatus?: CommitmentStatus;
   /** Target recruitment level (D1, D2, D3, NAIA, JUCO) */
   level?: string;
   /** Denormalized count of offers (synced from sub-collection) */
   offerCount?: number;
   /** Denormalized count of interests (synced from sub-collection) */
   interestCount?: number;
+  /** Denormalized count of visits (synced from sub-collection) */
+  visitCount?: number;
+  /** Denormalized count of camps (synced from sub-collection) */
+  campCount?: number;
   /** Player rating (1-5) */
   rating?: number;
   /** Who rated the player */
@@ -550,39 +588,100 @@ export interface SeasonRecord {
   season?: string;
 }
 
-/** College offer */
-export interface CollegeOffer {
-  collegeId: string;
-  collegeName: string;
-  logoUrl?: string;
-  offeredAt?: Date | string;
-  sport: string;
-  scholarshipType?: ScholarshipType;
-}
+// ============================================
+// RECRUITING ACTIVITY (unified — 2026 architecture)
+// ============================================
 
-/** College interest/visit/camp */
-export interface CollegeInteraction {
+/**
+ * All recruiting activity categories.
+ * Each profile tab (Offers, Visits, Camps, etc.) is a filtered view
+ * on a single `category` field — one collection, one type, N tabs.
+ */
+export type RecruitingCategory = 'offer' | 'interest' | 'visit' | 'camp' | 'commitment' | 'contact';
+
+/**
+ * A single recruiting activity entry.
+ *
+ * Stored in Firestore sub-collection:
+ *   users/{uid}/recruiting/{activityId}
+ *
+ * Replaces the old CollegeOffer, CollegeInteraction, and Commitment
+ * interfaces with a single unified type. Each profile tab is a query
+ * filtered by `category`.
+ */
+export interface RecruitingActivity {
+  /** Unique identifier */
+  id: string;
+  /** Which tab/category this activity belongs to */
+  category: RecruitingCategory;
+
+  // ── College info (shared across all categories) ──
+  /** College/program ID */
   collegeId: string;
+  /** College/program name */
   collegeName: string;
-  logoUrl?: string;
+  /** College logo URL */
+  collegeLogoUrl?: string;
+  /** Division (D1, D2, D3, NAIA, JUCO) */
+  division?: string;
+  /** Conference */
+  conference?: string;
+  /** City */
   city?: string;
+  /** State */
   state?: string;
-  type: 'interest' | 'visit' | 'camp' | 'contact';
-  date?: Date | string;
+  /** Sport this activity is associated with */
+  sport: string;
+
+  // ── Timing ──
+  /** When the activity occurred (ISO string) */
+  date: Date | string;
+  /** End date for multi-day events (camps, visits) */
+  endDate?: Date | string;
+
+  // ── Offer-specific ──
+  /** Scholarship type (only for category: 'offer') */
+  scholarshipType?: ScholarshipType;
+
+  // ── Visit-specific ──
+  /** Visit type (only for category: 'visit') */
   visitType?: VisitType;
+
+  // ── Commitment-specific ──
+  /** Commitment status (only for category: 'commitment') */
+  commitmentStatus?: CommitmentStatus;
+  /** When the commitment was publicly announced */
+  announcedAt?: Date | string;
+
+  // ── Coach contact ──
+  /** Name of the coach involved */
+  coachName?: string;
+  /** Coach's title */
+  coachTitle?: string;
+
+  // ── Meta ──
+  /** User notes */
   notes?: string;
+  /** Graphic/image URL (offer graphic, commitment graphic, etc.) */
+  graphicUrl?: string;
+  /** Where this data came from */
+  source: DataSource;
+  /** Whether this entry has been verified (by Agent X or staff) */
+  verified?: boolean;
+  /** Created timestamp */
+  createdAt: Date | string;
+  /** Updated timestamp */
+  updatedAt?: Date | string;
 }
 
-/** Commitment information */
-export interface Commitment {
-  collegeId: string;
-  collegeName: string;
-  logoUrl?: string;
-  committedAt: Date | string;
-  sport: string;
-  status: CommitmentStatus;
-  announcedAt?: Date | string;
-}
+// ── Deprecated type aliases (backward compatibility) ──
+
+/** @deprecated Use RecruitingActivity with category: 'offer' instead. */
+export type CollegeOffer = RecruitingActivity;
+/** @deprecated Use RecruitingActivity with category: 'interest' | 'visit' | 'camp' | 'contact' instead. */
+export type CollegeInteraction = RecruitingActivity;
+/** @deprecated Use RecruitingActivity with category: 'commitment' instead. */
+export type Commitment = RecruitingActivity;
 
 /**
  * Sport profile - contains all data for ONE sport
@@ -592,8 +691,7 @@ export interface Commitment {
  * Growing/unbounded data lives in Firestore sub-collections:
  *   users/{uid}/sports/{sportId}/metrics/{metricId}    — VerifiedMetric (full history)
  *   users/{uid}/sports/{sportId}/stats/{statId}        — VerifiedStat (all seasons)
- *   users/{uid}/sports/{sportId}/offers/{offerId}      — CollegeOffer
- *   users/{uid}/sports/{sportId}/interactions/{id}     — CollegeInteraction
+ *   users/{uid}/recruiting/{activityId}                — RecruitingActivity (offers, visits, camps, commitments)
  *   users/{uid}/schedule/{eventId}                     — ScheduleEvent (games, camps, visits)
  *
  * Agent X curates lean summaries onto this document:
@@ -694,6 +792,12 @@ export interface SportProfile {
 
   /** Verification info for this sport's data */
   verification?: SportVerification;
+
+  /**
+   * Agnostic section-level verification entries.
+   * Preferred over deprecated `verification` field.
+   */
+  verifications?: DataVerification[];
 
   /** Primary highlight video */
   primaryVideo?: {
@@ -962,11 +1066,14 @@ export interface User {
   /** Optional bio/about text */
   aboutMe?: string;
 
-  /**
-   * Profile image URL — top-level convenience field.
-   * Also stored in userImgs.profileImg. Use getProfileImg() helper for reads.
-   */
+  /** Profile image URL */
   profileImg?: string | null;
+
+  /** Banner/cover image URL */
+  bannerImg?: string | null;
+
+  /** Profile images for carousel display (max enforced by backend) */
+  profileImages?: string[];
 
   /**
    * Unique profile identifier used for shareable URLs and QR codes.
@@ -979,12 +1086,6 @@ export interface User {
    * @see GENDERS in @nxt1/core/constants for valid values
    */
   gender?: Gender;
-
-  // ============================================
-  // IMAGES (new architecture)
-  // ============================================
-  /** Profile, banner, and gallery images */
-  userImgs?: UserImages;
 
   // ============================================
   // VERIFICATION
@@ -1055,35 +1156,6 @@ export interface User {
   // AGENT X AI PROFILE
   // ============================================
   /** Agent X AI-generated profile analysis */
-  agentX?: {
-    /** AI-generated prospect grade */
-    prospectGrade?: {
-      /** Overall rating (0-99) */
-      overall: number;
-      /** Athletic ability sub-grade */
-      athletic?: number;
-      /** Mental/IQ sub-grade */
-      mental?: number;
-      /** Technical skill sub-grade */
-      technical?: number;
-      /** Potential/upside sub-grade */
-      potential?: number;
-    };
-    /** Prospect tier derived from grade */
-    tier?: 'elite' | 'blue-chip' | 'starter' | 'prospect' | 'developing' | 'unrated';
-    /** Player archetypes (up to 5) */
-    archetypes?: PlayerArchetype[];
-    /** Trait analysis */
-    traits?: AgentXTrait[];
-    /** AI-generated scout summary paragraph */
-    scoutSummary?: string;
-    /** When Agent X last analyzed this profile */
-    lastAnalyzedAt?: Date | string;
-    /** Data sources used in analysis */
-    sourcesUsed?: string[];
-    /** Overall confidence in the analysis (0-1) */
-    confidence?: number;
-  };
 
   // ============================================
   // CONNECTED SOURCES (Agent X sync)
@@ -1332,7 +1404,7 @@ export function isMultiSport(user: User): boolean {
 
 /** Check if user is committed to a college in any sport */
 export function isCommitted(user: User): boolean {
-  return user.sports?.some((s) => !!s.recruiting?.commitment?.collegeId) ?? false;
+  return user.sports?.some((s) => !!s.recruiting?.isCommitted) ?? false;
 }
 
 /** Get user's display name (displayName if set, otherwise firstName + lastName) */
@@ -1342,17 +1414,24 @@ export function getDisplayName(user: User): string {
 
 /** Get user's profile image URL */
 export function getProfileImg(user: User): string | null {
-  return user.userImgs?.profileImg ?? user.profileImg ?? null;
+  return user.profileImg ?? null;
 }
 
 /** Get user's banner image URL */
 export function getBannerImg(user: User): string | null {
-  return user.userImgs?.bannerImg ?? null;
+  return user.bannerImg ?? null;
 }
 
-/** Get all gallery images */
+/** Get all profile images for carousel display */
+export function getProfileImages(user: User): string[] {
+  return user.profileImages ?? [];
+}
+
+/**
+ * @deprecated Use getProfileImages instead
+ */
 export function getGalleryImages(user: User): string[] {
-  return user.userImgs?.gallery ?? [];
+  return getProfileImages(user);
 }
 
 /** Get a social link URL by platform name (case-insensitive) */
@@ -1364,11 +1443,6 @@ export function getSocialUrl(user: User, platform: string): string | undefined {
 /** Get user's graduation class year */
 export function getClassOf(user: User): number | undefined {
   return user.classOf;
-}
-
-/** Check if Agent X has analyzed this profile */
-export function hasAgentXProfile(user: User): boolean {
-  return !!user.agentX?.prospectGrade?.overall;
 }
 
 /** Get connected source by platform name */

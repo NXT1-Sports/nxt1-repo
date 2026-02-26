@@ -14,9 +14,9 @@ import {
   type ProfileTabId,
   type ProfilePageData,
   type ProfilePost,
+  type ProfileRecruitingActivity,
   type ProfileEvent,
   type ProfileStatItem,
-  type ProfileOffer,
   type ProfileSport,
   type FeedPost,
   PROFILE_DEFAULT_TAB,
@@ -102,26 +102,43 @@ export class ProfileService {
   /** All posts */
   readonly allPosts = computed(() => this._profileData()?.recentPosts ?? []);
 
-  /** Offers list */
-  readonly offers = computed(() => this._profileData()?.offers ?? []);
-
-  /** Committed offers (offers where isCommitted is true) */
-  readonly committedOffers = computed<readonly ProfileOffer[]>(() =>
-    this.offers().filter((o: ProfileOffer) => o.isCommitted === true)
+  /** All recruiting activity (unified) */
+  readonly recruitingActivity = computed<readonly ProfileRecruitingActivity[]>(
+    () => this._profileData()?.recruitingActivity ?? this._profileData()?.offers ?? []
   );
 
-  /** Interest offers (type === 'interest', not committed) */
-  readonly interestOffers = computed<readonly ProfileOffer[]>(() =>
-    this.offers().filter((o: ProfileOffer) => o.type === 'interest' && !o.isCommitted)
+  /** Offers (category: 'offer') */
+  readonly offers = computed<readonly ProfileRecruitingActivity[]>(() =>
+    this.recruitingActivity().filter((a) => a.category === 'offer')
   );
 
-  /** Active offers (non-interest, non-committed — scholarship, visit, preferred_walk_on) */
-  readonly activeOffers = computed<readonly ProfileOffer[]>(() =>
-    this.offers().filter((o: ProfileOffer) => o.type !== 'interest' && !o.isCommitted)
+  /** Commitments (category: 'commitment') */
+  readonly committedOffers = computed<readonly ProfileRecruitingActivity[]>(() =>
+    this.recruitingActivity().filter((a) => a.category === 'commitment')
+  );
+
+  /** Interests (category: 'interest') */
+  readonly interestOffers = computed<readonly ProfileRecruitingActivity[]>(() =>
+    this.recruitingActivity().filter((a) => a.category === 'interest')
+  );
+
+  /** Active offers (excludes interests and commitments) */
+  readonly activeOffers = computed<readonly ProfileRecruitingActivity[]>(() =>
+    this.recruitingActivity().filter((a) => a.category === 'offer')
+  );
+
+  /** Visits (category: 'visit') */
+  readonly visits = computed<readonly ProfileRecruitingActivity[]>(() =>
+    this.recruitingActivity().filter((a) => a.category === 'visit')
+  );
+
+  /** Camps (category: 'camp') */
+  readonly camps = computed<readonly ProfileRecruitingActivity[]>(() =>
+    this.recruitingActivity().filter((a) => a.category === 'camp')
   );
 
   /** Whether the user has any recruiting activity at all */
-  readonly hasRecruitingActivity = computed<boolean>(() => this.offers().length > 0);
+  readonly hasRecruitingActivity = computed<boolean>(() => this.recruitingActivity().length > 0);
 
   /** Rankings from various scouting services */
   readonly rankings = computed(() => this._rankings());
@@ -129,7 +146,7 @@ export class ProfileService {
   /** Awards list */
   readonly awards = computed(() => this._profileData()?.user?.awards ?? []);
 
-  /** Events list */
+  /** Events list (schedule items — games, practices, etc.) */
   readonly events = computed(() => this._profileData()?.events ?? []);
 
   /** Player card data (Agent X / Madden-style) */
@@ -168,19 +185,11 @@ export class ProfileService {
 
   /**
    * All profile images for carousel display.
-   * Combines profileImg + gallery into a single ordered array.
    */
   readonly profileImages = computed<readonly string[]>(() => {
     const user = this._profileData()?.user;
     if (!user) return [];
-    const images: string[] = [];
-    if (user.profileImg) images.push(user.profileImg);
-    if (user.gallery?.length) {
-      for (const img of user.gallery) {
-        if (img && !images.includes(img)) images.push(img);
-      }
-    }
-    return images;
+    return user.profileImages ?? [];
   });
 
   /** Whether viewing own profile */

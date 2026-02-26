@@ -13,6 +13,9 @@ export {
   type TopNavSearchSubmitEvent,
 } from './top-nav.types';
 
+// Re-export search results dropdown types for convenience
+export { type SearchDropdownResult } from '../search-results-dropdown';
+
 // Re-export core types for convenience
 export {
   type TopNavIconName,

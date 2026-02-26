@@ -61,6 +61,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { NxtIconComponent } from '../icon';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../../agent-x/fab/agent-x-logo.constants';
 
 /** Search bar visual variant */
 export type SearchBarVariant = 'mobile' | 'desktop' | 'desktop-centered';
@@ -86,7 +87,24 @@ export interface SearchBarSubmitEvent {
   template: `
     <form class="search-form relative flex items-center" (submit)="onSubmit($event)">
       <!-- Search Icon -->
-      <nxt1-icon [name]="iconName()" [class]="iconClass()" [size]="iconSize()" />
+      @if (variant() === 'desktop-centered') {
+        <svg
+          class="search-icon search-icon--brand pointer-events-none absolute left-3"
+          viewBox="0 0 612 792"
+          width="32"
+          height="32"
+          fill="currentColor"
+          stroke="currentColor"
+          stroke-width="8"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path [attr.d]="agentXLogoPath" />
+          <polygon [attr.points]="agentXLogoPolygon" />
+        </svg>
+      } @else {
+        <nxt1-icon [name]="iconName()" [class]="iconClass()" [size]="iconSize()" />
+      }
 
       <!-- Native search input (NOT ion-searchbar — avoids shadow DOM conflicts) -->
       <input
@@ -148,7 +166,7 @@ export interface SearchBarSubmitEvent {
         justify-content: center;
         gap: 2px;
         background: var(--nxt1-color-surface-200, #1f1f1f);
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border: none;
         transition:
           width 0.25s var(--nxt1-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
           max-width 0.25s var(--nxt1-ease-out, cubic-bezier(0.16, 1, 0.3, 1)),
@@ -215,6 +233,9 @@ export interface SearchBarSubmitEvent {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtSearchBarComponent {
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
+
   // ─── Inputs ───────────────────────────────────────────────
   /** Visual variant */
   readonly variant = input<SearchBarVariant>('mobile');

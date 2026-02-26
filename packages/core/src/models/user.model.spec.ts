@@ -310,13 +310,10 @@ describe('User Model Helper Functions', () => {
         sports: [
           createMockSportProfile({
             recruiting: {
-              commitment: {
-                collegeId: 'college-1',
-                collegeName: 'State U',
-                committedAt: '2024-06-01',
-                sport: 'Football',
-                status: 'verbal',
-              },
+              isCommitted: true,
+              committedTo: 'State U',
+              committedAt: '2024-06-01',
+              commitmentStatus: 'verbal',
             },
           }),
         ],

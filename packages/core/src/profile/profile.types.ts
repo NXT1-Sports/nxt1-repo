@@ -54,14 +54,25 @@ export interface ProfileTab {
 /**
  * User role types in the platform.
  */
-export type ProfileUserRole = 'athlete' | 'coach' | 'team' | 'college_coach' | 'fan' | 'parent';
+export type ProfileUserRole =
+  | 'athlete'
+  | 'coach'
+  | 'college-coach'
+  | 'director'
+  | 'recruiting-service'
+  | 'scout'
+  | 'media'
+  | 'parent'
+  | 'fan'
+  | 'team';
 
 /**
  * Verification status for profiles.
  * Re-exported from user.model.ts (single source of truth).
  */
-import type { VerificationStatus } from '../models/user.model';
+import type { VerificationStatus, DataVerification } from '../models/user.model';
 export type { VerificationStatus } from '../models/user.model';
+export type { DataVerification } from '../models/user.model';
 
 /**
  * Sport information for an athlete.
@@ -137,18 +148,45 @@ export interface ProfileSchool {
 }
 
 /**
- * Social media links for profile.
+ * A connected external profile source for Agent X AI sync.
+ * Readonly DTO form of ConnectedSource from user.model.ts.
  */
-export interface ProfileSocialLinks {
-  readonly twitter?: string;
-  readonly instagram?: string;
-  readonly hudl?: string;
-  readonly youtube?: string;
-  readonly maxpreps?: string;
-  readonly on3?: string;
-  readonly rivals?: string;
-  readonly espn?: string;
+export interface ProfileConnectedSource {
+  /** Platform identifier (e.g., 'maxpreps', 'hudl', 'perfect-game') */
+  readonly platform: string;
+  /** URL of the external profile */
+  readonly profileUrl: string;
+  /** When Agent X last synced data from this source */
+  readonly lastSyncedAt?: string;
+  /** Current sync status */
+  readonly syncStatus?: 'idle' | 'syncing' | 'error' | 'success';
+  /** Fields that were synced from this source */
+  readonly syncedFields?: readonly string[];
 }
+
+/**
+ * A single social media link on a profile.
+ * Platform-agnostic — supports any platform without code changes.
+ * Mirrors SocialLink from user.model.ts in readonly DTO form.
+ */
+export interface ProfileSocialLink {
+  /** Platform identifier (e.g., 'twitter', 'instagram', 'hudl', 'maxpreps') */
+  readonly platform: string;
+  /** Full URL to the social profile */
+  readonly url: string;
+  /** Display username/handle (without @) */
+  readonly username?: string;
+  /** Display order (lower = first) */
+  readonly displayOrder?: number;
+  /** Whether this link has been verified by the platform or Agent X */
+  readonly verified?: boolean;
+}
+
+/**
+ * @deprecated Use ProfileSocialLink[] instead.
+ * Kept for backward compatibility during migration.
+ */
+export type ProfileSocialLinks = readonly ProfileSocialLink[];
 
 /**
  * Contact information for profile.
@@ -216,8 +254,8 @@ export interface ProfileUser {
   readonly profileImg?: string;
   /** Banner/cover image URL */
   readonly bannerImg?: string;
-  /** Gallery images (additional profile photos) */
-  readonly gallery?: readonly string[];
+  /** Profile images for carousel display */
+  readonly profileImages?: readonly string[];
   /** User role */
   readonly role: ProfileUserRole;
   /** Whether this is a recruit/athlete */
@@ -258,18 +296,26 @@ export interface ProfileUser {
   readonly act?: string;
   /** Location (City, State) */
   readonly location?: string;
-  /** Social media links */
-  readonly social?: ProfileSocialLinks;
+  /** Social media links (agnostic array — supports any platform) */
+  readonly social?: readonly ProfileSocialLink[];
   /** Contact information */
   readonly contact?: ProfileContact;
   /** Coach contact information (for athlete profiles) */
   readonly coachContact?: ProfileCoachContact;
   /** Awards and honors (e.g., "All-State", "Camp MVP") */
   readonly awards?: readonly ProfileAward[];
+  /** External profiles linked for Agent X AI sync (agnostic) */
+  readonly connectedSources?: readonly ProfileConnectedSource[];
   /** College team name (for college coaches) */
   readonly collegeTeamName?: string;
   /** Title/position (for coaches) */
   readonly title?: string;
+  /**
+   * Section-level verification entries (agnostic — any scope supported).
+   * @see DataVerification
+   * @see getVerification
+   */
+  readonly verifications?: readonly DataVerification[];
   /** Created timestamp */
   readonly createdAt: string;
   /** Last updated timestamp */
@@ -539,55 +585,175 @@ export interface ProfilePinnedVideo {
 }
 
 // ============================================
-// OFFER TYPES
+// RECRUITING ACTIVITY (unified DTO — 2026 architecture)
 // ============================================
 
 /**
- * Offer type.
+ * Recruiting activity category for profile display.
+ * Each profile tab (Offers, Visits, Camps, etc.) filters by this.
  */
-export type OfferType = 'scholarship' | 'preferred_walk_on' | 'interest';
+export type ProfileRecruitingCategory =
+  | 'offer'
+  | 'interest'
+  | 'visit'
+  | 'camp'
+  | 'commitment'
+  | 'contact';
 
 /**
- * A college offer.
+ * A single recruiting activity entry for profile display.
+ * Readonly DTO form of RecruitingActivity from user.model.ts.
+ *
+ * Replaces the old ProfileOffer + ProfileEvent split.
+ * Every profile tab (Offers, Visits, Camps, Commitments, Interests)
+ * is a filtered view of this single type.
  */
-export interface ProfileOffer {
-  /** Unique offer ID */
+export interface ProfileRecruitingActivity {
+  /** Unique activity ID */
   readonly id: string;
-  /** Offer type */
-  readonly type: OfferType;
-  /** College name */
+  /** Which tab/category this activity belongs to */
+  readonly category: ProfileRecruitingCategory;
+
+  // —— College info ——
+  /** College/program name */
   readonly collegeName: string;
   /** College logo URL */
   readonly collegeLogoUrl?: string;
-  /** Optional graphic/image URL for the offer card */
-  readonly graphicUrl?: string;
-  /** Division (D1, D2, D3, NAIA, etc.) */
+  /** Division (D1, D2, D3, NAIA, JUCO) */
   readonly division?: string;
   /** Conference */
   readonly conference?: string;
+  /** City */
+  readonly city?: string;
+  /** State */
+  readonly state?: string;
   /** Sport */
   readonly sport: string;
-  /** Coach name */
+
+  // —— Timing ——
+  /** When the activity occurred */
+  readonly date: string;
+  /** End date for multi-day events (camps, visits) */
+  readonly endDate?: string;
+
+  // —— Offer-specific ——
+  /** Scholarship type (only for category: 'offer') */
+  readonly scholarshipType?: string;
+
+  // —— Visit-specific ——
+  /** Visit type (only for category: 'visit') */
+  readonly visitType?: string;
+
+  // —— Commitment-specific ——
+  /** Commitment status (only for category: 'commitment') */
+  readonly commitmentStatus?: string;
+  /** When the commitment was publicly announced */
+  readonly announcedAt?: string;
+
+  // —— Coach contact ——
+  /** Name of the coach involved */
   readonly coachName?: string;
-  /** Offer date */
-  readonly offeredAt: string;
-  /** Whether committed to this offer */
-  readonly isCommitted?: boolean;
-  /** Notes */
+  /** Coach's title */
+  readonly coachTitle?: string;
+
+  // —— Meta ——
+  /** User notes */
   readonly notes?: string;
+  /** Graphic/image URL (offer graphic, commitment graphic, etc.) */
+  readonly graphicUrl?: string;
+  /** Whether this entry has been verified */
+  readonly verified?: boolean;
 }
 
 // ============================================
-// EVENT TYPES
+// VERIFICATION HELPERS (pure functions)
 // ============================================
 
 /**
- * Event type.
+ * Finds the verification entry for a given scope.
+ * Falls back to deprecated flat fields for backward compatibility.
+ *
+ * @example
+ * const v = getVerification(user, 'measurables');
+ * if (v) { show badge: `Verified by ${v.verifiedBy}` }
+ */
+export function getVerification(
+  user: ProfileUser | null | undefined,
+  scope: string
+): DataVerification | null {
+  if (!user) return null;
+
+  // Prefer new array-based verifications
+  const match = user.verifications?.find((v) => v.scope === scope);
+  if (match) return match;
+
+  // Backward compat: fall back to deprecated flat fields
+  if (scope === 'measurables' && user.measurablesVerifiedBy) {
+    return {
+      scope: 'measurables',
+      verifiedBy: user.measurablesVerifiedBy,
+      sourceUrl: user.measurablesVerifiedUrl,
+    };
+  }
+  if (scope === 'stats' && user.statsVerifiedBy) {
+    return {
+      scope: 'stats',
+      verifiedBy: user.statsVerifiedBy,
+      sourceUrl: user.statsVerifiedUrl,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Returns all verification entries for the user.
+ * Merges new array-based verifications with deprecated flat fields.
+ */
+export function getAllVerifications(
+  user: ProfileUser | null | undefined
+): readonly DataVerification[] {
+  if (!user) return [];
+
+  const result: DataVerification[] = [...(user.verifications ?? [])];
+  const existingScopes = new Set(result.map((v) => v.scope));
+
+  // Backfill from deprecated flat fields if not already present
+  if (!existingScopes.has('measurables') && user.measurablesVerifiedBy) {
+    result.push({
+      scope: 'measurables',
+      verifiedBy: user.measurablesVerifiedBy,
+      sourceUrl: user.measurablesVerifiedUrl,
+    });
+  }
+  if (!existingScopes.has('stats') && user.statsVerifiedBy) {
+    result.push({
+      scope: 'stats',
+      verifiedBy: user.statsVerifiedBy,
+      sourceUrl: user.statsVerifiedUrl,
+    });
+  }
+
+  return result;
+}
+
+// —— Deprecated type aliases (backward compatibility) ——
+
+/** @deprecated Use ProfileRecruitingActivity with category: 'offer' instead. */
+export type ProfileOffer = ProfileRecruitingActivity;
+
+/** @deprecated Use 'offer' | 'interest' category on ProfileRecruitingActivity instead. */
+export type OfferType = 'scholarship' | 'preferred_walk_on' | 'interest';
+
+/**
+ * Schedule/calendar event types.
+ * Distinct from recruiting categories — these represent athletic schedule items.
  */
 export type EventType = 'game' | 'camp' | 'combine' | 'showcase' | 'visit' | 'practice' | 'other';
 
 /**
- * A scheduled event.
+ * A schedule/calendar event for profile display (games, practices, combines, etc.).
+ * This is NOT the same as recruiting activity — these are time-based schedule items.
  */
 export interface ProfileEvent {
   /** Unique event ID */
@@ -658,8 +824,8 @@ export interface ProfileEditData {
   sat?: string;
   /** ACT score */
   act?: string;
-  /** Social links */
-  social?: Partial<ProfileSocialLinks>;
+  /** Social links (agnostic array) */
+  social?: ProfileSocialLink[];
   /** Contact info */
   contact?: Partial<ProfileContact>;
   /** Banner image file */
@@ -802,9 +968,20 @@ export interface ProfilePageData {
   readonly pinnedVideo?: ProfilePinnedVideo;
   /** Recent posts */
   readonly recentPosts: readonly ProfilePost[];
-  /** Offers (for athletes) */
+  /**
+   * Recruiting activity (unified — offers, visits, camps, commitments, interests).
+   * Each profile tab filters this by `category`.
+   */
+  readonly recruitingActivity?: readonly ProfileRecruitingActivity[];
+  /**
+   * @deprecated Use `recruitingActivity` filtered by category instead.
+   * Kept for backward compat — returns same data filtered to offer/interest/commitment.
+   */
   readonly offers?: readonly ProfileOffer[];
-  /** Events */
+  /**
+   * @deprecated Use `recruitingActivity` filtered by category instead.
+   * Kept for backward compat — returns same data filtered to visit/camp.
+   */
   readonly events?: readonly ProfileEvent[];
   /** Whether current user is viewing own profile */
   readonly isOwnProfile: boolean;

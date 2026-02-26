@@ -72,7 +72,6 @@ export {
   type EmailProvider,
   type ConnectedEmail,
   type EmailTokenData,
-  type UserImages,
   type AcademicInfo,
   type TeamInfo,
   type CoachContact,
@@ -85,12 +84,18 @@ export {
   type AthleticMetrics,
   type SeasonStats,
   type SeasonRecord,
+  // Recruiting (2026 unified architecture)
+  type RecruitingActivity,
+  type RecruitingCategory,
+  // @deprecated — use RecruitingActivity instead
   type CollegeOffer,
   type CollegeInteraction,
   type Commitment,
   type RecruitingSummary,
   type SportProfile,
   type SportVerification,
+  type DataVerification,
+  type VerificationScope,
   type TeamHistoryEntry,
   type UserAward,
   type VideoMedia,
@@ -128,10 +133,10 @@ export {
   getDisplayName,
   getProfileImg,
   getBannerImg,
+  getProfileImages,
   getGalleryImages,
   getSocialUrl,
   getClassOf,
-  hasAgentXProfile,
   getConnectedSource,
   createDefaultSubscription,
   createDefaultMediaLibrary,
@@ -766,6 +771,9 @@ export {
   type ProfileSearchParams,
   type FollowResponse,
   type ProfileAnalytics,
+  // Verification helpers
+  getVerification,
+  getAllVerifications,
 } from './profile';
 
 // ============================================

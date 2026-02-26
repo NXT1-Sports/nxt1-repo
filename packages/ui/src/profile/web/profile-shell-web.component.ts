@@ -39,7 +39,7 @@ import {
   type ProfileTab,
   PROFILE_TABS,
   PROFILE_EMPTY_STATES,
-  type ProfileOffer,
+  type ProfileRecruitingActivity,
   type ProfileEvent,
   type AthleticStat,
   type ProfileTeamAffiliation,
@@ -55,6 +55,7 @@ import {
   type GameLogSeasonTotals,
   type ProfileSeasonGameLog,
   type ScoutReport,
+  getVerification,
 } from '@nxt1/core';
 // NxtPageHeaderComponent removed — web profile uses shell top nav on mobile and page header in wide layouts
 import { ProfilePageHeaderComponent } from './profile-page-header.component';
@@ -293,7 +294,7 @@ interface StatsComparisonItem {
                         <span class="mobile-hero-stat__key">Height:</span>
                         <span class="mobile-hero-stat__val-wrap">
                           <span class="mobile-hero-stat__val">{{ profile.user()?.height }}</span>
-                          @if (profile.user()?.measurablesVerifiedBy) {
+                          @if (measurablesVerification()) {
                             @if (measurablesProviderUrl()) {
                               <a
                                 class="ov-verified-badge ov-verified-link"
@@ -305,10 +306,7 @@ interface StatsComparisonItem {
                                   <nxt1-image
                                     class="ov-verified-logo-img"
                                     [src]="measurablesProviderLogoSrc()"
-                                    [alt]="
-                                      (profile.user()?.measurablesVerifiedBy || 'provider') +
-                                      ' logo'
-                                    "
+                                    [alt]="measurablesVerifiedByLabel() + ' logo'"
                                     [width]="60"
                                     [height]="14"
                                     fit="contain"
@@ -322,10 +320,7 @@ interface StatsComparisonItem {
                                   <nxt1-image
                                     class="ov-verified-logo-img"
                                     [src]="measurablesProviderLogoFallbackSrc()"
-                                    [alt]="
-                                      (profile.user()?.measurablesVerifiedBy || 'provider') +
-                                      ' logo'
-                                    "
+                                    [alt]="measurablesVerifiedByLabel() + ' logo'"
                                     [width]="60"
                                     [height]="14"
                                     fit="contain"
@@ -343,7 +338,7 @@ interface StatsComparisonItem {
                         <span class="mobile-hero-stat__key">Weight:</span>
                         <span class="mobile-hero-stat__val-wrap">
                           <span class="mobile-hero-stat__val">{{ profile.user()?.weight }} lb</span>
-                          @if (profile.user()?.measurablesVerifiedBy) {
+                          @if (measurablesVerification()) {
                             @if (measurablesProviderUrl()) {
                               <a
                                 class="ov-verified-badge ov-verified-link"
@@ -355,10 +350,7 @@ interface StatsComparisonItem {
                                   <nxt1-image
                                     class="ov-verified-logo-img"
                                     [src]="measurablesProviderLogoSrc()"
-                                    [alt]="
-                                      (profile.user()?.measurablesVerifiedBy || 'provider') +
-                                      ' logo'
-                                    "
+                                    [alt]="measurablesVerifiedByLabel() + ' logo'"
                                     [width]="60"
                                     [height]="14"
                                     fit="contain"
@@ -372,10 +364,7 @@ interface StatsComparisonItem {
                                   <nxt1-image
                                     class="ov-verified-logo-img"
                                     [src]="measurablesProviderLogoFallbackSrc()"
-                                    [alt]="
-                                      (profile.user()?.measurablesVerifiedBy || 'provider') +
-                                      ' logo'
-                                    "
+                                    [alt]="measurablesVerifiedByLabel() + ' logo'"
                                     [width]="60"
                                     [height]="14"
                                     fit="contain"
@@ -599,7 +588,7 @@ interface StatsComparisonItem {
                                       <span class="ov-profile-val">{{
                                         profile.user()?.height
                                       }}</span>
-                                      @if (profile.user()?.measurablesVerifiedBy) {
+                                      @if (measurablesVerification()) {
                                         @if (measurablesProviderUrl()) {
                                           <a
                                             class="ov-verified-badge ov-verified-link"
@@ -608,8 +597,7 @@ interface StatsComparisonItem {
                                             rel="noopener noreferrer"
                                             [attr.aria-label]="
                                               'Open measurable source: ' +
-                                              (profile.user()?.measurablesVerifiedBy ||
-                                                'verification provider')
+                                              measurablesVerifiedByLabel()
                                             "
                                           >
                                             <span class="ov-verified-label">Verified by</span>
@@ -617,10 +605,7 @@ interface StatsComparisonItem {
                                               <nxt1-image
                                                 class="ov-verified-logo-img"
                                                 [src]="measurablesProviderLogoSrc()"
-                                                [alt]="
-                                                  (profile.user()?.measurablesVerifiedBy ||
-                                                    'verification provider') + ' logo'
-                                                "
+                                                [alt]="measurablesVerifiedByLabel() + ' logo'"
                                                 [width]="60"
                                                 [height]="14"
                                                 fit="contain"
@@ -635,10 +620,7 @@ interface StatsComparisonItem {
                                               <nxt1-image
                                                 class="ov-verified-logo-img"
                                                 [src]="measurablesProviderLogoFallbackSrc()"
-                                                [alt]="
-                                                  (profile.user()?.measurablesVerifiedBy ||
-                                                    'verification provider') + ' logo'
-                                                "
+                                                [alt]="measurablesVerifiedByLabel() + ' logo'"
                                                 [width]="60"
                                                 [height]="14"
                                                 fit="contain"
@@ -658,7 +640,7 @@ interface StatsComparisonItem {
                                       <span class="ov-profile-val"
                                         >{{ profile.user()?.weight }} lb</span
                                       >
-                                      @if (profile.user()?.measurablesVerifiedBy) {
+                                      @if (measurablesVerification()) {
                                         @if (measurablesProviderUrl()) {
                                           <a
                                             class="ov-verified-badge ov-verified-link"
@@ -667,8 +649,7 @@ interface StatsComparisonItem {
                                             rel="noopener noreferrer"
                                             [attr.aria-label]="
                                               'Open measurable source: ' +
-                                              (profile.user()?.measurablesVerifiedBy ||
-                                                'verification provider')
+                                              measurablesVerifiedByLabel()
                                             "
                                           >
                                             <span class="ov-verified-label">Verified by</span>
@@ -676,10 +657,7 @@ interface StatsComparisonItem {
                                               <nxt1-image
                                                 class="ov-verified-logo-img"
                                                 [src]="measurablesProviderLogoSrc()"
-                                                [alt]="
-                                                  (profile.user()?.measurablesVerifiedBy ||
-                                                    'verification provider') + ' logo'
-                                                "
+                                                [alt]="measurablesVerifiedByLabel() + ' logo'"
                                                 [width]="60"
                                                 [height]="14"
                                                 fit="contain"
@@ -694,10 +672,7 @@ interface StatsComparisonItem {
                                               <nxt1-image
                                                 class="ov-verified-logo-img"
                                                 [src]="measurablesProviderLogoFallbackSrc()"
-                                                [alt]="
-                                                  (profile.user()?.measurablesVerifiedBy ||
-                                                    'verification provider') + ' logo'
-                                                "
+                                                [alt]="measurablesVerifiedByLabel() + ' logo'"
                                                 [width]="60"
                                                 [height]="14"
                                                 fit="contain"
@@ -4305,7 +4280,10 @@ interface StatsComparisonItem {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 260px;
         gap: 20px;
-        align-items: center;
+        align-items: start;
+      }
+      .ov-top-row > * {
+        min-width: 0;
       }
       .ov-top-row--single {
         grid-template-columns: minmax(0, 1fr);
@@ -4492,6 +4470,8 @@ interface StatsComparisonItem {
         text-align: center;
         gap: 8px;
         margin: 24px 0;
+        width: 100%;
+        min-width: 0;
       }
       .ov-trait-badge {
         display: flex;
@@ -4504,6 +4484,8 @@ interface StatsComparisonItem {
         flex-direction: column;
         align-items: center;
         gap: 4px;
+        width: 100%;
+        min-width: 0;
       }
       .ov-trait-icon-lg {
         width: 112px;
@@ -4551,8 +4533,10 @@ interface StatsComparisonItem {
         color: var(--m-text);
         margin: 4px 0 0;
         line-height: 1.45;
+        width: 100%;
         max-width: 320px;
         min-height: calc(1.45em * 4);
+        overflow-wrap: anywhere;
       }
       .ov-trait-summary__reserve {
         display: block;
@@ -4563,6 +4547,13 @@ interface StatsComparisonItem {
         position: absolute;
         inset: 0;
         display: block;
+      }
+
+      @media (max-width: 1360px) {
+        .ov-top-row {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 14px;
+        }
       }
 
       @media (max-width: 980px) {
@@ -6567,7 +6558,7 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
   }
 
   // Offers
-  protected onOfferClick(offer: ProfileOffer): void {
+  protected onOfferClick(offer: ProfileRecruitingActivity): void {
     this.logger.debug('Offer click', { offerId: offer.id });
   }
 
@@ -7003,11 +6994,26 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
     return null;
   }
 
+  /** Resolved measurables verification (new array or deprecated flat fields) */
+  protected readonly measurablesVerification = computed(() =>
+    getVerification(this.profile.user(), 'measurables')
+  );
+
+  /** Display label for the measurables verification provider */
+  protected readonly measurablesVerifiedByLabel = computed(
+    () => this.measurablesVerification()?.verifiedBy ?? 'provider'
+  );
+
   protected readonly measurablesProviderUrl = computed(() => {
-    const explicitUrl = this.profile.user()?.measurablesVerifiedUrl?.trim();
+    const v = this.measurablesVerification();
+    if (!v) return null;
+
+    // Prefer explicit sourceUrl from verification
+    const explicitUrl = v.sourceUrl?.trim();
     if (explicitUrl) return this.ensureAbsoluteUrl(explicitUrl);
 
-    const provider = this.profile.user()?.measurablesVerifiedBy?.trim().toLowerCase() ?? '';
+    // Fall back to well-known provider URL lookup
+    const provider = v.verifiedBy?.trim().toLowerCase() ?? '';
     if (!provider) return null;
 
     if (provider.includes('rivals')) return 'https://www.rivals.com';
@@ -7020,11 +7026,17 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
   });
 
   protected readonly measurablesProviderLogoSrc = computed(() => {
+    const v = this.measurablesVerification();
+    // Prefer sourceLogoUrl from verification object
+    if (v?.sourceLogoUrl) return v.sourceLogoUrl;
     const host = this.providerHost(this.measurablesProviderUrl());
     return `https://logo.clearbit.com/${host}`;
   });
 
   protected readonly measurablesProviderLogoFallbackSrc = computed(() => {
+    const v = this.measurablesVerification();
+    // If sourceLogoUrl exists, use it as fallback too
+    if (v?.sourceLogoUrl) return v.sourceLogoUrl;
     const host = this.providerHost(this.measurablesProviderUrl());
     return `https://www.google.com/s2/favicons?domain=${host}&sz=64`;
   });
@@ -7230,13 +7242,13 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
   }
 
   private providerHost(url: string | null): string {
-    if (!url) return 'rivals.com';
+    if (!url) return 'example.com';
 
     try {
       const parsed = new URL(url);
-      return parsed.hostname || 'rivals.com';
+      return parsed.hostname || 'example.com';
     } catch {
-      return 'rivals.com';
+      return 'example.com';
     }
   }
 
@@ -7290,6 +7302,24 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
   // CONNECTED ACCOUNTS
   // ============================================
 
+  /**
+   * Platform display metadata for social link rendering.
+   * Agnostic — unknown platforms use sensible defaults.
+   */
+  private static readonly PLATFORM_META: Readonly<
+    Record<string, { label: string; icon: string; color: string; handlePrefix: string }>
+  > = {
+    twitter: { label: 'X', icon: 'twitter', color: 'currentColor', handlePrefix: '@' },
+    instagram: { label: 'Instagram', icon: 'instagram', color: '#E1306C', handlePrefix: '@' },
+    youtube: { label: 'YouTube', icon: 'youtube', color: '#FF0000', handlePrefix: '' },
+    hudl: { label: 'Hudl', icon: 'link', color: '#FF6600', handlePrefix: '' },
+    maxpreps: { label: 'MaxPreps', icon: 'link', color: '#003DA5', handlePrefix: '' },
+    on3: { label: 'On3', icon: 'link', color: '#000000', handlePrefix: '' },
+    rivals: { label: 'Rivals', icon: 'link', color: '#F47B20', handlePrefix: '' },
+    espn: { label: 'ESPN', icon: 'link', color: '#CC0000', handlePrefix: '' },
+    tiktok: { label: 'TikTok', icon: 'link', color: '#000000', handlePrefix: '@' },
+  };
+
   /** Builds a list of connected social/sport accounts from user.social */
   protected readonly connectedAccountsList = computed(
     (): ReadonlyArray<{
@@ -7301,67 +7331,29 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
       readonly url: string;
     }> => {
       const social = this.profile.user()?.social;
-      if (!social) return [];
+      if (!social?.length) return [];
 
-      const ACCOUNT_DEFS: ReadonlyArray<{
-        key: keyof typeof social;
-        label: string;
-        icon: string;
-        color: string;
-        urlPrefix: string;
-        handlePrefix?: string;
-      }> = [
-        {
-          key: 'twitter',
-          label: 'X',
-          icon: 'twitter',
-          color: 'currentColor',
-          urlPrefix: 'https://x.com/',
-          handlePrefix: '@',
-        },
-        {
-          key: 'instagram',
-          label: 'Instagram',
-          icon: 'instagram',
-          color: '#E1306C',
-          urlPrefix: 'https://instagram.com/',
-          handlePrefix: '@',
-        },
-        {
-          key: 'youtube',
-          label: 'YouTube',
-          icon: 'youtube',
-          color: '#FF0000',
-          urlPrefix: 'https://youtube.com/@',
-          handlePrefix: '',
-        },
-      ];
+      const defaultMeta = { label: '', icon: 'link', color: 'currentColor', handlePrefix: '' };
 
-      const result: Array<{
-        key: string;
-        label: string;
-        handle: string;
-        icon: string;
-        color: string;
-        url: string;
-      }> = [];
-
-      for (const def of ACCOUNT_DEFS) {
-        const value = social[def.key];
-        if (!value || (typeof value === 'string' && !value.trim())) continue;
-        const raw = String(value).trim();
-        result.push({
-          key: def.key,
-          label: def.label,
-          handle: def.handlePrefix ? `${def.handlePrefix}${raw}` : raw,
-          icon: def.icon,
-          color: def.color,
-          url: raw.startsWith('http') ? raw : `${def.urlPrefix}${raw}`,
+      return social
+        .slice()
+        .sort((a, b) => (a.displayOrder ?? 99) - (b.displayOrder ?? 99))
+        .slice(0, 8)
+        .map((link) => {
+          const meta =
+            ProfileShellWebComponent.PLATFORM_META[link.platform.toLowerCase()] ?? defaultMeta;
+          const handle = link.username
+            ? `${meta.handlePrefix}${link.username}`
+            : meta.label || link.platform;
+          return {
+            key: link.platform,
+            label: meta.label || link.platform,
+            handle,
+            icon: meta.icon,
+            color: meta.color,
+            url: link.url,
+          };
         });
-        if (result.length >= 8) break;
-      }
-
-      return result;
     }
   );
 }

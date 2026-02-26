@@ -454,7 +454,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             email: user.email,
             firstName: user.firstName,
             lastName: user.lastName,
-            profileImg: user.userImgs?.profileImg ?? user.profileImg,
+            profileImg: user.profileImg,
             displayName: `${user.firstName} ${user.lastName}`.trim(),
             role: user.role ?? null,
             planTier: user.planTier ?? null,

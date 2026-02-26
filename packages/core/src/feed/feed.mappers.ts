@@ -163,20 +163,35 @@ export function profilePostsToFeedPosts(
 // ============================================
 
 /**
- * Converts a ProfileOffer to a FeedPost for unified timeline rendering.
- * Creates a rich offer card with college branding.
+ * Converts a ProfileRecruitingActivity (offer/interest/commitment) to a FeedPost
+ * for unified timeline rendering. Creates a rich card with college branding.
  */
 export function profileOfferToFeedPost(offer: ProfileOffer, author: FeedAuthor): FeedPost {
-  const offerLabels: Record<string, string> = {
-    scholarship: 'Scholarship Offer',
-    preferred_walk_on: 'Preferred Walk-On',
+  const categoryLabels: Record<string, string> = {
+    offer: 'Scholarship Offer',
     interest: 'Interest',
+    commitment: 'Commitment',
+    visit: 'Visit',
+    camp: 'Camp',
   };
 
-  const title = `${offerLabels[offer.type] ?? 'Offer'} from ${offer.collegeName}`;
+  const scholarshipLabels: Record<string, string> = {
+    full: 'Full Scholarship',
+    partial: 'Partial Scholarship',
+    preferred_walk_on: 'Preferred Walk-On',
+    walk_on: 'Walk-On',
+  };
+
+  // Build display label from category + scholarshipType
+  const label =
+    offer.category === 'offer' && offer.scholarshipType
+      ? (scholarshipLabels[offer.scholarshipType] ?? 'Offer')
+      : (categoryLabels[offer.category] ?? 'Offer');
+
+  const title = `${label} from ${offer.collegeName}`;
   const content = offer.coachName
-    ? `Received ${(offerLabels[offer.type] ?? 'an offer').toLowerCase()} from ${offer.collegeName}${offer.conference ? ` (${offer.conference})` : ''}. ${offer.coachName ? `Coach ${offer.coachName}` : ''}`
-    : `Received ${(offerLabels[offer.type] ?? 'an offer').toLowerCase()} from ${offer.collegeName}${offer.conference ? ` (${offer.conference})` : ''}`;
+    ? `Received ${label.toLowerCase()} from ${offer.collegeName}${offer.conference ? ` (${offer.conference})` : ''}. Coach ${offer.coachName}`
+    : `Received ${label.toLowerCase()} from ${offer.collegeName}${offer.conference ? ` (${offer.conference})` : ''}`;
 
   const media: readonly FeedMedia[] = offer.graphicUrl
     ? [
@@ -202,9 +217,9 @@ export function profileOfferToFeedPost(offer: ProfileOffer, author: FeedAuthor):
       collegeName: offer.collegeName,
       collegeLogoUrl: offer.collegeLogoUrl,
       offerType:
-        offer.type === 'preferred_walk_on'
+        offer.scholarshipType === 'preferred_walk_on'
           ? 'preferred-walk-on'
-          : offer.type === 'scholarship'
+          : offer.category === 'offer'
             ? 'scholarship'
             : 'interest',
       sport: offer.sport,
@@ -230,8 +245,8 @@ export function profileOfferToFeedPost(offer: ProfileOffer, author: FeedAuthor):
     isPinned: false,
     isFeatured: false,
     commentsDisabled: false,
-    createdAt: offer.offeredAt,
-    updatedAt: offer.offeredAt,
+    createdAt: offer.date,
+    updatedAt: offer.date,
   };
 }
 

@@ -47,25 +47,68 @@ const USERS_COLLECTION = 'Users';
  * Mapped to the shared User interface after retrieval.
  */
 type UserFirestoreDoc = DocumentData & {
+  // Identity
   email?: string;
   firstName?: string;
   lastName?: string;
-  profileImg?: string | null;
-  aboutMe?: string;
-  role?: string;
   username?: string;
+  role?: string;
+
+  // Profile
+  profileImg?: string | null;
+  bannerImg?: string | null;
+  profileImages?: string[];
+  aboutMe?: string;
+
+  // Sport
   sports?: SportProfile[];
   activeSportIndex?: number;
+  primarySport?: string;
+
+  // Location & contact
   location?: Record<string, string>;
   contact?: Record<string, string>;
-  social?: Record<string, string | null>;
+  social?: Array<{
+    platform: string;
+    url: string;
+    username?: string;
+    displayOrder?: number;
+    verified?: boolean;
+  }>;
+  state?: string;
+
+  // Athlete-specific
   athlete?: Record<string, unknown>;
+  classOf?: number;
+  height?: string;
+  weight?: string;
+
+  // Coach-specific
   coach?: Record<string, unknown>;
+
+  // Verification & AI
+  verificationStatus?: string;
+  connectedSources?: Array<{
+    platform: string;
+    profileUrl: string;
+    lastSyncedAt?: string;
+    syncStatus?: string;
+    syncedFields?: string[];
+    lastError?: string;
+  }>;
+  agentX?: Record<string, unknown>;
+
+  // Awards & team history
+  awards?: Array<Record<string, unknown>>;
+  teamHistory?: Array<Record<string, unknown>>;
+
+  // Subscription
+  planTier?: string;
+
+  // Meta
   onboardingCompleted?: boolean;
   updatedAt?: string;
   createdAt?: string;
-  primarySport?: string;
-  state?: string;
 };
 
 // ============================================
@@ -370,6 +413,8 @@ router.put(
       'firstName',
       'lastName',
       'profileImg',
+      'bannerImg',
+      'profileImages',
       'aboutMe',
       'location',
       'social',

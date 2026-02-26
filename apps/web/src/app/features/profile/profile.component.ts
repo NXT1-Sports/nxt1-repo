@@ -192,7 +192,7 @@ export class ProfileComponent implements OnInit {
       school: primarySport?.team?.name || undefined,
       sport: primarySport?.sport || undefined,
       location: location || undefined,
-      imageUrl: (profile.userImgs?.profileImg ?? profile.profileImg) || undefined,
+      imageUrl: profile.profileImg || undefined,
     };
   });
 
@@ -259,7 +259,7 @@ export class ProfileComponent implements OnInit {
       const profile = this.fetchedProfile();
       if (!profile) return null;
       return {
-        profileImg: profile.userImgs?.profileImg ?? profile.profileImg,
+        profileImg: profile.profileImg,
         displayName: `${profile.firstName} ${profile.lastName}`,
       };
     }

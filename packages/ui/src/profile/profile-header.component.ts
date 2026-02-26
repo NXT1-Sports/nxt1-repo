@@ -17,6 +17,7 @@ import type {
   PlayerCardData,
   ProspectTier,
 } from '@nxt1/core';
+import { getVerification } from '@nxt1/core';
 import { NxtAvatarComponent } from '../components/avatar';
 import { NxtIconComponent } from '../components/icon';
 import { NxtImageComponent } from '../components/image';
@@ -131,13 +132,13 @@ import { NxtImageComponent } from '../components/image';
               <div class="mc-profile-row">
                 <span class="mc-profile-label">Height:</span>
                 <span class="mc-profile-value">{{ user()?.height }}</span>
-                @if (user()?.measurablesVerifiedBy) {
+                @if (measurablesVerification(); as v) {
                   <a
                     class="mc-verified-badge"
-                    [href]="user()?.measurablesVerifiedUrl || '#'"
+                    [href]="v.sourceUrl || '#'"
                     target="_blank"
                     rel="noopener noreferrer"
-                    [attr.aria-label]="'Verified by ' + user()?.measurablesVerifiedBy"
+                    [attr.aria-label]="'Verified by ' + v.verifiedBy"
                   >
                     <svg
                       class="mc-verified-check"
@@ -153,15 +154,19 @@ import { NxtImageComponent } from '../components/image';
                       />
                     </svg>
                     <span class="mc-verified-text">Verified by</span>
-                    <nxt1-image
-                      class="mc-verified-logo"
-                      src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Rivals.com_logo.svg/200px-Rivals.com_logo.svg.png"
-                      [alt]="user()?.measurablesVerifiedBy || ''"
-                      [width]="60"
-                      [height]="14"
-                      fit="contain"
-                      [showPlaceholder]="false"
-                    />
+                    @if (v.sourceLogoUrl) {
+                      <nxt1-image
+                        class="mc-verified-logo"
+                        [src]="v.sourceLogoUrl"
+                        [alt]="v.verifiedBy"
+                        [width]="60"
+                        [height]="14"
+                        fit="contain"
+                        [showPlaceholder]="false"
+                      />
+                    } @else {
+                      <span class="mc-verified-source">{{ v.verifiedBy }}</span>
+                    }
                   </a>
                 }
               </div>
@@ -170,13 +175,13 @@ import { NxtImageComponent } from '../components/image';
               <div class="mc-profile-row">
                 <span class="mc-profile-label">Weight:</span>
                 <span class="mc-profile-value">{{ user()?.weight }} lb</span>
-                @if (user()?.measurablesVerifiedBy) {
+                @if (measurablesVerification(); as v) {
                   <a
                     class="mc-verified-badge"
-                    [href]="user()?.measurablesVerifiedUrl || '#'"
+                    [href]="v.sourceUrl || '#'"
                     target="_blank"
                     rel="noopener noreferrer"
-                    [attr.aria-label]="'Verified by ' + user()?.measurablesVerifiedBy"
+                    [attr.aria-label]="'Verified by ' + v.verifiedBy"
                   >
                     <svg
                       class="mc-verified-check"
@@ -192,15 +197,19 @@ import { NxtImageComponent } from '../components/image';
                       />
                     </svg>
                     <span class="mc-verified-text">Verified by</span>
-                    <nxt1-image
-                      class="mc-verified-logo"
-                      src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/2b/Rivals.com_logo.svg/200px-Rivals.com_logo.svg.png"
-                      [alt]="user()?.measurablesVerifiedBy || ''"
-                      [width]="60"
-                      [height]="14"
-                      fit="contain"
-                      [showPlaceholder]="false"
-                    />
+                    @if (v.sourceLogoUrl) {
+                      <nxt1-image
+                        class="mc-verified-logo"
+                        [src]="v.sourceLogoUrl"
+                        [alt]="v.verifiedBy"
+                        [width]="60"
+                        [height]="14"
+                        fit="contain"
+                        [showPlaceholder]="false"
+                      />
+                    } @else {
+                      <span class="mc-verified-source">{{ v.verifiedBy }}</span>
+                    }
                   </a>
                 }
               </div>
@@ -1188,6 +1197,11 @@ export class ProfileHeaderComponent {
     const u = this.user();
     return !!(u?.height || u?.weight || u?.gpa || u?.classYear || u?.sat || u?.act);
   });
+
+  /** Resolved measurables verification from new verifications[] or deprecated flat fields */
+  protected readonly measurablesVerification = computed(() =>
+    getVerification(this.user(), 'measurables')
+  );
 
   protected readonly hasProspectGrade = computed(() => {
     const grade = this.playerCard()?.prospectGrade;

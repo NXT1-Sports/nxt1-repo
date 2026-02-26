@@ -39,7 +39,7 @@ import {
   type ProfileTab,
   PROFILE_TABS,
   PROFILE_EMPTY_STATES,
-  type ProfileOffer,
+  type ProfileRecruitingActivity,
   type ProfileEvent,
   type ProfilePost,
 } from '@nxt1/core';
@@ -531,37 +531,18 @@ export interface ProfileShellUser {
                       }
                     </div>
 
-                    @if (profile.user()?.social) {
+                    @if (profile.user()?.social?.length) {
                       <h4 class="social-title">Social Media</h4>
                       <div class="social-links">
-                        @if (profile.user()?.social?.twitter) {
+                        @for (link of profile.user()?.social; track link.platform) {
                           <a
                             class="social-link"
-                            [href]="'https://twitter.com/' + profile.user()?.social?.twitter"
+                            [href]="link.url"
                             target="_blank"
+                            rel="noopener noreferrer"
                           >
                             <nxt1-icon name="link" [size]="20" />
-                            <span>{{ '@' + profile.user()?.social?.twitter }}</span>
-                          </a>
-                        }
-                        @if (profile.user()?.social?.instagram) {
-                          <a
-                            class="social-link"
-                            [href]="'https://instagram.com/' + profile.user()?.social?.instagram"
-                            target="_blank"
-                          >
-                            <nxt1-icon name="link" [size]="20" />
-                            <span>{{ '@' + profile.user()?.social?.instagram }}</span>
-                          </a>
-                        }
-                        @if (profile.user()?.social?.hudl) {
-                          <a
-                            class="social-link"
-                            [href]="'https://hudl.com/profile/' + profile.user()?.social?.hudl"
-                            target="_blank"
-                          >
-                            <nxt1-icon name="link" [size]="20" />
-                            <span>Hudl Profile</span>
+                            <span>{{ link.username ? '@' + link.username : link.platform }}</span>
                           </a>
                         }
                       </div>
@@ -1221,10 +1202,13 @@ export class ProfileShellComponent implements OnInit {
     // TODO: Open video uploader
   }
 
-  // Offers - using ProfileOffer type from @nxt1/core
-  protected onOfferClick(offer: ProfileOffer): void {
-    this.logger.debug('Offer click', { offerId: offer.id });
-    // TODO: Open offer detail
+  // Recruiting activity - using ProfileRecruitingActivity type from @nxt1/core
+  protected onOfferClick(offer: ProfileRecruitingActivity): void {
+    this.logger.debug('Recruiting activity click', {
+      activityId: offer.id,
+      category: offer.category,
+    });
+    // TODO: Open recruiting activity detail
   }
 
   protected onAddOffer(): void {
@@ -1238,9 +1222,9 @@ export class ProfileShellComponent implements OnInit {
     // TODO: Open stats editor
   }
 
-  // Events - using ProfileEvent type from @nxt1/core
+  // Events (schedule items — games, practices, combines)
   protected onEventClick(event: ProfileEvent): void {
-    this.logger.debug('Event click', { eventId: event.id });
+    this.logger.debug('Event click', { eventId: event.id, type: event.type });
     // TODO: Open event detail
   }
 

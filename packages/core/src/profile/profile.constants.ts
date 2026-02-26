@@ -16,6 +16,7 @@ import type {
   ProfilePostType,
   ProfileTimelineFilter,
   ProfileTimelineFilterId,
+  ProfileRecruitingCategory,
   OfferType,
   EventType,
   ProfileHeaderAction,
@@ -195,9 +196,38 @@ export const PROFILE_POST_TYPE_LABELS: Record<ProfilePostType, string> = {
 } as const;
 
 // ============================================
-// OFFER TYPE CONFIGURATION
+// RECRUITING CATEGORY CONFIGURATION
 // ============================================
 
+/**
+ * Icon mapping for recruiting activity categories.
+ */
+export const RECRUITING_CATEGORY_ICONS: Record<ProfileRecruitingCategory, string> = {
+  offer: 'school',
+  interest: 'heart',
+  visit: 'location',
+  camp: 'flag',
+  commitment: 'checkmark-circle',
+  contact: 'call',
+} as const;
+
+/**
+ * Label mapping for recruiting activity categories.
+ */
+export const RECRUITING_CATEGORY_LABELS: Record<ProfileRecruitingCategory, string> = {
+  offer: 'Offer',
+  interest: 'Interest',
+  visit: 'Visit',
+  camp: 'Camp',
+  commitment: 'Committed',
+  contact: 'Contact',
+} as const;
+
+// ============================================
+// OFFER TYPE CONFIGURATION (DEPRECATED)
+// ============================================
+
+/** @deprecated Use RECRUITING_CATEGORY_ICONS instead. */
 /**
  * Icon mapping for offer types.
  */

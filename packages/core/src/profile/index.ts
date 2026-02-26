@@ -22,7 +22,9 @@ export {
   type ProfileTeamType,
   type ProfileTeamAffiliation,
   type ProfileSchool,
+  type ProfileSocialLink,
   type ProfileSocialLinks,
+  type ProfileConnectedSource,
   type ProfileContact,
   type ProfileAward,
   type ProfileCoachContact,
@@ -46,10 +48,12 @@ export {
   // Timeline filter types
   type ProfileTimelineFilterId,
   type ProfileTimelineFilter,
-  // Offer types
+  // Recruiting activity (2026 unified architecture)
+  type ProfileRecruitingActivity,
+  type ProfileRecruitingCategory,
+  // @deprecated — use ProfileRecruitingActivity instead
   type OfferType,
   type ProfileOffer,
-  // Event types
   type EventType,
   type ProfileEvent,
   // Edit types
@@ -66,6 +70,9 @@ export {
   type AgentXTraitCategory,
   type AgentXTrait,
   type PlayerCardData,
+  // Verification helpers (pure functions)
+  getVerification,
+  getAllVerifications,
 } from './profile.types';
 
 // ============================================
@@ -86,6 +93,9 @@ export {
   OFFER_TYPE_ICONS,
   OFFER_TYPE_LABELS,
   OFFER_TYPE_COLORS,
+  // Recruiting categories
+  RECRUITING_CATEGORY_ICONS,
+  RECRUITING_CATEGORY_LABELS,
   // Event types
   EVENT_TYPE_ICONS,
   EVENT_TYPE_LABELS,

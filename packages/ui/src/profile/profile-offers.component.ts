@@ -1,14 +1,14 @@
 /**
  * @fileoverview Profile Recruit Section Component
  * @module @nxt1/ui/profile
- * @version 3.0.0
+ * @version 4.0.0
  *
- * Displays the full recruiting section with three sub-sections:
- * 1. Commitment (top) — committed offer with prominent display
+ * Displays the full recruiting section with category-based sub-sections:
+ * 1. Commitment (top) — committed activity with prominent display
  * 2. Offers (middle) — scholarship, preferred walk-on
  * 3. Interests (bottom) — schools showing interest
  *
- * Now a thin wrapper that maps ProfileOffer[] → TimelineItem[]
+ * A thin wrapper that maps ProfileRecruitingActivity[] → TimelineItem[]
  * and delegates rendering to the shared NxtTimelineComponent.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
@@ -16,12 +16,8 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type { ProfileOffer, TimelineItem, TimelineCardLayout } from '@nxt1/core';
-import {
-  OFFER_TYPE_ICONS,
-  OFFER_TYPE_LABELS,
-  OFFER_TYPE_COLORS as _OFFER_TYPE_COLORS,
-} from '@nxt1/core';
+import type { ProfileRecruitingActivity, TimelineItem, TimelineCardLayout } from '@nxt1/core';
+import { RECRUITING_CATEGORY_ICONS, RECRUITING_CATEGORY_LABELS } from '@nxt1/core';
 import { NxtTimelineComponent } from '../components/timeline';
 
 @Component({
@@ -89,17 +85,17 @@ export class ProfileOffersComponent {
   // INPUTS
   // ============================================
 
-  /** All offers (unfiltered — component handles categorization) */
-  readonly offers = input<readonly ProfileOffer[]>([]);
+  /** All recruiting activity (unfiltered — component handles categorization) */
+  readonly offers = input<readonly ProfileRecruitingActivity[]>([]);
 
-  /** Committed offers — pre-filtered from parent if available */
-  readonly committedOffers = input<readonly ProfileOffer[]>([]);
+  /** Committed activity — pre-filtered from parent if available */
+  readonly committedOffers = input<readonly ProfileRecruitingActivity[]>([]);
 
   /** Active offers (non-interest, non-committed) — pre-filtered from parent */
-  readonly activeOffers = input<readonly ProfileOffer[]>([]);
+  readonly activeOffers = input<readonly ProfileRecruitingActivity[]>([]);
 
-  /** Interest offers — pre-filtered from parent */
-  readonly interestOffers = input<readonly ProfileOffer[]>([]);
+  /** Interest activity — pre-filtered from parent */
+  readonly interestOffers = input<readonly ProfileRecruitingActivity[]>([]);
 
   readonly isLoading = input(false);
   readonly isEmpty = input(false);
@@ -119,7 +115,7 @@ export class ProfileOffersComponent {
   // OUTPUTS
   // ============================================
 
-  readonly offerClick = output<ProfileOffer>();
+  readonly offerClick = output<ProfileRecruitingActivity>();
   readonly addOfferClick = output<void>();
   readonly addCommitmentClick = output<void>();
 
@@ -157,22 +153,22 @@ export class ProfileOffersComponent {
   };
 
   // ============================================
-  // COMPUTED — Map ProfileOffer[] → TimelineItem[]
+  // COMPUTED — Map ProfileRecruitingActivity[] → TimelineItem[]
   // ============================================
 
-  /** Committed offers → TimelineItem[] with 'committed' variant. */
+  /** Committed activity → TimelineItem[] with 'committed' variant. */
   protected readonly committedItems = computed(() =>
-    this.committedOffers().map((o) => this.offerToTimelineItem(o, 'committed'))
+    this.committedOffers().map((a) => this.activityToTimelineItem(a, 'committed'))
   );
 
   /** Active offers → TimelineItem[] with 'primary' variant. */
   protected readonly offerItems = computed(() =>
-    this.activeOffers().map((o) => this.offerToTimelineItem(o, 'primary'))
+    this.activeOffers().map((a) => this.activityToTimelineItem(a, 'primary'))
   );
 
-  /** Interest offers → TimelineItem[] with 'secondary' variant. */
+  /** Interest activity → TimelineItem[] with 'secondary' variant. */
   protected readonly interestItems = computed(() =>
-    this.interestOffers().map((o) => this.offerToTimelineItem(o, 'secondary'))
+    this.interestOffers().map((a) => this.activityToTimelineItem(a, 'secondary'))
   );
 
   /** All sections merged, sorted newest-first — used when activeSection is 'timeline'. */
@@ -207,53 +203,44 @@ export class ProfileOffersComponent {
   // ============================================
 
   /**
-   * Maps a ProfileOffer to a generic TimelineItem.
+   * Maps a ProfileRecruitingActivity to a generic TimelineItem.
    */
-  private offerToTimelineItem(
-    offer: ProfileOffer,
+  private activityToTimelineItem(
+    activity: ProfileRecruitingActivity,
     variant: 'committed' | 'primary' | 'secondary'
-  ): TimelineItem<ProfileOffer> {
+  ): TimelineItem<ProfileRecruitingActivity> {
     const tags: { label: string; variant: 'committed' | 'primary' | 'secondary' }[] = [];
 
-    if (offer.division) {
-      tags.push({ label: offer.division, variant });
+    if (activity.division) {
+      tags.push({ label: activity.division, variant });
     }
-    if (offer.conference) {
-      tags.push({ label: offer.conference, variant });
+    if (activity.conference) {
+      tags.push({ label: activity.conference, variant });
     }
 
     return {
-      id: offer.id,
-      title: offer.collegeName,
-      logoUrl: offer.collegeLogoUrl,
-      graphicUrl: offer.graphicUrl,
+      id: activity.id,
+      title: activity.collegeName,
+      logoUrl: activity.collegeLogoUrl,
+      graphicUrl: activity.graphicUrl,
       tags: tags.length > 0 ? tags : undefined,
-      subtitle: offer.coachName,
-      footerLeft: offer.sport,
-      footerRight: this.formatDate(offer.offeredAt),
-      date: offer.offeredAt,
+      subtitle: activity.coachName,
+      footerLeft: activity.sport,
+      footerRight: this.formatDate(activity.date),
+      date: activity.date,
       variant,
-      badge: this.getOfferBadge(offer, variant),
-      data: offer,
+      badge: this.getActivityBadge(activity),
+      data: activity,
     };
   }
 
   /**
-   * Produces the status badge for an offer based on its type/variant.
+   * Produces the status badge for an activity based on its category.
    */
-  private getOfferBadge(
-    offer: ProfileOffer,
-    variant: 'committed' | 'primary' | 'secondary'
-  ): { icon: string; label: string } {
-    if (variant === 'committed') {
-      return { icon: 'checkmark-circle', label: 'Committed' };
-    }
-    if (variant === 'secondary') {
-      return { icon: 'heart', label: 'Interest' };
-    }
+  private getActivityBadge(activity: ProfileRecruitingActivity): { icon: string; label: string } {
     return {
-      icon: OFFER_TYPE_ICONS[offer.type] ?? 'school',
-      label: OFFER_TYPE_LABELS[offer.type] ?? 'Offer',
+      icon: RECRUITING_CATEGORY_ICONS[activity.category] ?? 'school',
+      label: RECRUITING_CATEGORY_LABELS[activity.category] ?? 'Offer',
     };
   }
 
@@ -270,11 +257,11 @@ export class ProfileOffersComponent {
     }
   }
 
-  /** Handle timeline item click → emit the original ProfileOffer. */
+  /** Handle timeline item click → emit the original activity. */
   protected onItemClick(item: TimelineItem): void {
-    const offer = item.data as ProfileOffer | undefined;
-    if (offer) {
-      this.offerClick.emit(offer);
+    const activity = item.data as ProfileRecruitingActivity | undefined;
+    if (activity) {
+      this.offerClick.emit(activity);
     }
   }
 }

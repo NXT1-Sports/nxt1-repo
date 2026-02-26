@@ -33,7 +33,7 @@ export const MOCK_EDIT_PROFILE_FORM_DATA: EditProfileFormData = {
   photos: {
     profileImg: 'https://i.pravatar.cc/300?img=68',
     bannerImg: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1200&h=400&fit=crop',
-    gallery: [],
+    profileImages: [],
   },
   sportsInfo: {
     primarySport: 'Football',
@@ -693,7 +693,7 @@ export const MOCK_EMPTY_PROFILE_FORM_DATA: EditProfileFormData = {
   photos: {
     profileImg: '',
     bannerImg: '',
-    gallery: [],
+    profileImages: [],
   },
   sportsInfo: {
     primarySport: '',
