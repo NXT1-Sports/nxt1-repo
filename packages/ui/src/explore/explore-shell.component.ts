@@ -62,6 +62,7 @@ import { NewsContentComponent } from '../news/news-content.component';
 import { FeedListComponent } from '../feed/feed-list.component';
 import { FeedService } from '../feed/feed.service';
 import { ExploreFilterModalService } from './explore-filter-modal.service';
+import { ExploreVideosMobileComponent } from './mobile/explore-videos-mobile.component';
 
 // Register icons for search suggestions
 /** User info for header display */
@@ -89,6 +90,7 @@ export interface ExploreUser {
     ScoutReportsContentComponent,
     NewsContentComponent,
     FeedListComponent,
+    ExploreVideosMobileComponent,
   ],
   template: `
     <!-- Professional Page Header with shared Top Nav search styling -->
@@ -238,6 +240,9 @@ export interface ExploreUser {
               (reportSelect)="onScoutReportSelect($event)"
               (openFilters)="onScoutReportFiltersOpen()"
             />
+          } @else if (explore.activeTab() === 'videos' && !explore.hasQuery()) {
+            <!-- Videos Tab: Film Room Dashboard -->
+            <nxt1-explore-videos-mobile />
           } @else {
             @defer (on viewport; prefetch on idle) {
               <nxt1-explore-list
