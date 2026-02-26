@@ -45,6 +45,7 @@ import { ExploreService } from '../explore.service';
 import { ExploreListWebComponent } from './explore-list-web.component';
 import { ExploreSkeletonComponent } from '../explore-skeleton.component';
 import { ExploreForYouWebComponent } from './explore-for-you-web.component';
+import { ExploreAthletesWebComponent } from './explore-athletes-web.component';
 import { ScoutReportsContentComponent } from '../../scout-reports/scout-reports-content.component';
 import { NewsContentComponent } from '../../news/news-content.component';
 import { FeedListComponent } from '../../feed/feed-list.component';
@@ -64,6 +65,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
     ExploreListWebComponent,
     ExploreSkeletonComponent,
     ExploreForYouWebComponent,
+    ExploreAthletesWebComponent,
     ScoutReportsContentComponent,
     NewsContentComponent,
     FeedListComponent,
@@ -368,6 +370,9 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
                   (reportSelect)="onScoutReportSelect($event)"
                   (openFilters)="onScoutReportFiltersOpen()"
                 />
+              } @else if (explore.activeTab() === 'athletes' && !explore.hasQuery()) {
+                <!-- Athletes Tab: Elite Dashboard -->
+                <nxt1-explore-athletes-web />
               } @else {
                 @defer (on viewport; prefetch on idle) {
                   <nxt1-explore-list-web
