@@ -37,7 +37,7 @@ export { NewsReadingProgressComponent } from './news-reading-progress.component'
 // ==============================================
 
 export { NewsService } from './news.service';
-export { NewsApiService } from './news-api.service';
+export { NewsApiService, NEWS_API_BASE_URL } from './news-api.service';
 
 // ==============================================
 // MOCK DATA (Development Only)

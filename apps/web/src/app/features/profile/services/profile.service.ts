@@ -1,10 +1,10 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable, from, of } from 'rxjs';
-import { tap } from 'rxjs/operators';
+import { map, tap } from 'rxjs/operators';
 import { environment } from '../../../../environments/environment';
 import { createProfileApi, type ProfileApi, type ApiResponse } from '@nxt1/core/profile';
-import { User } from '@nxt1/core';
+import { User, type ProfilePost, type NewsArticle, type ScoutReport } from '@nxt1/core';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
 import { CACHE_CONFIG } from '@nxt1/core/cache';
 import { AngularHttpAdapter } from '../../../core/infrastructure';
@@ -437,6 +437,79 @@ export class ProfileService {
           },
         }
       )
+    );
+  }
+
+  /**
+   * Map a raw Firestore timeline document to ProfilePost.
+   * The seed/backend stores `content`; ProfilePost uses `body`.
+   */
+  private mapTimelineDoc(raw: Record<string, unknown>): ProfilePost {
+    const stats = (raw['stats'] as Record<string, number> | undefined) ?? {};
+    return {
+      id: (raw['id'] as string | undefined) ?? String(raw['_id'] ?? ''),
+      type: (raw['type'] as ProfilePost['type']) ?? 'text',
+      title: raw['title'] as string | undefined,
+      body: (raw['content'] as string | undefined) ?? '',
+      thumbnailUrl: raw['thumbnailUrl'] as string | undefined,
+      mediaUrl: raw['mediaUrl'] as string | undefined,
+      likeCount: stats['likes'] ?? 0,
+      commentCount: stats['comments'] ?? 0,
+      shareCount: stats['shares'] ?? 0,
+      viewCount: stats['views'],
+      duration: raw['duration'] as number | undefined,
+      isPinned: (raw['isPinned'] as boolean | undefined) ?? false,
+      createdAt: (raw['createdAt'] as string | undefined) ?? new Date().toISOString(),
+    };
+  }
+
+  /**
+   * Get timeline posts from the user's timeline sub-collection.
+   * GET /api/v1/auth/profile/:userId/timeline
+   */
+  getProfileTimeline(userId: string): Observable<{ success: boolean; data: ProfilePost[] }> {
+    return this.http
+      .get<{
+        success: boolean;
+        data: Record<string, unknown>[];
+      }>(`${environment.apiURL}/auth/profile/${userId}/timeline`)
+      .pipe(
+        map((resp) => ({
+          success: resp.success,
+          data: (resp.data ?? []).map((d) => this.mapTimelineDoc(d)),
+        }))
+      );
+  }
+
+  /**
+   * Get news articles from the user's news sub-collection.
+   * GET /api/v1/auth/profile/:userId/news
+   */
+  getProfileNews(userId: string): Observable<{ success: boolean; data: NewsArticle[] }> {
+    return this.http.get<{ success: boolean; data: NewsArticle[] }>(
+      `${environment.apiURL}/auth/profile/${userId}/news`
+    );
+  }
+
+  /**
+   * Get rankings from the user's rankings sub-collection.
+   * GET /api/v1/auth/profile/:userId/rankings
+   */
+  getProfileRankings(
+    userId: string
+  ): Observable<{ success: boolean; data: Record<string, unknown>[] }> {
+    return this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
+      `${environment.apiURL}/auth/profile/${userId}/rankings`
+    );
+  }
+
+  /**
+   * Get scout reports from the user's scoutReports sub-collection.
+   * GET /api/v1/auth/profile/:userId/scout-reports
+   */
+  getProfileScoutReports(userId: string): Observable<{ success: boolean; data: ScoutReport[] }> {
+    return this.http.get<{ success: boolean; data: ScoutReport[] }>(
+      `${environment.apiURL}/auth/profile/${userId}/scout-reports`
     );
   }
 }

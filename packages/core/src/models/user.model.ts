@@ -1303,11 +1303,7 @@ export interface User {
   //   users/{uid}/xp/{entryId}              — XP & badges
   //   users/{uid}/followers/{userId}         — Follow relationships
   //   users/{uid}/following/{userId}         — Follow relationships
-  //   users/{uid}/sports/{sportId}/stats/    — Season stats
   //   users/{uid}/sports/{sportId}/gameStats/ — Game stats
-  //   users/{uid}/sports/{sportId}/offers/   — College offers
-  //   users/{uid}/sports/{sportId}/interactions/ — College interactions
-  //   users/{uid}/emailTokens/{provider}      — OAuth tokens (gmail, microsoft, yahoo)
   // ============================================
 
   /** Team links for coach pages */

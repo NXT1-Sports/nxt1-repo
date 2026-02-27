@@ -65,9 +65,10 @@ function timeAgo(isoDate: string): string {
 
 /**
  * Module-level flag — browser-only.
- * Ensures the shimmer skeleton only shows on the very first mount.
+ * Ensures the shimmer skeleton only shows on the very first mount across all instances.
+ * Fetch still happens on every mount; this only suppresses the skeleton on re-visits.
  */
-let _hasLoadedOnce = false;
+let _skeletonShownOnce = false;
 
 @Component({
   selector: 'nxt1-profile-news-web',
@@ -321,6 +322,9 @@ export class ProfileNewsWebComponent implements OnInit {
   /** Active side section from profile shell (all-news | announcements | media-mentions) */
   readonly activeSection = input<string>('all-news');
 
+  /** User ID whose news sub-collection to load. When null, falls back to global feed. */
+  readonly userId = input<string | null>(null);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -334,9 +338,9 @@ export class ProfileNewsWebComponent implements OnInit {
 
   /**
    * Loading state — false on server (SSR renders content for SEO crawlers).
-   * On the browser, true only on the very first mount.
+   * True on the very first browser mount only (skeleton suppressed on re-visits).
    */
-  readonly isLoading = signal(!_hasLoadedOnce && isPlatformBrowser(this.platformId));
+  readonly isLoading = signal(!_skeletonShownOnce && isPlatformBrowser(this.platformId));
 
   /** Skeleton placeholder slot count. */
   readonly skeletonSlots = SKELETON_SLOTS;
@@ -395,11 +399,13 @@ export class ProfileNewsWebComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
-    if (_hasLoadedOnce || !isPlatformBrowser(this.platformId)) return;
+    if (!isPlatformBrowser(this.platformId)) return;
 
+    const uid = this.userId();
     const timer = setTimeout(() => {
-      this.newsApi
-        .getFeed()
+      const fetch = uid ? this.newsApi.getUserNews(uid) : this.newsApi.getFeed();
+
+      fetch
         .then((response) => {
           if (response.success && response.data) {
             this.allArticles.set(response.data);
@@ -409,7 +415,7 @@ export class ProfileNewsWebComponent implements OnInit {
           // leave empty — show empty state instead of crashing
         })
         .finally(() => {
-          _hasLoadedOnce = true;
+          _skeletonShownOnce = true;
           this.isLoading.set(false);
         });
     }, 300);

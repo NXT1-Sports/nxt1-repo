@@ -20,6 +20,7 @@ import {
   type ProfileSport,
   type FeedPost,
   type User,
+  type ScoutReport,
   PROFILE_DEFAULT_TAB,
   profileUserToFeedAuthor,
   buildUnifiedActivityFeed,
@@ -67,7 +68,10 @@ export class ProfileService {
   private readonly _editSection = signal<string | null>(null);
   private readonly _activeSportIndex = signal(0);
   private readonly _rankings = signal<RankingSource[]>(MOCK_RANKINGS);
+  private readonly _scoutReports = signal<readonly ScoutReport[]>([]);
   private readonly _activityFeedItems = signal<readonly FeedPost[]>([]);
+  /** Timeline posts loaded from the user's timeline sub-collection */
+  private readonly _timelinePosts = signal<readonly ProfilePost[]>([]);
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS (READ-ONLY)
@@ -109,8 +113,8 @@ export class ProfileService {
   /** Pinned video/mixtape */
   readonly pinnedVideo = computed(() => this._profileData()?.pinnedVideo ?? null);
 
-  /** All posts */
-  readonly allPosts = computed(() => this._profileData()?.recentPosts ?? []);
+  /** All posts — sourced from the user's timeline sub-collection */
+  readonly allPosts = computed(() => this._timelinePosts());
 
   /** All recruiting activity (unified) */
   readonly recruitingActivity = computed<readonly ProfileRecruitingActivity[]>(
@@ -153,6 +157,9 @@ export class ProfileService {
   /** Rankings from various scouting services */
   readonly rankings = computed(() => this._rankings());
 
+  /** Scout reports from the user's scoutReports sub-collection */
+  readonly scoutReports = computed(() => this._scoutReports());
+
   /** Awards list */
   readonly awards = computed(() => this._profileData()?.user?.awards ?? []);
 
@@ -176,7 +183,7 @@ export class ProfileService {
     if (!data?.user) return [];
 
     const author = profileUserToFeedAuthor(data.user);
-    const posts = data.recentPosts ?? [];
+    const posts = this._timelinePosts();
     const offers = data.offers ?? [];
     const events = data.events ?? [];
 
@@ -416,6 +423,10 @@ export class ProfileService {
     // Clear stale/mock data so the skeleton loader shows while fetching real data.
     // Without this, old mock data persists if the API call fails.
     this._profileData.set(null);
+    // Clear stale sub-collection data from previous profile (singleton service).
+    this._timelinePosts.set([]);
+    this._rankings.set(MOCK_RANKINGS);
+    this._scoutReports.set([]);
   }
 
   /**
@@ -428,6 +439,30 @@ export class ProfileService {
     if (message) {
       this.toast.error(message);
     }
+  }
+
+  /**
+   * Push timeline posts loaded from the user's timeline sub-collection.
+   * Called by the platform wrapper after fetching GET /auth/profile/:userId/timeline.
+   */
+  setTimelinePosts(posts: readonly ProfilePost[]): void {
+    this._timelinePosts.set(posts);
+  }
+
+  /**
+   * Push rankings from the user's rankings sub-collection.
+   * Called by the platform wrapper after fetching GET /auth/profile/:userId/rankings.
+   */
+  setRankings(rankings: RankingSource[]): void {
+    this._rankings.set(rankings);
+  }
+
+  /**
+   * Push scout reports from the user's scoutReports sub-collection.
+   * Called by the platform wrapper after fetching GET /auth/profile/:userId/scout-reports.
+   */
+  setScoutReports(reports: readonly ScoutReport[]): void {
+    this._scoutReports.set(reports);
   }
 
   /**
@@ -580,23 +615,40 @@ export class ProfileService {
   setActiveSportIndex(index: number): void {
     const sports = this.allSports();
     if (index >= 0 && index < sports.length) {
+      const selectedSport = sports[index];
+
+      // The UI's allSports order may differ from rawUser.sports[] after a previous
+      // remap (the chosen sport is always promoted to primarySport = index 0).
+      // We must resolve the real index inside rawUser.sports[] by matching sport
+      // name, otherwise subsequent switches will look up the wrong sport entry.
+      const rawUser = this._rawUser();
+      let rawSportIndex = index; // safe fallback (e.g. first load, no prior remap)
+      if (rawUser?.sports && selectedSport) {
+        const found = rawUser.sports.findIndex((s) => s.sport === selectedSport.name);
+        if (found !== -1) rawSportIndex = found;
+      }
+
       this.logger.info('Sport profile switched', {
         from: this._activeSportIndex(),
-        to: index,
-        sport: sports[index]?.name,
+        uiIndex: index,
+        rawIndex: rawSportIndex,
+        sport: selectedSport?.name,
       });
-      this._activeSportIndex.set(index);
 
       // Re-map full profile data so tab content (stats, metrics, events, recruiting)
       // reflects the newly selected sport rather than the original load.
-      const rawUser = this._rawUser();
       if (rawUser) {
         const remapped = userToProfilePageData(
-          { ...rawUser, activeSportIndex: index } as User,
+          { ...rawUser, activeSportIndex: rawSportIndex } as User,
           this._profileIsOwn
         );
         this._profileData.set(remapped);
       }
+
+      // After remapping, userToProfilePageData always promotes the selected sport
+      // to primarySport → it lands at index 0 in the recomputed allSports.
+      // Reset the signal to 0 so activeSportIndex() highlights the correct tab.
+      this._activeSportIndex.set(0);
     }
   }
 

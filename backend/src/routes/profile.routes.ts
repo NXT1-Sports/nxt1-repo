@@ -493,6 +493,235 @@ router.get(
 );
 
 /**
+ * Get timeline posts from the user's timeline sub-collection.
+ * GET /api/v1/auth/profile/:userId/timeline
+ */
+router.get(
+  '/:userId/timeline',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params as { userId: string };
+    const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
+
+    const db = req.firebase!.db;
+    const snap = await db
+      .collection(USERS_COLLECTION)
+      .doc(userId)
+      .collection('timeline')
+      .orderBy('createdAt', 'desc')
+      .limit(limit)
+      .get();
+
+    const posts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ success: true, data: posts });
+  })
+);
+
+/**
+ * Get VerifiedStat entries from the sport stats sub-collection.
+ * GET /api/v1/auth/profile/:userId/sports/:sportId/stats
+ */
+router.get(
+  '/:userId/sports/:sportId/stats',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId, sportId } = req.params as { userId: string; sportId: string };
+    const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
+
+    const db = req.firebase!.db;
+    const snap = await db
+      .collection(USERS_COLLECTION)
+      .doc(userId)
+      .collection('sports')
+      .doc(sportId)
+      .collection('stats')
+      .orderBy('dateRecorded', 'desc')
+      .limit(limit)
+      .get();
+
+    const stats = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ success: true, data: stats });
+  })
+);
+
+/**
+ * Get VerifiedMetric entries from the sport metrics sub-collection.
+ * GET /api/v1/auth/profile/:userId/sports/:sportId/metrics
+ */
+router.get(
+  '/:userId/sports/:sportId/metrics',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId, sportId } = req.params as { userId: string; sportId: string };
+    const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
+
+    const db = req.firebase!.db;
+    const snap = await db
+      .collection(USERS_COLLECTION)
+      .doc(userId)
+      .collection('sports')
+      .doc(sportId)
+      .collection('metrics')
+      .orderBy('dateRecorded', 'desc')
+      .limit(limit)
+      .get();
+
+    const metrics = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ success: true, data: metrics });
+  })
+);
+
+/**
+ * Get news articles from the user's news sub-collection.
+ * GET /api/v1/auth/profile/:userId/news
+ */
+router.get(
+  '/:userId/news',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params as { userId: string };
+    const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
+
+    const db = req.firebase!.db;
+    const snap = await db
+      .collection(USERS_COLLECTION)
+      .doc(userId)
+      .collection('news')
+      .orderBy('publishedAt', 'desc')
+      .limit(limit)
+      .get();
+
+    const articles = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ success: true, data: articles });
+  })
+);
+
+/**
+ * Get rankings from the user's rankings sub-collection.
+ * GET /api/v1/auth/profile/:userId/rankings
+ */
+router.get(
+  '/:userId/rankings',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params as { userId: string };
+    const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
+
+    const db = req.firebase!.db;
+    const snap = await db
+      .collection(USERS_COLLECTION)
+      .doc(userId)
+      .collection('rankings')
+      .orderBy('rank', 'asc')
+      .limit(limit)
+      .get();
+
+    const rankings = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ success: true, data: rankings });
+  })
+);
+
+/**
+ * Get scout reports from the user's scoutReports sub-collection.
+ * GET /api/v1/auth/profile/:userId/scout-reports
+ */
+router.get(
+  '/:userId/scout-reports',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params as { userId: string };
+    const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
+
+    const db = req.firebase!.db;
+    const snap = await db
+      .collection(USERS_COLLECTION)
+      .doc(userId)
+      .collection('scoutReports')
+      .orderBy('publishedAt', 'desc')
+      .limit(limit)
+      .get();
+
+    const reports = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ success: true, data: reports });
+  })
+);
+
+/**
+ * Get followers from the user's followers sub-collection.
+ * GET /api/v1/auth/profile/:userId/followers
+ */
+router.get(
+  '/:userId/followers',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params as { userId: string };
+    const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
+
+    const db = req.firebase!.db;
+    const snap = await db
+      .collection(USERS_COLLECTION)
+      .doc(userId)
+      .collection('followers')
+      .orderBy('followedAt', 'desc')
+      .limit(limit)
+      .get();
+
+    const followers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ success: true, data: followers });
+  })
+);
+
+/**
+ * Get following from the user's following sub-collection.
+ * GET /api/v1/auth/profile/:userId/following
+ */
+router.get(
+  '/:userId/following',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params as { userId: string };
+    const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
+
+    const db = req.firebase!.db;
+    const snap = await db
+      .collection(USERS_COLLECTION)
+      .doc(userId)
+      .collection('following')
+      .orderBy('followedAt', 'desc')
+      .limit(limit)
+      .get();
+
+    const following = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ success: true, data: following });
+  })
+);
+
+/**
+ * Get video highlights from the user's videos sub-collection.
+ * GET /api/v1/auth/profile/:userId/videos
+ */
+router.get(
+  '/:userId/videos',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params as { userId: string };
+    const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
+
+    const db = req.firebase!.db;
+    const snap = await db
+      .collection(USERS_COLLECTION)
+      .doc(userId)
+      .collection('videos')
+      .orderBy('createdAt', 'desc')
+      .limit(limit)
+      .get();
+
+    const videos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ success: true, data: videos });
+  })
+);
+
+/**
  * Get user profile by ID.
  * GET /api/v1/auth/profile/:userId
  */

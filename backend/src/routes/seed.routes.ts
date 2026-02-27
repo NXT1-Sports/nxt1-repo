@@ -15,9 +15,8 @@
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
 import { Timestamp, type Firestore, type WriteBatch } from 'firebase-admin/firestore';
-import { appGuard } from '../middleware/auth.middleware.js';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
-import { forbiddenError, notFoundError } from '@nxt1/core/errors';
+import { notFoundError } from '@nxt1/core/errors';
 import { logger } from '../utils/logger.js';
 import type {
   ScheduleEvent,
@@ -33,15 +32,21 @@ import { getCacheService } from '../services/cache.service.js';
 const router: ExpressRouter = Router();
 
 // ─── Cache helpers ────────────────────────────────────────────────────────────
-async function bustProfileCache(userId: string): Promise<void> {
+async function bustProfileCache(
+  userId: string,
+  username?: string | null,
+  unicode?: string | null
+): Promise<void> {
   const cache = getCacheService();
-  await cache.del(`${PROFILE_CACHE_KEYS.BY_ID}${userId}`);
-  logger.debug('[Seed] Profile cache busted', { userId });
+  const keys: string[] = [`${PROFILE_CACHE_KEYS.BY_ID}${userId}`];
+  if (username) keys.push(`${PROFILE_CACHE_KEYS.BY_USERNAME}${username.toLowerCase()}`);
+  if (unicode) keys.push(`${PROFILE_CACHE_KEYS.BY_UNICODE}${unicode.toLowerCase()}`);
+  await Promise.all(keys.map((k) => cache.del(k)));
+  logger.debug('[Seed] Profile cache busted', { userId, keys: keys.length });
 }
 
 // ─── Collection names ─────────────────────────────────────────────────────────
 const USERS_COL = 'Users';
-const FOLLOWS_COL = 'Follows';
 const RANKINGS_COL = 'Rankings';
 
 // ─── Batch helper: auto-split into chunks of 499 ─────────────────────────────
@@ -878,6 +883,7 @@ function buildBasketballRecruitingActivities(uid: string): RecruitingActivity[] 
 
 interface PostSeedDoc {
   userId: string;
+  title?: string;
   content: string;
   type: string;
   visibility: PostVisibility;
@@ -886,6 +892,9 @@ interface PostSeedDoc {
   hashtags: string[];
   isPinned: boolean;
   commentsDisabled: boolean;
+  mediaUrl?: string;
+  thumbnailUrl?: string;
+  duration?: number;
   createdAt: ReturnType<typeof Timestamp.now>;
   updatedAt: ReturnType<typeof Timestamp.now>;
   stats: { likes: number; comments: number; shares: number; views: number };
@@ -898,26 +907,13 @@ function buildPosts(uid: string): PostSeedDoc[] {
     return Timestamp.fromDate(d);
   };
   return [
+    // Pinned offer announcement
     {
       userId: uid,
-      content:
-        '🏈 Big W tonight — 35-14 vs Riverside HS. Threw for 312 yards and 3 TDs. Feeling locked in. #NXT1 #QB #Football',
-      type: 'update',
-      visibility: PostVisibility.PUBLIC,
-      images: [],
-      mentions: [],
-      hashtags: ['NXT1', 'QB', 'Football'],
-      isPinned: false,
-      commentsDisabled: false,
-      createdAt: ts(7),
-      updatedAt: ts(7),
-      stats: { likes: 48, comments: 12, shares: 6, views: 320 },
-    },
-    {
-      userId: uid,
+      title: 'Official Visit Offer — VinUniversity 🎓',
       content:
         'Blessed and grateful 🙏 Received an official visit offer from VinUniversity! Hard work pays off. #Recruiting #D1 #2026',
-      type: 'update',
+      type: 'offer',
       visibility: PostVisibility.PUBLIC,
       images: [],
       mentions: [],
@@ -928,11 +924,50 @@ function buildPosts(uid: string): PostSeedDoc[] {
       updatedAt: ts(30),
       stats: { likes: 124, comments: 35, shares: 18, views: 890 },
     },
+    // Highlight reel
     {
       userId: uid,
+      title: 'Week 9 Highlights — 312yd / 3 TD',
+      content:
+        '🏈 Big W tonight — 35-14 vs Riverside HS. Threw for 312 yards and 3 TDs. Full highlight reel below. #NXT1 #QB #Football',
+      type: 'highlight',
+      visibility: PostVisibility.PUBLIC,
+      images: [],
+      mentions: [],
+      hashtags: ['NXT1', 'QB', 'Football'],
+      isPinned: false,
+      commentsDisabled: false,
+      thumbnailUrl: 'https://placehold.co/640x360/1a1a2e/00ff88?text=Week+9+Highlights',
+      mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
+      duration: 142,
+      createdAt: ts(7),
+      updatedAt: ts(7),
+      stats: { likes: 48, comments: 12, shares: 6, views: 1320 },
+    },
+    // Stat update
+    {
+      userId: uid,
+      title: 'Season Stats Update 📊',
+      content:
+        'Through 9 games: 2,481 passing yards, 24 TDs, 4 INTs. Completion rate up to 68%. Grinding every week. #Stats #QBLife',
+      type: 'stat',
+      visibility: PostVisibility.PUBLIC,
+      images: [],
+      mentions: [],
+      hashtags: ['Stats', 'QBLife'],
+      isPinned: false,
+      commentsDisabled: false,
+      createdAt: ts(5),
+      updatedAt: ts(5),
+      stats: { likes: 67, comments: 8, shares: 11, views: 540 },
+    },
+    // Text update
+    {
+      userId: uid,
+      title: 'Film Room Sunday 📽️',
       content:
         "Film study Sunday 📽️ Breaking down my footwork from last week's game. The grind never stops. DM for highlight tape. #QBLife #FilmRoom",
-      type: 'update',
+      type: 'text',
       visibility: PostVisibility.PUBLIC,
       images: [],
       mentions: [],
@@ -942,6 +977,161 @@ function buildPosts(uid: string): PostSeedDoc[] {
       createdAt: ts(3),
       updatedAt: ts(3),
       stats: { likes: 22, comments: 4, shares: 2, views: 155 },
+    },
+    // Image post — training
+    {
+      userId: uid,
+      title: 'Morning Grind 💪',
+      content:
+        '5am workouts hit different when you have a goal. Off-season is where champions are made. #Training #Athlete',
+      type: 'image',
+      visibility: PostVisibility.PUBLIC,
+      images: ['https://placehold.co/640x480/0d1b2a/00ff88?text=Morning+Training'],
+      thumbnailUrl: 'https://placehold.co/640x480/0d1b2a/00ff88?text=Morning+Training',
+      mentions: [],
+      hashtags: ['Training', 'Athlete'],
+      isPinned: false,
+      commentsDisabled: false,
+      createdAt: ts(14),
+      updatedAt: ts(14),
+      stats: { likes: 89, comments: 21, shares: 7, views: 620 },
+    },
+    // Video post
+    {
+      userId: uid,
+      title: 'QB Mechanics Drill 🎯',
+      content:
+        'Working on release point and footwork. Coach says my pocket presence has improved 40% this season. Let the film speak. #QB #Mechanics',
+      type: 'video',
+      visibility: PostVisibility.PUBLIC,
+      images: [],
+      mentions: [],
+      hashtags: ['QB', 'Mechanics'],
+      isPinned: false,
+      commentsDisabled: false,
+      thumbnailUrl: 'https://placehold.co/640x360/1a1a2e/00ff88?text=QB+Mechanics',
+      mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
+      duration: 87,
+      createdAt: ts(21),
+      updatedAt: ts(21),
+      stats: { likes: 103, comments: 18, shares: 14, views: 2100 },
+    },
+    // News
+    {
+      userId: uid,
+      title: 'Named to All-District First Team 🏆',
+      content:
+        'Honoured to be named to the All-District First Team! Shoutout to my O-line and receivers. Team award. #AllDistrict #Football',
+      type: 'news',
+      visibility: PostVisibility.PUBLIC,
+      images: [],
+      mentions: [],
+      hashtags: ['AllDistrict', 'Football'],
+      isPinned: false,
+      commentsDisabled: false,
+      createdAt: ts(45),
+      updatedAt: ts(45),
+      stats: { likes: 201, comments: 47, shares: 33, views: 3200 },
+    },
+  ];
+}
+
+/**
+ * Build news article seed data for users/{uid}/news/{articleId} sub-collection.
+ * Each article matches the NewsArticle interface (packages/core/src/news/news.types.ts).
+ */
+function buildNewsArticles(uid: string): object[] {
+  return [
+    {
+      id: `seed_${uid}_news_0`,
+      title: 'Named to All-District First Team 🏆',
+      excerpt:
+        'Local quarterback earns top honours after a record-breaking season, leading the district in passing yards and touchdowns.',
+      content:
+        'In a ceremony held at the district office, our athlete was named to the All-District First Team — a recognition earned through consistent elite performance across 9 games this season. The award acknowledges standout play, leadership, and character on and off the field.',
+      category: 'recruiting',
+      tags: ['AllDistrict', 'Football', 'Award', 'QB'],
+      source: {
+        id: 'nxt1-agent-x',
+        name: 'Agent X',
+        avatarUrl: 'https://placehold.co/40x40/00ff88/1a1a2e?text=X',
+        type: 'ai-agent',
+        confidenceScore: 95,
+        isVerified: true,
+      },
+      heroImageUrl: 'https://placehold.co/800x400/1a1a2e/00ff88?text=All-District+Award',
+      thumbnailUrl: 'https://placehold.co/400x200/1a1a2e/00ff88?text=All-District+Award',
+      readingTimeMinutes: 2,
+      publishedAt: daysAgo(45),
+      isBookmarked: false,
+      isRead: false,
+      xpReward: 15,
+      viewCount: 3200,
+      shareCount: 33,
+      likeCount: 201,
+      sportContext: { sport: 'football', players: [] },
+      isFeatured: true,
+    },
+    {
+      id: `seed_${uid}_news_1`,
+      title: 'College Coaches Take Notice After Week 9 Highlight Reel',
+      excerpt:
+        'Three Power-5 programs have reached out following a 312-yard, 3-TD performance against Riverside HS.',
+      content:
+        'After posting 312 passing yards and 3 touchdowns in a 35-14 victory, the recruitment phone has been ringing. Multiple college coaches have expressed interest and requested film. The full highlight reel is now live on the profile.',
+      category: 'highlights',
+      tags: ['Recruiting', 'Highlights', 'QB', 'Football'],
+      source: {
+        id: 'nxt1-agent-x',
+        name: 'Agent X',
+        avatarUrl: 'https://placehold.co/40x40/00ff88/1a1a2e?text=X',
+        type: 'ai-agent',
+        confidenceScore: 92,
+        isVerified: true,
+      },
+      heroImageUrl: 'https://placehold.co/800x400/1a1a2e/00ff88?text=Week+9+Highlights',
+      thumbnailUrl: 'https://placehold.co/400x200/1a1a2e/00ff88?text=Week+9+Highlights',
+      readingTimeMinutes: 3,
+      publishedAt: daysAgo(7),
+      isBookmarked: false,
+      isRead: false,
+      xpReward: 20,
+      viewCount: 1320,
+      shareCount: 6,
+      likeCount: 48,
+      sportContext: { sport: 'football', colleges: ['VinUniversity', 'FPT University'] },
+      isFeatured: false,
+    },
+    {
+      id: `seed_${uid}_news_2`,
+      title: 'Official Visit Offer: VinUniversity Extended 🎓',
+      excerpt:
+        'VinUniversity has extended an official visit offer — a major milestone in the recruiting journey.',
+      content:
+        'VinUniversity football program has officially extended an offer for an official visit. This is a significant step in the recruiting process, giving the program an up-close look at the athlete in an academic and athletic setting. The visit is expected in early spring.',
+      category: 'recruiting',
+      tags: ['OfficialVisit', 'Offer', 'D1', '2026', 'Recruiting'],
+      source: {
+        id: 'nxt1-agent-x',
+        name: 'Agent X',
+        avatarUrl: 'https://placehold.co/40x40/00ff88/1a1a2e?text=X',
+        type: 'ai-agent',
+        confidenceScore: 98,
+        isVerified: true,
+      },
+      heroImageUrl: 'https://placehold.co/800x400/0d1b2a/00ff88?text=Official+Visit+Offer',
+      thumbnailUrl: 'https://placehold.co/400x200/0d1b2a/00ff88?text=Official+Visit+Offer',
+      readingTimeMinutes: 2,
+      publishedAt: daysAgo(30),
+      isBookmarked: false,
+      isRead: false,
+      xpReward: 25,
+      viewCount: 890,
+      shareCount: 18,
+      likeCount: 124,
+      sportContext: { sport: 'football', colleges: ['VinUniversity'] },
+      isFeatured: true,
+      isBreaking: true,
     },
   ];
 }
@@ -973,45 +1163,73 @@ function buildFollows(uid: string): FollowDoc[] {
 }
 
 interface RankingDoc {
+  id: string;
+  name: string;
+  website: string;
+  logoUrl: string;
+  logoFallbackUrl: string;
+  nationalRank: number | null;
+  stateRank: number | null;
+  positionRank: number | null;
+  stars: number;
+  score: number | null;
+  // extra seed metadata (not in RankingSource, but harmless)
   userId: string;
   sport: string;
-  position?: string;
-  category: string;
-  rank: number;
-  totalAthletes: number;
-  score: number;
   classOf?: number;
-  state?: string;
-  source: string;
   updatedAt: string;
 }
 
 function buildRankings(uid: string): RankingDoc[] {
+  const now = new Date().toISOString();
   return [
     {
+      id: `seed_${uid}_ranking_nxt1`,
+      name: 'NXT1',
+      website: 'nxt1sports.com',
+      logoUrl: '/assets/nxt1-logo-white.png',
+      logoFallbackUrl: 'NXT1',
+      nationalRank: 247,
+      stateRank: 12,
+      positionRank: 3,
+      stars: 5,
+      score: 87.4,
       userId: uid,
       sport: 'football',
-      position: 'QB',
-      category: 'state',
-      rank: 12,
-      totalAthletes: 450,
-      score: 87.4,
       classOf: 2026,
-      state: 'Thanh Pho Ho Chi Minh',
-      source: 'nxt1',
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
     },
     {
+      id: `seed_${uid}_ranking_on3`,
+      name: 'On3',
+      website: 'on3.com',
+      logoUrl: '/assets/logos/on3-white.png',
+      logoFallbackUrl: 'On3',
+      nationalRank: 312,
+      stateRank: 15,
+      positionRank: 5,
+      stars: 4,
+      score: 84.1,
       userId: uid,
       sport: 'football',
-      position: 'QB',
-      category: 'national',
-      rank: 247,
-      totalAthletes: 12500,
-      score: 87.4,
       classOf: 2026,
-      source: 'nxt1',
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
+    },
+    {
+      id: `seed_${uid}_ranking_247`,
+      name: '247Sports',
+      website: '247sports.com',
+      logoUrl: '/assets/logos/247sports-white.png',
+      logoFallbackUrl: '247',
+      nationalRank: 290,
+      stateRank: 14,
+      positionRank: 4,
+      stars: 4,
+      score: 85.3,
+      userId: uid,
+      sport: 'football',
+      classOf: 2026,
+      updatedAt: now,
     },
   ];
 }
@@ -1043,21 +1261,181 @@ function buildDenormalizedSportUpdates(
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
-/**
- * Seed all collections for a user.
- * POST /seed/:userId
- */
+/** Build seed scout reports for users/{uid}/scoutReports/{reportId} sub-collection. */
+function buildScoutReports(uid: string): object[] {
+  const now = new Date();
+  const dAgo = (d: number) => new Date(now.getTime() - d * 86_400_000).toISOString();
+  return [
+    {
+      id: `seed_${uid}_scout_0`,
+      athlete: {
+        id: uid,
+        name: 'Nguyễn Văn An',
+        position: 'QB',
+        secondaryPosition: null,
+        sport: 'football',
+        classOf: 2026,
+        gradYear: 2026,
+        school: 'Hanoi National High School',
+        state: 'Hanoi',
+        profileImageUrl: 'https://placehold.co/80x80/1a1a2e/00ff88?text=QBan',
+        height: '6\'1"',
+        weight: '185 lbs',
+      },
+      rating: {
+        overall: 4.3,
+        physical: 4.2,
+        technical: 4.5,
+        mental: 4.4,
+        potential: 4.6,
+      },
+      summary:
+        'Elite pocket passer with exceptional field vision and strong arm. Demonstrates command of complex route trees and pre-snap reads well above peer level for a 2026 prospect.',
+      highlights: [
+        'Outstanding footwork in the pocket',
+        'Quick release with accurate deep ball',
+        'High football IQ and exceptional pre-snap reads',
+      ],
+      concerns: [
+        'Needs to improve scramble and mobility',
+        'Consistency under heavy blitz pressure',
+      ],
+      scout: {
+        id: 'scout_nxt1_001',
+        name: 'Marcus Reynolds',
+        organization: 'NXT1 Sports',
+        title: 'Senior Evaluator',
+        avatarUrl: 'https://placehold.co/40x40/00ff88/1a1a2e?text=MR',
+        isVerified: true,
+        credentials: ['D1 Scout', 'Former College Coach'],
+      },
+      isVerified: true,
+      isPremium: false,
+      isBookmarked: false,
+      viewCount: 1842,
+      bookmarkCount: 47,
+      publishedAt: dAgo(14),
+      updatedAt: dAgo(14),
+      xpReward: 25,
+      hasViewed: false,
+      tags: ['QB', 'Football', '2026', 'Elite'],
+      source: 'nxt1',
+    },
+    {
+      id: `seed_${uid}_scout_1`,
+      athlete: {
+        id: uid,
+        name: 'Nguyễn Văn An',
+        position: 'QB',
+        secondaryPosition: null,
+        sport: 'football',
+        classOf: 2026,
+        gradYear: 2026,
+        school: 'Hanoi National High School',
+        state: 'Hanoi',
+        profileImageUrl: 'https://placehold.co/80x80/1a1a2e/00ff88?text=QBan',
+        height: '6\'1"',
+        weight: '185 lbs',
+      },
+      rating: {
+        overall: 4.1,
+        physical: 4.0,
+        technical: 4.3,
+        mental: 4.2,
+        potential: 4.4,
+      },
+      summary:
+        'Polished signal-caller who commands the huddle with natural leadership. Shows advanced understanding of defensive coverages and consistently makes the right check at the line.',
+      highlights: [
+        'Elite leadership and composure under pressure',
+        'Excellent touch on intermediate routes',
+        'Strong academic performer — 3.9 GPA',
+      ],
+      concerns: [
+        'Frame needs to add functional strength',
+        'Could benefit from reps in no-huddle offense',
+      ],
+      scout: {
+        id: 'scout_partner_002',
+        name: 'David Chen',
+        organization: 'ProspectsHub',
+        title: 'Regional Scout – Southeast Asia',
+        avatarUrl: 'https://placehold.co/40x40/4a90e2/fff?text=DC',
+        isVerified: true,
+        credentials: ['Certified Evaluator', 'AFCA Member'],
+      },
+      isVerified: true,
+      isPremium: true,
+      isBookmarked: false,
+      viewCount: 724,
+      bookmarkCount: 19,
+      publishedAt: dAgo(30),
+      updatedAt: dAgo(30),
+      xpReward: 50,
+      hasViewed: false,
+      tags: ['QB', 'Football', '2026', 'Premium'],
+      source: 'partner',
+    },
+  ];
+}
+
+/** Build seed video highlights for users/{uid}/videos/{videoId} sub-collection. */
+function buildVideos(uid: string): object[] {
+  const now = new Date();
+  const dAgo = (d: number) => new Date(now.getTime() - d * 86_400_000).toISOString();
+  return [
+    {
+      id: `seed_${uid}_video_0`,
+      userId: uid,
+      title: 'Week 9 Highlights — 312 Yards / 3 TDs',
+      description: 'Complete highlight film from our Week 9 victory over Riverside HS.',
+      mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
+      thumbnailUrl: 'https://placehold.co/800x450/1a1a2e/00ff88?text=Week+9+Highlights',
+      duration: 187,
+      type: 'highlight',
+      tags: ['Football', 'QB', 'Highlights', 'Week9'],
+      stats: { views: 3200, likes: 201, shares: 33 },
+      isPinned: true,
+      createdAt: dAgo(7),
+      updatedAt: dAgo(7),
+    },
+    {
+      id: `seed_${uid}_video_1`,
+      userId: uid,
+      title: 'Season Mixtape 2024 — Quarterback Film',
+      description: 'Full season mixtape showcasing passing, rushing, and leadership plays.',
+      mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
+      thumbnailUrl: 'https://placehold.co/800x450/0d1b2a/00ff88?text=Season+Mixtape+2024',
+      duration: 342,
+      type: 'video',
+      tags: ['Football', 'QB', 'Mixtape', '2024Season'],
+      stats: { views: 1540, likes: 87, shares: 12 },
+      isPinned: false,
+      createdAt: dAgo(45),
+      updatedAt: dAgo(45),
+    },
+    {
+      id: `seed_${uid}_video_2`,
+      userId: uid,
+      title: 'State Championship — Clutch 4th Quarter Drive',
+      description: '4-minute film of the game-winning drive in the state championship.',
+      mediaUrl: 'https://www.w3schools.com/html/mov_bbb.mp4',
+      thumbnailUrl: 'https://placehold.co/800x450/1a1a2e/ffcc00?text=State+Championship',
+      duration: 248,
+      type: 'highlight',
+      tags: ['Football', 'QB', 'StateChampionship', 'Clutch'],
+      stats: { views: 5100, likes: 324, shares: 78 },
+      isPinned: false,
+      createdAt: dAgo(90),
+      updatedAt: dAgo(90),
+    },
+  ];
+}
+
 router.post(
   '/:userId',
-  appGuard,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { userId } = req.params as { userId: string };
-    const requestingUid = req.user!.uid;
-
-    if (requestingUid !== userId) {
-      sendError(res, forbiddenError());
-      return;
-    }
 
     const db = req.firebase!.db;
     const now = new Date().toISOString();
@@ -1075,8 +1453,11 @@ router.post(
     const bbRecruitingActivities = buildBasketballRecruitingActivities(userId);
 
     const posts = buildPosts(userId);
+    const newsArticles = buildNewsArticles(userId);
     const follows = buildFollows(userId);
     const rankings = buildRankings(userId);
+    const scoutReports = buildScoutReports(userId);
+    const videos = buildVideos(userId);
 
     // Denormalized summaries for User doc sports[0]
     const { featuredStats, featuredMetrics } = buildDenormalizedSportUpdates(
@@ -1096,7 +1477,11 @@ router.post(
       return;
     }
 
-    const userData = userDoc.data() as { sports?: SportProfile[] };
+    const userData = userDoc.data() as {
+      sports?: SportProfile[];
+      username?: string;
+      unicode?: string;
+    };
     const sports: SportProfile[] = userData.sports ?? [];
 
     // Default basketball sport profile (added if sports[1] doesn't exist yet)
@@ -1168,35 +1553,111 @@ router.post(
       ops.push((b) => b.set(ref, { ...activity }));
     }
 
-    // NOTE: No sports/football/stats or sports/football/metrics sub-collections.
-    // Stats and metrics are embedded in sports[0] on the User doc above.
-
-    // 5. Posts (top-level)
-    for (const post of posts) {
-      const ref = db
-        .collection(POSTS_COLLECTIONS.POSTS)
-        .doc(`seed_${userId}_post_${posts.indexOf(post)}`);
-      ops.push((b) => b.set(ref, post));
+    // 3. Stats sub-collections — users/{uid}/sports/{sportId}/stats/{statId} (architecture: user.model.ts)
+    const fbStatsCol = userRef.collection('sports').doc('football').collection('stats');
+    for (const stat of verifiedStats) {
+      ops.push((b) => b.set(fbStatsCol.doc(stat.id), stat));
+    }
+    const bbStatsCol = userRef.collection('sports').doc('basketball').collection('stats');
+    for (const stat of bbStats) {
+      ops.push((b) => b.set(bbStatsCol.doc(stat.id), stat));
     }
 
-    // 6. Follows (top-level): Follows/{followerId}_{followingId}
+    // 4. Metrics sub-collections — users/{uid}/sports/{sportId}/metrics/{metricId} (architecture: user.model.ts)
+    const fbMetricsCol = userRef.collection('sports').doc('football').collection('metrics');
+    for (const metric of verifiedMetrics) {
+      ops.push((b) => b.set(fbMetricsCol.doc(metric.id), metric));
+    }
+    const bbMetricsCol = userRef.collection('sports').doc('basketball').collection('metrics');
+    for (const metric of bbMetrics) {
+      ops.push((b) => b.set(bbMetricsCol.doc(metric.id), metric));
+    }
+
+    // 5. Timeline posts — users/{uid}/timeline/{postId} sub-collection (architecture: user.model.ts)
+    const timelineCol = userRef.collection('timeline');
+    for (let i = 0; i < posts.length; i++) {
+      const docId = `seed_${userId}_post_${i}`;
+      const post = posts[i]!;
+      // Store createdAt as ISO string for the frontend mapper
+      const createdAtIso = (post.createdAt as unknown as { toDate(): Date }).toDate().toISOString();
+      // Build the doc and strip undefined fields (Firestore rejects them)
+      const timelineDoc: Record<string, unknown> = {
+        id: docId,
+        userId: post.userId,
+        content: post.content,
+        type: post.type,
+        isPinned: post.isPinned,
+        images: post.images,
+        hashtags: post.hashtags,
+        createdAt: createdAtIso,
+        updatedAt: createdAtIso,
+        stats: post.stats,
+      };
+      if (post.title !== undefined) timelineDoc['title'] = post.title;
+      if (post.mediaUrl !== undefined) timelineDoc['mediaUrl'] = post.mediaUrl;
+      if (post.thumbnailUrl !== undefined) timelineDoc['thumbnailUrl'] = post.thumbnailUrl;
+      if (post.duration !== undefined) timelineDoc['duration'] = post.duration;
+      ops.push((b) => b.set(timelineCol.doc(docId), timelineDoc));
+    }
+
+    // 5b. News articles — users/{uid}/news/{articleId} sub-collection (architecture: user.model.ts)
+    const newsCol = userRef.collection('news');
+    for (const article of newsArticles) {
+      const a = article as { id: string };
+      ops.push((b) => b.set(newsCol.doc(a.id), article));
+    }
+
+    // 6. Follows — sub-collections only (no top-level Follows collection needed)
     for (const follow of follows) {
-      const docId = `${follow.followerId}_${follow.followingId}`;
-      const ref = db.collection(FOLLOWS_COL).doc(docId);
-      ops.push((b) => b.set(ref, follow));
+      // users/{uid}/followers/{followerId} — who follows this user
+      if (follow.followingId === userId) {
+        const followerRef = userRef.collection('followers').doc(follow.followerId);
+        ops.push((b) =>
+          b.set(followerRef, {
+            userId: follow.followerId,
+            followedAt: follow.createdAt,
+          })
+        );
+      }
+
+      // users/{uid}/following/{followingId} — who this user follows
+      if (follow.followerId === userId) {
+        const followingRef = userRef.collection('following').doc(follow.followingId);
+        ops.push((b) =>
+          b.set(followingRef, {
+            userId: follow.followingId,
+            followedAt: follow.createdAt,
+          })
+        );
+      }
     }
 
-    // 7. Rankings (top-level)
+    // 7. Rankings — users/{uid}/rankings/{rankingId} sub-collection (architecture: user.model.ts)
+    const rankingsCol = userRef.collection('rankings');
     for (const ranking of rankings) {
-      const ref = db
-        .collection(RANKINGS_COL)
-        .doc(`seed_${userId}_ranking_${rankings.indexOf(ranking)}`);
-      ops.push((b) => b.set(ref, ranking));
+      ops.push((b) => b.set(rankingsCol.doc(ranking.id), ranking));
     }
 
-    // 8. Update User doc: denormalized sports summary + counters
+    // 8. Scout reports — users/{uid}/scoutReports/{reportId} sub-collection
+    const scoutReportsCol = userRef.collection('scoutReports');
+    for (const report of scoutReports) {
+      const r = report as { id: string };
+      ops.push((b) => b.set(scoutReportsCol.doc(r.id), report));
+    }
+
+    // 9. Videos — users/{uid}/videos/{videoId} sub-collection
+    const videosCol = userRef.collection('videos');
+    for (const video of videos) {
+      const v = video as { id: string };
+      ops.push((b) => b.set(videosCol.doc(v.id), video));
+    }
+
+    // 8. Update User doc: denormalized sports summary + counters only
+    // recentPosts is NO LONGER embedded — timeline data lives in the
+    // users/{uid}/timeline sub-collection per SUB-COLLECTIONS ARCHITECTURE in user.model.ts
     const followersCount = follows.filter((f) => f.followingId === userId).length;
     const followingCount = follows.filter((f) => f.followerId === userId).length;
+
     ops.push((b) =>
       b.update(userRef, {
         sports: updatedSports,
@@ -1210,8 +1671,8 @@ router.post(
     // Commit in chunks
     await commitBatches(db, ops);
 
-    // Bust profile cache so next request fetches the updated User doc from Firestore
-    await bustProfileCache(userId);
+    // Bust ALL profile cache keys so next request always re-fetches from Firestore
+    await bustProfileCache(userId, userData.username, userData.unicode);
 
     logger.info('[Seed] Seed completed', {
       userId,
@@ -1228,8 +1689,11 @@ router.post(
         verifiedMetrics: bbMetrics.length,
       },
       posts: posts.length,
+      news: newsArticles.length,
       follows: follows.length,
       rankings: rankings.length,
+      scoutReports: scoutReports.length,
+      videos: videos.length,
     });
 
     res.json({
@@ -1250,8 +1714,11 @@ router.post(
             verifiedMetrics: bbMetrics.length,
           },
           posts: posts.length,
+          news: newsArticles.length,
           follows: follows.length,
           rankings: rankings.length,
+          scoutReports: scoutReports.length,
+          videos: videos.length,
         },
       },
     });
@@ -1264,15 +1731,8 @@ router.post(
  */
 router.delete(
   '/:userId',
-  appGuard,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { userId } = req.params as { userId: string };
-    const requestingUid = req.user!.uid;
-
-    if (requestingUid !== userId) {
-      sendError(res, forbiddenError());
-      return;
-    }
 
     const db = req.firebase!.db;
     const userRef = db.collection(USERS_COL).doc(userId);
@@ -1297,13 +1757,52 @@ router.delete(
     await Promise.all([
       collectDeletions(userRef.collection('schedule'), `seed_${userId}`),
       collectDeletions(userRef.collection('recruiting'), `seed_${userId}`),
+      collectDeletions(userRef.collection('timeline'), `seed_${userId}`),
+      collectDeletions(userRef.collection('news'), `seed_${userId}`),
+      collectDeletions(userRef.collection('rankings'), `seed_${userId}`),
+      collectDeletions(userRef.collection('scoutReports'), `seed_${userId}`),
+      collectDeletions(userRef.collection('videos'), `seed_${userId}`),
+      collectDeletions(
+        userRef.collection('sports').doc('football').collection('stats'),
+        `seed_${userId}`
+      ),
+      collectDeletions(
+        userRef.collection('sports').doc('basketball').collection('stats'),
+        `seed_${userId}`
+      ),
+      collectDeletions(
+        userRef.collection('sports').doc('football').collection('metrics'),
+        `seed_${userId}`
+      ),
+      collectDeletions(
+        userRef.collection('sports').doc('basketball').collection('metrics'),
+        `seed_${userId}`
+      ),
+    ]);
+
+    // Delete all docs in followers/following sub-collections (no seed prefix on those doc IDs)
+    async function deleteAllDocs(col: FirebaseFirestore.CollectionReference): Promise<void> {
+      const snap = await col.limit(200).get();
+      for (const doc of snap.docs) {
+        ops.push((b) => b.delete(doc.ref));
+      }
+    }
+    await Promise.all([
+      deleteAllDocs(userRef.collection('followers')),
+      deleteAllDocs(userRef.collection('following')),
     ]);
 
     // Clear the embedded fields on sports[0] (football) and sports[1] (basketball)
     const userDocForDelete = await userRef.get();
-    if (userDocForDelete.exists) {
-      const userData2 = userDocForDelete.data() as { sports?: unknown[] };
-      const existingSports = (userData2.sports ?? []) as Record<string, unknown>[];
+    const deleteUserData = userDocForDelete.data() as
+      | {
+          sports?: unknown[];
+          username?: string;
+          unicode?: string;
+        }
+      | undefined;
+    if (userDocForDelete.exists && deleteUserData) {
+      const existingSports = (deleteUserData.sports ?? []) as Record<string, unknown>[];
       if (existingSports.length > 0) {
         const fieldsToRemove = [
           'verifiedStats',
@@ -1342,18 +1841,10 @@ router.delete(
       collectTopLevelDeletions(RANKINGS_COL, `seed_${userId}`),
     ]);
 
-    // Follows don't have userId field — delete by doc ID pattern
-    const followSnap = await db.collection(FOLLOWS_COL).get();
-    for (const doc of followSnap.docs) {
-      if (doc.id.includes(userId)) {
-        ops.push((b) => b.delete(doc.ref));
-      }
-    }
-
     await commitBatches(db, ops);
 
-    // Bust profile cache so next request fetches fresh data from Firestore
-    await bustProfileCache(userId);
+    // Bust ALL profile cache keys so next request re-fetches fresh data from Firestore
+    await bustProfileCache(userId, deleteUserData?.username, deleteUserData?.unicode);
 
     logger.info('[Seed] Seed data wiped', { userId, deletedOps: ops.length });
 

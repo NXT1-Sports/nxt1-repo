@@ -300,21 +300,21 @@ export const NEWS_CACHE_TTL = {
  */
 export const NEWS_API_ENDPOINTS = {
   /** Get news feed */
-  FEED: '/api/v1/news',
+  FEED: '/news',
   /** Get single article */
-  ARTICLE: '/api/v1/news/:id',
+  ARTICLE: '/news/:id',
   /** Toggle bookmark */
-  BOOKMARK: '/api/v1/news/:id/bookmark',
+  BOOKMARK: '/news/:id/bookmark',
   /** Update reading progress */
-  PROGRESS: '/api/v1/news/:id/progress',
+  PROGRESS: '/news/:id/progress',
   /** Get reading stats */
-  STATS: '/api/v1/news/stats',
+  STATS: '/news/stats',
   /** Generate news (AI endpoint) */
-  GENERATE: '/api/v1/news/generate',
+  GENERATE: '/news/generate',
   /** Get trending articles */
-  TRENDING: '/api/v1/news/trending',
+  TRENDING: '/news/trending',
   /** Search articles */
-  SEARCH: '/api/v1/news/search',
+  SEARCH: '/news/search',
 } as const;
 
 // ============================================

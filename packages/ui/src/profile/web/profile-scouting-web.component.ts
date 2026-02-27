@@ -50,7 +50,7 @@ import {
   formatRating,
   RATING_TIER_LABELS,
 } from '@nxt1/core';
-import { MOCK_SCOUT_REPORTS } from '../../scout-reports/scout-reports.mock-data';
+import { ProfileService } from '../profile.service';
 import { NxtContentCardWebComponent } from '../../components/content-card';
 
 /** Number of skeleton placeholder cards. */
@@ -454,6 +454,7 @@ export class ProfileScoutingWebComponent implements OnInit {
 
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly profile = inject(ProfileService);
 
   // ============================================
   // OUTPUTS
@@ -475,12 +476,9 @@ export class ProfileScoutingWebComponent implements OnInit {
   /** Skeleton placeholder slots. */
   protected readonly skeletonSlots = SKELETON_SLOTS;
 
-  /** All available reports (mock data for now). */
-  private readonly allReports = signal<readonly ScoutReport[]>(MOCK_SCOUT_REPORTS);
-
-  /** Filtered + sorted reports (newest first). */
+  /** Filtered + sorted scout reports from the user's scoutReports sub-collection (newest first). */
   protected readonly filteredReports = computed(() => {
-    const reports = [...this.allReports()];
+    const reports = [...this.profile.scoutReports()];
     return reports.sort(
       (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
     );

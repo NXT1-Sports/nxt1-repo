@@ -37,13 +37,14 @@ import {
 import { isPlatformBrowser } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed, toSignal, toObservable } from '@angular/core/rxjs-interop';
-import { distinctUntilChanged, switchMap, tap, filter } from 'rxjs';
+import { distinctUntilChanged, first, switchMap, tap, filter } from 'rxjs';
 import {
   ProfileShellWebComponent,
   ProfileService as UiProfileService,
   type ProfileShellUser,
   RelatedAthletesComponent,
   type RelatedAthlete,
+  type RankingSource,
   userToProfilePageData,
 } from '@nxt1/ui/profile';
 import { NxtCtaBannerComponent } from '@nxt1/ui/components/cta-banner';
@@ -440,6 +441,41 @@ export class ProfileComponent implements OnInit, OnDestroy {
       return;
     }
 
+    // Fetch timeline posts from the sub-collection (independent of profile doc)
+    this.apiProfileService
+      .getProfileTimeline(profile.id)
+      .pipe(first())
+      .subscribe({
+        next: (resp) => {
+          if (resp.success) this.uiProfileService.setTimelinePosts(resp.data);
+        },
+        error: (err) => this.logger.warn('Failed to load timeline posts', { err }),
+      });
+
+    // Fetch rankings from the user's rankings sub-collection
+    this.apiProfileService
+      .getProfileRankings(profile.id)
+      .pipe(first())
+      .subscribe({
+        next: (resp) => {
+          if (resp.success && resp.data.length > 0) {
+            this.uiProfileService.setRankings(resp.data as unknown as RankingSource[]);
+          }
+        },
+        error: (err) => this.logger.warn('Failed to load rankings', { err }),
+      });
+
+    // Fetch scout reports from the user's scoutReports sub-collection
+    this.apiProfileService
+      .getProfileScoutReports(profile.id)
+      .pipe(first())
+      .subscribe({
+        next: (resp) => {
+          if (resp.success) this.uiProfileService.setScoutReports(resp.data);
+        },
+        error: (err) => this.logger.warn('Failed to load scout reports', { err }),
+      });
+
     this.seo.updateForProfile(meta);
 
     this.logger.info('Profile SEO updated', {
@@ -499,7 +535,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle tab changes for analytics.
+   * Handle tab changes — track analytics and lazy-load tab data.
    */
   protected onTabChange(tab: ProfileTabId): void {
     this.analytics.trackEvent(APP_EVENTS.PROFILE_TAB_CHANGED, {
@@ -507,6 +543,22 @@ export class ProfileComponent implements OnInit, OnDestroy {
       profile_id: this.profileUnicode(),
       is_own_profile: this.isOwnProfile(),
     });
+
+    // Re-fetch timeline posts on tab select so data stays fresh
+    if (tab === 'timeline') {
+      const userId = this.fetchedProfile()?.id;
+      if (userId) {
+        this.apiProfileService
+          .getProfileTimeline(userId)
+          .pipe(first())
+          .subscribe({
+            next: (resp) => {
+              if (resp.success) this.uiProfileService.setTimelinePosts(resp.data);
+            },
+            error: (err) => this.logger.warn('Failed to refresh timeline posts', { err }),
+          });
+      }
+    }
   }
 
   /**

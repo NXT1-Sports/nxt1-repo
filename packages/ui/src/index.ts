@@ -1169,6 +1169,7 @@ export {
   // Services
   NewsService,
   NewsApiService,
+  NEWS_API_BASE_URL,
   // Mock Data (Development Only)
   MOCK_NEWS_ARTICLES,
   MOCK_READING_STATS,

@@ -42,7 +42,6 @@ import type {
 } from '@nxt1/core';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
-
 /** Map a UserAward (User model) → ProfileAward (UI model). */
 function mapAward(award: UserAward, index: number): ProfileAward {
   return {
@@ -135,7 +134,7 @@ function verifiedStatsToCategories(stats: VerifiedStat[]): AthleticStatsCategory
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push({
       label: stat.label,
-      value: formatStatValue(stat.value, stat.unit),
+      value: formatStatValue(stat.value),
       unit: stat.unit,
       verified: stat.verified,
     });
@@ -154,7 +153,7 @@ function verifiedMetricsToCategories(metrics: VerifiedMetric[]): AthleticStatsCa
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push({
       label: metric.label,
-      value: formatStatValue(metric.value, metric.unit),
+      value: formatStatValue(metric.value),
       unit: metric.unit,
       verified: metric.verified,
     });
@@ -492,6 +491,7 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     metrics: metrics.length ? metrics : undefined,
     events: events.length ? events : undefined,
     recruitingActivity: recruitingActivity.length ? recruitingActivity : undefined,
+    // recentPosts is no longer embedded — loaded separately from the timeline sub-collection
     recentPosts: [],
     isOwnProfile,
     canEdit: isOwnProfile,

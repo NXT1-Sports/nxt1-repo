@@ -86,7 +86,6 @@ import { NxtTimelineComponent } from '../../components/timeline';
 import { ProfileSkeletonComponent } from '../profile-skeleton.component';
 import { ProfileNewsWebComponent } from './profile-news-web.component';
 import { ProfileScoutingWebComponent } from './profile-scouting-web.component';
-import { MOCK_NEWS_ARTICLES } from '../../news/news.mock-data';
 import { MOCK_SCOUT_REPORTS } from '../../scout-reports/scout-reports.mock-data';
 import type { ProfileShellUser } from '../profile-shell.component';
 
@@ -417,7 +416,7 @@ interface StatsComparisonItem {
                         @for (sport of profile.allSports(); track sport.name; let i = $index) {
                           <button
                             type="button"
-                            class="sport-switcher__item"
+                            class="sport-switcher__item capitalize"
                             [class.sport-switcher__item--active]="profile.activeSportIndex() === i"
                             [attr.aria-selected]="profile.activeSportIndex() === i"
                             [attr.aria-label]="'Switch to ' + sport.name + ' profile'"
@@ -1276,6 +1275,7 @@ interface StatsComparisonItem {
                     @case ('news') {
                       <nxt1-profile-news-web
                         [activeSection]="activeSideTab()"
+                        [userId]="profile.user()?.uid ?? null"
                         (articleClick)="onNewsArticleClick($event)"
                       />
                     }
@@ -5801,22 +5801,9 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
       ],
       schedule: [...this.scheduleSeasons().map((s) => ({ id: `season-${s}`, label: s }))],
       news: [
-        { id: 'all-news', label: 'All News', badge: MOCK_NEWS_ARTICLES.length || undefined },
-        {
-          id: 'announcements',
-          label: 'Announcements',
-          badge:
-            MOCK_NEWS_ARTICLES.filter(
-              (article) => article.source.type === 'editorial' || article.source.type === 'ai-agent'
-            ).length || undefined,
-        },
-        {
-          id: 'media-mentions',
-          label: 'Media Mentions',
-          badge:
-            MOCK_NEWS_ARTICLES.filter((article) => article.source.type === 'syndicated').length ||
-            undefined,
-        },
+        { id: 'all-news', label: 'All News' },
+        { id: 'announcements', label: 'Announcements' },
+        { id: 'media-mentions', label: 'Media Mentions' },
       ],
       events: [
         { id: 'timeline', label: 'Timeline' },
@@ -6451,6 +6438,8 @@ export class ProfileShellWebComponent implements OnInit, OnDestroy {
     const tabId = event.option.id as ProfileTabId;
     this.profile.setActiveTab(tabId);
     this.tabChange.emit(tabId);
+    // Reset sidebar selection so the new tab's first item becomes active
+    this._activeSideTab.set('');
   }
 
   protected async handleRefresh(event: RefreshEvent): Promise<void> {

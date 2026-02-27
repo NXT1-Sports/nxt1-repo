@@ -22,7 +22,7 @@
 import { Injectable, inject, InjectionToken } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
-import { createNewsApi, type NewsApi } from '@nxt1/core';
+import { createNewsApi, type NewsApi, type NewsFeedResponse } from '@nxt1/core';
 
 /**
  * Injection token for News API base URL.
@@ -85,4 +85,13 @@ export class NewsApiService implements NewsApi {
 
   /** Mark article as read */
   readonly markAsRead = this.api.markAsRead;
+
+  /**
+   * Get news articles from a user's personal news sub-collection.
+   * Calls GET /auth/profile/{userId}/news on the backend.
+   */
+  getUserNews(userId: string, limit = 20): Promise<NewsFeedResponse> {
+    const url = `${this.baseUrl}/auth/profile/${userId}/news?limit=${limit}`;
+    return firstValueFrom(this.http.get<NewsFeedResponse>(url));
+  }
 }

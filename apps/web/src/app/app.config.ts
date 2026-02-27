@@ -69,6 +69,9 @@ import { AnalyticsService } from './core/services/analytics.service';
 // Badge bridge: connects ActivityService (from @nxt1/ui) → BadgeCountService
 import { provideBadgeBridge } from './core/services';
 
+// News API base URL (uses environment.apiURL — same origin + /api/v1/staging in dev)
+import { NEWS_API_BASE_URL } from '@nxt1/ui';
+
 // Firebase
 // IMPORTANT: Only import what's actually used in browser bundle
 // - FirebaseApp: Required for Firebase initialization
@@ -228,6 +231,11 @@ export const appConfig: ApplicationConfig = {
     // Bridges ActivityService.totalUnread → BadgeCountService.activityBadge
     // So the shell reads from BadgeCountService without importing ActivityService
     provideBadgeBridge(),
+
+    // News API base URL — uses the same environment.apiURL as other services.
+    // The news constants use /news/* paths (without /api/v1/ prefix),
+    // so baseUrl + path = e.g. http://localhost:3000/api/v1/staging/news
+    { provide: NEWS_API_BASE_URL, useFactory: () => environment.apiURL },
 
     // ============================================
     // LOGGING & ERROR HANDLING
