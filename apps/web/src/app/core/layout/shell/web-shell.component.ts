@@ -194,7 +194,6 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         activeIcon: 'compassFilled',
         route: '/explore',
       },
-      { id: 'news', label: 'News', icon: 'newspaper', route: '/news' },
       { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
     ],
   },
@@ -202,7 +201,6 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
     id: 'you',
     label: 'You',
     items: [
-      { id: 'profile', label: 'My Profile', icon: 'person', route: '/profile' },
       { id: 'xp', label: 'XP', icon: 'sparkles', route: '/xp' },
       { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
       { id: 'manage-team', label: 'Manage Team', icon: 'users', route: '/manage-team' },
@@ -242,7 +240,6 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         activeIcon: 'compassFilled',
         route: '/explore',
       },
-      { id: 'news', label: 'News', icon: 'newspaper', route: '/news' },
       { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
     ],
   },
