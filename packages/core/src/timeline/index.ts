@@ -7,6 +7,7 @@ export {
   type TimelineCardLayout,
   type TimelineCardTag,
   type TimelineBadge,
+  type TimelineBadgePosition,
   type TimelineItem,
   type TimelineDotConfig,
   type TimelineEmptyConfig,

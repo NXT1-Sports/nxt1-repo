@@ -69,11 +69,14 @@ export const routes: Routes = [
     loadChildren: () => import('./features/privacy/privacy.routes').then((m) => m.PRIVACY_ROUTES),
   },
 
-  // Team Pages (Public - for SEO)
-  {
-    path: 'team/:slug',
-    loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
-  },
+  // Team Pages — redirects to shell-wrapped route
+  // The actual team route lives inside WebShellComponent children
+  // so it gets the sidebar, top nav, and full app shell.
+  // This top-level redirect handles direct /team/:slug links.
+  // {
+  //   path: 'team/:slug',
+  //   redirectTo: 'team/:slug',  // handled by child route below
+  // },
 
   // Authentication Routes (Public - no layout wrapper)
   {
@@ -210,6 +213,12 @@ export const routes: Routes = [
       {
         path: 'manage-team',
         loadChildren: () => import('./features/manage-team/manage-team.routes'),
+      },
+
+      // Team Profile - Public Team Pages (with shell)
+      {
+        path: 'team/:slug',
+        loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
       },
 
       // Team Platform - Programs/Organizations Page

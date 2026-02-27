@@ -89,7 +89,7 @@ import {
   type SidenavUserData,
   type SocialLink,
   type SidenavToggleEvent,
-  DEFAULT_FOOTER_TABS,
+  CENTERED_CREATE_FOOTER_TABS,
   DEFAULT_SIDENAV_ITEMS,
   DEFAULT_SOCIAL_LINKS,
   createSidenavConfig,
@@ -280,7 +280,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     const messagesUnreadCount = this.messagesService.totalUnreadCount();
 
     const tabsWithMessagesBadge = updateTabBadge(
-      DEFAULT_FOOTER_TABS,
+      CENTERED_CREATE_FOOTER_TABS,
       'messages',
       messagesUnreadCount > 0 ? messagesUnreadCount : undefined
     );
@@ -347,11 +347,10 @@ export class MobileShellComponent implements OnInit, OnDestroy {
 
   /** Footer configuration based on platform */
   readonly footerConfig = computed<FooterConfig>(() => {
-    const isIos = this.platform.os() === 'ios';
     return {
       showLabels: true,
       enableHaptics: true,
-      variant: isIos ? 'default' : 'elevated',
+      variant: 'centeredCreate',
       hidden: false,
       translucent: false,
       glass: false, // Solid opaque background

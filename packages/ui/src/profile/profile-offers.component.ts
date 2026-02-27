@@ -230,6 +230,7 @@ export class ProfileOffersComponent {
       date: activity.date,
       variant,
       badge: this.getActivityBadge(activity),
+      badgePosition: 'right',
       data: activity,
     };
   }

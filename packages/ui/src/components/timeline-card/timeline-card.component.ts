@@ -18,6 +18,7 @@ import type {
   TimelineVariant,
   TimelineCardTag,
   TimelineBadge,
+  TimelineBadgePosition,
   TimelineCardLayout,
 } from '@nxt1/core';
 import { getTimelineVariantClass } from '@nxt1/core';
@@ -62,7 +63,7 @@ import { NxtIconComponent } from '../icon';
 
         <!-- Status badge -->
         @if (badge()) {
-          <div class="tl-card__status" [class]="statusClass()" [attr.data-variant]="variantCss()">
+          <div class="tl-card__status" [class]="statusClass()">
             <nxt1-icon [name]="badge()!.icon" [size]="12" />
             <span>{{ badge()!.label }}</span>
           </div>
@@ -338,42 +339,40 @@ import { NxtIconComponent } from '../icon';
           0 0 0 2px var(--tl-accent-alpha-20);
       }
 
-      /* ═══ STATUS BADGE (inside graphic top-left) ═══ */
+      /* ═══ STATUS BADGE (inside graphic, configurable left/right) ═══ */
 
       .tl-card__status {
         position: absolute;
         top: 12px;
-        left: 12px;
         display: flex;
         align-items: center;
-        gap: 5px;
-        padding: 5px 12px;
-        border-radius: 8px;
+        gap: 6px;
+        padding: 6px 12px;
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--tl-bg) 80%, var(--tl-accent) 20%) 0%,
+          color-mix(in srgb, var(--tl-bg) 86%, var(--tl-accent) 14%) 100%
+        );
+        border: 1px solid color-mix(in srgb, var(--tl-accent) 48%, transparent);
+        box-shadow:
+          inset 0 0 0 1px color-mix(in srgb, var(--tl-accent) 22%, transparent),
+          0 6px 14px var(--nxt1-color-alpha-black20);
+        border-radius: var(--nxt1-radius-full, 9999px);
         font-size: 11px;
         font-weight: 700;
-        letter-spacing: 0.03em;
-        text-transform: uppercase;
+        letter-spacing: 0.01em;
+        text-transform: capitalize;
+        color: var(--tl-text-1);
         z-index: 2;
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
+        white-space: nowrap;
       }
 
-      .tl-card__status--committed {
-        background: color-mix(in srgb, var(--tl-success) 20%, transparent);
-        color: var(--tl-success);
-        border: 1px solid color-mix(in srgb, var(--tl-success) 25%, transparent);
+      .tl-card__status--left {
+        left: 12px;
       }
 
-      .tl-card__status[data-variant='primary'] {
-        background: var(--tl-accent);
-        color: var(--tl-bg);
-        border: 1px solid color-mix(in srgb, var(--tl-accent) 70%, var(--tl-bg) 30%);
-      }
-
-      .tl-card__status[data-variant='secondary'] {
-        background: color-mix(in srgb, var(--tl-text-3) 15%, transparent);
-        color: var(--tl-text-2);
-        border: 1px solid color-mix(in srgb, var(--tl-text-3) 15%, transparent);
+      .tl-card__status--right {
+        right: 12px;
       }
 
       /* ═══ CARD BODY ═══ */
@@ -646,6 +645,9 @@ export class NxtTimelineCardComponent {
   /** Status badge in graphic area */
   readonly badge = input<TimelineBadge | undefined>(undefined);
 
+  /** Status badge alignment in graphic area */
+  readonly badgePosition = input<TimelineBadgePosition>('left');
+
   /** Fallback icon name when no logo URL (defaults to 'school') */
   readonly fallbackIcon = input<string>('school');
 
@@ -670,8 +672,9 @@ export class NxtTimelineCardComponent {
   );
 
   protected readonly statusClass = computed(() => {
-    const v = this.variant();
-    return v === 'committed' ? 'tl-card__status tl-card__status--committed' : 'tl-card__status';
+    const align =
+      this.badgePosition() === 'right' ? 'tl-card__status--right' : 'tl-card__status--left';
+    return `tl-card__status ${align}`;
   });
 
   // ============================================

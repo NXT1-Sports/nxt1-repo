@@ -1011,6 +1011,13 @@ export class ProfileShellComponent implements OnInit {
   /** Whether viewing own profile */
   readonly isOwnProfile = input(false);
 
+  /**
+   * When true, the shell will NOT call loadProfile() in ngOnInit.
+   * Used by platform wrappers (mobile) that fetch data externally
+   * and push it via ProfileService.loadFromExternalData().
+   */
+  readonly skipInternalLoad = input(false);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -1055,6 +1062,9 @@ export class ProfileShellComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
+    // Platform wrappers (mobile) that fetch data externally skip internal load
+    if (this.skipInternalLoad()) return;
+
     const unicode = this.profileUnicode();
     const isOwn = this.isOwnProfile();
 

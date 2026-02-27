@@ -28,6 +28,7 @@ export type {
 // Constants (re-exported from @nxt1/core for convenience)
 export {
   DEFAULT_FOOTER_TABS,
+  CENTERED_CREATE_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
   MAIN_PAGE_ROUTES,

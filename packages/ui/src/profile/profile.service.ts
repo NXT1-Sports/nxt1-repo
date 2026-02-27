@@ -395,6 +395,8 @@ export class ProfileService {
     this.logger.info('Loading profile', { profileCode, isOwnProfile });
     this._isLoading.set(true);
     this._error.set(null);
+    this._profileData.set(null);
+    this._activityFeedItems.set([]);
 
     try {
       // TODO: Replace with actual API call
@@ -523,6 +525,38 @@ export class ProfileService {
     this.logger.debug('Exiting edit mode');
     this._isEditMode.set(false);
     this._editSection.set(null);
+  }
+
+  /**
+   * Set loading state to true.
+   * Used by platform wrappers that manage their own data fetching
+   * (e.g., mobile bridge pattern) to show skeleton before data arrives.
+   */
+  startLoading(): void {
+    this._isLoading.set(true);
+    this._error.set(null);
+  }
+
+  /**
+   * Load profile from externally-fetched data.
+   * Used by platform wrappers (web SSR resolver, mobile deep-link bridge)
+   * that fetch data themselves and push it into the shared service.
+   */
+  loadFromExternalData(data: ProfilePageData): void {
+    this._profileData.set(data);
+    this._isLoading.set(false);
+    this._error.set(null);
+    this.logger.info('Profile loaded from external data');
+  }
+
+  /**
+   * Set an error state.
+   * Used by platform wrappers to surface fetch errors through the shared UI.
+   */
+  setError(message: string): void {
+    this._error.set(message);
+    this._isLoading.set(false);
+    this.logger.error('Profile error set externally', { message });
   }
 
   /**

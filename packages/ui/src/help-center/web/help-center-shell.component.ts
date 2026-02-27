@@ -499,9 +499,10 @@ export interface HelpNavigateEvent {
 
       .help-layout {
         display: grid;
-        grid-template-columns: 200px 1fr;
-        gap: var(--nxt1-spacing-8);
+        grid-template-columns: 180px 1fr;
+        gap: var(--nxt1-spacing-6, 24px);
         align-items: start;
+        padding-top: var(--nxt1-spacing-2, 8px);
       }
 
       .help-section-content {

@@ -285,6 +285,7 @@ export {
   type FooterScrollToTopEvent,
   // Mobile Footer Constants
   DEFAULT_FOOTER_TABS,
+  CENTERED_CREATE_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
   MAIN_PAGE_ROUTES,

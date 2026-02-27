@@ -109,6 +109,7 @@ const DEFAULT_EMPTY: TimelineEmptyConfig = {
               [footerLeft]="item.footerLeft"
               [footerRight]="item.footerRight"
               [badge]="item.badge"
+              [badgePosition]="item.badgePosition ?? 'left'"
               [fallbackIcon]="fallbackIcon()"
             />
           </article>

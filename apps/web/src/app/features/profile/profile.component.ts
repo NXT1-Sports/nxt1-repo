@@ -35,12 +35,7 @@ import {
 import { isPlatformBrowser } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import {
-  ProfileShellWebComponent,
-  type ProfileShellUser,
-  RelatedAthletesComponent,
-  type RelatedAthlete,
-} from '@nxt1/ui/profile';
+import { ProfileShellWebComponent, type ProfileShellUser } from '@nxt1/ui/profile';
 import { NxtCtaBannerComponent } from '@nxt1/ui/components/cta-banner';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
@@ -58,7 +53,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 @Component({
   selector: 'app-profile',
   standalone: true,
-  imports: [ProfileShellWebComponent, RelatedAthletesComponent, NxtCtaBannerComponent],
+  imports: [ProfileShellWebComponent, NxtCtaBannerComponent],
   template: `
     <nxt1-profile-shell-web
       [currentUser]="userInfo()"
@@ -76,29 +71,23 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
       (createPostClick)="onCreatePost()"
     />
 
-    <!-- ═══ RELATED ATHLETES — Discovery Row (below profile shell) ═══ -->
+    <!-- ═══ CTA BANNER — Below-the-fold conversion for logged-out users ═══
+         Deferred to viewport: never rendered during SSR, zero CLS impact.
+         Profiles are public pages — no auth gate blocks initial render. ═══ -->
     @defer (on viewport) {
-      <nxt1-related-athletes
-        [sport]="relatedSport()"
-        [state]="relatedState()"
-        (athleteClick)="onRelatedAthleteClick($event)"
-        (seeAllClick)="onSeeAllRelated()"
-      />
+      @if (!isLoggedIn()) {
+        <nxt1-cta-banner
+          variant="conversion"
+          badgeLabel="Super Profile"
+          title="Drop Your Links. We Build the Rest."
+          subtitle="Paste your Hudl, MaxPreps, or social links — NXT1 auto-generates a verified Super Profile that stays updated with your latest stats, highlights, and academics. Coaches see everything in one tap."
+          ctaLabel="Get Your Super Profile Free"
+          ctaRoute="/auth"
+          titleId="profile-cta-banner-title"
+        />
+      }
     } @placeholder {
-      <div style="height: 200px;"></div>
-    }
-
-    <!-- ═══ CTA BANNER — Logged-out users only ═══ -->
-    @if (!isLoggedIn()) {
-      <nxt1-cta-banner
-        variant="conversion"
-        badgeLabel="Super Profile"
-        title="Drop Your Links. We Build the Rest."
-        subtitle="Paste your Hudl, MaxPreps, or social links — NXT1 auto-generates a verified Super Profile that stays updated with your latest stats, highlights, and academics. Coaches see everything in one tap."
-        ctaLabel="Get Your Super Profile Free"
-        ctaRoute="/auth"
-        titleId="profile-cta-banner-title"
-      />
+      <div></div>
     }
   `,
   styles: [
@@ -145,7 +134,7 @@ export class ProfileComponent implements OnInit {
   private readonly fetchedProfile = signal<User | null>(null);
   private readonly destroyRef = inject(DestroyRef);
 
-  /** Whether current user is logged in (CTA banner hidden when authenticated) */
+  /** Whether current user is logged in — used to hide CTA for authenticated users */
   protected readonly isLoggedIn = computed(() => this.authFlow.isAuthenticated());
 
   /**
@@ -171,15 +160,6 @@ export class ProfileComponent implements OnInit {
       location: location || undefined,
       imageUrl: profile.profileImg || undefined,
     };
-  });
-
-  /** Sport context for the Related Athletes section */
-  protected readonly relatedSport = computed<string>(() => this.profileMeta()?.sport || 'Football');
-
-  /** State/region context for the Related Athletes section */
-  protected readonly relatedState = computed<string>(() => {
-    const profile = this.fetchedProfile();
-    return profile?.location?.state || 'your area';
   });
 
   /**
@@ -423,23 +403,5 @@ export class ProfileComponent implements OnInit {
   protected onCreatePost(): void {
     this.logger.info('Create post clicked');
     this.router.navigate(['/post/create']);
-  }
-
-  /**
-   * Handle related athlete card click — navigate to their profile.
-   */
-  protected onRelatedAthleteClick(athlete: RelatedAthlete): void {
-    this.logger.info('Related athlete clicked', { unicode: athlete.unicode });
-    this.router.navigate(['/profile', athlete.unicode]);
-  }
-
-  /**
-   * Handle "See All" related athletes — navigate to explore with sport filter.
-   */
-  protected onSeeAllRelated(): void {
-    this.logger.info('See all related athletes clicked');
-    this.router.navigate(['/explore'], {
-      queryParams: { sport: this.relatedSport() },
-    });
   }
 }

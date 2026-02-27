@@ -87,9 +87,9 @@ export interface SearchBarSubmitEvent {
   template: `
     <form class="search-form relative flex items-center" (submit)="onSubmit($event)">
       <!-- Search Icon -->
-      @if (variant() === 'desktop-centered') {
+      @if (showAgentXLogo()) {
         <svg
-          class="search-icon search-icon--brand pointer-events-none absolute left-3"
+          [class]="agentXIconClass()"
           viewBox="0 0 612 792"
           width="32"
           height="32"
@@ -148,6 +148,32 @@ export interface SearchBarSubmitEvent {
         display: block;
       }
 
+      /* Remove native browser/WebKit input box in ALL states (inactive + active) */
+      :host .search-input {
+        border: 0 !important;
+        outline: none !important;
+        box-shadow: none !important;
+        background: transparent !important;
+        -webkit-appearance: none !important;
+        appearance: none !important;
+      }
+
+      /* Remove native browser/WebKit search focus box in all variants */
+      :host .search-input:focus,
+      :host .search-input:focus-visible {
+        outline: none !important;
+        box-shadow: none !important;
+        border: 0 !important;
+      }
+
+      :host .search-input::-webkit-search-decoration,
+      :host .search-input::-webkit-search-cancel-button,
+      :host .search-input::-webkit-search-results-button,
+      :host .search-input::-webkit-search-results-decoration {
+        -webkit-appearance: none;
+        appearance: none;
+      }
+
       /* --- MOBILE variant overrides --- */
 
       /* Host is always full-width so the page header layout never shifts */
@@ -164,7 +190,7 @@ export interface SearchBarSubmitEvent {
         height: var(--nxt1-ui-btn-height-md);
         padding: 0 var(--nxt1-spacing-3, 12px);
         justify-content: center;
-        gap: 2px;
+        gap: 0;
         background: var(--nxt1-color-surface-200, #1f1f1f);
         border: none;
         transition:
@@ -186,9 +212,9 @@ export interface SearchBarSubmitEvent {
       :host(.mobile) .search-input {
         min-width: 0;
         flex: 0 1 auto;
-        width: 9ch;
+        width: 8ch;
         font-size: var(--nxt1-fontSize-sm, 0.9375rem);
-        text-align: center;
+        text-align: left;
         padding: 0;
         letter-spacing: var(--nxt1-letterSpacing-tight, 0.01em);
         -webkit-appearance: none;
@@ -204,8 +230,23 @@ export interface SearchBarSubmitEvent {
       }
 
       :host(.mobile) .search-input:focus {
-        outline: none;
-        box-shadow: none;
+        outline: none !important;
+        box-shadow: none !important;
+        border: 0 !important;
+      }
+
+      :host(.mobile) .search-input:focus-visible {
+        outline: none !important;
+        box-shadow: none !important;
+        border: 0 !important;
+      }
+
+      :host(.mobile) .search-input::-webkit-search-decoration,
+      :host(.mobile) .search-input::-webkit-search-cancel-button,
+      :host(.mobile) .search-input::-webkit-search-results-button,
+      :host(.mobile) .search-input::-webkit-search-results-decoration {
+        -webkit-appearance: none;
+        appearance: none;
       }
 
       :host(.mobile) .search-icon {
@@ -284,6 +325,21 @@ export class NxtSearchBarComponent {
   protected readonly iconName = computed(() => {
     const v = this.variant();
     return v === 'desktop' ? 'aiSearch' : 'nxt1';
+  });
+
+  /** Use Agent X logo SVG for AI-centric search variants */
+  protected readonly showAgentXLogo = computed(() => {
+    const v = this.variant();
+    return v === 'desktop-centered' || v === 'mobile';
+  });
+
+  /** Agent X logo classes per variant */
+  protected readonly agentXIconClass = computed(() => {
+    const v = this.variant();
+    if (v === 'mobile') {
+      return 'search-icon search-icon--brand pointer-events-none flex-shrink-0';
+    }
+    return 'search-icon search-icon--brand pointer-events-none absolute left-3';
   });
 
   /** Icon CSS classes */

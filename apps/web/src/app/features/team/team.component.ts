@@ -1,19 +1,20 @@
 /**
  * @fileoverview Team Page - Web App Wrapper
  * @module @nxt1/web/features/team
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Thin wrapper component that imports the shared Team shell
+ * Thin wrapper component that imports the shared TeamProfileShellWeb
  * from @nxt1/ui and wires up platform-specific concerns.
  *
- * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
+ * ⭐ USES WEB-OPTIMIZED SHELL FOR GRADE A+ SEO ⭐
  *
  * The actual UI and logic live in @nxt1/ui (shared package).
  * This wrapper only handles:
  * - Platform-specific routing/navigation
- * - Team data fetching from backend
  * - SEO Metadata for team pages
- * - Share functionality
+ * - Share / QR code functionality
+ * - Auth-gated follow
+ * - Analytics tracking
  *
  * Routes:
  * - /team/:slug — View team by slug (SEO-friendly URL)
@@ -24,97 +25,139 @@ import {
   ChangeDetectionStrategy,
   inject,
   computed,
-  signal,
+  OnInit,
+  PLATFORM_ID,
+  DestroyRef,
   effect,
 } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
-import { TeamShellComponent, type TeamData } from '@nxt1/ui/team';
-import { SeoService, ShareService } from '../../core/services';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { TeamProfileShellWebComponent } from '@nxt1/ui/team-profile';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtToastService } from '@nxt1/ui/services/toast';
+import { AuthModalService } from '@nxt1/ui/auth';
+import { QrCodeService } from '@nxt1/ui/qr-code';
+import { TeamProfileService } from '@nxt1/ui/team-profile';
+import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
+import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
+import { AuthFlowService } from '../auth/services';
+import { SeoService, AnalyticsService, ShareService } from '../../core/services';
 
 @Component({
   selector: 'app-team',
   standalone: true,
-  imports: [TeamShellComponent],
+  imports: [TeamProfileShellWebComponent],
   template: `
-    <nxt1-team-shell
-      [teamId]="teamId()"
-      [teamData]="teamData()"
+    <nxt1-team-profile-shell-web
+      [teamSlug]="teamSlug()"
+      [isTeamAdmin]="isTeamAdmin()"
       (backClick)="onBackClick()"
+      (tabChange)="onTabChange($event)"
       (shareClick)="onShare()"
-      (retryClick)="onRetry()"
+      (followClick)="onFollow()"
+      (qrCodeClick)="onQrCode()"
+      (manageTeamClick)="onManageTeam()"
+      (rosterMemberClick)="onRosterMemberClick($event)"
+      (postClick)="onPostClick($event)"
     />
   `,
+  styles: [
+    `
+      :host {
+        /* Flex layout: stretch to fill shell__content.
+           Full-bleed team page — cancels shell padding for edge-to-edge layout. */
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        /* Cancel the shell__content padding so team page sits
+           flush against edges — full-bleed Madden Franchise layout. */
+        margin-top: calc(-1 * (var(--nxt1-spacing-4, 1rem) + 7px));
+        margin-inline: calc(-1 * var(--shell-content-padding-x, 0px));
+      }
+
+      nxt1-team-profile-shell-web {
+        flex-shrink: 0;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class TeamComponent {
+export class TeamComponent implements OnInit {
+  private readonly authService = inject(AUTH_SERVICE) as IAuthService;
+  private readonly authFlow = inject(AuthFlowService);
+  private readonly authModal = inject(AuthModalService);
+  private readonly qrCode = inject(QrCodeService);
+  private readonly platform = inject(NxtPlatformService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+  private readonly toast = inject(NxtToastService);
+  private readonly logger = inject(NxtLoggingService).child('TeamComponent');
   private readonly seo = inject(SeoService);
+  private readonly analytics = inject(AnalyticsService);
   private readonly share = inject(ShareService);
+  private readonly teamProfile = inject(TeamProfileService);
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly destroyRef = inject(DestroyRef);
 
   // ============================================
-  // STATE
+  // COMPUTED
   // ============================================
-
-  protected readonly teamData = signal<TeamData | null>(null);
 
   /**
-   * Team ID/slug from route parameter.
+   * Team slug from route parameter.
    */
-  protected readonly teamId = computed<string>(() => {
+  protected readonly teamSlug = computed<string>(() => {
     return this.route.snapshot.paramMap.get('slug') || '';
   });
 
-  // ============================================
-  // LIFECYCLE
-  // ============================================
+  /**
+   * Whether the current user is an admin of this team.
+   * For now always false — will integrate with team membership checks.
+   */
+  protected readonly isTeamAdmin = computed<boolean>(() => {
+    return this.teamProfile.isTeamAdmin();
+  });
 
   constructor() {
-    // Effect to load team data and update SEO when slug changes
+    // Effect to update SEO when team data loads
     effect(() => {
-      const slug = this.teamId();
-      if (slug) {
-        this.loadTeamAndSeo(slug);
+      const team = this.teamProfile.team();
+      if (team) {
+        this.updateSeo(team);
       }
     });
   }
 
+  ngOnInit(): void {
+    this.logger.info('Team component initialized', {
+      teamSlug: this.teamSlug(),
+    });
+  }
+
   // ============================================
-  // DATA LOADING
+  // SEO
   // ============================================
 
-  private loadTeamAndSeo(slug: string): void {
-    // Mock team data for now - replace with actual API call
-    // TODO: Connect to TeamService when backend is ready
-    const mockTeamData: TeamData = {
-      id: slug,
-      slug: slug,
-      teamName: 'Lincoln High School',
-      sport: 'Football',
-      location: 'Lincoln, NE',
-      logoUrl: '/assets/images/teams/lincoln-hs-logo.png',
-      imageUrl: '/assets/images/teams/lincoln-hs-cover.jpg',
-      record: '10-2',
-      description:
-        'Lincoln High School Football program with a rich tradition of excellence. Multiple state championships and a commitment to developing student-athletes both on and off the field.',
-      foundedYear: 1965,
-      coachName: 'John Smith',
-      homeVenue: 'Lincoln Stadium',
-      rosterCount: 45,
-    };
-
-    this.teamData.set(mockTeamData);
-
-    // Update SEO with team data
+  private updateSeo(team: NonNullable<ReturnType<typeof this.teamProfile.team>>): void {
     this.seo.updateForTeam({
-      id: mockTeamData.id,
-      slug: mockTeamData.slug,
-      teamName: mockTeamData.teamName,
-      sport: mockTeamData.sport,
-      location: mockTeamData.location,
-      logoUrl: mockTeamData.logoUrl,
-      imageUrl: mockTeamData.imageUrl,
-      record: mockTeamData.record,
+      id: team.id,
+      slug: team.slug,
+      teamName: team.teamName,
+      sport: team.sport,
+      location: team.location,
+      logoUrl: team.logoUrl,
+      imageUrl: team.galleryImages?.[0] || team.logoUrl,
+      record: this.teamProfile.recordDisplay() || undefined,
+    });
+
+    this.analytics.trackEvent('team_viewed', {
+      team_id: team.id,
+      team_slug: team.slug,
+      team_name: team.teamName,
+      sport: team.sport,
     });
   }
 
@@ -122,17 +165,59 @@ export class TeamComponent {
   // EVENT HANDLERS
   // ============================================
 
+  /**
+   * Handle back navigation — SSR-safe.
+   */
   protected onBackClick(): void {
-    // Navigate back or to home if no history
+    if (!isPlatformBrowser(this.platformId)) return;
+
     if (window.history.length > 1) {
-      this.router.navigate(['..'], { relativeTo: this.route });
+      window.history.back();
     } else {
-      this.router.navigate(['/']);
+      this.router.navigate(['/home']);
     }
   }
 
+  /**
+   * Handle tab changes for analytics.
+   */
+  protected onTabChange(tab: TeamProfileTabId): void {
+    this.analytics.trackEvent('tab_changed', {
+      tab,
+      team_slug: this.teamSlug(),
+      context: 'team_profile',
+    });
+  }
+
+  /**
+   * Handle follow button — requires authentication.
+   */
+  protected async onFollow(): Promise<void> {
+    if (!this.authFlow.isAuthenticated()) {
+      const result = await this.authModal.presentSignInToContinue('follow teams', {
+        onGoogle: () => this.authFlow.signInWithGoogle(),
+        onApple: () => this.authFlow.signInWithApple(),
+        onEmailAuth: async (mode, data) =>
+          mode === 'login'
+            ? this.authFlow.signInWithEmail(data)
+            : this.authFlow.signUpWithEmail(data),
+      });
+      if (!result.authenticated) return;
+    }
+
+    // Authenticated — toggle follow
+    await this.teamProfile.toggleFollow();
+    const isFollowing = this.teamProfile.followStats()?.isFollowing;
+    this.toast.success(isFollowing ? 'Following!' : 'Unfollowed');
+  }
+
+  /**
+   * Handle share team.
+   */
   protected async onShare(): Promise<void> {
-    const team = this.teamData();
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    const team = this.teamProfile.team();
     if (!team) return;
 
     await this.share.shareTeam({
@@ -142,15 +227,57 @@ export class TeamComponent {
       sport: team.sport,
       location: team.location,
       logoUrl: team.logoUrl,
-      imageUrl: team.imageUrl,
-      record: team.record,
+      imageUrl: team.galleryImages?.[0] || team.logoUrl,
+      record: this.teamProfile.recordDisplay() || undefined,
     });
   }
 
-  protected onRetry(): void {
-    const slug = this.teamId();
-    if (slug) {
-      this.loadTeamAndSeo(slug);
+  /**
+   * Handle QR code display.
+   */
+  protected async onQrCode(): Promise<void> {
+    const team = this.teamProfile.team();
+    if (!team) return;
+
+    try {
+      await this.qrCode.open({
+        url: `https://nxt1sports.com/team/${team.slug}`,
+        displayName: team.teamName,
+        profileImg: team.logoUrl || undefined,
+        sport: team.sport || 'Sports',
+        unicode: team.slug,
+        isOwnProfile: this.isTeamAdmin(),
+      });
+    } catch (err) {
+      this.logger.error('Failed to open QR code modal', err);
+      this.toast.error('Unable to open QR code');
+    }
+  }
+
+  /**
+   * Handle manage team navigation.
+   */
+  protected onManageTeam(): void {
+    this.router.navigate(['/manage-team', this.teamSlug()]);
+  }
+
+  /**
+   * Handle roster member click — navigate to their profile.
+   */
+  protected onRosterMemberClick(member: TeamProfileRosterMember): void {
+    if (member.profileCode) {
+      this.router.navigate(['/profile', member.profileCode]);
+    } else {
+      this.logger.debug('Roster member has no profile code', { memberId: member.id });
+    }
+  }
+
+  /**
+   * Handle post click — navigate to post detail.
+   */
+  protected onPostClick(post: TeamProfilePost): void {
+    if (post.id) {
+      this.router.navigate(['/post', post.id]);
     }
   }
 }
