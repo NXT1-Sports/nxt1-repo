@@ -78,7 +78,7 @@ import { environment } from '../../../environments/environment';
 @Component({
   selector: 'app-profile',
   standalone: true,
-  imports: [ProfileShellWebComponent, RelatedAthletesComponent, NxtCtaBannerComponent],
+  imports: [ProfileShellWebComponent, NxtCtaBannerComponent, RelatedAthletesComponent],
   template: `
     <nxt1-profile-shell-web
       [currentUser]="userInfo()"
@@ -97,7 +97,9 @@ import { environment } from '../../../environments/environment';
       (createPostClick)="onCreatePost()"
     />
 
-    <!-- ═══ RELATED ATHLETES — Discovery Row (below profile shell) ═══ -->
+    <!-- ═══ CTA BANNER — Below-the-fold conversion for logged-out users ═══
+         Deferred to viewport: never rendered during SSR, zero CLS impact.
+         Profiles are public pages — no auth gate blocks initial render. ═══ -->
     @defer (on viewport) {
       <nxt1-related-athletes
         [athletes]="relatedAthletes()"
@@ -187,7 +189,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
   protected readonly relatedAthletes = signal<RelatedAthlete[]>([]);
 
-  /** Whether current user is logged in (CTA banner hidden when authenticated) */
+  /** Whether current user is logged in — used to hide CTA for authenticated users */
   protected readonly isLoggedIn = computed(() => this.authFlow.isAuthenticated());
 
   /**
@@ -761,7 +763,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle related athlete card click — navigate to their profile.
+   * Handle related athlete click - navigate to their profile.
    */
   protected onRelatedAthleteClick(athlete: RelatedAthlete): void {
     this.logger.info('Related athlete clicked', { unicode: athlete.unicode });
@@ -769,12 +771,15 @@ export class ProfileComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle "See All" related athletes — navigate to explore with sport filter.
+   * Handle see all related athletes click.
    */
   protected onSeeAllRelated(): void {
     this.logger.info('See all related athletes clicked');
+    // Navigate to explore page with sport/state filters
+    const sport = this.relatedSport();
+    const state = this.relatedState();
     this.router.navigate(['/explore'], {
-      queryParams: { sport: this.relatedSport() },
+      queryParams: { sport, state },
     });
   }
 }

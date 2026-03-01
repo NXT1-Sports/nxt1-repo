@@ -217,13 +217,6 @@ export class ProfileEventsComponent {
     const isPast = this.isPastEvent(event);
     const variant: TimelineVariant = isPast ? 'secondary' : 'primary';
 
-    const tags: { label: string; variant: TimelineVariant }[] = [
-      {
-        label: EVENT_TYPE_LABELS[event.type] ?? 'Event',
-        variant,
-      },
-    ];
-
     // Build subtitle: location
     const subtitle = event.location ?? undefined;
 
@@ -241,13 +234,13 @@ export class ProfileEventsComponent {
       title: event.name,
       logoUrl: event.logoUrl,
       graphicUrl: event.graphicUrl,
-      tags,
       subtitle,
       footerLeft,
       footerRight: this.formatDate(event.startDate),
       date: event.startDate,
       variant,
       badge: this.getEventBadge(event, variant),
+      badgePosition: 'right',
       data: event,
     };
   }

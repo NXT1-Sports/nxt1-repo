@@ -68,21 +68,6 @@ export const EXPLORE_TABS: readonly ExploreTab[] = [
     icon: 'newspaper-outline',
   },
   {
-    id: 'colleges',
-    label: 'Colleges',
-    icon: 'school-outline',
-  },
-  {
-    id: 'athletes',
-    label: 'Athletes',
-    icon: 'person-outline',
-  },
-  {
-    id: 'teams',
-    label: 'Teams',
-    icon: 'people-outline',
-  },
-  {
     id: 'videos',
     label: 'Videos',
     icon: 'play-circle-outline',
@@ -91,21 +76,6 @@ export const EXPLORE_TABS: readonly ExploreTab[] = [
     id: 'leaderboards',
     label: 'Leaderboards',
     icon: 'trophy-outline',
-  },
-  {
-    id: 'scout-reports',
-    label: 'Scout Reports',
-    icon: 'clipboard-outline',
-  },
-  {
-    id: 'camps',
-    label: 'Camps',
-    icon: 'calendar-outline',
-  },
-  {
-    id: 'events',
-    label: 'Events',
-    icon: 'ticket-outline',
   },
 ] as const;
 

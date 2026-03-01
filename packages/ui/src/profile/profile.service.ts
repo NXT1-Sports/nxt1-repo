@@ -584,6 +584,8 @@ export class ProfileService {
     this.logger.info('Loading profile (internal/mock)', { profileCode, isOwnProfile });
     this._isLoading.set(true);
     this._error.set(null);
+    this._profileData.set(null);
+    this._activityFeedItems.set([]);
 
     try {
       // TODO: Replace with actual API call

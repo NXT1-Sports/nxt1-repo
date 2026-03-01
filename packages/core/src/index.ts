@@ -169,6 +169,7 @@ export {
   type FooterTabSelectEvent,
   type FooterScrollToTopEvent,
   DEFAULT_FOOTER_TABS,
+  CENTERED_CREATE_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
   MAIN_PAGE_ROUTES,
@@ -780,6 +781,60 @@ export {
 } from './profile';
 
 // ============================================
+// TEAM PROFILE (Public-Facing Team Pages)
+// ============================================
+
+export {
+  // Factory
+  createTeamProfileApi,
+  type TeamProfileApi,
+  // Types
+  type TeamProfileApiResponse,
+  type TeamProfilePaginatedResponse,
+  type TeamProfileSearchParams,
+  // Core types
+  type TeamProfileTabId,
+  type TeamProfileTab,
+  type TeamProfileType,
+  type TeamProfileTeam,
+  type TeamProfileRecord,
+  type TeamProfileBranding,
+  type TeamProfileSocialLink,
+  type TeamProfileContact,
+  type TeamProfileLinks,
+  type TeamProfileSponsor,
+  type TeamProfileRosterMember,
+  type TeamProfileRosterSortOption,
+  type TeamProfileScheduleEvent,
+  type TeamProfileGameResult,
+  type TeamProfileStat,
+  type TeamProfileStatsCategory,
+  type TeamProfileStaffMember,
+  type TeamProfileRecruitingActivity,
+  type TeamProfileFollowStats,
+  type TeamProfileQuickStats,
+  type TeamProfilePostType,
+  type TeamProfilePost,
+  type TeamProfileHeaderAction,
+  type TeamProfilePageData,
+  // Constants
+  TEAM_PROFILE_TABS,
+  TEAM_PROFILE_DEFAULT_TAB,
+  TEAM_PROFILE_EMPTY_STATES,
+  TEAM_PROFILE_CACHE_KEYS,
+  TEAM_PROFILE_UI_CONFIG,
+  TEAM_PROFILE_ROSTER_SORT_LABELS,
+  TEAM_PROFILE_TYPE_LABELS,
+  TEAM_PROFILE_TYPE_ICONS,
+  TEAM_PROFILE_POST_TYPE_ICONS,
+  TEAM_PROFILE_POST_TYPE_LABELS,
+  TEAM_PROFILE_VERIFICATION_HIDDEN_TABS,
+  TEAM_PROFILE_QUICK_STATS_CONFIG,
+  TEAM_PROFILE_ADMIN_HEADER_ACTIONS,
+  TEAM_PROFILE_VISITOR_HEADER_ACTIONS,
+} from './team-profile';
+
+// ============================================
 // ONBOARDING (User Onboarding Flow)
 // ============================================
 
@@ -934,6 +989,12 @@ export * from './profile';
 // ============================================
 
 export * from './timeline';
+
+// ============================================
+// CONTENT CARD (Unified activity content primitive)
+// ============================================
+
+export * from './content-card';
 
 // ============================================
 // SETTINGS

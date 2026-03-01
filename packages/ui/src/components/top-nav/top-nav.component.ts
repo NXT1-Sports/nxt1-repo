@@ -372,7 +372,7 @@ import type {
           }
 
           <!-- Sign In (unauthenticated state) -->
-          @if (!user) {
+          @if (!isAuthenticated) {
             <a class="nav-auth-btn nav-auth-btn--primary" routerLink="/auth" aria-label="Sign in">
               Sign In
             </a>
@@ -592,7 +592,7 @@ import type {
               }
             </ul>
           </div>
-        } @else {
+        } @else if (!isAuthenticated) {
           <!-- Mobile Auth Buttons (for unauthenticated users) -->
           <div class="mobile-auth-section flex flex-col gap-3 p-6">
             <button
@@ -664,6 +664,9 @@ export class NxtHeaderComponent implements OnDestroy {
 
   /** User data for avatar/menu display */
   @Input() user: TopNavUserData | null = null;
+
+  /** Explicit auth state from app shell (source of truth for auth UI) */
+  @Input() isAuthenticated = false;
 
   /** User menu items */
   @Input() userMenuItems: TopNavUserMenuItem[] = DEFAULT_USER_MENU_ITEMS;
@@ -776,8 +779,24 @@ export class NxtHeaderComponent implements OnDestroy {
   /** Whether to show notifications */
   readonly showNotifications = computed(() => this.config.showNotifications !== false);
 
-  /** Whether to show user menu */
-  readonly showUserMenu = computed(() => this.config.showUserMenu !== false && this.user !== null);
+  /**
+   * Whether to show the user menu (avatar + dropdown).
+   *
+   * Checks BOTH `user !== null` AND `isAuthenticated` so the menu remains
+   * visible when `user` data resolves slightly after auth state (e.g. during
+   * SSR→client hydration handover where isAuthenticated is frozen true but
+   * the user object arrives a frame later).
+   *
+   * NOTE: `user` and `isAuthenticated` are plain @Input values read inside a
+   * computed — Angular signals do not track plain property reads, so this
+   * computed evaluates once at first render and stays stable. That is the
+   * desired behaviour: it must be `true` on the very first render (when
+   * isAuthenticated is already set), which it will be as long as the shell
+   * passes a truthy isAuthenticated before the first template evaluation.
+   */
+  readonly showUserMenu = computed(
+    () => this.config.showUserMenu !== false && (this.user !== null || this.isAuthenticated)
+  );
 
   /** Whether to show compact layout (smaller desktops) */
   readonly isCompact = computed(() => this.platform.viewport().width < 1280);

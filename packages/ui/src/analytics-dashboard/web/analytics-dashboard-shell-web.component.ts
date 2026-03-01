@@ -488,9 +488,10 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
 
       .dashboard-layout {
         display: grid;
-        grid-template-columns: 200px 1fr;
-        gap: var(--nxt1-spacing-8);
+        grid-template-columns: 180px 1fr;
+        gap: var(--nxt1-spacing-6, 24px);
         align-items: start;
+        padding-top: var(--nxt1-spacing-2, 8px);
       }
 
       .section-content {
@@ -1029,7 +1030,7 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
 
         .dashboard-layout {
           grid-template-columns: 1fr;
-          gap: var(--nxt1-spacing-4);
+          gap: var(--nxt1-spacing-4, 16px);
         }
 
         .period-bar {

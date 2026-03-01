@@ -169,9 +169,10 @@ export interface AgentXUser {
       /* Two-column grid: side nav + content */
       .agent-layout {
         display: grid;
-        grid-template-columns: 200px 1fr;
-        gap: var(--nxt1-spacing-8, 32px);
+        grid-template-columns: 180px 1fr;
+        gap: var(--nxt1-spacing-6, 24px);
         align-items: start;
+        padding-top: var(--nxt1-spacing-2, 8px);
       }
 
       /* Scrollable content area between tabs and input bar */
@@ -191,7 +192,7 @@ export interface AgentXUser {
        */
       @media (min-width: 769px) {
         :host {
-          --agent-input-desktop-left: calc(var(--nxt1-sidebar-width, 280px) + 16px + 200px + 32px);
+          --agent-input-desktop-left: calc(var(--nxt1-sidebar-width, 280px) + 16px + 180px + 24px);
           --agent-input-desktop-right: 16px;
           --agent-input-align-items: center;
         }
@@ -209,7 +210,7 @@ export interface AgentXUser {
 
         .agent-layout {
           grid-template-columns: 1fr;
-          gap: var(--nxt1-spacing-4);
+          gap: var(--nxt1-spacing-4, 16px);
         }
       }
     `,

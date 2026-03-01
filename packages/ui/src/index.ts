@@ -425,6 +425,7 @@ export {
   type FooterScrollToTopEvent,
   // Constants (from @nxt1/core)
   DEFAULT_FOOTER_TABS,
+  CENTERED_CREATE_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
   MAIN_PAGE_ROUTES,
@@ -1131,6 +1132,11 @@ export {
   getMockReportsByCategory,
   getMockReportCount,
 } from './scout-reports';
+
+// ============================================
+// ACTIVITY CARD (Shared Content Atom - Web & Mobile)
+// ============================================
+export { NxtActivityCardComponent } from './components/activity-card';
 
 // ============================================
 // FEED (Home Feed - Shared Web & Mobile)

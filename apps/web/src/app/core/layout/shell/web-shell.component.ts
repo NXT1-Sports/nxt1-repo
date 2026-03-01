@@ -79,7 +79,7 @@ import {
   type FooterTabSelectEvent,
   type FooterScrollToTopEvent,
   type FooterConfig,
-  DEFAULT_FOOTER_TABS,
+  CENTERED_CREATE_FOOTER_TABS,
   findTabByRoute,
 } from '@nxt1/ui/components/footer';
 import {
@@ -194,7 +194,6 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         activeIcon: 'compassFilled',
         route: '/explore',
       },
-      { id: 'news', label: 'News', icon: 'newspaper', route: '/news' },
       { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
     ],
   },
@@ -202,7 +201,6 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
     id: 'you',
     label: 'You',
     items: [
-      { id: 'profile', label: 'My Profile', icon: 'person', route: '/profile' },
       { id: 'xp', label: 'XP', icon: 'sparkles', route: '/xp' },
       { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
       { id: 'manage-team', label: 'Manage Team', icon: 'users', route: '/manage-team' },
@@ -242,7 +240,6 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
         activeIcon: 'compassFilled',
         route: '/explore',
       },
-      { id: 'news', label: 'News', icon: 'newspaper', route: '/news' },
       { id: 'agent', label: 'Agent X', icon: 'agent-x', route: '/agent' },
     ],
   },
@@ -448,7 +445,7 @@ const USER_MENU_ITEMS = DEFAULT_USER_MENU_ITEMS;
 /**
  * Mobile footer tabs - same items as main sidebar section.
  */
-const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
+const MOBILE_FOOTER_TABS: FooterTabItem[] = CENTERED_CREATE_FOOTER_TABS;
 
 @Component({
   selector: 'app-web-shell',
@@ -481,12 +478,20 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
       • Zero CLS (Cumulative Layout Shift) — no layout changes after load
       • CSS is instant; JavaScript hydration is asynchronous
 
+      Auth State Transfer (2026):
+      • ServerAuthService reads __session cookie during APP_INITIALIZER
+      • SSR_AUTH_STATE carries resolved user → AuthFlowService on server
+      • TransferState serializes auth state into HTML payload
+      • On hydration, AuthFlowService seeds from TransferState immediately
+      • Firebase Auth re-initializes in background and confirms state
+      • Result: authenticated users NEVER see "Sign In" flash on page load
+
       Components manage their own internal visibility:
       • nxt1-mobile-sidebar: transform/visibility controlled by [open] input
       • app-notification-popover: controlled by [isOpen] input
-      • nxt1-mobile-footer: auth-gated (@if) — auth state is consistent
-        between SSR and client (both start unauthenticated), so no risk
-        of hydration mismatch
+      • nxt1-mobile-footer: auth-gated (@if) — auth state is NOW consistent
+        between SSR and client (both render authenticated when cookie exists),
+        so no risk of hydration mismatch
     -->
     <div class="shell">
       <!-- DESKTOP: Fixed Sidebar — CSS-hidden below 768px -->
@@ -530,6 +535,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = DEFAULT_FOOTER_TABS;
         <nxt1-header
           [items]="headerItems"
           [user]="headerUserData()"
+          [isAuthenticated]="topNavIsAuthenticated()"
           [userMenuItems]="userMenuItems"
           [config]="headerConfig()"
           [searchResults]="headerSearchResults()"
@@ -787,6 +793,8 @@ export class WebShellComponent {
 
   /** Debounce timer for search input */
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Releases top-nav hydration lock shortly after first client paint */
+  private topNavUnlockTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ============================================
   // SIDEBAR CONFIGURATION (Desktop/Tablet)
@@ -873,16 +881,40 @@ export class WebShellComponent {
       profileImg?: string;
     } | null;
 
-    if (!user) return null;
+    // Fall back to firebaseUser if backend profile hasn't synced yet
+    const firebaseUser = this.authFlow.firebaseUser();
+
+    if (!user && !firebaseUser) return null;
 
     return {
-      name: user.displayName || user.email?.split('@')[0] || 'User',
-      email: user.email || undefined,
-      avatarUrl: user.profileImg || undefined,
+      name:
+        user?.displayName ||
+        user?.email?.split('@')[0] ||
+        firebaseUser?.displayName ||
+        firebaseUser?.email?.split('@')[0] ||
+        'User',
+      email: user?.email || firebaseUser?.email || undefined,
+      avatarUrl: user?.profileImg || firebaseUser?.photoURL || undefined,
       verified: false,
       roleBadge: undefined,
     };
   });
+
+  /**
+   * Hydration lock for the desktop top-nav isAuthenticated input.
+   *
+   * Freezes the Sign In / user-menu toggle for ~300 ms after the first client
+   * paint while Firebase Auth and the SSR→client handover settle. This stops
+   * the brief "Sign In" button flash without touching user-data bindings
+   * (avatar, name) which are safe to update live.
+   */
+  private readonly _topNavHydrationLocked = signal(isPlatformBrowser(this.platformId));
+  private readonly _frozenTopNavIsAuthenticated = signal(this.authFlow.isAuthenticated());
+
+  /** Stable isAuthenticated input for desktop header during hydration */
+  readonly topNavIsAuthenticated = computed(() =>
+    this._topNavHydrationLocked() ? this._frozenTopNavIsAuthenticated() : this.isAuthenticated()
+  );
 
   // ============================================
   // HEADER SEARCH RESULTS (Global Search Dropdown)
@@ -911,7 +943,7 @@ export class WebShellComponent {
   readonly footerConfig = computed<FooterConfig>(() => ({
     showLabels: true,
     enableHaptics: false, // Web doesn't have haptics
-    variant: 'default',
+    variant: 'centeredCreate',
     hidden: false,
     translucent: false,
     glass: false, // Solid opaque background (glass causes see-through)
@@ -954,13 +986,21 @@ export class WebShellComponent {
       profileImg?: string;
     } | null;
 
-    if (!user) return null;
+    // Fall back to firebaseUser if backend profile hasn't synced yet
+    const firebaseUser = this.authFlow.firebaseUser();
 
-    const name = user.displayName || user.email?.split('@')[0] || 'User';
+    if (!user && !firebaseUser) return null;
+
+    const name =
+      user?.displayName ||
+      user?.email?.split('@')[0] ||
+      firebaseUser?.displayName ||
+      firebaseUser?.email?.split('@')[0] ||
+      'User';
 
     return {
       name,
-      avatarUrl: user.profileImg || undefined,
+      avatarUrl: user?.profileImg || firebaseUser?.photoURL || undefined,
       initials: this.getInitials(name),
     };
   });
@@ -1017,13 +1057,17 @@ export class WebShellComponent {
     return viewport.width < SIDEBAR_BREAKPOINTS.MOBILE;
   });
 
+  /** Auth state for shell-level UI controls (header, footer, guards). */
+  readonly isAuthenticated = computed(() => this.authFlow.isAuthenticated());
+
   /**
    * Show mobile footer when authenticated.
    * CSS media queries handle viewport visibility (hidden at ≥768px).
-   * Auth state is consistent between SSR and client (both start
-   * unauthenticated), so the @if guard won't cause hydration mismatch.
+   * Auth state is now consistent between SSR and client — both render
+   * authenticated when __session cookie exists (via SSR auth state transfer).
+   * The @if guard won't cause hydration mismatch.
    */
-  readonly showMobileFooter = computed(() => this.authFlow.isAuthenticated());
+  readonly showMobileFooter = computed(() => this.isAuthenticated());
 
   // ============================================
   // LIFECYCLE
@@ -1033,11 +1077,30 @@ export class WebShellComponent {
     this.setupRouteTracking();
     this.loadSidebarState();
 
+    // Freeze desktop top-nav auth UI briefly after hydration to avoid
+    // visible flicker while client auth handover settles.
+    afterNextRender(() => {
+      if (!isPlatformBrowser(this.platformId)) {
+        this._topNavHydrationLocked.set(false);
+        return;
+      }
+
+      this.topNavUnlockTimer = setTimeout(() => {
+        this._topNavHydrationLocked.set(false);
+        this.topNavUnlockTimer = null;
+      }, 300);
+    });
+
     // Clean up debounce timer on destroy to prevent memory leaks
     this.destroyRef.onDestroy(() => {
       if (this.searchDebounceTimer) {
         clearTimeout(this.searchDebounceTimer);
         this.searchDebounceTimer = null;
+      }
+
+      if (this.topNavUnlockTimer) {
+        clearTimeout(this.topNavUnlockTimer);
+        this.topNavUnlockTimer = null;
       }
     });
   }

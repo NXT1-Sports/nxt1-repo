@@ -380,30 +380,27 @@ export const UI_ICONS = {
   sparkles: {
     viewBox: '0 0 24 24',
     type: 'stroke' as const,
-    strokeWidth: 2,
+    strokeWidth: 1.5,
     paths: [
       { d: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z' },
-      { d: 'M7.8 9.2l2.8 2.8-2.8 2.8' },
-      { d: 'M10.6 9.2L7.8 12l2.8 2.8' },
-      { d: 'M14 15V9h2.2a2.2 2.2 0 0 1 0 4.4H14' },
-      { d: 'M18.5 4.5v1.5m-.75-.75h1.5' },
+      { d: 'M8 9l4 6' },
+      { d: 'M12 9l-4 6' },
+      { d: 'M14 9v6' },
+      { d: 'M14 9h1a2 2 0 0 1 0 4h-1' },
     ],
   },
 
   /** XP filled icon - for active XP state */
   sparklesFilled: {
     viewBox: '0 0 24 24',
-    type: 'fill' as const,
+    type: 'stroke' as const,
+    strokeWidth: 1.5,
     paths: [
-      {
-        d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z',
-      },
-      {
-        d: 'M7.4 8.8l1.4-1.4L11 9.6l2.2-2.2 1.4 1.4L12.4 11l2.2 2.2-1.4 1.4L11 12.4l-2.2 2.2-1.4-1.4 2.2-2.2-2.2-2.2z',
-      },
-      {
-        d: 'M14.8 7.6h1.8a2.8 2.8 0 1 1 0 5.6h-1.8V7.6zM14.8 13.2h2V16h-2z',
-      },
+      { d: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z', fill: 'currentColor' },
+      { d: 'M8 9l4 6', stroke: 'var(--nxt1-color-surface-100, #111)' },
+      { d: 'M12 9l-4 6', stroke: 'var(--nxt1-color-surface-100, #111)' },
+      { d: 'M14 9v6', stroke: 'var(--nxt1-color-surface-100, #111)' },
+      { d: 'M14 9h1a2 2 0 0 1 0 4h-1', stroke: 'var(--nxt1-color-surface-100, #111)' },
     ],
   },
 

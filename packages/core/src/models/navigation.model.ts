@@ -85,7 +85,7 @@ export interface FooterTabItem {
 /**
  * Footer/tab bar visual variants
  */
-export type FooterVariant = 'default' | 'elevated' | 'transparent' | 'floating';
+export type FooterVariant = 'default' | 'elevated' | 'transparent' | 'floating' | 'centeredCreate';
 
 /**
  * Active tab indicator styles
@@ -219,6 +219,57 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     iconActive: 'bellFilled',
     route: '/activity',
     ariaLabel: 'View your activity and notifications',
+  },
+];
+
+/**
+ * Centered-create tab layout for A/B testing.
+ * Visual order: Explore, Messages, Create, Notifications, Agent X.
+ *
+ * Notes:
+ * - Create remains in the visual center for a primary action emphasis.
+ * - Notifications maps to /activity route to preserve existing backend/frontend contracts.
+ */
+export const CENTERED_CREATE_FOOTER_TABS: FooterTabItem[] = [
+  {
+    id: 'explore',
+    label: 'Explore',
+    icon: 'compass',
+    iconActive: 'compassFilled',
+    route: '/explore',
+    ariaLabel: 'Explore athletes and teams',
+  },
+  {
+    id: 'messages',
+    label: 'Messages',
+    icon: 'messages',
+    iconActive: 'messagesFilled',
+    route: '/messages',
+    ariaLabel: 'View your messages',
+  },
+  {
+    id: 'create-post',
+    label: 'Create',
+    icon: 'plusCircle',
+    iconActive: 'plusCircleFilled',
+    route: '/create',
+    ariaLabel: 'Create a new post',
+  },
+  {
+    id: 'activity',
+    label: 'Notifications',
+    icon: 'bell',
+    iconActive: 'bellFilled',
+    route: '/activity',
+    ariaLabel: 'View your notifications',
+  },
+  {
+    id: 'ai',
+    label: 'Agent X',
+    icon: 'bolt',
+    iconActive: 'boltFilled',
+    route: '/agent',
+    ariaLabel: 'Open AI Agent X',
   },
 ];
 

@@ -19,6 +19,7 @@ export {
   type FooterConfig,
   type FooterScrollToTopEvent,
   DEFAULT_FOOTER_TABS,
+  CENTERED_CREATE_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
   MAIN_PAGE_ROUTES,

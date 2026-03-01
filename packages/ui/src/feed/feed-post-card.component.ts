@@ -41,16 +41,28 @@ import {
   FEED_POST_TYPE_ICONS,
   FEED_POST_TYPE_LABELS,
   FEED_MAX_VISIBLE_TAGS,
+  feedOfferToContentCard,
+  feedCommitmentToContentCard,
+  feedVisitToContentCard,
+  feedCampToContentCard,
 } from '@nxt1/core';
 import { NxtAvatarComponent } from '../components/avatar';
 import { NxtImageComponent } from '../components/image';
 import { NxtIconComponent } from '../components/icon';
+import { NxtActivityCardComponent } from '../components/activity-card';
 import { HapticsService } from '../services/haptics/haptics.service';
 
 @Component({
   selector: 'nxt1-feed-post-card',
   standalone: true,
-  imports: [CommonModule, IonRippleEffect, NxtAvatarComponent, NxtImageComponent, NxtIconComponent],
+  imports: [
+    CommonModule,
+    IonRippleEffect,
+    NxtAvatarComponent,
+    NxtImageComponent,
+    NxtIconComponent,
+    NxtActivityCardComponent,
+  ],
   template: `
     <!-- Repost Header -->
     @if (post().repostData) {
@@ -196,114 +208,23 @@ import { HapticsService } from '../services/haptics/haptics.service';
           <p class="feed-post__text" [innerHTML]="formattedContent()"></p>
         }
 
-        <!-- Offer/Commitment Card -->
-        @if (post().offerData) {
-          <div class="feed-post__offer-card">
-            @if (post().offerData!.collegeLogoUrl) {
-              <img
-                [src]="post().offerData!.collegeLogoUrl"
-                [alt]="post().offerData!.collegeName"
-                class="feed-post__offer-logo"
-              />
-            }
-            <div class="feed-post__offer-info">
-              <span class="feed-post__offer-college">{{ post().offerData!.collegeName }}</span>
-              <span class="feed-post__offer-type">{{
-                formatOfferType(post().offerData!.offerType)
-              }}</span>
-              @if (post().offerData!.division) {
-                <span class="feed-post__offer-division">{{ post().offerData!.division }}</span>
-              }
-            </div>
-          </div>
+        <!-- Offer/Commitment Card (shared atom) -->
+        @if (offerCard()) {
+          <nxt1-activity-card [item]="offerCard()!" [compact]="compact()" />
         }
 
-        @if (post().commitmentData) {
-          <div class="feed-post__commitment-card">
-            @if (post().commitmentData!.collegeLogoUrl) {
-              <img
-                [src]="post().commitmentData!.collegeLogoUrl"
-                [alt]="post().commitmentData!.collegeName"
-                class="feed-post__commitment-logo"
-              />
-            }
-            <div class="feed-post__commitment-info">
-              <span class="feed-post__commitment-label">COMMITTED TO</span>
-              <span class="feed-post__commitment-college">{{
-                post().commitmentData!.collegeName
-              }}</span>
-              @if (post().commitmentData!.isSigned) {
-                <span class="feed-post__commitment-signed">✍️ Signed</span>
-              }
-            </div>
-          </div>
+        @if (commitmentCard()) {
+          <nxt1-activity-card [item]="commitmentCard()!" [compact]="compact()" />
         }
 
-        <!-- Visit Card (College Visit Activity) -->
-        @if (post().visitData) {
-          <div class="feed-post__activity-card feed-post__activity-card--visit">
-            <div class="feed-post__activity-icon-wrap feed-post__activity-icon-wrap--visit">
-              <nxt1-icon name="school" [size]="20" />
-            </div>
-            <div class="feed-post__activity-body">
-              <div class="feed-post__activity-row">
-                @if (post().visitData!.collegeLogoUrl) {
-                  <img
-                    [src]="post().visitData!.collegeLogoUrl"
-                    [alt]="post().visitData!.collegeName"
-                    class="feed-post__activity-logo"
-                  />
-                }
-                <div class="feed-post__activity-details">
-                  <span class="feed-post__activity-overline">{{
-                    formatVisitType(post().visitData!.visitType)
-                  }}</span>
-                  <span class="feed-post__activity-title">{{ post().visitData!.collegeName }}</span>
-                  @if (post().visitData!.location) {
-                    <span class="feed-post__activity-meta">
-                      <nxt1-icon name="location" [size]="12" />
-                      {{ post().visitData!.location }}
-                    </span>
-                  }
-                </div>
-              </div>
-            </div>
-          </div>
+        <!-- Visit Card (shared atom) -->
+        @if (visitCard()) {
+          <nxt1-activity-card [item]="visitCard()!" [compact]="compact()" />
         }
 
-        <!-- Camp/Combine/Showcase Card -->
-        @if (post().campData) {
-          <div class="feed-post__activity-card feed-post__activity-card--camp">
-            <div class="feed-post__activity-icon-wrap feed-post__activity-icon-wrap--camp">
-              <nxt1-icon name="flag" [size]="20" />
-            </div>
-            <div class="feed-post__activity-body">
-              <div class="feed-post__activity-row">
-                @if (post().campData!.logoUrl) {
-                  <img
-                    [src]="post().campData!.logoUrl"
-                    [alt]="post().campData!.campName"
-                    class="feed-post__activity-logo"
-                  />
-                }
-                <div class="feed-post__activity-details">
-                  <span class="feed-post__activity-overline">{{
-                    formatCampType(post().campData!.campType)
-                  }}</span>
-                  <span class="feed-post__activity-title">{{ post().campData!.campName }}</span>
-                  @if (post().campData!.location) {
-                    <span class="feed-post__activity-meta">
-                      <nxt1-icon name="location" [size]="12" />
-                      {{ post().campData!.location }}
-                    </span>
-                  }
-                  @if (post().campData!.result) {
-                    <span class="feed-post__activity-result">{{ post().campData!.result }}</span>
-                  }
-                </div>
-              </div>
-            </div>
-          </div>
+        <!-- Camp/Combine/Showcase Card (shared atom) -->
+        @if (campCard()) {
+          <nxt1-activity-card [item]="campCard()!" [compact]="compact()" />
         }
 
         <!-- Stat Update Card (Hero style) -->
@@ -512,7 +433,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
             @if (post().externalSource!.logoUrl) {
               <img [src]="post().externalSource!.logoUrl" class="feed-post__external-logo" alt="" />
             } @else {
-              <nxt1-icon [name]="post().externalSource!.icon || 'link'" [size]="14" />
+              <nxt1-icon [name]="externalSourceIconName()" [size]="14" />
             }
             <span>{{ post().externalSource!.label }}</span>
           </div>
@@ -1014,42 +935,13 @@ import { HapticsService } from '../services/haptics/haptics.service';
         overflow: hidden;
       }
 
-      /* Compact: Offer/Commitment/Activity/Award/News cards */
-      .feed-post--compact .feed-post__offer-card,
-      .feed-post--compact .feed-post__commitment-card,
-      .feed-post--compact .feed-post__activity-card,
+      /* Compact: Stat/Metrics/Award cards */
       .feed-post--compact .feed-post__stat-card,
       .feed-post--compact .feed-post__metrics-card,
       .feed-post--compact .feed-post__award-card {
         padding: 8px;
         gap: 8px;
         margin-bottom: 4px;
-      }
-
-      .feed-post--compact .feed-post__offer-logo,
-      .feed-post--compact .feed-post__commitment-logo {
-        width: 32px;
-        height: 32px;
-      }
-
-      .feed-post--compact .feed-post__offer-college,
-      .feed-post--compact .feed-post__commitment-college {
-        font-size: 13px;
-      }
-
-      .feed-post--compact .feed-post__activity-icon-wrap {
-        width: 32px;
-        height: 32px;
-        border-radius: 8px;
-      }
-
-      .feed-post--compact .feed-post__activity-logo {
-        width: 32px;
-        height: 32px;
-      }
-
-      .feed-post--compact .feed-post__activity-title {
-        font-size: 13px;
       }
 
       .feed-post--compact .feed-post__award-icon {
@@ -1108,160 +1000,8 @@ import { HapticsService } from '../services/haptics/haptics.service';
         margin-bottom: 4px;
       }
 
-      /* ============================================
-         OFFER/COMMITMENT CARDS
-         ============================================ */
-
-      .feed-post__offer-card,
-      .feed-post__commitment-card {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px;
-        background: rgba(255, 255, 255, 0.03);
-        border-radius: var(--nxt1-radius-md, 8px);
-        border: 1px solid var(--post-border);
-        margin-bottom: 8px;
-      }
-
-      .feed-post__offer-logo,
-      .feed-post__commitment-logo {
-        width: 44px;
-        height: 44px;
-        object-fit: contain;
-        flex-shrink: 0;
-      }
-
-      .feed-post__offer-info,
-      .feed-post__commitment-info {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-
-      .feed-post__offer-college,
-      .feed-post__commitment-college {
-        font-size: 15px;
-        font-weight: 600;
-        color: var(--post-text-primary);
-      }
-
-      .feed-post__offer-type {
-        font-size: 13px;
-        color: var(--nxt1-color-success, #4ade80);
-        font-weight: 500;
-      }
-
-      .feed-post__offer-division {
-        font-size: 12px;
-        color: var(--post-text-secondary);
-      }
-
-      .feed-post__commitment-label {
-        font-size: 10px;
-        font-weight: 700;
-        color: var(--post-text-tertiary);
-        text-transform: uppercase;
-        letter-spacing: 1px;
-      }
-
-      .feed-post__commitment-signed {
-        font-size: 12px;
-        color: var(--post-primary);
-        font-weight: 500;
-      }
-
-      /* ============================================
-         ACTIVITY CARDS (Visit, Camp, Schedule)
-         ============================================ */
-
-      .feed-post__activity-card {
-        display: flex;
-        gap: 12px;
-        padding: 12px;
-        background: rgba(255, 255, 255, 0.03);
-        border-radius: var(--nxt1-radius-md, 8px);
-        border: 1px solid var(--post-border);
-        margin-bottom: 8px;
-      }
-
-      .feed-post__activity-icon-wrap {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-      }
-
-      .feed-post__activity-icon-wrap--visit {
-        background: color-mix(in srgb, #3b82f6 15%, transparent);
-        color: #3b82f6;
-      }
-
-      .feed-post__activity-icon-wrap--camp {
-        background: color-mix(in srgb, #f59e0b 15%, transparent);
-        color: #f59e0b;
-      }
-
-      .feed-post__activity-body {
-        flex: 1;
-        min-width: 0;
-      }
-
-      .feed-post__activity-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .feed-post__activity-logo {
-        width: 40px;
-        height: 40px;
-        object-fit: contain;
-        flex-shrink: 0;
-        border-radius: 6px;
-      }
-
-      .feed-post__activity-details {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        min-width: 0;
-      }
-
-      .feed-post__activity-overline {
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.8px;
-        color: var(--post-text-tertiary);
-      }
-
-      .feed-post__activity-title {
-        font-size: 15px;
-        font-weight: 600;
-        color: var(--post-text-primary);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .feed-post__activity-meta {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 12px;
-        color: var(--post-text-tertiary);
-      }
-
-      .feed-post__activity-result {
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--post-primary);
-        margin-top: 2px;
-      }
+      /* Offer/Commitment/Activity card styles now live in
+         NxtActivityCardComponent (@nxt1/ui/components/activity-card) */
 
       /* ============================================
          STAT UPDATE CARD (Hero Style)
@@ -1979,6 +1719,56 @@ export class FeedPostCardComponent {
   });
 
   // ============================================
+  // CONTENT CARD ATOMS (unified activity data)
+  // ============================================
+
+  /** Offer data → shared ContentCardItem */
+  protected readonly offerCard = computed(() => {
+    const data = this.post().offerData;
+    return data ? feedOfferToContentCard(data) : null;
+  });
+
+  /** Commitment data → shared ContentCardItem */
+  protected readonly commitmentCard = computed(() => {
+    const data = this.post().commitmentData;
+    return data ? feedCommitmentToContentCard(data) : null;
+  });
+
+  /** Visit data → shared ContentCardItem */
+  protected readonly visitCard = computed(() => {
+    const data = this.post().visitData;
+    return data ? feedVisitToContentCard(data) : null;
+  });
+
+  /** Camp data → shared ContentCardItem */
+  protected readonly campCard = computed(() => {
+    const data = this.post().campData;
+    return data ? feedCampToContentCard(data) : null;
+  });
+
+  protected externalSourceIconName(): string {
+    const source = this.post().externalSource;
+    const rawIcon = source?.icon?.trim().toLowerCase();
+
+    if (!rawIcon) {
+      return 'link';
+    }
+
+    const normalizedIconMap: Record<string, string> = {
+      'stats-chart': 'stats-chart-outline',
+      'bar-chart': 'bar-chart-outline',
+      maxpreps: 'stats-chart-outline',
+      hudl: 'play-circle-outline',
+      '247sports': 'newspaper-outline',
+      espn: 'newspaper-outline',
+      on3: 'newspaper-outline',
+      rivals: 'newspaper-outline',
+    };
+
+    return normalizedIconMap[rawIcon] ?? source?.icon ?? 'link';
+  }
+
+  // ============================================
   // HELPERS
   // ============================================
 
@@ -2073,35 +1863,5 @@ export class FeedPostCardComponent {
       month: 'short',
       day: 'numeric',
     });
-  }
-
-  protected formatOfferType(type: string): string {
-    const labels: Record<string, string> = {
-      scholarship: 'Full Scholarship',
-      'preferred-walk-on': 'Preferred Walk-On',
-      'walk-on': 'Walk-On',
-      interest: 'Interest',
-    };
-    return labels[type] ?? type;
-  }
-
-  protected formatVisitType(type: string): string {
-    const labels: Record<string, string> = {
-      official: 'Official Visit',
-      unofficial: 'Unofficial Visit',
-      'junior-day': 'Junior Day',
-      'game-day': 'Game Day Visit',
-    };
-    return labels[type] ?? 'Campus Visit';
-  }
-
-  protected formatCampType(type: string): string {
-    const labels: Record<string, string> = {
-      camp: 'Camp',
-      combine: 'Combine',
-      showcase: 'Showcase',
-      invitational: 'Invitational',
-    };
-    return labels[type] ?? 'Event';
   }
 }

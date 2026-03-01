@@ -53,6 +53,8 @@ export interface TimelineBadge {
   readonly label: string;
 }
 
+export type TimelineBadgePosition = 'left' | 'right';
+
 // ============================================
 // TIMELINE ITEM
 // ============================================
@@ -94,6 +96,9 @@ export interface TimelineItem<T = unknown> {
 
   /** Status badge displayed in graphic area */
   readonly badge?: TimelineBadge;
+
+  /** Badge position in graphic area (default: left) */
+  readonly badgePosition?: TimelineBadgePosition;
 
   /** Original domain object for click handling (typed via generic) */
   readonly data?: T;

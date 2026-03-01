@@ -200,6 +200,14 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
+    path: 'team/:slug',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'team/**',
+    renderMode: RenderMode.Server,
+  },
+  {
     path: 'manage-team',
     renderMode: RenderMode.Server,
   },
