@@ -230,6 +230,7 @@ function docToUserSummary(docId: string, data: UserFirestoreDoc): UserSummary {
   const primarySport = sports?.find((s) => s.order === 0) ?? sports?.[0];
   return {
     id: docId,
+    unicode: data['unicode'] as string | null | undefined,
     firstName: data['firstName'] ?? '',
     lastName: data['lastName'] ?? '',
     displayName: data['displayName'] as string | undefined,
@@ -493,7 +494,8 @@ router.get(
 );
 
 /**
- * Get timeline posts from the user's timeline sub-collection.
+ * Get timeline posts from top-level Posts collection (filtered by userId).
+ * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/timeline?sportId=football
  * GET /api/v1/auth/profile/:userId/timeline
  */
 router.get(
@@ -502,16 +504,14 @@ router.get(
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { userId } = req.params as { userId: string };
     const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
+    const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
 
     const db = req.firebase!.db;
-    const snap = await db
-      .collection(USERS_COLLECTION)
-      .doc(userId)
-      .collection('timeline')
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get();
+    let query = db.collection('Posts').where('userId', '==', userId) as FirebaseFirestore.Query;
+    if (sportId) query = query.where('sportId', '==', sportId);
+    query = query.orderBy('createdAt', 'desc').limit(limit);
 
+    const snap = await query.get();
     const posts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     res.json({ success: true, data: posts });
   })
@@ -572,7 +572,8 @@ router.get(
 );
 
 /**
- * Get news articles from the user's news sub-collection.
+ * Get news articles from top-level News collection (filtered by userId).
+ * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/news?sportId=football
  * GET /api/v1/auth/profile/:userId/news
  */
 router.get(
@@ -581,23 +582,22 @@ router.get(
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { userId } = req.params as { userId: string };
     const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
+    const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
 
     const db = req.firebase!.db;
-    const snap = await db
-      .collection(USERS_COLLECTION)
-      .doc(userId)
-      .collection('news')
-      .orderBy('publishedAt', 'desc')
-      .limit(limit)
-      .get();
+    let query = db.collection('News').where('userId', '==', userId) as FirebaseFirestore.Query;
+    if (sportId) query = query.where('sportId', '==', sportId);
+    query = query.orderBy('publishedAt', 'desc').limit(limit);
 
+    const snap = await query.get();
     const articles = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     res.json({ success: true, data: articles });
   })
 );
 
 /**
- * Get rankings from the user's rankings sub-collection.
+ * Get rankings from top-level Rankings collection (filtered by userId).
+ * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/rankings?sportId=football
  * GET /api/v1/auth/profile/:userId/rankings
  */
 router.get(
@@ -606,23 +606,29 @@ router.get(
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { userId } = req.params as { userId: string };
     const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
+    const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
 
     const db = req.firebase!.db;
-    const snap = await db
-      .collection(USERS_COLLECTION)
-      .doc(userId)
-      .collection('rankings')
-      .orderBy('rank', 'asc')
-      .limit(limit)
-      .get();
+    let query = db.collection('Rankings').where('userId', '==', userId) as FirebaseFirestore.Query;
+    if (sportId) query = query.where('sportId', '==', sportId);
+    query = query.limit(limit);
 
-    const rankings = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const snap = await query.get();
+    // Sort by nationalRank ascending (nulls last) client-side to avoid composite index requirement
+    const rankings = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+        const aRank = (a['nationalRank'] as number | null) ?? Infinity;
+        const bRank = (b['nationalRank'] as number | null) ?? Infinity;
+        return aRank - bRank;
+      });
     res.json({ success: true, data: rankings });
   })
 );
 
 /**
- * Get scout reports from the user's scoutReports sub-collection.
+ * Get scout reports from top-level ScoutReports collection (filtered by userId).
+ * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/scout-reports?sportId=football
  * GET /api/v1/auth/profile/:userId/scout-reports
  */
 router.get(
@@ -631,17 +637,24 @@ router.get(
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { userId } = req.params as { userId: string };
     const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
+    const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
 
     const db = req.firebase!.db;
-    const snap = await db
-      .collection(USERS_COLLECTION)
-      .doc(userId)
-      .collection('scoutReports')
-      .orderBy('publishedAt', 'desc')
-      .limit(limit)
-      .get();
+    let query = db
+      .collection('ScoutReports')
+      .where('userId', '==', userId) as FirebaseFirestore.Query;
+    if (sportId) query = query.where('sportId', '==', sportId);
+    query = query.limit(limit);
 
-    const reports = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const snap = await query.get();
+    // Sort by publishedAt descending client-side to avoid composite index requirement
+    const reports = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+        const aDate = new Date(String(a['publishedAt'] ?? '')).getTime();
+        const bDate = new Date(String(b['publishedAt'] ?? '')).getTime();
+        return bDate - aDate;
+      });
     res.json({ success: true, data: reports });
   })
 );
@@ -718,6 +731,39 @@ router.get(
 
     const videos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     res.json({ success: true, data: videos });
+  })
+);
+
+/**
+ * Get schedule events from the user's schedule sub-collection.
+ * Ordered by date ascending (upcoming first).
+ * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/schedule?sportId=football
+ * GET /api/v1/auth/profile/:userId/schedule
+ */
+router.get(
+  '/:userId/schedule',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params as { userId: string };
+    const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
+    const sportId = req.query['sportId'] as string | undefined;
+
+    const db = req.firebase!.db;
+    let query = db
+      .collection(USERS_COLLECTION)
+      .doc(userId)
+      .collection('schedule')
+      .orderBy('date', 'asc')
+      .limit(limit);
+
+    // Filter by sport if provided (for multi-sport athletes)
+    if (sportId) {
+      query = query.where('sport', '==', sportId.toLowerCase()) as FirebaseFirestore.Query;
+    }
+
+    const snap = await query.get();
+    const events = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    res.json({ success: true, data: events });
   })
 );
 

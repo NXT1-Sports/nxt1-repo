@@ -541,6 +541,8 @@ export interface ScheduleEvent {
   source: DataSource;
   /** Agent X notes about the athlete's performance */
   agentXNotes?: string;
+  /** Sport this event belongs to (for filtering multi-sport athletes) */
+  sport?: string;
 }
 
 // ============================================
@@ -1322,6 +1324,7 @@ export interface User {
 /** Minimal user representation for lists/cards */
 export interface UserSummary {
   id: string;
+  unicode?: string | null;
   firstName: string;
   lastName: string;
   displayName?: string;
@@ -1457,4 +1460,383 @@ export function getClassOf(user: User): number | undefined {
 /** Get connected source by platform name */
 export function getConnectedSource(user: User, platform: string): ConnectedSource | undefined {
   return user.connectedSources?.find((s) => s.platform.toLowerCase() === platform.toLowerCase());
+}
+
+// ============================================
+// FIRESTORE COLLECTION MODELS
+// ============================================
+//
+// Top-level, globally-queryable collections (scalable, production-ready):
+//   posts            — public / followers posts
+//   videos           — highlight & film clips
+//   playerStats      — season stat snapshots per player per sport
+//   gameStats        — per-game stat lines
+//   rankingEntries   — athlete ranking entries (state / national)
+//   offers           — college recruiting scholarship offers
+//   interactions     — recruiting interactions (interest, contact, visit, camp)
+//   scoutReports     — scouting reports from coaches / scouts
+//   follows          — follower/following edge records
+//   userSports       — athlete sport-profile enrollment (global index)
+//
+// User-private sub-collections (NOT globally queried):
+//   users/{uid}/schedule/{eventId}  — already typed as ScheduleEvent above
+//   users/{uid}/xp/{entryId}        — XP ledger entries
+//
+// Design rules applied to every top-level document:
+//   • userId   — always present when document relates to a user
+//   • sportId  — always present when document relates to a sport
+//   • createdAt / updatedAt — always present
+//   • Supports: filter by sportId, filter by season, order by rank/score/createdAt
+//
+// ============================================
+
+// ─── Base types ───────────────────────────────────────────────────────────────
+
+/**
+ * Fields present on every Firestore document (top-level or sub-collection).
+ * `id` mirrors the Firestore document ID so clients never need a second read.
+ */
+export interface FirestoreDoc {
+  id: string;
+  createdAt: Date | string;
+  updatedAt: Date | string;
+}
+
+/** Extends FirestoreDoc for any document tied to a specific user. */
+export interface UserFirestoreDoc extends FirestoreDoc {
+  userId: string;
+}
+
+/** Extends UserFirestoreDoc for documents also scoped to a specific sport. */
+export interface SportFirestoreDoc extends UserFirestoreDoc {
+  /** Sport identifier, e.g. 'football', 'basketball'. */
+  sportId: string;
+}
+
+// ─── posts  (top-level collection) ────────────────────────────────────────────
+
+export type PostType =
+  | 'update'
+  | 'highlight'
+  | 'milestone'
+  | 'question'
+  | 'media'
+  | 'offer'
+  | 'stat'
+  | 'news'
+  | 'text'
+  | 'image'
+  | 'video';
+
+export type PostVisibilityType = 'public' | 'followers' | 'private';
+
+/**
+ * Top-level Firestore document: posts/{postId}
+ *
+ * Queryable by:  userId, sportId, season, createdAt
+ */
+export interface PostDoc extends UserFirestoreDoc {
+  content: string;
+  type: PostType;
+  visibility: PostVisibilityType;
+  /** Optional sport context — enables filtering posts by sport. */
+  sportId?: string;
+  /** Season tag, e.g. '2025-2026'. */
+  season?: string;
+  title?: string;
+  images: string[];
+  videoUrl?: string;
+  thumbnailUrl?: string;
+  /** Duration in seconds (for video posts). */
+  durationSeconds?: number;
+  mentions: string[];
+  hashtags: string[];
+  isPinned: boolean;
+  commentsDisabled: boolean;
+  stats: {
+    likes: number;
+    comments: number;
+    shares: number;
+    views: number;
+  };
+}
+
+// ─── videos  (top-level collection) ───────────────────────────────────────────
+
+export type VideoDocType = 'highlight' | 'film' | 'training' | 'interview';
+
+/**
+ * Top-level Firestore document: videos/{videoId}
+ *
+ * Queryable by:  userId, sportId, season, createdAt
+ */
+export interface VideoDoc extends SportFirestoreDoc {
+  season?: string;
+  title: string;
+  description?: string;
+  type: VideoDocType;
+  url: string;
+  thumbnailUrl?: string;
+  durationSeconds?: number;
+  /** Free-form tags for search and filtering. */
+  tags: string[];
+  isPublic: boolean;
+  /** Hosting platform, e.g. 'hudl', 'youtube', 'nxt1'. */
+  platform?: string;
+  stats: {
+    views: number;
+    likes: number;
+    shares: number;
+  };
+}
+
+// ─── playerStats  (top-level collection) ──────────────────────────────────────
+
+/**
+ * Top-level Firestore document: playerStats/{statId}
+ *
+ * One document per stat field per season per player per sport.
+ * Extends VerifiedStat with the required top-level sportId / userId fields
+ * so the collection can be queried globally.
+ *
+ * Queryable by:  userId, sportId, season, category, field, createdAt
+ */
+export interface PlayerStatDoc extends SportFirestoreDoc {
+  /** Season identifier, e.g. '2025-2026'. */
+  season: string;
+  /** Position the stats apply to, e.g. 'QB', 'Point Guard'. */
+  position?: string;
+  /** Machine key matching VerifiedStat.field, e.g. 'passing_yards'. */
+  field: string;
+  label: string;
+  value: number | string;
+  unit?: string;
+  /** Grouping category, e.g. 'offense', 'defense'. */
+  category?: string;
+  source: DataSource;
+  verified: boolean;
+  verifiedBy?: string;
+  dateRecorded?: Date | string;
+}
+
+// ─── gameStats  (top-level collection) ────────────────────────────────────────
+
+/**
+ * Top-level Firestore document: gameStats/{gameStatId}
+ *
+ * One document per game per player per sport.
+ * Queryable by:  userId, sportId, season, gameDate, createdAt
+ */
+export interface GameStatDoc extends SportFirestoreDoc {
+  season: string;
+  /** ISO-8601 date string of the game. */
+  gameDate: string;
+  opponent?: string;
+  location?: string;
+  result?: string;
+  /** Individual stat entries for this game. */
+  stats: Pick<VerifiedStat, 'field' | 'label' | 'value' | 'unit' | 'category'>[];
+  source: DataSource;
+  verified: boolean;
+}
+
+// ─── rankingEntries  (top-level collection) ────────────────────────────────────
+
+export type RankingCategory = 'state' | 'national' | 'regional' | 'position';
+
+/**
+ * Top-level Firestore document: rankingEntries/{rankingEntryId}
+ *
+ * One document per ranking source per scope per player.
+ * Queryable by:  userId, sportId, season, category, rank, score, createdAt
+ */
+export interface RankingEntryDoc extends UserFirestoreDoc {
+  sportId: string;
+  season?: string;
+  position?: string;
+  category: RankingCategory;
+  rank: number;
+  totalAthletes: number;
+  score: number;
+  classOf?: number;
+  state?: string;
+  /** Ranking source, e.g. 'nxt1', '247sports', 'rivals'. */
+  source: string;
+}
+
+// ─── offers  (top-level collection) ───────────────────────────────────────────
+
+export type OfferScholarshipType = 'full' | 'partial' | 'walk-on' | 'preferred-walk-on';
+export type OfferDivision = 'D1' | 'D2' | 'D3' | 'NAIA' | 'JUCO';
+
+/**
+ * Top-level Firestore document: offers/{offerId}
+ *
+ * Stores college scholarship offers as globally-queryable records.
+ * (RecruitingActivity on the sub-collection stores the full history;
+ * this top-level doc enables cross-user queries like
+ * "all D1 football offers in California for class of 2026".)
+ *
+ * Queryable by:  userId, sportId, season, collegeId, division, offerDate, createdAt
+ */
+export interface OfferDoc extends UserFirestoreDoc {
+  sportId: string;
+  season?: string;
+  collegeId: string;
+  collegeName: string;
+  division?: OfferDivision;
+  conference?: string;
+  city?: string;
+  state?: string;
+  scholarshipType?: OfferScholarshipType;
+  /** ISO-8601 date the offer was received. */
+  offerDate: string;
+  coachName?: string;
+  coachTitle?: string;
+  notes?: string;
+  verified: boolean;
+  verifiedAt?: Date | string;
+}
+
+// ─── interactions  (top-level collection) ─────────────────────────────────────
+
+export type RecruitingInteractionCategory =
+  | 'interest'
+  | 'contact'
+  | 'visit'
+  | 'camp'
+  | 'questionnaire';
+
+/**
+ * Top-level Firestore document: interactions/{interactionId}
+ *
+ * Stores recruiting interactions (interest, contact, visit, camp) globally.
+ * Distinct from offers — covers all non-offer recruiting touchpoints.
+ *
+ * Queryable by:  userId, sportId, season, category, collegeId, interactionDate, createdAt
+ */
+export interface InteractionDoc extends UserFirestoreDoc {
+  sportId: string;
+  season?: string;
+  category: RecruitingInteractionCategory;
+  collegeId: string;
+  collegeName: string;
+  division?: OfferDivision;
+  city?: string;
+  state?: string;
+  /** ISO-8601 date of the interaction. */
+  interactionDate: string;
+  endDate?: string;
+  visitType?: VisitType;
+  coachName?: string;
+  coachTitle?: string;
+  notes?: string;
+  source: DataSource;
+  verified: boolean;
+}
+
+// ─── scoutReports  (top-level collection) ─────────────────────────────────────
+
+export type ScoutReportGrade = 'A+' | 'A' | 'A-' | 'B+' | 'B' | 'B-' | 'C+' | 'C' | 'C-';
+
+/**
+ * Top-level Firestore document: scoutReports/{reportId}
+ *
+ * Scouting reports written by coaches / scouts about athletes.
+ * Global collection enables queries like "all reports for athletes in Florida".
+ *
+ * Queryable by:  userId (athlete), sportId, season, scoutUserId, isPublic, createdAt
+ */
+export interface ScoutReportDoc extends FirestoreDoc {
+  /** UID of the athlete being scouted. */
+  userId: string;
+  sportId: string;
+  season?: string;
+  /** UID of the scout / coach if they have a platform account. */
+  scoutUserId?: string;
+  scoutName: string;
+  scoutOrganization?: string;
+  position?: string;
+  grade?: ScoutReportGrade;
+  overallScore?: number;
+  summary: string;
+  strengths: string[];
+  areasToImprove: string[];
+  /**
+   * Granular attribute scores keyed by field name.
+   * e.g. { 'footwork': 85, 'arm_strength': 92 }
+   */
+  attributeScores?: Record<string, number>;
+  isPublic: boolean;
+  /** Whether the athlete has viewed this report. */
+  athleteViewed: boolean;
+}
+
+// ─── follows  (top-level collection) ──────────────────────────────────────────
+
+/**
+ * Top-level Firestore document: follows/{followerId}_{followingId}
+ *
+ * Document ID convention: `${followerId}_${followingId}` — guarantees
+ * global uniqueness and avoids duplicate edges.
+ *
+ * Both `followerId` and `followingId` are indexed, enabling:
+ *   - "all followers of userId X": where('followingId', '==', X)
+ *   - "all users userId X follows": where('followerId', '==', X)
+ *
+ * Queryable by:  followerId, followingId, createdAt
+ */
+export interface FollowDoc extends FirestoreDoc {
+  /** UID of the user who is following. */
+  followerId: string;
+  /** UID of the user being followed. */
+  followingId: string;
+}
+
+// ─── userSports  (top-level collection) ───────────────────────────────────────
+
+/**
+ * Top-level Firestore document: userSports/{userSportId}
+ *
+ * Global index of athlete sport enrollments.
+ * Enables cross-user discovery queries such as:
+ *   "all football athletes in California, class of 2026"
+ *   "all athletes playing basketball at D1 intent"
+ *
+ * Queryable by:  userId, sportId, season, accountType, classOf, state, isActive, createdAt
+ */
+export interface UserSportDoc extends UserFirestoreDoc {
+  sportId: string;
+  season?: string;
+  /** Display order / priority (0 = primary sport). */
+  order: number;
+  accountType: 'athlete' | 'coach' | 'parent' | 'scout';
+  positions?: string[];
+  classOf?: number;
+  state?: string;
+  /** Denormalized display name for full-text / listing queries. */
+  displayName?: string;
+  avatarUrl?: string;
+  isActive: boolean;
+}
+
+// ─── users/{uid}/xp  (private sub-collection) ─────────────────────────────────
+
+/**
+ * Sub-collection document: users/{uid}/xp/{entryId}
+ *
+ * Experience-point ledger — private to the athlete.
+ * Each document records a single XP event (award or deduction).
+ */
+export interface XpEntryDoc extends UserFirestoreDoc {
+  /** XP amount awarded (negative values = deductions). */
+  amount: number;
+  reason: string;
+  /** Action that triggered the XP award, e.g. 'post_created'. */
+  action: string;
+  /** Optional reference to the related entity (post ID, video ID, etc.). */
+  referenceId?: string;
+  referenceType?: string;
+  /** Running XP balance after this entry was applied. */
+  balance: number;
 }

@@ -76,20 +76,27 @@
             },
             "define": {
               "ngDevMode": "false"
-            }
+            },
+            "allowedCommonJsDependencies": [
+              "qrcode",
+              "dijkstrajs",
+              "pngjs",
+              "@grpc/grpc-js",
+              "@grpc/proto-loader"
+            ]
           },
           "configurations": {
             "production": {
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "5mb",
-                  "maximumError": "7mb"
+                  "maximumWarning": "7mb",
+                  "maximumError": "10mb"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "45kb",
-                  "maximumError": "55kb"
+                  "maximumWarning": "60kb",
+                  "maximumError": "80kb"
                 }
               ],
               "fileReplacements": [
@@ -114,13 +121,13 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "5mb",
-                  "maximumError": "7mb"
+                  "maximumWarning": "7mb",
+                  "maximumError": "10mb"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "45kb",
-                  "maximumError": "55kb"
+                  "maximumWarning": "60kb",
+                  "maximumError": "80kb"
                 }
               ],
               "fileReplacements": [

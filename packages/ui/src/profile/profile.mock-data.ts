@@ -1704,6 +1704,7 @@ export const MOCK_METRICS: AthleticStatsCategory[] = [
 
 export const MOCK_PROFILE_PAGE_DATA: ProfilePageData = {
   user: MOCK_PROFILE_USER,
+  aboutMe: MOCK_PROFILE_USER.aboutMe,
   followStats: MOCK_FOLLOW_STATS,
   quickStats: MOCK_QUICK_STATS,
   athleticStats: MOCK_ATHLETIC_STATS,
@@ -1777,6 +1778,7 @@ export const MOCK_EMPTY_PROFILE_DATA: ProfilePageData = {
     aboutMe: undefined,
     bannerImg: undefined,
   },
+  aboutMe: '',
   followStats: {
     followersCount: 0,
     followingCount: 0,

@@ -35,9 +35,19 @@ import {
   DestroyRef,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
 import { Router, ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed, toSignal, toObservable } from '@angular/core/rxjs-interop';
-import { distinctUntilChanged, first, switchMap, tap, filter } from 'rxjs';
+import {
+  distinctUntilChanged,
+  first,
+  forkJoin,
+  switchMap,
+  tap,
+  filter,
+  catchError,
+  of,
+} from 'rxjs';
 import {
   ProfileShellWebComponent,
   ProfileService as UiProfileService,
@@ -47,6 +57,7 @@ import {
   type RankingSource,
   userToProfilePageData,
 } from '@nxt1/ui/profile';
+
 import { NxtCtaBannerComponent } from '@nxt1/ui/components/cta-banner';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
@@ -55,13 +66,14 @@ import { NxtToastService } from '@nxt1/ui/services/toast';
 import { AuthModalService } from '@nxt1/ui/auth';
 import { QrCodeService } from '@nxt1/ui/qr-code';
 import { parseApiError, requiresAuth } from '@nxt1/core';
-import type { ProfileTabId, ProfileShareSource, User } from '@nxt1/core';
+import type { ProfileTabId, ProfileShareSource, User, UserSummary } from '@nxt1/core';
 import type { ApiResponse } from '@nxt1/core/profile';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { AuthFlowService } from '../auth/services';
 import { SeoService, AnalyticsService, ShareService } from '../../core/services';
 import { ProfileService as ApiProfileService } from './services/profile.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { environment } from '../../../environments/environment';
 
 @Component({
   selector: 'app-profile',
@@ -88,6 +100,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
     <!-- ═══ RELATED ATHLETES — Discovery Row (below profile shell) ═══ -->
     @defer (on viewport) {
       <nxt1-related-athletes
+        [athletes]="relatedAthletes()"
         [sport]="relatedSport()"
         [state]="relatedState()"
         (athleteClick)="onRelatedAthleteClick($event)"
@@ -154,6 +167,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * @see apps/web/src/app/features/profile/services/profile.service.ts
    */
   private readonly apiProfileService = inject(ApiProfileService);
+  private readonly http = inject(HttpClient);
 
   /**
    * Shared UI state service — single source of truth for the profile shell.
@@ -171,6 +185,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
    */
   private readonly fetchedProfile = signal<User | null>(null);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly relatedAthletes = signal<RelatedAthlete[]>([]);
 
   /** Whether current user is logged in (CTA banner hidden when authenticated) */
   protected readonly isLoggedIn = computed(() => this.authFlow.isAuthenticated());
@@ -232,12 +247,18 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * Route mode derived from the presence and shape of :param.
    * - 'me'       — no param  → load authenticated user's own profile
    * - 'unicode'  — param is purely numeric (e.g. '180798')  → lookup by unicode
+   * - 'userid'   — param looks like a Firebase UID (20-32 alphanum)  → lookup by userId
    * - 'username' — param contains non-digit chars (e.g. 'devmonster')  → lookup by username
    */
-  private readonly routeMode = computed<'me' | 'unicode' | 'username'>(() => {
+  private readonly routeMode = computed<'me' | 'unicode' | 'userid' | 'username'>(() => {
     const param = this.routeParam();
     if (!param) return 'me';
-    return /^\d+$/.test(param) ? 'unicode' : 'username';
+    if (/^\d+$/.test(param)) return 'unicode';
+    // Firebase UIDs: 20-32 chars, only alphanumeric (a-z A-Z 0-9), mixed case
+    if (/^[a-zA-Z0-9]{20,32}$/.test(param) && /[a-zA-Z]/.test(param) && /[0-9]/.test(param)) {
+      return 'userid';
+    }
+    return 'username';
   });
 
   /**
@@ -248,7 +269,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * uid is included so that logging in via auth modal triggers a re-fetch.
    */
   private readonly fetchSource = computed<{
-    mode: 'me' | 'unicode' | 'username';
+    mode: 'me' | 'unicode' | 'userid' | 'username';
     param: string;
     uid: string | undefined;
   } | null>(() => {
@@ -290,6 +311,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     const param = this.routeParam();
     if (mode === 'unicode') return user.unicode === param;
+    if (mode === 'userid') return user.uid === param;
     // username mode — compare against the username field on AppUser
     return user.username === param;
   });
@@ -370,7 +392,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
           (
             source
           ): source is {
-            mode: 'me' | 'unicode' | 'username';
+            mode: 'me' | 'unicode' | 'userid' | 'username';
             param: string;
             uid: string | undefined;
           } => source !== null
@@ -383,6 +405,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
             return this.apiProfileService.getProfile(uid!);
           }
           if (mode === 'unicode') return this.apiProfileService.getProfileByUnicode(param);
+          if (mode === 'userid') return this.apiProfileService.getProfile(param);
           return this.apiProfileService.getProfileByUsername(param);
         }),
         takeUntilDestroyed(this.destroyRef)
@@ -433,6 +456,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     // Pass the raw User so ProfileService can re-map tab content on sport switch.
     const profilePageData = userToProfilePageData(profile, isOwn);
     this.uiProfileService.loadFromExternalData(profilePageData, profile, isOwn);
+    this.fetchRelatedAthletes(profile);
 
     // profileMeta computed updates automatically via fetchedProfile signal
     const meta = this.profileMeta();
@@ -441,41 +465,55 @@ export class ProfileComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Fetch timeline posts from the sub-collection (independent of profile doc)
-    this.apiProfileService
-      .getProfileTimeline(profile.id)
-      .pipe(first())
-      .subscribe({
-        next: (resp) => {
-          if (resp.success) this.uiProfileService.setTimelinePosts(resp.data);
-        },
-        error: (err) => this.logger.warn('Failed to load timeline posts', { err }),
+    const activeSport = profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
+    const sportId = activeSport?.sport?.toLowerCase();
+    // Fetch all sub-collections in parallel — single subscription, parallel requests.
+    forkJoin({
+      timeline: this.apiProfileService.getProfileTimeline(profile.id).pipe(
+        catchError((err) => {
+          this.logger.warn('Failed to load timeline posts', { err });
+          return of({ success: false as const, data: [] });
+        })
+      ),
+      rankings: this.apiProfileService.getProfileRankings(profile.id).pipe(
+        catchError((err) => {
+          this.logger.warn('Failed to load rankings', { err });
+          return of({ success: false as const, data: [] });
+        })
+      ),
+      scoutReports: this.apiProfileService.getProfileScoutReports(profile.id).pipe(
+        catchError((err) => {
+          this.logger.warn('Failed to load scout reports', { err });
+          return of({ success: false as const, data: [] });
+        })
+      ),
+      videos: this.apiProfileService.getProfileVideos(profile.id).pipe(
+        catchError((err) => {
+          this.logger.warn('Failed to load videos', { err });
+          return of({ success: false as const, data: [] });
+        })
+      ),
+      schedule: this.apiProfileService.getProfileSchedule(profile.id, sportId).pipe(
+        catchError((err) => {
+          this.logger.warn('Failed to load schedule', { err });
+          return of({ success: false as const, data: [] });
+        })
+      ),
+    })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(({ timeline, rankings, scoutReports, videos, schedule }) => {
+        if (timeline.success) this.uiProfileService.setTimelinePosts(timeline.data);
+        if (rankings.success && rankings.data.length > 0) {
+          this.uiProfileService.setRankings(rankings.data as unknown as RankingSource[]);
+        }
+        if (scoutReports.success) this.uiProfileService.setScoutReports(scoutReports.data);
+        if (videos.success) this.uiProfileService.setVideoPosts(videos.data);
+        // Always call setScheduleEvents when API succeeds, even for empty arrays.
+        // This signals that real API data loaded (overrides embedded mock data).
+        if (schedule.success) {
+          this.uiProfileService.setScheduleEvents(schedule.data);
+        }
       });
-
-    // Fetch rankings from the user's rankings sub-collection
-    this.apiProfileService
-      .getProfileRankings(profile.id)
-      .pipe(first())
-      .subscribe({
-        next: (resp) => {
-          if (resp.success && resp.data.length > 0) {
-            this.uiProfileService.setRankings(resp.data as unknown as RankingSource[]);
-          }
-        },
-        error: (err) => this.logger.warn('Failed to load rankings', { err }),
-      });
-
-    // Fetch scout reports from the user's scoutReports sub-collection
-    this.apiProfileService
-      .getProfileScoutReports(profile.id)
-      .pipe(first())
-      .subscribe({
-        next: (resp) => {
-          if (resp.success) this.uiProfileService.setScoutReports(resp.data);
-        },
-        error: (err) => this.logger.warn('Failed to load scout reports', { err }),
-      });
-
     this.seo.updateForProfile(meta);
 
     this.logger.info('Profile SEO updated', {
@@ -491,6 +529,70 @@ export class ProfileComponent implements OnInit, OnDestroy {
       has_image: !!meta.imageUrl,
       sport: meta.sport,
     });
+  }
+
+  /**
+   * Fetch related athletes dynamically based on the current profile's sport + state.
+   * Fetches all athletes from the search API, then sorts/filters client-side:
+   *   1. Exclude current user
+   *   2. Require firstName
+   *   3. Score by relevance: same sport (+2), same state (+1)
+   *
+   * Sport is read from profile.sports[] array (activeSportIndex or first entry).
+   * UserSummary.primarySport is mapped server-side from the user's sports[] via docToUserSummary.
+   */
+  private fetchRelatedAthletes(profile: User): void {
+    // Read sport from sports[] — same source of truth as the rest of the app
+    const activeSport = profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
+    const sport = activeSport?.sport?.toLowerCase();
+    const state = profile.location?.state;
+
+    this.http
+      .get<{ success: boolean; data: UserSummary[] }>(
+        `${environment.apiURL}/auth/profile/search?limit=50`
+      )
+      .pipe(
+        catchError(() => of({ success: false as const, data: [] as UserSummary[] })),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((response) => {
+        if (!response.success) return;
+
+        const scored = response.data
+          .filter((u) => u.id !== profile.id && !!u.firstName)
+          .map((u) => {
+            // u.primarySport is derived server-side from u's sports[] via docToUserSummary
+            const uSport = u.primarySport?.toLowerCase();
+            const uState = u.location?.state;
+            const score = (sport && uSport === sport ? 2 : 0) + (state && uState === state ? 1 : 0);
+            return { u, score };
+          })
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 8);
+
+        const athletes: RelatedAthlete[] = scored.map(({ u }) => ({
+          id: u.id,
+          // Prefer numeric unicode for clean URLs (/profile/180798); fall back to Firebase UID
+          unicode: u.unicode ?? u.id,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          profileImg: u.profileImg ?? null,
+          sport: u.primarySport ?? '',
+          position: u.primaryPosition ?? '',
+          classYear: u.classOf ? String(u.classOf) : '',
+          school: '',
+          state: u.location?.state ?? '',
+          isVerified: u.verificationStatus === 'verified',
+          matchReason:
+            sport && u.primarySport?.toLowerCase() === sport
+              ? `Same sport · ${u.primarySport}`
+              : state && u.location?.state === state
+                ? `Same state · ${state}`
+                : 'Similar profile',
+        }));
+
+        this.relatedAthletes.set(athletes);
+      });
   }
 
   private handleProfileError(err: unknown): void {

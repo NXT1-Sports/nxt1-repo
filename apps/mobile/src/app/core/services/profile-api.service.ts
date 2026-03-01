@@ -19,7 +19,9 @@ import {
   type UpdateSportProfileRequest,
 } from '@nxt1/core/api';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
+import { type ProfilePost } from '@nxt1/core/profile';
 import { type User, type SportProfile } from '@nxt1/core/models';
+import { type ScoutReport } from '@nxt1/core/scout-reports';
 import { CACHE_CONFIG } from '@nxt1/core/cache';
 import { CapacitorHttpAdapter } from '../infrastructure';
 import { environment } from '../../../environments/environment';
@@ -129,6 +131,20 @@ export class ProfileApiService {
     return response;
   }
 
+  /**
+   * Get user profile by numeric unicode.
+   * Checks service-level cache (MEDIUM_TTL) before making a network request.
+   */
+  async getProfileByUnicode(unicode: string): Promise<ApiResponse<User>> {
+    const key = this.cacheKey(PROFILE_CACHE_KEYS.BY_UNICODE, unicode);
+    const cached = this.getFromCache(key);
+    if (cached) return cached;
+
+    const response = await this.api.getProfileByUnicode(unicode);
+    if (response.success) this.setCache(key, response);
+    return response;
+  }
+
   // ============================================
   // PROFILE UPDATES
   // ============================================
@@ -164,6 +180,95 @@ export class ProfileApiService {
    */
   async removeSport(userId: string, sportIndex: number): Promise<ApiResponse<void>> {
     return this.api.removeSport(userId, sportIndex);
+  }
+
+  // ============================================
+  // SUB-COLLECTIONS (Timeline, Rankings, Scout Reports, Videos)
+  // ============================================
+
+  /**
+   * Map a raw Firestore timeline/video document to ProfilePost.
+   */
+  private mapTimelineDoc(raw: Record<string, unknown>): ProfilePost {
+    const stats = (raw['stats'] as Record<string, number> | undefined) ?? {};
+    return {
+      id: (raw['id'] as string | undefined) ?? String(raw['_id'] ?? ''),
+      type: (raw['type'] as ProfilePost['type']) ?? 'text',
+      title: raw['title'] as string | undefined,
+      body: (raw['content'] as string | undefined) ?? '',
+      thumbnailUrl: raw['thumbnailUrl'] as string | undefined,
+      mediaUrl: raw['mediaUrl'] as string | undefined,
+      likeCount: stats['likes'] ?? 0,
+      commentCount: stats['comments'] ?? 0,
+      shareCount: stats['shares'] ?? 0,
+      viewCount: stats['views'],
+      duration: raw['duration'] as number | undefined,
+      isPinned: (raw['isPinned'] as boolean | undefined) ?? false,
+      createdAt: (raw['createdAt'] as string | undefined) ?? new Date().toISOString(),
+    };
+  }
+
+  /** GET /auth/profile/:userId/schedule?sportId=football */
+  async getProfileSchedule(
+    userId: string,
+    sportId?: string
+  ): Promise<{ success: boolean; data: Record<string, unknown>[] }> {
+    try {
+      const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
+      return await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
+        `${environment.apiUrl}/auth/profile/${userId}/schedule${queryParams}`
+      );
+    } catch {
+      return { success: false, data: [] };
+    }
+  }
+
+  /** GET /auth/profile/:userId/timeline */
+  async getProfileTimeline(userId: string): Promise<{ success: boolean; data: ProfilePost[] }> {
+    try {
+      const resp = await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
+        `${environment.apiUrl}/auth/profile/${userId}/timeline`
+      );
+      return { success: resp.success, data: (resp.data ?? []).map((d) => this.mapTimelineDoc(d)) };
+    } catch {
+      return { success: false, data: [] };
+    }
+  }
+
+  /** GET /auth/profile/:userId/rankings */
+  async getProfileRankings(
+    userId: string
+  ): Promise<{ success: boolean; data: Record<string, unknown>[] }> {
+    try {
+      return await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
+        `${environment.apiUrl}/auth/profile/${userId}/rankings`
+      );
+    } catch {
+      return { success: false, data: [] };
+    }
+  }
+
+  /** GET /auth/profile/:userId/scout-reports */
+  async getProfileScoutReports(userId: string): Promise<{ success: boolean; data: ScoutReport[] }> {
+    try {
+      return await this.http.get<{ success: boolean; data: ScoutReport[] }>(
+        `${environment.apiUrl}/auth/profile/${userId}/scout-reports`
+      );
+    } catch {
+      return { success: false, data: [] };
+    }
+  }
+
+  /** GET /auth/profile/:userId/videos */
+  async getProfileVideos(userId: string): Promise<{ success: boolean; data: ProfilePost[] }> {
+    try {
+      const resp = await this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
+        `${environment.apiUrl}/auth/profile/${userId}/videos`
+      );
+      return { success: resp.success, data: (resp.data ?? []).map((d) => this.mapTimelineDoc(d)) };
+    } catch {
+      return { success: false, data: [] };
+    }
   }
 
   // ============================================

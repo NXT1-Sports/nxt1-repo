@@ -5,6 +5,7 @@ import { map, tap } from 'rxjs/operators';
 import { environment } from '../../../../environments/environment';
 import { createProfileApi, type ProfileApi, type ApiResponse } from '@nxt1/core/profile';
 import { User, type ProfilePost, type NewsArticle, type ScoutReport } from '@nxt1/core';
+import type { ProfileEvent } from '@nxt1/core/profile';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
 import { CACHE_CONFIG } from '@nxt1/core/cache';
 import { AngularHttpAdapter } from '../../../core/infrastructure';
@@ -511,5 +512,64 @@ export class ProfileService {
     return this.http.get<{ success: boolean; data: ScoutReport[] }>(
       `${environment.apiURL}/auth/profile/${userId}/scout-reports`
     );
+  }
+
+  /**
+   * Get videos from the user's videos sub-collection.
+   * Maps raw Firestore video docs to ProfilePost (type: 'video' | 'highlight').
+   * GET /api/v1/auth/profile/:userId/videos
+   */
+  getProfileVideos(userId: string): Observable<{ success: boolean; data: ProfilePost[] }> {
+    return this.http
+      .get<{
+        success: boolean;
+        data: Record<string, unknown>[];
+      }>(`${environment.apiURL}/auth/profile/${userId}/videos`)
+      .pipe(
+        map((resp) => ({
+          success: resp.success,
+          data: (resp.data ?? []).map((d) => this.mapTimelineDoc(d)),
+        }))
+      );
+  }
+
+  /**
+   * Get scheduled events from the user's schedule sub-collection.
+   * Maps raw Firestore schedule docs to ProfileEvent.
+   * GET /api/v1/auth/profile/:userId/schedule?sportId=football
+   */
+  getProfileSchedule(
+    userId: string,
+    sportId?: string
+  ): Observable<{ success: boolean; data: ProfileEvent[] }> {
+    const SCHEDULE_TYPE_MAP: Record<string, ProfileEvent['type']> = {
+      game: 'game',
+      camp: 'camp',
+      visit: 'visit',
+      practice: 'practice',
+      tournament: 'game',
+      combine: 'combine',
+      showcase: 'showcase',
+    };
+    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
+    return this.http
+      .get<{
+        success: boolean;
+        data: Record<string, unknown>[];
+      }>(`${environment.apiURL}/auth/profile/${userId}/schedule${queryParams}`)
+      .pipe(
+        map((resp) => ({
+          success: resp.success,
+          data: (resp.data ?? []).map((raw) => ({
+            id: String(raw['id'] ?? ''),
+            type: SCHEDULE_TYPE_MAP[String(raw['eventType'] ?? '')] ?? 'other',
+            name: String(raw['title'] ?? raw['name'] ?? ''),
+            location: String(raw['location'] ?? ''),
+            startDate: raw['date'] ? String(raw['date']) : new Date().toISOString(),
+            opponent: raw['opponent'] ? String(raw['opponent']) : undefined,
+            result: raw['result'] ? String(raw['result']) : undefined,
+          })) as ProfileEvent[],
+        }))
+      );
   }
 }

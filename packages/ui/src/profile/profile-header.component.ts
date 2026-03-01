@@ -1195,7 +1195,15 @@ export class ProfileHeaderComponent {
 
   protected readonly hasMeasurables = computed(() => {
     const u = this.user();
-    return !!(u?.height || u?.weight || u?.gpa || u?.classYear || u?.sat || u?.act);
+    return !!(
+      u?.height ||
+      u?.weight ||
+      u?.gpa ||
+      u?.classYear ||
+      u?.sat ||
+      u?.act ||
+      u?.school?.name
+    );
   });
 
   /** Resolved measurables verification from new verifications[] or deprecated flat fields */

@@ -32,7 +32,7 @@
  * ```
  */
 
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, inject, signal, computed, InjectionToken } from '@angular/core';
 import {
   type NewsArticle,
   type NewsCategoryId,
@@ -47,7 +47,7 @@ import {
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
-// ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
+// Mock data — used only when no real API adapter is provided (dev / mobile stub)
 import {
   getMockArticlesByCategory,
   getMockRelatedArticles,
@@ -55,14 +55,44 @@ import {
   MOCK_READING_STATS,
 } from './news.mock-data';
 
+// ============================================
+// NEWS API ADAPTER INJECTION TOKEN
+// ============================================
+
+/**
+ * Interface that a platform-specific news API service must implement.
+ * Web provides NewsApiService; mobile can provide its own adapter.
+ */
+export interface INewsApiAdapter {
+  getFeed(
+    category: NewsCategoryId,
+    page: number,
+    limit: number
+  ): Promise<{ data: NewsArticle[]; pagination: NewsPagination }>;
+  toggleBookmark(articleId: string): Promise<void>;
+  getRelatedArticles(articleId: string, limit?: number): Promise<NewsArticle[]>;
+}
+
+/**
+ * Injection token for the news API adapter.
+ * Provide a platform-specific implementation in the app's providers.
+ * When not provided, the service falls back to built-in mock data.
+ *
+ * @example (web app, news.routes.ts)
+ * ```typescript
+ * providers: [{ provide: NEWS_API_ADAPTER, useExisting: NewsApiService }]
+ * ```
+ */
+export const NEWS_API_ADAPTER = new InjectionToken<INewsApiAdapter>('NEWS_API_ADAPTER');
+
 /**
  * News state management service.
  * Provides reactive state for the news interface.
  */
 @Injectable({ providedIn: 'root' })
 export class NewsService {
-  // ⚠️ TEMPORARY: API service commented out - using mock data
-  // private readonly api = inject(NewsApiService);
+  // Real API adapter — provided by the web/mobile app. Falls back to mock if absent.
+  private readonly apiAdapter = inject(NEWS_API_ADAPTER, { optional: true });
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('NewsService');
@@ -74,7 +104,7 @@ export class NewsService {
   private readonly _articles = signal<NewsArticle[]>([]);
   private readonly _activeCategory = signal<NewsCategoryId>(NEWS_DEFAULT_CATEGORY);
   private readonly _filters = signal<NewsFilter>({});
-  // ⚠️ TEMPORARY: Using mock badge counts
+  // ⚠️ FALLBACK: Using mock badge counts when no adapter is provided
   private readonly _badges = signal<Record<NewsCategoryId, number>>(MOCK_NEWS_BADGE_COUNTS);
   private readonly _isLoading = signal(false);
   private readonly _isLoadingMore = signal(false);
@@ -201,21 +231,26 @@ export class NewsService {
     this._articles.set([]);
 
     try {
-      // ⚠️ TEMPORARY: Using mock data
-      // const response = await this.api.getFeed({ categories: [category], limit: NEWS_PAGINATION_DEFAULTS.LIMIT });
-      await this.simulateNetworkDelay();
-      const articles = getMockArticlesByCategory(category);
+      if (this.apiAdapter) {
+        // Real API path
+        const result = await this.apiAdapter.getFeed(category, 1, NEWS_PAGINATION_DEFAULTS.LIMIT);
+        this._articles.set(result.data);
+        this._pagination.set(result.pagination);
+      } else {
+        // Mock fallback (dev / mobile stub)
+        await this.simulateNetworkDelay();
+        const articles = getMockArticlesByCategory(category);
+        this._articles.set(articles);
+        this._pagination.set({
+          page: 1,
+          limit: NEWS_PAGINATION_DEFAULTS.LIMIT,
+          total: articles.length,
+          totalPages: Math.ceil(articles.length / NEWS_PAGINATION_DEFAULTS.LIMIT),
+          hasMore: articles.length > NEWS_PAGINATION_DEFAULTS.LIMIT,
+        });
+      }
 
-      this._articles.set(articles);
-      this._pagination.set({
-        page: 1,
-        limit: NEWS_PAGINATION_DEFAULTS.LIMIT,
-        total: articles.length,
-        totalPages: Math.ceil(articles.length / NEWS_PAGINATION_DEFAULTS.LIMIT),
-        hasMore: articles.length > NEWS_PAGINATION_DEFAULTS.LIMIT,
-      });
-
-      this.logger.debug('Feed loaded successfully', { count: articles.length });
+      this.logger.debug('Feed loaded successfully', { count: this._articles().length });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load news';
       this._error.set(message);
@@ -236,21 +271,20 @@ export class NewsService {
     this._isLoadingMore.set(true);
 
     try {
-      // ⚠️ TEMPORARY: Simulating load more with delay
-      await this.simulateNetworkDelay(500);
-      // In real implementation:
-      // const response = await this.api.getFeed({ page: pagination.page + 1 });
-      // this._articles.update(current => [...current, ...response.data]);
-
-      this._pagination.update((p) =>
-        p
-          ? {
-              ...p,
-              page: p.page + 1,
-              hasMore: false, // Mock: no more pages
-            }
-          : null
-      );
+      if (this.apiAdapter) {
+        const nextPage = pagination.page + 1;
+        const result = await this.apiAdapter.getFeed(
+          this._activeCategory(),
+          nextPage,
+          pagination.limit
+        );
+        this._articles.update((current) => [...current, ...result.data]);
+        this._pagination.set(result.pagination);
+      } else {
+        // Mock fallback: simulate no more pages
+        await this.simulateNetworkDelay(500);
+        this._pagination.update((p) => (p ? { ...p, page: p.page + 1, hasMore: false } : null));
+      }
 
       await this.haptics.impact('light');
     } catch (err) {
@@ -356,9 +390,12 @@ export class NewsService {
     }
 
     try {
-      // ⚠️ TEMPORARY: Simulating API call
-      // await this.api.toggleBookmark(articleId);
-      await this.simulateNetworkDelay(200);
+      if (this.apiAdapter) {
+        await this.apiAdapter.toggleBookmark(articleId);
+      } else {
+        // Mock fallback
+        await this.simulateNetworkDelay(200);
+      }
 
       const article = this._articles().find((a) => a.id === articleId);
       if (article?.isBookmarked) {
@@ -410,6 +447,17 @@ export class NewsService {
    * Get related articles for current article.
    */
   getRelatedArticles(articleId: string): NewsArticle[] {
+    // For sync callers — return mock. Async variant used by components with adapter.
+    return getMockRelatedArticles(articleId, 3);
+  }
+
+  /**
+   * Get related articles (async, uses real API when adapter is available).
+   */
+  async getRelatedArticlesAsync(articleId: string): Promise<NewsArticle[]> {
+    if (this.apiAdapter) {
+      return this.apiAdapter.getRelatedArticles(articleId, 3);
+    }
     return getMockRelatedArticles(articleId, 3);
   }
 

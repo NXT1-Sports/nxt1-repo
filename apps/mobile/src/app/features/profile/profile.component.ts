@@ -21,7 +21,14 @@
  * - Deep link handling (future)
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, DestroyRef } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  signal,
+  DestroyRef,
+} from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { map, distinctUntilChanged, switchMap, tap, from, of, combineLatest, filter } from 'rxjs';
@@ -30,19 +37,25 @@ import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular
 // Shared UI from @nxt1/ui (95% of the code)
 import {
   ProfileShellComponent,
+  RelatedAthletesComponent,
   EditProfileBottomSheetService,
   ManageTeamBottomSheetService,
   NxtSidenavService,
   ProfileService as UiProfileService,
   userToProfilePageData,
+  type RelatedAthlete,
+  type RankingSource,
 } from '@nxt1/ui';
 import { parseApiError, requiresAuth } from '@nxt1/core';
-import type { User } from '@nxt1/core';
+import type { User, UserSummary, ProfileTabId } from '@nxt1/core';
+import type { ProfileEvent } from '@nxt1/core/profile';
 
 // Mobile-specific services
 import { MobileAuthService } from '../auth/services/mobile-auth.service';
 import { ShareService } from '../../core/services/share.service';
 import { ProfileApiService } from '../../core/services/profile-api.service';
+import { CapacitorHttpAdapter } from '../../core/infrastructure';
+import { environment } from '../../../environments/environment';
 
 /**
  * Mobile Profile Feature Component
@@ -59,7 +72,7 @@ import { ProfileApiService } from '../../core/services/profile-api.service';
 @Component({
   selector: 'app-profile',
   standalone: true,
-  imports: [IonHeader, IonContent, IonToolbar, ProfileShellComponent],
+  imports: [IonHeader, IonContent, IonToolbar, ProfileShellComponent, RelatedAthletesComponent],
   template: `
     <ion-header class="ion-no-border" [translucent]="true">
       <ion-toolbar></ion-toolbar>
@@ -68,13 +81,29 @@ import { ProfileApiService } from '../../core/services/profile-api.service';
       <nxt1-profile-shell
         [currentUser]="currentUser()"
         [profileUnicode]="profileUnicode()"
+        [isOwnProfile]="isOwnProfile()"
         [skipInternalLoad]="true"
         (avatarClick)="onAvatarClick()"
         (backClick)="onBackClick()"
+        (tabChange)="onTabChange($event)"
         (editProfileClick)="onEditProfile()"
         (editTeamClick)="onEditTeam()"
         (shareClick)="onShare()"
+        (followClick)="onFollow()"
+        (qrCodeClick)="onQrCode()"
+        (aiSummaryClick)="onAiSummary()"
+        (createPostClick)="onCreatePost()"
       />
+
+      @if (relatedAthletes().length > 0) {
+        <nxt1-related-athletes
+          [athletes]="relatedAthletes()"
+          [sport]="relatedSport()"
+          [state]="relatedState()"
+          (athleteClick)="onRelatedAthleteClick($event)"
+          (seeAllClick)="onSeeAllRelated()"
+        />
+      }
     </ion-content>
   `,
   styles: `
@@ -117,10 +146,30 @@ export class ProfileComponent {
   private readonly profileApiService = inject(ProfileApiService);
   private readonly shareService = inject(ShareService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly http = inject(CapacitorHttpAdapter);
 
   // ============================================
   // STATE
   // ============================================
+
+  protected readonly relatedAthletes = signal<RelatedAthlete[]>([]);
+  private readonly fetchedProfile = signal<User | null>(null);
+  protected readonly relatedSport = computed<string>(() => {
+    const profile = this.fetchedProfile();
+    const activeSport = profile?.sports?.[profile.activeSportIndex ?? 0] ?? profile?.sports?.[0];
+    return activeSport?.sport || 'Football';
+  });
+
+  /** State/region context for the Related Athletes section */
+  protected readonly relatedState = computed<string>(() => {
+    return this.fetchedProfile()?.location?.state || 'your area';
+  });
+
+  /** Whether current user is viewing their own profile */
+  protected readonly isOwnProfile = signal(false);
+
+  /** Resolved unicode from fetched profile — empty string while loading */
+  protected readonly resolvedUnicode = signal('');
 
   /**
    * Raw route param — empty string means own profile (/profile),
@@ -133,22 +182,32 @@ export class ProfileComponent {
 
   /**
    * Forwarded to ProfileShellComponent as profileUnicode input.
-   * Data loading is always handled externally by this component.
+   * Uses resolved unicode from fetched profile (not raw route param).
+   * Falls back to auth user's unicode while loading own profile.
    */
-  protected readonly profileUnicode = this.routeParam;
+  protected readonly profileUnicode = this.resolvedUnicode;
 
   /** Current authenticated user for header display */
   protected readonly currentUser = computed(() => {
-    const user = this.authService.user();
-    if (!user) return null;
-
-    return {
-      profileImg: user.profileImg ?? null,
-      displayName: user.displayName ?? 'User',
-    };
+    if (this.isOwnProfile()) {
+      const user = this.authService.user();
+      if (!user) return null;
+      return {
+        profileImg: user.profileImg ?? null,
+        displayName: user.displayName ?? 'User',
+      };
+    } else {
+      const profile = this.fetchedProfile();
+      if (!profile) return null;
+      return {
+        profileImg: profile.profileImg ?? null,
+        displayName: `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim() || 'Athlete',
+      };
+    }
   });
 
   constructor() {
+    this.destroyRef.onDestroy(() => this.uiProfileService.startLoading());
     /**
      * Bridge: fetch real API data → push into UIProfileService.
      * distinctUntilChanged prevents duplicate fetches when signals re-emit
@@ -183,14 +242,28 @@ export class ProfileComponent {
             );
           }
 
-          // Case 2: /profile/:unicode (numeric) — load by ID
-          // Case 3: /profile/:username (string) — load by username
-          const isNumeric = /^\d+$/.test(param);
-          const request$ = isNumeric
-            ? from(this.profileApiService.getProfile(param))
-            : from(this.profileApiService.getProfileByUsername(param));
+          // Case 2: numeric unicode — lookup by unicode
+          if (/^\d+$/.test(param)) {
+            return from(this.profileApiService.getProfileByUnicode(param)).pipe(
+              map((res) => ({
+                ...res,
+                _isOwnProfile: !!(res.success && res.data && res.data.id === authUser?.uid),
+              }))
+            );
+          }
 
-          return request$.pipe(
+          // Case 3: Firebase UID (20-32 alphanum chars, mixed case) — lookup by userId
+          if (/^[a-zA-Z0-9]{20,32}$/.test(param) && /[a-zA-Z]/.test(param) && /[0-9]/.test(param)) {
+            return from(this.profileApiService.getProfile(param)).pipe(
+              map((res) => ({
+                ...res,
+                _isOwnProfile: !!(res.success && res.data && res.data.id === authUser?.uid),
+              }))
+            );
+          }
+
+          // Case 4: username — lookup by username
+          return from(this.profileApiService.getProfileByUsername(param)).pipe(
             map((res) => ({
               ...res,
               _isOwnProfile: !!(res.success && res.data && res.data.id === authUser?.uid),
@@ -202,8 +275,18 @@ export class ProfileComponent {
       .subscribe({
         next: (response) => {
           if (response.success && response.data) {
-            const profilePageData = userToProfilePageData(response.data, response._isOwnProfile);
-            this.uiProfileService.loadFromExternalData(profilePageData);
+            const profile = response.data;
+            this.fetchedProfile.set(profile);
+            const isOwn = response._isOwnProfile;
+            this.isOwnProfile.set(isOwn);
+            this.resolvedUnicode.set(profile.unicode ?? profile.id ?? '');
+            const profilePageData = userToProfilePageData(profile, isOwn);
+            this.uiProfileService.loadFromExternalData(profilePageData, profile, isOwn);
+            this.fetchRelatedAthletes(profile);
+            const activeSport =
+              profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
+            const sportId = activeSport?.sport?.toLowerCase();
+            void this.fetchSubCollections(profile.id, sportId);
           } else {
             this.uiProfileService.setError(response.error ?? 'Failed to load profile');
           }
@@ -221,6 +304,138 @@ export class ProfileComponent {
   // ============================================
   // ACTIONS
   // ============================================
+
+  /**
+   * Fetch timeline, rankings, scout reports, videos, schedule in parallel.
+   * Mirrors the web forkJoin pattern — all sub-collections loaded after the main profile.
+   * @param userId - User ID to fetch data for
+   * @param sportId - Optional sport filter (e.g. 'football', 'basketball') for schedule events
+   */
+  private async fetchSubCollections(userId: string, sportId?: string): Promise<void> {
+    const [timeline, rankings, scoutReports, videos, schedule] = await Promise.all([
+      this.profileApiService.getProfileTimeline(userId),
+      this.profileApiService.getProfileRankings(userId),
+      this.profileApiService.getProfileScoutReports(userId),
+      this.profileApiService.getProfileVideos(userId),
+      this.profileApiService.getProfileSchedule(userId, sportId),
+    ]);
+
+    if (timeline.success) this.uiProfileService.setTimelinePosts(timeline.data);
+    if (rankings.success && rankings.data.length > 0) {
+      this.uiProfileService.setRankings(rankings.data as unknown as RankingSource[]);
+    }
+    if (scoutReports.success) this.uiProfileService.setScoutReports(scoutReports.data);
+    if (videos.success) this.uiProfileService.setVideoPosts(videos.data);
+
+    // Always call setScheduleEvents when API succeeds, even for empty arrays.
+    // This ensures _scheduleEvents is non-null and overrides embedded mock data.
+    // If we don't call it, _scheduleEvents stays null → events computed falls back to mock.
+    if (schedule.success) {
+      const SCHEDULE_TYPE_MAP: Record<string, ProfileEvent['type']> = {
+        game: 'game',
+        camp: 'camp',
+        visit: 'visit',
+        practice: 'practice',
+        tournament: 'game',
+        combine: 'combine',
+        showcase: 'showcase',
+      };
+      const events: ProfileEvent[] = schedule.data.map((raw) => ({
+        id: String(raw['id'] ?? ''),
+        type: SCHEDULE_TYPE_MAP[String(raw['eventType'] ?? '')] ?? 'other',
+        name: String(raw['title'] ?? raw['name'] ?? ''),
+        location: String(raw['location'] ?? ''),
+        startDate: raw['date'] ? String(raw['date']) : new Date().toISOString(),
+        opponent: raw['opponent'] ? String(raw['opponent']) : undefined,
+        result: raw['result'] ? String(raw['result']) : undefined,
+      }));
+      this.uiProfileService.setScheduleEvents(events);
+    } else {
+      console.warn('[Mobile Profile] Schedule API failed:', schedule);
+    }
+  }
+
+  /**
+   * Fetch related athletes dynamically based on current profile's sport + state.
+   * Uses CapacitorHttpAdapter (same as all other mobile API calls).
+   * Scoring: same sport (+2), same state (+1) → top 8.
+   */
+  private async fetchRelatedAthletes(profile: User): Promise<void> {
+    const activeSport = profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
+    const sport = activeSport?.sport?.toLowerCase();
+    const state = profile.location?.state;
+
+    try {
+      const response = await this.http.get<{ success: boolean; data: UserSummary[] }>(
+        `${environment.apiUrl}/auth/profile/search?limit=50`
+      );
+
+      if (!response.success) return;
+
+      const scored = response.data
+        .filter((u) => u.id !== profile.id && !!u.firstName)
+        .map((u) => {
+          const uSport = u.primarySport?.toLowerCase();
+          const uState = u.location?.state;
+          const score = (sport && uSport === sport ? 2 : 0) + (state && uState === state ? 1 : 0);
+          return { u, score };
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8);
+
+      const athletes: RelatedAthlete[] = scored.map(({ u }) => ({
+        id: u.id,
+        unicode: u.unicode ?? u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        profileImg: u.profileImg ?? null,
+        sport: u.primarySport ?? '',
+        position: u.primaryPosition ?? '',
+        classYear: u.classOf ? String(u.classOf) : '',
+        school: '',
+        state: u.location?.state ?? '',
+        isVerified: u.verificationStatus === 'verified',
+        matchReason:
+          sport && u.primarySport?.toLowerCase() === sport
+            ? `Same sport · ${u.primarySport}`
+            : state && u.location?.state === state
+              ? `Same state · ${state}`
+              : 'Similar profile',
+      }));
+
+      this.relatedAthletes.set(athletes);
+    } catch {
+      // Non-critical — silently ignore if fetch fails
+    }
+  }
+
+  /**
+   * Handle related athlete card click — navigate to their profile.
+   */
+  protected onRelatedAthleteClick(athlete: RelatedAthlete): void {
+    void this.navController.navigateForward(`/profile/${athlete.unicode}`);
+  }
+
+  /**
+   * Handle "See All" related athletes — navigate to explore with sport filter.
+   */
+  protected onSeeAllRelated(): void {
+    void this.navController.navigateForward(`/explore?sport=${this.relatedSport()}`);
+  }
+
+  /**
+   * Handle tab changes — re-fetch timeline when switching to it so data stays fresh.
+   */
+  protected onTabChange(tab: ProfileTabId): void {
+    if (tab === 'timeline') {
+      const userId = this.fetchedProfile()?.id;
+      if (userId) {
+        void this.profileApiService.getProfileTimeline(userId).then((resp) => {
+          if (resp.success) this.uiProfileService.setTimelinePosts(resp.data);
+        });
+      }
+    }
+  }
 
   /**
    * Opens the sidenav (mobile pattern - avatar opens sidenav).
@@ -261,6 +476,37 @@ export class ProfileComponent {
       // Team was saved - could trigger refresh here if needed
       // The ManageTeamService should handle data refresh internally
     }
+  }
+
+  /**
+   * Handle follow button tap.
+   */
+  protected onFollow(): void {
+    // TODO: implement follow/unfollow with auth guard
+  }
+
+  /**
+   * Handle QR code tap — navigate to QR code page or open sheet.
+   */
+  protected onQrCode(): void {
+    const unicode = this.resolvedUnicode();
+    if (unicode) {
+      void this.navController.navigateForward(`/profile/${unicode}/qr`);
+    }
+  }
+
+  /**
+   * Handle AI summary tap.
+   */
+  protected onAiSummary(): void {
+    // TODO: open AI summary sheet
+  }
+
+  /**
+   * Handle create post tap.
+   */
+  protected onCreatePost(): void {
+    void this.navController.navigateForward('/post/create');
   }
 
   /**

@@ -70,8 +70,21 @@ export class ProfileService {
   private readonly _rankings = signal<RankingSource[]>(MOCK_RANKINGS);
   private readonly _scoutReports = signal<readonly ScoutReport[]>([]);
   private readonly _activityFeedItems = signal<readonly FeedPost[]>([]);
-  /** Timeline posts loaded from the user's timeline sub-collection */
+  /** Timeline posts loaded from the user’s timeline sub-collection */
   private readonly _timelinePosts = signal<readonly ProfilePost[]>([]);
+  /** Videos loaded from the user’s videos sub-collection */
+  private readonly _videoPosts = signal<readonly ProfilePost[]>([]); /**
+   * Schedule events fetched from the API sub-collection.
+   * `null` = not yet fetched (fall back to embedded sports[].upcomingEvents).
+   * Non-null (even []) = authoritative API result; overrides embedded data.
+   * Stored separately from _profileData so switchSport() cannnot overwrite it.
+   */
+  private readonly _scheduleEvents = signal<readonly ProfileEvent[] | null>(
+    null
+  ); /** Active season filter (‘season’ field value, or null = all) */
+  private readonly _activeSeason = signal<string | null>(null);
+  /** Active sportId filter (sport name/id, or null = all) */
+  private readonly _activeSportFilter = signal<string | null>(null);
 
   // ============================================
   // PUBLIC COMPUTED SIGNALS (READ-ONLY)
@@ -115,7 +128,39 @@ export class ProfileService {
 
   /** All posts — sourced from the user's timeline sub-collection */
   readonly allPosts = computed(() => this._timelinePosts());
+  /** Videos from the dedicated videos sub-collection (falls back to timeline video-type posts) */
+  readonly videoPosts = computed<readonly ProfilePost[]>(() => {
+    const dedicated = this._videoPosts();
+    if (dedicated.length > 0) return dedicated;
+    return this.allPosts().filter((p: ProfilePost) => p.type === 'video' || p.type === 'highlight');
+  });
 
+  /** Currently active season filter (null → all seasons shown) */
+  readonly activeSeason = computed(() => this._activeSeason());
+
+  /** Currently active sportId filter (null → active sport, no extra filter) */
+  readonly activeSportFilter = computed(() => this._activeSportFilter());
+
+  /**
+   * Game log filtered by activeSeason.
+   * When activeSeason is null all rows are returned unchanged.
+   */
+  readonly filteredGameLog = computed(() => {
+    const log = this.gameLog();
+    const season = this._activeSeason();
+    if (!season) return log;
+    return log.filter((entry) => String((entry as { season?: unknown }).season ?? '') === season);
+  });
+
+  /** Unique seasons available in the full game log (for season picker UI) */
+  readonly availableSeasons = computed<readonly string[]>(() => {
+    const seen = new Set<string>();
+    for (const entry of this.gameLog()) {
+      const s = String((entry as { season?: unknown }).season ?? '');
+      if (s) seen.add(s);
+    }
+    return Array.from(seen).sort().reverse();
+  });
   /** All recruiting activity (unified) */
   readonly recruitingActivity = computed<readonly ProfileRecruitingActivity[]>(
     () => this._profileData()?.recruitingActivity ?? this._profileData()?.offers ?? []
@@ -163,8 +208,10 @@ export class ProfileService {
   /** Awards list */
   readonly awards = computed(() => this._profileData()?.user?.awards ?? []);
 
-  /** Events list (schedule items — games, practices, etc.) */
-  readonly events = computed(() => this._profileData()?.events ?? []);
+  /** Events list (schedule items — games, practices, etc.)
+   * Prefers API-fetched _scheduleEvents when available (non-null),
+   * falls back to embedded sports[].upcomingEvents from _profileData. */
+  readonly events = computed(() => this._scheduleEvents() ?? this._profileData()?.events ?? []);
 
   /** Player card data (Agent X / Madden-style) */
   readonly playerCard = computed(() => this._profileData()?.playerCard ?? null);
@@ -265,24 +312,11 @@ export class ProfileService {
 
   /** Filtered posts based on active tab */
   readonly filteredPosts = computed<readonly ProfilePost[]>(() => {
-    const posts = this.allPosts();
     const tab = this._activeTab();
-
-    if (tab === 'timeline') {
-      return posts;
-    }
-
-    if (tab === 'videos') {
-      return posts.filter((p: ProfilePost) => p.type === 'video' || p.type === 'highlight');
-    }
-
+    if (tab === 'timeline') return this.allPosts();
+    if (tab === 'videos') return this.videoPosts();
     return [];
   });
-
-  /** Video posts only */
-  readonly videoPosts = computed(() =>
-    this.allPosts().filter((p: ProfilePost) => p.type === 'video' || p.type === 'highlight')
-  );
 
   /** News posts only */
   readonly newsPosts = computed(() =>
@@ -425,8 +459,12 @@ export class ProfileService {
     this._profileData.set(null);
     // Clear stale sub-collection data from previous profile (singleton service).
     this._timelinePosts.set([]);
+    this._videoPosts.set([]);
     this._rankings.set(MOCK_RANKINGS);
     this._scoutReports.set([]);
+    this._scheduleEvents.set(null);
+    this._activeSeason.set(null);
+    this._activeSportFilter.set(null);
   }
 
   /**
@@ -442,7 +480,31 @@ export class ProfileService {
   }
 
   /**
-   * Push timeline posts loaded from the user's timeline sub-collection.
+   * Push videos loaded from the user’s videos sub-collection.
+   * Called by the platform wrapper after fetching GET /auth/profile/:userId/videos.
+   */
+  setVideoPosts(videos: readonly ProfilePost[]): void {
+    this._videoPosts.set(videos);
+  }
+
+  /**
+   * Set active season filter.
+   * Pass null to clear the filter and show all seasons.
+   */
+  setActiveSeason(season: string | null): void {
+    this._activeSeason.set(season);
+  }
+
+  /**
+   * Set active sportId/sport-name filter for sub-collection data.
+   * Pass null to clear the filter.
+   */
+  setActiveSportFilter(sportId: string | null): void {
+    this._activeSportFilter.set(sportId);
+  }
+
+  /**
+   * Push timeline posts loaded from the user’s timeline sub-collection.
    * Called by the platform wrapper after fetching GET /auth/profile/:userId/timeline.
    */
   setTimelinePosts(posts: readonly ProfilePost[]): void {
@@ -463,6 +525,16 @@ export class ProfileService {
    */
   setScoutReports(reports: readonly ScoutReport[]): void {
     this._scoutReports.set(reports);
+  }
+
+  /**
+   * Store schedule events fetched from GET /auth/profile/:userId/schedule.
+   * Stored in a separate signal so sport-switching (switchSport) cannot
+   * overwrite API data by re-running userToProfilePageData.
+   * Non-null value overrides the embedded sports[].upcomingEvents data.
+   */
+  setScheduleEvents(events: readonly ProfileEvent[]): void {
+    this._scheduleEvents.set(events);
   }
 
   /**
@@ -685,6 +757,10 @@ export class ProfileService {
     this._isEditMode.set(false);
     this._editSection.set(null);
     this._activeSportIndex.set(0);
+    this._videoPosts.set([]);
+    this._activeSeason.set(null);
+    this._activeSportFilter.set(null);
+    this._scheduleEvents.set(null);
   }
 
   // ============================================

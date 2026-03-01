@@ -623,9 +623,12 @@ export {
   ProfileTimelineComponent,
   ProfileOffersComponent,
   ProfileSkeletonComponent,
+  RelatedAthletesComponent,
   // Types
   type ProfileShellUser,
   type ProfileSkeletonVariant,
+  type RelatedAthlete,
+  type RankingSource,
   // Mock Data (Development)
   MOCK_PROFILE_USER,
   MOCK_FOLLOW_STATS,

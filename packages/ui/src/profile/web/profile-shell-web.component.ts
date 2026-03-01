@@ -692,6 +692,24 @@ interface StatsComparisonItem {
                                     }}</span>
                                   </div>
                                 }
+                                @if (profile.user()?.gpa) {
+                                  <div class="ov-profile-row">
+                                    <span class="ov-profile-key">GPA:</span>
+                                    <span class="ov-profile-val">{{ profile.user()?.gpa }}</span>
+                                  </div>
+                                }
+                                @if (profile.user()?.sat) {
+                                  <div class="ov-profile-row">
+                                    <span class="ov-profile-key">SAT:</span>
+                                    <span class="ov-profile-val">{{ profile.user()?.sat }}</span>
+                                  </div>
+                                }
+                                @if (profile.user()?.act) {
+                                  <div class="ov-profile-row">
+                                    <span class="ov-profile-key">ACT:</span>
+                                    <span class="ov-profile-val">{{ profile.user()?.act }}</span>
+                                  </div>
+                                }
                               </div>
                             </div>
 

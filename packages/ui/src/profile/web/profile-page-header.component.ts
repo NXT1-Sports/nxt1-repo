@@ -584,7 +584,7 @@ export class ProfilePageHeaderComponent {
   protected readonly fullName = computed(() => {
     const u = this.user();
     if (!u) return '';
-    if (u.displayName?.trim()) return u.displayName.trim();
+    if (u.displayName) return u.displayName.trim();
     const combined = `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim();
     return combined || 'Profile';
   });

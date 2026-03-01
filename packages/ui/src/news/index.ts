@@ -35,8 +35,8 @@ export { NewsReadingProgressComponent } from './news-reading-progress.component'
 // ==============================================
 // SERVICES
 // ==============================================
-
-export { NewsService } from './news.service';
+export { NewsService, NEWS_API_ADAPTER } from './news.service';
+export type { INewsApiAdapter } from './news.service';
 export { NewsApiService, NEWS_API_BASE_URL } from './news-api.service';
 
 // ==============================================

@@ -39,6 +39,7 @@ import type {
   VerifiedMetric,
   ScheduleEvent,
   RecruitingActivity,
+  ProfileSeasonGameLog,
 } from '@nxt1/core';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -469,8 +470,14 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
       ? (sportAny['recruitingActivities'] as RecruitingActivity[]).map(recruitingActivityToProfile)
       : [];
 
+  const gameLog: readonly ProfileSeasonGameLog[] =
+    sportAny?.['verifiedGameLog'] && Array.isArray(sportAny['verifiedGameLog'])
+      ? (sportAny['verifiedGameLog'] as ProfileSeasonGameLog[])
+      : [];
+
   return {
     user: profileUser,
+    aboutMe: profileUser.aboutMe ?? '',
     followStats: {
       followersCount: counters?.followersCount ?? 0,
       followingCount: counters?.followingCount ?? 0,
@@ -490,6 +497,7 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     athleticStats: athleticStats.length ? athleticStats : undefined,
     metrics: metrics.length ? metrics : undefined,
     events: events.length ? events : undefined,
+    gameLog: gameLog.length ? gameLog : undefined,
     recruitingActivity: recruitingActivity.length ? recruitingActivity : undefined,
     // recentPosts is no longer embedded — loaded separately from the timeline sub-collection
     recentPosts: [],

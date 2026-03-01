@@ -132,6 +132,31 @@ export {
   getSocialUrl,
   getClassOf,
   getConnectedSource,
+  // ── Firestore Collection Models (top-level & private sub-collections) ──
+  type FirestoreDoc,
+  type UserFirestoreDoc,
+  type SportFirestoreDoc,
+  // Top-level collections
+  type PostType,
+  type PostVisibilityType,
+  type PostDoc,
+  type VideoDocType,
+  type VideoDoc,
+  type PlayerStatDoc,
+  type GameStatDoc,
+  type RankingCategory,
+  type RankingEntryDoc,
+  type OfferScholarshipType,
+  type OfferDivision,
+  type OfferDoc,
+  type RecruitingInteractionCategory,
+  type InteractionDoc,
+  type ScoutReportGrade,
+  type ScoutReportDoc,
+  type FollowDoc,
+  type UserSportDoc,
+  // Private sub-collections
+  type XpEntryDoc,
 } from './user.model';
 
 // ====================================

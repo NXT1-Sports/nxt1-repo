@@ -954,6 +954,9 @@ export interface PlayerCardData {
 export interface ProfilePageData {
   /** User profile data */
   readonly user: ProfileUser;
+
+  readonly aboutMe: string | undefined;
+
   /** Follow stats */
   readonly followStats: ProfileFollowStats;
   /** Quick stats/analytics */
