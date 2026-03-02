@@ -80,7 +80,6 @@ import { ProfileScheduleWebComponent } from './profile-schedule-web.component';
 import { ProfileContactWebComponent } from './profile-contact-web.component';
 import { ProfileAcademicWebComponent } from './profile-academic-web.component';
 import { ProfileMetricsWebComponent } from './profile-metrics-web.component';
-import { RelatedAthletesComponent } from './related-athletes.component';
 import { MOCK_SCOUT_REPORTS } from '../../scout-reports/scout-reports.mock-data';
 import type { ProfileShellUser } from '../profile-shell.component';
 
@@ -132,7 +131,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
     ProfileContactWebComponent,
     ProfileAcademicWebComponent,
     ProfileMetricsWebComponent,
-    RelatedAthletesComponent,
   ],
   template: `
     <main class="profile-main">
@@ -479,15 +477,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
             </div>
           </div>
         </div>
-
-        <!-- ═══ RELATED ATHLETES — Full-width section BELOW the profile shell ═══ -->
-        <section class="related-athletes-standalone">
-          <nxt1-related-athletes
-            [loading]="profile.isLoading()"
-            [sport]="profile.user()?.primarySport?.name || 'Football'"
-            [state]="profile.user()?.location || 'Local'"
-          />
-        </section>
       }
     </main>
   `,
@@ -526,17 +515,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
            content down.  Matches shell__content's flex layout. */
         display: flex;
         flex-direction: column;
-      }
-
-      /* ─── RELATED ATHLETES — standalone below shell ─── */
-      .related-athletes-standalone {
-        position: relative;
-        z-index: 6;
-        width: 100%;
-        max-width: 1400px;
-        margin: 0 auto;
-        padding: 0 32px 48px;
-        flex-shrink: 0;
       }
 
       /* ─── ERROR STATE ─── */
@@ -1256,9 +1234,6 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
           overflow-x: hidden;
           overflow-y: visible;
           max-width: 100vw;
-        }
-        .related-athletes-standalone {
-          padding: 0 16px 32px;
         }
         /* Mobile-only background optimization: lighter, sleeker halftone treatment */
         .stage-halftone-dots {

@@ -561,7 +561,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
         if (!response.success) return;
 
         const scored = response.data
-          .filter((u) => u.id !== profile.id && !!u.firstName)
+          .filter((u) => u.id !== profile.id && !!u.firstName && !!u.unicode)
           .map((u) => {
             // u.primarySport is derived server-side from u's sports[] via docToUserSummary
             const uSport = u.primarySport?.toLowerCase();
@@ -574,8 +574,8 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
         const athletes: RelatedAthlete[] = scored.map(({ u }) => ({
           id: u.id,
-          // Prefer numeric unicode for clean URLs (/profile/180798); fall back to Firebase UID
-          unicode: u.unicode ?? u.id,
+          // Use unicode for clean URLs (/profile/180798 or /profile/jayden-williams-2026)
+          unicode: u.unicode!,
           firstName: u.firstName,
           lastName: u.lastName,
           profileImg: u.profileImg ?? null,

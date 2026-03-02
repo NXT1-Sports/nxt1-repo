@@ -143,8 +143,8 @@ async function setupApplication() {
   app.use(createCacheMiddleware('redis'));
   app.use(cacheStatusMiddleware);
 
-  // Global Redis-based rate limiting
-  app.use(await getRedisRateLimiter('api'));
+  // Rate limiting is applied per-route via setupRoutes() to avoid double-counting
+  // See routeConfigs array below for granular rate limit configuration
 
   // ============================================================================
   // Health Checks
