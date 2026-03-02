@@ -86,8 +86,6 @@ import { StatsDashboardComponent } from '../../components/stats-dashboard/stats-
 import { ProfileContactComponent } from '../components/profile-contact.component';
 import { ProfileAcademicComponent } from '../components/profile-academic.component';
 import { ProfileMetricsComponent } from '../components/profile-metrics.component';
-import { MOCK_NEWS_ARTICLES } from '../../news/news.mock-data';
-import { MOCK_SCOUT_REPORTS } from '../../scout-reports/scout-reports.mock-data';
 import type { ProfileShellUser } from '../profile-shell.component';
 
 const TEAM_TYPE_LABELS: Readonly<Record<ProfileTeamType, string>> = {
@@ -1637,7 +1635,7 @@ export class ProfileShellWebComponent implements OnInit {
         {
           id: 'scouting',
           label: 'Scouting',
-          badge: MOCK_SCOUT_REPORTS.length || undefined,
+          badge: this.profile.scoutReports().length || undefined,
         },
       ],
       metrics: [
@@ -2048,8 +2046,8 @@ export class ProfileShellWebComponent implements OnInit {
 
   // ── News board items ──
 
-  /** Mock news articles for the shared NewsBoardComponent (UI setup — will be replaced with real API data). */
-  protected readonly newsBoardItems = computed(() => MOCK_NEWS_ARTICLES);
+  /** News articles from the dedicated news sub-collection (real API data). */
+  protected readonly newsBoardItems = computed(() => this.profile.newsArticles());
 
   /** Display name for schedule sidebar group. */
   private readonly scheduleTeamName = computed(() => {

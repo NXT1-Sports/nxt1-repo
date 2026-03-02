@@ -99,8 +99,6 @@ import {
 import { ScheduleBoardComponent } from '../components/schedule-board';
 import { StatsDashboardComponent } from '../components/stats-dashboard/stats-dashboard.component';
 import { NewsBoardComponent } from '../components/news-board/news-board.component';
-import { MOCK_NEWS_ARTICLES } from '../news/news.mock-data';
-import { MOCK_SCOUT_REPORTS } from '../scout-reports/scout-reports.mock-data';
 
 /**
  * User info passed from parent (web / mobile wrapper).
@@ -889,7 +887,7 @@ export class ProfileShellComponent implements OnInit {
         {
           id: 'scouting',
           label: 'Scouting',
-          badge: MOCK_SCOUT_REPORTS.length || undefined,
+          badge: this.profile.scoutReports().length || undefined,
         },
       ],
       metrics: [
@@ -1078,8 +1076,8 @@ export class ProfileShellComponent implements OnInit {
 
   // ── News board items ──
 
-  /** Map mock/real news articles into display-adapter items for the shared NewsBoardComponent. */
-  protected readonly newsBoardItems = computed(() => MOCK_NEWS_ARTICLES);
+  /** News articles from the dedicated news sub-collection (real API data). */
+  protected readonly newsBoardItems = computed(() => this.profile.newsArticles());
 
   private readonly scheduleTeamName = computed(() => {
     const user = this.profile.user();

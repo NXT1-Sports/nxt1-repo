@@ -22,6 +22,7 @@ import { PROFILE_CACHE_KEYS } from '@nxt1/core/profile';
 import { type ProfilePost } from '@nxt1/core/profile';
 import { type User, type SportProfile } from '@nxt1/core/models';
 import { type ScoutReport } from '@nxt1/core/scout-reports';
+import { type NewsArticle } from '@nxt1/core/news';
 import { CACHE_CONFIG } from '@nxt1/core/cache';
 import { CapacitorHttpAdapter } from '../infrastructure';
 import { environment } from '../../../environments/environment';
@@ -266,6 +267,18 @@ export class ProfileApiService {
         `${environment.apiUrl}/auth/profile/${userId}/videos`
       );
       return { success: resp.success, data: (resp.data ?? []).map((d) => this.mapTimelineDoc(d)) };
+    } catch {
+      return { success: false, data: [] };
+    }
+  }
+
+  /** GET /auth/profile/:userId/news */
+  async getProfileNews(userId: string): Promise<{ success: boolean; data: NewsArticle[] }> {
+    try {
+      const resp = await this.http.get<{ success: boolean; data: NewsArticle[] }>(
+        `${environment.apiUrl}/auth/profile/${userId}/news`
+      );
+      return { success: resp.success, data: resp.data ?? [] };
     } catch {
       return { success: false, data: [] };
     }

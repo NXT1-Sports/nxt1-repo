@@ -644,16 +644,6 @@ export {
   type ProfileSkeletonVariant,
   type RelatedAthlete,
   type RankingSource,
-  // Mock Data (Development)
-  MOCK_PROFILE_USER,
-  MOCK_FOLLOW_STATS,
-  MOCK_QUICK_STATS,
-  MOCK_PINNED_VIDEO,
-  MOCK_POSTS,
-  MOCK_OFFERS,
-  MOCK_ATHLETIC_STATS,
-  MOCK_EVENTS,
-  MOCK_PROFILE_PAGE_DATA,
 } from './profile';
 
 // ============================================

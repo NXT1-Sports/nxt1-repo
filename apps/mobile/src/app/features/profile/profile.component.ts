@@ -28,6 +28,7 @@ import {
   computed,
   signal,
   DestroyRef,
+  effect,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -208,6 +209,17 @@ export class ProfileComponent {
 
   constructor() {
     this.destroyRef.onDestroy(() => this.uiProfileService.startLoading());
+
+    // CRITICAL: Clear old profile data immediately when route params change
+    // This effect runs synchronously when routeParam changes, BEFORE the
+    // combineLatest pipe executes, preventing old data flash.
+    effect(() => {
+      const param = this.routeParam();
+      // Trigger on any param change (including undefined → value transitions)
+      // startLoading() will clear all old data synchronously
+      this.uiProfileService.startLoading();
+    });
+
     /**
      * Bridge: fetch real API data → push into UIProfileService.
      * distinctUntilChanged prevents duplicate fetches when signals re-emit
@@ -306,18 +318,19 @@ export class ProfileComponent {
   // ============================================
 
   /**
-   * Fetch timeline, rankings, scout reports, videos, schedule in parallel.
+   * Fetch timeline, rankings, scout reports, videos, schedule, news in parallel.
    * Mirrors the web forkJoin pattern — all sub-collections loaded after the main profile.
    * @param userId - User ID to fetch data for
    * @param sportId - Optional sport filter (e.g. 'football', 'basketball') for schedule events
    */
   private async fetchSubCollections(userId: string, sportId?: string): Promise<void> {
-    const [timeline, rankings, scoutReports, videos, schedule] = await Promise.all([
+    const [timeline, rankings, scoutReports, videos, schedule, news] = await Promise.all([
       this.profileApiService.getProfileTimeline(userId),
       this.profileApiService.getProfileRankings(userId),
       this.profileApiService.getProfileScoutReports(userId),
       this.profileApiService.getProfileVideos(userId),
       this.profileApiService.getProfileSchedule(userId, sportId),
+      this.profileApiService.getProfileNews(userId),
     ]);
 
     if (timeline.success) this.uiProfileService.setTimelinePosts(timeline.data);
@@ -326,6 +339,7 @@ export class ProfileComponent {
     }
     if (scoutReports.success) this.uiProfileService.setScoutReports(scoutReports.data);
     if (videos.success) this.uiProfileService.setVideoPosts(videos.data);
+    if (news.success) this.uiProfileService.setNewsArticles(news.data);
 
     // Always call setScheduleEvents when API succeeds, even for empty arrays.
     // This ensures _scheduleEvents is non-null and overrides embedded mock data.

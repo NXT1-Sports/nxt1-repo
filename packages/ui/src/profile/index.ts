@@ -92,16 +92,5 @@ export {
 // ============================================
 // MOCK DATA (Development Only)
 // ============================================
-
-export {
-  MOCK_PROFILE_USER,
-  MOCK_FOLLOW_STATS,
-  MOCK_QUICK_STATS,
-  MOCK_PINNED_VIDEO,
-  MOCK_POSTS,
-  MOCK_OFFERS,
-  MOCK_ATHLETIC_STATS,
-  MOCK_EVENTS,
-  MOCK_ACTIVITY_FEED_ITEMS,
-  MOCK_PROFILE_PAGE_DATA,
-} from './profile.mock-data';
+// Mock data is preserved in profile.mock-data.ts for development/testing
+// but no longer exported from the public API — production code uses real API data.

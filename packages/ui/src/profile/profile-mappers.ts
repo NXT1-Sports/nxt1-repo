@@ -458,12 +458,9 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
         ? verifiedMetricsToCategories(activeSport.verifiedMetrics)
         : [];
 
-  const events: ProfileEvent[] =
-    sportAny?.['upcomingEvents'] && Array.isArray(sportAny['upcomingEvents'])
-      ? (sportAny['upcomingEvents'] as ScheduleEvent[]).map(scheduleEventToProfileEvent)
-      : activeSport?.upcomingEvents?.length
-        ? activeSport.upcomingEvents.map(scheduleEventToProfileEvent)
-        : [];
+  // Events are now ONLY loaded from the dedicated /schedule API endpoint.
+  // Do NOT extract embedded upcomingEvents to prevent data flash/inconsistency.
+  // const events: ProfileEvent[] = [];
 
   const recruitingActivity: ProfileRecruitingActivity[] =
     sportAny?.['recruitingActivities'] && Array.isArray(sportAny['recruitingActivities'])
@@ -496,7 +493,8 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     },
     athleticStats: athleticStats.length ? athleticStats : undefined,
     metrics: metrics.length ? metrics : undefined,
-    events: events.length ? events : undefined,
+    // events: removed — now ONLY from dedicated /schedule API
+    events: undefined,
     gameLog: gameLog.length ? gameLog : undefined,
     recruitingActivity: recruitingActivity.length ? recruitingActivity : undefined,
     // recentPosts is no longer embedded — loaded separately from the timeline sub-collection

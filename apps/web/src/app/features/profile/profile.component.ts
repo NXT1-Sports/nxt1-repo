@@ -345,6 +345,17 @@ export class ProfileComponent implements OnInit, OnDestroy {
     // (ProfileService is providedIn:'root' — it persists across navigations).
     this.uiProfileService.startLoading();
 
+    // CRITICAL: Clear old profile data immediately when route params change
+    // This effect runs synchronously when fetchSource changes, BEFORE the
+    // toObservable pipe executes, preventing old data flash.
+    effect(() => {
+      const source = this.fetchSource();
+      if (source) {
+        // Route changed to a different profile — clear immediately
+        this.uiProfileService.startLoading();
+      }
+    });
+
     // SSR: own profile (/profile) — auth is not initialized server-side so no API fetch
     // happens during SSR. Set minimal noIndex meta so the empty shell HTML is never
     // accidentally crawled. This effect fires immediately on both SSR and client.
@@ -501,15 +512,22 @@ export class ProfileComponent implements OnInit, OnDestroy {
           return of({ success: false as const, data: [] });
         })
       ),
+      news: this.apiProfileService.getProfileNews(profile.id).pipe(
+        catchError((err) => {
+          this.logger.warn('Failed to load news articles', { err });
+          return of({ success: false as const, data: [] });
+        })
+      ),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(({ timeline, rankings, scoutReports, videos, schedule }) => {
+      .subscribe(({ timeline, rankings, scoutReports, videos, schedule, news }) => {
         if (timeline.success) this.uiProfileService.setTimelinePosts(timeline.data);
         if (rankings.success && rankings.data.length > 0) {
           this.uiProfileService.setRankings(rankings.data as unknown as RankingSource[]);
         }
         if (scoutReports.success) this.uiProfileService.setScoutReports(scoutReports.data);
         if (videos.success) this.uiProfileService.setVideoPosts(videos.data);
+        if (news.success) this.uiProfileService.setNewsArticles(news.data);
         // Always call setScheduleEvents when API succeeds, even for empty arrays.
         // This signals that real API data loaded (overrides embedded mock data).
         if (schedule.success) {

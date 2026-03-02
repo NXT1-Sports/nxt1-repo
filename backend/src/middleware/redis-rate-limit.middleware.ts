@@ -117,9 +117,13 @@ export async function createRedisRateLimit(type: RateLimitType = 'api') {
   const config = RATE_LIMIT_CONFIGS[type];
   const store = await getRedisStore();
 
+  // Development override - much higher limits for local dev
+  const isDev = process.env['NODE_ENV'] !== 'production';
+  const maxRequests = isDev ? 10000 : config.max;
+
   return rateLimit({
     windowMs: config.windowMs,
-    max: config.max,
+    max: maxRequests,
     standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

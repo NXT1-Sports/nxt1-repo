@@ -21,6 +21,7 @@ import {
   type FeedPost,
   type User,
   type ScoutReport,
+  type NewsArticle,
   PROFILE_DEFAULT_TAB,
   profileUserToFeedAuthor,
   buildUnifiedActivityFeed,
@@ -35,7 +36,7 @@ import {
   getMockOwnProfileData,
   MOCK_ACTIVITY_FEED_ITEMS,
 } from './profile.mock-data';
-import { type RankingSource, MOCK_RANKINGS } from './rankings/profile-rankings.component';
+import { type RankingSource } from './rankings/profile-rankings.component';
 
 type ProfileUserTeamExtension = {
   readonly teamId?: string;
@@ -67,8 +68,9 @@ export class ProfileService {
   private readonly _isEditMode = signal(false);
   private readonly _editSection = signal<string | null>(null);
   private readonly _activeSportIndex = signal(0);
-  private readonly _rankings = signal<RankingSource[]>(MOCK_RANKINGS);
+  private readonly _rankings = signal<RankingSource[]>([]);
   private readonly _scoutReports = signal<readonly ScoutReport[]>([]);
+  private readonly _newsArticles = signal<readonly NewsArticle[]>([]);
   private readonly _activityFeedItems = signal<readonly FeedPost[]>([]);
   /** Timeline posts loaded from the user’s timeline sub-collection */
   private readonly _timelinePosts = signal<readonly ProfilePost[]>([]);
@@ -323,6 +325,9 @@ export class ProfileService {
     this.allPosts().filter((p: ProfilePost) => p.type === 'news')
   );
 
+  /** News articles from the dedicated news sub-collection */
+  readonly newsArticles = computed(() => this._newsArticles());
+
   /** Pinned posts */
   readonly pinnedPosts = computed(() => this.allPosts().filter((p: ProfilePost) => p.isPinned));
 
@@ -460,9 +465,10 @@ export class ProfileService {
     // Clear stale sub-collection data from previous profile (singleton service).
     this._timelinePosts.set([]);
     this._videoPosts.set([]);
-    this._rankings.set(MOCK_RANKINGS);
+    this._rankings.set([]);
     this._scoutReports.set([]);
     this._scheduleEvents.set(null);
+    this._newsArticles.set([]);
     this._activeSeason.set(null);
     this._activeSportFilter.set(null);
   }
@@ -525,6 +531,14 @@ export class ProfileService {
    */
   setScoutReports(reports: readonly ScoutReport[]): void {
     this._scoutReports.set(reports);
+  }
+
+  /**
+   * Push news articles from the user's news sub-collection.
+   * Called by the platform wrapper after fetching GET /auth/profile/:userId/news.
+   */
+  setNewsArticles(articles: readonly NewsArticle[]): void {
+    this._newsArticles.set(articles);
   }
 
   /**
@@ -763,6 +777,7 @@ export class ProfileService {
     this._activeSeason.set(null);
     this._activeSportFilter.set(null);
     this._scheduleEvents.set(null);
+    this._newsArticles.set([]);
   }
 
   // ============================================

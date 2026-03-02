@@ -762,7 +762,40 @@ router.get(
     }
 
     const snap = await query.get();
-    const events = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const events = snap.docs.map((d) => {
+      const data = d.data();
+      // Transform Firestore ScheduleEvent → ProfileEvent
+      // Field mapping: eventType→type, title→name, date→startDate
+      // Handle type mismatches: 'tournament'|'tryout' → 'other'
+      let eventType = data['eventType'] as string;
+      if (eventType === 'tournament' || eventType === 'tryout') {
+        eventType = 'other';
+      }
+
+      return {
+        id: d.id,
+        type: eventType, // 'game' | 'camp' | 'visit' | 'combine' | 'showcase' | 'practice' | 'other'
+        name: data['title'] || 'Untitled Event',
+        description: data['description'],
+        location: data['location'],
+        startDate: data['date'], // ISO string
+        endDate: data['endDate'],
+        isAllDay: data['isAllDay'],
+        url: data['url'],
+        opponent: data['opponent'],
+        result: data['result'],
+        logoUrl: data['logoUrl'],
+        graphicUrl: data['graphicUrl'],
+      };
+    });
+
+    logger.debug('[Profile] Schedule events fetched', {
+      userId,
+      count: events.length,
+      types: events.map((e) => e.type),
+      sportFilter: sportId,
+    });
+
     res.json({ success: true, data: events });
   })
 );
