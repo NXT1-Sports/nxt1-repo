@@ -1473,6 +1473,12 @@ export class ProfileShellWebComponent implements OnInit {
   /** Whether viewing own profile */
   readonly isOwnProfile = input(false);
 
+  /**
+   * When true, the shell skips its internal profile.loadProfile() call in ngOnInit.
+   * Use when parent component fetches real data and calls loadFromExternalData().
+   */
+  readonly skipInternalLoad = input(false);
+
   /** Hide mobile header (when sidebar provides navigation on desktop) */
   readonly hideHeader = input(false);
 
@@ -1805,6 +1811,10 @@ export class ProfileShellWebComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
+    if (this.skipInternalLoad()) {
+      return; // Parent component handles data loading via loadFromExternalData()
+    }
+
     // Immediately set loading so the skeleton renders on BOTH server and client.
     // SSR: skeleton HTML is baked into the initial response — no blank flash.
     // Client: skeleton stays visible until loadProfile() resolves with data.
