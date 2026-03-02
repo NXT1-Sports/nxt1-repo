@@ -56,6 +56,8 @@ export {
   type ProfileOffer,
   type EventType,
   type ProfileEvent,
+  // Schedule board display types
+  type ScheduleRow,
   // Edit types
   type ProfileEditSection,
   type ProfileEditData,
@@ -113,6 +115,17 @@ export {
   // Cache
   PROFILE_CACHE_KEYS,
 } from './profile.constants';
+
+// ============================================
+// PROFILE SCHEDULE HELPERS
+// ============================================
+export {
+  mapProfileEventsToScheduleRows,
+  filterScheduleEvents,
+  getScheduleSeasons,
+  getSeasonForDate,
+  type ProfileScheduleContext,
+} from './profile-schedule.helpers';
 
 // ============================================
 // PROFILE API

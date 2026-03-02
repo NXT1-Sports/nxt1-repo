@@ -22,9 +22,7 @@ import {
   AnalyticsDashboardShellWebComponent,
   type AnalyticsUser,
 } from '@nxt1/ui/analytics-dashboard';
-import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import type {
   AnalyticsTabId,
   AnalyticsPeriod,
@@ -43,8 +41,6 @@ import { SeoService } from '../../core/services';
     <nxt1-analytics-dashboard-shell-web
       [user]="userInfo()"
       [role]="userRole()"
-      [hideHeader]="isDesktop()"
-      (avatarClick)="onAvatarClick()"
       (tabChange)="onTabChange($event)"
       (periodChange)="onPeriodChange($event)"
       (insightAction)="onInsightAction($event)"
@@ -55,14 +51,9 @@ import { SeoService } from '../../core/services';
 })
 export class AnalyticsDashboardComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
-  private readonly sidenavService = inject(NxtSidenavService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('AnalyticsDashboardComponent');
   private readonly seo = inject(SeoService);
-  private readonly platform = inject(NxtPlatformService);
-
-  /** Desktop detection for hiding redundant page header (sidebar provides nav) */
-  protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
 
   ngOnInit(): void {
     this.seo.updatePage({
@@ -102,13 +93,6 @@ export class AnalyticsDashboardComponent implements OnInit {
 
     return 'athlete';
   });
-
-  /**
-   * Handle avatar click - open sidenav (Twitter/X pattern).
-   */
-  protected onAvatarClick(): void {
-    this.sidenavService.open();
-  }
 
   /**
    * Handle tab changes for analytics/logging.

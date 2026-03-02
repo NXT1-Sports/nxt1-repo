@@ -28,7 +28,9 @@ import {
   computed,
   signal,
   OnInit,
+  PLATFORM_ID,
 } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import {
   type ProfileTabId,
   type ProfileTab,
@@ -38,11 +40,15 @@ import {
   type ProfileEvent,
   type ProfileTeamAffiliation,
   type ProfileTeamType,
-  type NewsArticle,
   type ProfilePost,
+  type NewsArticle,
   type ProfileTimelineFilterId,
   type ProfileSeasonGameLog,
   type ScoutReport,
+  type ScheduleRow,
+  filterScheduleEvents,
+  mapProfileEventsToScheduleRows,
+  getScheduleSeasons,
 } from '@nxt1/core';
 // NxtPageHeaderComponent removed — web profile uses shell top nav on mobile and page header in wide layouts
 import { ProfilePageHeaderComponent } from './profile-page-header.component';
@@ -70,16 +76,17 @@ import { ProfileOffersComponent } from '../profile-offers.component';
 import { ProfileRankingsComponent } from '../rankings/profile-rankings.component';
 import { ProfileEventsComponent } from '../profile-events.component';
 import { ProfileSkeletonComponent } from '../profile-skeleton.component';
-import { ProfileNewsWebComponent } from './profile-news-web.component';
-import { ProfileScoutingWebComponent } from './profile-scouting-web.component';
-import { ProfileOverviewWebComponent } from './profile-overview-web.component';
-import { ProfileMobileHeroComponent } from './profile-mobile-hero.component';
-import { ProfileVerificationBannerComponent } from './profile-verification-banner.component';
-import { ProfileStatsWebComponent } from './profile-stats-web.component';
-import { ProfileScheduleWebComponent } from './profile-schedule-web.component';
-import { ProfileContactWebComponent } from './profile-contact-web.component';
-import { ProfileAcademicWebComponent } from './profile-academic-web.component';
-import { ProfileMetricsWebComponent } from './profile-metrics-web.component';
+import { NewsBoardComponent } from '../../components/news-board/news-board.component';
+import { ProfileScoutingComponent } from '../components/profile-scouting.component';
+import { ProfileOverviewComponent } from '../components/profile-overview.component';
+import { ProfileMobileHeroComponent } from '../components/profile-mobile-hero.component';
+import { ProfileVerificationBannerComponent } from '../components/profile-verification-banner.component';
+import { ScheduleBoardComponent } from '../../components/schedule-board';
+import { StatsDashboardComponent } from '../../components/stats-dashboard/stats-dashboard.component';
+import { ProfileContactComponent } from '../components/profile-contact.component';
+import { ProfileAcademicComponent } from '../components/profile-academic.component';
+import { ProfileMetricsComponent } from '../components/profile-metrics.component';
+import { MOCK_NEWS_ARTICLES } from '../../news/news.mock-data';
 import { MOCK_SCOUT_REPORTS } from '../../scout-reports/scout-reports.mock-data';
 import type { ProfileShellUser } from '../profile-shell.component';
 
@@ -121,16 +128,16 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
     ProfileRankingsComponent,
     ProfileEventsComponent,
     ProfileSkeletonComponent,
-    ProfileNewsWebComponent,
-    ProfileScoutingWebComponent,
-    ProfileOverviewWebComponent,
+    NewsBoardComponent,
+    ProfileScoutingComponent,
+    ProfileOverviewComponent,
     ProfileMobileHeroComponent,
     ProfileVerificationBannerComponent,
-    ProfileStatsWebComponent,
-    ProfileScheduleWebComponent,
-    ProfileContactWebComponent,
-    ProfileAcademicWebComponent,
-    ProfileMetricsWebComponent,
+    ScheduleBoardComponent,
+    StatsDashboardComponent,
+    ProfileContactComponent,
+    ProfileAcademicComponent,
+    ProfileMetricsComponent,
   ],
   template: `
     <main class="profile-main">
@@ -211,7 +218,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                         @for (sport of profile.allSports(); track sport.name; let i = $index) {
                           <button
                             type="button"
-                            class="sport-switcher__item capitalize"
+                            class="sport-switcher__item"
                             [class.sport-switcher__item--active]="profile.activeSportIndex() === i"
                             [attr.aria-selected]="profile.activeSportIndex() === i"
                             [attr.aria-label]="'Switch to ' + sport.name + ' profile'"
@@ -255,7 +262,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 
                   @switch (profile.activeTab()) {
                     @case ('overview') {
-                      <nxt1-profile-overview-web
+                      <nxt1-profile-overview
                         [activeSideTab]="activeSideTab()"
                         (editProfileClick)="editProfileClick.emit()"
                         (editTeamClick)="editTeamClick.emit()"
@@ -289,10 +296,11 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     }
 
                     @case ('news') {
-                      <nxt1-profile-news-web
+                      <nxt1-news-board
+                        [items]="newsBoardItems()"
                         [activeSection]="activeSideTab()"
-                        [userId]="profile.user()?.uid ?? null"
-                        (articleClick)="onNewsArticleClick($event)"
+                        [entityName]="profile.user()?.firstName ?? 'Athlete'"
+                        (itemClick)="onNewsBoardItemClick($event)"
                       />
                     }
 
@@ -319,7 +327,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                       @if (activeSideTab() === 'rankings') {
                         <nxt1-profile-rankings />
                       } @else if (activeSideTab() === 'scouting') {
-                        <nxt1-profile-scouting-web (reportClick)="onScoutReportClick($event)" />
+                        <nxt1-profile-scouting (reportClick)="onScoutReportClick($event)" />
                       } @else {
                         <nxt1-profile-offers
                           [offers]="profile.offers()"
@@ -338,14 +346,26 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     }
 
                     @case ('metrics') {
-                      <nxt1-profile-metrics-web [activeSideTab]="activeSideTab()" />
+                      <nxt1-profile-metrics [activeSideTab]="activeSideTab()" />
                     }
 
                     @case ('stats') {
-                      <nxt1-profile-stats-web />
+                      <nxt1-stats-dashboard
+                        [gameLogs]="profile.gameLog()"
+                        [athleticStats]="profile.athleticStats()"
+                        [entityName]="profile.user()?.firstName ?? 'Athlete'"
+                        [showAddButton]="profile.isOwnProfile()"
+                        [activeSideTab]="activeSideTab()"
+                        [emptyMessage]="
+                          profile.isOwnProfile()
+                            ? 'Add your season stats to showcase your performance.'
+                            : 'No stats have been recorded yet.'
+                        "
+                        (addStats)="editProfileClick.emit()"
+                      />
                     }
                     @case ('academic') {
-                      <nxt1-profile-academic-web (editProfileClick)="editProfileClick.emit()" />
+                      <nxt1-profile-academic (editProfileClick)="editProfileClick.emit()" />
                     }
 
                     @case ('events') {
@@ -367,11 +387,19 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                     }
 
                     @case ('schedule') {
-                      <nxt1-profile-schedule-web [activeSideTab]="activeSideTab()" />
+                      <nxt1-schedule-board
+                        [rows]="profileScheduleRows()"
+                        [showAddButton]="profile.isOwnProfile()"
+                        [emptyMessage]="
+                          profile.isOwnProfile()
+                            ? 'Add games and practices to show your full season schedule.'
+                            : 'No schedule items have been added yet.'
+                        "
+                      />
                     }
 
                     @case ('contact') {
-                      <nxt1-profile-contact-web />
+                      <nxt1-profile-contact />
                     }
                   }
                 </section>
@@ -1404,6 +1432,8 @@ export class ProfileShellWebComponent implements OnInit {
   protected readonly profile = inject(ProfileService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShellWeb');
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly isBrowser = isPlatformBrowser(this.platformId);
 
   // ============================================
   // INPUTS
@@ -1418,19 +1448,14 @@ export class ProfileShellWebComponent implements OnInit {
   /** Whether viewing own profile */
   readonly isOwnProfile = input(false);
 
-  /** Hide mobile header (when sidebar provides navigation on desktop) */
-  readonly hideHeader = input(false);
-
   /**
-   * When true, the shell skips its internal `profile.loadProfile()` call in ngOnInit.
-   *
-   * Use this when the parent component (e.g., web `ProfileComponent`) fetches real
-   * profile data from a platform-specific API service and pushes it into the shared
-   * `ProfileService` state via `loadFromExternalData()`.
-   *
-   * This prevents the shell from overwriting real data with mock data.
+   * When true, the shell skips its internal profile.loadProfile() call in ngOnInit.
+   * Use when parent component fetches real data and calls loadFromExternalData().
    */
   readonly skipInternalLoad = input(false);
+
+  /** Hide mobile header (when sidebar provides navigation on desktop) */
+  readonly hideHeader = input(false);
 
   // ============================================
   // OUTPUTS
@@ -1530,23 +1555,6 @@ export class ProfileShellWebComponent implements OnInit {
     const tab = this.profile.activeTab();
     return PROFILE_EMPTY_STATES[tab] || PROFILE_EMPTY_STATES['timeline'];
   });
-
-  /** Look up the empty-state config for a specific tab, regardless of which tab is active.
-   *  Use this inside the overview sidebar sub-panels (academic, contact, etc.) where
-   *  emptyState() would return the 'overview' config instead. */
-  protected emptyStateFor(tab: ProfileTabId) {
-    return PROFILE_EMPTY_STATES[tab];
-  }
-
-  protected readonly displayAgentXSummary = computed(() => {
-    const summary = this.profile.playerCard()?.agentXSummary?.trim() ?? '';
-    return summary;
-  });
-
-  // TYPEWRITER EFFECT DISABLED - Code removed during conflict resolution
-  // Re-enable after implementing missing properties:
-  // - _hasPlayedTypewriter, typedAgentXSummary, clearTypewriterTimer
-  // - typewriterTarget, isTypewriterRunning, startTypewriter
 
   /** Section nav items — contextual to active top tab */
   protected readonly sideTabItems = computed((): SectionNavItem[] => {
@@ -1674,9 +1682,21 @@ export class ProfileShellWebComponent implements OnInit {
         })),
       ],
       news: [
-        { id: 'all-news', label: 'All News' },
-        { id: 'announcements', label: 'Announcements' },
-        { id: 'media-mentions', label: 'Media Mentions' },
+        { id: 'all-news', label: 'All News', badge: this.newsBoardItems().length || undefined },
+        {
+          id: 'announcements',
+          label: 'Announcements',
+          badge:
+            this.newsBoardItems().filter((i) => (i.category as string) === 'announcement').length ||
+            undefined,
+        },
+        {
+          id: 'media-mentions',
+          label: 'Media Mentions',
+          badge:
+            this.newsBoardItems().filter((i) => (i.category as string) === 'media-mention')
+              .length || undefined,
+        },
       ],
       events: [
         { id: 'timeline', label: 'Timeline' },
@@ -1716,7 +1736,7 @@ export class ProfileShellWebComponent implements OnInit {
   protected onSectionNavChange(event: SectionNavChangeEvent): void {
     this._activeSideTab.set(event.id);
 
-    // Stats tab parsing moved to ProfileStatsWebComponent
+    // Stats tab parsing moved to ProfileStatsComponent
   }
 
   /** Map sidebar tab ID → ProfileTimelineFilterId for the timeline component */
@@ -1766,14 +1786,17 @@ export class ProfileShellWebComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
-    // When skipInternalLoad is true, the parent component is responsible for
-    // fetching real profile data and pushing it into ProfileService via
-    // loadFromExternalData(). The shell will react to the signal update
-    // automatically. Calling loadProfile() here would overwrite real data
-    // with mock data.
     if (this.skipInternalLoad()) {
-      return;
+      return; // Parent component handles data loading via loadFromExternalData()
     }
+
+    // Immediately set loading so the skeleton renders on BOTH server and client.
+    // SSR: skeleton HTML is baked into the initial response — no blank flash.
+    // Client: skeleton stays visible until loadProfile() resolves with data.
+    this.profile.startLoading();
+
+    // Only fetch data on the browser — SSR just renders the skeleton.
+    if (!this.isBrowser) return;
 
     const unicode = this.profileUnicode();
     const isOwn = this.isOwnProfile();
@@ -1793,8 +1816,6 @@ export class ProfileShellWebComponent implements OnInit {
     const tabId = event.option.id as ProfileTabId;
     this.profile.setActiveTab(tabId);
     this.tabChange.emit(tabId);
-    // Reset sidebar selection so the new tab's first item becomes active
-    this._activeSideTab.set('');
   }
 
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
@@ -1868,9 +1889,9 @@ export class ProfileShellWebComponent implements OnInit {
     this.logger.debug('Post click', { postId: post.id });
   }
 
-  // News article actions
-  protected onNewsArticleClick(article: NewsArticle): void {
-    this.logger.debug('News article click', { articleId: article.id, title: article.title });
+  // News board actions
+  protected onNewsBoardItemClick(item: NewsArticle): void {
+    this.logger.debug('News board item click', { itemId: item.id, title: item.title });
   }
 
   protected onLikePost(post: ProfilePost): void {
@@ -1942,43 +1963,27 @@ export class ProfileShellWebComponent implements OnInit {
   // ============================================
 
   /**
-   * Derives a school-year season label (e.g. "2025-2026") from a date string.
-   * School-year boundary is August 1: dates Aug–Dec → "YYYY-(YYYY+1)",
-   * dates Jan–Jul → "(YYYY-1)-YYYY".
+   * Unique season labels derived from schedule events (e.g. ["2025-2026", "2024-2025"]).
+   * Most recent season first. Delegates to pure @nxt1/core helper.
    */
-  private getSeasonForDate(dateString: string): string {
-    const d = new Date(dateString);
-    const year = d.getFullYear();
-    const month = d.getMonth(); // 0-indexed: 0=Jan … 7=Aug … 11=Dec
-    if (month >= 7) {
-      // Aug (7) through Dec (11) → current year to next year
-      return `${year}-${year + 1}`;
-    }
-    // Jan (0) through Jul (6) → previous year to current year
-    return `${year - 1}-${year}`;
-  }
+  protected readonly scheduleSeasons = computed<readonly string[]>(() =>
+    getScheduleSeasons(this.profile.events())
+  );
 
   /**
-   * Unique season labels derived from schedule events (e.g. ["2025-2026", "2024-2025"]).
-   * Most recent season first.
+   * Maps ProfileEvent[] → ScheduleRow[] for the ScheduleBoardComponent.
+   * Filters by active season tab and delegates mapping to @nxt1/core helpers.
    */
-  protected readonly scheduleSeasons = computed<readonly string[]>(() => {
-    const events = this.profile.events();
-    const gameEvents = events.filter((e) => e.type === 'game' || e.type === 'practice');
-    const source = gameEvents.length > 0 ? gameEvents : events;
+  protected readonly profileScheduleRows = computed<readonly ScheduleRow[]>(() => {
+    const sideTab = this.activeSideTab();
+    const seasonLabel = sideTab.startsWith('season-') ? sideTab.replace('season-', '') : undefined;
+    const events = filterScheduleEvents(this.profile.events(), seasonLabel);
 
-    const seen = new Set<string>();
-    const seasons: string[] = [];
-    for (const event of source) {
-      const season = this.getSeasonForDate(event.startDate);
-      if (!seen.has(season)) {
-        seen.add(season);
-        seasons.push(season);
-      }
-    }
-    // Sort descending (most recent season first)
-    seasons.sort((a, b) => b.localeCompare(a));
-    return seasons;
+    const user = this.profile.user();
+    return mapProfileEventsToScheduleRows(events, {
+      teamName: user?.school?.name?.trim() || user?.displayName?.trim() || 'Team',
+      teamLogo: user?.school?.logoUrl || user?.teamAffiliations?.[0]?.logoUrl,
+    });
   });
 
   // ── Game log season/team helpers (used by sideTabItems) ──
@@ -2040,6 +2045,11 @@ export class ProfileShellWebComponent implements OnInit {
     );
     return clubTeam?.name?.trim() ?? 'Club';
   });
+
+  // ── News board items ──
+
+  /** Mock news articles for the shared NewsBoardComponent (UI setup — will be replaced with real API data). */
+  protected readonly newsBoardItems = computed(() => MOCK_NEWS_ARTICLES);
 
   /** Display name for schedule sidebar group. */
   private readonly scheduleTeamName = computed(() => {

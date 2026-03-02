@@ -1,24 +1,35 @@
 /**
- * @fileoverview Profile Shell Component - Main Container
+ * @fileoverview Profile Shell Component — Mobile (Ionic)
  * @module @nxt1/ui/profile
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Top-level container component for Profile feature.
- * Orchestrates header, stats, tabs, and content sections.
+ * Root-level mobile shell for the Profile feature.
+ * Uses the same sub-components as the web's ≤768 px responsive layout
+ * to guarantee 100 % visual parity across platforms.
  *
- * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
+ * ⭐ MOBILE (IONIC) — For web SSR use ProfileShellWebComponent ⭐
  *
- * Features:
- * - Collapsing header on scroll
- * - Tab-based content filtering
- * - Pull-to-refresh support
- * - Edit mode integration
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │  NxtPageHeaderComponent (back, Agent X, edit, menu)        │
+ * ├─────────────────────────────────────────────────────────────┤
+ * │  IonContent (native scroll, pull-to-refresh, safe areas)   │
+ * │  ├── ProfileMobileHeroComponent (carousel + identity)      │
+ * │  ├── NxtOptionScrollerComponent (top tab bar)              │
+ * │  ├── NxtSectionNavWebComponent (section nav pills)         │
+ * │  ├── ProfileVerificationBannerComponent                    │
+ * │  └── Tab content (overview, timeline, offers, metrics …)   │
+ * └─────────────────────────────────────────────────────────────┘
  *
  * @example
  * ```html
  * <nxt1-profile-shell
- *   [user]="currentUser()"
- *   (avatarClick)="openSidenav()"
+ *   [currentUser]="currentUser()"
+ *   [profileUnicode]="unicode()"
+ *   [isOwnProfile]="isOwn()"
+ *   [skipInternalLoad]="true"
+ *   (backClick)="navController.back()"
+ *   (editProfileClick)="openEditSheet()"
  * />
  * ```
  */
@@ -30,6 +41,7 @@ import {
   input,
   output,
   computed,
+  signal,
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -42,28 +54,56 @@ import {
   type ProfileRecruitingActivity,
   type ProfileEvent,
   type ProfilePost,
+  type NewsArticle,
+  type ProfileTimelineFilterId,
+  type ProfileSeasonGameLog,
+  type ScoutReport,
+  type ScheduleRow,
+  filterScheduleEvents,
+  mapProfileEventsToScheduleRows,
+  getScheduleSeasons,
 } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtIconComponent } from '../components/icon';
+import { NxtImageComponent } from '../components/image';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import {
   NxtOptionScrollerComponent,
   type OptionScrollerItem,
   type OptionScrollerChangeEvent,
 } from '../components/option-scroller';
+import {
+  NxtSectionNavWebComponent,
+  type SectionNavItem,
+  type SectionNavChangeEvent,
+} from '../components/section-nav-web';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBottomSheetService } from '../components/bottom-sheet/bottom-sheet.service';
 import type { BottomSheetAction } from '../components/bottom-sheet/bottom-sheet.types';
 import { ProfileService } from './profile.service';
-import { ProfileHeaderComponent } from './profile-header.component';
 import { ProfileTimelineComponent } from './profile-timeline.component';
 import { ProfileOffersComponent } from './profile-offers.component';
+import { ProfileEventsComponent } from './profile-events.component';
 import { ProfileSkeletonComponent } from './profile-skeleton.component';
+import { ProfileRankingsComponent } from './rankings/profile-rankings.component';
+import {
+  ProfileMobileHeroComponent,
+  ProfileOverviewComponent,
+  ProfileScoutingComponent,
+  ProfileMetricsComponent,
+  ProfileAcademicComponent,
+  ProfileContactComponent,
+  ProfileVerificationBannerComponent,
+} from './components';
+import { ScheduleBoardComponent } from '../components/schedule-board';
+import { StatsDashboardComponent } from '../components/stats-dashboard/stats-dashboard.component';
+import { NewsBoardComponent } from '../components/news-board/news-board.component';
+import { MOCK_NEWS_ARTICLES } from '../news/news.mock-data';
+import { MOCK_SCOUT_REPORTS } from '../scout-reports/scout-reports.mock-data';
 
-// Register icons used in template
 /**
- * User info passed from parent (web/mobile wrapper).
+ * User info passed from parent (web / mobile wrapper).
  */
 export interface ProfileShellUser {
   readonly profileImg?: string | null;
@@ -78,27 +118,44 @@ export interface ProfileShellUser {
     IonContent,
     NxtPageHeaderComponent,
     NxtIconComponent,
+    NxtImageComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
-    ProfileHeaderComponent,
+    NxtSectionNavWebComponent,
+    ProfileMobileHeroComponent,
+    ProfileOverviewComponent,
     ProfileTimelineComponent,
     ProfileOffersComponent,
+    ProfileEventsComponent,
     ProfileSkeletonComponent,
+    NewsBoardComponent,
+    ProfileScoutingComponent,
+    ProfileRankingsComponent,
+    ProfileMetricsComponent,
+    ProfileAcademicComponent,
+    ScheduleBoardComponent,
+    StatsDashboardComponent,
+    ProfileContactComponent,
+    ProfileVerificationBannerComponent,
   ],
   template: `
-    <!-- Top Navigation Header (YouTube/Professional style - no title, just icons) -->
-    <nxt1-page-header [showBack]="true" (backClick)="backClick.emit()">
-      <!-- Right side: Design token icons only -->
-      <div pageHeaderSlot="end" class="profile-header-actions">
+    <!-- ═══ TOP NAVIGATION HEADER ═══ -->
+    <nxt1-page-header
+      [showBack]="shouldShowBack()"
+      [leftVariant]="shouldShowBack() ? 'avatar' : 'hamburger'"
+      (backClick)="backClick.emit()"
+      (menuClick)="menuClick.emit()"
+    >
+      <div pageHeaderSlot="end" class="header-actions">
         @if (profile.isOwnProfile()) {
           <button
             type="button"
-            class="profile-header-action-btn"
+            class="header-action-btn"
             aria-label="Agent X"
             (click)="agentXClick.emit()"
           >
             <svg
-              class="agent-x-header-icon"
+              class="agent-x-icon"
               viewBox="0 0 612 792"
               width="40"
               height="40"
@@ -116,28 +173,30 @@ export interface ProfileShellUser {
               />
             </svg>
           </button>
-          <button
-            type="button"
-            class="profile-header-action-btn"
-            aria-label="Edit profile"
-            (click)="editProfileClick.emit()"
-          >
-            <nxt1-icon name="pencil" [size]="22" />
-          </button>
         }
         <button
           type="button"
-          class="profile-header-action-btn"
-          aria-label="Menu"
+          class="header-action-btn"
+          aria-label="More options"
           (click)="onMenuClick()"
         >
-          <nxt1-icon name="menu" [size]="22" />
+          <nxt1-icon name="moreHorizontal" [size]="22" />
         </button>
+        @if (profile.isOwnProfile()) {
+          <button
+            type="button"
+            class="header-action-btn"
+            aria-label="Add to profile"
+            (click)="editProfileClick.emit()"
+          >
+            <nxt1-icon name="plus" [size]="22" />
+          </button>
+        }
       </div>
     </nxt1-page-header>
 
+    <!-- ═══ SCROLLABLE CONTENT ═══ -->
     <ion-content [fullscreen]="true" class="profile-content">
-      <!-- Pull-to-Refresh -->
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="profile-container">
@@ -149,47 +208,94 @@ export interface ProfileShellUser {
         <!-- Error State -->
         @else if (profile.error()) {
           <div class="profile-error">
-            <div class="error-icon">⚠️</div>
+            <div class="error-icon" aria-hidden="true">⚠️</div>
             <h3>Failed to load profile</h3>
             <p>{{ profile.error() }}</p>
-            <button class="retry-btn" (click)="onRetry()">Try Again</button>
+            <button type="button" class="retry-btn" (click)="onRetry()">Try Again</button>
           </div>
         }
 
-        <!-- Profile Content -->
+        <!-- ═══ PROFILE CONTENT ═══ -->
         @else if (profile.user()) {
-          <!-- Profile Header Section -->
-          <nxt1-profile-header
-            [user]="profile.user()"
-            [followStats]="profile.followStats()"
-            [quickStats]="profile.quickStats()"
-            [pinnedVideo]="profile.pinnedVideo()"
+          <!-- Halftone accent background (same as web profile) -->
+          <div class="halftone-bg" aria-hidden="true">
+            <div class="halftone-dots"></div>
+            <div class="halftone-fade"></div>
+          </div>
+
+          <!-- Mobile Hero: Carousel + Identity + Stats -->
+          <nxt1-profile-mobile-hero
             [isOwnProfile]="profile.isOwnProfile()"
-            [canEdit]="profile.canEdit()"
-            [hasTeam]="profile.hasTeam()"
-            (followToggle)="onFollowToggle()"
-            (followersClick)="onFollowersClick()"
-            (followingClick)="onFollowingClick()"
-            (editProfile)="onEditProfile()"
-            (editTeam)="onEditTeam()"
-            (editBanner)="onEditBanner()"
-            (editAvatar)="onEditAvatar()"
-            (messageClick)="onMessageClick()"
-            (pinnedVideoClick)="onPinnedVideoClick()"
-            (pinVideoClick)="onPinVideoClick()"
+            (followClick)="onFollowToggle()"
           />
 
-          <!-- Tab Navigation (Options Scroller) -->
-          <nxt1-option-scroller
-            [options]="tabOptions()"
-            [selectedId]="profile.activeTab()"
-            [config]="{ scrollable: true, stretchToFill: false, showDivider: true }"
-            (selectionChange)="onTabChange($event)"
+          <!-- Tab Bar (Overview, Timeline, Videos, News, Recruit …) -->
+          <nav class="top-tabs" aria-label="Profile sections">
+            <nxt1-option-scroller
+              [options]="tabOptions()"
+              [selectedId]="profile.activeTab()"
+              [config]="{ scrollable: true, stretchToFill: false, showDivider: false }"
+              (selectionChange)="onTabChange($event)"
+            />
+          </nav>
+
+          <!-- Section Nav Pills (Player Profile / Bio / History / Awards …) -->
+          <div class="section-nav-row">
+            <nxt1-section-nav-web
+              [items]="sideTabItems()"
+              [activeId]="activeSideTab()"
+              ariaLabel="Section navigation"
+              (selectionChange)="onSectionNavChange($event)"
+            />
+          </div>
+
+          <!-- Sport Profile Switcher (multiple sports) -->
+          @if (profile.hasMultipleSports()) {
+            <div class="sport-switcher" role="group" aria-label="Sport profiles">
+              @for (sport of profile.allSports(); track sport.name; let i = $index) {
+                <button
+                  type="button"
+                  class="sport-pill"
+                  [class.sport-pill--active]="profile.activeSportIndex() === i"
+                  [attr.aria-selected]="profile.activeSportIndex() === i"
+                  role="tab"
+                  (click)="onSportSwitch(i)"
+                >
+                  @if (profile.user()?.profileImg) {
+                    <nxt1-image
+                      class="sport-pill__avatar"
+                      [src]="profile.user()?.profileImg"
+                      [alt]="sport.name"
+                      [width]="20"
+                      [height]="20"
+                      variant="avatar"
+                      fit="cover"
+                      [showPlaceholder]="false"
+                    />
+                  }
+                  <span>{{ sport.name }}</span>
+                </button>
+              }
+            </div>
+          }
+
+          <!-- Verification Banner -->
+          <nxt1-profile-verification-banner
+            [activeTab]="profile.activeTab()"
+            [activeSideTab]="activeSideTab()"
           />
 
-          <!-- Tab Content -->
-          <div class="profile-tab-content">
+          <!-- ═══ TAB CONTENT ═══ -->
+          <section class="tab-content" aria-live="polite">
             @switch (profile.activeTab()) {
+              @case ('overview') {
+                <nxt1-profile-overview
+                  [activeSideTab]="activeSideTab()"
+                  (editProfileClick)="editProfileClick.emit()"
+                  (editTeamClick)="editTeamClick.emit()"
+                />
+              }
+
               @case ('timeline') {
                 <nxt1-profile-timeline
                   [posts]="profile.filteredPosts()"
@@ -201,6 +307,11 @@ export interface ProfileShellUser {
                   [hasMore]="profile.hasMore()"
                   [isOwnProfile]="profile.isOwnProfile()"
                   [showMenu]="profile.isOwnProfile()"
+                  [showFilters]="false"
+                  [filter]="timelineFilter()"
+                  [emptyIcon]="emptyState().icon"
+                  [emptyTitle]="emptyState().title"
+                  [emptyMessage]="emptyState().message"
                   [emptyCta]="profile.isOwnProfile() ? (emptyState().ctaLabel ?? null) : null"
                   (postClick)="onPostClick($event)"
                   (reactClick)="onLikePost($event)"
@@ -213,21 +324,11 @@ export interface ProfileShellUser {
               }
 
               @case ('news') {
-                <nxt1-profile-timeline
-                  [posts]="profile.newsPosts()"
-                  [profileUser]="profile.user()"
-                  [isLoading]="false"
-                  [isEmpty]="profile.newsPosts().length === 0"
-                  [isOwnProfile]="profile.isOwnProfile()"
-                  [showFilters]="false"
-                  emptyIcon="newspaper"
-                  emptyTitle="No news yet"
-                  emptyMessage="News updates, announcements, and media mentions will appear here."
-                  [emptyCta]="profile.isOwnProfile() ? 'Create News Post' : null"
-                  (postClick)="onPostClick($event)"
-                  (reactClick)="onLikePost($event)"
-                  (shareClick)="onSharePost($event)"
-                  (emptyCtaClick)="onCreatePost()"
+                <nxt1-news-board
+                  [items]="newsBoardItems()"
+                  [activeSection]="activeSideTab()"
+                  [entityName]="profile.user()?.firstName ?? 'Athlete'"
+                  (itemClick)="onNewsBoardItemClick($event)"
                 />
               }
 
@@ -239,10 +340,10 @@ export interface ProfileShellUser {
                   [isEmpty]="profile.videoPosts().length === 0"
                   [isOwnProfile]="profile.isOwnProfile()"
                   [showFilters]="false"
-                  emptyIcon="videocam"
-                  emptyTitle="No videos yet"
-                  emptyMessage="Upload highlights and game footage to showcase your skills."
-                  [emptyCta]="profile.isOwnProfile() ? 'Upload Video' : null"
+                  [emptyIcon]="emptyState().icon"
+                  [emptyTitle]="emptyState().title"
+                  [emptyMessage]="emptyState().message"
+                  [emptyCta]="profile.isOwnProfile() ? (emptyState().ctaLabel ?? null) : null"
                   (postClick)="onPostClick($event)"
                   (reactClick)="onLikePost($event)"
                   (shareClick)="onSharePost($event)"
@@ -251,307 +352,83 @@ export interface ProfileShellUser {
               }
 
               @case ('offers') {
-                <nxt1-profile-offers
-                  [offers]="profile.offers()"
-                  [committedOffers]="profile.committedOffers()"
-                  [activeOffers]="profile.activeOffers()"
-                  [interestOffers]="profile.interestOffers()"
-                  [isEmpty]="!profile.hasRecruitingActivity()"
-                  [isOwnProfile]="profile.isOwnProfile()"
-                  (offerClick)="onOfferClick($event)"
-                  (addOfferClick)="onAddOffer()"
-                  (addCommitmentClick)="onAddOffer()"
-                />
+                @if (activeSideTab() === 'rankings') {
+                  <nxt1-profile-rankings />
+                } @else if (activeSideTab() === 'scouting') {
+                  <nxt1-profile-scouting (reportClick)="onScoutReportClick($event)" />
+                } @else {
+                  <nxt1-profile-offers
+                    [offers]="profile.offers()"
+                    [committedOffers]="profile.committedOffers()"
+                    [activeOffers]="profile.activeOffers()"
+                    [interestOffers]="profile.interestOffers()"
+                    [isEmpty]="!profile.hasRecruitingActivity()"
+                    [isOwnProfile]="profile.isOwnProfile()"
+                    [activeSection]="activeSideTab()"
+                    cardLayout="horizontal"
+                    (offerClick)="onOfferClick($event)"
+                    (addOfferClick)="onAddOffer()"
+                    (addCommitmentClick)="onAddOffer()"
+                  />
+                }
               }
 
               @case ('metrics') {
-                <div class="stats-section">
-                  @if (profile.metrics().length === 0) {
-                    <div class="section-empty">
-                      <nxt1-icon name="barbell" [size]="48" />
-                      <h3>No metrics recorded</h3>
-                      <p>Add your combine results and measurables to complete your profile.</p>
-                      @if (profile.isOwnProfile()) {
-                        <button class="empty-cta" (click)="onAddStats()">Add Metrics</button>
-                      }
-                    </div>
-                  } @else {
-                    @for (category of profile.metrics(); track category.name) {
-                      <div class="stats-category">
-                        <h4 class="category-title">{{ category.name }}</h4>
-                        @if (category.measuredAt || category.source) {
-                          <p class="category-meta">
-                            @if (category.measuredAt) {
-                              <time [attr.datetime]="category.measuredAt"
-                                >Measured {{ category.measuredAt | date: 'MMM d, yyyy' }}</time
-                              >
-                            }
-                            @if (category.measuredAt && category.source) {
-                              <span aria-hidden="true"> · </span>
-                            }
-                            @if (category.source) {
-                              <span>{{ category.source }}</span>
-                            }
-                          </p>
-                        }
-                        <div class="stats-grid">
-                          @for (stat of category.stats; track stat.label) {
-                            <div class="stat-item">
-                              <span class="stat-value"
-                                >{{ stat.value }}{{ stat.unit ? ' ' + stat.unit : '' }}</span
-                              >
-                              <span class="stat-label">{{ stat.label }}</span>
-                              @if (stat.verified) {
-                                <span class="verified-badge">✓</span>
-                              }
-                            </div>
-                          }
-                        </div>
-                      </div>
-                    }
-                  }
-                </div>
+                <nxt1-profile-metrics [activeSideTab]="activeSideTab()" />
               }
 
               @case ('stats') {
-                <div class="stats-section">
-                  @if (profile.athleticStats().length === 0) {
-                    <div class="section-empty">
-                      <nxt1-icon name="barChart" [size]="48" />
-                      <h3>No stats recorded</h3>
-                      <p>Add your athletic and academic stats to complete your profile.</p>
-                      @if (profile.isOwnProfile()) {
-                        <button class="empty-cta" (click)="onAddStats()">Add Stats</button>
-                      }
-                    </div>
-                  } @else {
-                    @for (category of profile.athleticStats(); track category.name) {
-                      <div class="stats-category">
-                        <h4 class="category-title">{{ category.name }}</h4>
-                        <div class="stats-grid">
-                          @for (stat of category.stats; track stat.label) {
-                            <div class="stat-item">
-                              <span class="stat-value">{{ stat.value }}{{ stat.unit ?? '' }}</span>
-                              <span class="stat-label">{{ stat.label }}</span>
-                              @if (stat.verified) {
-                                <span class="verified-badge">✓</span>
-                              }
-                            </div>
-                          }
-                        </div>
-                      </div>
-                    }
-                  }
-                </div>
+                <nxt1-stats-dashboard
+                  [gameLogs]="profile.gameLog()"
+                  [athleticStats]="profile.athleticStats()"
+                  [entityName]="profile.user()?.firstName ?? 'Athlete'"
+                  [showAddButton]="profile.isOwnProfile()"
+                  [activeSideTab]="activeSideTab()"
+                  [emptyMessage]="
+                    profile.isOwnProfile()
+                      ? 'Add your season stats to showcase your performance.'
+                      : 'No stats have been recorded yet.'
+                  "
+                  (addStats)="editProfileClick.emit()"
+                />
               }
 
               @case ('academic') {
-                <div class="stats-section">
-                  @if (
-                    !profile.user()?.gpa &&
-                    !profile.user()?.sat &&
-                    !profile.user()?.act &&
-                    !profile.user()?.classYear &&
-                    !profile.user()?.school?.name
-                  ) {
-                    <div class="section-empty">
-                      <nxt1-icon name="school" [size]="48" />
-                      <h3>No academic info yet</h3>
-                      <p>Add GPA, test scores, and school details to strengthen your profile.</p>
-                      @if (profile.isOwnProfile()) {
-                        <button class="empty-cta" (click)="onEditProfile()">
-                          Add Academic Info
-                        </button>
-                      }
-                    </div>
-                  } @else {
-                    <div class="stats-category">
-                      <h4 class="category-title">Academic Profile</h4>
-                      <div class="stats-grid">
-                        @if (profile.user()?.gpa) {
-                          <div class="stat-item">
-                            <span class="stat-value">{{ profile.user()?.gpa }}</span>
-                            <span class="stat-label">GPA</span>
-                          </div>
-                        }
-                        @if (profile.user()?.sat) {
-                          <div class="stat-item">
-                            <span class="stat-value">{{ profile.user()?.sat }}</span>
-                            <span class="stat-label">SAT</span>
-                          </div>
-                        }
-                        @if (profile.user()?.act) {
-                          <div class="stat-item">
-                            <span class="stat-value">{{ profile.user()?.act }}</span>
-                            <span class="stat-label">ACT</span>
-                          </div>
-                        }
-                        @if (profile.user()?.classYear) {
-                          <div class="stat-item">
-                            <span class="stat-value">{{ profile.user()?.classYear }}</span>
-                            <span class="stat-label">Class Year</span>
-                          </div>
-                        }
-                      </div>
-                    </div>
-                  }
-                </div>
+                <nxt1-profile-academic (editProfileClick)="editProfileClick.emit()" />
               }
 
               @case ('events') {
-                <div class="events-section">
-                  @if (profile.events().length === 0) {
-                    <div class="section-empty">
-                      <nxt1-icon name="calendar" [size]="48" />
-                      <h3>No events scheduled</h3>
-                      <p>Add upcoming games, camps, and showcases to your calendar.</p>
-                      @if (profile.isOwnProfile()) {
-                        <button class="empty-cta" (click)="onAddEvent()">Add Event</button>
-                      }
-                    </div>
-                  } @else {
-                    @if (profile.upcomingEvents().length > 0) {
-                      <h4 class="events-section-title">Upcoming Events</h4>
-                      @for (event of profile.upcomingEvents(); track event.id) {
-                        <div class="event-card" (click)="onEventClick(event)">
-                          <div class="event-date">
-                            <span class="date-month">{{ formatEventMonth(event.startDate) }}</span>
-                            <span class="date-day">{{ formatEventDay(event.startDate) }}</span>
-                          </div>
-                          <div class="event-info">
-                            <span class="event-name">{{ event.name }}</span>
-                            <span class="event-location">{{ event.location }}</span>
-                          </div>
-                          <span class="event-type-badge">{{ event.type }}</span>
-                        </div>
-                      }
-                    }
-
-                    @if (profile.pastEvents().length > 0) {
-                      <h4 class="events-section-title past">Past Events</h4>
-                      @for (event of profile.pastEvents(); track event.id) {
-                        <div class="event-card event-card--past" (click)="onEventClick(event)">
-                          <div class="event-date">
-                            <span class="date-month">{{ formatEventMonth(event.startDate) }}</span>
-                            <span class="date-day">{{ formatEventDay(event.startDate) }}</span>
-                          </div>
-                          <div class="event-info">
-                            <span class="event-name">{{ event.name }}</span>
-                            @if (event.result) {
-                              <span class="event-result">{{ event.result }}</span>
-                            } @else {
-                              <span class="event-location">{{ event.location }}</span>
-                            }
-                          </div>
-                        </div>
-                      }
-                    }
-                  }
-                </div>
+                <nxt1-profile-events
+                  [events]="profile.events()"
+                  [visitEvents]="profile.visitEvents()"
+                  [campEvents]="profile.campEvents()"
+                  [generalEvents]="profile.generalEvents()"
+                  [isLoading]="profile.isLoading()"
+                  [isOwnProfile]="profile.isOwnProfile()"
+                  [activeSection]="activeSideTab()"
+                  cardLayout="horizontal"
+                  (eventClick)="onEventClick($event)"
+                  (addEventClick)="onAddEvent()"
+                />
               }
 
               @case ('schedule') {
-                <div class="events-section">
-                  @if (profile.events().length === 0) {
-                    <div class="section-empty">
-                      <nxt1-icon name="calendar" [size]="48" />
-                      <h3>No schedule yet</h3>
-                      <p>Add upcoming games, camps, and showcases to your schedule.</p>
-                      @if (profile.isOwnProfile()) {
-                        <button class="empty-cta" (click)="onAddEvent()">Add Schedule Item</button>
-                      }
-                    </div>
-                  } @else {
-                    @if (profile.upcomingEvents().length > 0) {
-                      <h4 class="events-section-title">Upcoming Schedule</h4>
-                      @for (event of profile.upcomingEvents(); track event.id) {
-                        <div class="event-card" (click)="onEventClick(event)">
-                          <div class="event-date">
-                            <span class="date-month">{{ formatEventMonth(event.startDate) }}</span>
-                            <span class="date-day">{{ formatEventDay(event.startDate) }}</span>
-                          </div>
-                          <div class="event-info">
-                            <span class="event-name">{{ event.name }}</span>
-                            <span class="event-location">{{ event.location }}</span>
-                          </div>
-                          <span class="event-type-badge">{{ event.type }}</span>
-                        </div>
-                      }
-                    }
-
-                    @if (profile.pastEvents().length > 0) {
-                      <h4 class="events-section-title past">Past Schedule</h4>
-                      @for (event of profile.pastEvents(); track event.id) {
-                        <div class="event-card event-card--past" (click)="onEventClick(event)">
-                          <div class="event-date">
-                            <span class="date-month">{{ formatEventMonth(event.startDate) }}</span>
-                            <span class="date-day">{{ formatEventDay(event.startDate) }}</span>
-                          </div>
-                          <div class="event-info">
-                            <span class="event-name">{{ event.name }}</span>
-                            @if (event.result) {
-                              <span class="event-result">{{ event.result }}</span>
-                            } @else {
-                              <span class="event-location">{{ event.location }}</span>
-                            }
-                          </div>
-                        </div>
-                      }
-                    }
-                  }
-                </div>
+                <nxt1-schedule-board
+                  [rows]="profileScheduleRows()"
+                  [showAddButton]="profile.isOwnProfile()"
+                  [emptyMessage]="
+                    profile.isOwnProfile()
+                      ? 'Add games and practices to show your full season schedule.'
+                      : 'No schedule items have been added yet.'
+                  "
+                />
               }
 
               @case ('contact') {
-                <div class="contact-section">
-                  @if (!profile.user()?.contact?.email && !profile.user()?.contact?.phone) {
-                    <div class="section-empty">
-                      <nxt1-icon name="mail" [size]="48" />
-                      <h3>Contact info not set</h3>
-                      <p>Add your contact information so coaches can reach you.</p>
-                      @if (profile.isOwnProfile()) {
-                        <button class="empty-cta" (click)="onEditContact()">
-                          Add Contact Info
-                        </button>
-                      }
-                    </div>
-                  } @else {
-                    <div class="contact-card">
-                      @if (profile.user()?.contact?.email) {
-                        <div class="contact-item">
-                          <nxt1-icon name="mail" [size]="20" />
-                          <span>{{ profile.user()?.contact?.email }}</span>
-                        </div>
-                      }
-                      @if (profile.user()?.contact?.phone) {
-                        <div class="contact-item">
-                          <nxt1-icon name="call" [size]="20" />
-                          <span>{{ profile.user()?.contact?.phone }}</span>
-                        </div>
-                      }
-                    </div>
-
-                    @if (profile.user()?.social?.length) {
-                      <h4 class="social-title">Social Media</h4>
-                      <div class="social-links">
-                        @for (link of profile.user()?.social; track link.platform) {
-                          <a
-                            class="social-link"
-                            [href]="link.url"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <nxt1-icon name="link" [size]="20" />
-                            <span>{{ link.username ? '@' + link.username : link.platform }}</span>
-                          </a>
-                        }
-                      </div>
-                    }
-                  }
-                </div>
+                <nxt1-profile-contact />
               }
             }
-          </div>
+          </section>
         }
       </div>
     </ion-content>
@@ -559,39 +436,37 @@ export interface ProfileShellUser {
   styles: [
     `
       /* ============================================
-       PROFILE SHELL - Main Container
-       2026 iOS/Android Native-Style Design
-       ============================================ */
+         PROFILE SHELL — Mobile (Ionic)
+         Madden Franchise Mode — Native-Grade 2026
+         ============================================ */
 
       :host {
         display: block;
         height: 100%;
         width: 100%;
-
-        --profile-bg: var(--nxt1-color-bg-primary, #0a0a0a);
-        --profile-surface: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
-        --profile-border: var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
-        --profile-text-primary: var(--nxt1-color-text-primary, #ffffff);
-        --profile-text-secondary: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        --profile-text-tertiary: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
-        --profile-primary: var(--nxt1-color-primary, #d4ff00);
+        --m-bg: var(--nxt1-color-bg-primary, #0a0a0a);
+        --m-surface: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
+        --m-surface-2: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+        --m-border: var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+        --m-text: var(--nxt1-color-text-primary, #ffffff);
+        --m-text-2: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        --m-text-3: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
+        --m-accent: var(--nxt1-color-primary, #d4ff00);
       }
 
       .profile-content {
-        --background: var(--profile-bg);
+        --background: var(--m-bg);
       }
 
-      /* ============================================
-         HEADER ACTION BUTTONS (Design Token Icons)
-         ============================================ */
+      /* ─── HEADER ACTION BUTTONS ─── */
 
-      .profile-header-actions {
+      .header-actions {
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-1, 4px);
       }
 
-      .profile-header-action-btn {
+      .header-action-btn {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -602,31 +477,91 @@ export interface ProfileShellUser {
         border: none;
         background: transparent;
         border-radius: var(--nxt1-radius-full, 50%);
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--m-text);
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
         transition:
           background-color 0.15s ease,
           transform 0.1s ease;
-
-        &:hover {
-          background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
-        }
-
-        &:active {
-          background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.12));
-          transform: scale(0.92);
-        }
       }
 
+      .header-action-btn:active {
+        background: var(--m-surface-2);
+        transform: scale(0.92);
+      }
+
+      .agent-x-icon {
+        color: var(--m-accent);
+      }
+
+      /* ─── MAIN CONTAINER ─── */
+
       .profile-container {
+        position: relative;
         min-height: 100%;
         padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
       }
 
-      /* ============================================
-         ERROR STATE
-         ============================================ */
+      /* ─── HALFTONE ACCENT BACKGROUND ─── */
+
+      .halftone-bg {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        z-index: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+
+      .halftone-dots {
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(
+          circle,
+          color-mix(in srgb, var(--m-accent) 34%, transparent) 1.05px,
+          transparent 0.9px
+        );
+        background-size: 14px 14px;
+        mask-image: radial-gradient(
+          ellipse 122% 78% at 50% 10%,
+          rgba(0, 0, 0, 0.9) 0%,
+          rgba(0, 0, 0, 0.68) 30%,
+          rgba(0, 0, 0, 0.36) 56%,
+          transparent 80%
+        );
+        -webkit-mask-image: radial-gradient(
+          ellipse 122% 78% at 50% 10%,
+          rgba(0, 0, 0, 0.9) 0%,
+          rgba(0, 0, 0, 0.68) 30%,
+          rgba(0, 0, 0, 0.36) 56%,
+          transparent 80%
+        );
+        opacity: 0.95;
+      }
+
+      .halftone-fade {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          ellipse 86% 72% at 50% 8%,
+          color-mix(in srgb, var(--m-accent) 26%, transparent) 0%,
+          color-mix(in srgb, var(--m-accent) 13%, transparent) 42%,
+          transparent 78%
+        );
+        opacity: 0.98;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .halftone-dots,
+        .halftone-fade {
+          opacity: 0.5;
+        }
+      }
+
+      /* ─── ERROR STATE ─── */
 
       .profile-error {
         display: flex;
@@ -635,6 +570,8 @@ export interface ProfileShellUser {
         justify-content: center;
         padding: 60px 24px;
         text-align: center;
+        position: relative;
+        z-index: 1;
       }
 
       .error-icon {
@@ -645,348 +582,160 @@ export interface ProfileShellUser {
       .profile-error h3 {
         font-size: 18px;
         font-weight: 600;
-        color: var(--profile-text-primary);
+        color: var(--m-text);
         margin: 0 0 8px;
       }
 
       .profile-error p {
         font-size: 14px;
-        color: var(--profile-text-secondary);
+        color: var(--m-text-2);
         margin: 0 0 20px;
       }
 
       .retry-btn {
         padding: 10px 24px;
-        background: var(--profile-surface);
-        border: 1px solid var(--profile-border);
+        background: var(--m-surface);
+        border: 1px solid var(--m-border);
         border-radius: var(--nxt1-radius-full, 9999px);
-        color: var(--profile-text-primary);
+        color: var(--m-text);
         font-size: 14px;
         font-weight: 600;
         cursor: pointer;
-        transition: all 0.2s ease;
-
-        &:hover {
-          background: var(--nxt1-color-surface-200);
-        }
+        transition: background 0.15s;
       }
 
-      /* ============================================
-         TAB CONTENT
-         ============================================ */
-
-      .profile-tab-content {
-        min-height: 300px;
+      .retry-btn:active {
+        background: var(--m-surface-2);
       }
 
-      /* ============================================
-         SECTION EMPTY STATE
-         ============================================ */
+      /* ─── TAB BAR ─── */
 
-      .section-empty {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        padding: 60px 24px;
-        text-align: center;
-
-        nxt1-icon {
-          font-size: 48px;
-          color: var(--profile-text-tertiary);
-          margin-bottom: 16px;
-        }
-
-        h3 {
-          font-size: 18px;
-          font-weight: 600;
-          color: var(--profile-text-primary);
-          margin: 0 0 8px;
-        }
-
-        p {
-          font-size: 14px;
-          color: var(--profile-text-secondary);
-          margin: 0 0 20px;
-          max-width: 280px;
-        }
-      }
-
-      .empty-cta {
-        padding: 10px 24px;
-        background: var(--profile-primary);
-        border: none;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        color: #000;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.2s ease;
-
-        &:hover {
-          filter: brightness(1.1);
-        }
-      }
-
-      /* ============================================
-         STATS SECTION
-         ============================================ */
-
-      .stats-section {
-        padding: 16px 24px;
-
-        @media (max-width: 768px) {
-          padding: 12px 16px;
-        }
-      }
-
-      .stats-category {
-        margin-bottom: 24px;
-      }
-
-      .category-title {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--profile-text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin: 0 0 4px;
-      }
-
-      .category-meta {
-        font-size: 12px;
-        color: var(--profile-text-tertiary, #888);
-        margin: 0 0 12px;
-        line-height: 1.4;
-      }
-
-      .category-meta time {
-        font-weight: 500;
-      }
-
-      .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-        gap: 12px;
-      }
-
-      .stat-item {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding: 12px;
-        background: var(--profile-surface);
-        border: 1px solid var(--profile-border);
-        border-radius: var(--nxt1-radius-md, 8px);
+      .top-tabs {
         position: relative;
+        z-index: 1;
+        padding: 0 8px;
+        background: transparent;
       }
 
-      .stat-value {
-        font-size: 20px;
-        font-weight: 700;
-        color: var(--profile-text-primary);
+      .top-tabs ::ng-deep .option-scroller {
+        background: transparent !important;
       }
 
-      .stat-label {
-        font-size: 12px;
-        color: var(--profile-text-secondary);
+      .top-tabs ::ng-deep .option-scroller__container {
+        min-height: 0;
       }
 
-      .verified-badge {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        width: 16px;
-        height: 16px;
-        background: var(--profile-primary);
-        color: #000;
-        border-radius: 50%;
-        font-size: 10px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+      .top-tabs ::ng-deep .option-scroller__option {
+        height: 36px;
       }
 
-      /* ============================================
-         EVENTS SECTION
-         ============================================ */
-
-      .events-section {
-        padding: 16px 24px;
-
-        @media (max-width: 768px) {
-          padding: 12px 16px;
-        }
+      .top-tabs ::ng-deep .option-scroller__badge {
+        display: none !important;
       }
 
-      .events-section-title {
-        font-size: 14px;
+      /* ─── SECTION NAV PILLS ─── */
+
+      .section-nav-row {
+        position: relative;
+        z-index: 1;
+        width: calc(100% - 24px);
+        margin-inline: 12px;
+        margin-top: 12px;
+      }
+
+      .section-nav-row ::ng-deep .section-nav {
+        gap: 4px;
+        padding-inline: 2px;
+        padding-bottom: 10px;
+        border-bottom: none;
+        box-sizing: border-box;
+      }
+
+      .section-nav-row ::ng-deep .nav-item {
+        width: auto;
+        padding: 6px 10px;
+        font-size: 11px;
         font-weight: 600;
-        color: var(--profile-text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin: 0 0 12px;
-
-        &.past {
-          margin-top: 24px;
-          color: var(--profile-text-tertiary);
-        }
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        letter-spacing: 0.02em;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        color: var(--m-text-2);
       }
 
-      .event-card {
+      .section-nav-row ::ng-deep .nav-item--active {
+        background: color-mix(in srgb, var(--m-accent) 12%, transparent);
+        border-color: color-mix(in srgb, var(--m-accent) 35%, transparent);
+        color: var(--m-text);
+      }
+
+      .section-nav-row ::ng-deep .nav-group-header {
+        display: none;
+      }
+
+      /* ─── SPORT PROFILE SWITCHER ─── */
+
+      .sport-switcher {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px 12px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+
+      .sport-switcher::-webkit-scrollbar {
+        display: none;
+      }
+
+      .sport-pill {
         display: flex;
         align-items: center;
-        gap: 16px;
-        padding: 14px;
-        background: var(--profile-surface);
-        border: 1px solid var(--profile-border);
-        border-radius: var(--nxt1-radius-lg, 12px);
-        margin-bottom: 10px;
+        gap: 6px;
+        padding: 4px 10px 4px 4px;
+        background: transparent;
+        border: 1px solid transparent;
+        border-radius: var(--nxt1-radius-full, 999px);
         cursor: pointer;
-        transition: all 0.2s ease;
-
-        &:hover {
-          background: var(--nxt1-color-surface-200);
-          border-color: var(--profile-primary);
-        }
+        color: var(--m-text-2);
+        font-size: 11px;
+        font-weight: 500;
+        white-space: nowrap;
+        transition:
+          color 100ms ease-out,
+          background 100ms ease-out,
+          border-color 100ms ease-out;
       }
 
-      .event-card--past {
-        opacity: 0.6;
+      .sport-pill--active {
+        color: var(--m-text);
+        background: var(--m-surface-2);
+        border-color: var(--m-accent);
       }
 
-      .event-date {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        width: 50px;
-        height: 50px;
-        background: var(--profile-primary);
-        color: #000;
-        border-radius: var(--nxt1-radius-md, 8px);
+      .sport-pill__avatar {
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        object-fit: cover;
         flex-shrink: 0;
       }
 
-      .date-month {
-        font-size: 10px;
-        font-weight: 600;
-        text-transform: uppercase;
+      .sport-pill--active .sport-pill__avatar {
+        border: 1.5px solid var(--m-accent);
       }
 
-      .date-day {
-        font-size: 18px;
-        font-weight: 700;
-      }
+      /* ─── TAB CONTENT ─── */
 
-      .event-info {
-        flex: 1;
-        min-width: 0;
-      }
-
-      .event-name {
-        display: block;
-        font-size: 15px;
-        font-weight: 600;
-        color: var(--profile-text-primary);
-        margin-bottom: 2px;
-      }
-
-      .event-location,
-      .event-result {
-        font-size: 13px;
-        color: var(--profile-text-secondary);
-      }
-
-      .event-result {
-        color: var(--profile-primary);
-        font-weight: 600;
-      }
-
-      .event-type-badge {
-        padding: 4px 10px;
-        background: rgba(212, 255, 0, 0.1);
-        color: var(--profile-primary);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        font-size: 11px;
-        font-weight: 500;
-        text-transform: capitalize;
-      }
-
-      /* ============================================
-         CONTACT SECTION
-         ============================================ */
-
-      .contact-section {
-        padding: 16px 24px;
-
-        @media (max-width: 768px) {
-          padding: 12px 16px;
-        }
-      }
-
-      .contact-card {
-        background: var(--profile-surface);
-        border: 1px solid var(--profile-border);
-        border-radius: var(--nxt1-radius-lg, 12px);
-        padding: 16px;
-      }
-
-      .contact-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 0;
-        border-bottom: 1px solid var(--profile-border);
-        font-size: 15px;
-        color: var(--profile-text-primary);
-
-        &:last-child {
-          border-bottom: none;
-        }
-
-        nxt1-icon {
-          font-size: 20px;
-          color: var(--profile-primary);
-        }
-      }
-
-      .social-title {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--profile-text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin: 24px 0 12px;
-      }
-
-      .social-links {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
-
-      .social-link {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 16px;
-        background: var(--profile-surface);
-        border: 1px solid var(--profile-border);
-        border-radius: var(--nxt1-radius-md, 8px);
-        text-decoration: none;
-        color: var(--profile-text-primary);
-        font-size: 14px;
-        transition: all 0.2s ease;
-
-        &:hover {
-          background: var(--nxt1-color-surface-200);
-          border-color: var(--profile-primary);
-        }
-
-        nxt1-icon {
-          font-size: 20px;
-          color: var(--profile-text-secondary);
-        }
+      .tab-content {
+        position: relative;
+        z-index: 1;
+        min-height: 300px;
+        padding: 0 12px 24px;
       }
     `,
   ],
@@ -1034,26 +783,313 @@ export class ProfileShellComponent implements OnInit {
   readonly createPostClick = output<void>();
 
   // ============================================
-  // COMPUTED
+  // COMPUTED — Tab Options
   // ============================================
-
-  // No title in header — name is displayed in the profile header section below the banner
-  // Icons use design token system exclusively (NxtIconComponent)
 
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
     const badges = this.profile.tabBadges();
 
-    return PROFILE_TABS.map((tab: ProfileTab) => ({
-      id: tab.id,
-      label: tab.label,
-      icon: tab.icon,
-      badge: badges[tab.id as keyof typeof badges] || undefined,
-    }));
+    return PROFILE_TABS.filter((tab) => tab.id !== 'contact' && tab.id !== 'academic').map(
+      (tab: ProfileTab) => ({
+        id: tab.id,
+        label: tab.label,
+        badge: badges[tab.id as keyof typeof badges] || undefined,
+      })
+    );
   });
 
   protected readonly emptyState = computed(() => {
     const tab = this.profile.activeTab();
     return PROFILE_EMPTY_STATES[tab] || PROFILE_EMPTY_STATES['timeline'];
+  });
+
+  /** Root /profile uses hamburger; nested /profile/:unicode keeps back arrow */
+  protected readonly shouldShowBack = computed(() => {
+    return this.profileUnicode().trim().length > 0;
+  });
+
+  // ============================================
+  // COMPUTED — Section Nav Items
+  // ============================================
+
+  /** Section nav items — contextual to active top tab (mirrors web shell exactly) */
+  protected readonly sideTabItems = computed((): SectionNavItem[] => {
+    const tab = this.profile.activeTab();
+    const sections: Record<string, SectionNavItem[]> = {
+      overview: [
+        { id: 'player-profile', label: 'Player Profile' },
+        { id: 'player-bio', label: 'Player Bio' },
+        { id: 'player-history', label: 'Player History' },
+        {
+          id: 'awards',
+          label: 'Awards',
+          badge: this.profile.awards().length || undefined,
+        },
+        { id: 'academic', label: 'Academic' },
+        { id: 'contact', label: 'Contact' },
+      ],
+      timeline: [
+        {
+          id: 'pinned',
+          label: 'Pinned',
+          badge: this.profile.pinnedPosts().length || undefined,
+        },
+        {
+          id: 'all-posts',
+          label: 'All Posts',
+          badge: this.profile.allPosts().length || undefined,
+        },
+        {
+          id: 'media',
+          label: 'Media',
+          badge:
+            this.profile
+              .allPosts()
+              .filter(
+                (post) =>
+                  post.type === 'image' ||
+                  post.type === 'video' ||
+                  post.type === 'highlight' ||
+                  !!post.thumbnailUrl ||
+                  !!post.mediaUrl
+              ).length || undefined,
+        },
+      ],
+      videos: [
+        {
+          id: 'highlights',
+          label: 'Highlights',
+          badge: this.profile.videoPosts().length || undefined,
+        },
+        { id: 'game-film', label: 'Game Film' },
+        { id: 'training', label: 'Training' },
+      ],
+      offers: [
+        { id: 'timeline', label: 'Timeline' },
+        {
+          id: 'committed',
+          label: 'Commitment',
+          badge: this.profile.committedOffers().length || undefined,
+        },
+        {
+          id: 'all-offers',
+          label: 'Offers',
+          badge: this.profile.activeOffers().length || undefined,
+        },
+        {
+          id: 'interests',
+          label: 'Interests',
+          badge: this.profile.interestOffers().length || undefined,
+        },
+        {
+          id: 'rankings',
+          label: 'Rankings',
+          badge: this.profile.rankings().length || undefined,
+        },
+        {
+          id: 'scouting',
+          label: 'Scouting',
+          badge: MOCK_SCOUT_REPORTS.length || undefined,
+        },
+      ],
+      metrics: [
+        { id: 'combine', label: 'Combine Results' },
+        { id: 'measurables', label: 'Measurables' },
+      ],
+      stats: [
+        ...(this.hasSchoolGameLogs()
+          ? [
+              {
+                id: 'school-career',
+                label: 'Career',
+                group: this.schoolStatsTeamName(),
+              },
+              ...this.schoolSeasons().map((s) => ({
+                id: `school-season-${s}`,
+                label: s,
+                group: this.schoolStatsTeamName(),
+              })),
+            ]
+          : []),
+        ...(this.hasClubGameLogs()
+          ? [
+              {
+                id: 'club-career',
+                label: 'Career',
+                group: this.clubStatsTeamName(),
+              },
+              ...this.clubSeasons().map((s) => ({
+                id: `club-season-${s}`,
+                label: s,
+                group: this.clubStatsTeamName(),
+              })),
+            ]
+          : []),
+      ],
+      schedule: [
+        ...this.scheduleSeasons().map((s) => ({
+          id: `season-${s}`,
+          label: s,
+          group: this.scheduleTeamName(),
+        })),
+      ],
+      news: [
+        {
+          id: 'all-news',
+          label: 'All News',
+          badge: this.newsBoardItems().length || undefined,
+        },
+        {
+          id: 'announcements',
+          label: 'Announcements',
+          badge:
+            this.newsBoardItems().filter((i) => (i.category as string) === 'announcement').length ||
+            undefined,
+        },
+        {
+          id: 'media-mentions',
+          label: 'Media Mentions',
+          badge:
+            this.newsBoardItems().filter((i) => (i.category as string) === 'media-mention')
+              .length || undefined,
+        },
+      ],
+      events: [
+        { id: 'timeline', label: 'Timeline' },
+        {
+          id: 'visits',
+          label: 'Visits',
+          badge: this.profile.visitEvents().length || undefined,
+        },
+        {
+          id: 'camps',
+          label: 'Camps',
+          badge: this.profile.campEvents().length || undefined,
+        },
+        {
+          id: 'events',
+          label: 'Events',
+          badge: this.profile.generalEvents().length || undefined,
+        },
+      ],
+      contact: [
+        { id: 'info', label: 'Contact Info' },
+        { id: 'social', label: 'Social Media' },
+      ],
+    };
+    return sections[tab] ?? sections['timeline'];
+  });
+
+  /** Active side tab (first item by default) */
+  private readonly _activeSideTab = signal<string>('');
+
+  protected readonly activeSideTab = computed(() => {
+    const current = this._activeSideTab();
+    const items = this.sideTabItems();
+    if (current && items.some((i) => i.id === current)) return current;
+    return items[0]?.id ?? '';
+  });
+
+  /** Map sidebar tab ID → ProfileTimelineFilterId for the timeline component */
+  protected readonly timelineFilter = computed<ProfileTimelineFilterId>(() => {
+    const sideTab = this.activeSideTab();
+    const map: Record<string, ProfileTimelineFilterId> = {
+      pinned: 'pinned',
+      'all-posts': 'all',
+      media: 'media',
+    };
+    return map[sideTab] ?? 'all';
+  });
+
+  // ============================================
+  // COMPUTED — Game Log / Season Helpers
+  // ============================================
+
+  protected readonly hasSchoolGameLogs = computed(() =>
+    this.profile.gameLog().some((gl: ProfileSeasonGameLog) => gl.teamType === 'school')
+  );
+
+  protected readonly hasClubGameLogs = computed(() =>
+    this.profile.gameLog().some((gl: ProfileSeasonGameLog) => gl.teamType === 'club')
+  );
+
+  private getUniqueSeasons(logs: readonly ProfileSeasonGameLog[]): readonly string[] {
+    const seen = new Set<string>();
+    const seasons: string[] = [];
+    for (const log of logs) {
+      const label = log.season?.trim();
+      if (label && !seen.has(label)) {
+        seen.add(label);
+        seasons.push(label);
+      }
+    }
+    return seasons;
+  }
+
+  private readonly schoolSeasons = computed<readonly string[]>(() => {
+    const schoolLogs = this.profile
+      .gameLog()
+      .filter((gl: ProfileSeasonGameLog) => gl.teamType === 'school');
+    return this.getUniqueSeasons(schoolLogs);
+  });
+
+  private readonly schoolStatsTeamName = computed(() => {
+    const user = this.profile.user();
+    const schoolName = user?.school?.name?.trim();
+    if (schoolName) return schoolName;
+    const firstTeam = user?.teamAffiliations?.find((a) => a.name?.trim())?.name?.trim();
+    return firstTeam ?? user?.displayName?.trim() ?? 'School';
+  });
+
+  private readonly clubSeasons = computed<readonly string[]>(() => {
+    const clubLogs = this.profile
+      .gameLog()
+      .filter((gl: ProfileSeasonGameLog) => gl.teamType === 'club');
+    return this.getUniqueSeasons(clubLogs);
+  });
+
+  private readonly clubStatsTeamName = computed(() => {
+    const user = this.profile.user();
+    const clubTeam = user?.teamAffiliations?.find(
+      (a) => a.type?.toLowerCase() === 'club' && a.name?.trim()
+    );
+    return clubTeam?.name?.trim() ?? 'Club';
+  });
+
+  protected readonly scheduleSeasons = computed<readonly string[]>(() =>
+    getScheduleSeasons(this.profile.events())
+  );
+
+  /**
+   * Maps ProfileEvent[] → ScheduleRow[] for the ScheduleBoardComponent.
+   * Filters by active season tab and delegates mapping to @nxt1/core helpers.
+   */
+  protected readonly profileScheduleRows = computed<readonly ScheduleRow[]>(() => {
+    const sideTab = this.activeSideTab();
+    const seasonLabel = sideTab.startsWith('season-') ? sideTab.replace('season-', '') : undefined;
+    const events = filterScheduleEvents(this.profile.events(), seasonLabel);
+
+    const user = this.profile.user();
+    return mapProfileEventsToScheduleRows(events, {
+      teamName: user?.school?.name?.trim() || user?.displayName?.trim() || 'Team',
+      teamLogo: user?.school?.logoUrl || user?.teamAffiliations?.[0]?.logoUrl,
+    });
+  });
+
+  // ── News board items ──
+
+  /** Map mock/real news articles into display-adapter items for the shared NewsBoardComponent. */
+  protected readonly newsBoardItems = computed(() => MOCK_NEWS_ARTICLES);
+
+  private readonly scheduleTeamName = computed(() => {
+    const user = this.profile.user();
+    const schoolName = user?.school?.name?.trim();
+    if (schoolName) return schoolName;
+    const firstTeamName = user?.teamAffiliations
+      ?.find((affiliation) => affiliation.name?.trim())
+      ?.name?.trim();
+    if (firstTeamName) return firstTeamName;
+    return user?.displayName?.trim() || 'Team';
   });
 
   // ============================================
@@ -1068,12 +1104,9 @@ export class ProfileShellComponent implements OnInit {
     const unicode = this.profileUnicode();
     const isOwn = this.isOwnProfile();
 
-    // If unicode is provided, load that profile
-    // If no unicode but marked as own profile, load current user's profile with mock data
     if (unicode) {
       this.profile.loadProfile(unicode, isOwn);
     } else {
-      // No unicode provided - load own profile (default behavior)
       this.profile.loadProfile('me', true);
     }
   }
@@ -1085,7 +1118,20 @@ export class ProfileShellComponent implements OnInit {
   protected onTabChange(event: OptionScrollerChangeEvent): void {
     const tabId = event.option.id as ProfileTabId;
     this.profile.setActiveTab(tabId);
+    this._activeSideTab.set(''); // reset sub-tab when top tab changes
     this.tabChange.emit(tabId);
+  }
+
+  protected onSectionNavChange(event: SectionNavChangeEvent): void {
+    this._activeSideTab.set(event.id);
+  }
+
+  protected onSportSwitch(index: number): void {
+    this.profile.setActiveSportIndex(index);
+    this.logger.debug('Sport profile switched', {
+      index,
+      sport: this.profile.activeSport()?.name,
+    });
   }
 
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
@@ -1105,88 +1151,40 @@ export class ProfileShellComponent implements OnInit {
     if (unicode) {
       this.profile.loadProfile(unicode, this.isOwnProfile());
     } else {
-      // No unicode - retry loading own profile
       this.profile.loadProfile('me', true);
     }
   }
 
-  // Header actions
   protected onFollowToggle(): void {
     this.profile.toggleFollow();
   }
 
-  protected onFollowersClick(): void {
-    this.logger.debug('Followers click');
-    // TODO: Open followers dialog
-  }
-
-  protected onFollowingClick(): void {
-    this.logger.debug('Following click');
-    // TODO: Open following dialog
-  }
-
-  protected onEditProfile(): void {
-    this.editProfileClick.emit();
-  }
-
-  protected onEditTeam(): void {
-    this.editTeamClick.emit();
-  }
-
-  protected onEditBanner(): void {
-    this.logger.debug('Edit banner');
-    // TODO: Open banner editor
-  }
-
-  protected onEditAvatar(): void {
-    this.logger.debug('Edit avatar');
-    // TODO: Open avatar editor
-  }
-
-  protected onMessageClick(): void {
-    this.logger.debug('Message click');
-    // TODO: Open message composer
-  }
-
-  protected onPinnedVideoClick(): void {
-    this.logger.debug('Pinned video click');
-    // TODO: Play pinned video
-  }
-
-  protected onPinVideoClick(): void {
-    this.logger.debug('Pin video click');
-    // TODO: Open video picker
-  }
-
-  protected onStatClick(key: string): void {
-    this.logger.debug('Stat click', { key });
-    // TODO: Navigate to stats detail
-  }
-
-  // Post actions - using minimal interface since we only need id
+  // Post actions
   protected onPostClick(post: ProfilePost): void {
     this.logger.debug('Post click', { postId: post.id });
-    // TODO: Open post detail
+  }
+
+  protected onNewsBoardItemClick(item: NewsArticle): void {
+    this.logger.debug('News board item click', {
+      itemId: item.id,
+      title: item.title,
+    });
   }
 
   protected onLikePost(post: ProfilePost): void {
     this.logger.debug('Like post', { postId: post.id });
-    // TODO: Toggle like
   }
 
   protected onCommentPost(post: ProfilePost): void {
     this.logger.debug('Comment post', { postId: post.id });
-    // TODO: Open comments
   }
 
   protected onSharePost(post: ProfilePost): void {
     this.logger.debug('Share post', { postId: post.id });
-    // TODO: Open share sheet
   }
 
   protected onPostMenu(post: ProfilePost): void {
     this.logger.debug('Post menu', { postId: post.id });
-    // TODO: Open post menu
   }
 
   protected onLoadMore(): void {
@@ -1199,43 +1197,32 @@ export class ProfileShellComponent implements OnInit {
 
   protected onUploadVideo(): void {
     this.logger.debug('Upload video');
-    // TODO: Open video uploader
   }
 
-  // Recruiting activity - using ProfileRecruitingActivity type from @nxt1/core
   protected onOfferClick(offer: ProfileRecruitingActivity): void {
-    this.logger.debug('Recruiting activity click', {
-      activityId: offer.id,
+    this.logger.debug('Offer click', {
+      offerId: offer.id,
       category: offer.category,
     });
-    // TODO: Open recruiting activity detail
   }
 
   protected onAddOffer(): void {
     this.logger.debug('Add offer');
-    // TODO: Open add offer dialog
   }
 
-  // Stats
-  protected onAddStats(): void {
-    this.logger.debug('Add stats');
-    // TODO: Open stats editor
+  protected onScoutReportClick(report: ScoutReport): void {
+    this.logger.debug('Scout report click', {
+      reportId: report.id,
+      athlete: report.athlete.name,
+    });
   }
 
-  // Events (schedule items — games, practices, combines)
   protected onEventClick(event: ProfileEvent): void {
     this.logger.debug('Event click', { eventId: event.id, type: event.type });
-    // TODO: Open event detail
   }
 
   protected onAddEvent(): void {
     this.logger.debug('Add event');
-    // TODO: Open add event dialog
-  }
-
-  // Contact
-  protected onEditContact(): void {
-    this.logger.debug('Edit contact');
   }
 
   /**
@@ -1265,7 +1252,6 @@ export class ProfileShellComponent implements OnInit {
       initialBreakpoint: 0.35,
     });
 
-    // result.data contains the tapped BottomSheetAction; undefined on backdrop/close dismiss
     const selected = result?.data as BottomSheetAction | undefined;
     if (!selected) return;
 
@@ -1288,12 +1274,4 @@ export class ProfileShellComponent implements OnInit {
   // ============================================
   // HELPERS
   // ============================================
-
-  protected formatEventMonth(dateString: string): string {
-    return new Date(dateString).toLocaleDateString('en-US', { month: 'short' });
-  }
-
-  protected formatEventDay(dateString: string): string {
-    return new Date(dateString).getDate().toString();
-  }
 }

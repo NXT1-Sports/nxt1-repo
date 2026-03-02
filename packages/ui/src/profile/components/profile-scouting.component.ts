@@ -1,6 +1,6 @@
 /**
- * @fileoverview Profile Scouting Reports Web Component
- * @module @nxt1/ui/profile/web
+ * @fileoverview Profile Scouting Reports Component
+ * @module @nxt1/ui/profile/components
  * @version 2.0.0
  *
  * Displays scout reports for the current athlete profile.
@@ -91,7 +91,7 @@ function formatViewCount(count: number): string {
 let _hasLoadedOnce = false;
 
 @Component({
-  selector: 'nxt1-profile-scouting-web',
+  selector: 'nxt1-profile-scouting',
   standalone: true,
   imports: [NxtIconComponent, NxtContentCardWebComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -447,7 +447,7 @@ let _hasLoadedOnce = false;
     `,
   ],
 })
-export class ProfileScoutingWebComponent implements OnInit {
+export class ProfileScoutingComponent implements OnInit {
   // ============================================
   // DEPENDENCIES
   // ============================================

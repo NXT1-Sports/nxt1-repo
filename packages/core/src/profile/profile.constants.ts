@@ -401,12 +401,12 @@ export const PROFILE_EMPTY_STATES: Record<
   overview: {
     title: 'Overview not available',
     message: 'Player profile information will appear here once generated.',
-    icon: 'grid',
+    icon: 'pie-chart-outline',
   },
   timeline: {
     title: 'No posts yet',
     message: 'Start sharing your journey and connect with coaches and scouts.',
-    icon: 'newspaper',
+    icon: 'newspaper-outline',
     ctaLabel: 'Create First Post',
   },
   news: {
@@ -418,49 +418,49 @@ export const PROFILE_EMPTY_STATES: Record<
   videos: {
     title: 'No videos yet',
     message: 'Upload highlights and game footage to showcase your skills.',
-    icon: 'videocam',
+    icon: 'videocam-outline',
     ctaLabel: 'Upload Video',
   },
   offers: {
     title: 'No recruit activity yet',
     message: 'Your recruiting journey is just getting started. Keep working!',
-    icon: 'trophy',
+    icon: 'trophy-outline',
     ctaLabel: 'Add Recruit Update',
   },
   metrics: {
     title: 'No metrics recorded',
     message: 'Add your combine results and measurables to showcase your athleticism.',
-    icon: 'barbell',
+    icon: 'barbell-outline',
     ctaLabel: 'Add Metrics',
   },
   stats: {
     title: 'No stats recorded',
     message: 'Add your athletic and academic stats to complete your profile.',
-    icon: 'stats-chart',
+    icon: 'stats-chart-outline',
     ctaLabel: 'Add Stats',
   },
   academic: {
     title: 'No academic info yet',
     message: 'Add GPA, test scores, and school details to strengthen your profile.',
-    icon: 'school',
+    icon: 'school-outline',
     ctaLabel: 'Add Academic Info',
   },
   events: {
     title: 'No events scheduled',
     message: 'Add upcoming games, camps, and showcases to your calendar.',
-    icon: 'calendar',
+    icon: 'calendar-outline',
     ctaLabel: 'Add Event',
   },
   schedule: {
     title: 'No schedule yet',
     message: 'Add upcoming games, camps, and showcases to your schedule.',
-    icon: 'calendar-clear',
+    icon: 'calendar-outline',
     ctaLabel: 'Add Schedule Item',
   },
   contact: {
     title: 'Contact info not set',
     message: 'Add your contact information so coaches can reach you.',
-    icon: 'mail',
+    icon: 'mail-outline',
     ctaLabel: 'Add Contact Info',
   },
 } as const;

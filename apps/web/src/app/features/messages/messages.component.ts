@@ -18,9 +18,7 @@
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { MessagesShellWebComponent, type MessagesUser } from '@nxt1/ui/messages';
-import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import type { Conversation } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
@@ -32,8 +30,6 @@ import { SeoService } from '../../core/services';
   template: `
     <nxt1-messages-shell-web
       [user]="userInfo()"
-      [hideHeader]="isDesktop()"
-      (avatarClick)="onAvatarClick()"
       (conversationClick)="onConversationClick($event)"
       (compose)="onCompose()"
     />
@@ -42,14 +38,9 @@ import { SeoService } from '../../core/services';
 })
 export class MessagesComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
-  private readonly sidenavService = inject(NxtSidenavService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('MessagesComponent');
   private readonly seo = inject(SeoService);
-  private readonly platform = inject(NxtPlatformService);
-
-  /** Desktop detection for hiding redundant page header (sidebar provides nav) */
-  protected readonly isDesktop = computed(() => this.platform.isDesktop());
 
   /** Transform auth user to MessagesUser interface */
   protected readonly userInfo = computed<MessagesUser | null>(() => {
@@ -73,11 +64,6 @@ export class MessagesComponent implements OnInit {
     });
 
     this.logger.debug('Messages page initialized');
-  }
-
-  /** Open sidenav (Twitter/X pattern) */
-  protected onAvatarClick(): void {
-    this.sidenavService.open();
   }
 
   /** Navigate to conversation thread */

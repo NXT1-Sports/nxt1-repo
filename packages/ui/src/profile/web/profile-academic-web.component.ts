@@ -24,7 +24,9 @@ import { ProfileService } from '../profile.service';
         !profile.user()?.school?.name
       ) {
         <div class="madden-empty">
-          <nxt1-icon name="school" [size]="48" />
+          <div class="madden-empty__icon" aria-hidden="true">
+            <nxt1-icon name="school-outline" [size]="40" />
+          </div>
           <h3>No academic info yet</h3>
           <p>
             @if (profile.isOwnProfile()) {
@@ -79,6 +81,18 @@ import { ProfileService } from '../profile.service';
         font-weight: 700;
         color: var(--m-text);
         margin: 16px 0 8px;
+      }
+      .madden-empty__icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.4));
       }
       .madden-empty p {
         font-size: 14px;

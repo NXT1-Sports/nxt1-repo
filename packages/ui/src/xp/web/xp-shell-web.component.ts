@@ -21,18 +21,9 @@
  * already cross-platform safe.
  */
 
-import {
-  Component,
-  ChangeDetectionStrategy,
-  inject,
-  input,
-  output,
-  computed,
-  effect,
-} from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, input, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { Mission, MissionUserRole, MissionCategory, MissionQuickAction } from '@nxt1/core';
-import { NxtPageHeaderComponent } from '../../components/page-header';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
@@ -50,7 +41,6 @@ import { NxtXpArenaLeaderboardComponent } from '../xp-arena-leaderboard.componen
   standalone: true,
   imports: [
     CommonModule,
-    NxtPageHeaderComponent,
     NxtDesktopPageHeaderComponent,
     XpProgressComponent,
     XpCategoryComponent,
@@ -61,25 +51,11 @@ import { NxtXpArenaLeaderboardComponent } from '../xp-arena-leaderboard.componen
     NxtXpArenaLeaderboardComponent,
   ],
   template: `
-    <!-- Page Header (hidden on desktop when sidebar provides navigation) -->
-    @if (!hideHeader()) {
-      <nxt1-page-header
-        title="XP"
-        [avatarSrc]="avatarSrc()"
-        [avatarName]="avatarName()"
-        [showBack]="showBack()"
-        (avatarClick)="avatarClick.emit()"
-        (backClick)="back.emit()"
-      />
-    }
-
     <!-- Main Content Area (semantic, SSR-safe) -->
     <main class="xp-main" role="main">
       <div class="xp-dashboard">
-        <!-- Desktop Page Header (visible when sidebar provides navigation) -->
-        @if (hideHeader()) {
-          <nxt1-desktop-page-header [title]="'XP'" [subtitle]="headerSubtitle()" />
-        }
+        <!-- Desktop Page Header -->
+        <nxt1-desktop-page-header [title]="'XP'" [subtitle]="headerSubtitle()" />
 
         <!-- Streak Banner -->
         @if (streakDays() > 0) {
@@ -578,28 +554,6 @@ export class XpShellWebComponent {
 
   /** User role for mission type */
   readonly userRole = input<MissionUserRole>('athlete');
-
-  /** Avatar source URL for page header */
-  readonly avatarSrc = input<string | undefined>(undefined);
-
-  /** Avatar display name for page header */
-  readonly avatarName = input<string>('');
-
-  /** Hide page header (desktop sidebar provides navigation) */
-  readonly hideHeader = input(false);
-
-  /** Show back button instead of avatar */
-  readonly showBack = input(false);
-
-  // ============================================
-  // OUTPUTS
-  // ============================================
-
-  /** Emitted when avatar is clicked (typically opens sidenav) */
-  readonly avatarClick = output<void>();
-
-  /** Emitted when back is clicked */
-  readonly back = output<void>();
 
   // ============================================
   // SERVICE SIGNALS (exposed for template)

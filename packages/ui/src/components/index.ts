@@ -120,6 +120,8 @@ export { NxtTeamLogoPickerComponent } from './team-logo-picker';
 
 export { NxtColorPickerComponent } from './color-picker';
 
+export { ScheduleBoardComponent } from './schedule-board';
+
 // ============================================
 // LAYOUT / NAVIGATION COMPONENTS
 // ============================================
@@ -451,3 +453,13 @@ export { NxtTimelineComponent } from './timeline';
 // CONTENT CARD (Shared glass-morphism card shell)
 // ============================================
 export { NxtContentCardWebComponent } from './content-card';
+
+// ============================================
+// STATS DASHBOARD (Shared between profile & team profile)
+// ============================================
+export { StatsDashboardComponent } from './stats-dashboard';
+
+// ============================================
+// NEWS BOARD (Shared between profile & team profile)
+// ============================================
+export { NewsBoardComponent } from './news-board';

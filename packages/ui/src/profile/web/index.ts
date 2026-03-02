@@ -2,25 +2,27 @@
  * @fileoverview Profile Web Components - Barrel Export
  * @module @nxt1/ui/profile/web
  *
- * Web-optimized profile components using pure Tailwind CSS.
- * 100% SSR-safe with semantic HTML for Grade A+ SEO.
+ * Web-ONLY profile components. These use SSR-specific patterns,
+ * Tailwind desktop layouts, or schema.org microdata that are NOT
+ * shared with the mobile shell.
+ *
+ * Shared components live in ../components/ and are exported from
+ * the root profile/index.ts barrel.
  *
  * Usage:
  * ```typescript
- * // In web app (SSR)
  * import { ProfileShellWebComponent } from '@nxt1/ui/profile/web';
  * ```
  */
 
+// Web-only shell (SSR layout, semantic HTML, Tailwind grid)
 export { ProfileShellWebComponent } from './profile-shell-web.component';
-export { ProfileNewsWebComponent } from './profile-news-web.component';
-export { ProfileScoutingWebComponent } from './profile-scouting-web.component';
+
+// Web-only header (SSR banner hero with schema.org microdata)
+export { ProfileHeaderWebComponent } from './profile-header-web.component';
+
+// Web-only desktop page header (badge shelf, XP ring, desktop nav)
+export { ProfilePageHeaderComponent } from './profile-page-header.component';
+
+// Web-only discovery row
 export { RelatedAthletesComponent, type RelatedAthlete } from './related-athletes.component';
-export { ProfileOverviewWebComponent } from './profile-overview-web.component';
-export { ProfileMobileHeroComponent } from './profile-mobile-hero.component';
-export { ProfileVerificationBannerComponent } from './profile-verification-banner.component';
-export { ProfileStatsWebComponent } from './profile-stats-web.component';
-export { ProfileScheduleWebComponent } from './profile-schedule-web.component';
-export { ProfileContactWebComponent } from './profile-contact-web.component';
-export { ProfileAcademicWebComponent } from './profile-academic-web.component';
-export { ProfileMetricsWebComponent } from './profile-metrics-web.component';

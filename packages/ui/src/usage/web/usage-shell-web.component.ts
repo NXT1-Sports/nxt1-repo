@@ -23,9 +23,7 @@
  *
  * @example
  * ```html
- * <nxt1-usage-shell-web
- *   [hideHeader]="isDesktop()"
- * />
+ * <nxt1-usage-shell-web />
  * ```
  */
 
@@ -34,13 +32,11 @@ import {
   ChangeDetectionStrategy,
   inject,
   input,
-  output,
   computed,
   signal,
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NxtPageHeaderComponent } from '../../components/page-header';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
 import { NxtSectionNavWebComponent } from '../../components/section-nav-web';
 import type { SectionNavChangeEvent } from '../../components/section-nav-web';
@@ -69,7 +65,6 @@ export type { UsageUser };
   standalone: true,
   imports: [
     CommonModule,
-    NxtPageHeaderComponent,
     NxtDesktopPageHeaderComponent,
     NxtSectionNavWebComponent,
     NxtRefresherComponent,
@@ -84,34 +79,20 @@ export type { UsageUser };
     UsageHelpContentComponent,
   ],
   template: `
-    <!-- Page Header (hidden on desktop when sidebar provides navigation) -->
-    @if (!hideHeader()) {
-      <nxt1-page-header
-        title="Billing & Usage"
-        [showBack]="true"
-        [avatarSrc]="user()?.profileImg"
-        [avatarName]="displayName()"
-        (backClick)="back.emit()"
-        (avatarClick)="avatarClick.emit()"
-      />
-    }
-
     <!-- SEO: Main content area with semantic structure -->
     <main class="usage-main" role="main">
       <!-- Pull-to-Refresh (gracefully noop without IonContent) -->
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="usage-dashboard">
-        <!-- Desktop Page Title (visible when page header is hidden) -->
-        @if (hideHeader()) {
-          <nxt1-desktop-page-header
-            title="Billing & Usage"
-            subtitle="Manage your billing, usage, and payment details for your account."
-            actionLabel="How it works"
-            actionIcon="help-circle-outline"
-            (actionClick)="showHelpDialog()"
-          />
-        }
+        <!-- Desktop Page Header -->
+        <nxt1-desktop-page-header
+          title="Billing & Usage"
+          subtitle="Manage your billing, usage, and payment details for your account."
+          actionLabel="How it works"
+          actionIcon="help-circle-outline"
+          (actionClick)="showHelpDialog()"
+        />
 
         @if (svc.error() && !hasData()) {
           <section class="error-state" aria-label="Error">
@@ -452,29 +433,11 @@ export class UsageShellWebComponent implements OnInit {
   /** Current user info */
   readonly user = input<UsageUser | null>(null);
 
-  /** Hide page header (desktop sidebar provides navigation) */
-  readonly hideHeader = input(false);
-
-  // ============================================
-  // OUTPUTS
-  // ============================================
-
-  /** Emitted when back button is clicked */
-  readonly back = output<void>();
-
-  /** Emitted when avatar is clicked (open sidenav) */
-  readonly avatarClick = output<void>();
-
   // ============================================
   // COMPUTED
   // ============================================
 
   protected readonly hasData = computed(() => this.svc.overview() !== null);
-
-  /** Display name for header */
-  protected displayName(): string {
-    return this.user()?.displayName ?? 'User';
-  }
 
   // ============================================
   // LIFECYCLE

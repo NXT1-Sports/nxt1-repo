@@ -27,9 +27,7 @@ import {
   AnalyticsDashboardSkeletonComponent,
   type AnalyticsUser,
 } from '@nxt1/ui/analytics-dashboard';
-import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import type {
   AnalyticsTabId,
   AnalyticsPeriod,
@@ -61,8 +59,6 @@ import { SeoService } from '../../core/services';
       <nxt1-analytics-dashboard-shell-web
         [user]="userInfo()"
         [role]="userRole()"
-        [hideHeader]="isDesktop()"
-        (avatarClick)="onAvatarClick()"
         (tabChange)="onTabChange($event)"
         (periodChange)="onPeriodChange($event)"
         (insightAction)="onInsightAction($event)"
@@ -89,11 +85,9 @@ import { SeoService } from '../../core/services';
 export class AnalyticsRootComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly authCookie = inject(AuthCookieService);
-  private readonly sidenavService = inject(NxtSidenavService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('AnalyticsRootComponent');
   private readonly seo = inject(SeoService);
-  private readonly platform = inject(NxtPlatformService);
 
   /** Auth state signals */
   protected readonly isAuthenticated = this.authService.isAuthenticated;
@@ -103,9 +97,6 @@ export class AnalyticsRootComponent implements OnInit {
   protected readonly shouldShowAuthSkeleton = computed(
     () => this.isAuthLoading() && this.authCookie.hasAuthCookie()
   );
-
-  /** Desktop detection for hiding redundant page header (sidebar provides nav) */
-  protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
 
   ngOnInit(): void {
     // SEO: Use different meta tags based on auth state
@@ -157,13 +148,6 @@ export class AnalyticsRootComponent implements OnInit {
     if (!role) return 'athlete';
     return role === 'coach' ? 'coach' : 'athlete';
   });
-
-  /**
-   * Handle avatar click - open sidenav (Twitter/X pattern).
-   */
-  protected onAvatarClick(): void {
-    this.sidenavService.open();
-  }
 
   /**
    * Handle tab changes for analytics/logging.

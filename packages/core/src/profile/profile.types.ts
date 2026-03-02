@@ -402,6 +402,16 @@ export interface AthleticStat {
   readonly category?: string;
   /** Is verified/official */
   readonly verified?: boolean;
+  /** National average value (when available from backend) */
+  readonly nationalAverage?: string | number;
+  /** Alternative key for national average */
+  readonly nationalAvg?: string | number;
+  /** Generic average value */
+  readonly average?: string | number;
+  /** Short-form average key */
+  readonly avg?: string | number;
+  /** Benchmark value for comparison */
+  readonly benchmark?: string | number;
 }
 
 /**
@@ -782,6 +792,45 @@ export interface ProfileEvent {
   readonly logoUrl?: string;
   /** Full graphic/banner image URL (event flyer, camp graphic, etc.) */
   readonly graphicUrl?: string;
+}
+
+// ============================================
+// SCHEDULE BOARD DISPLAY TYPES
+// ============================================
+
+/**
+ * Uniform display row for the shared schedule board component.
+ * Both profile and team-profile shells map their domain data
+ * (ProfileEvent / TeamProfileScheduleEvent) into this shape
+ * before passing it to the ScheduleBoardComponent.
+ *
+ * Pure display DTO — no business logic, no service coupling.
+ */
+export interface ScheduleRow {
+  /** Unique row identifier (event ID) */
+  readonly id: string;
+  /** Whether the event is in the past */
+  readonly isPast: boolean;
+  /** Short month label (e.g., "Jan", "Mar") */
+  readonly month: string;
+  /** Day of month (e.g., "28", "13") */
+  readonly day: string;
+  /** Home team display name */
+  readonly homeTeam: string;
+  /** Away team display name */
+  readonly awayTeam: string;
+  /** Home team logo URL */
+  readonly homeLogo?: string;
+  /** Away team logo URL */
+  readonly awayLogo?: string;
+  /** Location/venue */
+  readonly location: string;
+  /** Time display (e.g., "7:00 PM", "All day") */
+  readonly time: string;
+  /** Status label (e.g., "Completed", "Upcoming", "Win", "Loss") */
+  readonly statusLabel: string;
+  /** Status value (e.g., "Scheduled", "42-21", "No score reported") */
+  readonly statusValue: string;
 }
 
 // ============================================

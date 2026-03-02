@@ -274,6 +274,103 @@ export const CENTERED_CREATE_FOOTER_TABS: FooterTabItem[] = [
 ];
 
 /**
+ * AI-First layout: Agent X in the center, Profile on the far right.
+ * Visual order: Explore, Messages, Agent X (center), Activity, Profile.
+ *
+ * This is the "Inevitable Platform" configuration:
+ * - Agent X is the primary action (center, elevated)
+ * - Profile is the identity anchor (bottom right)
+ * - No manual "Create" — creation is driven through Agent X
+ */
+export const AGENT_X_CENTER_FOOTER_TABS: FooterTabItem[] = [
+  {
+    id: 'explore',
+    label: 'Explore',
+    icon: 'compass',
+    iconActive: 'compassFilled',
+    route: '/explore',
+    ariaLabel: 'Explore athletes and teams',
+  },
+  {
+    id: 'messages',
+    label: 'Messages',
+    icon: 'messages',
+    iconActive: 'messagesFilled',
+    route: '/messages',
+    ariaLabel: 'View your messages',
+  },
+  {
+    id: 'ai',
+    label: 'Agent X',
+    icon: 'bolt',
+    iconActive: 'boltFilled',
+    route: '/agent',
+    isActionButton: true,
+    ariaLabel: 'Open AI Agent X',
+  },
+  {
+    id: 'activity',
+    label: 'Activity',
+    icon: 'bell',
+    iconActive: 'bellFilled',
+    route: '/activity',
+    ariaLabel: 'View your activity and notifications',
+  },
+  {
+    id: 'profile',
+    label: 'Profile',
+    icon: 'user',
+    iconActive: 'userFilled',
+    route: '/profile',
+    ariaLabel: 'View your profile',
+  },
+];
+
+/**
+ * AI-First layout: Agent X on the far left as the home anchor.
+ * Visual order: Agent X, Explore, Activity, Profile.
+ *
+ * Notes:
+ * - Agent X remains a circular action button for visual prominence.
+ * - Messages is removed from the footer in this variant.
+ */
+export const AGENT_X_LEFT_FOOTER_TABS: FooterTabItem[] = [
+  {
+    id: 'ai',
+    label: 'Agent X',
+    icon: 'bolt',
+    iconActive: 'boltFilled',
+    route: '/agent',
+    isActionButton: true,
+    ariaLabel: 'Open AI Agent X',
+  },
+  {
+    id: 'explore',
+    label: 'Explore',
+    icon: 'compass',
+    iconActive: 'compassFilled',
+    route: '/explore',
+    ariaLabel: 'Explore athletes and teams',
+  },
+  {
+    id: 'activity',
+    label: 'Activity',
+    icon: 'bell',
+    iconActive: 'bellFilled',
+    route: '/activity',
+    ariaLabel: 'View your activity and notifications',
+  },
+  {
+    id: 'profile',
+    label: 'Profile',
+    icon: 'user',
+    iconActive: 'userFilled',
+    route: '/profile',
+    ariaLabel: 'View your profile',
+  },
+];
+
+/**
  * Footer height values (matches design tokens)
  */
 export const FOOTER_HEIGHTS = {

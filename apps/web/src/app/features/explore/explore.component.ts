@@ -18,7 +18,6 @@
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
 import { Router } from '@angular/router';
 import { ExploreShellWebComponent, type ExploreUser } from '@nxt1/ui/explore';
-import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ExploreItem, ExploreTabId, ScoutReport, FeedPost, FeedAuthor } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
@@ -31,8 +30,6 @@ import { SeoService } from '../../core/services';
   template: `
     <nxt1-explore-shell-web
       [user]="userInfo()"
-      [hideHeader]="true"
-      (avatarClick)="onAvatarClick()"
       (tabChange)="onTabChange($event)"
       (itemClick)="onItemClick($event)"
       (scoutReportSelect)="onScoutReportSelect($event)"
@@ -47,7 +44,6 @@ import { SeoService } from '../../core/services';
 })
 export class ExploreComponent {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
-  private readonly sidenavService = inject(NxtSidenavService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('ExploreComponent');
   private readonly seo = inject(SeoService);
@@ -72,13 +68,6 @@ export class ExploreComponent {
       displayName: user.displayName,
     };
   });
-
-  /**
-   * Handle avatar click - open sidenav (Twitter/X pattern).
-   */
-  protected onAvatarClick(): void {
-    this.sidenavService.open();
-  }
 
   /**
    * Handle item click - navigate to detail page.

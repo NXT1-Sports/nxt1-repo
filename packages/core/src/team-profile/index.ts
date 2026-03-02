@@ -101,3 +101,13 @@ export {
   type TeamProfilePaginatedResponse,
   type TeamProfileSearchParams,
 } from './team-profile.api';
+
+// ============================================
+// TEAM STATS HELPERS
+// ============================================
+export { mapTeamStatsToGameLogs } from './team-stats.helpers';
+
+// ============================================
+// TEAM NEWS HELPERS
+// ============================================
+export { mapTeamPostsToNewsBoardItems } from './team-news.helpers';

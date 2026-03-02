@@ -1,18 +1,24 @@
 /**
- * @fileoverview Profile Schedule Tab Component - Web
- * @module @nxt1/ui/profile/web
+ * @fileoverview Shared Schedule Board Component
+ * @module @nxt1/ui/components/schedule-board
+ * @version 1.0.0
  *
- * Extracted from ProfileShellWebComponent.
- * Displays the team schedule with matchup rows.
+ * Pure presentational component — renders a list of ScheduleRow items
+ * in the "Madden franchise" matchup board style.
+ *
+ * Zero service dependencies. The parent shell maps its domain data
+ * (ProfileEvent, TeamProfileScheduleEvent, etc.) into ScheduleRow[]
+ * and passes it via the [rows] input.
+ *
+ * ⭐ SHARED BETWEEN PROFILE & TEAM PROFILE — Web & Mobile ⭐
  */
-import { Component, ChangeDetectionStrategy, inject, input, computed } from '@angular/core';
-import { type ProfileEvent } from '@nxt1/core';
-import { NxtIconComponent } from '../../components/icon';
-import { NxtImageComponent } from '../../components/image';
-import { ProfileService } from '../profile.service';
+import { Component, ChangeDetectionStrategy, input, output } from '@angular/core';
+import { type ScheduleRow } from '@nxt1/core';
+import { NxtIconComponent } from '../icon';
+import { NxtImageComponent } from '../image';
 
 @Component({
-  selector: 'nxt1-profile-schedule-web',
+  selector: 'nxt1-schedule-board',
   standalone: true,
   imports: [NxtIconComponent, NxtImageComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -20,30 +26,26 @@ import { ProfileService } from '../profile.service';
     <section class="madden-tab-section madden-schedule" aria-labelledby="schedule-heading">
       <h2 id="schedule-heading" class="sr-only">Schedule</h2>
 
-      @if (scheduleEvents().length === 0) {
+      @if (rows().length === 0) {
         <div class="madden-empty">
-          <nxt1-icon name="calendar" [size]="48" />
+          <div class="madden-empty__icon" aria-hidden="true">
+            <nxt1-icon name="calendar-outline" [size]="40" />
+          </div>
           <h3>No schedule yet</h3>
-          <p>
-            @if (profile.isOwnProfile()) {
-              Add games and practices to show your full season schedule.
-            } @else {
-              This athlete hasn't added any schedule items yet.
-            }
-          </p>
-          @if (profile.isOwnProfile()) {
-            <button type="button" class="madden-cta-btn" (click)="onAddEvent()">Add Game</button>
+          <p>{{ emptyMessage() }}</p>
+          @if (showAddButton()) {
+            <button type="button" class="madden-cta-btn" (click)="addEvent.emit()">Add Game</button>
           }
         </div>
       } @else {
         <div class="schedule-board" role="list" aria-label="Team schedule">
-          @for (row of scheduleRows(); track row.event.id) {
+          @for (row of rows(); track row.id) {
             <button
               type="button"
               class="schedule-row"
               [class.schedule-row--past]="row.isPast"
               role="listitem"
-              (click)="onEventClick(row.event)"
+              (click)="rowClick.emit(row)"
             >
               <div class="schedule-row__date">
                 <span class="schedule-row__month">{{ row.month }}</span>
@@ -125,6 +127,18 @@ import { ProfileService } from '../profile.service';
         font-weight: 700;
         color: var(--m-text);
         margin: 16px 0 8px;
+      }
+      .madden-empty__icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.4));
       }
       .madden-empty p {
         font-size: 14px;
@@ -373,184 +387,23 @@ import { ProfileService } from '../profile.service';
     `,
   ],
 })
-export class ProfileScheduleWebComponent {
-  protected readonly profile = inject(ProfileService);
+export class ScheduleBoardComponent {
+  // ── Inputs ──
 
-  /** Active side tab from parent, used for season filtering */
-  readonly activeSideTab = input<string>('');
+  /** Schedule rows to display. Parent maps domain data → ScheduleRow[]. */
+  readonly rows = input.required<readonly ScheduleRow[]>();
 
-  // ── Schedule computed signals ──
+  /** Empty-state message when no rows. */
+  readonly emptyMessage = input('No schedule items have been added yet.');
 
-  protected readonly scheduleEvents = computed(() => {
-    const sorted = [...this.profile.events()].sort(
-      (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()
-    );
+  /** Whether to show the "Add Game" CTA in the empty state. */
+  readonly showAddButton = input(false);
 
-    const gameSchedule = sorted.filter(
-      (event) => event.type === 'game' || event.type === 'practice'
-    );
-    const base = gameSchedule.length > 0 ? gameSchedule : sorted;
+  // ── Outputs ──
 
-    const sideTab = this.activeSideTab();
-    if (sideTab.startsWith('season-')) {
-      const seasonLabel = sideTab.replace('season-', '');
-      return base.filter((event) => this.getSeasonForDate(event.startDate) === seasonLabel);
-    }
+  /** Emitted when a row is clicked. */
+  readonly rowClick = output<ScheduleRow>();
 
-    return base;
-  });
-
-  protected readonly scheduleRows = computed(() => {
-    const events = this.scheduleEvents();
-    const user = this.profile.user();
-    const ownTeamName = user?.school?.name?.trim() || user?.displayName?.trim() || 'Team';
-    const ownTeamLogo = user?.school?.logoUrl || user?.teamAffiliations?.[0]?.logoUrl;
-    const now = Date.now();
-
-    return events.map((event) => {
-      const matchup = this.resolveMatchup(event, ownTeamName, ownTeamLogo);
-      const isPast = new Date(event.startDate).getTime() <= now;
-
-      return {
-        event,
-        isPast,
-        month: this.formatEventMonth(event.startDate),
-        day: this.formatEventDay(event.startDate),
-        homeTeam: matchup.homeTeam,
-        awayTeam: matchup.awayTeam,
-        homeLogo: matchup.homeLogo,
-        awayLogo: matchup.awayLogo,
-        location: event.location || 'Location TBA',
-        time: this.resolveTime(event),
-        statusLabel: isPast ? 'Completed' : 'Upcoming',
-        statusValue: event.result?.trim() || (isPast ? 'No score reported' : 'Scheduled'),
-      };
-    });
-  });
-
-  /** Unique season labels from schedule events */
-  readonly scheduleSeasons = computed<readonly string[]>(() => {
-    const events = this.profile.events();
-    const gameEvents = events.filter((e) => e.type === 'game' || e.type === 'practice');
-    const source = gameEvents.length > 0 ? gameEvents : events;
-
-    const seen = new Set<string>();
-    const seasons: string[] = [];
-    for (const event of source) {
-      const season = this.getSeasonForDate(event.startDate);
-      if (!seen.has(season)) {
-        seen.add(season);
-        seasons.push(season);
-      }
-    }
-    seasons.sort((a, b) => b.localeCompare(a));
-    return seasons;
-  });
-
-  /** Resolved team name for schedule side-nav */
-  readonly scheduleTeamName = computed(() => {
-    const user = this.profile.user();
-    const schoolName = user?.school?.name?.trim();
-    if (schoolName) return schoolName;
-
-    const firstTeamName = user?.teamAffiliations
-      ?.find((affiliation) => affiliation.name?.trim())
-      ?.name?.trim();
-    if (firstTeamName) return firstTeamName;
-
-    return user?.displayName?.trim() || 'Team';
-  });
-
-  protected onEventClick(_event: ProfileEvent): void {
-    // No-op — parent handles navigation
-  }
-
-  protected onAddEvent(): void {
-    // No-op — parent handles navigation
-  }
-
-  // ── Private helpers ──
-
-  private formatEventMonth(dateString: string): string {
-    return new Date(dateString).toLocaleDateString('en-US', { month: 'short' });
-  }
-
-  private formatEventDay(dateString: string): string {
-    return new Date(dateString).getDate().toString();
-  }
-
-  private getSeasonForDate(dateString: string): string {
-    const d = new Date(dateString);
-    const year = d.getFullYear();
-    const month = d.getMonth();
-    if (month >= 7) {
-      return `${year}-${year + 1}`;
-    }
-    return `${year - 1}-${year}`;
-  }
-
-  private resolveMatchup(
-    event: ProfileEvent,
-    ownTeamName: string,
-    ownTeamLogo: string | undefined
-  ): { homeTeam: string; awayTeam: string; homeLogo?: string; awayLogo?: string } {
-    const opponentName = this.resolveOpponent(event, ownTeamName);
-    const isHome = this.isHomeEvent(event.name, ownTeamName);
-
-    return isHome
-      ? {
-          homeTeam: ownTeamName,
-          awayTeam: opponentName,
-          homeLogo: ownTeamLogo,
-          awayLogo: event.logoUrl,
-        }
-      : {
-          homeTeam: opponentName,
-          awayTeam: ownTeamName,
-          homeLogo: event.logoUrl,
-          awayLogo: ownTeamLogo,
-        };
-  }
-
-  private resolveOpponent(event: ProfileEvent, ownTeamName: string): string {
-    if (event.opponent?.trim()) return event.opponent.trim();
-    const parsed = this.parseMatchupTeams(event.name, ownTeamName);
-    return parsed ?? 'Opponent';
-  }
-
-  private resolveTime(event: ProfileEvent): string {
-    if (event.isAllDay) return 'All day';
-    const d = new Date(event.startDate);
-    if (Number.isNaN(d.getTime())) return 'Time TBA';
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  }
-
-  private isHomeEvent(eventName: string, ownTeamName: string): boolean {
-    const name = eventName.toLowerCase();
-    if (name.includes(' @ ')) return !name.startsWith(ownTeamName.toLowerCase());
-    return true;
-  }
-
-  private parseMatchupTeams(eventName: string, ownTeamName: string): string | undefined {
-    const cleaned = eventName.trim();
-    if (!cleaned) return undefined;
-
-    const separator = cleaned.includes(' vs ')
-      ? /\s+vs\.?\s+/i
-      : cleaned.includes(' @ ')
-        ? /\s+@\s+/i
-        : null;
-    if (!separator) return undefined;
-
-    const [left, right] = cleaned.split(separator);
-    if (!left?.trim() || !right?.trim()) return undefined;
-
-    const leftTeam = left.trim();
-    const rightTeam = right.trim();
-    const own = ownTeamName.toLowerCase();
-
-    if (leftTeam.toLowerCase() === own) return rightTeam;
-    if (rightTeam.toLowerCase() === own) return leftTeam;
-    return rightTeam;
-  }
+  /** Emitted when "Add Game" button is clicked. */
+  readonly addEvent = output<void>();
 }

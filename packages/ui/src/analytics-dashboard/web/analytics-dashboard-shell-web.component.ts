@@ -35,7 +35,6 @@ import {
   type AnalyticsRecommendation,
   ANALYTICS_PERIODS,
 } from '@nxt1/core';
-import { NxtPageHeaderComponent, type PageHeaderAction } from '../../components/page-header';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
 import { NxtSectionNavWebComponent } from '../../components/section-nav-web';
 import type { SectionNavItem, SectionNavChangeEvent } from '../../components/section-nav-web';
@@ -52,40 +51,23 @@ import type { AnalyticsUser } from '../analytics-dashboard-shell.component';
   standalone: true,
   imports: [
     CommonModule,
-    NxtPageHeaderComponent,
     NxtDesktopPageHeaderComponent,
     NxtSectionNavWebComponent,
     NxtIconComponent,
     AnalyticsDashboardSkeletonComponent,
   ],
   template: `
-    <!-- Page Header (hidden on desktop when sidebar provides navigation) -->
-    @if (!hideHeader()) {
-      <nxt1-page-header
-        title="Analytics"
-        [avatarSrc]="user()?.profileImg"
-        [avatarName]="displayName()"
-        [showBack]="showBack()"
-        [actions]="headerActions()"
-        (avatarClick)="avatarClick.emit()"
-        (backClick)="back.emit()"
-        (actionClick)="onHeaderAction($event)"
-      />
-    }
-
     <!-- Main Content Area (semantic, SSR-safe) -->
     <main class="analytics-main" role="main">
       <div class="analytics-dashboard">
-        <!-- Desktop Page Header (visible when sidebar provides navigation) -->
-        @if (hideHeader()) {
-          <nxt1-desktop-page-header
-            title="Analytics"
-            subtitle="Track your performance metrics, engagement stats, and growth insights."
-            actionLabel="Export"
-            actionIcon="download-outline"
-            (actionClick)="onExportClick()"
-          />
-        }
+        <!-- Desktop Page Header -->
+        <nxt1-desktop-page-header
+          title="Analytics"
+          subtitle="Track your performance metrics, engagement stats, and growth insights."
+          actionLabel="Export"
+          actionIcon="download-outline"
+          (actionClick)="onExportClick()"
+        />
 
         <!-- Period Selector (pure HTML select, zero Ionic) -->
         <div class="period-bar">
@@ -1059,21 +1041,9 @@ export class AnalyticsDashboardShellWebComponent implements OnInit {
   /** User role (athlete or coach) */
   readonly role = input<AnalyticsUserRole>('athlete');
 
-  /** Hide page header (desktop sidebar provides navigation) */
-  readonly hideHeader = input(false);
-
-  /** Show back button instead of avatar */
-  readonly showBack = input(false);
-
   // ============================================
   // OUTPUTS
   // ============================================
-
-  /** Emitted when avatar is clicked (open sidenav) */
-  readonly avatarClick = output<void>();
-
-  /** Emitted when back is clicked */
-  readonly back = output<void>();
 
   /** Emitted when a tab changes */
   readonly tabChange = output<AnalyticsTabId>();
@@ -1097,17 +1067,6 @@ export class AnalyticsDashboardShellWebComponent implements OnInit {
   // ============================================
   // COMPUTED PROPERTIES
   // ============================================
-
-  /** Display name for header */
-  protected readonly displayName = computed(() => {
-    const user = this.user();
-    return user?.displayName ?? 'User';
-  });
-
-  /** Header actions */
-  protected readonly headerActions = computed((): PageHeaderAction[] => [
-    { id: 'export', label: 'Export', icon: 'download-outline' },
-  ]);
 
   /** Tab options for section navigation */
   protected readonly tabOptions = computed((): SectionNavItem[] =>
@@ -1144,14 +1103,6 @@ export class AnalyticsDashboardShellWebComponent implements OnInit {
     this.logger.debug('Period changed', { period });
     await this.analytics.setPeriod(period);
     this.periodChange.emit(period);
-  }
-
-  /** Handle header action click. */
-  protected async onHeaderAction(action: PageHeaderAction): Promise<void> {
-    if (action.id === 'export') {
-      await this.haptics.impact('medium');
-      this.toast.info('Export feature coming soon');
-    }
   }
 
   /** Handle export button click (desktop header). */

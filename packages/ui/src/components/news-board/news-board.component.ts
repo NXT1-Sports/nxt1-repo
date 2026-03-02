@@ -1,26 +1,23 @@
 /**
- * @fileoverview Profile News Web Component
- * @module @nxt1/ui/profile/web
- * @version 3.0.0
+ * @fileoverview News Board Component — Shared News Section
+ * @module @nxt1/ui/components/news-board
+ * @version 2.0.0
  *
- * Profile-contextual news section for the athlete profile page.
- * Displays news articles in a responsive 2-column grid using the shared
- * NxtContentCardWebComponent for consistent glass-morphism card design.
+ * Unified news section shared between athlete profile and team profile.
+ * Displays `NewsArticle[]` in a responsive 2-column grid using the
+ * shared `NewsArticleCardComponent`.
  *
- * Uses mock data for development. SSR-safe: renders content immediately
- * on the server for SEO crawlers; shimmer skeleton is browser-only on
- * first mount. Design-token CSS only (no Tailwind, no Ionic).
+ * Fully input-driven — no service injection. Shells pass their
+ * `NewsArticle[]` directly as an input.
  *
  * Features:
- * - Responsive article card grid (1 → 2 columns)
- * - Shared glass card shell (hero image, title, excerpt, source pill, meta)
+ * - Responsive article card grid (1 → 2 columns at 640 px)
  * - Shimmer skeleton loader (design-system consistent, browser-only)
- * - Section-aware filtering (All News, Announcements, Media Mentions)
  * - Accessible empty states per section
  * - Full keyboard navigation (Enter / Space activation)
  * - Reduced motion support
  *
- * ⭐ WEB ONLY — SSR-optimized, zero Ionic ⭐
+ * ⭐ WEB + MOBILE — SSR-optimised, zero Ionic ⭐
  */
 
 import {
@@ -36,21 +33,24 @@ import {
   PLATFORM_ID,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { NxtIconComponent } from '../../components/icon';
-import { type NewsArticle } from '@nxt1/core';
-import { NewsApiService } from '../../news/news-api.service';
-import { NxtContentCardWebComponent } from '../../components/content-card';
+import { NxtIconComponent } from '../icon';
+import { NewsArticleCardComponent } from '../../news/news-article-card.component';
+import type { NewsArticle } from '@nxt1/core';
 
-type ProfileNewsSectionId = 'all-news' | 'announcements' | 'media-mentions';
+// ============================================
+// CONSTANTS
+// ============================================
 
-/** Number of skeleton placeholder cards (2×2 grid). */
+type BoardSectionId = 'all-news' | 'announcements' | 'media-mentions';
+
+/** Number of skeleton placeholder cards (2 × 2 grid). */
 const SKELETON_SLOTS = [1, 2, 3, 4] as const;
 
 // ============================================
 // HELPERS (pure, zero dependencies)
 // ============================================
 
-/** Relative time label: "3m ago", "2h ago", "1d ago" */
+/** Relative time label: "Just now", "3m ago", "2h ago", "1d ago", "Jan 15". */
 function timeAgo(isoDate: string): string {
   const diffMs = Date.now() - new Date(isoDate).getTime();
   const mins = Math.floor(diffMs / 60_000);
@@ -60,27 +60,36 @@ function timeAgo(isoDate: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(isoDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return new Date(isoDate).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
 }
+
+// Keep timeAgo available for potential future use in skeleton or empty states
+void timeAgo;
 
 /**
  * Module-level flag — browser-only.
- * Ensures the shimmer skeleton only shows on the very first mount across all instances.
- * Fetch still happens on every mount; this only suppresses the skeleton on re-visits.
+ * Ensures the shimmer skeleton only shows on the very first mount.
  */
-let _skeletonShownOnce = false;
+let _hasLoadedOnce = false;
+
+// ============================================
+// COMPONENT
+// ============================================
 
 @Component({
-  selector: 'nxt1-profile-news-web',
+  selector: 'nxt1-news-board',
   standalone: true,
-  imports: [NxtIconComponent, NxtContentCardWebComponent],
+  imports: [NxtIconComponent, NewsArticleCardComponent],
   template: `
-    <section class="profile-news" aria-labelledby="news-heading">
-      <h2 id="news-heading" class="sr-only">News</h2>
+    <section class="news-board" aria-labelledby="news-board-heading">
+      <h2 id="news-board-heading" class="sr-only">News</h2>
 
       <!-- ═══ Skeleton Loading State ═══ -->
       @if (isLoading()) {
-        <div class="profile-news__grid" aria-busy="true" aria-label="Loading news articles">
+        <div class="news-board__grid" aria-busy="true" aria-label="Loading news articles">
           @for (i of skeletonSlots; track i) {
             <div class="news-skel" role="presentation">
               <div class="news-skel__image skeleton-animate"></div>
@@ -101,33 +110,21 @@ let _skeletonShownOnce = false;
       }
 
       <!-- ═══ Empty State ═══ -->
-      @else if (filteredArticles().length === 0) {
-        <div class="profile-news__empty" role="status">
-          <div class="profile-news__empty-icon" aria-hidden="true">
-            <nxt1-icon name="newspaper" [size]="48" />
+      @else if (filteredItems().length === 0) {
+        <div class="news-board__empty" role="status">
+          <div class="news-board__empty-icon" aria-hidden="true">
+            <nxt1-icon name="newspaper-outline" [size]="40" />
           </div>
-          <h3 class="profile-news__empty-title">{{ emptyTitle() }}</h3>
-          <p class="profile-news__empty-msg">{{ emptyMessage() }}</p>
+          <h3 class="news-board__empty-title">{{ emptyTitle() }}</h3>
+          <p class="news-board__empty-msg">{{ emptyMsg() }}</p>
         </div>
       }
 
       <!-- ═══ Article Grid ═══ -->
       @else {
-        <div class="profile-news__grid">
-          @for (article of filteredArticles(); track article.id) {
-            <nxt1-content-card
-              [imageUrl]="article.thumbnailUrl || article.heroImageUrl"
-              [imageAlt]="article.title"
-              [title]="article.title"
-              [excerpt]="article.excerpt"
-              [sourceAvatarUrl]="article.source.avatarUrl || ''"
-              [sourceName]="article.source.name"
-              [metaLeft]="getTimeAgo(article.publishedAt)"
-              [metaRight]="article.readingTimeMinutes + 'm read'"
-              [ctaLabel]="'Read Article'"
-              [ariaLabel]="article.title"
-              (cardClick)="onArticleClick(article)"
-            />
+        <div class="news-board__grid">
+          @for (item of filteredItems(); track item.id) {
+            <nxt1-news-article-card [article]="item" (articleClick)="onItemClick(item)" />
           }
         </div>
       }
@@ -135,38 +132,39 @@ let _skeletonShownOnce = false;
   `,
   styles: [
     `
-      /* ============================================
-       PROFILE NEWS — Web (Pure CSS / Design Tokens)
-       Grid layout + skeleton + empty state.
-       Card rendering delegated to shared NxtContentCardWebComponent.
-       ============================================ */
+      /* ═══════════════════════════════════════════════════════════
+         NEWS BOARD — Shared News Section
+         Responsive 2-col grid + glass card skeleton + empty states.
+         Card rendering delegated to NewsArticleCardComponent.
+         Design-token CSS only. SSR-safe.
+         ═══════════════════════════════════════════════════════════ */
 
       :host {
         display: block;
       }
 
-      .profile-news {
+      .news-board {
         display: flex;
         flex-direction: column;
       }
 
       /* ── Article Grid (1 col → 2 col) ── */
 
-      .profile-news__grid {
+      .news-board__grid {
         display: grid;
         grid-template-columns: 1fr;
         gap: var(--nxt1-spacing-4, 16px);
       }
 
       @media (min-width: 640px) {
-        .profile-news__grid {
+        .news-board__grid {
           grid-template-columns: repeat(2, 1fr);
         }
       }
 
       /* ── Empty State ── */
 
-      .profile-news__empty {
+      .news-board__empty {
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -176,19 +174,27 @@ let _skeletonShownOnce = false;
         text-align: center;
       }
 
-      .profile-news__empty-icon {
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.3));
-        margin-bottom: var(--nxt1-spacing-1, 4px);
+      .news-board__empty-icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.4));
       }
 
-      .profile-news__empty-title {
+      .news-board__empty-title {
         font-size: var(--nxt1-font-size-lg, 18px);
         font-weight: 700;
         color: var(--nxt1-color-text-primary, #fff);
         margin: 0;
       }
 
-      .profile-news__empty-msg {
+      .news-board__empty-msg {
         font-size: var(--nxt1-font-size-sm, 14px);
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
         max-width: 360px;
@@ -196,10 +202,10 @@ let _skeletonShownOnce = false;
         line-height: 1.5;
       }
 
-      /* ============================================
-       SKELETON — Canonical Shimmer Gradient
-       Uses @nxt1/design-tokens skeleton tokens.
-       ============================================ */
+      /* ═══════════════════════════════════════════════════════════
+         SKELETON — Canonical Shimmer Gradient
+         Uses @nxt1/design-tokens skeleton tokens.
+         ═══════════════════════════════════════════════════════════ */
 
       .skeleton-animate {
         background: var(
@@ -307,7 +313,7 @@ let _skeletonShownOnce = false;
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ProfileNewsWebComponent implements OnInit {
+export class NewsBoardComponent implements OnInit {
   // ============================================
   // DEPENDENCIES
   // ============================================
@@ -319,28 +325,34 @@ export class ProfileNewsWebComponent implements OnInit {
   // INPUTS
   // ============================================
 
-  /** Active side section from profile shell (all-news | announcements | media-mentions) */
+  /** All news items (pre-mapped by the shell). */
+  readonly items = input<readonly NewsArticle[]>([]);
+
+  /** Active side-tab section from profile / team shell. */
   readonly activeSection = input<string>('all-news');
 
-  /** User ID whose news sub-collection to load. When null, falls back to global feed. */
-  readonly userId = input<string | null>(null);
+  /**
+   * Contextual entity name used in empty-state messaging.
+   * E.g. "Marcus", "Team", "St. Thomas Aquinas".
+   */
+  readonly entityName = input<string>('');
 
   // ============================================
   // OUTPUTS
   // ============================================
 
-  /** Emitted when an article card is clicked. */
-  readonly articleClick = output<NewsArticle>();
+  /** Emitted when a news card is clicked / activated via keyboard. */
+  readonly itemClick = output<NewsArticle>();
 
   // ============================================
   // STATE
   // ============================================
 
   /**
-   * Loading state — false on server (SSR renders content for SEO crawlers).
-   * True on the very first browser mount only (skeleton suppressed on re-visits).
+   * Loading flag — `false` on server (SSR renders content for crawlers).
+   * In the browser it is `true` only on the very first mount.
    */
-  readonly isLoading = signal(!_skeletonShownOnce && isPlatformBrowser(this.platformId));
+  readonly isLoading = signal(!_hasLoadedOnce && isPlatformBrowser(this.platformId));
 
   /** Skeleton placeholder slot count. */
   readonly skeletonSlots = SKELETON_SLOTS;
@@ -349,31 +361,24 @@ export class ProfileNewsWebComponent implements OnInit {
   // COMPUTED
   // ============================================
 
-  private readonly newsApi = inject(NewsApiService);
-
-  /** Populated after the first API fetch. */
-  private readonly allArticles = signal<readonly NewsArticle[]>([]);
-
-  private readonly normalizedSection = computed((): ProfileNewsSectionId => {
-    const section = this.activeSection();
-    if (section === 'announcements' || section === 'media-mentions') return section;
+  private readonly normalizedSection = computed((): BoardSectionId => {
+    const s = this.activeSection();
+    if (s === 'announcements' || s === 'media-mentions') return s;
     return 'all-news';
   });
 
-  /** Section-aware filtered article list. */
-  readonly filteredArticles = computed((): readonly NewsArticle[] => {
+  /** Section-aware filtered item list. */
+  readonly filteredItems = computed((): readonly NewsArticle[] => {
     const section = this.normalizedSection();
-    const articles = this.allArticles();
+    const all = this.items();
 
     if (section === 'announcements') {
-      return articles.filter((a) => a.source.type === 'editorial' || a.source.type === 'ai-agent');
+      return all.filter((i) => (i.category as string) === 'announcement');
     }
-
     if (section === 'media-mentions') {
-      return articles.filter((a) => a.source.type === 'syndicated');
+      return all.filter((i) => (i.category as string) === 'media-mention');
     }
-
-    return articles;
+    return all;
   });
 
   readonly emptyTitle = computed((): string => {
@@ -383,15 +388,23 @@ export class ProfileNewsWebComponent implements OnInit {
     return 'No news yet';
   });
 
-  readonly emptyMessage = computed((): string => {
+  readonly emptyMsg = computed((): string => {
+    const entity = this.entityName();
     const section = this.normalizedSection();
+
     if (section === 'announcements') {
-      return 'NXT 1 announcements and official updates will appear here.';
+      return entity
+        ? `Announcements and official updates for ${entity} will appear here.`
+        : 'NXT 1 announcements and official updates will appear here.';
     }
     if (section === 'media-mentions') {
-      return 'Media mentions from outlets like ESPN, Rivals, and other external brands will appear here.';
+      return entity
+        ? `Media mentions and press coverage for ${entity} will appear here.`
+        : 'Media mentions from outlets like ESPN, Rivals, and other external brands will appear here.';
     }
-    return 'News updates, announcements, and media mentions will appear here.';
+    return entity
+      ? `News updates, announcements, and media mentions for ${entity} will appear here.`
+      : 'News updates, announcements, and media mentions will appear here.';
   });
 
   // ============================================
@@ -399,26 +412,12 @@ export class ProfileNewsWebComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
-    if (!isPlatformBrowser(this.platformId)) return;
+    if (_hasLoadedOnce || !isPlatformBrowser(this.platformId)) return;
 
-    const uid = this.userId();
     const timer = setTimeout(() => {
-      const fetch = uid ? this.newsApi.getUserNews(uid) : this.newsApi.getFeed();
-
-      fetch
-        .then((response) => {
-          if (response.success && response.data) {
-            this.allArticles.set(response.data);
-          }
-        })
-        .catch(() => {
-          // leave empty — show empty state instead of crashing
-        })
-        .finally(() => {
-          _skeletonShownOnce = true;
-          this.isLoading.set(false);
-        });
-    }, 300);
+      _hasLoadedOnce = true;
+      this.isLoading.set(false);
+    }, 400);
 
     this.destroyRef.onDestroy(() => clearTimeout(timer));
   }
@@ -427,15 +426,7 @@ export class ProfileNewsWebComponent implements OnInit {
   // EVENT HANDLERS
   // ============================================
 
-  onArticleClick(article: NewsArticle): void {
-    this.articleClick.emit(article);
-  }
-
-  // ============================================
-  // TEMPLATE HELPERS
-  // ============================================
-
-  getTimeAgo(isoDate: string): string {
-    return timeAgo(isoDate);
+  onItemClick(item: NewsArticle): void {
+    this.itemClick.emit(item);
   }
 }

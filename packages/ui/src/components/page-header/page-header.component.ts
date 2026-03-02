@@ -140,9 +140,15 @@ import {
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
 import { NxtAvatarComponent } from '../avatar';
+import { NxtIconComponent } from '../icon';
 import { NxtLogoComponent } from '../logo';
 import { NxtBackButtonComponent } from '../back-button';
-import type { PageHeaderAction, PageHeaderConfig, PageHeaderVariant } from './page-header.types';
+import type {
+  PageHeaderAction,
+  PageHeaderConfig,
+  PageHeaderVariant,
+  PageHeaderLeftVariant,
+} from './page-header.types';
 import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
 
 // Register Ionicons used for back button, menu, and common action buttons
@@ -160,6 +166,7 @@ import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
     IonIcon,
     IonBadge,
     NxtAvatarComponent,
+    NxtIconComponent,
     NxtLogoComponent,
     NxtBackButtonComponent,
   ],
@@ -192,6 +199,16 @@ import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
                 [clickable]="true"
               />
             </button>
+          } @else if (shouldRenderHamburger()) {
+            <!-- Hamburger variant: uses design-token SVG icon for exact color consistency -->
+            <button
+              type="button"
+              class="action-button"
+              (click)="onMenuClick()"
+              aria-label="Open menu"
+            >
+              <nxt1-icon name="menu" [size]="24" className="action-icon" />
+            </button>
           } @else if (showBack()) {
             <nxt1-back-button
               size="md"
@@ -208,9 +225,14 @@ import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
               <ion-icon slot="icon-only" name="close-outline" />
             </ion-button>
           } @else if (showMenu()) {
-            <ion-button fill="clear" (click)="onMenuClick()" aria-label="Open menu">
-              <ion-icon slot="icon-only" name="menu-outline" />
-            </ion-button>
+            <button
+              type="button"
+              class="action-button"
+              (click)="onMenuClick()"
+              aria-label="Open menu"
+            >
+              <nxt1-icon name="menu" [size]="24" className="action-icon" />
+            </button>
           }
           <!-- Custom start slot content -->
           <ng-content select="[pageHeaderSlot=start]" />
@@ -843,11 +865,26 @@ export class NxtPageHeaderComponent {
    * This controls DOM presence only — use hideAvatar input to control visibility.
    */
   protected readonly shouldRenderAvatar = computed(() => {
+    // If leftVariant is 'hamburger', never render avatar — show hamburger instead
+    if (this.leftVariant() === 'hamburger') return false;
     const src = this.avatarSrc();
     const name = this.avatarName();
     // Render avatar if we have a source OR a name for initials
     // AND we're not showing back/close/menu buttons
     return (!!src || !!name) && !this.showBack() && !this.showClose() && !this.showMenu();
+  });
+
+  /**
+   * Whether to render hamburger menu via leftVariant (separate from showMenu).
+   * This allows hamburger to coexist with avatarSrc/avatarName inputs.
+   */
+  protected readonly shouldRenderHamburger = computed(() => {
+    return (
+      this.leftVariant() === 'hamburger' &&
+      !this.hideAvatar() &&
+      !this.showBack() &&
+      !this.showClose()
+    );
   });
 
   /**
@@ -886,6 +923,14 @@ export class NxtPageHeaderComponent {
 
   /** Show hamburger menu button */
   readonly showMenu = input(false);
+
+  /**
+   * Left-side variant: 'avatar' (default) shows profile image,
+   * 'hamburger' shows a hamburger menu icon.
+   * When 'hamburger', avatarSrc/avatarName are ignored and
+   * the hamburger icon is rendered. Tapping it emits menuClick.
+   */
+  readonly leftVariant = input<PageHeaderLeftVariant>('avatar');
 
   /** Show search toolbar */
   readonly showSearch = input(false);

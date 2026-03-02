@@ -80,6 +80,7 @@ import {
   type FooterScrollToTopEvent,
   type FooterConfig,
   CENTERED_CREATE_FOOTER_TABS,
+  AGENT_X_LEFT_FOOTER_TABS,
   findTabByRoute,
 } from '@nxt1/ui/components/footer';
 import {
@@ -201,10 +202,10 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
     id: 'you',
     label: 'You',
     items: [
-      { id: 'xp', label: 'XP', icon: 'sparkles', route: '/xp' },
-      { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
-      { id: 'manage-team', label: 'Manage Team', icon: 'users', route: '/manage-team' },
       { id: 'messages', label: 'Messages', icon: 'messages', route: '/messages', badge: 0 },
+      { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
+      { id: 'xp', label: 'XP', icon: 'sparkles', route: '/xp' },
+      { id: 'manage-team', label: 'Manage Team', icon: 'users', route: '/manage-team' },
     ],
   },
   {
@@ -445,7 +446,7 @@ const USER_MENU_ITEMS = DEFAULT_USER_MENU_ITEMS;
 /**
  * Mobile footer tabs - same items as main sidebar section.
  */
-const MOBILE_FOOTER_TABS: FooterTabItem[] = CENTERED_CREATE_FOOTER_TABS;
+const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
 
 @Component({
   selector: 'app-web-shell',
@@ -943,7 +944,7 @@ export class WebShellComponent {
   readonly footerConfig = computed<FooterConfig>(() => ({
     showLabels: true,
     enableHaptics: false, // Web doesn't have haptics
-    variant: 'centeredCreate',
+    variant: 'default',
     hidden: false,
     translucent: false,
     glass: false, // Solid opaque background (glass causes see-through)

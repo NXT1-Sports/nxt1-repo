@@ -1,58 +1,46 @@
 /**
  * @fileoverview Team Videos Web Component
  * @module @nxt1/ui/team-profile/web
+ * @version 2.0.0
  *
- * Renders team video content (highlights, full videos).
+ * Renders team video content (highlights, full videos) using the shared
+ * FeedPostCardComponent — identical card rendering to athlete profiles
+ * and the home feed. Follows the Instagram/Twitter pattern: one card
+ * component everywhere.
+ *
  * Uses videoPosts() from TeamProfileService.
+ *
+ * ⭐ WEB ONLY — SSR-safe ⭐
  */
 import { Component, ChangeDetectionStrategy, inject, input, output, computed } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { type TeamProfilePost } from '@nxt1/core';
+import {
+  type TeamProfilePost,
+  type FeedPost,
+  type FeedAuthor,
+  teamToFeedAuthor,
+  teamPostToFeedPost,
+} from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
-import { NxtImageComponent } from '../../components/image';
+import { FeedPostCardComponent } from '../../feed/feed-post-card.component';
 import { TeamProfileService } from '../team-profile.service';
 
 @Component({
   selector: 'nxt1-team-videos-web',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, NxtImageComponent],
+  imports: [NxtIconComponent, FeedPostCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (filteredVideos().length > 0) {
-      <div class="team-videos-grid">
-        @for (video of filteredVideos(); track video.id) {
-          <button class="team-video-card" (click)="videoClick.emit(video)">
-            @if (video.thumbnailUrl) {
-              <nxt1-image
-                [src]="video.thumbnailUrl"
-                [alt]="video.title ?? 'Video'"
-                class="team-video-card__thumb"
-              />
-            } @else {
-              <div class="team-video-card__placeholder">
-                <nxt1-icon name="videocam-outline" size="32" />
-              </div>
-            }
-            <div class="team-video-card__overlay">
-              <nxt1-icon name="play-circle" size="36" />
-            </div>
-            <div class="team-video-card__info">
-              @if (video.isPinned) {
-                <span class="team-video-card__pinned">
-                  <nxt1-icon name="pin" size="10" /> Pinned
-                </span>
-              }
-              <span class="team-video-card__title">{{ video.title ?? 'Video' }}</span>
-              <div class="team-video-card__meta">
-                @if (video.duration) {
-                  <span>{{ formatDuration(video.duration) }}</span>
-                }
-                @if (video.viewCount != null) {
-                  <span>{{ video.viewCount }} views</span>
-                }
-              </div>
-            </div>
-          </button>
+    @if (filteredFeedPosts().length > 0) {
+      <div class="team-videos-list">
+        @for (post of filteredFeedPosts(); track post.id; let idx = $index) {
+          <nxt1-feed-post-card
+            [post]="post"
+            [hideAuthor]="true"
+            [showMenu]="false"
+            (postClick)="handleVideoClick(idx)"
+            (reactClick)="handleVideoClick(idx)"
+            (shareClick)="handleVideoClick(idx)"
+          />
         }
       </div>
     } @else {
@@ -69,90 +57,10 @@ import { TeamProfileService } from '../team-profile.service';
         display: block;
       }
 
-      .team-videos-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      .team-videos-list {
+        display: flex;
+        flex-direction: column;
         gap: 12px;
-      }
-
-      .team-video-card {
-        position: relative;
-        border-radius: 12px;
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
-        overflow: hidden;
-        cursor: pointer;
-        border: 1px solid transparent;
-        transition: border-color 0.12s;
-        width: 100%;
-        text-align: left;
-      }
-      .team-video-card:hover {
-        border-color: var(--m-border, rgba(255, 255, 255, 0.08));
-      }
-      .team-video-card:hover .team-video-card__overlay {
-        opacity: 1;
-      }
-
-      .team-video-card__thumb {
-        width: 100%;
-        aspect-ratio: 16/9;
-        object-fit: cover;
-        display: block;
-      }
-
-      .team-video-card__placeholder {
-        width: 100%;
-        aspect-ratio: 16/9;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.08));
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-      }
-
-      .team-video-card__overlay {
-        position: absolute;
-        inset: 0;
-        aspect-ratio: 16/9;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.35);
-        color: white;
-        opacity: 0;
-        transition: opacity 0.15s;
-      }
-
-      .team-video-card__info {
-        padding: 10px 12px;
-      }
-
-      .team-video-card__pinned {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 10px;
-        font-weight: 700;
-        color: var(--m-accent, #d4ff00);
-        margin-bottom: 2px;
-      }
-
-      .team-video-card__title {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--m-text, #fff);
-        display: block;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .team-video-card__meta {
-        display: flex;
-        gap: 10px;
-        font-size: 11px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-        margin-top: 2px;
       }
 
       .team-empty-state {
@@ -176,12 +84,6 @@ import { TeamProfileService } from '../team-profile.service';
         margin: 0;
         max-width: 320px;
       }
-
-      @media (max-width: 768px) {
-        .team-videos-grid {
-          grid-template-columns: 1fr;
-        }
-      }
     `,
   ],
 })
@@ -194,20 +96,44 @@ export class TeamVideosWebComponent {
   /** Emitted when a video card is clicked */
   readonly videoClick = output<TeamProfilePost>();
 
-  /** Filter videos based on active section */
-  protected readonly filteredVideos = computed(() => {
-    const section = this.activeSection();
-    const videos = this.teamProfile.videoPosts();
+  /** Build FeedAuthor from team data (shared across all posts) */
+  private readonly feedAuthor = computed<FeedAuthor>(() => {
+    const team = this.teamProfile.team();
+    if (team) return teamToFeedAuthor(team);
 
-    if (section === 'highlights') {
-      return videos.filter((v) => v.type === 'highlight');
-    }
-    return videos;
+    return {
+      uid: '',
+      profileCode: '',
+      displayName: '',
+      firstName: '',
+      lastName: '',
+      role: 'team',
+      verificationStatus: 'unverified',
+      isVerified: false,
+    };
   });
 
-  protected formatDuration(seconds: number): string {
-    const min = Math.floor(seconds / 60);
-    const sec = seconds % 60;
-    return `${min}:${sec.toString().padStart(2, '0')}`;
+  /** Filter videos based on active section, mapped to FeedPost[] */
+  protected readonly filteredFeedPosts = computed<readonly FeedPost[]>(() => {
+    const section = this.activeSection();
+    const author = this.feedAuthor();
+    const videos = this.teamProfile.videoPosts();
+
+    const filtered =
+      section === 'highlights' ? videos.filter((v) => v.type === 'highlight') : videos;
+    return filtered.map((p) => teamPostToFeedPost(p, author));
+  });
+
+  /** Source videos for resolving click events back to TeamProfilePost */
+  private readonly filteredSourceVideos = computed<readonly TeamProfilePost[]>(() => {
+    const section = this.activeSection();
+    const videos = this.teamProfile.videoPosts();
+    return section === 'highlights' ? videos.filter((v) => v.type === 'highlight') : videos;
+  });
+
+  /** Resolve FeedPost index → TeamProfilePost and emit */
+  protected handleVideoClick(index: number): void {
+    const video = this.filteredSourceVideos()[index];
+    if (video) this.videoClick.emit(video);
   }
 }

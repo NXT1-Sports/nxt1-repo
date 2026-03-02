@@ -11,6 +11,3 @@
 
 export { AgentXShellWebComponent, type AgentXUser } from './agent-x-shell-web.component';
 export { AgentXWelcomeWebComponent } from './agent-x-welcome-web.component';
-
-// Re-export mode content for convenience (shared, not web-specific)
-export { AgentXModeContentComponent } from '../modes';

@@ -12,9 +12,6 @@ export { TeamOverviewWebComponent } from './web';
 export { TeamTimelineWebComponent } from './web';
 export { TeamVideosWebComponent } from './web';
 export { TeamRosterWebComponent } from './web';
-export { TeamScheduleWebComponent } from './web';
-export { TeamStatsWebComponent } from './web';
-export { TeamNewsWebComponent } from './web';
 export { TeamRecruitingWebComponent } from './web';
 export { TeamPhotosWebComponent } from './web';
 export {

@@ -22,34 +22,36 @@ import { TeamProfileService } from '../team-profile.service';
   imports: [NxtIconComponent, NxtImageComponent, NxtBackButtonComponent],
   template: `
     <div class="team-page-header">
-      <nxt1-back-button
-        class="team-page-header__back"
-        size="md"
-        variant="ghost"
-        ariaLabel="Go back"
-        (backClick)="back.emit()"
-      />
-      <div class="team-page-header__identity">
-        @if (teamProfile.team()?.logoUrl) {
-          <nxt1-image
-            class="team-page-header__logo"
-            [src]="teamProfile.team()!.logoUrl!"
-            [alt]="teamProfile.team()!.teamName"
-            [width]="56"
-            [height]="56"
-            variant="avatar"
-            fit="contain"
-            [priority]="true"
-            [showPlaceholder]="false"
-          />
-        } @else {
-          <div class="team-page-header__logo-fallback">
-            <nxt1-icon name="shield" [size]="28" />
+      <div class="team-page-header__left">
+        <nxt1-back-button
+          class="team-page-header__back"
+          size="md"
+          variant="ghost"
+          ariaLabel="Go back"
+          (backClick)="back.emit()"
+        />
+        <div class="team-page-header__identity">
+          @if (teamProfile.team()?.logoUrl) {
+            <nxt1-image
+              class="team-page-header__logo"
+              [src]="teamProfile.team()!.logoUrl!"
+              [alt]="teamProfile.team()!.teamName"
+              [width]="56"
+              [height]="56"
+              variant="avatar"
+              fit="contain"
+              [priority]="true"
+              [showPlaceholder]="false"
+            />
+          } @else {
+            <div class="team-page-header__logo-fallback">
+              <nxt1-icon name="shield" [size]="28" />
+            </div>
+          }
+          <div class="team-page-header__text">
+            <h1 class="team-page-header__name">{{ teamProfile.team()?.teamName }}</h1>
+            <p class="team-page-header__meta">{{ headerSubtitle() }}</p>
           </div>
-        }
-        <div class="team-page-header__text">
-          <h1 class="team-page-header__name">{{ teamProfile.team()?.teamName }}</h1>
-          <p class="team-page-header__meta">{{ headerSubtitle() }}</p>
         </div>
       </div>
       <div class="team-page-header__actions">
@@ -81,7 +83,14 @@ import { TeamProfileService } from '../team-profile.service';
         align-items: center;
         justify-content: space-between;
         padding: 0 24px 12px;
+        gap: 16px;
+      }
+
+      .team-page-header__left {
+        display: flex;
+        align-items: center;
         gap: 8px;
+        min-width: 0;
       }
 
       .team-page-header__back {
@@ -124,7 +133,6 @@ import { TeamProfileService } from '../team-profile.service';
         margin: 0;
         font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
         letter-spacing: -0.01em;
-        text-transform: uppercase;
       }
 
       .team-page-header__meta {

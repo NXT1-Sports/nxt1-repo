@@ -23,10 +23,7 @@ import { AgentXShellWebComponent } from '@nxt1/ui/agent-x/web';
 import { NxtAgentXLandingComponent, type AgentXUser } from '@nxt1/ui/agent-x';
 import { NxtAgentXExecutionLayerSectionComponent } from '@nxt1/ui/components/agent-x-execution-layer-section';
 import { NxtAgentXWelcomeHeaderComponent } from '@nxt1/ui/components/agent-x-welcome-header';
-import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import { NxtPlatformService } from '@nxt1/ui/services/platform';
-import type { AgentXMode } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 import { SeoService } from '../../core/services';
 
@@ -42,13 +39,7 @@ import { SeoService } from '../../core/services';
   template: `
     @if (isAuthenticated()) {
       <!-- Authenticated users: full Agent X shell -->
-      <nxt1-agent-x-shell-web
-        [user]="userInfo()"
-        [hideHeader]="isDesktop()"
-        [hideInput]="false"
-        (avatarClick)="onAvatarClick()"
-        (modeChange)="onModeChange($event)"
-      />
+      <nxt1-agent-x-shell-web [user]="userInfo()" [hideInput]="false" />
     } @else {
       <!-- Logged-out users: full-screen landing state only -->
       <div class="agent-landing-shell">
@@ -86,13 +77,8 @@ import { SeoService } from '../../core/services';
 })
 export class AgentXComponent implements OnInit {
   private readonly authFlow = inject(AuthFlowService);
-  private readonly sidenavService = inject(NxtSidenavService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
   private readonly seo = inject(SeoService);
-  private readonly platform = inject(NxtPlatformService);
-
-  /** Desktop detection for hiding redundant page header (sidebar provides nav) */
-  protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
 
   /** Auth state — hard-gates shell visibility */
   protected readonly isAuthenticated = computed(() => this.authFlow.isAuthenticated());
@@ -122,18 +108,4 @@ export class AgentXComponent implements OnInit {
       role: user.role,
     };
   });
-
-  /**
-   * Handle avatar click - open sidenav (Twitter/X pattern).
-   */
-  protected onAvatarClick(): void {
-    this.sidenavService.open();
-  }
-
-  /**
-   * Handle mode changes for analytics/logging.
-   */
-  protected onModeChange(mode: AgentXMode): void {
-    this.logger.debug('Agent X mode changed', { mode });
-  }
 }

@@ -1,11 +1,17 @@
 /**
  * @fileoverview Profile Module - Public API
  * @module @nxt1/ui/profile
- * @version 2.0.0
+ * @version 3.0.0
  *
- * ADAPTIVE DESIGN PATTERN:
- * - ProfileShellComponent → Mobile (Ionic)
- * - ProfileShellWebComponent → Web (Tailwind, SSR-optimized)
+ * ARCHITECTURE:
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │         components/ — SHARED (~95 %)                        │
+ * │   ProfileOverviewComponent, ProfileStatsComponent, etc.     │
+ * │   Platform-agnostic Angular — used by BOTH shells           │
+ * ├────────────────────────┬────────────────────────────────────┤
+ * │  ProfileShellComponent │  ProfileShellWebComponent          │
+ * │  (Ionic mobile shell)  │  (SSR web shell in web/)           │
+ * └────────────────────────┴────────────────────────────────────┘
  *
  * Import based on platform:
  * ```typescript
@@ -40,7 +46,21 @@ export { ProfileShellComponent, type ProfileShellUser } from './profile-shell.co
 export { ProfileShellWebComponent } from './web/profile-shell-web.component';
 
 // ============================================
-// SECTION COMPONENTS
+// SHARED SECTION COMPONENTS (used by both shells)
+// ============================================
+
+export {
+  ProfileOverviewComponent,
+  ProfileMetricsComponent,
+  ProfileContactComponent,
+  ProfileAcademicComponent,
+  ProfileScoutingComponent,
+  ProfileMobileHeroComponent,
+  ProfileVerificationBannerComponent,
+} from './components';
+
+// ============================================
+// WEB-ONLY COMPONENTS
 // ============================================
 
 /** Mobile header (Ionic) — For web SSR, use ProfileHeaderWebComponent instead */
@@ -49,11 +69,15 @@ export { ProfileHeaderComponent } from './profile-header.component';
 // Web-optimized header (YouTube-style, Tailwind, zero Ionic)
 export { ProfileHeaderWebComponent } from './web/profile-header-web.component';
 
-// Madden-style profile page header
+// Madden-style profile page header (desktop only)
 export { ProfilePageHeaderComponent } from './web/profile-page-header.component';
 
-// Related Athletes discovery row
+// Related Athletes discovery row (web only)
 export { RelatedAthletesComponent, type RelatedAthlete } from './web/related-athletes.component';
+
+// ============================================
+// OTHER SECTION COMPONENTS (shared, root-level)
+// ============================================
 
 export { ProfileTimelineComponent } from './profile-timeline.component';
 export { ProfileOffersComponent } from './profile-offers.component';

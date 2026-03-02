@@ -129,28 +129,28 @@ export class ProfileEventsComponent {
   // ============================================
 
   protected readonly visitsEmpty = {
-    icon: 'school',
+    icon: 'school-outline',
     title: 'No Visits Scheduled',
     description: 'No campus visits scheduled yet.',
     ownProfileDescription: 'Add campus visits to track your recruiting journey.',
   };
 
   protected readonly campsEmpty = {
-    icon: 'flag',
+    icon: 'flag-outline',
     title: 'No Camps Scheduled',
     description: 'No camps or combines scheduled yet.',
     ownProfileDescription: 'Add camps and combines to showcase your skills.',
   };
 
   protected readonly generalEmpty = {
-    icon: 'calendar',
+    icon: 'calendar-outline',
     title: 'No Events Scheduled',
     description: 'No showcases or other events scheduled.',
     ownProfileDescription: 'Add showcases and other events to your calendar.',
   };
 
   protected readonly globalEmpty = {
-    icon: 'calendar',
+    icon: 'calendar-outline',
     title: 'No Events Scheduled',
     description: "This athlete hasn't added any events yet.",
     ownProfileDescription: 'Add upcoming camps, visits, and showcases to your calendar.',

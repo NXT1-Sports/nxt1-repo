@@ -34,6 +34,7 @@ import {
   type TeamProfileRosterMember,
   TEAM_PROFILE_TABS,
   TEAM_PROFILE_EMPTY_STATES,
+  type NewsArticle,
 } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
@@ -58,9 +59,12 @@ import { TeamPageHeaderComponent } from './team-page-header.component';
 import { TeamMobileHeroComponent } from './team-mobile-hero.component';
 import { TeamOverviewWebComponent } from './team-overview-web.component';
 import { TeamRosterWebComponent } from './team-roster-web.component';
-import { TeamScheduleWebComponent } from './team-schedule-web.component';
-import { TeamStatsWebComponent } from './team-stats-web.component';
-import { TeamNewsWebComponent } from './team-news-web.component';
+import { type ScheduleRow } from '@nxt1/core';
+import { ScheduleBoardComponent } from '../../components/schedule-board';
+import { StatsDashboardComponent } from '../../components/stats-dashboard/stats-dashboard.component';
+import { mapTeamStatsToGameLogs } from '@nxt1/core';
+import { NewsBoardComponent } from '../../components/news-board/news-board.component';
+import { MOCK_NEWS_ARTICLES } from '../../news/news.mock-data';
 import { TeamRecruitingWebComponent } from './team-recruiting-web.component';
 import { TeamTimelineWebComponent } from './team-timeline-web.component';
 import { TeamVideosWebComponent } from './team-videos-web.component';
@@ -82,11 +86,11 @@ import { TeamPhotosWebComponent } from './team-photos-web.component';
     TeamMobileHeroComponent,
     TeamOverviewWebComponent,
     TeamRosterWebComponent,
-    TeamScheduleWebComponent,
-    TeamStatsWebComponent,
+    ScheduleBoardComponent,
+    StatsDashboardComponent,
     TeamTimelineWebComponent,
     TeamVideosWebComponent,
-    TeamNewsWebComponent,
+    NewsBoardComponent,
     TeamRecruitingWebComponent,
     TeamPhotosWebComponent,
   ],
@@ -212,17 +216,27 @@ import { TeamPhotosWebComponent } from './team-photos-web.component';
                     }
 
                     @case ('schedule') {
-                      <nxt1-team-schedule-web [activeSideTab]="activeSideTab()" />
+                      <nxt1-schedule-board
+                        [rows]="teamScheduleRows()"
+                        [emptyMessage]="'Games, practices, and events will appear here.'"
+                      />
                     }
 
                     @case ('stats') {
-                      <nxt1-team-stats-web [activeSideTab]="activeSideTab()" />
+                      <nxt1-stats-dashboard
+                        [gameLogs]="teamStatsAsGameLogs()"
+                        [entityName]="teamProfile.team()?.teamName ?? 'Team'"
+                        [activeSideTab]="activeSideTab()"
+                        [emptyMessage]="'Team statistics will appear here once games are played.'"
+                      />
                     }
 
                     @case ('news') {
-                      <nxt1-team-news-web
+                      <nxt1-news-board
+                        [items]="teamNewsBoardItems()"
                         [activeSection]="activeSideTab()"
-                        (postClick)="onPostClick($event)"
+                        [entityName]="teamProfile.team()?.teamName ?? 'Team'"
+                        (itemClick)="onNewsBoardItemClick($event)"
                       />
                     }
 
@@ -1150,6 +1164,78 @@ export class TeamProfileShellWebComponent implements OnInit {
   // COMPUTED
   // ============================================
 
+  /**
+   * Maps TeamProfileScheduleEvent[] → ScheduleRow[] for the shared schedule board.
+   * Filters by active side tab (upcoming / completed).
+   */
+  protected readonly teamScheduleRows = computed<ScheduleRow[]>(() => {
+    const tab = this.activeSideTab();
+    const teamName = this.teamProfile.team()?.teamName ?? 'Team';
+    const teamLogo = this.teamProfile.team()?.logoUrl;
+    const now = Date.now();
+
+    let events = this.teamProfile.schedule();
+    if (tab === 'upcoming') {
+      events = this.teamProfile.upcomingSchedule();
+    } else if (tab === 'completed') {
+      events = this.teamProfile.completedSchedule();
+    }
+
+    return events.map((event) => {
+      const eventDate = new Date(event.date);
+      const isPast = event.status === 'final' || eventDate.getTime() <= now;
+      const homeTeam = event.isHome ? teamName : (event.opponent ?? 'Opponent');
+      const awayTeam = event.isHome ? (event.opponent ?? 'Opponent') : teamName;
+      const homeLogo = event.isHome ? teamLogo : event.opponentLogoUrl;
+      const awayLogo = event.isHome ? event.opponentLogoUrl : teamLogo;
+
+      let statusLabel: string;
+      let statusValue: string;
+      if (event.status === 'final' && event.result) {
+        statusLabel =
+          event.result.outcome === 'win' ? 'Win' : event.result.outcome === 'loss' ? 'Loss' : 'Tie';
+        statusValue = `${event.result.teamScore}-${event.result.opponentScore}`;
+      } else if (event.status === 'live') {
+        statusLabel = 'Live';
+        statusValue = 'In Progress';
+      } else if (event.status === 'postponed') {
+        statusLabel = 'Postponed';
+        statusValue = '';
+      } else if (event.status === 'cancelled') {
+        statusLabel = 'Cancelled';
+        statusValue = '';
+      } else {
+        statusLabel = isPast ? 'Completed' : 'Upcoming';
+        statusValue = isPast ? 'No score reported' : 'Scheduled';
+      }
+
+      return {
+        id: event.id,
+        isPast,
+        month: eventDate.toLocaleDateString('en-US', { month: 'short' }),
+        day: eventDate.getDate().toString(),
+        homeTeam,
+        awayTeam,
+        homeLogo,
+        awayLogo,
+        location: event.location ?? 'Location TBA',
+        time: event.time ?? 'Time TBA',
+        statusLabel,
+        statusValue,
+      } satisfies ScheduleRow;
+    });
+  });
+
+  /**
+   * Maps TeamProfileStatsCategory[] → ProfileSeasonGameLog[] for the shared stats dashboard.
+   */
+  protected readonly teamStatsAsGameLogs = computed(() =>
+    mapTeamStatsToGameLogs(this.teamProfile.stats())
+  );
+
+  /** Mock news articles for the shared NewsBoardComponent (UI setup — will be replaced with real API data). */
+  protected readonly teamNewsBoardItems = computed(() => MOCK_NEWS_ARTICLES);
+
   /** Header subtitle: sport · location · conference · record */
   protected readonly headerSubtitle = computed(() => {
     const team = this.teamProfile.team();
@@ -1248,7 +1334,14 @@ export class TeamProfileShellWebComponent implements OnInit {
         {
           id: 'all-news',
           label: 'All News',
-          badge: this.teamProfile.newsPosts().length || undefined,
+          badge: this.teamNewsBoardItems().length || undefined,
+        },
+        {
+          id: 'announcements',
+          label: 'Announcements',
+          badge:
+            this.teamNewsBoardItems().filter((i) => (i.category as string) === 'announcement')
+              .length || undefined,
         },
       ],
       recruiting: [
@@ -1341,5 +1434,9 @@ export class TeamProfileShellWebComponent implements OnInit {
   protected onPostClick(post: TeamProfilePost): void {
     this.postClick.emit(post);
     this.logger.debug('Post click', { postId: post.id });
+  }
+
+  protected onNewsBoardItemClick(item: NewsArticle): void {
+    this.logger.debug('News board item click', { itemId: item.id, title: item.title });
   }
 }
