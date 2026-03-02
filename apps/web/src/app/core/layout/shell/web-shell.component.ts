@@ -796,6 +796,8 @@ export class WebShellComponent {
   private searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   /** Releases top-nav hydration lock shortly after first client paint */
   private topNavUnlockTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Releases Sign In button lock after auth hydration settles */
+  private signInButtonUnlockTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ============================================
   // SIDEBAR CONFIGURATION (Desktop/Tablet)
@@ -809,17 +811,34 @@ export class WebShellComponent {
   /** Desktop sidebar sections — computed from auth state */
   readonly sidebarSections = this._baseSidebarSections;
 
+  /**
+   * Hydration lock for Sign In button.
+   * Prevents flash during Firebase auth restoration (~100-300ms).
+   * Same pattern as topNavHydrationLocked but specifically for Sign In visibility.
+   */
+  private readonly _signInButtonLocked = signal(isPlatformBrowser(this.platformId));
+
   /** Sidebar configuration - responsive based on viewport */
   readonly sidebarConfig = computed<DesktopSidebarConfig>(() => {
     const viewport = this.platform.viewport();
     const isTablet =
       viewport.width >= SIDEBAR_BREAKPOINTS.MOBILE && viewport.width < SIDEBAR_BREAKPOINTS.DESKTOP;
 
+    // Only show Sign In when:
+    // 1. Auth initialized
+    // 2. Hydration lock released (300ms delay)
+    // 3. userData confirmed null
+    const showSignIn =
+      this.authFlow.isInitialized() &&
+      !this._signInButtonLocked() &&
+      this.sidebarUserData() === null;
+
     return createDesktopSidebarConfig({
       collapsed: isTablet || this._sidebarCollapsed(),
       expandOnHover: false, // Only expand/collapse via hamburger menu click
       showLogo: true,
       showUserSection: false, // User profile is in header (2026 pattern)
+      showSignIn, // Hidden until auth resolves, then show only if not logged in
       showThemeToggle: true,
       persistState: true,
       variant: 'default',
@@ -829,6 +848,9 @@ export class WebShellComponent {
 
   /** Sidebar user data */
   readonly sidebarUserData = computed<DesktopSidebarUserData | null>(() => {
+    // Return null during auth initialization to prevent premature rendering
+    if (!this.authFlow.isInitialized()) return null;
+
     const user = this.authFlow.user() as {
       displayName?: string;
       email?: string;
@@ -836,15 +858,24 @@ export class WebShellComponent {
       unicode?: string;
     } | null;
 
-    if (!user) return null;
+    // Fall back to firebaseUser if backend profile hasn't synced yet
+    const firebaseUser = this.authFlow.firebaseUser();
 
-    const name = user.displayName || user.email?.split('@')[0] || 'User';
+    // Only return null when explicitly confirmed no user
+    if (!user && !firebaseUser) return null;
+
+    const name =
+      user?.displayName ||
+      user?.email?.split('@')[0] ||
+      firebaseUser?.displayName ||
+      firebaseUser?.email?.split('@')[0] ||
+      'User';
 
     return {
       name,
-      avatarUrl: user.profileImg,
+      avatarUrl: user?.profileImg || firebaseUser?.photoURL || undefined,
       initials: this.getInitials(name),
-      handle: user.unicode ? `@${user.unicode}` : undefined,
+      handle: user?.unicode ? `@${user.unicode}` : undefined,
       verified: false,
       isPremium: false,
     };
@@ -876,6 +907,10 @@ export class WebShellComponent {
 
   /** Header user data */
   readonly headerUserData = computed<TopNavUserData | null>(() => {
+    // Wait for auth to initialize before showing Sign In button
+    // This prevents flash of "Sign In" during Firebase auth hydration
+    if (!this.authFlow.isInitialized()) return null;
+
     const user = this.authFlow.user() as {
       displayName?: string;
       email?: string;
@@ -964,13 +999,19 @@ export class WebShellComponent {
 
   /** Mobile header configuration — route-aware (back arrow on profile pages) */
   readonly mobileHeaderConfig = computed<MobileHeaderConfig>(() => {
+    // Only show Sign In after hydration lock released AND userData confirmed null
+    const showSignIn =
+      this.authFlow.isInitialized() &&
+      !this._signInButtonLocked() &&
+      this.mobileHeaderUserData() === null;
+
     return createMobileHeaderConfig({
       showBack: this._showMobileBack(),
       showLogo: true,
       showSearch: true,
       showNotifications: true,
       notificationCount: this.badgeCount.totalUnread(),
-      showSignIn: true,
+      showSignIn, // Hidden until auth resolves, then show only if not logged in
       showMore: false,
       sticky: true,
       hideOnScroll: false,
@@ -981,6 +1022,10 @@ export class WebShellComponent {
 
   /** Mobile header user data */
   readonly mobileHeaderUserData = computed<MobileHeaderUserData | null>(() => {
+    // Wait for auth to initialize before showing Sign In button
+    // This prevents flash of "Sign In" during Firebase auth hydration
+    if (!this.authFlow.isInitialized()) return null;
+
     const user = this.authFlow.user() as {
       displayName?: string;
       email?: string;
@@ -1020,11 +1065,17 @@ export class WebShellComponent {
 
   /** Mobile sidebar configuration */
   readonly mobileSidebarConfig = computed<MobileSidebarConfig>(() => {
+    // Only show Sign In after hydration lock released AND userData confirmed null
+    const showSignIn =
+      this.authFlow.isInitialized() &&
+      !this._signInButtonLocked() &&
+      this.sidebarUserData() === null;
+
     return createMobileSidebarConfig({
       showLogo: true,
       showUserSection: true,
       showThemeToggle: true,
-      showSignIn: true,
+      showSignIn, // Hidden until auth resolves, then show only if not logged in
       showExplore: false,
       variant: 'default',
       width: '280px',
@@ -1083,12 +1134,19 @@ export class WebShellComponent {
     afterNextRender(() => {
       if (!isPlatformBrowser(this.platformId)) {
         this._topNavHydrationLocked.set(false);
+        this._signInButtonLocked.set(false);
         return;
       }
 
       this.topNavUnlockTimer = setTimeout(() => {
         this._topNavHydrationLocked.set(false);
         this.topNavUnlockTimer = null;
+      }, 300);
+
+      // Unlock Sign In button after 300ms to prevent flash during auth restore
+      this.signInButtonUnlockTimer = setTimeout(() => {
+        this._signInButtonLocked.set(false);
+        this.signInButtonUnlockTimer = null;
       }, 300);
     });
 
@@ -1102,6 +1160,11 @@ export class WebShellComponent {
       if (this.topNavUnlockTimer) {
         clearTimeout(this.topNavUnlockTimer);
         this.topNavUnlockTimer = null;
+      }
+
+      if (this.signInButtonUnlockTimer) {
+        clearTimeout(this.signInButtonUnlockTimer);
+        this.signInButtonUnlockTimer = null;
       }
     });
   }

@@ -31,13 +31,10 @@ import type {
   ProfileConnectedSource,
   AthleticStat,
   AthleticStatsCategory,
-  ProfileEvent,
-  EventType,
   ProfileRecruitingActivity,
   ProfileRecruitingCategory,
   VerifiedStat,
   VerifiedMetric,
-  ScheduleEvent,
   RecruitingActivity,
   ProfileSeasonGameLog,
 } from '@nxt1/core';
@@ -160,37 +157,6 @@ function verifiedMetricsToCategories(metrics: VerifiedMetric[]): AthleticStatsCa
     });
   }
   return Array.from(groups.entries()).map(([name, s]) => ({ name, stats: s }));
-}
-
-// Map ScheduleEvent.eventType to ProfileEvent EventType
-const SCHEDULE_TO_EVENT_TYPE: Record<string, EventType> = {
-  game: 'game',
-  camp: 'camp',
-  visit: 'visit',
-  practice: 'practice',
-  tournament: 'game',
-  combine: 'combine',
-  showcase: 'showcase',
-};
-
-/** Convert ScheduleEvent → ProfileEvent. */
-function scheduleEventToProfileEvent(event: ScheduleEvent): ProfileEvent {
-  const dateStr = event.date
-    ? event.date instanceof Date
-      ? event.date.toISOString()
-      : String(event.date)
-    : new Date().toISOString();
-  return {
-    id: event.id,
-    type: SCHEDULE_TO_EVENT_TYPE[event.eventType ?? ''] ?? 'other',
-    name: event.title,
-    location: event.location,
-    startDate: dateStr,
-    opponent: event.opponent,
-    result: event.result,
-    logoUrl: event.logoUrl,
-    url: event.url,
-  };
 }
 
 /** Convert RecruitingActivity → ProfileRecruitingActivity. */
