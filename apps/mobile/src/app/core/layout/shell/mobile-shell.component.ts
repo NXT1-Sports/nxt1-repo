@@ -78,7 +78,6 @@ import {
   NxtLoggingService,
   NxtScrollService,
   InviteBottomSheetService,
-  MessagesService,
   type FooterTabItem,
   type FooterTabSelectEvent,
   type FooterScrollToTopEvent,
@@ -89,7 +88,7 @@ import {
   type SidenavUserData,
   type SocialLink,
   type SidenavToggleEvent,
-  CENTERED_CREATE_FOOTER_TABS,
+  AGENT_X_LEFT_FOOTER_TABS,
   DEFAULT_SIDENAV_ITEMS,
   DEFAULT_SOCIAL_LINKS,
   createSidenavConfig,
@@ -235,7 +234,6 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   private readonly haptics = inject(HapticsService);
   private readonly authFlow = inject(AuthFlowService);
   private readonly activityService = inject(ActivityService);
-  private readonly messagesService = inject(MessagesService);
   private readonly scrollService = inject(NxtScrollService);
   private readonly inviteSheet = inject(InviteBottomSheetService);
   private readonly logger = inject(NxtLoggingService).child('MobileShell');
@@ -277,16 +275,8 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    */
   readonly tabs = computed<FooterTabItem[]>(() => {
     const activityUnreadCount = this.activityService.totalUnread();
-    const messagesUnreadCount = this.messagesService.totalUnreadCount();
-
-    const tabsWithMessagesBadge = updateTabBadge(
-      CENTERED_CREATE_FOOTER_TABS,
-      'messages',
-      messagesUnreadCount > 0 ? messagesUnreadCount : undefined
-    );
-
     return updateTabBadge(
-      tabsWithMessagesBadge,
+      AGENT_X_LEFT_FOOTER_TABS,
       'activity',
       activityUnreadCount > 0 ? activityUnreadCount : undefined
     );
@@ -298,26 +288,10 @@ export class MobileShellComponent implements OnInit, OnDestroy {
 
   /**
    * Get the visual position of a tab (for animation direction)
-   * Regular tabs are positioned left-to-right, action button is always rightmost
-   * Visual order: [regular tabs...] [action button]
+   * Position follows tab array order from the active footer variant.
    */
   private getVisualTabPosition(tabId: string): number {
-    const currentTabs = this.tabs();
-    const tab = currentTabs.find((t) => t.id === tabId);
-    if (!tab) return -1;
-
-    if (tab.isActionButton) {
-      // Action button is always visually last (rightmost)
-      return currentTabs.filter((t) => !t.isActionButton).length;
-    }
-
-    // Regular tabs: count only non-action tabs before this one
-    let position = 0;
-    for (const t of currentTabs) {
-      if (t.id === tabId) break;
-      if (!t.isActionButton) position++;
-    }
-    return position;
+    return this.tabs().findIndex((tab) => tab.id === tabId);
   }
 
   /**
@@ -350,7 +324,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     return {
       showLabels: true,
       enableHaptics: true,
-      variant: 'centeredCreate',
+      variant: 'default',
       hidden: false,
       translucent: false,
       glass: false, // Solid opaque background

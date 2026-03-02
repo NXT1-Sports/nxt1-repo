@@ -37,11 +37,11 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./core/layout/shell/mobile-shell.component').then((m) => m.MobileShellComponent),
     children: [
-      // Default route → Explore (unified content hub)
+      // Default route → Agent X (AI-first landing)
       {
         path: '',
         pathMatch: 'full',
-        redirectTo: 'explore',
+        redirectTo: 'agent',
       },
 
       // Home → Explore redirect (backward compatibility)

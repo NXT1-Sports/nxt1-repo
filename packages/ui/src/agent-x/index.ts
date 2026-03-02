@@ -12,7 +12,18 @@
 export { AgentXService } from './agent-x.service';
 
 // Components
-export { AgentXShellComponent, type AgentXUser } from './agent-x-shell.component';
+export {
+  AgentXShellComponent,
+  type AgentXUser,
+  type ActiveOperation,
+  type ActionChip,
+  type CommandCategory,
+  type BriefingInsight,
+} from './agent-x-shell.component';
+export {
+  AgentXOperationChatComponent,
+  type OperationQuickAction,
+} from './agent-x-operation-chat.component';
 export { AgentXWelcomeComponent } from './agent-x-welcome.component';
 export { AgentXChatComponent } from './agent-x-chat.component';
 export { AgentXInputComponent } from './agent-x-input.component';

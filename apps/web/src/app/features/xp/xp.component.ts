@@ -20,8 +20,6 @@
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { XpShellWebComponent, NxtXpLandingComponent } from '@nxt1/ui/xp';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
-import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import type { MissionUserRole } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
@@ -33,13 +31,7 @@ import { SeoService } from '../../core/services';
   template: `
     <!-- Authenticated: Show actual XP dashboard -->
     @if (isAuthenticated()) {
-      <nxt1-xp-shell-web
-        [userRole]="userRole()"
-        [avatarSrc]="avatarSrc()"
-        [avatarName]="avatarName()"
-        [hideHeader]="isDesktop()"
-        (avatarClick)="onAvatarClick()"
-      />
+      <nxt1-xp-shell-web [userRole]="userRole()" />
     }
 
     <!-- Unauthenticated: Show marketing landing page -->
@@ -60,16 +52,11 @@ import { SeoService } from '../../core/services';
 })
 export class XpComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
-  private readonly sidenavService = inject(NxtSidenavService);
   private readonly _logger = inject(NxtLoggingService).child('XpComponent');
   private readonly seo = inject(SeoService);
-  private readonly platform = inject(NxtPlatformService);
 
   /** Auth state signals */
   protected readonly isAuthenticated = this.authService.isAuthenticated;
-
-  /** Desktop detection for hiding redundant page header (sidebar provides nav) */
-  protected readonly isDesktop = computed(() => this.platform.viewport().width >= 1280);
 
   ngOnInit(): void {
     if (this.isAuthenticated()) {
@@ -123,23 +110,4 @@ export class XpComponent implements OnInit {
     if (!role) return 'athlete';
     return role === 'coach' ? 'coach' : 'athlete';
   });
-
-  /** Avatar source URL for page header */
-  protected readonly avatarSrc = computed(() => {
-    const user = this.authService.user();
-    if (!user) return undefined;
-    return user.profileImg ?? undefined;
-  });
-
-  /** Avatar display name for page header */
-  protected readonly avatarName = computed(() => {
-    const user = this.authService.user();
-    if (!user) return '';
-    return user.displayName ?? '';
-  });
-
-  /** Handle avatar click — open sidenav */
-  onAvatarClick(): void {
-    this.sidenavService.open();
-  }
 }

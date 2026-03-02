@@ -99,6 +99,9 @@ export {
 // CORE UI COMPONENTS
 // ============================================
 export { NxtLogoComponent, type LogoSize, type LogoVariant } from './components/logo';
+export { ScheduleBoardComponent } from './components/schedule-board';
+export { StatsDashboardComponent } from './components/stats-dashboard';
+export { NewsBoardComponent } from './components/news-board';
 export { NotFoundComponent } from './components/not-found/not-found.component';
 export {
   NxtImageComponent,
@@ -426,6 +429,8 @@ export {
   // Constants (from @nxt1/core)
   DEFAULT_FOOTER_TABS,
   CENTERED_CREATE_FOOTER_TABS,
+  AGENT_X_CENTER_FOOTER_TABS,
+  AGENT_X_LEFT_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
   MAIN_PAGE_ROUTES,
@@ -617,9 +622,18 @@ export {
   ProfileService,
   // Mappers
   userToProfilePageData,
-  // Components
+  // Shell Components
   ProfileShellComponent,
   ProfileShellWebComponent,
+  // Shared Section Components (used by both shells)
+  ProfileOverviewComponent,
+  ProfileMetricsComponent,
+  ProfileContactComponent,
+  ProfileAcademicComponent,
+  ProfileScoutingComponent,
+  ProfileMobileHeroComponent,
+  ProfileVerificationBannerComponent,
+  // Other Components
   ProfileHeaderComponent,
   ProfileTimelineComponent,
   ProfileOffersComponent,

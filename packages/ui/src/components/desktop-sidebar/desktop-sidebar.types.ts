@@ -222,9 +222,10 @@ export const DEFAULT_DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] 
     id: 'you',
     label: 'You',
     items: [
-      { id: 'profile', label: 'My Profile', icon: 'person', route: '/profile' },
       { id: 'messages', label: 'Messages', icon: 'messages', route: '/messages' },
-      { id: 'notifications', label: 'Notifications', icon: 'bell', route: '/notifications' },
+      { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
+      { id: 'xp', label: 'XP', icon: 'sparkles', route: '/xp' },
+      { id: 'manage-team', label: 'Manage Team', icon: 'users', route: '/manage-team' },
     ],
   },
   {
@@ -296,9 +297,10 @@ export const LOGGED_IN_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
     id: 'you',
     label: 'You',
     items: [
-      { id: 'profile', label: 'My Profile', icon: 'person', route: '/profile' },
       { id: 'messages', label: 'Messages', icon: 'messages', route: '/messages' },
-      { id: 'notifications', label: 'Notifications', icon: 'bell', route: '/notifications' },
+      { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
+      { id: 'xp', label: 'XP', icon: 'sparkles', route: '/xp' },
+      { id: 'manage-team', label: 'Manage Team', icon: 'users', route: '/manage-team' },
     ],
   },
   {

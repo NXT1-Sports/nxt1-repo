@@ -66,7 +66,7 @@ import { NxtImageComponent } from '../../components/image';
                 />
               } @else {
                 <div class="mc-team-placeholder">
-                  <nxt1-icon name="school" [size]="36" />
+                  <nxt1-icon name="school-outline" [size]="36" />
                 </div>
               }
             </div>

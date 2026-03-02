@@ -12,6 +12,8 @@
 import type { FeedPost, FeedPostType, FeedAuthor, FeedMedia } from './feed.types';
 import type { ProfilePost, ProfilePostType } from '../profile/profile.types';
 import type { ProfileUser, ProfileOffer, ProfileEvent } from '../profile/profile.types';
+import type { TeamProfilePost, TeamProfilePostType } from '../team-profile/team-profile.types';
+import type { TeamProfileTeam } from '../team-profile/team-profile.types';
 
 // ============================================
 // TYPE MAPPINGS
@@ -392,4 +394,139 @@ export function buildUnifiedActivityFeed(
   feedPosts.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   return feedPosts;
+}
+
+// ============================================
+// TEAM PROFILE → FEED POST
+// ============================================
+
+/**
+ * Maps TeamProfilePostType → FeedPostType.
+ * Team posts have types like 'announcement' that don't exist in FeedPostType.
+ */
+const TEAM_TO_FEED_TYPE: Readonly<Record<TeamProfilePostType, FeedPostType>> = {
+  video: 'video',
+  image: 'image',
+  text: 'text',
+  highlight: 'highlight',
+  news: 'article',
+  announcement: 'text',
+};
+
+/**
+ * Converts a TeamProfileTeam to a FeedAuthor for post rendering.
+ * Teams use 'team' role so the card can display the team logo + name.
+ *
+ * @param team - The team profile data
+ * @returns A FeedAuthor compatible with FeedPostCardComponent
+ *
+ * @example
+ * ```typescript
+ * const author = teamToFeedAuthor(team);
+ * const feedPost = teamPostToFeedPost(post, author);
+ * ```
+ */
+export function teamToFeedAuthor(team: TeamProfileTeam): FeedAuthor {
+  return {
+    uid: team.id,
+    profileCode: team.slug,
+    displayName: team.teamName,
+    firstName: team.teamName,
+    lastName: '',
+    avatarUrl: team.logoUrl,
+    role: 'team' as FeedAuthor['role'],
+    verificationStatus: team.verificationStatus,
+    isVerified: team.verificationStatus === 'verified' || team.verificationStatus === 'premium',
+    sport: team.sport,
+    schoolName: team.teamName,
+    schoolLogoUrl: team.logoUrl,
+  };
+}
+
+/**
+ * Builds a FeedMedia array from a TeamProfilePost's single media fields.
+ * TeamProfilePost has flat thumbnailUrl/mediaUrl while FeedPost has a media array.
+ */
+function buildMediaFromTeamPost(post: TeamProfilePost): readonly FeedMedia[] {
+  if (!post.thumbnailUrl && !post.mediaUrl) return [];
+
+  const mediaType: FeedMedia['type'] =
+    post.type === 'video' || post.type === 'highlight' ? 'video' : 'image';
+
+  return [
+    {
+      id: `${post.id}-media-0`,
+      type: mediaType,
+      url: post.mediaUrl ?? post.thumbnailUrl!,
+      thumbnailUrl: post.thumbnailUrl,
+      duration: post.duration,
+      altText: post.title ?? 'Team post media',
+    },
+  ];
+}
+
+/**
+ * Converts a TeamProfilePost to a FeedPost for unified rendering.
+ *
+ * This enables the shared FeedPostCardComponent to render team posts
+ * with identical styles to posts on the athlete profile and home feed.
+ *
+ * @param post - The team post to convert
+ * @param author - The team as a FeedAuthor (from teamToFeedAuthor)
+ * @returns A FeedPost compatible with FeedPostCardComponent
+ *
+ * @example
+ * ```typescript
+ * import { teamPostToFeedPost, teamToFeedAuthor } from '@nxt1/core';
+ *
+ * const author = teamToFeedAuthor(team);
+ * const feedPosts = teamPosts.map(p => teamPostToFeedPost(p, author));
+ * ```
+ */
+export function teamPostToFeedPost(post: TeamProfilePost, author: FeedAuthor): FeedPost {
+  return {
+    id: post.id,
+    type: TEAM_TO_FEED_TYPE[post.type] ?? 'text',
+    visibility: 'public',
+    author,
+    content: post.body,
+    media: buildMediaFromTeamPost(post),
+    title: post.title,
+    engagement: {
+      likeCount: post.likeCount,
+      commentCount: post.commentCount,
+      shareCount: post.shareCount,
+      viewCount: post.viewCount ?? 0,
+      reactionCount: post.likeCount,
+      repostCount: 0,
+    },
+    userEngagement: {
+      isLiked: post.isLiked ?? false,
+      isBookmarked: false,
+      isReposted: false,
+      isFollowingAuthor: false,
+      isReacted: post.isLiked ?? false,
+      reactionType: post.isLiked ? 'like' : null,
+    },
+    isPinned: post.isPinned ?? false,
+    isFeatured: false,
+    commentsDisabled: false,
+    createdAt: post.createdAt,
+    updatedAt: post.createdAt,
+  };
+}
+
+/**
+ * Batch-converts an array of TeamProfilePosts to FeedPosts.
+ * Optimized for use in computed signals — same author reference shared.
+ *
+ * @param posts - Array of team profile posts
+ * @param author - The team as a FeedAuthor
+ * @returns Array of FeedPosts
+ */
+export function teamPostsToFeedPosts(
+  posts: readonly TeamProfilePost[],
+  author: FeedAuthor
+): readonly FeedPost[] {
+  return posts.map((post) => teamPostToFeedPost(post, author));
 }

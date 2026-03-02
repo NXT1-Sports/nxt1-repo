@@ -539,7 +539,9 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
             <h3 class="ov-section-title ov-overview-title">Player History</h3>
             @if (playerHistoryAffiliations().length === 0) {
               <div class="madden-empty">
-                <nxt1-icon name="time" [size]="48" />
+                <div class="madden-empty__icon" aria-hidden="true">
+                  <nxt1-icon name="time-outline" [size]="40" />
+                </div>
                 <h3>No history yet</h3>
                 <p>
                   @if (profile.isOwnProfile()) {
@@ -624,7 +626,9 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
               !profile.user()?.school?.name
             ) {
               <div class="madden-empty">
-                <nxt1-icon name="school" [size]="48" />
+                <div class="madden-empty__icon" aria-hidden="true">
+                  <nxt1-icon name="school-outline" [size]="40" />
+                </div>
                 <h3>No academic info yet</h3>
                 <p>
                   @if (profile.isOwnProfile()) {
@@ -675,7 +679,9 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
           !profile.user()?.coachContact
         ) {
           <div class="madden-empty">
-            <nxt1-icon name="mail" [size]="48" />
+            <div class="madden-empty__icon" aria-hidden="true">
+              <nxt1-icon name="mail-outline" [size]="40" />
+            </div>
             <h3>Contact info not set</h3>
             <p>
               @if (profile.isOwnProfile()) {
@@ -703,7 +709,7 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
                       [href]="'mailto:' + profile.user()?.contact?.email"
                     >
                       <span class="contact-info-icon">
-                        <nxt1-icon name="mail" [size]="16" />
+                        <nxt1-icon name="mail-outline" [size]="16" />
                       </span>
                       <div class="contact-info-text">
                         <span class="contact-info-label">Email</span>
@@ -770,7 +776,7 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
                     @if (coach.email) {
                       <a class="contact-info-item" [href]="'mailto:' + coach.email">
                         <span class="contact-info-icon">
-                          <nxt1-icon name="mail" [size]="16" />
+                          <nxt1-icon name="mail-outline" [size]="16" />
                         </span>
                         <div class="contact-info-text">
                           <span class="contact-info-label">Email</span>
@@ -1414,6 +1420,18 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
         font-weight: 700;
         color: var(--m-text-2);
         margin: 0;
+      }
+      .madden-empty__icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.4));
       }
       .madden-empty p {
         font-size: 14px;

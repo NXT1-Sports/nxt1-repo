@@ -1518,6 +1518,18 @@ export const UI_ICONS = {
     paths: [{ d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z' }, { d: 'M12 6v6l4 2' }],
   },
 
+  /** Chat history icon - chat bubble with timeline lines */
+  chatHistory: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M20.5 12.5a8 8 0 0 1-8 8H8l-5 3v-11a8 8 0 0 1 8-8h1.5' },
+      { d: 'M16.5 2.5a5 5 0 1 0 0 10 5 5 0 0 0 0-10z' },
+      { d: 'M16.5 5.2v2.3l1.8 1.1' },
+    ],
+  },
+
   /** List icon - for ordered/unordered lists */
   list: {
     viewBox: '0 0 24 24',
@@ -1971,6 +1983,7 @@ export const ALIAS_ICONS = {
   // ---- Persona Landing Page Icons ----
   'whistle-outline': UI_ICONS.whistle,
   'time-outline': UI_ICONS.time,
+  'chat-history-outline': UI_ICONS.chatHistory,
   'list-outline': UI_ICONS.list,
   'clipboard-outline': UI_ICONS.clipboard,
   'notifications-outline': UI_ICONS.notifications,

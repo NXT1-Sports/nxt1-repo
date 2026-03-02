@@ -1,7 +1,7 @@
 /**
  * @fileoverview Agent X Page - Mobile App Wrapper
  * @module @nxt1/mobile/features/agent-x
- * @version 2.0.0
+ * @version 3.0.0
  *
  * Thin wrapper component that imports the shared Agent X shell
  * from @nxt1/ui and wires up platform-specific concerns.
@@ -23,7 +23,6 @@ import {
   NxtLoggingService,
   type AgentXUser,
 } from '@nxt1/ui';
-import type { AgentXMode } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 
 @Component({
@@ -35,11 +34,7 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
       <ion-toolbar></ion-toolbar>
     </ion-header>
     <ion-content [fullscreen]="true">
-      <nxt1-agent-x-shell
-        [user]="userInfo()"
-        (avatarClick)="onAvatarClick()"
-        (modeChange)="onModeChange($event)"
-      />
+      <nxt1-agent-x-shell [user]="userInfo()" (avatarClick)="onAvatarClick()" />
     </ion-content>
   `,
   styles: [
@@ -75,7 +70,6 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
 export class AgentXComponent {
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
-  private readonly navController = inject(NavController);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
 
   /**
@@ -93,18 +87,9 @@ export class AgentXComponent {
   });
 
   /**
-   * Handle avatar click - open sidenav (Twitter/X pattern).
+   * Handle avatar click — open sidenav (Twitter/X pattern).
    */
   protected onAvatarClick(): void {
     this.sidenavService.open();
-  }
-
-  /**
-   * Handle mode changes for analytics/logging.
-   */
-  protected onModeChange(mode: AgentXMode): void {
-    this.logger.debug('Agent X mode changed', { mode });
-    // In production: track analytics event
-    // this.analytics.track('agent_x_mode_change', { mode });
   }
 }

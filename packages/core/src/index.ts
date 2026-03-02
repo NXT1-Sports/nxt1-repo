@@ -170,6 +170,8 @@ export {
   type FooterScrollToTopEvent,
   DEFAULT_FOOTER_TABS,
   CENTERED_CREATE_FOOTER_TABS,
+  AGENT_X_CENTER_FOOTER_TABS,
+  AGENT_X_LEFT_FOOTER_TABS,
   FOOTER_HEIGHTS,
   FOOTER_ANIMATION,
   MAIN_PAGE_ROUTES,
@@ -778,6 +780,12 @@ export {
   // Verification helpers
   getVerification,
   getAllVerifications,
+  // Schedule helpers (pure functions)
+  mapProfileEventsToScheduleRows,
+  filterScheduleEvents,
+  getScheduleSeasons,
+  getSeasonForDate,
+  type ProfileScheduleContext,
 } from './profile';
 
 // ============================================
@@ -832,6 +840,10 @@ export {
   TEAM_PROFILE_QUICK_STATS_CONFIG,
   TEAM_PROFILE_ADMIN_HEADER_ACTIONS,
   TEAM_PROFILE_VISITOR_HEADER_ACTIONS,
+  // Stats helpers
+  mapTeamStatsToGameLogs,
+  // News helpers
+  mapTeamPostsToNewsBoardItems,
 } from './team-profile';
 
 // ============================================
@@ -1155,6 +1167,9 @@ export {
   // Mappers
   profileUserToFeedAuthor,
   profilePostToFeedPost,
+  teamToFeedAuthor,
+  teamPostToFeedPost,
+  teamPostsToFeedPosts,
   profilePostsToFeedPosts,
   profileOfferToFeedPost,
   profileEventToFeedPost,
@@ -1201,6 +1216,10 @@ export {
   validateCategory,
   validateFilter,
   calculateReadingTime,
+  // News Board (shared display adapter)
+  type NewsBoardCategory,
+  type NewsBoardItem,
+  mapNewsArticlesToBoardItems,
 } from './news';
 
 // ============================================

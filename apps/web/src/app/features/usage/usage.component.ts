@@ -38,7 +38,7 @@ import { SeoService } from '../../core/services';
 
     <!-- Authenticated: Show actual billing & usage dashboard -->
     @else if (isAuthenticated()) {
-      <nxt1-usage-shell-web [hideHeader]="true" />
+      <nxt1-usage-shell-web />
     }
 
     <!-- Unauthenticated: Show marketing landing page -->

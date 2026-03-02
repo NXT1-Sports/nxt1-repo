@@ -4,4 +4,9 @@
  */
 
 export { NxtPageHeaderComponent } from './page-header.component';
-export type { PageHeaderVariant, PageHeaderConfig, PageHeaderAction } from './page-header.types';
+export type {
+  PageHeaderVariant,
+  PageHeaderLeftVariant,
+  PageHeaderConfig,
+  PageHeaderAction,
+} from './page-header.types';

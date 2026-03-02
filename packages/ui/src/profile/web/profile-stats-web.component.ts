@@ -34,7 +34,9 @@ interface StatsComparisonItem {
 
       @if (profile.gameLog().length === 0 && profile.athleticStats().length === 0) {
         <div class="madden-empty">
-          <nxt1-icon name="stats-chart" [size]="48" />
+          <div class="madden-empty__icon" aria-hidden="true">
+            <nxt1-icon name="stats-chart-outline" [size]="40" />
+          </div>
           <h3>No stats recorded</h3>
           <p>
             @if (profile.isOwnProfile()) {
@@ -326,6 +328,18 @@ interface StatsComparisonItem {
         font-weight: 700;
         color: var(--m-text);
         margin: 16px 0 8px;
+      }
+      .madden-empty__icon {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.4));
       }
       .madden-empty p {
         font-size: 14px;

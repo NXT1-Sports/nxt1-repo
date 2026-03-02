@@ -30,7 +30,6 @@ import {
   MESSAGES_FILTERS,
   MESSAGES_SEARCH_CONFIG,
 } from '@nxt1/core';
-import { NxtPageHeaderComponent } from '../../components/page-header';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
@@ -41,128 +40,66 @@ import type { MessagesUser } from '../messages-shell.component';
 @Component({
   selector: 'nxt1-messages-shell-web',
   standalone: true,
-  imports: [
-    CommonModule,
-    FormsModule,
-    NxtPageHeaderComponent,
-    NxtDesktopPageHeaderComponent,
-    MessagesListComponent,
-  ],
+  imports: [CommonModule, FormsModule, NxtDesktopPageHeaderComponent, MessagesListComponent],
   template: `
-    <!-- Page header (hidden on desktop when sidebar visible) -->
-    @if (!hideHeader()) {
-      <nxt1-page-header
-        [avatarSrc]="user()?.profileImg"
-        [avatarName]="displayName()"
-        (avatarClick)="avatarClick.emit()"
-      >
-        <!-- Search in header -->
-        <div pageHeaderSlot="title" class="search-container w-full">
-          <div class="relative">
-            <svg
-              class="text-text-tertiary pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
-            <input
-              type="search"
-              [placeholder]="searchPlaceholder"
-              [(ngModel)]="searchValue"
-              (input)="onSearchInput($event)"
-              (keydown.escape)="onClearSearch()"
-              class="bg-surface-100 text-text-primary placeholder:text-text-tertiary focus:ring-primary/30 focus:border-primary h-9 w-full rounded-full border border-transparent py-2 pr-10 pl-10 text-sm transition-all focus:ring-2 focus:outline-none"
-              [attr.aria-label]="searchPlaceholder"
+    <!-- Desktop header -->
+    <nxt1-desktop-page-header title="Messages">
+      <!-- Desktop search + compose -->
+      <div pageHeaderSlot="actions" class="flex items-center gap-3">
+        <div class="relative">
+          <svg
+            class="text-text-tertiary pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
             />
-            @if (searchValue().length > 0) {
-              <button
-                class="text-text-tertiary hover:text-text-primary absolute top-1/2 right-3 -translate-y-1/2 transition-colors"
-                (click)="onClearSearch()"
-                aria-label="Clear search"
-              >
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            }
-          </div>
-        </div>
-      </nxt1-page-header>
-    }
-
-    <!-- Desktop header variant -->
-    @if (hideHeader()) {
-      <nxt1-desktop-page-header title="Messages">
-        <!-- Desktop search + compose -->
-        <div pageHeaderSlot="actions" class="flex items-center gap-3">
-          <div class="relative">
-            <svg
-              class="text-text-tertiary pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
+          </svg>
+          <input
+            type="search"
+            [placeholder]="searchPlaceholder"
+            [(ngModel)]="searchValue"
+            (input)="onSearchInput($event)"
+            (keydown.escape)="onClearSearch()"
+            class="bg-surface-100 text-text-primary placeholder:text-text-tertiary focus:ring-primary/30 focus:border-primary h-9 w-64 rounded-full border border-transparent py-2 pr-10 pl-10 text-sm transition-all focus:ring-2 focus:outline-none"
+            [attr.aria-label]="searchPlaceholder"
+          />
+          @if (searchValue().length > 0) {
+            <button
+              class="text-text-tertiary hover:text-text-primary absolute top-1/2 right-3 -translate-y-1/2 transition-colors"
+              (click)="onClearSearch()"
+              aria-label="Clear search"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
-            <input
-              type="search"
-              [placeholder]="searchPlaceholder"
-              [(ngModel)]="searchValue"
-              (input)="onSearchInput($event)"
-              (keydown.escape)="onClearSearch()"
-              class="bg-surface-100 text-text-primary placeholder:text-text-tertiary focus:ring-primary/30 focus:border-primary h-9 w-64 rounded-full border border-transparent py-2 pr-10 pl-10 text-sm transition-all focus:ring-2 focus:outline-none"
-              [attr.aria-label]="searchPlaceholder"
-            />
-            @if (searchValue().length > 0) {
-              <button
-                class="text-text-tertiary hover:text-text-primary absolute top-1/2 right-3 -translate-y-1/2 transition-colors"
-                (click)="onClearSearch()"
-                aria-label="Clear search"
-              >
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            }
-          </div>
-          <button class="compose-fab" (click)="compose.emit()" aria-label="New message">
-            <svg class="h-4.5 w-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            <span class="compose-label hidden md:inline">Compose</span>
-          </button>
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          }
         </div>
-      </nxt1-desktop-page-header>
-    }
+        <button class="compose-fab" (click)="compose.emit()" aria-label="New message">
+          <svg class="h-4.5 w-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 4v16m8-8H4"
+            />
+          </svg>
+          <span class="compose-label hidden md:inline">Compose</span>
+        </button>
+      </div>
+    </nxt1-desktop-page-header>
 
     <!-- Filter pills -->
     <nav class="filter-bar" role="tablist" aria-label="Message filters">
@@ -327,12 +264,6 @@ export class MessagesShellWebComponent implements OnInit {
   /** User info for avatar */
   readonly user = input<MessagesUser | null>(null);
 
-  /** Whether to hide the mobile page header (desktop sidebar visible) */
-  readonly hideHeader = input(false);
-
-  /** Emitted when avatar is clicked */
-  readonly avatarClick = output<void>();
-
   /** Emitted when a conversation is selected */
   readonly conversationClick = output<Conversation>();
 
@@ -344,9 +275,6 @@ export class MessagesShellWebComponent implements OnInit {
 
   /** Search input value (local binding) */
   readonly searchValue = signal('');
-
-  /** Computed display name */
-  readonly displayName = computed(() => this.user()?.displayName ?? 'User');
 
   /** Filter tab definitions */
   readonly filters = MESSAGES_FILTERS;

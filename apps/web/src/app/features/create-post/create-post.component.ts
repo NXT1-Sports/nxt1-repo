@@ -24,7 +24,6 @@ import {
   MOCK_CURRENT_USER,
   MOCK_XP_PREVIEW,
 } from '@nxt1/ui/create-post';
-import { NxtPageHeaderComponent } from '@nxt1/ui/components/page-header';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import type { CreatePostState, TaggableUser, PostXpBreakdown } from '@nxt1/core';
 import { SeoService } from '../../core/services';
@@ -40,7 +39,7 @@ interface CreateOption {
 @Component({
   selector: 'app-create-post',
   standalone: true,
-  imports: [CommonModule, NxtPageHeaderComponent, CreatePostShellComponent],
+  imports: [CommonModule, CreatePostShellComponent],
   template: `
     <div class="create-post-page">
       <!-- Backdrop for modal effect on web -->
@@ -50,11 +49,9 @@ interface CreateOption {
       <div class="create-post-page__modal">
         @if (viewMode() === 'options') {
           <section class="create-selection">
-            <nxt1-page-header
-              title="Create/Add"
-              [avatarSrc]="currentUser()?.photoUrl"
-              [avatarName]="currentUser()?.displayName"
-            />
+            <header class="create-selection__header">
+              <h1 class="create-selection__title">Create/Add</h1>
+            </header>
 
             <div class="create-selection__content">
               <p class="create-selection__subtitle">Choose what you want to create.</p>
@@ -156,6 +153,20 @@ interface CreateOption {
         min-height: 100%;
         display: flex;
         flex-direction: column;
+      }
+
+      .create-selection__header {
+        display: flex;
+        align-items: center;
+        padding: 16px;
+        border-bottom: 1px solid var(--nxt1-color-border-default);
+      }
+
+      .create-selection__title {
+        margin: 0;
+        font-size: var(--nxt1-fontSize-lg, 1.125rem);
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary);
       }
 
       .create-selection__content {

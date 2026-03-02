@@ -1,79 +1,31 @@
 /**
- * @fileoverview Profile Skeleton Component - Loading State
+ * @fileoverview Profile Skeleton Component — Loading State
  * @module @nxt1/ui/profile
- * @version 2.0.0
+ * @version 3.0.0
  *
- * Pixel-perfect skeleton loading placeholder for Profile feature.
- * Matches the EXACT layout structure of profile-shell-web.component
- * for both desktop (Madden split layout) and mobile (hero + stacked).
+ * Pixel-perfect skeleton loading placeholders for the Profile feature.
+ *
+ * Variants:
+ * - `'full'`  — Mobile (Ionic) profile: hero → tabs → section pills → content.
+ *              Matches `profile-shell.component.ts` layout exactly.
+ * - `'web'`   — Desktop Madden split layout + responsive mobile breakpoint.
+ *              Matches `profile-shell-web.component.ts` layout exactly.
+ * - `'post'`  — Single post card skeleton (used inside timeline tab).
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
 import { Component, ChangeDetectionStrategy, input } from '@angular/core';
-import { CommonModule } from '@angular/common';
 
-export type ProfileSkeletonVariant =
-  | 'header'
-  | 'stats'
-  | 'post'
-  | 'offer'
-  | 'event'
-  | 'full'
-  | 'web';
+/** Available skeleton layout variants. */
+export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
 
 @Component({
   selector: 'nxt1-profile-skeleton',
   standalone: true,
-  imports: [CommonModule],
   template: `
     <div class="profile-skeleton" [class]="'profile-skeleton--' + variant()">
       @switch (variant()) {
-        @case ('header') {
-          <div class="skeleton-header">
-            <div class="skeleton-banner skeleton-animate"></div>
-            <div class="skeleton-header-content">
-              <div class="skeleton-top-row">
-                <div class="skeleton-avatar-wrapper">
-                  <div class="skeleton-avatar-glow"></div>
-                  <div class="skeleton-avatar skeleton-animate"></div>
-                </div>
-                <div class="skeleton-name-section">
-                  <div class="skeleton-name skeleton-animate"></div>
-                  <div class="skeleton-followers skeleton-animate"></div>
-                  <div class="skeleton-sport skeleton-animate"></div>
-                </div>
-              </div>
-              <div class="skeleton-details">
-                <div class="skeleton-meta skeleton-animate"></div>
-                <div class="skeleton-chips">
-                  <div class="skeleton-chip skeleton-animate"></div>
-                  <div class="skeleton-chip skeleton-animate"></div>
-                  <div class="skeleton-chip skeleton-animate"></div>
-                </div>
-                <div class="skeleton-bio skeleton-animate"></div>
-                <div class="skeleton-bio skeleton-bio--short skeleton-animate"></div>
-                <div class="skeleton-actions">
-                  <div class="skeleton-btn skeleton-animate"></div>
-                  <div class="skeleton-btn skeleton-btn--secondary skeleton-animate"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        }
-
-        @case ('stats') {
-          <div class="skeleton-stats-bar">
-            @for (i of [1, 2, 3, 4, 5, 6]; track i) {
-              <div class="skeleton-stat-card">
-                <div class="skeleton-stat-icon skeleton-animate"></div>
-                <div class="skeleton-stat-value skeleton-animate"></div>
-                <div class="skeleton-stat-label skeleton-animate"></div>
-              </div>
-            }
-          </div>
-        }
-
         @case ('post') {
           <div class="skeleton-post">
             <div class="skeleton-post-header">
@@ -93,35 +45,101 @@ export type ProfileSkeletonVariant =
           </div>
         }
 
-        @case ('offer') {
-          <div class="skeleton-offer">
-            <div class="skeleton-offer-logo skeleton-animate"></div>
-            <div class="skeleton-offer-info">
-              <div class="skeleton-offer-name skeleton-animate"></div>
-              <div class="skeleton-offer-meta skeleton-animate"></div>
-            </div>
-            <div class="skeleton-offer-badge skeleton-animate"></div>
-          </div>
-        }
-
-        @case ('event') {
-          <div class="skeleton-event">
-            <div class="skeleton-event-date skeleton-animate"></div>
-            <div class="skeleton-event-info">
-              <div class="skeleton-event-name skeleton-animate"></div>
-              <div class="skeleton-event-location skeleton-animate"></div>
-            </div>
-          </div>
-        }
-
         @case ('full') {
-          <nxt1-profile-skeleton variant="header" />
-          <nxt1-profile-skeleton variant="stats" />
-          <div class="skeleton-posts-section">
-            <div class="skeleton-section-title skeleton-animate"></div>
-            @for (i of [1, 2, 3]; track i) {
-              <nxt1-profile-skeleton variant="post" />
-            }
+          <!-- ═══ MOBILE PROFILE SKELETON ═══ -->
+          <!-- Matches profile-shell.component (Ionic) mobile layout exactly:
+               Mobile Hero → Top Tabs → Section Nav Pills → Content Sections -->
+          <div class="sk-mobile" aria-hidden="true">
+            <!-- Halftone accent (same as real profile) -->
+            <div class="sk-halftone-mobile"></div>
+
+            <!-- ═══ MOBILE HERO: Carousel + Identity ═══ -->
+            <!-- mirrors: .madden-mobile-hero { grid: 148px minmax(0,1fr); gap:12px; margin:32px 12px 10px } -->
+            <div class="sk-hero">
+              <!-- Carousel image -->
+              <div class="sk-hero__carousel skeleton-animate"></div>
+              <!-- Identity column -->
+              <div class="sk-hero__identity">
+                <div class="sk-hero__name skeleton-animate"></div>
+                <div class="sk-hero__meta skeleton-animate"></div>
+                <div class="sk-hero__follow skeleton-animate"></div>
+                <!-- Stats: Class, Height, Weight, Location -->
+                <div class="sk-hero__stats">
+                  @for (i of [1, 2, 3, 4]; track i) {
+                    <div class="sk-hero__stat-row">
+                      <div class="sk-hero__stat-key skeleton-animate"></div>
+                      <div class="sk-hero__stat-val skeleton-animate"></div>
+                    </div>
+                  }
+                </div>
+              </div>
+            </div>
+
+            <!-- ═══ TOP TABS (Overview, Timeline, Videos, News …) ═══ -->
+            <!-- mirrors: nxt1-option-scroller pills -->
+            <div class="sk-tabs">
+              @for (i of [1, 2, 3, 4, 5, 6, 7]; track i) {
+                <div class="sk-tabs__pill skeleton-animate"></div>
+              }
+            </div>
+
+            <!-- ═══ SECTION NAV PILLS (Player Profile, Bio, History …) ═══ -->
+            <!-- mirrors: nxt1-section-nav-web mobile pill strip -->
+            <div class="sk-section-pills">
+              @for (i of [1, 2, 3, 4, 5]; track i) {
+                <div class="sk-section-pills__pill skeleton-animate"></div>
+              }
+            </div>
+
+            <!-- ═══ CONTENT SECTIONS ═══ -->
+            <div class="sk-content-mobile">
+              <!-- Team Cards (mirrors .ov-mobile-teams) -->
+              <div class="sk-teams">
+                <div class="sk-teams__title skeleton-animate"></div>
+                <div class="sk-teams__stack">
+                  @for (i of [1, 2]; track i) {
+                    <div class="sk-teams__card">
+                      <div class="sk-teams__logo skeleton-animate"></div>
+                      <div class="sk-teams__info">
+                        <div class="sk-teams__name skeleton-animate"></div>
+                        <div class="sk-teams__location skeleton-animate"></div>
+                      </div>
+                    </div>
+                  }
+                </div>
+              </div>
+
+              <!-- Player Archetypes (mirrors .ov-archetype-badges) -->
+              <div class="sk-archetypes">
+                <div class="sk-archetypes__title skeleton-animate"></div>
+                <div class="sk-archetypes__grid">
+                  @for (i of [1, 2, 3]; track i) {
+                    <div class="sk-archetypes__badge skeleton-animate"></div>
+                  }
+                </div>
+              </div>
+
+              <!-- Connected Accounts (mirrors .ov-connected-grid) -->
+              <div class="sk-connected">
+                <div class="sk-connected__title skeleton-animate"></div>
+                <div class="sk-connected__grid">
+                  @for (i of [1, 2, 3, 4, 5, 6]; track i) {
+                    <div class="sk-connected__chip skeleton-animate"></div>
+                  }
+                </div>
+                <div class="sk-connected__explainer skeleton-animate"></div>
+              </div>
+
+              <!-- XP Ring + Badges (mirrors .ov-mobile-xp-section) -->
+              <div class="sk-xp">
+                <div class="sk-xp__ring skeleton-animate"></div>
+                <div class="sk-xp__badges">
+                  @for (i of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]; track i) {
+                    <div class="sk-xp__badge skeleton-animate"></div>
+                  }
+                </div>
+              </div>
+            </div>
           </div>
         }
 
@@ -358,183 +376,6 @@ export type ProfileSkeletonVariant =
       }
 
       /* ============================================
-         HEADER SKELETON (header variant)
-         ============================================ */
-
-      .skeleton-header {
-        position: relative;
-      }
-
-      .skeleton-banner {
-        height: 200px;
-        margin: 8px 16px 0;
-        border-radius: 16px;
-      }
-
-      .skeleton-header-content {
-        display: flex;
-        flex-direction: column;
-        padding: 16px 24px 0;
-      }
-
-      .skeleton-top-row {
-        display: flex;
-        align-items: flex-start;
-        gap: 16px;
-      }
-
-      .skeleton-avatar-wrapper {
-        position: relative;
-        width: 120px;
-        height: 120px;
-        flex-shrink: 0;
-      }
-
-      .skeleton-avatar {
-        width: 100%;
-        height: 100%;
-        border-radius: 50%;
-      }
-
-      .skeleton-avatar-glow {
-        position: absolute;
-        inset: 0;
-        border-radius: 50%;
-        z-index: 2;
-        pointer-events: none;
-        background: radial-gradient(
-          circle,
-          transparent 40%,
-          color-mix(
-              in srgb,
-              var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.06)) 50%,
-              var(--nxt1-color-bg-primary, #0a0a0a)
-            )
-            72%,
-          var(--nxt1-color-bg-primary, #0a0a0a) 90%
-        );
-      }
-
-      .skeleton-name-section {
-        flex: 1;
-        min-width: 0;
-        padding-top: 8px;
-      }
-
-      .skeleton-name {
-        height: 32px;
-        width: 200px;
-        max-width: 100%;
-        margin-bottom: 8px;
-      }
-
-      .skeleton-followers {
-        height: 18px;
-        width: 180px;
-        max-width: 100%;
-        margin-bottom: 8px;
-      }
-
-      .skeleton-sport {
-        height: 18px;
-        width: 150px;
-        max-width: 100%;
-      }
-
-      .skeleton-details {
-        padding: 12px 0 24px;
-      }
-
-      .skeleton-meta {
-        height: 16px;
-        width: 220px;
-        max-width: 100%;
-        margin-bottom: 12px;
-      }
-
-      .skeleton-chips {
-        display: flex;
-        gap: 8px;
-        margin-bottom: 12px;
-      }
-
-      .skeleton-chip {
-        height: 28px;
-        width: 80px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-      }
-
-      .skeleton-bio {
-        height: 16px;
-        width: 100%;
-        max-width: 400px;
-        margin-bottom: 8px;
-      }
-
-      .skeleton-bio--short {
-        width: 60%;
-        margin-bottom: 16px;
-      }
-
-      .skeleton-actions {
-        display: flex;
-        gap: 12px;
-        margin-top: 4px;
-      }
-
-      .skeleton-btn {
-        height: 40px;
-        width: 120px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-      }
-
-      .skeleton-btn--secondary {
-        width: 100px;
-      }
-
-      /* ============================================
-         STATS BAR SKELETON (stats variant)
-         ============================================ */
-
-      .skeleton-stats-bar {
-        display: flex;
-        gap: 16px;
-        padding: 16px 24px;
-        overflow-x: auto;
-        scrollbar-width: none;
-        &::-webkit-scrollbar {
-          display: none;
-        }
-      }
-
-      .skeleton-stat-card {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 8px;
-        padding: 16px;
-        min-width: 100px;
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
-        border-radius: var(--nxt1-radius-md, 8px);
-      }
-
-      .skeleton-stat-icon {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-      }
-
-      .skeleton-stat-value {
-        width: 50px;
-        height: 24px;
-      }
-
-      .skeleton-stat-label {
-        width: 70px;
-        height: 14px;
-      }
-
-      /* ============================================
          POST SKELETON (post variant)
          ============================================ */
 
@@ -593,90 +434,351 @@ export type ProfileSkeletonVariant =
       }
 
       /* ============================================
-         OFFER SKELETON (offer variant)
+         FULL PAGE SKELETON (full variant) — Mobile Profile
+         Matches profile-shell.component mobile layout:
+         Hero → Tabs → Section Pills → Content Sections
+         Every dimension matches the real mobile profile CSS.
          ============================================ */
 
-      .skeleton-offer {
+      .sk-mobile {
+        position: relative;
+        padding-bottom: 120px;
+      }
+
+      /* Halftone accent (matches .halftone-bg in profile-shell) */
+      .sk-halftone-mobile {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        opacity: 0.015;
+        background-image: radial-gradient(circle, currentColor 1px, transparent 1px);
+        background-size: 24px 24px;
+        pointer-events: none;
+      }
+
+      .sk-mobile > *:not(.sk-halftone-mobile) {
+        position: relative;
+        z-index: 1;
+      }
+
+      /* ─── MOBILE HERO ─── */
+      /* mirrors: .madden-mobile-hero { display:grid; grid-template-columns:148px minmax(0,1fr); gap:12px; margin:32px 12px 10px } */
+      .sk-hero {
+        display: grid;
+        grid-template-columns: 148px minmax(0, 1fr);
+        gap: 12px;
+        align-items: start;
+        margin: 32px 12px 10px;
+      }
+
+      /* mirrors: .carousel-glow-wrap { height:228px; border-radius:14px } */
+      .sk-hero__carousel {
+        width: 148px;
+        height: 228px;
+        border-radius: 14px;
+      }
+
+      /* mirrors: .madden-mobile-hero__identity { display:flex; flex-direction:column; gap:5px; padding-top:2px } */
+      .sk-hero__identity {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        padding-top: 2px;
+        min-width: 0;
+      }
+
+      /* mirrors: .madden-mobile-hero__name { font-size:22px; font-weight:800; line-height:1.12 } */
+      .sk-hero__name {
+        height: 26px;
+        width: 140px;
+        max-width: 100%;
+        border-radius: 4px;
+      }
+
+      /* mirrors: .madden-mobile-hero__meta { font-size:14px; font-weight:600 } */
+      .sk-hero__meta {
+        height: 18px;
+        width: 100px;
+        max-width: 100%;
+        border-radius: 4px;
+      }
+
+      /* mirrors: .madden-mobile-hero__follow-btn { padding:7px 16px; border-radius:8px; margin-top:6px } */
+      .sk-hero__follow {
+        height: 34px;
+        width: 88px;
+        border-radius: var(--nxt1-radius-md, 8px);
+        margin-top: 6px;
+      }
+
+      /* mirrors: .madden-mobile-hero__stats { display:flex; flex-direction:column; margin-top:8px } */
+      .sk-hero__stats {
+        display: flex;
+        flex-direction: column;
+        margin-top: 8px;
+      }
+
+      /* mirrors: .mobile-hero-stat { display:flex; align-items:center; gap:8px; padding:6px 0; border-bottom } */
+      .sk-hero__stat-row {
         display: flex;
         align-items: center;
-        gap: 16px;
-        padding: 16px;
+        gap: 8px;
+        padding: 6px 0;
         border-bottom: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
       }
 
-      .skeleton-offer-logo {
-        width: 56px;
-        height: 56px;
-        border-radius: var(--nxt1-radius-md, 8px);
+      .sk-hero__stat-row:last-child {
+        border-bottom: none;
+      }
+
+      /* mirrors: .mobile-hero-stat__key { font-size:13px; min-width:50px } */
+      .sk-hero__stat-key {
+        width: 50px;
+        height: 14px;
+        border-radius: 3px;
         flex-shrink: 0;
       }
 
-      .skeleton-offer-info {
+      /* mirrors: .mobile-hero-stat__val { font-size:14px; font-weight:700 } */
+      .sk-hero__stat-val {
+        width: 60px;
+        height: 16px;
+        border-radius: 3px;
+      }
+
+      /* ─── TOP TABS ─── */
+      /* mirrors: nxt1-option-scroller pill row */
+      .sk-tabs {
+        display: flex;
+        gap: 8px;
+        padding: 0 12px;
+        overflow: hidden;
+        margin-top: 4px;
+      }
+
+      .sk-tabs__pill {
+        height: 36px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        flex-shrink: 0;
+      }
+
+      /* Varying widths for natural look */
+      .sk-tabs__pill:nth-child(1) {
+        width: 92px;
+      }
+      .sk-tabs__pill:nth-child(2) {
+        width: 80px;
+      }
+      .sk-tabs__pill:nth-child(3) {
+        width: 72px;
+      }
+      .sk-tabs__pill:nth-child(4) {
+        width: 64px;
+      }
+      .sk-tabs__pill:nth-child(5) {
+        width: 76px;
+      }
+      .sk-tabs__pill:nth-child(6) {
+        width: 68px;
+      }
+      .sk-tabs__pill:nth-child(7) {
+        width: 84px;
+      }
+
+      /* ─── SECTION NAV PILLS ─── */
+      /* mirrors: nxt1-section-nav-web mobile pill strip */
+      .sk-section-pills {
+        display: flex;
+        gap: 4px;
+        padding: 10px 12px;
+        overflow: hidden;
+      }
+
+      .sk-section-pills__pill {
+        height: 30px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        flex-shrink: 0;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .sk-section-pills__pill:nth-child(1) {
+        width: 100px;
+      }
+      .sk-section-pills__pill:nth-child(2) {
+        width: 80px;
+      }
+      .sk-section-pills__pill:nth-child(3) {
+        width: 96px;
+      }
+      .sk-section-pills__pill:nth-child(4) {
+        width: 72px;
+      }
+      .sk-section-pills__pill:nth-child(5) {
+        width: 84px;
+      }
+
+      /* ─── CONTENT SECTIONS ─── */
+      .sk-content-mobile {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        padding: 0 12px;
+      }
+
+      /* ── Teams ── */
+      /* mirrors: .ov-mobile-teams */
+      .sk-teams {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .sk-teams__title {
+        width: 120px;
+        height: 12px;
+        border-radius: 3px;
+      }
+
+      .sk-teams__stack {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      /* mirrors: .madden-team-block { padding:10px 12px; border-radius:10px; gap:10px; border:1px solid } */
+      .sk-teams__card {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.02));
+      }
+
+      /* mirrors: .madden-team-logo { width:36px; height:36px; border-radius:8px } (mobile size) */
+      .sk-teams__logo {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        flex-shrink: 0;
+      }
+
+      .sk-teams__info {
         flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
       }
 
-      .skeleton-offer-name {
-        width: 150px;
-        height: 20px;
-        margin-bottom: 6px;
-      }
-
-      .skeleton-offer-meta {
+      .sk-teams__name {
         width: 100px;
         height: 14px;
+        border-radius: 3px;
       }
 
-      .skeleton-offer-badge {
-        width: 80px;
-        height: 28px;
+      .sk-teams__location {
+        width: 70px;
+        height: 10px;
+        border-radius: 3px;
+      }
+
+      /* ── Archetypes ── */
+      /* mirrors: .ov-archetype-badges { display:flex; flex-wrap:wrap; gap:12px } */
+      .sk-archetypes {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .sk-archetypes__title {
+        width: 140px;
+        height: 12px;
+        border-radius: 3px;
+      }
+
+      .sk-archetypes__grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      /* mirrors: .ov-archetype-badge { padding:7px 14px; border-radius:999px } */
+      .sk-archetypes__badge {
+        width: 120px;
+        height: 34px;
         border-radius: var(--nxt1-radius-full, 9999px);
       }
 
-      /* ============================================
-         EVENT SKELETON (event variant)
-         ============================================ */
-
-      .skeleton-event {
+      /* ── Connected Accounts ── */
+      /* mirrors: .ov-connected-grid { display:flex; flex-wrap:wrap; gap:10px } */
+      .sk-connected {
         display: flex;
-        gap: 16px;
-        padding: 16px;
-        border-bottom: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+        flex-direction: column;
+        gap: 10px;
       }
 
-      .skeleton-event-date {
-        width: 60px;
-        height: 60px;
-        border-radius: var(--nxt1-radius-md, 8px);
+      .sk-connected__title {
+        width: 160px;
+        height: 12px;
+        border-radius: 3px;
+      }
+
+      .sk-connected__grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      /* mirrors: .ov-connected-chip { padding:8px 14px; border-radius:999px } */
+      .sk-connected__chip {
+        width: 110px;
+        height: 30px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+      }
+
+      /* mirrors: .ov-connected-explainer { padding:14px; border-radius:12px } */
+      .sk-connected__explainer {
+        height: 42px;
+        width: 100%;
+        border-radius: var(--nxt1-radius-lg, 12px);
+        margin-top: 4px;
+      }
+
+      /* ── XP Ring + Badges ── */
+      /* mirrors: .ov-mobile-xp-section { display:flex; flex-direction:row; align-items:center; gap:12px; padding:28px 0 14px } */
+      .sk-xp {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 28px 0 14px;
+      }
+
+      /* mirrors: .ov-mobile-xp-ring { width: clamp(92px,28vw,112px) } */
+      .sk-xp__ring {
+        width: clamp(92px, 28vw, 112px);
+        height: clamp(92px, 28vw, 112px);
+        border-radius: 50%;
         flex-shrink: 0;
       }
 
-      .skeleton-event-info {
+      /* mirrors: .ov-mobile-xp-badge-grid { display:flex; flex-wrap:wrap; gap:8px } */
+      .sk-xp__badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
         flex: 1;
+        min-width: 0;
+        align-content: center;
       }
 
-      .skeleton-event-name {
-        width: 180px;
-        height: 20px;
-        margin-bottom: 8px;
-      }
-
-      .skeleton-event-location {
-        width: 120px;
-        height: 14px;
-      }
-
-      /* ============================================
-         FULL PAGE SKELETON (full variant)
-         ============================================ */
-
-      .skeleton-posts-section {
-        padding-top: 24px;
-      }
-
-      .skeleton-section-title {
-        width: 120px;
-        height: 24px;
-        margin: 0 24px 16px;
+      /* mirrors: .ov-mobile-xp-badge-orb { width:38px; height:38px; border-radius:10px } */
+      .sk-xp__badge {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
       }
 
       /* ============================================
@@ -1507,6 +1609,6 @@ export type ProfileSkeletonVariant =
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProfileSkeletonComponent {
-  /** Skeleton variant */
+  /** Skeleton layout variant: `'full'` (mobile), `'web'` (desktop), or `'post'` (single post card). */
   readonly variant = input<ProfileSkeletonVariant>('post');
 }

@@ -1,8 +1,8 @@
 /**
- * @fileoverview Profile Mobile Hero Component - Web
- * @module @nxt1/ui/profile/web
+ * @fileoverview Profile Mobile Hero Component
+ * @module @nxt1/ui/profile/components
  *
- * Extracted from ProfileShellWebComponent.
+ * Shared profile section component used by both web and mobile shells.
  * Mobile-only hero section showing carousel, identity, and stats.
  * Hidden on wide (md+) layouts where page-header handles this info.
  */

@@ -94,10 +94,12 @@ export interface ExploreUser {
     <!-- Professional Page Header with shared Top Nav search styling -->
     @if (!hideHeader()) {
       <nxt1-page-header
+        leftVariant="hamburger"
         [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         [hideAvatar]="explore.isSearchFocused()"
         (avatarClick)="onAvatarClick()"
+        (menuClick)="onAvatarClick()"
       >
         @if (!explore.isSearchFocused()) {
           <ion-button
@@ -188,7 +190,7 @@ export interface ExploreUser {
               (itemTap)="onItemClick($event)"
               (categorySelect)="onForYouCategorySelect($event)"
             />
-          <!-- Feed Tab: Personalized content stream -->
+            <!-- Feed Tab: Personalized content stream -->
           } @else if (explore.activeTab() === 'feed' && !explore.hasQuery()) {
             <nxt1-feed-list
               [posts]="feedService.posts()"

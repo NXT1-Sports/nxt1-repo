@@ -103,3 +103,11 @@ export {
   // Types
   type ValidationResult,
 } from './news.validation';
+
+// ============================================
+// NEWS BOARD (Shared Display Adapter)
+// ============================================
+
+export type { NewsBoardCategory, NewsBoardItem } from './news-board.types';
+
+export { mapNewsArticlesToBoardItems } from './news-board.helpers';

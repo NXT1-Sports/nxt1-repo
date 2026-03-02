@@ -35,7 +35,6 @@ import {
   EXPLORE_TABS,
   isFeedTab,
 } from '@nxt1/core';
-import { NxtPageHeaderComponent } from '../../components/page-header';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
 import { NxtSectionNavWebComponent } from '../../components/section-nav-web';
 import type { SectionNavItem, SectionNavChangeEvent } from '../../components/section-nav-web';
@@ -58,7 +57,6 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
   imports: [
     CommonModule,
     FormsModule,
-    NxtPageHeaderComponent,
     NxtDesktopPageHeaderComponent,
     NxtSectionNavWebComponent,
     ExploreListWebComponent,
@@ -69,102 +67,14 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
     FeedListComponent,
   ],
   template: `
-    <!-- SEO: Page Header with semantic search -->
-    @if (!hideHeader()) {
-      <nxt1-page-header
-        [avatarSrc]="user()?.profileImg"
-        [avatarName]="displayName()"
-        (avatarClick)="onAvatarClick()"
-      >
-        @if (!explore.isSearchFocused()) {
-          <button
-            type="button"
-            pageHeaderSlot="end"
-            class="header-filter-btn"
-            aria-label="Open filters"
-            (click)="onFilterClick()"
-          >
-            <svg
-              class="h-5 w-5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M3 4a1 1 0 011-1h16a1 1 0 01.8 1.6L14 13.5V19a1 1 0 01-.553.894l-4 2A1 1 0 018 21v-7.5L3.2 4.6A1 1 0 013 4z"
-              />
-            </svg>
-            @if (activeFilterCount() > 0) {
-              <span class="header-filter-badge">{{ activeFilterCount() }}</span>
-            }
-          </button>
-        }
-
-        <!-- Native search input (SSR-friendly, accessible) -->
-        <div pageHeaderSlot="title" class="search-container w-full">
-          <div class="relative">
-            <!-- Search Icon -->
-            <svg
-              class="text-text-tertiary pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
-            <input
-              type="search"
-              [placeholder]="searchPlaceholder"
-              [(ngModel)]="searchValue"
-              (focus)="onSearchFocus()"
-              (blur)="onSearchBlur()"
-              (input)="onSearchInput($event)"
-              class="bg-surface-100 text-text-primary placeholder:text-text-tertiary focus:ring-primary/30 focus:border-primary h-9 w-full rounded-full border border-transparent py-2 pr-10 pl-10 text-sm transition-all focus:ring-2 focus:outline-none"
-              [attr.aria-label]="searchPlaceholder"
-            />
-            <!-- Clear button -->
-            @if (searchValue()) {
-              <button
-                type="button"
-                (click)="onSearchClear()"
-                class="text-text-tertiary hover:text-text-secondary absolute top-1/2 right-3 -translate-y-1/2"
-                aria-label="Clear search"
-              >
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            }
-          </div>
-        </div>
-      </nxt1-page-header>
-    }
-
     <!-- SEO: Main content area with semantic structure -->
     <main class="explore-main">
       <div class="explore-dashboard">
-        <!-- Desktop Page Header (visible when page header is hidden) -->
-        @if (hideHeader()) {
-          <nxt1-desktop-page-header
-            title="Explore"
-            subtitle="Discover athletes, teams, colleges, and more."
-          />
-        }
+        <!-- Desktop Page Header -->
+        <nxt1-desktop-page-header
+          title="Explore"
+          subtitle="Discover athletes, teams, colleges, and more."
+        />
 
         <!-- Search Suggestions Overlay -->
         @if (explore.isSearchFocused() && !explore.hasQuery()) {
@@ -282,32 +192,30 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
             />
 
             <section class="explore-section-content" role="tabpanel">
-              @if (hideHeader()) {
-                <button
-                  type="button"
-                  class="tab-filter-btn"
-                  aria-label="Open filters"
-                  (click)="onFilterClick()"
+              <button
+                type="button"
+                class="tab-filter-btn"
+                aria-label="Open filters"
+                (click)="onFilterClick()"
+              >
+                <svg
+                  class="h-[18px] w-[18px]"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
                 >
-                  <svg
-                    class="h-[18px] w-[18px]"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M3 4a1 1 0 011-1h16a1 1 0 01.8 1.6L14 13.5V19a1 1 0 01-.553.894l-4 2A1 1 0 018 21v-7.5L3.2 4.6A1 1 0 013 4z"
-                    />
-                  </svg>
-                  @if (activeFilterCount() > 0) {
-                    <span class="tab-filter-badge">{{ activeFilterCount() }}</span>
-                  }
-                </button>
-              }
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M3 4a1 1 0 011-1h16a1 1 0 01.8 1.6L14 13.5V19a1 1 0 01-.553.894l-4 2A1 1 0 018 21v-7.5L3.2 4.6A1 1 0 013 4z"
+                  />
+                </svg>
+                @if (activeFilterCount() > 0) {
+                  <span class="tab-filter-badge">{{ activeFilterCount() }}</span>
+                }
+              </button>
 
               <!-- For You Tab: Multi-category curated landing view -->
               @if (explore.activeTab() === 'for-you' && !explore.hasQuery()) {
@@ -494,11 +402,7 @@ export class ExploreShellWebComponent implements OnInit {
   // Inputs
   readonly user = input<ExploreUser | null>(null);
 
-  /** Hide page header on desktop (when using sidebar shell) */
-  readonly hideHeader = input(false);
-
   // Outputs
-  readonly avatarClick = output<void>();
   readonly tabChange = output<ExploreTabId>();
   readonly itemClick = output<ExploreItem>();
   readonly scoutReportSelect = output<ScoutReport>();
@@ -513,7 +417,6 @@ export class ExploreShellWebComponent implements OnInit {
   protected readonly searchPlaceholder = 'AI Search';
 
   // Computed
-  protected readonly displayName = computed(() => this.user()?.displayName ?? 'User');
   protected readonly activeFilterCount = computed(() =>
     this.explore.getActiveFilterCount(this.explore.activeTab())
   );
@@ -530,11 +433,6 @@ export class ExploreShellWebComponent implements OnInit {
   ngOnInit(): void {
     this.logger.info('Explore shell (web) initialized');
     void this.ensureFeedLoadedForTab(this.explore.activeTab());
-  }
-
-  protected onAvatarClick(): void {
-    this.haptics.impact('light');
-    this.avatarClick.emit();
   }
 
   protected async onFilterClick(): Promise<void> {

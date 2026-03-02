@@ -11,6 +11,13 @@
 export type PageHeaderVariant = 'default' | 'transparent' | 'blur' | 'solid';
 
 /**
+ * Left-side control variant for the page header.
+ * - 'avatar': Shows user profile image / initials (Twitter/X style). Default.
+ * - 'hamburger': Shows a hamburger menu icon that emits menuClick.
+ */
+export type PageHeaderLeftVariant = 'avatar' | 'hamburger';
+
+/**
  * Header action button configuration
  */
 export interface PageHeaderAction {

@@ -114,4 +114,7 @@ export {
   profileOfferToFeedPost,
   profileEventToFeedPost,
   buildUnifiedActivityFeed,
+  teamToFeedAuthor,
+  teamPostToFeedPost,
+  teamPostsToFeedPosts,
 } from './feed.mappers';

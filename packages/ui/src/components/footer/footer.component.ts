@@ -74,7 +74,38 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
     <div
       class="footer-container"
       [class.footer-container--centered-create]="isCenteredCreateVariant()"
+      [class.footer-container--wide]="regularTabs().length > 3"
     >
+      <!-- FAB Button (left of pill) when action tab is first in order -->
+      @if (shouldRenderActionFab() && isActionFabOnLeft() && actionTab(); as actionButton) {
+        <button
+          class="fab-button"
+          [class.fab-button--active]="isActiveTab(actionButton)"
+          (click)="onTabClick(actionButton, $event)"
+          [attr.aria-label]="actionButton.ariaLabel ?? actionButton.label"
+        >
+          <!-- Agent X Logo SVG - Theme-aware via currentColor -->
+          <svg
+            class="agent-logo"
+            viewBox="0 0 612 792"
+            width="53"
+            height="53"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="8"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path
+              d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+            />
+            <polygon
+              points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
+            />
+          </svg>
+        </button>
+      }
+
       <!-- Floating Pill Tab Bar -->
       <ion-tab-bar
         [translucent]="config.glass && config.translucent"
@@ -119,6 +150,51 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
                     points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
                   />
                 </svg>
+              } @else if (isProfileTab(tab)) {
+                <!-- Profile icon with sparkles -->
+                <svg
+                  class="profile-sparkle-icon"
+                  viewBox="0 0 28 28"
+                  width="26"
+                  height="26"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <!-- User silhouette -->
+                  <circle
+                    cx="14"
+                    cy="9"
+                    r="4"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    fill="none"
+                  />
+                  <path
+                    d="M6 23v-1.5a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6V23"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    fill="none"
+                  />
+                  <!-- Sparkle top-right (4-point star) -->
+                  <path
+                    class="sparkle sparkle-1"
+                    d="M23 3l.7 1.8L25.5 5.5l-1.8.7L23 8l-.7-1.8L20.5 5.5l1.8-.7Z"
+                    fill="currentColor"
+                  />
+                  <!-- Sparkle right (small diamond) -->
+                  <path
+                    class="sparkle sparkle-2"
+                    d="M26 12l.45 1.05L27.5 13.5l-1.05.45L26 15l-.45-1.05L24.5 13.5l1.05-.45Z"
+                    fill="currentColor"
+                  />
+                  <!-- Sparkle top-left (tiny) -->
+                  <path
+                    class="sparkle sparkle-3"
+                    d="M4.5 1.5l.35.85 .85.35-.85.35-.35.85-.35-.85-.85-.35.85-.35Z"
+                    fill="currentColor"
+                  />
+                </svg>
               } @else {
                 <nxt1-icon [name]="tab.icon" [size]="24" class="tab-icon" />
               }
@@ -133,7 +209,7 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
       </ion-tab-bar>
 
       <!-- FAB Button (right of pill) - Agent X with custom logo -->
-      @if (shouldRenderActionFab() && actionTab(); as actionButton) {
+      @if (shouldRenderActionFab() && !isActionFabOnLeft() && actionTab(); as actionButton) {
         <button
           class="fab-button"
           [class.fab-button--active]="isActiveTab(actionButton)"
@@ -205,16 +281,21 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: var(--nxt1-pill-gap, 3px);
+        gap: var(--nxt1-pill-gap, 8px);
         padding: 0;
         background: transparent;
-        max-width: 344px;
+        max-width: 300px;
         margin: 0 auto;
         pointer-events: auto; /* Re-enable clicks for the actual footer content */
       }
 
       .footer-container.footer-container--centered-create {
         max-width: 392px;
+      }
+
+      /* Wider when 5 tabs (right-side FAB variants) */
+      .footer-container.footer-container--wide {
+        max-width: 344px;
       }
 
       /* Floating Pill Tab Bar - Base styles */
@@ -361,6 +442,26 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
 
       .tab-button--active .agent-tab-logo {
         color: var(--footer-icon-active);
+      }
+
+      /* Profile Icon with Sparkles */
+      .profile-sparkle-icon {
+        color: var(--footer-icon-inactive);
+        transition: color 0.2s ease;
+        overflow: visible;
+      }
+
+      .tab-button--active .profile-sparkle-icon {
+        color: var(--footer-icon-active);
+      }
+
+      /* Sparkle elements - static, no animation */
+      .profile-sparkle-icon .sparkle {
+        opacity: 0.8;
+      }
+
+      .tab-button--active .profile-sparkle-icon .sparkle {
+        opacity: 1;
       }
 
       /* Label styling */
@@ -641,6 +742,12 @@ export class NxtMobileFooterComponent {
     return this.tabs.find((tab) => tab.isActionButton) ?? null;
   });
 
+  /** Whether floating action FAB should render on the left side */
+  readonly isActionFabOnLeft = computed(() => {
+    if (this.isCenteredCreateVariant()) return false;
+    return this.tabs[0]?.isActionButton === true;
+  });
+
   /** Whether centered-create variant is active */
   readonly isCenteredCreateVariant = computed(() => this.config.variant === 'centeredCreate');
 
@@ -754,6 +861,11 @@ export class NxtMobileFooterComponent {
 
   isAgentXTab(tab: FooterTabItem): boolean {
     return tab.id === 'ai';
+  }
+
+  /** Whether a tab is the profile identity tab (custom sparkle icon) */
+  isProfileTab(tab: FooterTabItem): boolean {
+    return tab.id === 'profile';
   }
 
   /**

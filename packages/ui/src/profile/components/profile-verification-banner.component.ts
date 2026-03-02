@@ -1,8 +1,8 @@
 /**
- * @fileoverview Profile Verification Banner Component - Web
- * @module @nxt1/ui/profile/web
+ * @fileoverview Profile Verification Banner Component
+ * @module @nxt1/ui/profile/components
  *
- * Extracted from ProfileShellWebComponent.
+ * Shared profile section component used by both web and mobile shells.
  * Per-tab verification banner showing data source provider info.
  */
 import { Component, ChangeDetectionStrategy, input, computed } from '@angular/core';

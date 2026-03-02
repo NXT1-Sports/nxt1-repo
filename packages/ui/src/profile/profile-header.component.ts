@@ -52,7 +52,7 @@ import { NxtImageComponent } from '../components/image';
             />
           } @else {
             <div class="mc-team-placeholder">
-              <nxt1-icon name="school" [size]="28" />
+              <nxt1-icon name="school-outline" [size]="28" />
             </div>
           }
         </div>
@@ -105,13 +105,13 @@ import { NxtImageComponent } from '../components/image';
         <div class="mc-meta-col">
           @if (user()?.school) {
             <span class="mc-meta-item">
-              <nxt1-icon name="school" [size]="14" />
+              <nxt1-icon name="school-outline" [size]="14" />
               {{ user()?.school?.name }}
             </span>
           }
           @if (user()?.location) {
             <span class="mc-meta-item">
-              <nxt1-icon name="location" [size]="14" />
+              <nxt1-icon name="location-outline" [size]="14" />
               {{ user()?.location }}
             </span>
           }

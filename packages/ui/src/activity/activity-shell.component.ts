@@ -71,10 +71,12 @@ export interface ActivityUser {
     <!-- Professional Page Header (Twitter/X style) -->
     <nxt1-page-header
       title="Activity"
+      leftVariant="hamburger"
       [avatarSrc]="user()?.profileImg"
       [avatarName]="displayName()"
       [actions]="headerActions()"
       (avatarClick)="avatarClick.emit()"
+      (menuClick)="avatarClick.emit()"
       (actionClick)="onHeaderAction($event)"
     />
 

@@ -95,8 +95,6 @@ import { NewsEmptyStateComponent } from './news-empty-state.component';
               <nxt1-news-article-card
                 [article]="article"
                 (articleClick)="articleClick.emit($event)"
-                (bookmarkClick)="bookmarkClick.emit($event)"
-                (shareClick)="shareClick.emit($event)"
               />
             </div>
           }
