@@ -4,7 +4,7 @@
  * @version 1.0.0
  *
  * Orchestrator for the `/recruiting-athletes` persona marketing page.
- * Stars the Recruiting Radar section as the centrepiece, surrounded by
+ * Stars the Recruiting Radar section as the centerpiece, surrounded by
  * a hero, audience segments, FAQ and conversion CTA.
  *
  * 100% design-token driven, SSR-safe, fully accessible.
