@@ -116,6 +116,46 @@ export const MOCK_TEAM: TeamProfileTeam = {
   ],
   foundedYear: 1965,
   homeVenue: 'Seacrest Field',
+  sponsors: [
+    {
+      name: 'Nike',
+      logoUrl: 'https://logo.clearbit.com/nike.com',
+      url: 'https://www.nike.com',
+      tier: 'title' as const,
+    },
+    {
+      name: 'Gatorade',
+      logoUrl: 'https://logo.clearbit.com/gatorade.com',
+      url: 'https://www.gatorade.com',
+      tier: 'gold' as const,
+    },
+    {
+      name: 'Under Armour',
+      logoUrl: 'https://logo.clearbit.com/underarmour.com',
+      url: 'https://www.underarmour.com',
+      tier: 'gold' as const,
+    },
+    {
+      name: 'Lincoln Community Credit Union',
+      tier: 'silver' as const,
+    },
+    {
+      name: 'Husker Auto Group',
+      url: 'https://huskerautogroup.com',
+      tier: 'silver' as const,
+    },
+    {
+      name: 'Great Plains Health',
+      logoUrl: 'https://logo.clearbit.com/gphealth.org',
+      tier: 'bronze' as const,
+    },
+    {
+      name: 'Runza Restaurants',
+      logoUrl: 'https://logo.clearbit.com/runza.com',
+      url: 'https://www.runza.com',
+      tier: 'partner' as const,
+    },
+  ],
   verificationStatus: 'verified',
   verifications: [],
   isActive: true,
@@ -130,6 +170,7 @@ export const MOCK_TEAM: TeamProfileTeam = {
 
 export const MOCK_TEAM_FOLLOW_STATS: TeamProfileFollowStats = {
   followersCount: 1247,
+  followingCount: 164,
   isFollowing: false,
 };
 

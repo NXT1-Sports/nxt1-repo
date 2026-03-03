@@ -1,15 +1,16 @@
 /**
  * @fileoverview QR Code Service - Adaptive QR Code Modal/Sheet
  * @module @nxt1/ui/qr-code
- * @version 1.0.0
+ * @version 2.0.0
  *
  * Unified entry point for the QR Code feature that auto-selects
  * the best presentation based on platform:
  *
- * - **Mobile/Native/Touch <768px**: Native draggable bottom sheet
- * - **Web Desktop ≥768px**: Centered modal overlay
+ * - **Mobile/Native/Touch <768px**: Native draggable bottom sheet (Ionic)
+ * - **Web Desktop ≥768px**: Pure Angular overlay (NxtOverlayService)
  *
- * Following the same adaptive pattern as ExploreFilterModalService.
+ * v2.0 — Web modal path migrated from Ionic ModalController to the shared
+ * NxtOverlayService, eliminating Ionic dependency for desktop web.
  *
  * @example
  * ```typescript
@@ -34,24 +35,25 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { ModalController } from '@ionic/angular/standalone';
 import { NxtPlatformService } from '../services/platform';
 import { NxtBottomSheetService } from '../components/bottom-sheet';
+import { NxtOverlayService } from '../components/overlay';
 import { NxtLoggingService } from '../services/logging';
+import { NxtQrCodeContentComponent } from './qr-code-content.component';
 import { NxtQrCodeModalComponent } from './qr-code-modal.component';
 import type { QrCodeConfig, QrCodeResult } from './qr-code.types';
 
 @Injectable({ providedIn: 'root' })
 export class QrCodeService {
-  private readonly modalCtrl = inject(ModalController);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly overlay = inject(NxtOverlayService);
   private readonly platform = inject(NxtPlatformService);
   private readonly logger = inject(NxtLoggingService).child('QrCodeService');
 
   /**
    * Opens the QR Code with adaptive presentation:
-   * - Mobile/tablet: bottom sheet with drag handle
-   * - Desktop: centered modal with backdrop
+   * - Mobile/tablet: bottom sheet with drag handle (Ionic)
+   * - Desktop: centered overlay (pure Angular)
    *
    * @param config - QR Code configuration
    * @returns Promise resolving to QR code result
@@ -60,20 +62,18 @@ export class QrCodeService {
     this.logger.info('Opening QR code', {
       url: config.url,
       displayName: config.displayName,
-      presentation: this.shouldUseBottomSheet() ? 'bottom-sheet' : 'web-modal',
+      presentation: this.shouldUseBottomSheet() ? 'bottom-sheet' : 'web-overlay',
     });
 
-    const useBottomSheet = this.shouldUseBottomSheet();
-
-    if (useBottomSheet) {
+    if (this.shouldUseBottomSheet()) {
       return this.openBottomSheet(config);
-    } else {
-      return this.openWebModal(config);
     }
+
+    return this.openWebOverlay(config);
   }
 
   // ============================================
-  // BOTTOM SHEET (Mobile/Tablet)
+  // BOTTOM SHEET (Mobile/Tablet — Ionic)
   // ============================================
 
   private async openBottomSheet(config: QrCodeConfig): Promise<QrCodeResult> {
@@ -103,35 +103,35 @@ export class QrCodeService {
   }
 
   // ============================================
-  // WEB MODAL (Desktop)
+  // WEB OVERLAY (Desktop — Pure Angular)
   // ============================================
 
-  private async openWebModal(config: QrCodeConfig): Promise<QrCodeResult> {
+  private async openWebOverlay(config: QrCodeConfig): Promise<QrCodeResult> {
     try {
-      const modal = await this.modalCtrl.create({
-        component: NxtQrCodeModalComponent,
-        componentProps: {
+      const ref = this.overlay.open<NxtQrCodeContentComponent, QrCodeResult>({
+        component: NxtQrCodeContentComponent,
+        inputs: {
           url: config.url,
           displayName: config.displayName,
           profileImg: config.profileImg ?? '',
           sport: config.sport ?? '',
+          embedded: true,
         },
-        cssClass: 'nxt1-qr-code-modal nxt1-qr-code-modal--centered',
+        size: 'lg',
+        showCloseButton: true,
         backdropDismiss: true,
-        showBackdrop: true,
+        ariaLabel: `QR Code for ${config.displayName}`,
       });
 
-      await modal.present();
-
-      const result = await modal.onDidDismiss<QrCodeResult>();
+      const result = await ref.closed;
 
       return {
         dismissed: true,
-        shared: result.role === 'share',
+        shared: result.data?.shared ?? false,
         action: result.data?.action ?? 'dismiss',
       };
     } catch (err) {
-      this.logger.error('Failed to create/present QR code modal', err);
+      this.logger.error('Failed to open QR code overlay', err);
       throw err;
     }
   }
@@ -167,7 +167,7 @@ export class QrCodeService {
       return true;
     }
 
-    // Desktop: centered modal
+    // Desktop: overlay
     return false;
   }
 }

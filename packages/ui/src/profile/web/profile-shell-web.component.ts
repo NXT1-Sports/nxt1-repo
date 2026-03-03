@@ -503,6 +503,9 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
             </div>
           </div>
         </div>
+
+        <!-- Projected content (e.g. CTA banner for logged-out users) -->
+        <ng-content />
       }
     </main>
   `,

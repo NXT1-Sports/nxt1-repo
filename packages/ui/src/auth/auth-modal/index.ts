@@ -1,4 +1,4 @@
-export { AuthModalComponent } from './auth-modal.component';
+export { AuthModalComponent, type AuthModalDismissPayload } from './auth-modal.component';
 export {
   AuthModalService,
   type AuthModalConfig,

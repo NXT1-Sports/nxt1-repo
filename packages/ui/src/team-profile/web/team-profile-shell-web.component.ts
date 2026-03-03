@@ -35,6 +35,7 @@ import {
   TEAM_PROFILE_TABS,
   TEAM_PROFILE_EMPTY_STATES,
   type NewsArticle,
+  getSeasonForDate,
 } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
@@ -70,6 +71,8 @@ import { TeamTimelineWebComponent } from './team-timeline-web.component';
 import { TeamVideosWebComponent } from './team-videos-web.component';
 import { TeamPhotosWebComponent } from './team-photos-web.component';
 import { TeamContactWebComponent } from './team-contact-web.component';
+import { ProfileVerificationBannerComponent } from '../../profile/components/profile-verification-banner.component';
+import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component';
 
 @Component({
   selector: 'nxt1-team-profile-shell-web',
@@ -95,6 +98,8 @@ import { TeamContactWebComponent } from './team-contact-web.component';
     TeamRecruitingWebComponent,
     TeamPhotosWebComponent,
     TeamContactWebComponent,
+    ProfileVerificationBannerComponent,
+    TeamProfileSkeletonComponent,
   ],
   template: `
     <main class="team-profile-main">
@@ -102,36 +107,7 @@ import { TeamContactWebComponent } from './team-contact-web.component';
 
       <!-- Loading Skeleton -->
       @if (teamProfile.isLoading()) {
-        <section class="madden-skeleton">
-          <div class="madden-skeleton-stage">
-            <div class="skeleton-split">
-              <div class="skeleton-left">
-                <div class="skeleton-header animate-pulse">
-                  <div class="skeleton-logo"></div>
-                  <div class="skeleton-text-group">
-                    <div class="skeleton-title"></div>
-                    <div class="skeleton-subtitle"></div>
-                  </div>
-                </div>
-                <div class="skeleton-tabs animate-pulse">
-                  @for (i of [1, 2, 3, 4, 5]; track i) {
-                    <div class="skeleton-tab"></div>
-                  }
-                </div>
-                <div class="skeleton-content animate-pulse">
-                  @for (i of [1, 2, 3]; track i) {
-                    <div class="skeleton-card"></div>
-                  }
-                </div>
-              </div>
-              <div class="skeleton-right animate-pulse">
-                <div class="skeleton-team-image"></div>
-                <div class="skeleton-info-block"></div>
-                <div class="skeleton-info-block-sm"></div>
-              </div>
-            </div>
-          </div>
-        </section>
+        <nxt1-team-profile-skeleton />
       }
 
       <!-- Error State -->
@@ -191,6 +167,11 @@ import { TeamContactWebComponent } from './team-contact-web.component';
 
                 <!-- MAIN CONTENT AREA — Each tab renders its own extracted component -->
                 <section class="madden-content-scroll" aria-live="polite">
+                  <nxt1-profile-verification-banner
+                    [activeTab]="teamProfile.activeTab()"
+                    [activeSideTab]="activeSideTab()"
+                  />
+
                   @switch (teamProfile.activeTab()) {
                     @case ('overview') {
                       @if (activeSideTab() === 'contact') {
@@ -318,51 +299,37 @@ import { TeamContactWebComponent } from './team-contact-web.component';
                   </div>
                 }
 
-                <!-- Team Info Block -->
-                <div class="team-info-block">
-                  @if (teamProfile.recordDisplay()) {
-                    <div class="team-info-block__row">
-                      <nxt1-icon name="trophy" [size]="16" />
-                      <span class="team-info-block__label">Record</span>
-                      <span class="team-info-block__value">{{ teamProfile.recordDisplay() }}</span>
-                    </div>
-                  }
-                  <div class="team-info-block__row">
-                    <nxt1-icon name="people" [size]="16" />
-                    <span class="team-info-block__label">Athletes</span>
-                    <span class="team-info-block__value">{{ teamProfile.rosterCount() }}</span>
-                  </div>
-                  @if (teamProfile.followStats()) {
-                    <div class="team-info-block__row">
-                      <nxt1-icon name="heart" [size]="16" />
-                      <span class="team-info-block__label">Followers</span>
-                      <span class="team-info-block__value">{{
-                        teamProfile.followStats()!.followersCount | number
-                      }}</span>
-                    </div>
-                  }
-                  @if (teamProfile.team()?.homeVenue) {
-                    <div class="team-info-block__row">
-                      <nxt1-icon name="business" [size]="16" />
-                      <span class="team-info-block__label">Home</span>
-                      <span class="team-info-block__value">{{
-                        teamProfile.team()!.homeVenue
-                      }}</span>
-                    </div>
-                  }
-                </div>
-
-                <!-- Head Coach Compact -->
-                @if (teamProfile.headCoach(); as coach) {
-                  <div class="team-coach-compact">
-                    <div class="team-coach-compact__avatar">
-                      <nxt1-icon name="person" [size]="20" />
-                    </div>
-                    <div class="team-coach-compact__info">
-                      <span class="team-coach-compact__title">Head Coach</span>
-                      <span class="team-coach-compact__name"
-                        >{{ coach.firstName }} {{ coach.lastName }}</span
-                      >
+                <!-- Organization card (matches /profile team affiliation style) -->
+                @if (organizationName()) {
+                  <div class="madden-team-stack">
+                    <div class="madden-team-block">
+                      @if (teamProfile.team()?.logoUrl) {
+                        <nxt1-image
+                          class="madden-team-logo"
+                          [src]="teamProfile.team()!.logoUrl!"
+                          [alt]="organizationName()"
+                          [width]="44"
+                          [height]="44"
+                          variant="avatar"
+                          fit="contain"
+                          [priority]="true"
+                          [showPlaceholder]="false"
+                        />
+                      } @else {
+                        <div class="madden-team-logo-placeholder">
+                          <nxt1-icon name="business" [size]="22" />
+                        </div>
+                      }
+                      <div class="madden-team-info">
+                        <div class="madden-team-headline">
+                          <span class="madden-team-name">{{ organizationName() }}</span>
+                        </div>
+                        @if (teamProfile.team()?.location) {
+                          <span class="madden-team-location">{{
+                            teamProfile.team()!.location
+                          }}</span>
+                        }
+                      </div>
                     </div>
                   </div>
                 }
@@ -370,6 +337,9 @@ import { TeamContactWebComponent } from './team-contact-web.component';
             </div>
           </div>
         </div>
+
+        <!-- Projected content (e.g. CTA banner for logged-out users) -->
+        <ng-content />
       }
     </main>
   `,
@@ -385,7 +355,8 @@ import { TeamContactWebComponent } from './team-contact-web.component';
         display: block;
         height: 100%;
         width: 100%;
-        overflow: hidden;
+        overflow-x: hidden;
+        overflow-y: auto;
         --m-bg: var(--nxt1-color-bg-primary, #0a0a0a);
         --m-surface: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
         --m-surface-2: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
@@ -399,108 +370,11 @@ import { TeamContactWebComponent } from './team-contact-web.component';
       .team-profile-main {
         background: var(--m-bg);
         height: 100%;
-        overflow: hidden;
+        overflow-x: hidden;
+        overflow-y: auto;
         padding-top: 0;
         display: flex;
         flex-direction: column;
-      }
-
-      /* ─── SKELETON ─── */
-      .madden-skeleton {
-        padding: 24px;
-      }
-      .madden-skeleton-stage {
-        max-width: 1400px;
-      }
-      .skeleton-split {
-        display: flex;
-        gap: 24px;
-      }
-      .skeleton-left {
-        flex: 1;
-        min-width: 0;
-      }
-      .skeleton-right {
-        width: 340px;
-        flex-shrink: 0;
-      }
-      .skeleton-header {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-        margin-bottom: 24px;
-      }
-      .skeleton-logo {
-        width: 56px;
-        height: 56px;
-        border-radius: 12px;
-        background: var(--m-surface);
-      }
-      .skeleton-text-group {
-        flex: 1;
-      }
-      .skeleton-title {
-        height: 24px;
-        width: 240px;
-        border-radius: 6px;
-        background: var(--m-surface);
-        margin-bottom: 8px;
-      }
-      .skeleton-subtitle {
-        height: 16px;
-        width: 180px;
-        border-radius: 6px;
-        background: var(--m-surface);
-      }
-      .skeleton-tabs {
-        display: flex;
-        gap: 12px;
-        margin-bottom: 24px;
-      }
-      .skeleton-tab {
-        height: 36px;
-        width: 80px;
-        border-radius: 999px;
-        background: var(--m-surface);
-      }
-      .skeleton-content {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-      }
-      .skeleton-card {
-        height: 80px;
-        border-radius: 12px;
-        background: var(--m-surface);
-      }
-      .skeleton-team-image {
-        height: 320px;
-        border-radius: 16px;
-        background: var(--m-surface);
-        margin-bottom: 16px;
-      }
-      .skeleton-info-block {
-        height: 120px;
-        border-radius: 12px;
-        background: var(--m-surface);
-        margin-bottom: 12px;
-      }
-      .skeleton-info-block-sm {
-        height: 60px;
-        border-radius: 12px;
-        background: var(--m-surface);
-      }
-      @keyframes pulse {
-        0%,
-        100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.5;
-        }
-      }
-      .animate-pulse {
-        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
       }
 
       /* ─── ERROR STATE ─── */
@@ -545,7 +419,7 @@ import { TeamContactWebComponent } from './team-contact-web.component';
       /* ─── FULL-SCREEN BANNER STAGE ─── */
       .madden-stage {
         position: relative;
-        height: calc(100vh - 64px);
+        min-height: calc(100vh - 64px);
         overflow: hidden;
         flex-shrink: 0;
       }
@@ -904,48 +778,34 @@ import { TeamContactWebComponent } from './team-contact-web.component';
         padding: 32px 0;
       }
 
-      /* ─── TEAM INFO BLOCK (right panel) ─── */
-      .team-info-block {
+      /* Organization block below team image (matches profile style) */
+      .madden-team-stack {
         width: 100%;
         display: flex;
         flex-direction: column;
         gap: 8px;
-        padding: 14px;
-        border-radius: 12px;
-        background: var(--m-surface);
-        border: 1px solid var(--m-border);
       }
-      .team-info-block__row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 4px 0;
-      }
-      .team-info-block__label {
-        font-size: 12px;
-        color: var(--m-text-3);
-        flex: 1;
-      }
-      .team-info-block__value {
-        font-size: 13px;
-        font-weight: 700;
-        color: var(--m-text);
-      }
-
-      /* ─── HEAD COACH COMPACT (right panel) ─── */
-      .team-coach-compact {
-        width: 100%;
+      .madden-team-block {
+        flex-shrink: 0;
         display: flex;
         align-items: center;
         gap: 12px;
+        width: 100%;
         padding: 12px 14px;
         border-radius: 12px;
         background: var(--m-surface);
         border: 1px solid var(--m-border);
       }
-      .team-coach-compact__avatar {
-        width: 40px;
-        height: 40px;
+      .madden-team-logo {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        object-fit: contain;
+        flex-shrink: 0;
+      }
+      .madden-team-logo-placeholder {
+        width: 44px;
+        height: 44px;
         border-radius: 10px;
         background: var(--m-surface-2);
         display: flex;
@@ -954,22 +814,29 @@ import { TeamContactWebComponent } from './team-contact-web.component';
         color: var(--m-text-3);
         flex-shrink: 0;
       }
-      .team-coach-compact__info {
+      .madden-team-info {
         display: flex;
         flex-direction: column;
-        gap: 1px;
+        min-width: 0;
+        gap: 2px;
       }
-      .team-coach-compact__title {
-        font-size: 10px;
-        color: var(--m-text-3);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        font-weight: 600;
+      .madden-team-headline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
       }
-      .team-coach-compact__name {
+      .madden-team-name {
         font-size: 14px;
         font-weight: 700;
         color: var(--m-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .madden-team-location {
+        font-size: 12px;
+        color: var(--m-text-3);
       }
 
       /* ═══ RESPONSIVE ═══ */
@@ -1172,20 +1039,19 @@ export class TeamProfileShellWebComponent implements OnInit {
 
   /**
    * Maps TeamProfileScheduleEvent[] → ScheduleRow[] for the shared schedule board.
-   * Filters by active side tab (upcoming / completed).
+   * Filters by active season side tab (season-YYYY-YYYY).
    */
   protected readonly teamScheduleRows = computed<ScheduleRow[]>(() => {
-    const tab = this.activeSideTab();
+    const sideTab = this.activeSideTab();
+    const seasonLabel = sideTab.startsWith('season-') ? sideTab.replace('season-', '') : undefined;
     const teamName = this.teamProfile.team()?.teamName ?? 'Team';
     const teamLogo = this.teamProfile.team()?.logoUrl;
     const now = Date.now();
 
-    let events = this.teamProfile.schedule();
-    if (tab === 'upcoming') {
-      events = this.teamProfile.upcomingSchedule();
-    } else if (tab === 'completed') {
-      events = this.teamProfile.completedSchedule();
-    }
+    const events = this.teamProfile.schedule().filter((event) => {
+      if (!seasonLabel) return true;
+      return getSeasonForDate(event.date) === seasonLabel;
+    });
 
     return events.map((event) => {
       const eventDate = new Date(event.date);
@@ -1270,6 +1136,33 @@ export class TeamProfileShellWebComponent implements OnInit {
     return branding?.primaryColor ?? 'var(--nxt1-color-primary, #d4ff00)';
   });
 
+  /** Organization name for the team (school/club/program) shown in right panel. */
+  protected readonly organizationName = computed(() => {
+    const team = this.teamProfile.team();
+    if (!team) return '';
+
+    const rawName = team.teamName?.trim() ?? '';
+    if (!rawName) return '';
+
+    const sport = team.sport?.trim();
+    const mascot = team.branding?.mascot?.trim();
+
+    let orgName = rawName;
+    if (sport) {
+      orgName = orgName
+        .replace(new RegExp(`\\b${sport.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'gi'), '')
+        .trim();
+    }
+    if (mascot) {
+      orgName = orgName
+        .replace(new RegExp(`\\b${mascot.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'gi'), '')
+        .trim();
+    }
+
+    orgName = orgName.replace(/\s{2,}/g, ' ').trim();
+    return orgName || rawName;
+  });
+
   /** Tab options for the top bar scroller */
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
     const badges = this.teamProfile.tabBadges();
@@ -1287,12 +1180,11 @@ export class TeamProfileShellWebComponent implements OnInit {
     return TEAM_PROFILE_EMPTY_STATES[tab] || TEAM_PROFILE_EMPTY_STATES['overview'];
   });
 
-  /** Stats sidebar items — Career + per-season entries grouped under team name. */
+  /** Stats sidebar items — per-season entries grouped under team name. */
   private readonly statsSidebarItems = computed((): SectionNavItem[] => {
     const allStats = this.teamProfile.stats();
     if (allStats.length === 0) return [{ id: 'all', label: 'All Stats' }];
 
-    const teamName = this.teamProfile.team()?.teamName ?? 'Team';
     const rawSeasons = [...new Set(allStats.map((c) => c.season).filter(Boolean))] as string[];
     rawSeasons.sort((a, b) => b.localeCompare(a));
 
@@ -1300,11 +1192,27 @@ export class TeamProfileShellWebComponent implements OnInit {
 
     const seasonItems: SectionNavItem[] = rawSeasons.map((s) => {
       const label = formatSeasonLabel(s);
-      return { id: `school-season-${label}`, label, group: teamName };
+      return { id: `school-season-${label}`, label };
     });
 
-    // Career summary + individual seasons (matches profile layout)
-    return [{ id: 'school-career', label: 'Career', group: teamName }, ...seasonItems];
+    return seasonItems;
+  });
+
+  /** Unique season labels derived from team schedule events (most recent first). */
+  protected readonly scheduleSeasons = computed<readonly string[]>(() => {
+    const seen = new Set<string>();
+    const seasons: string[] = [];
+
+    for (const event of this.teamProfile.schedule()) {
+      const season = getSeasonForDate(event.date);
+      if (!seen.has(season)) {
+        seen.add(season);
+        seasons.push(season);
+      }
+    }
+
+    seasons.sort((a, b) => b.localeCompare(a));
+    return seasons;
   });
 
   /** Section nav items — contextual to active top tab */
@@ -1330,6 +1238,21 @@ export class TeamProfileShellWebComponent implements OnInit {
           label: 'All Posts',
           badge: this.teamProfile.allPosts().length || undefined,
         },
+        {
+          id: 'media',
+          label: 'Media',
+          badge:
+            this.teamProfile
+              .allPosts()
+              .filter(
+                (post) =>
+                  post.type === 'image' ||
+                  post.type === 'video' ||
+                  post.type === 'highlight' ||
+                  !!post.thumbnailUrl ||
+                  !!post.mediaUrl
+              ).length || undefined,
+        },
       ],
       videos: [
         { id: 'highlights', label: 'Highlights' },
@@ -1347,16 +1270,10 @@ export class TeamProfileShellWebComponent implements OnInit {
         })),
       ],
       schedule: [
-        {
-          id: 'upcoming',
-          label: 'Upcoming',
-          badge: this.teamProfile.upcomingSchedule().length || undefined,
-        },
-        {
-          id: 'completed',
-          label: 'Completed',
-          badge: this.teamProfile.completedSchedule().length || undefined,
-        },
+        ...this.scheduleSeasons().map((s) => ({
+          id: `season-${s}`,
+          label: s,
+        })),
       ],
       stats: this.statsSidebarItems(),
       news: [
@@ -1370,6 +1287,13 @@ export class TeamProfileShellWebComponent implements OnInit {
           label: 'Announcements',
           badge:
             this.teamNewsBoardItems().filter((i) => (i.category as string) === 'announcement')
+              .length || undefined,
+        },
+        {
+          id: 'media-mentions',
+          label: 'Media Mentions',
+          badge:
+            this.teamNewsBoardItems().filter((i) => (i.category as string) === 'media-mention')
               .length || undefined,
         },
       ],

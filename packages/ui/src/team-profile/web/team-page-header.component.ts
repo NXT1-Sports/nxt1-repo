@@ -34,8 +34,8 @@ import { TeamProfileService } from '../team-profile.service';
             class="team-logo"
             [src]="teamProfile.team()!.logoUrl!"
             [alt]="teamProfile.team()!.teamName"
-            [width]="48"
-            [height]="48"
+            [width]="56"
+            [height]="56"
             variant="avatar"
             fit="contain"
             [priority]="true"
@@ -48,7 +48,7 @@ import { TeamProfileService } from '../team-profile.service';
         }
         <div class="team-name-block">
           <div class="team-name-row">
-            <h1 class="team-name">{{ teamProfile.team()?.teamName }}</h1>
+            <h1 class="team-name">{{ headerTeamName() }}</h1>
           </div>
           @if (headerSubtitle()) {
             <p class="team-subtitle">{{ headerSubtitle() }}</p>
@@ -63,6 +63,12 @@ import { TeamProfileService } from '../team-profile.service';
             <span class="team-stat-count">{{ followersCount() }}</span>
             <span class="team-stat-label">Followers</span>
           </button>
+          @if (teamProfile.isTeamAdmin()) {
+            <button type="button" class="team-stat">
+              <span class="team-stat-count">{{ followingCount() }}</span>
+              <span class="team-stat-label">Following</span>
+            </button>
+          }
         </div>
         @if (!teamProfile.isTeamAdmin()) {
           <button
@@ -104,15 +110,15 @@ import { TeamProfileService } from '../team-profile.service';
       }
 
       .team-logo {
-        width: 48px;
-        height: 48px;
+        width: 56px;
+        height: 56px;
         border-radius: var(--nxt1-radius-lg, 12px);
         flex-shrink: 0;
       }
 
       .team-logo-fallback {
-        width: 48px;
-        height: 48px;
+        width: 56px;
+        height: 56px;
         border-radius: var(--nxt1-radius-lg, 12px);
         background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
         display: flex;
@@ -274,13 +280,13 @@ import { TeamProfileService } from '../team-profile.service';
         }
 
         .team-logo {
-          width: 40px;
-          height: 40px;
+          width: 44px;
+          height: 44px;
         }
 
         .team-logo-fallback {
-          width: 40px;
-          height: 40px;
+          width: 44px;
+          height: 44px;
         }
       }
     `,
@@ -289,6 +295,14 @@ import { TeamProfileService } from '../team-profile.service';
 })
 export class TeamPageHeaderComponent {
   protected readonly teamProfile = inject(TeamProfileService);
+
+  private static formatTeamTypeLabel(teamType?: string): string {
+    if (!teamType) return '';
+    return teamType
+      .split('-')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
 
   // ============================================
   // OUTPUTS
@@ -304,21 +318,49 @@ export class TeamPageHeaderComponent {
   protected readonly followersCount = computed(
     () => this.teamProfile.followStats()?.followersCount ?? 0
   );
+  protected readonly followingCount = computed(
+    () => this.teamProfile.followStats()?.followingCount ?? 0
+  );
+
+  protected readonly headerTeamName = computed(() => {
+    const team = this.teamProfile.team();
+    if (!team) return '';
+
+    const teamName = team.teamName?.trim() ?? '';
+    if (!teamName) return '';
+
+    const sport = team.sport?.trim();
+    const withoutHighSchool = teamName.replace(/\bhigh\s+school\b/gi, '').trim();
+    const withoutSport = sport
+      ? withoutHighSchool
+          .replace(new RegExp(`\\b${sport.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'gi'), '')
+          .trim()
+      : withoutHighSchool;
+
+    const baseName = withoutSport.replace(/\s{2,}/g, ' ').trim();
+    const cleanName = baseName || teamName;
+
+    const mascot = team.branding?.mascot?.trim();
+    if (!mascot) return cleanName;
+
+    const mascotLower = mascot.toLowerCase();
+    if (cleanName.toLowerCase().endsWith(mascotLower)) return cleanName;
+
+    return `${cleanName} ${mascot}`;
+  });
 
   // ============================================
   // COMPUTED
   // ============================================
 
-  /** Header subtitle: sport · location · conference · record */
+  /** Header subtitle: Team type + sport (for example: "High School football") */
   protected readonly headerSubtitle = computed(() => {
     const team = this.teamProfile.team();
     if (!team) return '';
-    const parts: string[] = [];
-    if (team.sport) parts.push(team.sport);
-    if (team.location) parts.push(team.location);
-    if (team.conference) parts.push(team.conference);
-    const record = this.teamProfile.recordDisplay();
-    if (record) parts.push(record);
-    return parts.join(' · ');
+
+    const typeLabel = TeamPageHeaderComponent.formatTeamTypeLabel(team.teamType);
+    const sportLabel = team.sport?.trim() ? team.sport.trim() : '';
+
+    return `${typeLabel} ${sportLabel}`.trim();
   });
 }

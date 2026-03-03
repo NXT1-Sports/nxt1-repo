@@ -90,7 +90,6 @@ import { TeamProfileService } from '../team-profile.service';
         color: var(--m-text, #ffffff);
         margin: 0 0 12px;
         font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        text-transform: uppercase;
         letter-spacing: 0.02em;
       }
 

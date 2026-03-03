@@ -1285,10 +1285,9 @@ export const UI_ICONS = {
     strokeWidth: 2,
     paths: [
       { d: 'M19 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z' },
-      { d: 'M7 9h4v4H7z' },
-      { d: 'M13 9h4' },
-      { d: 'M13 13h4' },
-      { d: 'M7 17h10' },
+      { d: 'M7.5 9h3v5.5h-3z' },
+      { d: 'M14 9h3' },
+      { d: 'M14 13h3' },
     ],
   },
 

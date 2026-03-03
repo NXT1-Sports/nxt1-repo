@@ -135,6 +135,16 @@ export {
 } from './bottom-sheet';
 
 export {
+  NxtOverlayComponent,
+  NxtOverlayService,
+  type OverlayConfig,
+  type OverlayRef,
+  type OverlayResult,
+  type OverlayDismissReason,
+  type OverlaySize,
+} from './overlay';
+
+export {
   // Component
   NxtMobileFooterComponent,
   // Types (from @nxt1/core)

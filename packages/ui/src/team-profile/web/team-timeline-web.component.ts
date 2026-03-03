@@ -90,6 +90,19 @@ import { TeamProfileService } from '../team-profile.service';
 export class TeamTimelineWebComponent {
   private readonly teamProfile = inject(TeamProfileService);
 
+  private readonly mediaPosts = computed<readonly TeamProfilePost[]>(() =>
+    this.teamProfile
+      .allPosts()
+      .filter(
+        (post) =>
+          post.type === 'image' ||
+          post.type === 'video' ||
+          post.type === 'highlight' ||
+          !!post.thumbnailUrl ||
+          !!post.mediaUrl
+      )
+  );
+
   /** Active section from side nav: 'pinned' | 'all-posts' */
   readonly activeSection = input<string>('all-posts');
 
@@ -119,14 +132,22 @@ export class TeamTimelineWebComponent {
     const section = this.activeSection();
     const author = this.feedAuthor();
     const posts =
-      section === 'pinned' ? this.teamProfile.pinnedPosts() : this.teamProfile.allPosts();
+      section === 'pinned'
+        ? this.teamProfile.pinnedPosts()
+        : section === 'media'
+          ? this.mediaPosts()
+          : this.teamProfile.allPosts();
     return posts.map((p) => teamPostToFeedPost(p, author));
   });
 
   /** Source posts for resolving click events back to TeamProfilePost */
   private readonly filteredSourcePosts = computed<readonly TeamProfilePost[]>(() => {
     const section = this.activeSection();
-    return section === 'pinned' ? this.teamProfile.pinnedPosts() : this.teamProfile.allPosts();
+    return section === 'pinned'
+      ? this.teamProfile.pinnedPosts()
+      : section === 'media'
+        ? this.mediaPosts()
+        : this.teamProfile.allPosts();
   });
 
   /** Resolve FeedPost index → TeamProfilePost and emit */

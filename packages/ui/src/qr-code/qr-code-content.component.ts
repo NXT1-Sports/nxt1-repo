@@ -114,15 +114,17 @@ import { NxtLoggingService } from '../services/logging';
 
         <!-- ══ RIGHT PANEL: QR code ══ -->
         <div class="qr-right-panel">
-          <!-- Desktop close button (top-right corner) -->
-          <button
-            type="button"
-            class="qr-close-btn qr-desktop-close qr-desktop-only"
-            (click)="close.emit()"
-            aria-label="Close"
-          >
-            <nxt1-icon name="close" [size]="20" />
-          </button>
+          <!-- Desktop close button — only shown when NOT embedded in overlay -->
+          @if (!embedded) {
+            <button
+              type="button"
+              class="qr-close-btn qr-desktop-close qr-desktop-only"
+              (click)="close.emit()"
+              aria-label="Close"
+            >
+              <nxt1-icon name="close" [size]="20" />
+            </button>
+          }
 
           <div class="qr-code-card">
             @if (loading()) {
@@ -173,9 +175,6 @@ import { NxtLoggingService } from '../services/logging';
       :host {
         display: block;
         width: 100%;
-        height: 100%;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
       }
 
       .qr-code-container {
@@ -623,6 +622,12 @@ export class NxtQrCodeContentComponent {
 
   /** Primary sport */
   @Input() sport = '';
+
+  /**
+   * Whether this component is embedded inside the shared overlay host.
+   * When true, hides the component's own close button (overlay provides it).
+   */
+  @Input() embedded = false;
 
   // ============================================
   // OUTPUTS

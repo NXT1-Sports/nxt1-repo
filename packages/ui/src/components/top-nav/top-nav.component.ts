@@ -155,10 +155,7 @@ import type {
             <div class="nav-search-centered relative w-full max-w-[640px] min-w-0">
               <nxt1-search-bar
                 variant="desktop-centered"
-                [placeholder]="
-                  config().searchPlaceholder ||
-                  'Search anything (athletes, videos, colleges, teams, and more)'
-                "
+                [placeholder]="config().searchPlaceholder || 'Search anything with Agent X'"
                 [value]="searchQuery()"
                 (searchInput)="onSearchInputFromBar($event)"
                 (searchSubmit)="onSearchSubmitFromBar($event)"

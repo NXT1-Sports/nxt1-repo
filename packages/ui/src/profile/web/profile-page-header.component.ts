@@ -51,21 +51,25 @@ import { ProfileService } from '../profile.service';
             <span class="mdh-stat-count">{{ followersCount() }}</span>
             <span class="mdh-stat-label">Followers</span>
           </button>
-          <button type="button" class="mdh-stat">
-            <span class="mdh-stat-count">{{ followingCount() }}</span>
-            <span class="mdh-stat-label">Following</span>
-          </button>
+          @if (isOwnProfileView()) {
+            <button type="button" class="mdh-stat">
+              <span class="mdh-stat-count">{{ followingCount() }}</span>
+              <span class="mdh-stat-label">Following</span>
+            </button>
+          }
         </div>
-        <button
-          type="button"
-          class="mdh-follow-btn"
-          [class.mdh-follow-btn--following]="isFollowing()"
-          (click)="follow.emit()"
-          [attr.aria-label]="isFollowing() ? 'Unfollow athlete' : 'Follow athlete'"
-        >
-          <nxt1-icon [name]="isFollowing() ? 'checkmark' : 'plus'" [size]="13" />
-          {{ isFollowing() ? 'Following' : 'Follow' }}
-        </button>
+        @if (showFollowAction()) {
+          <button
+            type="button"
+            class="mdh-follow-btn"
+            [class.mdh-follow-btn--following]="isFollowing()"
+            (click)="follow.emit()"
+            [attr.aria-label]="isFollowing() ? 'Unfollow athlete' : 'Follow athlete'"
+          >
+            <nxt1-icon [name]="isFollowing() ? 'checkmark' : 'plus'" [size]="13" />
+            {{ isFollowing() ? 'Following' : 'Follow' }}
+          </button>
+        }
       </div>
     </nxt1-entity-page-header>
   `,
@@ -251,6 +255,7 @@ export class ProfilePageHeaderComponent {
     () => this.profile.followStats()?.followingCount ?? 0
   );
   protected readonly isFollowing = computed(() => this.profile.followStats()?.isFollowing ?? false);
+  protected readonly isOwnProfileView = computed(() => !this.showFollowAction());
 
   /* ── Name & Subtitle ── */
 

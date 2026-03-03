@@ -48,7 +48,7 @@ import { TeamProfileService } from '../team-profile.service';
         </div>
       }
       <div class="team-mobile-hero__text">
-        <h1 class="team-mobile-hero__name">{{ teamProfile.team()?.teamName }}</h1>
+        <h1 class="team-mobile-hero__name">{{ headerTeamName() }}</h1>
         <p class="team-mobile-hero__meta">{{ headerSubtitle() }}</p>
       </div>
       <div class="team-mobile-hero__actions">
@@ -83,6 +83,14 @@ import { TeamProfileService } from '../team-profile.service';
           }}</span>
           <span class="team-mobile-hero__stat-label">Followers</span>
         </div>
+        @if (teamProfile.isTeamAdmin()) {
+          <div class="team-mobile-hero__stat">
+            <span class="team-mobile-hero__stat-value">{{
+              teamProfile.followStats()!.followingCount ?? 0
+            }}</span>
+            <span class="team-mobile-hero__stat-label">Following</span>
+          </div>
+        }
       }
     </div>
   `,
@@ -202,6 +210,14 @@ import { TeamProfileService } from '../team-profile.service';
 export class TeamMobileHeroComponent {
   protected readonly teamProfile = inject(TeamProfileService);
 
+  private static formatTeamTypeLabel(teamType?: string): string {
+    if (!teamType) return '';
+    return teamType
+      .split('-')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -209,20 +225,45 @@ export class TeamMobileHeroComponent {
   readonly back = output<void>();
   readonly follow = output<void>();
 
+  protected readonly headerTeamName = computed(() => {
+    const team = this.teamProfile.team();
+    if (!team) return '';
+
+    const teamName = team.teamName?.trim() ?? '';
+    if (!teamName) return '';
+
+    const sport = team.sport?.trim();
+    const withoutHighSchool = teamName.replace(/\bhigh\s+school\b/gi, '').trim();
+    const withoutSport = sport
+      ? withoutHighSchool
+          .replace(new RegExp(`\\b${sport.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')}\\b`, 'gi'), '')
+          .trim()
+      : withoutHighSchool;
+
+    const baseName = withoutSport.replace(/\s{2,}/g, ' ').trim();
+    const cleanName = baseName || teamName;
+
+    const mascot = team.branding?.mascot?.trim();
+    if (!mascot) return cleanName;
+
+    const mascotLower = mascot.toLowerCase();
+    if (cleanName.toLowerCase().endsWith(mascotLower)) return cleanName;
+
+    return `${cleanName} ${mascot}`;
+  });
+
   // ============================================
   // COMPUTED
   // ============================================
 
-  /** Header subtitle: sport · location · conference · record */
+  /** Header subtitle: Team type + sport (for example: "High School football") */
   protected readonly headerSubtitle = computed(() => {
     const team = this.teamProfile.team();
     if (!team) return '';
-    const parts: string[] = [];
-    if (team.sport) parts.push(team.sport);
-    if (team.location) parts.push(team.location);
-    if (team.conference) parts.push(team.conference);
-    const record = this.teamProfile.recordDisplay();
-    if (record) parts.push(record);
-    return parts.join(' · ');
+
+    const typeLabel = TeamMobileHeroComponent.formatTeamTypeLabel(team.teamType);
+    const sportLabel = team.sport?.trim() ? team.sport.trim() : '';
+
+    return `${typeLabel} ${sportLabel}`.trim();
   });
 }

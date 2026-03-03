@@ -34,21 +34,33 @@ import { isPlatformBrowser } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TeamProfileShellWebComponent } from '@nxt1/ui/team-profile';
+import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { AuthModalService } from '@nxt1/ui/auth';
 import { QrCodeService } from '@nxt1/ui/qr-code';
 import { TeamProfileService } from '@nxt1/ui/team-profile';
+import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { AuthFlowService } from '../auth/services';
 import { SeoService, AnalyticsService, ShareService } from '../../core/services';
 
+const CTA_AVATARS: readonly CtaAvatarImage[] = [
+  { src: `/${IMAGE_PATHS.athlete1}`, alt: 'High school athlete' },
+  { src: `/${IMAGE_PATHS.athlete2}`, alt: 'Club athlete' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Student athlete' },
+  { src: `/${IMAGE_PATHS.athlete4}`, alt: 'Varsity athlete' },
+  { src: `/${IMAGE_PATHS.athlete5}`, alt: 'Travel ball athlete' },
+  { src: `/${IMAGE_PATHS.coach1}`, alt: 'College coach' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Elite recruit' },
+] as const;
+
 @Component({
   selector: 'app-team',
   standalone: true,
-  imports: [TeamProfileShellWebComponent],
+  imports: [TeamProfileShellWebComponent, NxtCtaBannerComponent],
   template: `
     <nxt1-team-profile-shell-web
       [teamSlug]="teamSlug()"
@@ -61,7 +73,20 @@ import { SeoService, AnalyticsService, ShareService } from '../../core/services'
       (manageTeamClick)="onManageTeam()"
       (rosterMemberClick)="onRosterMemberClick($event)"
       (postClick)="onPostClick($event)"
-    />
+    >
+      @if (!isLoggedIn()) {
+        <nxt1-cta-banner
+          variant="conversion"
+          badgeLabel="Agentic Team Profile"
+          title="Your Program. Always Up to Date."
+          subtitle="NXT1 team profiles sync rosters, schedules, and recruiting activity automatically — giving coaches and scouts a living snapshot of your program without the manual work."
+          ctaLabel="Claim Your Team Profile"
+          ctaRoute="/auth"
+          titleId="team-profile-cta-banner-title"
+          [avatarImages]="ctaAvatars"
+        />
+      }
+    </nxt1-team-profile-shell-web>
   `,
   styles: [
     `
@@ -120,6 +145,11 @@ export class TeamComponent implements OnInit {
   protected readonly isTeamAdmin = computed<boolean>(() => {
     return this.teamProfile.isTeamAdmin();
   });
+
+  /** Logged-out users see below-fold conversion CTA. */
+  protected readonly isLoggedIn = computed(() => this.authFlow.isAuthenticated());
+
+  protected readonly ctaAvatars = CTA_AVATARS;
 
   constructor() {
     // Effect to update SEO when team data loads

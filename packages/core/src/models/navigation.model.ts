@@ -846,7 +846,7 @@ export function createTopNavConfig(config: Partial<TopNavConfig> = {}): TopNavCo
     logoSize: 'md',
     logoLinksHome: true,
     showSearch: true,
-    searchPlaceholder: 'Search anything (athletes, videos, colleges, teams, and more)',
+    searchPlaceholder: 'Search anything with Agent X',
     showNotifications: true,
     notificationCount: 0,
     showCreate: true,

@@ -3,6 +3,7 @@
  * @module @nxt1/ui/team-profile/web
  */
 export { TeamProfileShellWebComponent } from './team-profile-shell-web.component';
+export { TeamProfileSkeletonComponent } from './team-profile-skeleton.component';
 export { TeamPageHeaderComponent } from './team-page-header.component';
 export { TeamMobileHeroComponent } from './team-mobile-hero.component';
 export { TeamOverviewWebComponent } from './team-overview-web.component';

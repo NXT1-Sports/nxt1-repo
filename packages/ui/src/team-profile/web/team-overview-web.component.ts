@@ -213,44 +213,29 @@ import { NxtToastService } from '../../services/toast/toast.service';
           @if (teamProfile.sponsors().length > 0) {
             <div class="team-sponsors-grid">
               @for (sponsor of teamProfile.sponsors(); track sponsor.name) {
-                <div
-                  class="team-sponsor-card"
-                  [class.team-sponsor-card--title]="sponsor.tier === 'title'"
+                <a
+                  class="team-sponsor-tile"
+                  [href]="sponsor.url || null"
+                  [attr.target]="sponsor.url ? '_blank' : null"
+                  [attr.rel]="sponsor.url ? 'noopener noreferrer' : null"
                 >
-                  @if (sponsor.logoUrl) {
-                    <nxt1-image
-                      class="team-sponsor-card__logo"
-                      [src]="sponsor.logoUrl"
-                      [alt]="sponsor.name"
-                      [width]="80"
-                      [height]="48"
-                      fit="contain"
-                      [showPlaceholder]="false"
-                    />
-                  } @else {
-                    <div class="team-sponsor-card__fallback">
-                      <nxt1-icon name="business" [size]="24" />
-                    </div>
-                  }
-                  <div class="team-sponsor-card__info">
-                    <span class="team-sponsor-card__name">{{ sponsor.name }}</span>
-                    @if (sponsor.tier) {
-                      <span class="team-sponsor-card__tier"
-                        >{{ sponsor.tier | titlecase }} Sponsor</span
-                      >
+                  <div class="team-sponsor-tile__logo-area">
+                    @if (sponsor.logoUrl) {
+                      <nxt1-image
+                        class="team-sponsor-tile__logo"
+                        [src]="sponsor.logoUrl"
+                        [alt]="sponsor.name"
+                        [width]="72"
+                        [height]="72"
+                        fit="contain"
+                        [showPlaceholder]="false"
+                      />
+                    } @else {
+                      <nxt1-icon name="business" [size]="40" />
                     }
                   </div>
-                  @if (sponsor.url) {
-                    <a
-                      class="team-sponsor-card__link"
-                      [href]="sponsor.url"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      <nxt1-icon name="open-outline" [size]="14" />
-                    </a>
-                  }
-                </div>
+                  <span class="team-sponsor-tile__name">{{ sponsor.name }}</span>
+                </a>
               }
             </div>
           } @else {
@@ -571,78 +556,63 @@ import { NxtToastService } from '../../services/toast/toast.service';
 
       /* ─── SPONSORS ─── */
       .team-sponsors-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 12px;
+      }
+
+      .team-sponsor-tile {
         display: flex;
         flex-direction: column;
-        gap: 8px;
-      }
-
-      .team-sponsor-card {
-        display: flex;
         align-items: center;
-        gap: 14px;
-        padding: 14px;
-        border-radius: 12px;
+        justify-content: center;
+        aspect-ratio: 1;
+        padding: 16px;
+        border-radius: 14px;
         background: var(--m-surface, rgba(255, 255, 255, 0.04));
         border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        text-decoration: none;
+        transition:
+          border-color 0.15s,
+          background 0.15s;
+        cursor: default;
       }
 
-      .team-sponsor-card--title {
-        border-color: color-mix(
-          in srgb,
-          var(--m-accent, var(--nxt1-color-primary, #d4ff00)) 30%,
-          transparent
-        );
+      a.team-sponsor-tile[href] {
+        cursor: pointer;
       }
 
-      .team-sponsor-card__logo {
-        width: 80px;
-        height: 48px;
-        border-radius: 8px;
-        flex-shrink: 0;
-      }
-
-      .team-sponsor-card__fallback {
-        width: 80px;
-        height: 48px;
-        border-radius: 8px;
+      .team-sponsor-tile:hover {
         background: var(--m-surface-2, rgba(255, 255, 255, 0.08));
+        border-color: rgba(255, 255, 255, 0.14);
+      }
+
+      .team-sponsor-tile__logo-area {
+        flex: 1;
         display: flex;
         align-items: center;
         justify-content: center;
+        width: 100%;
         color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-        flex-shrink: 0;
       }
 
-      .team-sponsor-card__info {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-
-      .team-sponsor-card__name {
-        font-size: 14px;
-        font-weight: 700;
-        color: var(--m-text, #ffffff);
-      }
-
-      .team-sponsor-card__tier {
-        font-size: 11px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-
-      .team-sponsor-card__link {
-        flex-shrink: 0;
-        padding: 8px;
+      .team-sponsor-tile__logo {
+        width: 72px;
+        height: 72px;
         border-radius: 8px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-        transition: color 0.12s;
       }
 
-      .team-sponsor-card__link:hover {
-        color: var(--m-accent, var(--nxt1-color-primary, #d4ff00));
+      .team-sponsor-tile__name {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--m-text, #ffffff);
+        text-align: center;
+        line-height: 1.3;
+        margin-top: 10px;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       /* ─── EMPTY STATE ─── */

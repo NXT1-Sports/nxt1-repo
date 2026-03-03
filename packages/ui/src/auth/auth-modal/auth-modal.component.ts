@@ -1,12 +1,15 @@
 /**
  * @fileoverview AuthModalComponent - Popup Authentication Modal
  * @module @nxt1/ui/auth
- * @version 1.0.0
+ * @version 2.0.0
  *
  * Professional popup modal version of the /auth page, designed for in-app
  * authentication prompts (e.g., "Sign in to continue", gated features,
  * expired sessions). Uses the same shared auth components from @nxt1/ui
  * that power the full /auth page, ensuring 100% visual and functional parity.
+ *
+ * v2.0 — Removed Ionic ModalController dependency. Now uses Angular output
+ * events to communicate dismissal to the shared NxtOverlayService.
  *
  * Pattern: Twitter/X, Instagram, Spotify, LinkedIn, YouTube, Reddit
  *
@@ -14,15 +17,9 @@
  * - Same social login buttons, email form, and mode switcher as /auth page
  * - Glassmorphic modal card with backdrop blur (2026 design language)
  * - Smooth CSS transitions between views (social → email, etc.)
- * - Close button + backdrop dismiss for UX escape hatches
- * - Context-aware title/subtitle (configurable via componentProps)
+ * - Context-aware title/subtitle (configurable via inputs)
  * - Keyboard-aware layout (mobile)
  * - SSR-safe, OnPush change detection
- * - Haptic feedback on native mobile
- * - Focus management handled by Ionic ModalController
- *
- * Note: Uses @Input() decorators (not signal inputs) for Ionic
- * ModalController.create({ componentProps }) compatibility.
  *
  * Usage (via AuthModalService):
  * ```typescript
@@ -38,14 +35,13 @@
 import {
   Component,
   ChangeDetectionStrategy,
-  inject,
   signal,
   computed,
   Input,
   OnInit,
+  output,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ModalController } from '@ionic/angular/standalone';
 
 import { NxtLogoComponent } from '../../components/logo';
 import { AuthSocialButtonsComponent } from '../auth-social-buttons';
@@ -54,6 +50,15 @@ import { AuthDividerComponent } from '../auth-divider';
 import { AuthEmailFormComponent, type AuthEmailFormData } from '../auth-email-form';
 import { AuthModeSwitcherComponent, type AuthMode } from '../auth-mode-switcher';
 import { AuthTermsDisclaimerComponent } from '../auth-terms-disclaimer';
+
+/** Auth modal result payload — emitted via the `dismiss` output */
+export interface AuthModalDismissPayload {
+  authenticated: boolean;
+  provider?: string;
+  mode?: AuthMode;
+  emailData?: AuthEmailFormData;
+  reason: 'authenticated' | 'closed' | 'forgot-password' | 'provider-selected';
+}
 
 /** Supported social auth providers */
 type AuthProvider = 'google' | 'apple' | 'microsoft' | 'email';
@@ -73,30 +78,6 @@ type AuthProvider = 'google' | 'apple' | 'microsoft' | 'email';
   ],
   template: `
     <div class="auth-modal-container" data-testid="auth-modal">
-      <!-- Close Button -->
-      <button
-        type="button"
-        class="auth-modal-close"
-        (click)="onClose()"
-        aria-label="Close authentication dialog"
-        data-testid="auth-modal-close"
-      >
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      </button>
-
       <!-- Scrollable Content -->
       <div class="auth-modal-scroll">
         <!-- Logo -->
@@ -194,100 +175,23 @@ type AuthProvider = 'google' | 'apple' | 'microsoft' | 'email';
   styles: [
     `
       /* ============================================ */
-      /* MODAL CONTAINER                             */
+      /* MODAL CONTAINER — Pure content, no chrome   */
+      /* (Overlay shell provides bg, border-radius,  */
+      /*  shadow, close button)                      */
       /* ============================================ */
       .auth-modal-container {
         position: relative;
         display: flex;
         flex-direction: column;
         width: 100%;
-        max-height: 90vh;
-        max-height: 90dvh;
-        background: var(--nxt1-color-surface-100);
-        border-radius: var(--nxt1-borderRadius-2xl, 20px);
-        overflow: hidden;
-      }
-
-      /* Subtle top border glow for depth */
-      .auth-modal-container::before {
-        content: '';
-        position: absolute;
-        inset: 0 0 auto 0;
-        height: 1px;
-        background: linear-gradient(
-          90deg,
-          transparent 0%,
-          var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08)) 20%,
-          var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12)) 50%,
-          var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08)) 80%,
-          transparent 100%
-        );
-        z-index: 1;
-        pointer-events: none;
-      }
-
-      /* ============================================ */
-      /* CLOSE BUTTON                                */
-      /* ============================================ */
-      .auth-modal-close {
-        position: absolute;
-        top: var(--nxt1-spacing-4, 16px);
-        right: var(--nxt1-spacing-4, 16px);
-        z-index: 10;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 36px;
-        height: 36px;
-        padding: 0;
-        border: none;
-        border-radius: var(--nxt1-borderRadius-full, 9999px);
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
-        color: var(--nxt1-color-text-secondary);
-        cursor: pointer;
-        transition: all var(--nxt1-duration-fast, 150ms) ease;
-      }
-
-      .auth-modal-close:hover {
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
-        color: var(--nxt1-color-text-primary);
-        transform: scale(1.05);
-      }
-
-      .auth-modal-close:active {
-        transform: scale(0.95);
-      }
-
-      .auth-modal-close:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary);
-        outline-offset: 2px;
       }
 
       /* ============================================ */
       /* SCROLLABLE CONTENT                          */
       /* ============================================ */
       .auth-modal-scroll {
-        flex: 1;
-        overflow-y: auto;
-        overflow-x: hidden;
-        -webkit-overflow-scrolling: touch;
         padding: var(--nxt1-spacing-8, 32px) var(--nxt1-spacing-6, 24px);
         padding-top: var(--nxt1-spacing-6, 24px);
-        scrollbar-width: thin;
-        scrollbar-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12)) transparent;
-      }
-
-      .auth-modal-scroll::-webkit-scrollbar {
-        width: 6px;
-      }
-
-      .auth-modal-scroll::-webkit-scrollbar-track {
-        background: transparent;
-      }
-
-      .auth-modal-scroll::-webkit-scrollbar-thumb {
-        background: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
-        border-radius: 3px;
       }
 
       /* ============================================ */
@@ -391,11 +295,21 @@ type AuthProvider = 'google' | 'apple' | 'microsoft' | 'email';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthModalComponent implements OnInit {
-  private readonly modalCtrl = inject(ModalController);
+  // ============================================
+  // OUTPUTS — communicate with NxtOverlayService
+  // The overlay service listens for 'dismiss' output
+  // ============================================
+
+  /**
+   * Emitted when the modal should close with a result.
+   * The NxtOverlayService listens for this output and
+   * automatically animates out + resolves the closed promise.
+   */
+  readonly dismiss = output<AuthModalDismissPayload>();
 
   // ============================================
-  // INPUTS (set via componentProps)
-  // Using @Input() for Ionic ModalController compatibility
+  // INPUTS (set via overlay service setInput())
+  // Using @Input() for compatibility
   // ============================================
 
   /** Title override (e.g., "Sign in to continue") */
@@ -547,12 +461,12 @@ export class AuthModalComponent implements OnInit {
   /** Handle forgot password click — dismiss modal for parent to navigate */
   onForgotPassword(): void {
     this.forgotPasswordHandler?.();
-    this.modalCtrl.dismiss({ reason: 'forgot-password' }, 'forgot-password');
+    this.dismiss.emit({ authenticated: false, reason: 'forgot-password' });
   }
 
   /** Close modal without authenticating */
   onClose(): void {
-    this.modalCtrl.dismiss({ authenticated: false, reason: 'closed' }, 'cancel');
+    this.dismiss.emit({ authenticated: false, reason: 'closed' });
   }
 
   // ============================================
@@ -561,20 +475,17 @@ export class AuthModalComponent implements OnInit {
 
   /** Dismiss with successful authentication */
   private dismissAuthenticated(provider: string): void {
-    this.modalCtrl.dismiss({ authenticated: true, provider, reason: 'authenticated' }, 'confirm');
+    this.dismiss.emit({ authenticated: true, provider, reason: 'authenticated' });
   }
 
   /** Dismiss with provider selection (when no callback provided) */
   private dismissWithProvider(provider: string, data?: AuthEmailFormData): void {
-    this.modalCtrl.dismiss(
-      {
-        authenticated: false,
-        provider,
-        mode: this.mode(),
-        emailData: data,
-        reason: 'provider-selected',
-      },
-      'confirm'
-    );
+    this.dismiss.emit({
+      authenticated: false,
+      provider,
+      mode: this.mode(),
+      emailData: data,
+      reason: 'provider-selected',
+    });
   }
 }

@@ -31,11 +31,7 @@ import { TeamProfileService } from '../team-profile.service';
         <div class="contact-social-row">
           <!-- LEFT: Contact + Social Media -->
           <div class="contact-social-col">
-            @if (
-              teamProfile.team()?.contact?.email ||
-              teamProfile.team()?.contact?.phone ||
-              teamProfile.team()?.contact?.website
-            ) {
+            @if (teamProfile.team()?.contact?.email || teamProfile.team()?.contact?.phone) {
               <h3 class="contact-section-title">Contact</h3>
               <div class="contact-info-list">
                 @if (teamProfile.team()?.contact?.email) {
@@ -63,24 +59,6 @@ import { TeamProfileService } from '../team-profile.service';
                       <span class="contact-info-label">Phone</span>
                       <span class="contact-info-value">{{
                         teamProfile.team()!.contact!.phone
-                      }}</span>
-                    </div>
-                  </a>
-                }
-                @if (teamProfile.team()?.contact?.website) {
-                  <a
-                    class="contact-info-item"
-                    [href]="teamProfile.team()!.contact!.website"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <span class="contact-info-icon">
-                      <nxt1-icon name="globe-outline" [size]="16" />
-                    </span>
-                    <div class="contact-info-text">
-                      <span class="contact-info-label">Website</span>
-                      <span class="contact-info-value">{{
-                        teamProfile.team()!.contact!.website
                       }}</span>
                     </div>
                   </a>
@@ -414,8 +392,7 @@ export class TeamContactWebComponent {
   /** Whether any contact info exists at all */
   protected readonly hasAnyContactInfo = computed((): boolean => {
     const team = this.teamProfile.team();
-    const hasCoreContact =
-      !!team?.contact?.email || !!team?.contact?.phone || !!team?.contact?.website;
+    const hasCoreContact = !!team?.contact?.email || !!team?.contact?.phone;
     const hasSocial = !!team?.social && team.social.length > 0;
     const hasCoach = !!this.teamProfile.headCoach();
     return hasCoreContact || hasSocial || hasCoach;

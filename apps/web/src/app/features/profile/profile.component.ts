@@ -58,7 +58,7 @@ import {
   userToProfilePageData,
 } from '@nxt1/ui/profile';
 
-import { NxtCtaBannerComponent } from '@nxt1/ui/components/cta-banner';
+import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -73,7 +73,18 @@ import { AuthFlowService } from '../auth/services';
 import { SeoService, AnalyticsService, ShareService } from '../../core/services';
 import { ProfileService as ApiProfileService } from './services/profile.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import { environment } from '../../../environments/environment';
+
+const CTA_AVATARS: readonly CtaAvatarImage[] = [
+  { src: `/${IMAGE_PATHS.athlete1}`, alt: 'High school athlete' },
+  { src: `/${IMAGE_PATHS.athlete2}`, alt: 'Club athlete' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Student athlete' },
+  { src: `/${IMAGE_PATHS.athlete4}`, alt: 'Varsity athlete' },
+  { src: `/${IMAGE_PATHS.athlete5}`, alt: 'Travel ball athlete' },
+  { src: `/${IMAGE_PATHS.coach1}`, alt: 'College coach' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Elite recruit' },
+] as const;
 
 @Component({
   selector: 'app-profile',
@@ -95,35 +106,33 @@ import { environment } from '../../../environments/environment';
       (qrCodeClick)="onQrCode()"
       (aiSummaryClick)="onAiSummary()"
       (createPostClick)="onCreatePost()"
-    />
+    >
+      <!-- ═══ PROJECTED BELOW-FOLD CONTENT (inside shell scroll container) ═══ -->
+      @defer (on viewport) {
+        <nxt1-related-athletes
+          [athletes]="relatedAthletes()"
+          [sport]="relatedSport()"
+          [state]="relatedState()"
+          (athleteClick)="onRelatedAthleteClick($event)"
+          (seeAllClick)="onSeeAllRelated()"
+        />
+      } @placeholder {
+        <div style="height: 200px;"></div>
+      }
 
-    <!-- ═══ CTA BANNER — Below-the-fold conversion for logged-out users ═══
-         Deferred to viewport: never rendered during SSR, zero CLS impact.
-         Profiles are public pages — no auth gate blocks initial render. ═══ -->
-    @defer (on viewport) {
-      <nxt1-related-athletes
-        [athletes]="relatedAthletes()"
-        [sport]="relatedSport()"
-        [state]="relatedState()"
-        (athleteClick)="onRelatedAthleteClick($event)"
-        (seeAllClick)="onSeeAllRelated()"
-      />
-    } @placeholder {
-      <div style="height: 200px;"></div>
-    }
-
-    <!-- ═══ CTA BANNER — Logged-out users only ═══ -->
-    @if (!isLoggedIn()) {
-      <nxt1-cta-banner
-        variant="conversion"
-        badgeLabel="Super Profile"
-        title="Drop Your Links. We Build the Rest."
-        subtitle="Paste your Hudl, MaxPreps, or social links — NXT1 auto-generates a verified Super Profile that stays updated with your latest stats, highlights, and academics. Coaches see everything in one tap."
-        ctaLabel="Get Your Super Profile Free"
-        ctaRoute="/auth"
-        titleId="profile-cta-banner-title"
-      />
-    }
+      @if (!isLoggedIn()) {
+        <nxt1-cta-banner
+          variant="conversion"
+          badgeLabel="Agentic Profile"
+          title="This Profile Runs Itself."
+          subtitle="NXT1 profiles update stats, sync highlights, and surface recruiting signals automatically — so coaches always see the latest without athletes lifting a finger."
+          ctaLabel="Build Your Agentic Profile"
+          ctaRoute="/auth"
+          titleId="profile-cta-banner-title"
+          [avatarImages]="ctaAvatars"
+        />
+      }
+    </nxt1-profile-shell-web>
   `,
   styles: [
     `
@@ -188,6 +197,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   private readonly fetchedProfile = signal<User | null>(null);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly relatedAthletes = signal<RelatedAthlete[]>([]);
+  protected readonly ctaAvatars = CTA_AVATARS;
 
   /** Whether current user is logged in — used to hide CTA for authenticated users */
   protected readonly isLoggedIn = computed(() => this.authFlow.isAuthenticated());

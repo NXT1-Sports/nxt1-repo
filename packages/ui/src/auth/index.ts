@@ -28,7 +28,7 @@ export {
 } from './auth-team-code';
 export { AuthBiometricPromptComponent, type BiometryDisplayType } from './auth-biometric-prompt';
 export { AuthBiometricButtonComponent, type BiometryButtonType } from './auth-biometric-button';
-export { AuthModalComponent } from './auth-modal';
+export { AuthModalComponent, type AuthModalDismissPayload } from './auth-modal';
 export {
   AuthModalService,
   type AuthModalConfig,

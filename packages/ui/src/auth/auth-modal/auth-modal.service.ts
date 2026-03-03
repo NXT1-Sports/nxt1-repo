@@ -1,11 +1,14 @@
 /**
  * @fileoverview AuthModalService - Popup Auth Modal Orchestrator
  * @module @nxt1/ui/auth
- * @version 1.0.0
+ * @version 2.0.0
  *
  * Enterprise-grade service for presenting the authentication modal.
  * Provides a simple API for triggering auth popups anywhere in the app
  * with full customization, callback wiring, and result handling.
+ *
+ * v2.0 — Web modal migrated from Ionic ModalController to the shared
+ * NxtOverlayService (pure Angular, no Ionic on web).
  *
  * Pattern: Professional apps (Twitter/X, Instagram, Spotify, Reddit)
  * use this pattern for "Sign in to continue" flows where the user
@@ -16,9 +19,7 @@
  * - One-line modal presentation: `await authModal.present()`
  * - Full callback wiring for auth providers
  * - Configurable title/subtitle for context-aware prompts
- * - Platform-adaptive styling (iOS sheet vs Android modal vs Web dialog)
  * - Singleton guard — prevents double-opening
- * - Haptic feedback on native mobile
  * - Promise-based result with typed interface
  * - SSR-safe
  *
@@ -56,10 +57,8 @@
 
 import { Injectable, inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { ModalController } from '@ionic/angular/standalone';
-import { Haptics, ImpactStyle } from '@capacitor/haptics';
 
-import { NxtPlatformService } from '../../services/platform';
+import { NxtOverlayService, type OverlayRef } from '../../components/overlay';
 import { AuthModalComponent } from './auth-modal.component';
 import type { AuthMode } from '../auth-mode-switcher';
 import type { AuthEmailFormData } from '../auth-email-form';
@@ -99,9 +98,6 @@ export interface AuthModalConfig {
 
   /** Whether backdrop click should dismiss (default: true) */
   backdropDismiss?: boolean;
-
-  /** Whether to show the drag handle on mobile (default: true) */
-  showHandle?: boolean;
 }
 
 /** Reason the modal was dismissed */
@@ -137,11 +133,10 @@ export interface AuthModalResult {
 @Injectable({ providedIn: 'root' })
 export class AuthModalService {
   private readonly platformId = inject(PLATFORM_ID);
-  private readonly platform = inject(NxtPlatformService);
-  private readonly modalCtrl = inject(ModalController);
+  private readonly overlay = inject(NxtOverlayService);
 
-  /** Track active modal to prevent double-opening */
-  private activeModal: HTMLIonModalElement | null = null;
+  /** Track whether a modal is currently open */
+  private activeRef: OverlayRef<AuthModalResult> | null = null;
 
   // ============================================
   // PUBLIC API
@@ -155,40 +150,6 @@ export class AuthModalService {
    *
    * @param config - Optional configuration for the modal
    * @returns Promise resolving to AuthModalResult
-   *
-   * @example
-   * ```typescript
-   * // Simple — no callbacks, just prompt + dismiss
-   * const result = await authModal.present();
-   *
-   * // With context
-   * const result = await authModal.present({
-   *   title: 'Sign in to save',
-   *   subtitle: 'Bookmark this profile for later.',
-   *   initialMode: 'signup',
-   * });
-   *
-   * // With full auth wiring
-   * const result = await authModal.present({
-   *   title: 'Sign in to continue',
-   *   onGoogle: async () => {
-   *     await this.authFlow.signInWithGoogle();
-   *     return this.authFlow.isAuthenticated();
-   *   },
-   *   onEmailAuth: async (mode, data) => {
-   *     if (mode === 'login') {
-   *       await this.authFlow.signInWithEmail(data);
-   *     } else {
-   *       await this.authFlow.signUpWithEmail(data);
-   *     }
-   *     return this.authFlow.isAuthenticated();
-   *   },
-   * });
-   *
-   * if (result.authenticated) {
-   *   await this.performGatedAction();
-   * }
-   * ```
    */
   async present(config?: AuthModalConfig): Promise<AuthModalResult> {
     // Guard: SSR safety
@@ -197,17 +158,13 @@ export class AuthModalService {
     }
 
     // Guard: Prevent double-opening
-    if (this.activeModal) {
+    if (this.activeRef) {
       await this.dismiss();
     }
 
-    // Haptic feedback on open
-    await this.triggerHaptic();
-
-    // Create the modal
-    const modal = await this.modalCtrl.create({
+    const ref = this.overlay.open<AuthModalComponent, AuthModalResult>({
       component: AuthModalComponent,
-      componentProps: {
+      inputs: {
         title: config?.title,
         subtitle: config?.subtitle,
         initialMode: config?.initialMode ?? 'login',
@@ -218,39 +175,20 @@ export class AuthModalService {
         emailAuthHandler: config?.onEmailAuth,
         forgotPasswordHandler: config?.onForgotPassword,
       },
-
-      // Presentation style
-      showBackdrop: true,
+      size: 'sm',
+      showCloseButton: true,
       backdropDismiss: config?.backdropDismiss ?? true,
-
-      // Platform-adaptive styling
-      cssClass: this.buildCssClasses(),
-
-      // Handle for dragging (mobile)
-      handle: config?.showHandle ?? this.platform.isNative(),
-      handleBehavior: 'cycle',
-
-      // Breakpoints for mobile bottom sheet behavior
-      ...(this.platform.isNative()
-        ? {
-            breakpoints: [0, 1],
-            initialBreakpoint: 1,
-          }
-        : {}),
+      ariaLabel: config?.title ?? 'Sign in to NXT1',
+      panelClass: 'nxt1-auth-overlay',
     });
 
-    this.activeModal = modal;
+    this.activeRef = ref;
 
-    // Present modal
-    await modal.present();
+    const result = await ref.closed;
 
-    // Wait for dismissal
-    const { data, role } = await modal.onWillDismiss<AuthModalResult>();
+    this.activeRef = null;
 
-    this.activeModal = null;
-
-    // Normalize result
-    return this.normalizeResult(data, role);
+    return this.normalizeResult(result.data, result.reason);
   }
 
   /**
@@ -292,13 +230,9 @@ export class AuthModalService {
    * Dismiss the currently active auth modal.
    */
   async dismiss(): Promise<void> {
-    if (this.activeModal) {
-      try {
-        await this.activeModal.dismiss({ authenticated: false, reason: 'closed' }, 'cancel');
-      } catch {
-        // Already dismissed
-      }
-      this.activeModal = null;
+    if (this.activeRef) {
+      this.activeRef.dismiss({ authenticated: false, reason: 'closed' });
+      this.activeRef = null;
     }
   }
 
@@ -306,71 +240,52 @@ export class AuthModalService {
    * Whether the auth modal is currently open.
    */
   isOpen(): boolean {
-    return this.activeModal !== null;
+    return this.activeRef !== null;
   }
 
   // ============================================
   // PRIVATE HELPERS
   // ============================================
 
-  /** Build CSS classes for platform-adaptive styling */
-  private buildCssClasses(): string[] {
-    const classes = ['nxt1-auth-modal'];
-
-    if (this.platform.isIOS()) {
-      classes.push('nxt1-auth-modal--ios');
-    } else if (this.platform.isAndroid()) {
-      classes.push('nxt1-auth-modal--android');
-    } else {
-      classes.push('nxt1-auth-modal--web');
-    }
-
-    return classes;
-  }
-
-  /** Normalize dismiss result to AuthModalResult */
+  /** Normalize the overlay result to AuthModalResult */
   private normalizeResult(
     data: AuthModalResult | undefined | null,
-    role: string | undefined
+    reason: string
   ): AuthModalResult {
+    // Content component provided a full result via close/dismiss output
     if (data?.authenticated) {
       return data;
     }
 
-    // Handle backdrop or programmatic dismiss
+    // Map overlay dismiss reasons to auth reasons
+    const authReason = this.mapReasonToAuthReason(reason, data?.reason);
+
     return {
       authenticated: false,
-      reason: this.mapRoleToReason(role),
+      reason: authReason,
       provider: data?.provider,
       mode: data?.mode,
       emailData: data?.emailData,
     };
   }
 
-  /** Map Ionic role string to our dismiss reason */
-  private mapRoleToReason(role: string | undefined): AuthModalDismissReason {
-    switch (role) {
-      case 'confirm':
-        return 'authenticated';
-      case 'cancel':
-        return 'closed';
-      case 'forgot-password':
-        return 'forgot-password';
+  /** Map overlay/content reason to AuthModalDismissReason */
+  private mapReasonToAuthReason(
+    overlayReason: string,
+    contentReason?: AuthModalDismissReason
+  ): AuthModalDismissReason {
+    // If content component provided a specific reason, use it
+    if (contentReason) return contentReason;
+
+    // Map overlay reasons
+    switch (overlayReason) {
       case 'backdrop':
         return 'backdrop';
+      case 'escape':
+      case 'close':
+      case 'programmatic':
       default:
         return 'closed';
-    }
-  }
-
-  /** Haptic feedback for modal open */
-  private async triggerHaptic(): Promise<void> {
-    if (!this.platform.isNative()) return;
-
-    try {
-      await Haptics.impact({ style: ImpactStyle.Light });
-    } catch {
-      // Not available
     }
   }
 }

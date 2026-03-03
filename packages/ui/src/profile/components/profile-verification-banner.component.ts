@@ -218,6 +218,7 @@ export class ProfileVerificationBannerComponent {
       rankings: 'rivals',
     },
     metrics: 'prepsports',
+    roster: 'maxpreps',
     stats: 'maxpreps',
     schedule: 'maxpreps',
   };

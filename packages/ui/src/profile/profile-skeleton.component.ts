@@ -153,28 +153,22 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
               <div class="sk-split">
                 <!-- ═══ LEFT COLUMN ═══ -->
                 <div class="sk-left">
-                  <!-- Page Header: Back + Identity(Name+Follow) + Badges + XP ring (desktop only) -->
-                  <!-- mirrors: .mdh-row → back, identity(name-row(name+follow) + subline), right(badges + xp) -->
+                  <!-- Page Header: Back + Identity(Name+Subtitle) + Follow Stats + Follow Button (desktop only) -->
+                  <!-- mirrors: nxt1-entity-page-header → back, identity(name + subline), trailing(stats + follow) -->
                   <div class="sk-page-header">
                     <div class="sk-ph-row">
                       <!-- Back button -->
                       <div class="sk-ph-back skeleton-animate"></div>
-                      <!-- Identity: Name row (name + follow) + subtitle -->
+                      <!-- Identity: Name + subtitle -->
                       <div class="sk-ph-identity">
-                        <div class="sk-ph-name-row">
-                          <div class="sk-ph-name skeleton-animate"></div>
-                          <div class="sk-ph-follow skeleton-animate"></div>
-                        </div>
+                        <div class="sk-ph-name skeleton-animate"></div>
                         <div class="sk-ph-subtitle skeleton-animate"></div>
                       </div>
-                      <!-- Right group: Badge shelf + XP ring -->
-                      <div class="sk-ph-right">
-                        <div class="sk-ph-badges">
-                          @for (i of [1, 2, 3, 4, 5, 6]; track i) {
-                            <div class="sk-ph-badge skeleton-animate"></div>
-                          }
-                        </div>
-                        <div class="sk-ph-xp skeleton-animate"></div>
+                      <!-- Trailing: Follow stats + Follow button -->
+                      <div class="sk-ph-trailing">
+                        <div class="sk-ph-stat skeleton-animate"></div>
+                        <div class="sk-ph-stat skeleton-animate"></div>
+                        <div class="sk-ph-follow skeleton-animate"></div>
                       </div>
                     </div>
                   </div>
@@ -856,11 +850,11 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
         padding: 0 var(--nxt1-spacing-1, 4px);
       }
 
-      /* Back button (mirrors nxt1-back-button md ghost) */
+      /* Back button (mirrors nxt1-back-button — circular icon) */
       .sk-ph-back {
         width: 36px;
         height: 36px;
-        border-radius: var(--nxt1-radius-md, 8px);
+        border-radius: 50%;
         flex-shrink: 0;
       }
 
@@ -870,15 +864,7 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
         min-width: 0;
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-0-5, 2px);
-      }
-
-      /* Name row: mirrors .mdh-name-row { display:flex; align-items:center; gap:12px } */
-      .sk-ph-name-row {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-3, 12px);
-        min-width: 0;
+        gap: 6px;
       }
 
       /* Name text: mirrors .mdh-last { font-size: 2xl ≈ 24-28px; font-weight: bold } */
@@ -889,14 +875,6 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
         border-radius: 6px;
       }
 
-      /* Follow button inside name row: mirrors .mdh-follow-btn { padding:7px 16px; 8px radius } */
-      .sk-ph-follow {
-        width: 88px;
-        height: 34px;
-        border-radius: var(--nxt1-radius-md, 8px);
-        flex-shrink: 0;
-      }
-
       /* Subtitle: mirrors .mdh-first { font-size: base ≈ 16px } */
       .sk-ph-subtitle {
         height: 18px;
@@ -905,35 +883,27 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
         border-radius: 4px;
       }
 
-      /* Right group: mirrors .mdh-right { flex-shrink:0; display:flex; align-items:center; gap:12px; margin-left:auto } */
-      .sk-ph-right {
+      /* Trailing group: mirrors .mdh-trailing { flex-shrink:0; margin-left:auto; display:flex; align-items:center; gap:16px } */
+      .sk-ph-trailing {
         flex-shrink: 0;
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-3, 12px);
+        gap: var(--nxt1-spacing-4, 16px);
         margin-left: auto;
       }
 
-      /* Badge shelf: mirrors .mdh-badges { display:flex; gap:6px } */
-      .sk-ph-badges {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-1_5, 6px);
-        flex-shrink: 0;
+      /* Follow stat block: mirrors .mdh-stat { width/height for count+label column } */
+      .sk-ph-stat {
+        width: 56px;
+        height: 36px;
+        border-radius: 8px;
       }
 
-      /* Individual badge: mirrors .mdh-badge { width:30px; height:30px; border-radius:8px } */
-      .sk-ph-badge {
-        width: 30px;
-        height: 30px;
-        border-radius: var(--nxt1-radius-md, 8px);
-      }
-
-      /* XP ring: mirrors .mdh-xp { width:104px; height:104px } */
-      .sk-ph-xp {
-        width: 104px;
-        height: 104px;
-        border-radius: 50%;
+      /* Follow button: mirrors .mdh-follow-btn */
+      .sk-ph-follow {
+        width: 88px;
+        height: 34px;
+        border-radius: var(--nxt1-radius-full, 9999px);
         flex-shrink: 0;
       }
 
@@ -1327,18 +1297,6 @@ export type ProfileSkeletonVariant = 'post' | 'full' | 'web';
         /* mirrors: .madden-right-stack { width: 240px } */
         .sk-right-stack {
           width: 240px;
-        }
-
-        /* mirrors: .mdh-xp { width: 88px; height: 88px } at this breakpoint */
-        .sk-ph-xp {
-          width: 88px;
-          height: 88px;
-        }
-
-        /* mirrors: .mdh-badge smaller at this breakpoint */
-        .sk-ph-badge {
-          width: 26px;
-          height: 26px;
         }
 
         /* mirrors: .madden-side-nav-column { width: 160px } */

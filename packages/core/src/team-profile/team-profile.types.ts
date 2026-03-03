@@ -376,6 +376,7 @@ export interface TeamProfileRecruitingActivity {
  */
 export interface TeamProfileFollowStats {
   readonly followersCount: number;
+  readonly followingCount?: number;
   readonly isFollowing: boolean;
 }
 
