@@ -53,6 +53,7 @@ import {
   afterNextRender,
   ElementRef,
   OnDestroy,
+  input,
 } from '@angular/core';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { Router, RouterModule, NavigationEnd } from '@angular/router';
@@ -105,11 +106,11 @@ import type {
 
     <header
       class="nxt1-desktop-nav"
-      [class.blur]="config.variant === 'blur'"
-      [class.transparent]="config.variant === 'transparent'"
-      [class.elevated]="config.variant === 'elevated'"
-      [class.minimal]="config.variant === 'minimal'"
-      [class.bordered]="config.bordered !== false"
+      [class.blur]="config().variant === 'blur'"
+      [class.transparent]="config().variant === 'transparent'"
+      [class.elevated]="config().variant === 'elevated'"
+      [class.minimal]="config().variant === 'minimal'"
+      [class.bordered]="config().bordered !== false"
       [class.hidden]="isHidden()"
       [class.mobile-menu-open]="mobileMenuOpen()"
       role="banner"
@@ -117,13 +118,13 @@ import type {
       <!-- Nav Container: max-width centered -->
       <div
         class="nav-container relative flex h-full w-full items-center gap-6 px-6"
-        [class.max-w-[1536px]]="config.maxWidth !== 'full'"
+        [class.max-w-[1536px]]="config().maxWidth !== 'full'"
       >
         <!-- ============================================
              LOGO SECTION (Small, Left-Aligned)
              ============================================ -->
-        @if (config.showLogo !== false) {
-          <div class="nav-logo z-[2] flex-shrink-0">
+        @if (config().showLogo !== false) {
+          <div class="nav-logo z-2 shrink-0">
             <button
               type="button"
               class="logo-btn"
@@ -139,23 +140,23 @@ import type {
              PRIMARY NAVIGATION / CENTERED SEARCH (hidden on mobile)
              ============================================ -->
         <nav
-          class="nav-primary z-[1] hidden h-full min-w-0 items-center md:flex"
-          [class.absolute]="config.showLogo !== false"
-          [class.left-1/2]="config.showLogo !== false"
-          [class.-translate-x-1/2]="config.showLogo !== false"
-          [class.flex-1]="config.showLogo === false"
-          [class.justify-center]="config.showLogo === false"
-          [class.px-2]="config.showLogo === false"
+          class="nav-primary z-1 hidden h-full min-w-0 items-center md:flex"
+          [class.absolute]="config().showLogo !== false"
+          [class.left-1/2]="config().showLogo !== false"
+          [class.-translate-x-1/2]="config().showLogo !== false"
+          [class.flex-1]="config().showLogo === false"
+          [class.justify-center]="config().showLogo === false"
+          [class.px-2]="config().showLogo === false"
           role="navigation"
           aria-label="Main navigation"
         >
           <!-- When sidebar mode (showLogo=false), show centered search bar -->
-          @if (config.showLogo === false && showSearch()) {
+          @if (config().showLogo === false && showSearch()) {
             <div class="nav-search-centered relative w-full max-w-[640px] min-w-0">
               <nxt1-search-bar
                 variant="desktop-centered"
                 [placeholder]="
-                  config.searchPlaceholder ||
+                  config().searchPlaceholder ||
                   'Search anything (athletes, videos, colleges, teams, and more)'
                 "
                 [value]="searchQuery()"
@@ -183,7 +184,7 @@ import type {
           } @else {
             <!-- Standard nav items when not in sidebar mode -->
             <ul class="nav-list m-0 flex h-full list-none items-center gap-1 p-0" role="menubar">
-              @for (item of items; track item.id; let i = $index) {
+              @for (item of items(); track item.id; let i = $index) {
                 @if (item.showOnMobile !== false) {
                   <li
                     class="nav-item relative flex h-full items-center"
@@ -305,7 +306,7 @@ import type {
              ============================================ -->
         <div class="nav-actions z-[2] ml-auto flex flex-shrink-0 items-center gap-3">
           <!-- Search Bar (only when NOT in sidebar mode - sidebar mode has centered search) -->
-          @if (showSearch() && config.showLogo !== false) {
+          @if (showSearch() && config().showLogo !== false) {
             <div
               class="nav-search relative hidden w-[200px] transition-[width] duration-200 md:block"
               [class.expanded]="searchExpanded()"
@@ -313,7 +314,7 @@ import type {
             >
               <nxt1-search-bar
                 variant="desktop"
-                [placeholder]="config.searchPlaceholder || 'Search...'"
+                [placeholder]="config().searchPlaceholder || 'Search...'"
                 [value]="searchQuery()"
                 (searchInput)="onSearchInputFromBar($event)"
                 (searchSubmit)="onSearchSubmitFromBar($event)"
@@ -339,7 +340,7 @@ import type {
           }
 
           <!-- Create Button -->
-          @if (config.showCreate !== false) {
+          @if (config().showCreate !== false) {
             <button
               type="button"
               class="nav-create-btn"
@@ -358,21 +359,21 @@ import type {
               class="nav-action-btn notifications-btn"
               [attr.aria-label]="
                 'Notifications' +
-                (config.notificationCount ? ', ' + config.notificationCount + ' unread' : '')
+                (config().notificationCount ? ', ' + config().notificationCount + ' unread' : '')
               "
               (click)="onNotificationsClick($event)"
             >
               <nxt1-icon name="bell" size="22" />
-              @if (config.notificationCount && config.notificationCount > 0) {
+              @if ((config().notificationCount ?? 0) > 0) {
                 <span class="notification-badge">
-                  {{ config.notificationCount > 99 ? '99+' : config.notificationCount }}
+                  {{ (config().notificationCount ?? 0) > 99 ? '99+' : config().notificationCount }}
                 </span>
               }
             </button>
           }
 
           <!-- Sign In (unauthenticated state) -->
-          @if (!isAuthenticated) {
+          @if (showSignInButton()) {
             <a class="nav-auth-btn nav-auth-btn--primary" routerLink="/auth" aria-label="Sign in">
               Sign In
             </a>
@@ -386,22 +387,22 @@ import type {
                 class="user-btn"
                 [attr.aria-expanded]="userMenuOpen()"
                 aria-haspopup="menu"
-                [attr.aria-label]="'User menu for ' + user?.name"
+                [attr.aria-label]="'User menu for ' + user()?.name"
                 (click)="toggleUserMenu()"
               >
                 <!-- Avatar -->
                 <div class="user-avatar">
-                  @if (user?.avatarUrl) {
+                  @if (user()?.avatarUrl) {
                     <img
-                      [src]="user!.avatarUrl"
-                      [alt]="user?.name || 'User avatar'"
+                      [src]="user()!.avatarUrl"
+                      [alt]="user()?.name || 'User avatar'"
                       class="avatar-img"
                       loading="lazy"
                     />
                   } @else {
                     <span class="avatar-initials">{{ userInitials() }}</span>
                   }
-                  @if (user?.verified) {
+                  @if (user()?.verified) {
                     <span class="avatar-verified" aria-label="Verified">
                       <nxt1-icon name="checkmarkCircle" size="12" />
                     </span>
@@ -427,10 +428,10 @@ import type {
                 <!-- User Info Header -->
                 <div class="user-info">
                   <div class="user-info-avatar">
-                    @if (user?.avatarUrl) {
+                    @if (user()?.avatarUrl) {
                       <img
-                        [src]="user!.avatarUrl"
-                        [alt]="user?.name || 'User avatar'"
+                        [src]="user()!.avatarUrl"
+                        [alt]="user()?.name || 'User avatar'"
                         class="avatar-img-lg"
                       />
                     } @else {
@@ -438,15 +439,15 @@ import type {
                     }
                   </div>
                   <div class="user-info-text">
-                    <span class="user-info-name">{{ user?.name }}</span>
-                    @if (user?.email) {
-                      <span class="user-info-email">{{ user?.email }}</span>
+                    <span class="user-info-name">{{ user()?.name }}</span>
+                    @if (user()?.email) {
+                      <span class="user-info-email">{{ user()?.email }}</span>
                     }
-                    @if (user?.roleBadge) {
-                      <span class="user-info-role">{{ user?.roleBadge }}</span>
+                    @if (user()?.roleBadge) {
+                      <span class="user-info-role">{{ user()?.roleBadge }}</span>
                     }
                   </div>
-                  @if (user?.isPremium) {
+                  @if (user()?.isPremium) {
                     <span class="premium-badge">PRO</span>
                   }
                 </div>
@@ -455,7 +456,7 @@ import type {
 
                 <!-- Menu Items -->
                 <ul class="user-menu-list m-0 list-none p-1">
-                  @for (menuItem of userMenuItems; track menuItem.id) {
+                  @for (menuItem of userMenuItems(); track menuItem.id) {
                     @if (menuItem.divider) {
                       <li class="user-menu-divider" role="separator"></li>
                     }
@@ -510,7 +511,7 @@ import type {
       <div class="mobile-menu-content flex min-h-full flex-col pt-[calc(56px+16px)]">
         <!-- Mobile Nav Items -->
         <ul class="mobile-nav-list m-0 list-none p-2">
-          @for (item of items; track item.id) {
+          @for (item of items(); track item.id) {
             <li class="mobile-nav-item mb-1" [class.active]="isActiveItem(item)">
               <button
                 type="button"
@@ -538,16 +539,16 @@ import type {
         </ul>
 
         <!-- Mobile User Section -->
-        @if (user) {
+        @if (user()) {
           <div class="mobile-user-section mt-auto border-t border-[var(--nxt1-nav-border)] p-4">
             <div class="mobile-user-info mb-4 flex items-center gap-3">
               <div
                 class="mobile-user-avatar flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-[var(--nxt1-nav-active-bg)]"
               >
-                @if (user.avatarUrl) {
+                @if (user()?.avatarUrl) {
                   <img
-                    [src]="user.avatarUrl"
-                    [alt]="user.name || 'User avatar'"
+                    [src]="user()!.avatarUrl"
+                    [alt]="user()?.name || 'User avatar'"
                     class="h-full w-full object-cover"
                   />
                 } @else {
@@ -561,18 +562,18 @@ import type {
               <div class="mobile-user-text flex flex-col gap-0.5">
                 <span
                   class="mobile-user-name text-base font-semibold text-[var(--nxt1-nav-text)]"
-                  >{{ user.name }}</span
+                  >{{ user()?.name }}</span
                 >
-                @if (user.email) {
+                @if (user()?.email) {
                   <span class="mobile-user-email text-sm text-[var(--nxt1-nav-text-secondary)]">{{
-                    user.email
+                    user()?.email
                   }}</span>
                 }
               </div>
             </div>
 
             <ul class="mobile-user-menu m-0 list-none p-0">
-              @for (menuItem of userMenuItems; track menuItem.id) {
+              @for (menuItem of userMenuItems(); track menuItem.id) {
                 @if (menuItem.divider) {
                   <li class="mobile-menu-divider my-2 h-px bg-[var(--nxt1-nav-border)]"></li>
                 }
@@ -592,7 +593,7 @@ import type {
               }
             </ul>
           </div>
-        } @else if (!isAuthenticated) {
+        } @else if (showSignInButton()) {
           <!-- Mobile Auth Buttons (for unauthenticated users) -->
           <div class="mobile-auth-section flex flex-col gap-3 p-6">
             <button
@@ -660,19 +661,23 @@ export class NxtHeaderComponent implements OnDestroy {
   // ============================================
 
   /** Navigation items to display */
-  @Input() items: TopNavItem[] = DEFAULT_TOP_NAV_ITEMS;
+  readonly items = input<TopNavItem[]>(DEFAULT_TOP_NAV_ITEMS);
 
   /** User data for avatar/menu display */
-  @Input() user: TopNavUserData | null = null;
+  readonly user = input<TopNavUserData | null>(null);
 
-  /** Explicit auth state from app shell (source of truth for auth UI) */
-  @Input() isAuthenticated = false;
+  /** Explicit auth state from app shell (source of truth for auth UI)
+   * - null: auth state not yet determined (loading)
+   * - true: user is authenticated
+   * - false: user is NOT authenticated
+   */
+  readonly isAuthenticated = input<boolean | null>(null);
 
   /** User menu items */
-  @Input() userMenuItems: TopNavUserMenuItem[] = DEFAULT_USER_MENU_ITEMS;
+  readonly userMenuItems = input<TopNavUserMenuItem[]>(DEFAULT_USER_MENU_ITEMS);
 
   /** Navigation configuration */
-  @Input() config: TopNavConfig = createTopNavConfig();
+  readonly config = input<TopNavConfig>(createTopNavConfig());
 
   /** Search results to display in dropdown */
   @Input() searchResults: ExploreItem[] = [];
@@ -754,6 +759,9 @@ export class NxtHeaderComponent implements OnDestroy {
   /** Internal active item tracking based on router */
   private readonly _activeItemId = signal<string | null>(null);
 
+  /** Internal flag to track if component has initialized (prevents flash during first render) */
+  private readonly _isInitialized = signal(false);
+
   /** Whether component is in browser */
   private readonly isBrowser = isPlatformBrowser(this.platformId);
 
@@ -770,14 +778,14 @@ export class NxtHeaderComponent implements OnDestroy {
   /** Get the currently active nav item */
   readonly activeItem = computed(() => {
     const id = this._activeItemId();
-    return this.items.find((item) => item.id === id);
+    return this.items().find((item) => item.id === id);
   });
 
   /** Whether to show search bar */
-  readonly showSearch = computed(() => this.config.showSearch !== false);
+  readonly showSearch = computed(() => this.config().showSearch !== false);
 
   /** Whether to show notifications */
-  readonly showNotifications = computed(() => this.config.showNotifications !== false);
+  readonly showNotifications = computed(() => this.config().showNotifications !== false);
 
   /**
    * Whether to show the user menu (avatar + dropdown).
@@ -786,16 +794,23 @@ export class NxtHeaderComponent implements OnDestroy {
    * visible when `user` data resolves slightly after auth state (e.g. during
    * SSR→client hydration handover where isAuthenticated is frozen true but
    * the user object arrives a frame later).
-   *
-   * NOTE: `user` and `isAuthenticated` are plain @Input values read inside a
-   * computed — Angular signals do not track plain property reads, so this
-   * computed evaluates once at first render and stays stable. That is the
-   * desired behaviour: it must be `true` on the very first render (when
-   * isAuthenticated is already set), which it will be as long as the shell
-   * passes a truthy isAuthenticated before the first template evaluation.
    */
   readonly showUserMenu = computed(
-    () => this.config.showUserMenu !== false && (this.user !== null || this.isAuthenticated)
+    () =>
+      this.config().showUserMenu !== false &&
+      (this.user() !== null || this.isAuthenticated() === true)
+  );
+
+  /**
+   * Whether to show the sign-in button.
+   * Only show when ALL conditions are true:
+   * 1. Component has initialized (prevents flash during SSR/first render)
+   * 2. Auth state is explicitly false (not loading/null)
+   * 3. No user data is present
+   * This prevents flash of sign-in button during auth state loading and SSR hydration.
+   */
+  readonly showSignInButton = computed(
+    () => this._isInitialized() && this.isAuthenticated() === false && this.user() === null
   );
 
   /** Whether to show compact layout (smaller desktops) */
@@ -803,9 +818,10 @@ export class NxtHeaderComponent implements OnDestroy {
 
   /** User initials for avatar fallback */
   readonly userInitials = computed(() => {
-    if (this.user?.initials) return this.user.initials;
-    if (this.user?.name) {
-      const parts = this.user.name.split(' ');
+    const user = this.user();
+    if (user?.initials) return user.initials;
+    if (user?.name) {
+      const parts = user.name.split(' ');
       if (parts.length >= 2) {
         return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
       }
@@ -823,7 +839,7 @@ export class NxtHeaderComponent implements OnDestroy {
 
   @HostBinding('class.sticky')
   get isSticky(): boolean {
-    return this.config.sticky !== false;
+    return this.config().sticky !== false;
   }
 
   @HostBinding('class.hidden')
@@ -833,7 +849,7 @@ export class NxtHeaderComponent implements OnDestroy {
 
   @HostBinding('attr.data-variant')
   get hostVariant(): string {
-    return this.config.variant || 'default';
+    return this.config().variant || 'default';
   }
 
   // ============================================
@@ -846,6 +862,12 @@ export class NxtHeaderComponent implements OnDestroy {
       this.setupRouteTracking();
       this.setupScrollTracking();
       this.setupClickOutside();
+
+      // Delay initialization flag to prevent flash of sign-in button
+      // This gives parent component time to set auth state before showing UI
+      setTimeout(() => {
+        this._isInitialized.set(true);
+      }, 200);
     });
   }
 
@@ -954,7 +976,7 @@ export class NxtHeaderComponent implements OnDestroy {
     this.haptics.impact('light');
     this.logoClick.emit(event);
 
-    if (this.config.logoLinksHome !== false) {
+    if (this.config().logoLinksHome !== false) {
       this.router.navigate(['/']);
     }
   }
@@ -1175,7 +1197,7 @@ export class NxtHeaderComponent implements OnDestroy {
    * Keyboard navigation for nav items
    */
   onItemKeydown(event: KeyboardEvent, index: number): void {
-    const items = this.items.filter((item) => !item.disabled);
+    const items = this.items().filter((item) => !item.disabled);
 
     switch (event.key) {
       case 'ArrowRight':
@@ -1234,7 +1256,7 @@ export class NxtHeaderComponent implements OnDestroy {
    * Update active item based on current route
    */
   private updateActiveFromRoute(url: string): void {
-    const item = findTopNavItemByRoute(this.items, url);
+    const item = findTopNavItemByRoute(this.items(), url);
     this._activeItemId.set(item?.id ?? null);
   }
 
@@ -1242,7 +1264,7 @@ export class NxtHeaderComponent implements OnDestroy {
    * Set up scroll tracking for hide-on-scroll behavior
    */
   private setupScrollTracking(): void {
-    if (!this.isBrowser || !this.config.hideOnScroll) return;
+    if (!this.isBrowser || !this.config().hideOnScroll) return;
 
     const onScroll = (): void => {
       const currentScrollY = window.scrollY;

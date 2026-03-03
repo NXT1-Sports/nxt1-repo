@@ -360,7 +360,7 @@ import {
         }
 
         <!-- Sign In Prompt (unauthenticated) -->
-        @if (config().showSignIn !== false && !user()) {
+        @if (showSignInButton()) {
           <div class="sidebar__signin">
             @if (!isCollapsed() || isHoverExpanded()) {
               <a class="sidebar__signin-btn" routerLink="/auth" aria-label="Sign in"> Sign In </a>
@@ -1103,11 +1103,23 @@ export class NxtDesktopSidebarComponent {
   /** Tracks expanded state for collapsible sections by section ID */
   private readonly _expandedSections = signal<ReadonlySet<string>>(new Set<string>());
 
+  /** Internal flag to track if component has initialized (prevents flash during first render) */
+  private readonly _isInitialized = signal(false);
+
   /** Computed: is collapsed (respects config and stored preference) */
   readonly isCollapsed = computed(() => this._isCollapsed());
 
   /** Computed: is hover expanded */
   readonly isHoverExpanded = computed(() => this._isCollapsed() && this._isHoverExpanded());
+
+  /**
+   * Computed: whether to show sign-in button.
+   * Only show when component has initialized AND no user is present.
+   * This prevents flash of sign-in button during SSR/first render.
+   */
+  readonly showSignInButton = computed(
+    () => this._isInitialized() && !this.user() && this.config().showSignIn !== false
+  );
 
   // ============================================
   // HOST BINDINGS
@@ -1145,6 +1157,12 @@ export class NxtDesktopSidebarComponent {
       this.loadCollapsedState();
       this.initializeNavScrollPersistence();
       this.restoreNavScrollPosition();
+
+      // Delay initialization flag to prevent flash of sign-in button
+      // This gives parent component time to set user data before showing UI
+      setTimeout(() => {
+        this._isInitialized.set(true);
+      }, 100);
     });
   }
 
