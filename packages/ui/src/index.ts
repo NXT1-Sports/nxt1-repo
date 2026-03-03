@@ -102,6 +102,11 @@ export { NxtLogoComponent, type LogoSize, type LogoVariant } from './components/
 export { ScheduleBoardComponent } from './components/schedule-board';
 export { StatsDashboardComponent } from './components/stats-dashboard';
 export { NewsBoardComponent } from './components/news-board';
+export {
+  NxtHistoryTimelineComponent,
+  type HistoryTimelineEntry,
+  type HistoryTimelineEmptyConfig,
+} from './components/history-timeline';
 export { NotFoundComponent } from './components/not-found/not-found.component';
 export {
   NxtImageComponent,
@@ -453,6 +458,7 @@ export {
   type PageHeaderAction,
 } from './components/page-header';
 export { NxtDesktopPageHeaderComponent } from './components/desktop-page-header';
+export { NxtEntityPageHeaderComponent } from './components/entity-page-header';
 
 // ============================================
 // OPTION SCROLLER (Twitter/TikTok Style Tab Selector)

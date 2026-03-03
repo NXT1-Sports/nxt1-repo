@@ -11,6 +11,7 @@
 import { Component, ChangeDetectionStrategy, inject, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
+import { NxtImageComponent } from '../../components/image';
 import type { TeamProfileRosterMember } from '@nxt1/core';
 import { TEAM_PROFILE_ROSTER_SORT_LABELS } from '@nxt1/core';
 import { TeamProfileService } from '../team-profile.service';
@@ -18,7 +19,7 @@ import { TeamProfileService } from '../team-profile.service';
 @Component({
   selector: 'nxt1-team-roster-web',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent],
+  imports: [CommonModule, NxtIconComponent, NxtImageComponent],
   template: `
     <div class="team-roster">
       <div class="team-roster__header">
@@ -39,39 +40,50 @@ import { TeamProfileService } from '../team-profile.service';
       </div>
 
       @if (filteredRoster().length > 0) {
-        <div class="team-roster__list">
+        <div class="team-roster__grid">
           @for (member of filteredRoster(); track member.id) {
             <button
               type="button"
-              class="team-roster__member"
+              class="roster-card"
               (click)="memberClick.emit(member)"
-              [attr.aria-label]="'View profile for ' + member.displayName"
+              [attr.aria-label]="
+                'View profile for ' +
+                (member.displayName ?? member.firstName + ' ' + member.lastName)
+              "
             >
-              <span class="team-roster__number">{{ member.jerseyNumber ?? '—' }}</span>
-              <div class="team-roster__member-info">
-                <div class="team-roster__member-name">
-                  {{ member.displayName }}
-                  @if (member.isVerified) {
-                    <nxt1-icon name="checkmark-circle" [size]="14" class="team-roster__verified" />
-                  }
-                </div>
-                <span class="team-roster__member-meta">
-                  {{ member.position ?? '' }}
-                  @if (member.classYear) {
-                    · Class of {{ member.classYear }}
-                  }
-                </span>
+              <div class="roster-card__image-wrap">
+                @if (member.profileImg) {
+                  <nxt1-image
+                    class="roster-card__image"
+                    [src]="member.profileImg"
+                    [alt]="member.displayName ?? member.firstName + ' ' + member.lastName"
+                    [width]="400"
+                    [height]="400"
+                    fit="cover"
+                    [showPlaceholder]="false"
+                  />
+                } @else {
+                  <div class="roster-card__placeholder">
+                    <nxt1-icon name="person" [size]="48" />
+                  </div>
+                }
+                @if (member.views) {
+                  <span class="roster-card__views">
+                    <nxt1-icon name="flame" [size]="14" />
+                    <strong>{{ member.views | number }}</strong>
+                    <span>VIEWS</span>
+                  </span>
+                }
               </div>
-              @if (member.height || member.weight) {
-                <span class="team-roster__member-size">
-                  {{ member.height ?? '' }}
-                  @if (member.height && member.weight) {
-                    /
-                  }
-                  {{ member.weight ?? '' }}
-                </span>
-              }
-              <nxt1-icon name="chevron-forward" [size]="16" class="team-roster__chevron" />
+              <div class="roster-card__info">
+                <h3 class="roster-card__name">
+                  {{ member.displayName ?? member.firstName + ' ' + member.lastName }}
+                </h3>
+                <p class="roster-card__position">{{ member.position ?? '' }}</p>
+                @if (member.classYear) {
+                  <p class="roster-card__class">Class of {{ member.classYear }}</p>
+                }
+              </div>
             </button>
           }
         </div>
@@ -96,7 +108,6 @@ import { TeamProfileService } from '../team-profile.service';
         color: var(--m-text, #ffffff);
         margin: 0;
         font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        text-transform: uppercase;
         letter-spacing: 0.02em;
       }
 
@@ -104,7 +115,7 @@ import { TeamProfileService } from '../team-profile.service';
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 12px;
+        margin-bottom: 16px;
       }
 
       .team-roster__sort {
@@ -128,76 +139,139 @@ import { TeamProfileService } from '../team-profile.service';
         cursor: pointer;
       }
 
-      .team-roster__list {
+      /* ─── CARD GRID ─── */
+      .team-roster__grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+      }
+
+      .roster-card {
         display: flex;
         flex-direction: column;
-        gap: 4px;
-      }
-
-      .team-roster__member {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 10px 14px;
-        border-radius: 10px;
+        border-radius: 14px;
         background: var(--m-surface, rgba(255, 255, 255, 0.04));
-        border: 1px solid transparent;
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        overflow: hidden;
         cursor: pointer;
-        width: 100%;
         text-align: left;
+        width: 100%;
+        padding: 0;
         transition:
-          background 0.12s,
-          border-color 0.12s;
+          border-color 0.18s ease,
+          box-shadow 0.18s ease,
+          transform 0.18s ease;
       }
 
-      .team-roster__member:hover {
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.08));
-        border-color: var(--m-border, rgba(255, 255, 255, 0.08));
+      .roster-card:hover {
+        border-color: color-mix(
+          in srgb,
+          var(--m-accent, #d4ff00) 30%,
+          var(--m-border, rgba(255, 255, 255, 0.08))
+        );
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+        transform: translateY(-2px);
       }
 
-      .team-roster__number {
-        font-size: 18px;
-        font-weight: 800;
-        color: var(--m-accent, var(--nxt1-color-primary, #d4ff00));
-        width: 32px;
-        text-align: center;
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+      .roster-card:focus-visible {
+        outline: none;
+        border-color: var(--m-accent, #d4ff00);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--m-accent, #d4ff00) 40%, transparent);
       }
 
-      .team-roster__member-info {
-        flex: 1;
-        min-width: 0;
+      /* ─── IMAGE AREA ─── */
+      .roster-card__image-wrap {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        overflow: hidden;
+        background: var(--m-surface-2, rgba(255, 255, 255, 0.06));
       }
 
-      .team-roster__member-name {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--m-text, #ffffff);
+      .roster-card__image {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .roster-card__image ::ng-deep img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .roster-card__placeholder {
+        width: 100%;
+        height: 100%;
         display: flex;
         align-items: center;
-        gap: 6px;
+        justify-content: center;
+        color: var(--m-text-3, rgba(255, 255, 255, 0.25));
       }
 
-      .team-roster__verified {
-        color: var(--m-accent, var(--nxt1-color-primary, #d4ff00));
-      }
-
-      .team-roster__member-meta {
+      .roster-card__views {
+        position: absolute;
+        bottom: 10px;
+        right: 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 5px 10px;
+        border-radius: 20px;
+        background: rgba(0, 0, 0, 0.72);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        color: var(--m-accent, #d4ff00);
         font-size: 12px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        line-height: 1;
       }
 
-      .team-roster__member-size {
-        font-size: 12px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-        white-space: nowrap;
+      .roster-card__views strong {
+        color: var(--m-text, #ffffff);
+        font-weight: 800;
+        font-size: 13px;
       }
 
-      .team-roster__chevron {
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-        flex-shrink: 0;
+      .roster-card__views span {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.7));
       }
 
+      /* ─── INFO AREA ─── */
+      .roster-card__info {
+        padding: 14px 16px 16px;
+      }
+
+      .roster-card__name {
+        font-size: 16px;
+        font-weight: 700;
+        color: var(--m-text, #ffffff);
+        margin: 0;
+        line-height: 1.3;
+      }
+
+      .roster-card__position {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+        margin: 2px 0 0;
+        line-height: 1.3;
+      }
+
+      .roster-card__class {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.7));
+        margin: 2px 0 0;
+        line-height: 1.3;
+      }
+
+      /* ─── EMPTY STATE ─── */
       .team-empty-state {
         display: flex;
         flex-direction: column;
@@ -220,6 +294,20 @@ import { TeamProfileService } from '../team-profile.service';
         color: var(--m-text-3, rgba(255, 255, 255, 0.45));
         margin: 0;
         max-width: 320px;
+      }
+
+      /* ─── RESPONSIVE ─── */
+      @media (max-width: 640px) {
+        .team-roster__grid {
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+      }
+
+      @media (min-width: 1200px) {
+        .team-roster__grid {
+          grid-template-columns: repeat(3, 1fr);
+        }
       }
     `,
   ],

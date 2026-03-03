@@ -27,7 +27,7 @@ import type {
  * Order determines display order in tab bar.
  *
  * Matches the user's spec:
- * Overview, Timeline, Videos, Roster, Schedule, Stats, News, Recruiting, Photos
+ * Overview, Timeline, Roster, Schedule, Videos, News, Stats, Recruiting, Photos
  */
 export const TEAM_PROFILE_TABS: readonly TeamProfileTab[] = [
   {
@@ -41,11 +41,6 @@ export const TEAM_PROFILE_TABS: readonly TeamProfileTab[] = [
     icon: 'newspaper',
   },
   {
-    id: 'videos',
-    label: 'Videos',
-    icon: 'videocam',
-  },
-  {
     id: 'roster',
     label: 'Roster',
     icon: 'people',
@@ -56,14 +51,19 @@ export const TEAM_PROFILE_TABS: readonly TeamProfileTab[] = [
     icon: 'calendar-clear',
   },
   {
-    id: 'stats',
-    label: 'Stats',
-    icon: 'stats-chart',
+    id: 'videos',
+    label: 'Videos',
+    icon: 'videocam',
   },
   {
     id: 'news',
     label: 'News',
     icon: 'newspaper',
+  },
+  {
+    id: 'stats',
+    label: 'Stats',
+    icon: 'stats-chart',
   },
   {
     id: 'recruiting',

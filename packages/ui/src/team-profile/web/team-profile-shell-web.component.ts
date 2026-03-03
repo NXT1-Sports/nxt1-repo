@@ -62,13 +62,14 @@ import { TeamRosterWebComponent } from './team-roster-web.component';
 import { type ScheduleRow } from '@nxt1/core';
 import { ScheduleBoardComponent } from '../../components/schedule-board';
 import { StatsDashboardComponent } from '../../components/stats-dashboard/stats-dashboard.component';
-import { mapTeamStatsToGameLogs } from '@nxt1/core';
+import { mapTeamStatsToGameLogs, formatSeasonLabel, buildSeasonRecordMap } from '@nxt1/core';
 import { NewsBoardComponent } from '../../components/news-board/news-board.component';
 import { MOCK_NEWS_ARTICLES } from '../../news/news.mock-data';
 import { TeamRecruitingWebComponent } from './team-recruiting-web.component';
 import { TeamTimelineWebComponent } from './team-timeline-web.component';
 import { TeamVideosWebComponent } from './team-videos-web.component';
 import { TeamPhotosWebComponent } from './team-photos-web.component';
+import { TeamContactWebComponent } from './team-contact-web.component';
 
 @Component({
   selector: 'nxt1-team-profile-shell-web',
@@ -93,6 +94,7 @@ import { TeamPhotosWebComponent } from './team-photos-web.component';
     NewsBoardComponent,
     TeamRecruitingWebComponent,
     TeamPhotosWebComponent,
+    TeamContactWebComponent,
   ],
   template: `
     <main class="team-profile-main">
@@ -191,7 +193,11 @@ import { TeamPhotosWebComponent } from './team-photos-web.component';
                 <section class="madden-content-scroll" aria-live="polite">
                   @switch (teamProfile.activeTab()) {
                     @case ('overview') {
-                      <nxt1-team-overview-web [activeSideTab]="activeSideTab()" />
+                      @if (activeSideTab() === 'contact') {
+                        <nxt1-team-contact-web />
+                      } @else {
+                        <nxt1-team-overview-web [activeSideTab]="activeSideTab()" />
+                      }
                     }
 
                     @case ('timeline') {
@@ -638,7 +644,7 @@ import { TeamPhotosWebComponent } from './team-photos-web.component';
       .madden-top-tabs {
         padding: 0 8px;
         padding-left: calc(var(--shell-content-padding-x, 32px) - 4px);
-        margin-top: -6px;
+        margin-top: 12px;
         border-bottom: none;
         background: transparent;
         flex-shrink: 0;
@@ -1227,10 +1233,19 @@ export class TeamProfileShellWebComponent implements OnInit {
   });
 
   /**
+   * Per-season record map built from current record + season history.
+   * Used by the mapper and sidebar to display the correct W-L for each season.
+   */
+  private readonly seasonRecordMap = computed(() => {
+    const team = this.teamProfile.team();
+    return buildSeasonRecordMap(team?.record, team?.seasonHistory);
+  });
+
+  /**
    * Maps TeamProfileStatsCategory[] → ProfileSeasonGameLog[] for the shared stats dashboard.
    */
   protected readonly teamStatsAsGameLogs = computed(() =>
-    mapTeamStatsToGameLogs(this.teamProfile.stats())
+    mapTeamStatsToGameLogs(this.teamProfile.stats(), this.seasonRecordMap())
   );
 
   /** Mock news articles for the shared NewsBoardComponent (UI setup — will be replaced with real API data). */
@@ -1272,6 +1287,26 @@ export class TeamProfileShellWebComponent implements OnInit {
     return TEAM_PROFILE_EMPTY_STATES[tab] || TEAM_PROFILE_EMPTY_STATES['overview'];
   });
 
+  /** Stats sidebar items — Career + per-season entries grouped under team name. */
+  private readonly statsSidebarItems = computed((): SectionNavItem[] => {
+    const allStats = this.teamProfile.stats();
+    if (allStats.length === 0) return [{ id: 'all', label: 'All Stats' }];
+
+    const teamName = this.teamProfile.team()?.teamName ?? 'Team';
+    const rawSeasons = [...new Set(allStats.map((c) => c.season).filter(Boolean))] as string[];
+    rawSeasons.sort((a, b) => b.localeCompare(a));
+
+    if (rawSeasons.length === 0) return [{ id: 'all', label: 'All Stats' }];
+
+    const seasonItems: SectionNavItem[] = rawSeasons.map((s) => {
+      const label = formatSeasonLabel(s);
+      return { id: `school-season-${label}`, label, group: teamName };
+    });
+
+    // Career summary + individual seasons (matches profile layout)
+    return [{ id: 'school-career', label: 'Career', group: teamName }, ...seasonItems];
+  });
+
   /** Section nav items — contextual to active top tab */
   protected readonly sideTabItems = computed((): SectionNavItem[] => {
     const tab = this.teamProfile.activeTab();
@@ -1281,8 +1316,8 @@ export class TeamProfileShellWebComponent implements OnInit {
         { id: 'about', label: 'About' },
         { id: 'staff', label: 'Staff' },
         { id: 'team-history', label: 'Team History' },
-        { id: 'quick-stats', label: 'Quick Stats' },
         { id: 'sponsors', label: 'Sponsors' },
+        { id: 'contact', label: 'Contact' },
       ],
       timeline: [
         {
@@ -1323,13 +1358,7 @@ export class TeamProfileShellWebComponent implements OnInit {
           badge: this.teamProfile.completedSchedule().length || undefined,
         },
       ],
-      stats:
-        this.teamProfile.stats().length > 0
-          ? this.teamProfile.stats().map((cat) => ({
-              id: cat.name.toLowerCase().replace(/\s+/g, '-'),
-              label: cat.name,
-            }))
-          : [{ id: 'all', label: 'All Stats' }],
+      stats: this.statsSidebarItems(),
       news: [
         {
           id: 'all-news',
