@@ -1379,24 +1379,3 @@ export {
   NxtRecruitmentPillarsSectionComponent,
   type RecruitmentPillar,
 } from './components/recruitment-pillars-section';
-
-// ============================================
-// PERSONA PAGES (Athletes, Coaches, Parents, Scouts)
-// ============================================
-export {
-  NxtAiAthletesLandingComponent,
-  NxtAthletesLandingComponent,
-  NxtAthletesPreviewComponent,
-  NxtCoachesLandingComponent,
-  NxtCoachesPreviewComponent,
-  NxtParentsLandingComponent,
-  NxtParentsPreviewComponent,
-  NxtRecruitingAthletesLandingComponent,
-  NxtScoutsLandingComponent,
-  NxtScoutsPreviewComponent,
-} from './personas';
-
-// ============================================
-// SPORT LANDING PAGES (Football, Basketball, …)
-// ============================================
-export { NxtSportLandingComponent, NxtSportLandingPreviewComponent } from './sport-landing';

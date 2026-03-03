@@ -20,7 +20,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, input } from '@angular/core';
-import { NxtIconComponent } from '../components/icon';
+import { NxtIconComponent } from '@nxt1/ui/components/icon';
 import type { SportLandingHighlight, SportLandingRanking } from '@nxt1/core';
 
 @Component({

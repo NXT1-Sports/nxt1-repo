@@ -7,20 +7,20 @@
  * Stars the Recruiting Radar section as the centrepiece, surrounded by
  * a hero, audience segments, FAQ and conversion CTA.
  *
- * 100 % design-token driven, SSR-safe, fully accessible.
+ * 100% design-token driven, SSR-safe, fully accessible.
  */
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { NxtOpenDoorsHeroComponent } from '../../components/open-doors-hero';
-import { NxtRecruitingRadarSectionComponent } from '../../components/recruiting-radar-section';
-import { NxtFaqSectionComponent, type FaqItem } from '../../components/faq-section';
-import { NxtCtaBannerComponent } from '../../components/cta-banner';
-import { NxtSiteFooterComponent } from '../../components/site-footer';
-import { NxtCoachRolodexComponent } from '../../components/coach-rolodex';
-import { NxtInvisibleAthletePainPointComponent } from '../../components/invisible-athlete-pain-point';
-import { NxtCommunicationCenterSectionComponent } from '../../components/communication-center-section';
-import { NxtRecruitingCommandCenterSectionComponent } from '../../components/recruiting-command-center-section';
-import { NxtLockerRoomTalkMarqueeComponent } from '../../components/locker-room-talk-marquee';
+import { NxtOpenDoorsHeroComponent } from '@nxt1/ui/components/open-doors-hero';
+import { NxtRecruitingRadarSectionComponent } from '@nxt1/ui/components/recruiting-radar-section';
+import { NxtFaqSectionComponent, type FaqItem } from '@nxt1/ui/components/faq-section';
+import { NxtCtaBannerComponent } from '@nxt1/ui/components/cta-banner';
+import { NxtSiteFooterComponent } from '@nxt1/ui/components/site-footer';
+import { NxtCoachRolodexComponent } from '@nxt1/ui/components/coach-rolodex';
+import { NxtInvisibleAthletePainPointComponent } from '@nxt1/ui/components/invisible-athlete-pain-point';
+import { NxtCommunicationCenterSectionComponent } from '@nxt1/ui/components/communication-center-section';
+import { NxtRecruitingCommandCenterSectionComponent } from '@nxt1/ui/components/recruiting-command-center-section';
+import { NxtLockerRoomTalkMarqueeComponent } from '@nxt1/ui/components/locker-room-talk-marquee';
 
 // ============================================
 // PAGE-SPECIFIC CONSTANTS

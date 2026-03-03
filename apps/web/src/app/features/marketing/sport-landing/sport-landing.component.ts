@@ -16,15 +16,18 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, computed } from '@angular/core';
-import { NxtHeroSectionComponent } from '../components/hero-section';
-import { NxtStatsBarComponent, type StatsBarItem } from '../components/stats-bar';
+import { NxtHeroSectionComponent } from '@nxt1/ui/components/hero-section';
+import { NxtStatsBarComponent, type StatsBarItem } from '@nxt1/ui/components/stats-bar';
 import {
   NxtFeatureShowcaseComponent,
   type FeatureShowcaseItem,
-} from '../components/feature-showcase';
-import { NxtAudienceSectionComponent, type AudienceSegment } from '../components/audience-section';
-import { NxtFaqSectionComponent, type FaqItem } from '../components/faq-section';
-import { NxtCtaBannerComponent } from '../components/cta-banner';
+} from '@nxt1/ui/components/feature-showcase';
+import {
+  NxtAudienceSectionComponent,
+  type AudienceSegment,
+} from '@nxt1/ui/components/audience-section';
+import { NxtFaqSectionComponent, type FaqItem } from '@nxt1/ui/components/faq-section';
+import { NxtCtaBannerComponent } from '@nxt1/ui/components/cta-banner';
 // Preview component is co-located
 import { NxtSportLandingPreviewComponent } from './sport-landing-preview.component';
 import type { SportLandingConfig } from '@nxt1/core';

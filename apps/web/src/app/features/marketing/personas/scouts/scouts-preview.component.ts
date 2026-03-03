@@ -22,7 +22,7 @@
  */
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { NxtIconComponent } from '../../components/icon';
+import { NxtIconComponent } from '@nxt1/ui/components/icon';
 
 // ============================================
 // PREVIEW MOCK DATA

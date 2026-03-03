@@ -12,15 +12,15 @@
  */
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { NxtUnfairAdvantageHeroComponent } from '../../components/unfair-advantage-hero/unfair-advantage-hero.component';
-import { NxtRecruitingEmailAssistantSectionComponent } from '../../components/recruiting-email-assistant-section/recruiting-email-assistant-section.component';
-import { NxtSuccessSimulationSectionComponent } from '../../components/success-simulation-section/success-simulation-section.component';
-import { NxtGetItDoneWorkflowSectionComponent } from '../../components/get-it-done-workflow-section/get-it-done-workflow-section.component';
-import { NxtOpportunityRadarSectionComponent } from '../../components/opportunity-radar-section';
-import { NxtHighlightEngineActionSectionComponent } from '../../components/highlight-engine-action-section';
-import { NxtLimitlessBoxSectionComponent } from '../../components/limitless-box-section/limitless-box-section.component';
-import { NxtCtaBannerComponent, type CtaAvatarImage } from '../../components/cta-banner';
-import { NxtSiteFooterComponent } from '../../components/site-footer';
+import { NxtUnfairAdvantageHeroComponent } from '@nxt1/ui/components/unfair-advantage-hero/unfair-advantage-hero.component';
+import { NxtRecruitingEmailAssistantSectionComponent } from '@nxt1/ui/components/recruiting-email-assistant-section/recruiting-email-assistant-section.component';
+import { NxtSuccessSimulationSectionComponent } from '@nxt1/ui/components/success-simulation-section/success-simulation-section.component';
+import { NxtGetItDoneWorkflowSectionComponent } from '@nxt1/ui/components/get-it-done-workflow-section/get-it-done-workflow-section.component';
+import { NxtOpportunityRadarSectionComponent } from '@nxt1/ui/components/opportunity-radar-section';
+import { NxtHighlightEngineActionSectionComponent } from '@nxt1/ui/components/highlight-engine-action-section';
+import { NxtLimitlessBoxSectionComponent } from '@nxt1/ui/components/limitless-box-section/limitless-box-section.component';
+import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
+import { NxtSiteFooterComponent } from '@nxt1/ui/components/site-footer';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 
 const AI_ATHLETES_CTA_AVATARS: readonly CtaAvatarImage[] = [

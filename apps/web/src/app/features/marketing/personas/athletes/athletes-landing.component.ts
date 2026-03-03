@@ -11,20 +11,20 @@
  */
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { NxtD1DreamHeroComponent } from '../../components/d1-dream-hero';
-import { NxtStatsBarComponent, type StatsBarItem } from '../../components/stats-bar';
+import { NxtD1DreamHeroComponent } from '@nxt1/ui/components/d1-dream-hero';
+import { NxtStatsBarComponent, type StatsBarItem } from '@nxt1/ui/components/stats-bar';
 import {
   NxtAudienceSectionComponent,
   type AudienceSegment,
-} from '../../components/audience-section';
-import { NxtFaqSectionComponent, type FaqItem } from '../../components/faq-section';
-import { NxtCtaBannerComponent, type CtaAvatarImage } from '../../components/cta-banner';
-import { NxtSiteFooterComponent } from '../../components/site-footer';
-import { NxtLockerRoomTalkMarqueeComponent } from '../../components/locker-room-talk-marquee';
-import { NxtDraftClassTickerComponent } from '../../components/draft-class-ticker';
-import { NxtCoachesNetworkAuthorityComponent } from '../../components/coaches-network-authority';
-import { NxtXpLeaderboardSectionComponent } from '../../components/xp-leaderboard-section';
-import { NxtAgentXHypeMachineSectionComponent } from '../../components/agent-x-hype-machine-section';
+} from '@nxt1/ui/components/audience-section';
+import { NxtFaqSectionComponent, type FaqItem } from '@nxt1/ui/components/faq-section';
+import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
+import { NxtSiteFooterComponent } from '@nxt1/ui/components/site-footer';
+import { NxtLockerRoomTalkMarqueeComponent } from '@nxt1/ui/components/locker-room-talk-marquee';
+import { NxtDraftClassTickerComponent } from '@nxt1/ui/components/draft-class-ticker';
+import { NxtCoachesNetworkAuthorityComponent } from '@nxt1/ui/components/coaches-network-authority';
+import { NxtXpLeaderboardSectionComponent } from '@nxt1/ui/components/xp-leaderboard-section';
+import { NxtAgentXHypeMachineSectionComponent } from '@nxt1/ui/components/agent-x-hype-machine-section';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 
 // ============================================
