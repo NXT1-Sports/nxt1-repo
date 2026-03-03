@@ -165,6 +165,7 @@ export {
 } from './page-header';
 
 export { NxtDesktopPageHeaderComponent } from './desktop-page-header';
+export { NxtEntityPageHeaderComponent } from './entity-page-header';
 
 export {
   // Component
@@ -448,6 +449,15 @@ export { NxtLimitlessBoxSectionComponent, type LimitlessBurstNode } from './limi
 // ============================================
 export { NxtTimelineCardComponent } from './timeline-card';
 export { NxtTimelineComponent } from './timeline';
+
+// ============================================
+// HISTORY TIMELINE (Shared between profile & team profile)
+// ============================================
+export {
+  NxtHistoryTimelineComponent,
+  type HistoryTimelineEntry,
+  type HistoryTimelineEmptyConfig,
+} from './history-timeline';
 
 // ============================================
 // CONTENT CARD (Shared glass-morphism card shell)

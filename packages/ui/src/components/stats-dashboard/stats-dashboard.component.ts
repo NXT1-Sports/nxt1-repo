@@ -1036,8 +1036,8 @@ export class StatsDashboardComponent {
 
   private readonly activeSeasonLabel = computed<string | null>(() => {
     const tab = this.activeSideTab();
-    // Pattern: "school-season-2025-2026" or "club-season-2024-2025"
-    const seasonMatch = tab.match(/season-(\d{4}-\d{4})/);
+    // Pattern: "school-season-2025-2026" or "club-season-2024-2025" or "school-season-2025"
+    const seasonMatch = tab.match(/season-(\d{4}(?:-\d{4})?)/);
     return seasonMatch?.[1] ?? null;
   });
 

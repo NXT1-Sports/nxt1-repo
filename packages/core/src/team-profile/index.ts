@@ -33,6 +33,7 @@ export {
   // Core team entity
   type TeamProfileTeam,
   type TeamProfileRecord,
+  type TeamProfileSeasonHistory,
   // Roster types
   type TeamProfileRosterMember,
   type TeamProfileRosterSortOption,
@@ -105,7 +106,11 @@ export {
 // ============================================
 // TEAM STATS HELPERS
 // ============================================
-export { mapTeamStatsToGameLogs } from './team-stats.helpers';
+export {
+  mapTeamStatsToGameLogs,
+  formatSeasonLabel,
+  buildSeasonRecordMap,
+} from './team-stats.helpers';
 
 // ============================================
 // TEAM NEWS HELPERS

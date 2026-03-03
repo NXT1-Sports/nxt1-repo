@@ -22,6 +22,10 @@ import { isPlatformBrowser } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
 import { NxtTimelineComponent } from '../../components/timeline';
+import {
+  NxtHistoryTimelineComponent,
+  type HistoryTimelineEntry,
+} from '../../components/history-timeline';
 import { ProfileService } from '../profile.service';
 import { NxtToastService } from '../../services/toast/toast.service';
 import {
@@ -98,7 +102,7 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
 @Component({
   selector: 'nxt1-profile-overview',
   standalone: true,
-  imports: [NxtIconComponent, NxtImageComponent, NxtTimelineComponent],
+  imports: [NxtIconComponent, NxtImageComponent, NxtTimelineComponent, NxtHistoryTimelineComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="madden-tab-section madden-overview" aria-labelledby="overview-heading">
@@ -519,63 +523,12 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
         <div class="ov-top-row ov-top-row--single">
           <div class="ov-section ov-section--profile">
             <h3 class="ov-section-title ov-overview-title">Player History</h3>
-            @if (playerHistoryAffiliations().length === 0) {
-              <div class="madden-empty">
-                <div class="madden-empty__icon" aria-hidden="true">
-                  <nxt1-icon name="time-outline" [size]="40" />
-                </div>
-                <h3>No history yet</h3>
-                <p>
-                  @if (profile.isOwnProfile()) {
-                    Team history and year-by-year progression will appear here.
-                  } @else {
-                    This athlete hasn't added any team history yet.
-                  }
-                </p>
-              </div>
-            } @else {
-              <div class="ov-history-list">
-                @for (
-                  team of playerHistoryAffiliations();
-                  track team.name + '-' + (team.type || 'other') + '-' + $index
-                ) {
-                  <article class="ov-history-item">
-                    <span class="ov-history-year">{{ historySeasonLabel($index) }}</span>
-                    <div class="ov-history-main madden-team-block">
-                      <div class="madden-team-logo-wrap ov-history-logo-wrap">
-                        @if (team.logoUrl) {
-                          <nxt1-image
-                            class="madden-team-logo"
-                            [src]="team.logoUrl"
-                            [alt]="team.name"
-                            [width]="24"
-                            [height]="24"
-                            variant="avatar"
-                            fit="contain"
-                            [showPlaceholder]="false"
-                          />
-                        } @else {
-                          <span class="madden-team-logo-placeholder ov-history-logo-fallback">
-                            <nxt1-icon [name]="teamIconName(team.type)" [size]="16" />
-                          </span>
-                        }
-                      </div>
-                      <div class="madden-team-info ov-history-content">
-                        <div class="madden-team-headline">
-                          <span class="madden-team-name ov-history-team">{{ team.name }}</span>
-                        </div>
-                        @if (team.location) {
-                          <span class="madden-team-location ov-history-meta">{{
-                            team.location
-                          }}</span>
-                        }
-                      </div>
-                      <span class="ov-history-record">{{ historyTeamRecord(team) ?? 'N/A' }}</span>
-                    </div>
-                  </article>
-                }
-              </div>
-            }
+            <nxt1-history-timeline
+              [entries]="playerHistoryEntries()"
+              emptyIcon="time-outline"
+              emptyTitle="No history yet"
+              [emptyDescription]="playerHistoryEmptyText()"
+            />
           </div>
         </div>
       }
@@ -1238,73 +1191,121 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
         margin: 0;
       }
 
-      /* Player History */
-      .ov-history-list {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-      .ov-history-item {
-        display: grid;
-        grid-template-columns: 92px minmax(0, 1fr);
-        gap: 10px;
-        align-items: start;
-      }
-      .ov-history-year {
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
-        color: var(--m-text-2);
-        line-height: 1.25;
-        padding-top: 10px;
-      }
-      .ov-history-main {
-        width: 100%;
-        max-width: 520px;
-        min-width: 0;
-        justify-self: stretch;
+      /* XP section — visible on all viewports */
+      .ov-mobile-xp-section {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 20px;
+        margin: 16px 0;
+        padding: 20px;
+        border-radius: 16px;
+        background: var(--m-surface);
+        border: 1px solid var(--m-border);
       }
-      .ov-history-logo-wrap {
-        width: 44px;
-        height: 44px;
+      .ov-mobile-xp-section--centered {
+        justify-content: center;
       }
-      .ov-history-logo-fallback {
-        color: var(--m-text-3);
-      }
-      .ov-history-content {
-        min-width: 0;
-        flex: 1;
-      }
-      .ov-history-team {
-        line-height: 1.2;
-        white-space: normal;
-        overflow: visible;
-        text-overflow: clip;
-      }
-      .ov-history-meta {
-        margin-top: 0;
-      }
-      .ov-history-record {
-        margin-left: auto;
+      .ov-mobile-xp-ring {
+        position: relative;
+        width: 110px;
+        height: 110px;
         flex-shrink: 0;
-        padding: 4px 10px;
-        border-radius: 999px;
-        border: 1px solid color-mix(in srgb, var(--m-accent) 35%, transparent);
-        background: color-mix(in srgb, var(--m-accent) 12%, transparent);
-        color: var(--m-accent);
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.02em;
+      }
+      .ov-mobile-xp-glow {
+        position: absolute;
+        inset: -6px;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle,
+          color-mix(in srgb, var(--m-accent) 18%, transparent) 0%,
+          transparent 70%
+        );
+        pointer-events: none;
+      }
+      .ov-mobile-xp-svg {
+        width: 100%;
+        height: 100%;
+      }
+      .ov-mobile-xp-arc {
+        transition: stroke-dasharray 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      .ov-mobile-xp-inner {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1px;
+      }
+      .ov-mobile-xp-lvl {
+        font-size: 22px;
+        font-weight: 900;
+        color: var(--m-text);
         line-height: 1;
       }
-
-      /* Mobile-only XP section — hidden on desktop */
-      .ov-mobile-xp-section {
-        display: none;
+      .ov-mobile-xp-tier {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--m-accent);
+        line-height: 1;
+      }
+      .ov-mobile-xp-badge-grid {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .ov-mobile-xp-badge-orb {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1.5px solid rgba(255, 255, 255, 0.1);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--m-text-3);
+        transition:
+          transform 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+      .ov-mobile-xp-badge-orb:hover {
+        transform: scale(1.1);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      }
+      .ov-mobile-xp-badge-orb--common {
+        border-color: color-mix(in srgb, #9e9e9e 30%, transparent);
+        background: color-mix(in srgb, #9e9e9e 8%, transparent);
+        color: #9e9e9e;
+      }
+      .ov-mobile-xp-badge-orb--uncommon {
+        border-color: color-mix(in srgb, #4caf50 35%, transparent);
+        background: color-mix(in srgb, #4caf50 10%, transparent);
+        color: #4caf50;
+      }
+      .ov-mobile-xp-badge-orb--rare {
+        border-color: color-mix(in srgb, #2196f3 35%, transparent);
+        background: color-mix(in srgb, #2196f3 10%, transparent);
+        color: #2196f3;
+      }
+      .ov-mobile-xp-badge-orb--epic {
+        border-color: color-mix(in srgb, #9c27b0 40%, transparent);
+        background: color-mix(in srgb, #9c27b0 12%, transparent);
+        color: #9c27b0;
+      }
+      .ov-mobile-xp-badge-orb--legendary {
+        border-color: color-mix(in srgb, #ff9800 45%, transparent);
+        background: color-mix(in srgb, #ff9800 14%, transparent);
+        color: #ff9800;
+      }
+      .ov-mobile-xp-badge-more {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--m-text-3);
+        padding: 4px 8px;
       }
 
       /* Mobile-only team affiliations — hidden on desktop */
@@ -1742,121 +1743,6 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
           grid-template-columns: 1fr;
           gap: 16px;
         }
-        .ov-mobile-xp-section {
-          display: flex;
-          align-items: center;
-          gap: 20px;
-          margin: 16px 0;
-          padding: 20px;
-          border-radius: 16px;
-          background: var(--m-surface);
-          border: 1px solid var(--m-border);
-        }
-        .ov-mobile-xp-section--centered {
-          justify-content: center;
-        }
-        .ov-mobile-xp-ring {
-          position: relative;
-          width: 110px;
-          height: 110px;
-          flex-shrink: 0;
-        }
-        .ov-mobile-xp-glow {
-          position: absolute;
-          inset: -6px;
-          border-radius: 50%;
-          background: radial-gradient(
-            circle,
-            color-mix(in srgb, var(--m-accent) 18%, transparent) 0%,
-            transparent 70%
-          );
-          pointer-events: none;
-        }
-        .ov-mobile-xp-svg {
-          width: 100%;
-          height: 100%;
-        }
-        .ov-mobile-xp-arc {
-          transition: stroke-dasharray 0.6s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .ov-mobile-xp-inner {
-          position: absolute;
-          inset: 0;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 1px;
-        }
-        .ov-mobile-xp-lvl {
-          font-size: 22px;
-          font-weight: 900;
-          color: var(--m-text);
-          line-height: 1;
-        }
-        .ov-mobile-xp-tier {
-          font-size: 10px;
-          font-weight: 700;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
-          color: var(--m-accent);
-          line-height: 1;
-        }
-        .ov-mobile-xp-badge-grid {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          align-items: center;
-        }
-        .ov-mobile-xp-badge-orb {
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border: 1.5px solid rgba(255, 255, 255, 0.1);
-          background: rgba(255, 255, 255, 0.04);
-          color: var(--m-text-3);
-          transition:
-            transform 0.15s ease,
-            box-shadow 0.15s ease;
-        }
-        .ov-mobile-xp-badge-orb:hover {
-          transform: scale(1.1);
-          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        }
-        .ov-mobile-xp-badge-orb--common {
-          border-color: color-mix(in srgb, #9e9e9e 30%, transparent);
-          background: color-mix(in srgb, #9e9e9e 8%, transparent);
-          color: #9e9e9e;
-        }
-        .ov-mobile-xp-badge-orb--uncommon {
-          border-color: color-mix(in srgb, #4caf50 35%, transparent);
-          background: color-mix(in srgb, #4caf50 10%, transparent);
-          color: #4caf50;
-        }
-        .ov-mobile-xp-badge-orb--rare {
-          border-color: color-mix(in srgb, #2196f3 35%, transparent);
-          background: color-mix(in srgb, #2196f3 10%, transparent);
-          color: #2196f3;
-        }
-        .ov-mobile-xp-badge-orb--epic {
-          border-color: color-mix(in srgb, #9c27b0 40%, transparent);
-          background: color-mix(in srgb, #9c27b0 12%, transparent);
-          color: #9c27b0;
-        }
-        .ov-mobile-xp-badge-orb--legendary {
-          border-color: color-mix(in srgb, #ff9800 45%, transparent);
-          background: color-mix(in srgb, #ff9800 14%, transparent);
-          color: #ff9800;
-        }
-        .ov-mobile-xp-badge-more {
-          font-size: 11px;
-          font-weight: 700;
-          color: var(--m-text-3);
-          padding: 4px 8px;
-        }
       }
     `,
   ],
@@ -2009,6 +1895,26 @@ export class ProfileOverviewComponent implements OnDestroy {
       }
       return normalized;
     }
+  );
+
+  /** Mapped entries for the shared history timeline component */
+  protected readonly playerHistoryEntries = computed((): readonly HistoryTimelineEntry[] => {
+    const affiliations = this.playerHistoryAffiliations();
+    return affiliations.map((team, index) => ({
+      label: this.historySeasonLabel(index),
+      name: team.name,
+      logoUrl: team.logoUrl,
+      subtitle: team.location,
+      record: this.historyTeamRecord(team) ?? 'N/A',
+      fallbackIcon: TEAM_TYPE_ICONS[this.normalizeTeamType(team.type)],
+    }));
+  });
+
+  /** Empty-state description text (own profile vs. other) */
+  protected readonly playerHistoryEmptyText = computed(() =>
+    this.profile.isOwnProfile()
+      ? 'Team history and year-by-year progression will appear here.'
+      : "This athlete hasn't added any team history yet."
   );
 
   // ── Connected accounts ──

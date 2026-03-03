@@ -842,6 +842,8 @@ export {
   TEAM_PROFILE_VISITOR_HEADER_ACTIONS,
   // Stats helpers
   mapTeamStatsToGameLogs,
+  formatSeasonLabel,
+  buildSeasonRecordMap,
   // News helpers
   mapTeamPostsToNewsBoardItems,
 } from './team-profile';

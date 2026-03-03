@@ -1006,7 +1006,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
            as the section-nav column) */
         padding: 0 8px;
         padding-left: calc(var(--shell-content-padding-x, 32px) - 4px);
-        margin-top: -6px;
+        margin-top: 12px;
         border-bottom: none;
         background: transparent;
         flex-shrink: 0;

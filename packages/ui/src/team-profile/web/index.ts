@@ -11,3 +11,4 @@ export { TeamVideosWebComponent } from './team-videos-web.component';
 export { TeamRosterWebComponent } from './team-roster-web.component';
 export { TeamRecruitingWebComponent } from './team-recruiting-web.component';
 export { TeamPhotosWebComponent } from './team-photos-web.component';
+export { TeamContactWebComponent } from './team-contact-web.component';

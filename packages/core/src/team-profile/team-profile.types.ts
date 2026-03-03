@@ -171,6 +171,8 @@ export interface TeamProfileTeam {
   readonly division?: string;
   /** Conference */
   readonly conference?: string;
+  /** Season-by-season history entries (most recent first) */
+  readonly seasonHistory?: readonly TeamProfileSeasonHistory[];
   /** Founded year */
   readonly foundedYear?: number;
   /** Home venue/stadium */
@@ -200,6 +202,28 @@ export interface TeamProfileRecord {
   readonly formatted?: string;
 }
 
+/**
+ * A single season history entry for the team's year-by-year timeline.
+ * Feeds the shared NxtHistoryTimelineComponent with the same layout
+ * used for player history affiliations.
+ */
+export interface TeamProfileSeasonHistory {
+  /** Display season label (e.g. "2024-2025", "2024", "Fall 2023") */
+  readonly season: string;
+  /** Wins that season */
+  readonly wins: number;
+  /** Losses that season */
+  readonly losses: number;
+  /** Ties (optional) */
+  readonly ties?: number;
+  /** Formatted record override (e.g. "10-2") — computed from wins/losses if absent */
+  readonly formatted?: string;
+  /** Conference at the time */
+  readonly conference?: string;
+  /** Notable highlight text (e.g. "State Runner-Up") */
+  readonly highlight?: string;
+}
+
 // ============================================
 // ROSTER TYPES
 // ============================================
@@ -222,6 +246,7 @@ export interface TeamProfileRosterMember {
   readonly weight?: string;
   readonly isVerified?: boolean;
   readonly joinedAt?: string;
+  readonly views?: number;
 }
 
 /**

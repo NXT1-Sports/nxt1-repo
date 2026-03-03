@@ -202,7 +202,6 @@ const DESKTOP_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
     id: 'you',
     label: 'You',
     items: [
-      { id: 'messages', label: 'Messages', icon: 'messages', route: '/messages', badge: 0 },
       { id: 'analytics', label: 'Analytics', icon: 'barChart', route: '/analytics' },
       { id: 'xp', label: 'XP', icon: 'sparkles', route: '/xp' },
       { id: 'manage-team', label: 'Manage Team', icon: 'users', route: '/manage-team' },

@@ -72,15 +72,10 @@ import { CommonModule, isPlatformBrowser } from '@angular/common';
         </div>
 
         <!-- Hover Fade Overlay with Info -->
-        @if (activeOverlayTitle() || activeOverlaySubtitle()) {
+        @if (activeOverlayTitle()) {
           <div class="carousel-overlay" [class.carousel-overlay--visible]="isHovered()">
             <div class="carousel-overlay-content">
-              @if (activeOverlayTitle()) {
-                <span class="carousel-overlay-title">{{ activeOverlayTitle() }}</span>
-              }
-              @if (activeOverlaySubtitle()) {
-                <span class="carousel-overlay-subtitle">{{ activeOverlaySubtitle() }}</span>
-              }
+              <span class="carousel-overlay-title">{{ activeOverlayTitle() }}</span>
             </div>
           </div>
         }

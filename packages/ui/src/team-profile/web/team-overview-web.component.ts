@@ -10,122 +10,144 @@
  *
  * ⭐ WEB ONLY — SSR-safe ⭐
  */
-import { Component, ChangeDetectionStrategy, inject, input } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, input, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
+import {
+  NxtHistoryTimelineComponent,
+  type HistoryTimelineEntry,
+} from '../../components/history-timeline';
 import { TeamProfileService } from '../team-profile.service';
+import { NxtToastService } from '../../services/toast/toast.service';
 
 @Component({
   selector: 'nxt1-team-overview-web',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, NxtImageComponent],
+  imports: [CommonModule, NxtIconComponent, NxtImageComponent, NxtHistoryTimelineComponent],
   template: `
     <div class="team-overview">
-      <!-- ═══ ABOUT ═══ -->
+      <!-- ═══ TEAM PROFILE + ABOUT (side-by-side) ═══ -->
       @if (activeSideTab() === 'about' || activeSideTab() === '') {
-        <div class="team-section">
-          <h2 class="team-section__title">About</h2>
-          @if (teamProfile.team()?.description) {
-            <p class="team-section__text">{{ teamProfile.team()?.description }}</p>
-          }
-          <div class="team-info-grid">
-            @if (teamProfile.team()?.sport) {
-              <div class="team-info-item">
-                <nxt1-icon name="football" [size]="16" />
-                <span>{{ teamProfile.team()?.sport }}</span>
-              </div>
-            }
-            @if (teamProfile.team()?.location) {
-              <div class="team-info-item">
-                <nxt1-icon name="location" [size]="16" />
-                <span>{{ teamProfile.team()?.location }}</span>
-              </div>
-            }
-            @if (teamProfile.team()?.conference) {
-              <div class="team-info-item">
-                <nxt1-icon name="shield" [size]="16" />
-                <span>{{ teamProfile.team()?.conference }}</span>
-              </div>
-            }
-            @if (teamProfile.team()?.division) {
-              <div class="team-info-item">
-                <nxt1-icon name="ribbon" [size]="16" />
-                <span>{{ teamProfile.team()?.division }}</span>
-              </div>
-            }
-            @if (teamProfile.team()?.homeVenue) {
-              <div class="team-info-item">
-                <nxt1-icon name="business" [size]="16" />
-                <span>{{ teamProfile.team()?.homeVenue }}</span>
-              </div>
-            }
-            @if (teamProfile.team()?.foundedYear) {
-              <div class="team-info-item">
-                <nxt1-icon name="calendar" [size]="16" />
-                <span>Est. {{ teamProfile.team()?.foundedYear }}</span>
-              </div>
-            }
+        <div class="team-top-row">
+          <!-- LEFT: Team Profile key-value grid -->
+          <div class="team-section">
+            <h2 class="team-section__title">Team Profile</h2>
+            <div class="team-profile-grid">
+              @if (teamProfile.athletes().length > 0) {
+                <div class="team-profile-row">
+                  <span class="team-profile-key">Athletes:</span>
+                  <span class="team-profile-val">{{ teamProfile.athletes().length }}</span>
+                </div>
+              }
+              @if (teamProfile.recordDisplay()) {
+                <div class="team-profile-row">
+                  <span class="team-profile-key">Record:</span>
+                  <span class="team-profile-val">{{ teamProfile.recordDisplay() }}</span>
+                </div>
+              }
+              @if (teamProfile.team()?.conference) {
+                <div class="team-profile-row">
+                  <span class="team-profile-key">Conference:</span>
+                  <span class="team-profile-val">{{ teamProfile.team()!.conference }}</span>
+                </div>
+              }
+              @if (teamProfile.team()?.location) {
+                <div class="team-profile-row">
+                  <span class="team-profile-key">Location:</span>
+                  <span class="team-profile-val">{{ teamProfile.team()!.location }}</span>
+                </div>
+              }
+            </div>
           </div>
 
-          <!-- Contact info in about -->
-          @if (teamProfile.team()?.contact) {
-            <div class="team-contact-section">
-              <h3 class="team-subsection-title">Contact</h3>
-              <div class="team-contact-grid">
-                @if (teamProfile.team()?.contact?.email) {
-                  <a
-                    class="team-contact-item"
-                    [href]="'mailto:' + teamProfile.team()!.contact!.email"
-                  >
-                    <nxt1-icon name="mail" [size]="16" />
-                    <span>{{ teamProfile.team()!.contact!.email }}</span>
-                  </a>
-                }
-                @if (teamProfile.team()?.contact?.phone) {
-                  <a class="team-contact-item" [href]="'tel:' + teamProfile.team()!.contact!.phone">
-                    <nxt1-icon name="call" [size]="16" />
-                    <span>{{ teamProfile.team()!.contact!.phone }}</span>
-                  </a>
-                }
-                @if (teamProfile.team()?.contact?.website) {
-                  <a
-                    class="team-contact-item"
-                    [href]="teamProfile.team()!.contact!.website"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <nxt1-icon name="globe" [size]="16" />
-                    <span>{{ teamProfile.team()!.contact!.website }}</span>
-                  </a>
-                }
-              </div>
+          <!-- RIGHT: About description -->
+          @if (teamProfile.team()?.description) {
+            <div class="team-section">
+              <h2 class="team-section__title">About</h2>
+              <p class="team-section__text">{{ teamProfile.team()!.description }}</p>
             </div>
           }
+        </div>
 
-          <!-- Social links in about -->
-          @if (teamProfile.team()?.social && teamProfile.team()!.social!.length > 0) {
-            <div class="team-social-section">
-              <h3 class="team-subsection-title">Social Media</h3>
-              <div class="team-social-grid">
-                @for (link of teamProfile.team()!.social!; track link.platform) {
-                  <a
-                    class="team-social-link"
-                    [href]="link.url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    [attr.aria-label]="link.platform"
-                  >
-                    <nxt1-icon [name]="getSocialIcon(link.platform)" [size]="18" />
-                    <span>{{ link.username ?? link.platform }}</span>
-                    @if (link.verified) {
-                      <nxt1-icon name="checkmark-circle" [size]="14" class="team-social-verified" />
-                    }
-                  </a>
-                }
-              </div>
+        <!-- ═══ CONNECTED ACCOUNTS ═══ -->
+        @if (connectedAccountsList().length > 0) {
+          <div class="team-section">
+            <h2 class="team-section__title">Connected Accounts</h2>
+            <div class="team-connected-grid">
+              @for (acct of connectedAccountsList(); track acct.key) {
+                <a
+                  class="team-connected-chip"
+                  [href]="acct.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  [attr.aria-label]="acct.label"
+                >
+                  <span class="team-connected-icon" [style.color]="acct.color">
+                    <nxt1-icon [name]="acct.icon" [size]="14" />
+                  </span>
+                  <span class="team-connected-label">{{ acct.label }}</span>
+                  <span class="team-connected-check">
+                    <nxt1-icon name="checkmarkCircle" [size]="13" />
+                  </span>
+                </a>
+              }
             </div>
-          }
+            <p class="team-connected-explainer">
+              <svg
+                class="team-connected-agentx"
+                viewBox="0 0 612 792"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="12"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path
+                  d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+                />
+                <polygon
+                  points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
+                />
+              </svg>
+              Agent X keeps your team profile up-to-date — connecting all your accounts so recruits
+              and coaches see a complete picture without the extra work.
+            </p>
+          </div>
+        }
+
+        <!-- ═══ LAST SYNCED ═══ -->
+        <div class="team-section">
+          <button
+            type="button"
+            class="team-last-synced-btn"
+            (click)="onSyncNow()"
+            aria-label="Sync team profile with Agent X"
+          >
+            <div class="team-last-synced-main">
+              <span class="team-last-synced-label">Last synced</span>
+              <span class="team-last-synced-time">{{ lastSyncedLabel() }}</span>
+            </div>
+            <div class="team-last-synced-agent">
+              <svg
+                class="team-last-synced-agentx"
+                viewBox="0 0 612 792"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="12"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path
+                  d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+                />
+                <polygon
+                  points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
+                />
+              </svg>
+              <span class="team-last-synced-agent-name">Agent X</span>
+            </div>
+          </button>
         </div>
       }
 
@@ -157,14 +179,6 @@ import { TeamProfileService } from '../team-profile.service';
                       {{ member.firstName }} {{ member.lastName }}
                     </h3>
                     <p class="team-staff-card__role">{{ member.title }}</p>
-                    @if (member.bio) {
-                      <p class="team-staff-card__bio">{{ member.bio }}</p>
-                    }
-                    @if (member.yearsWithTeam) {
-                      <span class="team-staff-card__tenure"
-                        >{{ member.yearsWithTeam }}y with program</span
-                      >
-                    }
                   </div>
                 </div>
               }
@@ -183,106 +197,12 @@ import { TeamProfileService } from '../team-profile.service';
       @if (activeSideTab() === 'team-history') {
         <div class="team-section">
           <h2 class="team-section__title">Team History</h2>
-          @if (teamProfile.recordDisplay()) {
-            <div class="team-record-display">
-              <span class="team-record-display__value">{{ teamProfile.recordDisplay() }}</span>
-              <span class="team-record-display__label">Current Record</span>
-            </div>
-          }
-          <!-- Recent Results -->
-          @if (teamProfile.completedSchedule().length > 0) {
-            <div class="team-recent-results">
-              <h3 class="team-subsection-title">Recent Results</h3>
-              @for (game of teamProfile.completedSchedule().slice(0, 8); track game.id) {
-                <div
-                  class="team-game-row"
-                  [class.team-game-row--win]="game.result?.outcome === 'win'"
-                  [class.team-game-row--loss]="game.result?.outcome === 'loss'"
-                >
-                  <span class="team-game-row__outcome">
-                    {{
-                      game.result?.outcome === 'win'
-                        ? 'W'
-                        : game.result?.outcome === 'loss'
-                          ? 'L'
-                          : 'T'
-                    }}
-                  </span>
-                  <span class="team-game-row__opponent"
-                    >{{ game.isHome ? 'vs' : '@' }} {{ game.opponent }}</span
-                  >
-                  <span class="team-game-row__score"
-                    >{{ game.result?.teamScore }}-{{ game.result?.opponentScore }}</span
-                  >
-                </div>
-              }
-            </div>
-          }
-          @if (teamProfile.team()?.foundedYear) {
-            <div class="team-founded">
-              <nxt1-icon name="calendar" [size]="16" />
-              <span>Founded in {{ teamProfile.team()!.foundedYear }}</span>
-            </div>
-          }
-        </div>
-      }
-
-      <!-- ═══ QUICK STATS ═══ -->
-      @if (activeSideTab() === 'quick-stats') {
-        <div class="team-section">
-          <h2 class="team-section__title">Quick Stats</h2>
-          @if (teamProfile.quickStats()) {
-            <div class="team-stats-grid">
-              <div class="team-stat-card">
-                <nxt1-icon name="eye" [size]="20" />
-                <span class="team-stat-card__value">{{
-                  teamProfile.quickStats()!.pageViews | number
-                }}</span>
-                <span class="team-stat-card__label">Page Views</span>
-              </div>
-              <div class="team-stat-card">
-                <nxt1-icon name="people" [size]="20" />
-                <span class="team-stat-card__value">{{
-                  teamProfile.quickStats()!.rosterCount
-                }}</span>
-                <span class="team-stat-card__label">Athletes</span>
-              </div>
-              <div class="team-stat-card">
-                <nxt1-icon name="videocam" [size]="20" />
-                <span class="team-stat-card__value">{{
-                  teamProfile.quickStats()!.highlightCount
-                }}</span>
-                <span class="team-stat-card__label">Highlights</span>
-              </div>
-              <div class="team-stat-card">
-                <nxt1-icon name="newspaper" [size]="20" />
-                <span class="team-stat-card__value">{{
-                  teamProfile.quickStats()!.totalPosts
-                }}</span>
-                <span class="team-stat-card__label">Posts</span>
-              </div>
-              <div class="team-stat-card">
-                <nxt1-icon name="calendar" [size]="20" />
-                <span class="team-stat-card__value">{{
-                  teamProfile.quickStats()!.eventCount
-                }}</span>
-                <span class="team-stat-card__label">Events</span>
-              </div>
-              <div class="team-stat-card">
-                <nxt1-icon name="share-social" [size]="20" />
-                <span class="team-stat-card__value">{{
-                  teamProfile.quickStats()!.shareCount
-                }}</span>
-                <span class="team-stat-card__label">Shares</span>
-              </div>
-            </div>
-          } @else {
-            <div class="team-empty-state">
-              <nxt1-icon name="stats-chart" [size]="40" />
-              <h3>No stats yet</h3>
-              <p>Team analytics will appear here as the profile grows.</p>
-            </div>
-          }
+          <nxt1-history-timeline
+            [entries]="teamHistoryEntries()"
+            emptyIcon="time-outline"
+            emptyTitle="No history yet"
+            emptyDescription="Season-by-season records and milestones will appear here."
+          />
         </div>
       }
 
@@ -360,7 +280,6 @@ import { TeamProfileService } from '../team-profile.service';
         color: var(--m-text, #ffffff);
         margin: 0 0 12px;
         font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        text-transform: uppercase;
         letter-spacing: 0.02em;
       }
 
@@ -381,80 +300,223 @@ import { TeamProfileService } from '../team-profile.service';
         gap: 8px;
       }
 
-      /* ─── INFO GRID ─── */
-      .team-info-grid {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px 20px;
+      /* ─── TEAM PROFILE KEY-VALUE GRID (mirrors Player Profile) ─── */
+      .team-top-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 16px;
+        align-items: start;
       }
 
-      .team-info-item {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 13px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.7));
-      }
-
-      /* ─── CONTACT ─── */
-      .team-contact-section {
-        margin-top: 16px;
-      }
-
-      .team-contact-grid {
+      .team-profile-grid {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 0;
       }
 
-      .team-contact-item {
+      .team-profile-row {
         display: flex;
         align-items: center;
-        gap: 10px;
-        padding: 8px 12px;
-        border-radius: 8px;
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
+        gap: 12px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+      }
+
+      .team-profile-row:last-child {
+        border-bottom: none;
+      }
+
+      .team-profile-key {
+        font-size: 14px;
+        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+        min-width: 100px;
+        font-weight: 500;
+      }
+
+      .team-profile-val {
+        font-size: 15px;
+        font-weight: 700;
         color: var(--m-text, #ffffff);
-        font-size: 13px;
-        text-decoration: none;
-        transition: background 0.12s;
       }
 
-      .team-contact-item:hover {
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.08));
-      }
-
-      /* ─── SOCIAL ─── */
-      .team-social-section {
-        margin-top: 16px;
-      }
-
-      .team-social-grid {
+      /* ─── CONNECTED ACCOUNTS ─── */
+      .team-connected-grid {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
       }
 
-      .team-social-link {
+      .team-connected-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 10px 5px 7px;
+        background: var(--m-card, rgba(255, 255, 255, 0.06));
+        border: 1px solid
+          color-mix(
+            in srgb,
+            var(--m-accent, #d4ff00) 18%,
+            var(--m-border, rgba(255, 255, 255, 0.08))
+          );
+        border-radius: 999px;
+        text-decoration: none;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          transform 0.15s ease;
+        cursor: pointer;
+      }
+
+      .team-connected-chip:hover {
+        background: color-mix(
+          in srgb,
+          var(--m-accent, #d4ff00) 8%,
+          var(--m-card, rgba(255, 255, 255, 0.06))
+        );
+        border-color: color-mix(
+          in srgb,
+          var(--m-accent, #d4ff00) 40%,
+          var(--m-border, rgba(255, 255, 255, 0.08))
+        );
+        transform: translateY(-1px);
+      }
+
+      .team-connected-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .team-connected-label {
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        font-size: 12.5px;
+        font-weight: 700;
+        color: var(--m-text, #ffffff);
+        white-space: nowrap;
+        letter-spacing: 0.01em;
+      }
+
+      .team-connected-check {
+        display: inline-flex;
+        align-items: center;
+        color: var(--m-accent, #d4ff00);
+        flex-shrink: 0;
+        margin-left: -2px;
+      }
+
+      .team-connected-explainer {
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        margin: 10px 0 0;
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        font-size: 11.5px;
+        font-weight: 500;
+        line-height: 1.45;
+        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+        letter-spacing: 0.01em;
+      }
+
+      .team-connected-agentx {
+        flex-shrink: 0;
+        width: 20px;
+        height: 20px;
+        color: var(--m-accent, #d4ff00);
+        margin-top: -1px;
+      }
+
+      /* ─── LAST SYNCED ─── */
+      .team-last-synced-btn {
+        width: 100%;
+        margin: 16px 0 0;
+        padding: 14px 16px;
+        border-radius: 12px;
+        border: 1px solid
+          color-mix(
+            in srgb,
+            var(--m-accent, #d4ff00) 28%,
+            var(--m-border, rgba(255, 255, 255, 0.08))
+          );
+        background:
+          linear-gradient(
+            160deg,
+            color-mix(in srgb, var(--m-accent, #d4ff00) 11%, transparent),
+            color-mix(in srgb, var(--m-surface, rgba(255, 255, 255, 0.04)) 88%, transparent)
+          ),
+          var(--m-surface, rgba(255, 255, 255, 0.04));
+        color: var(--m-text, #ffffff);
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 8px 14px;
-        border-radius: 999px;
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
-        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        justify-content: space-between;
+        gap: 12px;
+        cursor: pointer;
+        transition:
+          border-color 0.2s ease,
+          box-shadow 0.2s ease,
+          transform 0.2s ease;
+      }
+
+      .team-last-synced-btn:hover {
+        border-color: color-mix(
+          in srgb,
+          var(--m-accent, #d4ff00) 44%,
+          var(--m-border, rgba(255, 255, 255, 0.08))
+        );
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
+        transform: translateY(-1px);
+      }
+
+      .team-last-synced-btn:focus-visible {
+        outline: none;
+        border-color: var(--m-accent, #d4ff00);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--m-accent, #d4ff00) 40%, transparent);
+      }
+
+      .team-last-synced-main {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .team-last-synced-label {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+      }
+
+      .team-last-synced-time {
+        font-size: 15px;
+        font-weight: 700;
         color: var(--m-text, #ffffff);
+      }
+
+      .team-last-synced-agent {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+
+      .team-last-synced-agentx {
+        width: 34px;
+        height: 34px;
+        color: var(--m-accent, #d4ff00);
+        flex-shrink: 0;
+      }
+
+      .team-last-synced-agent-name {
         font-size: 13px;
-        text-decoration: none;
-        transition: border-color 0.12s;
-      }
-
-      .team-social-link:hover {
-        border-color: var(--m-accent, var(--nxt1-color-primary, #d4ff00));
-      }
-
-      .team-social-verified {
-        color: var(--m-accent, var(--nxt1-color-primary, #d4ff00));
+        font-weight: 700;
+        color: color-mix(in srgb, var(--m-accent, #d4ff00) 72%, var(--m-text, #ffffff));
+        letter-spacing: 0.02em;
       }
 
       /* ─── STAFF ─── */
@@ -505,124 +567,6 @@ import { TeamProfileService } from '../team-profile.service';
         color: var(--m-accent, var(--nxt1-color-primary, #d4ff00));
         margin: 0;
         font-weight: 600;
-      }
-
-      .team-staff-card__bio {
-        font-size: 13px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.7));
-        margin: 4px 0 0;
-        line-height: 1.5;
-      }
-
-      .team-staff-card__tenure {
-        font-size: 11px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-      }
-
-      /* ─── RECORD / HISTORY ─── */
-      .team-record-display {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-        margin-bottom: 16px;
-        gap: 4px;
-      }
-
-      .team-record-display__value {
-        font-size: 42px;
-        font-weight: 900;
-        color: var(--m-accent, var(--nxt1-color-primary, #d4ff00));
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        letter-spacing: -0.02em;
-      }
-
-      .team-record-display__label {
-        font-size: 11px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-
-      .team-game-row {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 8px 12px;
-        border-radius: 8px;
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
-        margin-bottom: 6px;
-      }
-
-      .team-game-row__outcome {
-        font-size: 14px;
-        font-weight: 800;
-        width: 20px;
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-      }
-
-      .team-game-row--win .team-game-row__outcome {
-        color: #4ade80;
-      }
-
-      .team-game-row--loss .team-game-row__outcome {
-        color: #f87171;
-      }
-
-      .team-game-row__opponent {
-        flex: 1;
-        font-size: 13px;
-        color: var(--m-text, #ffffff);
-      }
-
-      .team-game-row__score {
-        font-size: 13px;
-        font-weight: 700;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.7));
-      }
-
-      .team-founded {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 12px 0;
-        font-size: 13px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.7));
-        margin-top: 16px;
-      }
-
-      /* ─── STATS GRID ─── */
-      .team-stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-        gap: 10px;
-      }
-
-      .team-stat-card {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 6px;
-        padding: 16px 12px;
-        border-radius: 12px;
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
-        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
-        text-align: center;
-      }
-
-      .team-stat-card__value {
-        font-size: 20px;
-        font-weight: 800;
-        color: var(--m-text, #ffffff);
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-      }
-
-      .team-stat-card__label {
-        font-size: 11px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
       }
 
       /* ─── SPONSORS ─── */
@@ -726,7 +670,19 @@ import { TeamProfileService } from '../team-profile.service';
         max-width: 320px;
       }
 
+      @media (max-width: 1360px) {
+        .team-top-row {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 14px;
+        }
+      }
+
       @media (max-width: 768px) {
+        .team-top-row {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 10px;
+        }
+
         .team-stats-grid {
           grid-template-columns: repeat(2, 1fr);
         }
@@ -737,28 +693,158 @@ import { TeamProfileService } from '../team-profile.service';
 })
 export class TeamOverviewWebComponent {
   protected readonly teamProfile = inject(TeamProfileService);
+  private readonly toast = inject(NxtToastService);
 
   // ============================================
   // INPUTS
   // ============================================
 
-  /** Active sub-section tab (about, staff, team-history, quick-stats, sponsors) */
+  /** Active sub-section tab (about, staff, team-history, sponsors) */
   readonly activeSideTab = input.required<string>();
+
+  // ============================================
+  // COMPUTED — CONNECTED ACCOUNTS
+  // ============================================
+
+  private static readonly PLATFORM_META: Readonly<
+    Record<string, { label: string; icon: string; color: string; handlePrefix: string }>
+  > = {
+    twitter: { label: 'X', icon: 'twitter', color: 'currentColor', handlePrefix: '@' },
+    instagram: { label: 'Instagram', icon: 'instagram', color: '#E1306C', handlePrefix: '@' },
+    youtube: { label: 'YouTube', icon: 'youtube', color: '#FF0000', handlePrefix: '' },
+    hudl: { label: 'Hudl', icon: 'link', color: '#FF6600', handlePrefix: '' },
+    maxpreps: { label: 'MaxPreps', icon: 'link', color: '#003DA5', handlePrefix: '' },
+    on3: { label: 'On3', icon: 'link', color: '#000000', handlePrefix: '' },
+    rivals: { label: 'Rivals', icon: 'link', color: '#F47B20', handlePrefix: '' },
+    espn: { label: 'ESPN', icon: 'link', color: '#CC0000', handlePrefix: '' },
+    tiktok: { label: 'TikTok', icon: 'link', color: '#000000', handlePrefix: '@' },
+  };
+
+  protected readonly connectedAccountsList = computed(
+    (): ReadonlyArray<{
+      readonly key: string;
+      readonly label: string;
+      readonly handle: string;
+      readonly icon: string;
+      readonly color: string;
+      readonly url: string;
+    }> => {
+      const social = this.teamProfile.team()?.social;
+      if (!social?.length) return [];
+      const def = { label: '', icon: 'link', color: 'currentColor', handlePrefix: '' };
+      return social
+        .slice()
+        .sort((a, b) => (a.displayOrder ?? 99) - (b.displayOrder ?? 99))
+        .slice(0, 8)
+        .map((link) => {
+          const meta = TeamOverviewWebComponent.PLATFORM_META[link.platform.toLowerCase()] ?? def;
+          const handle = link.username
+            ? `${meta.handlePrefix}${link.username}`
+            : meta.label || link.platform;
+          return {
+            key: link.platform,
+            label: meta.label || link.platform,
+            handle,
+            icon: meta.icon,
+            color: meta.color,
+            url: link.url,
+          };
+        });
+    }
+  );
+
+  // ============================================
+  // COMPUTED — LAST SYNCED
+  // ============================================
+
+  protected readonly lastSyncedLabel = computed(() => {
+    const updatedAt = this.teamProfile.team()?.updatedAt;
+    if (!updatedAt) return 'Never synced';
+    const parsed = new Date(updatedAt);
+    if (Number.isNaN(parsed.getTime())) return 'Never synced';
+    return this.formatRelativeTime(parsed);
+  });
+
+  protected async onSyncNow(): Promise<void> {
+    try {
+      await this.teamProfile.refresh();
+      this.toast.success('Team profile synced with Agent X');
+    } catch {
+      this.toast.error('Sync failed. Please try again.');
+    }
+  }
+
+  // ============================================
+  // COMPUTED — TEAM HISTORY TIMELINE
+  // ============================================
+
+  /**
+   * Maps team season history + current record into shared
+   * HistoryTimelineEntry[] for the NxtHistoryTimelineComponent.
+   * Shows the current season first, then past seasons.
+   */
+  protected readonly teamHistoryEntries = computed((): readonly HistoryTimelineEntry[] => {
+    const team = this.teamProfile.team();
+    if (!team) return [];
+
+    const entries: HistoryTimelineEntry[] = [];
+
+    // Current season from active record
+    const record = team.record;
+    if (record) {
+      const recordText = this.formatRecord(record.wins, record.losses, record.ties);
+      entries.push({
+        label: record.season ?? 'Current',
+        name: team.teamName,
+        logoUrl: team.logoUrl,
+        subtitle: team.conference ?? team.location,
+        record: recordText,
+        fallbackIcon: 'shield',
+      });
+    }
+
+    // Past seasons from seasonHistory
+    const history = team.seasonHistory;
+    if (history?.length) {
+      for (const season of history) {
+        const recordText =
+          season.formatted ?? this.formatRecord(season.wins, season.losses, season.ties);
+        entries.push({
+          label: season.season,
+          name: team.teamName,
+          logoUrl: team.logoUrl,
+          subtitle: season.highlight ?? season.conference ?? team.location,
+          record: recordText,
+          fallbackIcon: 'shield',
+        });
+      }
+    }
+
+    return entries;
+  });
 
   // ============================================
   // HELPERS
   // ============================================
 
-  protected getSocialIcon(platform: string): string {
-    const icons: Record<string, string> = {
-      twitter: 'logo-twitter',
-      instagram: 'logo-instagram',
-      facebook: 'logo-facebook',
-      youtube: 'logo-youtube',
-      tiktok: 'logo-tiktok',
-      hudl: 'videocam',
-      maxpreps: 'stats-chart',
-    };
-    return icons[platform] ?? 'link';
+  /** Format a wins-losses-ties record string */
+  private formatRecord(wins: number, losses: number, ties?: number): string {
+    if (ties !== undefined && ties > 0) return `${wins}-${losses}-${ties}`;
+    return `${wins}-${losses}`;
+  }
+
+  /** Format a Date into a human-readable relative time label */
+  private formatRelativeTime(date: Date): string {
+    const now = Date.now();
+    const diffMs = now - date.getTime();
+    if (diffMs < 60_000) return 'Just now';
+    const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+    const minutes = Math.round(diffMs / 60_000);
+    if (minutes < 60) return rtf.format(-minutes, 'minute');
+    const hours = Math.round(diffMs / 3_600_000);
+    if (hours < 24) return rtf.format(-hours, 'hour');
+    const days = Math.round(diffMs / 86_400_000);
+    if (days < 30) return rtf.format(-days, 'day');
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   }
 }
