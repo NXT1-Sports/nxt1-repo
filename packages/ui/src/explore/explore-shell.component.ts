@@ -94,7 +94,7 @@ export interface ExploreUser {
     <!-- Professional Page Header with shared Top Nav search styling -->
     @if (!hideHeader()) {
       <nxt1-page-header
-        leftVariant="hamburger"
+        leftVariant="avatar"
         [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         [hideAvatar]="explore.isSearchFocused()"

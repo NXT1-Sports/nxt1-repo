@@ -126,6 +126,8 @@ export {
   // Constants
   ROLE_SELECTION_STEP,
   ONBOARDING_STEPS,
+  AGENT_X_ONBOARDING_MESSAGES,
+  getAgentXMessage,
 
   // Validation functions
   validateStep,

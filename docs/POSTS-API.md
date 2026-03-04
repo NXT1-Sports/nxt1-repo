@@ -80,7 +80,7 @@ specifically designed for athletes, coaches, and sports content creators.
 **Use Cases:**
 
 - Athletes tracking highlight video reach
-- Coaches analyzing recruitment content
+- Coaches analyzing content performance
 - Measuring content performance
 
 ### Scheduling
@@ -213,13 +213,13 @@ POST /api/v1/posts/game-stats
 5. Tag teammates in celebrations
 ```
 
-**Recruiting Season:**
+**Commitment Season:**
 
 ```
 1. Pin commitment announcement
 2. Schedule visit announcements
 3. Track post analytics (college views)
-4. Share recruiting updates
+4. Share commitment updates
 ```
 
 **Team Building:**
@@ -242,7 +242,7 @@ POST /api/v1/posts/game-stats
 4. Collaborate on team posts
 ```
 
-**Recruiting:**
+**Athlete Discovery:**
 
 ```
 1. Track highlight video views
@@ -342,7 +342,7 @@ First post today (15 XP) +
 ### For Coaches
 
 1. Pin important program updates
-2. Track post analytics for recruiting
+2. Track post analytics for athlete discovery
 3. Use collaborative posts for team content
 4. Schedule announcements ahead of time
 

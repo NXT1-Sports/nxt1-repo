@@ -1,7 +1,7 @@
 # NXT1 Web Application
 
-Angular 21 SSR (Server-Side Rendering) web application for NXT1 sports
-recruiting platform.
+Angular 21 SSR (Server-Side Rendering) web application for the NXT1 AI agent
+sports platform.
 
 ## 🚀 Quick Start
 

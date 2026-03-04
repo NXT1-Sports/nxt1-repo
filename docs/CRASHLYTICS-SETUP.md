@@ -622,7 +622,7 @@ triggers the crash report upload.
 Wait 5-10 minutes, then check:
 
 - **Staging**:
-  https://console.firebase.google.com/project/nxt-1-staging/crashlytics
+  https://console.firebase.google.com/project/nxt-1-staging-v2/crashlytics
 - **Production**:
   https://console.firebase.google.com/project/nxt-1-de054/crashlytics
 

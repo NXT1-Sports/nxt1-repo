@@ -50,7 +50,7 @@ import {
   inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type { SportFormData, SportEntry } from '@nxt1/core/api';
+import type { OnboardingUserType, SportFormData, SportEntry } from '@nxt1/core/api';
 import { createEmptySportEntry } from '@nxt1/core/api';
 import {
   DEFAULT_SPORTS,
@@ -70,6 +70,9 @@ import { NxtValidationSummaryComponent } from '../../components/validation-summa
 /** Default maximum sports allowed */
 const DEFAULT_MAX_SPORTS = 3;
 
+/** Director-only synthetic option */
+const ALL_SPORTS_OPTION = 'All Sports';
+
 // ============================================
 // COMPONENT
 // ============================================
@@ -82,7 +85,7 @@ const DEFAULT_MAX_SPORTS = 3;
     <div class="nxt1-sport-step" data-testid="onboarding-sport-step">
       <!-- Description -->
       <p class="nxt1-step-description">
-        Select your sport(s).
+        {{ stepPrompt() }}
         @if (maxSports() > 1) {
           <span class="nxt1-max-hint">Choose up to {{ maxSports() }}.</span>
         }
@@ -290,6 +293,9 @@ export class OnboardingSportStepComponent {
   /** Available sports list (optional - defaults to DEFAULT_SPORTS) */
   readonly sports = input<SportCell[]>(DEFAULT_SPORTS as SportCell[]);
 
+  /** Current selected onboarding role (used for role-specific prompt/copy) */
+  readonly role = input<OnboardingUserType | null>(null);
+
   /** Maximum number of sports allowed */
   readonly maxSports = input<number>(DEFAULT_MAX_SPORTS);
 
@@ -313,7 +319,23 @@ export class OnboardingSportStepComponent {
 
   /** Available sports filtered/sorted for display */
   readonly availableSports = computed((): SportCell[] => {
-    return this.sports();
+    const baseSports = this.sports();
+    if (this.role() === 'director') {
+      return [{ name: ALL_SPORTS_OPTION, icon: '🏟️' }, ...baseSports];
+    }
+    return baseSports;
+  });
+
+  /** Role-aware prompt text */
+  readonly stepPrompt = computed((): string => {
+    const currentRole = this.role();
+    if (currentRole === 'director') {
+      return 'What sports do you oversee?';
+    }
+    if (currentRole === 'college-coach' || currentRole === 'scout') {
+      return 'What sports do you evaluate?';
+    }
+    return 'Select your sport(s).';
   });
 
   /** Check if max sports reached */
@@ -347,6 +369,8 @@ export class OnboardingSportStepComponent {
   toggleSport(sportName: string): void {
     const current = this.selectedSports();
     const isCurrentlySelected = current.includes(sportName);
+    const isAllSports = sportName === ALL_SPORTS_OPTION;
+    const hasAllSportsSelected = current.includes(ALL_SPORTS_OPTION);
 
     let updated: string[];
     if (isCurrentlySelected) {
@@ -354,6 +378,26 @@ export class OnboardingSportStepComponent {
       updated = current.filter((s) => s !== sportName);
       this.logger.debug('Sport deselected', { sport: sportName, remaining: updated.length });
     } else {
+      if (isAllSports) {
+        updated = [ALL_SPORTS_OPTION];
+        this.logger.debug('All Sports selected for director', { total: updated.length });
+        this.selectedSports.set(updated);
+        this.emitChange(updated);
+        return;
+      }
+
+      if (hasAllSportsSelected) {
+        // Replace "All Sports" with a specific sport selection
+        updated = [sportName];
+        this.logger.debug('Replaced All Sports with specific sport', {
+          sport: sportName,
+          total: updated.length,
+        });
+        this.selectedSports.set(updated);
+        this.emitChange(updated);
+        return;
+      }
+
       // Select (if not at max)
       if (current.length >= this.maxSports()) {
         return; // Max reached

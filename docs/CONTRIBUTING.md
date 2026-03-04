@@ -1,8 +1,9 @@
 # Contributing to NXT1
 
 Thank you for your interest in contributing to the NXT1 platform! We are
-building the next generation of sports recruiting technology, and your
-contributions help us maintain a high standard of engineering excellence.
+building the next generation of AI agent sports technology that does work for
+athletes and coaches, and your contributions help us maintain a high standard of
+engineering excellence.
 
 This document outlines the standards and workflows required for contributing to
 this monorepo.

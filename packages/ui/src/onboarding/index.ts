@@ -159,3 +159,8 @@ export { OnboardingCompleteComponent } from './onboarding-complete';
 // WELCOME SLIDES PAGE (Role-Specific Feature Highlights)
 // ============================================
 export { OnboardingWelcomeComponent } from './onboarding-welcome';
+
+// ============================================
+// AGENT X TYPEWRITER (AI-Guided Step Messages)
+// ============================================
+export { OnboardingAgentXTypewriterComponent } from './onboarding-agent-x-typewriter';

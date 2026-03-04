@@ -126,9 +126,7 @@ export type OnboardingUserType =
   | 'director'
   | 'recruiting-service'
   | 'parent'
-  | 'scout'
-  | 'media'
-  | 'fan';
+  | 'scout';
 
 /** Team code prefill data */
 export interface TeamCodePrefillData {
@@ -404,8 +402,6 @@ function mapUserTypeToRole(userType: OnboardingUserType): string {
       return 'coach';
     case 'parent':
       return 'parent';
-    case 'fan':
-      return 'fan';
     default:
       return 'athlete';
   }

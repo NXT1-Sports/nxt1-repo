@@ -93,59 +93,6 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
   ],
   template: `
     <div class="nxt1-profile-form" data-testid="onboarding-profile-step">
-      <!-- Photo Upload Section -->
-      <div class="nxt1-photo-section">
-        <button
-          type="button"
-          class="nxt1-photo-upload"
-          [class.has-image]="hasProfileImage()"
-          [disabled]="disabled()"
-          (click)="onPhotoClick()"
-          data-testid="onboarding-photo-upload"
-          aria-label="Add profile photo"
-          nxtHaptic="selection"
-        >
-          @if (hasProfileImage()) {
-            <!-- Profile Image Preview -->
-            <img [src]="profileImg()" alt="Profile photo preview" class="nxt1-photo-preview" />
-            <div class="nxt1-photo-edit-badge">
-              <svg
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                width="14"
-                height="14"
-                aria-hidden="true"
-              >
-                <path
-                  d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
-                />
-              </svg>
-            </div>
-          } @else {
-            <!-- Placeholder Icon -->
-            <div class="nxt1-photo-placeholder">
-              <svg viewBox="0 0 24 24" fill="none" class="nxt1-photo-icon" aria-hidden="true">
-                <path
-                  d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
-                  fill="currentColor"
-                />
-              </svg>
-            </div>
-            <span class="nxt1-photo-label">Add Photo</span>
-          }
-        </button>
-      </div>
-
-      <!-- Hidden File Input -->
-      <input
-        #fileInput
-        type="file"
-        [accept]="acceptedTypes"
-        class="hidden"
-        (change)="onFileSelected($event)"
-        data-testid="onboarding-photo-input"
-      />
-
       <!-- Name Fields -->
       <div class="nxt1-name-fields">
         <!-- First Name -->

@@ -140,7 +140,9 @@ export interface ProfileShellUser {
     <!-- ═══ TOP NAVIGATION HEADER ═══ -->
     <nxt1-page-header
       [showBack]="shouldShowBack()"
-      [leftVariant]="shouldShowBack() ? 'avatar' : 'hamburger'"
+      leftVariant="avatar"
+      [avatarSrc]="currentUser()?.profileImg"
+      [avatarName]="currentUser()?.displayName"
       (backClick)="backClick.emit()"
       (menuClick)="menuClick.emit()"
     >

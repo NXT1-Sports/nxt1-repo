@@ -43,9 +43,7 @@ export type OnboardingUserType =
   | 'director'
   | 'recruiting-service'
   | 'parent'
-  | 'scout'
-  | 'media'
-  | 'fan';
+  | 'scout';
 
 /** Step IDs */
 export type OnboardingStepId =
@@ -149,8 +147,6 @@ export function toAnalyticsUserType(userType: OnboardingUserType): ViewerType {
     'recruiting-service': 'recruiting-service', // Recruiting services get their own type
     parent: 'parent',
     scout: 'scout',
-    media: 'media',
-    fan: 'fan',
   };
   return mapping[userType] ?? 'anonymous';
 }

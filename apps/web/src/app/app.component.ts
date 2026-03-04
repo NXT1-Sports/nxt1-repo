@@ -123,41 +123,6 @@ export class AppComponent implements OnInit {
 
     // Log app initialization
     this.logger.info('Browser features initialized');
-
-    // DEFERRED: Initialize Firebase Analytics & Performance AFTER LCP.
-    // These SDKs are heavy (~50-80ms main thread work) and are not needed
-    // for initial render. Using requestIdleCallback ensures they load
-    // only when the browser is idle, preventing render delay.
-    this.deferFirebaseObservability();
-  }
-
-  /**
-   * Lazily initialize Firebase Analytics and Performance Monitoring.
-   * Deferred to idle time to avoid blocking LCP.
-   */
-  private deferFirebaseObservability(): void {
-    const init = async () => {
-      try {
-        const { getAnalytics } = await import('@angular/fire/analytics');
-        const { getPerformance } = await import('@angular/fire/performance');
-
-        // Initialize the SDKs (they auto-attach to the default FirebaseApp)
-        getAnalytics();
-        getPerformance();
-
-        this.logger.debug('Firebase Analytics & Performance initialized (deferred)');
-      } catch (err: unknown) {
-        // Non-critical — don't break the app if analytics fail
-        const details = err instanceof Error ? { message: err.message } : undefined;
-        this.logger.warn('Firebase observability init failed', details);
-      }
-    };
-
-    if (typeof requestIdleCallback === 'function') {
-      requestIdleCallback(() => init(), { timeout: 8000 });
-    } else {
-      setTimeout(() => init(), 3000);
-    }
   }
 
   /**

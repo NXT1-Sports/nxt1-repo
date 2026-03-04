@@ -328,11 +328,12 @@ export const AGENT_X_CENTER_FOOTER_TABS: FooterTabItem[] = [
 
 /**
  * AI-First layout: Agent X on the far left as the home anchor.
- * Visual order: Agent X, Explore, Activity, Profile.
+ * Visual order: Agent X, Explore, Activity, Create.
  *
  * Notes:
  * - Agent X remains a circular action button for visual prominence.
- * - Messages is removed from the footer in this variant.
+ * - Profile is accessed via the avatar in the top-left header.
+ * - Create ("+") in the bottom right for quick content uploads.
  */
 export const AGENT_X_LEFT_FOOTER_TABS: FooterTabItem[] = [
   {
@@ -353,20 +354,20 @@ export const AGENT_X_LEFT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Explore athletes and teams',
   },
   {
+    id: 'create',
+    label: 'Create',
+    icon: 'plusCircle',
+    iconActive: 'plusCircleFilled',
+    route: '/create',
+    ariaLabel: 'Add film, stats, or offers to your resume',
+  },
+  {
     id: 'activity',
     label: 'Activity',
     icon: 'bell',
     iconActive: 'bellFilled',
     route: '/activity',
     ariaLabel: 'View your activity and notifications',
-  },
-  {
-    id: 'profile',
-    label: 'Profile',
-    icon: 'user',
-    iconActive: 'userFilled',
-    route: '/profile',
-    ariaLabel: 'View your profile',
   },
 ];
 
@@ -1307,12 +1308,6 @@ export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
         label: 'Analytics',
         icon: 'barChart',
         route: '/analytics',
-      },
-      {
-        id: 'xp',
-        label: 'XP',
-        icon: 'sparkles',
-        route: '/xp',
       },
       {
         id: 'invite-team',

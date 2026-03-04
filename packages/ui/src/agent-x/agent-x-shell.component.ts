@@ -135,7 +135,7 @@ export interface WeeklyPlaybookItem {
     <!-- ═══ PAGE HEADER — Agent X Logo Centered ═══ -->
     @if (!hideHeader()) {
       <nxt1-page-header
-        leftVariant="hamburger"
+        leftVariant="avatar"
         [avatarSrc]="user()?.profileImg"
         [avatarName]="displayName()"
         (avatarClick)="avatarClick.emit()"

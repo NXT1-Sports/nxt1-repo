@@ -280,7 +280,7 @@ import { getVerification } from '@nxt1/core';
         .madden-mobile-hero__carousel .carousel-glow-wrap {
           width: 148px;
           max-width: none;
-          height: 210px;
+          height: 220px;
           border-radius: 14px;
         }
         .madden-mobile-hero__carousel .madden-player-carousel {

@@ -205,6 +205,13 @@ export type AuthShellVariant =
               </div>
             }
 
+            <!-- Optional pre-content slot (outside card/glass container) -->
+            @if (variant !== 'onboarding') {
+              <div class="nxt1-pre-content" [style.maxWidth]="showSidePanel ? '840px' : maxWidth">
+                <ng-content select="[authPreContent]"></ng-content>
+              </div>
+            }
+
             <!-- Scrollable Content Area -->
             <div
               class="nxt1-content-area"
@@ -367,12 +374,12 @@ export type AuthShellVariant =
         overflow: visible;
         box-sizing: border-box;
         /* Safe area padding for notched devices */
-        padding-top: env(safe-area-inset-top, 0px);
-        /* Default variant layout — vertically centered */
+        padding-top: calc(env(safe-area-inset-top, 0px) + 48px);
+        /* Default variant layout — top-anchored so logo stays fixed */
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
+        justify-content: flex-start;
         min-height: 100vh;
         min-height: 100dvh;
         padding-left: var(--nxt1-spacing-4);
@@ -417,6 +424,17 @@ export type AuthShellVariant =
 
       .nxt1-auth-layout--default .nxt1-content-area {
         width: 100%;
+      }
+
+      .nxt1-pre-content {
+        width: 100%;
+        margin-bottom: var(--nxt1-spacing-2);
+        display: flex;
+        justify-content: center;
+      }
+
+      .nxt1-pre-content:empty {
+        display: none;
       }
 
       /* Logo drop shadow for depth */
@@ -679,6 +697,7 @@ export type AuthShellVariant =
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-3);
+        min-height: 120px; /* Prevent logo shift on step transitions */
       }
 
       /* Override title/subtitle styles for branding panel */
@@ -884,6 +903,7 @@ export type AuthShellVariant =
 
       .nxt1-mobile-title {
         margin-bottom: var(--nxt1-spacing-4);
+        min-height: 80px; /* Prevent logo shift on step transitions */
       }
 
       /* ============================================ */
@@ -909,20 +929,20 @@ export type AuthShellVariant =
       }
 
       /* Onboarding uses 1024px breakpoint for split-screen */
-      .nxt1-onboarding-layout .desktop-only {
+      .nxt1-auth-layout--onboarding .desktop-only {
         display: flex;
       }
 
-      .nxt1-onboarding-layout .mobile-only {
+      .nxt1-auth-layout--onboarding .mobile-only {
         display: none;
       }
 
       @media (max-width: 1023px) {
-        .nxt1-onboarding-layout .desktop-only {
+        .nxt1-auth-layout--onboarding .desktop-only {
           display: none !important;
         }
 
-        .nxt1-onboarding-layout .mobile-only {
+        .nxt1-auth-layout--onboarding .mobile-only {
           display: block;
         }
       }

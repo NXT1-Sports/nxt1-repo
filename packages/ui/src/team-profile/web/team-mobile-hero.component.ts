@@ -1,12 +1,13 @@
 /**
  * @fileoverview Team Mobile Hero Component
  * @module @nxt1/ui/team-profile/web
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Mobile-only compact team identity hero block.
- * Displays: Back arrow, logo, team name, subtitle, follow, quick stats.
+ * Mobile-only hero block for team profile — matches the 2-column grid
+ * layout used by ProfileMobileHeroComponent (carousel + identity + stats).
  *
- * Mirrors ProfileMobileHeroComponent architecture.
+ * Shows: Gallery carousel (or large team logo) with glow effects on the
+ * left, team identity + follow button + key-value stats on the right.
  *
  * ⭐ WEB ONLY (mobile viewport) — SSR-safe ⭐
  */
@@ -14,194 +15,340 @@ import { Component, ChangeDetectionStrategy, inject, computed, output } from '@a
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
-import { NxtBackButtonComponent } from '../../components/back-button';
+import { NxtImageCarouselComponent } from '../../components/image-carousel';
 import { TeamProfileService } from '../team-profile.service';
 
 @Component({
   selector: 'nxt1-team-mobile-hero',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, NxtImageComponent, NxtBackButtonComponent],
+  imports: [CommonModule, NxtIconComponent, NxtImageComponent, NxtImageCarouselComponent],
   template: `
-    <div class="team-mobile-hero__inner">
-      <nxt1-back-button
-        class="team-mobile-hero__back"
-        size="sm"
-        variant="ghost"
-        ariaLabel="Go back"
-        (backClick)="back.emit()"
-      />
-      @if (teamProfile.team()?.logoUrl) {
-        <nxt1-image
-          class="team-mobile-hero__logo"
-          [src]="teamProfile.team()!.logoUrl!"
-          [alt]="teamProfile.team()!.teamName"
-          [width]="48"
-          [height]="48"
-          variant="avatar"
-          fit="contain"
-          [priority]="true"
-          [showPlaceholder]="false"
-        />
-      } @else {
-        <div class="team-mobile-hero__logo-fallback">
-          <nxt1-icon name="shield" [size]="24" />
-        </div>
-      }
-      <div class="team-mobile-hero__text">
-        <h1 class="team-mobile-hero__name">{{ headerTeamName() }}</h1>
-        <p class="team-mobile-hero__meta">{{ headerSubtitle() }}</p>
+    <section class="team-mobile-hero md:hidden" aria-label="Team summary">
+      <!-- Left column: gallery carousel or large logo with glow effects -->
+      <div class="team-mobile-hero__carousel">
+        @if (teamProfile.galleryImages().length > 0) {
+          <div class="carousel-glow-wrap">
+            <div class="carousel-glow-border" aria-hidden="true"></div>
+            <div class="carousel-glow-ambient" aria-hidden="true"></div>
+            <nxt1-image-carousel
+              [images]="teamProfile.galleryImages()"
+              [alt]="headerTeamName()"
+              [autoPlay]="true"
+              [autoPlayInterval]="5000"
+              [overlayTitle]="headerTeamName()"
+              [overlaySubtitle]="headerSubtitle()"
+              class="team-hero-carousel"
+            />
+            @if (teamProfile.team()?.verificationStatus === 'verified') {
+              <span class="carousel-verified-badge">
+                <nxt1-icon name="checkmarkCircle" [size]="14" />
+                Verified
+              </span>
+            }
+          </div>
+        } @else {
+          <div class="carousel-glow-wrap team-logo-hero-wrap">
+            <div class="carousel-glow-border" aria-hidden="true"></div>
+            <div class="carousel-glow-ambient" aria-hidden="true"></div>
+            <div class="team-logo-hero">
+              @if (teamProfile.team()?.logoUrl) {
+                <nxt1-image
+                  [src]="teamProfile.team()!.logoUrl!"
+                  [alt]="headerTeamName()"
+                  [width]="96"
+                  [height]="96"
+                  variant="avatar"
+                  fit="contain"
+                  [priority]="true"
+                  [showPlaceholder]="false"
+                />
+              } @else {
+                <div class="team-logo-hero__fallback">
+                  <nxt1-icon name="shield" [size]="48" />
+                </div>
+              }
+            </div>
+          </div>
+        }
       </div>
-      <div class="team-mobile-hero__actions">
+
+      <!-- Right column: logo + identity + follow + followers -->
+      <div class="team-mobile-hero__identity">
+        <!-- Team logo above name -->
+        @if (teamProfile.team()?.logoUrl) {
+          <nxt1-image
+            class="team-mobile-hero__logo"
+            [src]="teamProfile.team()!.logoUrl!"
+            [alt]="headerTeamName()"
+            [width]="60"
+            [height]="60"
+            variant="avatar"
+            fit="contain"
+            [priority]="true"
+            [showPlaceholder]="false"
+          />
+        } @else {
+          <div class="team-mobile-hero__logo-fallback">
+            <nxt1-icon name="shield" [size]="22" />
+          </div>
+        }
+        <h1 class="team-mobile-hero__name">{{ headerTeamName() }}</h1>
+        @if (headerSubtitle()) {
+          <p class="team-mobile-hero__meta">{{ headerSubtitle() }}</p>
+        }
         @if (!teamProfile.isTeamAdmin()) {
           <button
             type="button"
             class="team-mobile-hero__follow-btn"
             [class.team-mobile-hero__follow-btn--following]="teamProfile.followStats()?.isFollowing"
+            aria-label="Follow team"
             (click)="follow.emit()"
           >
+            @if (!teamProfile.followStats()?.isFollowing) {
+              <nxt1-icon name="plus" [size]="13" />
+            }
             {{ teamProfile.followStats()?.isFollowing ? 'Following' : 'Follow' }}
           </button>
         }
-      </div>
-    </div>
-    <!-- Quick Stats Row -->
-    <div class="team-mobile-hero__stats">
-      @if (teamProfile.recordDisplay()) {
-        <div class="team-mobile-hero__stat">
-          <span class="team-mobile-hero__stat-value">{{ teamProfile.recordDisplay() }}</span>
-          <span class="team-mobile-hero__stat-label">Record</span>
-        </div>
-      }
-      <div class="team-mobile-hero__stat">
-        <span class="team-mobile-hero__stat-value">{{ teamProfile.rosterCount() }}</span>
-        <span class="team-mobile-hero__stat-label">Athletes</span>
-      </div>
-      @if (teamProfile.followStats()) {
-        <div class="team-mobile-hero__stat">
-          <span class="team-mobile-hero__stat-value">{{
-            teamProfile.followStats()!.followersCount
-          }}</span>
-          <span class="team-mobile-hero__stat-label">Followers</span>
-        </div>
-        @if (teamProfile.isTeamAdmin()) {
-          <div class="team-mobile-hero__stat">
-            <span class="team-mobile-hero__stat-value">{{
-              teamProfile.followStats()!.followingCount ?? 0
+        <!-- Followers count -->
+        @if (teamProfile.followStats()) {
+          <div class="team-mobile-hero__followers">
+            <span class="team-mobile-hero__followers-count">{{
+              teamProfile.followStats()!.followersCount
             }}</span>
-            <span class="team-mobile-hero__stat-label">Following</span>
+            <span class="team-mobile-hero__followers-label">Followers</span>
           </div>
         }
-      }
-    </div>
+      </div>
+    </section>
   `,
   styles: [
     `
       :host {
         display: block;
-        padding: 16px 16px 8px;
       }
 
-      .team-mobile-hero__inner {
-        display: flex;
-        align-items: center;
-        gap: 12px;
+      /* ── Desktop: hide mobile hero ── */
+      .team-mobile-hero {
+        display: none;
       }
 
-      .team-mobile-hero__back {
-        flex-shrink: 0;
+      .team-mobile-hero__followers {
+        display: none;
       }
 
-      .team-mobile-hero__logo {
-        width: 48px;
-        height: 48px;
-        border-radius: 10px;
-      }
-
-      .team-mobile-hero__logo-fallback {
-        width: 48px;
-        height: 48px;
-        border-radius: 10px;
-        background: var(--m-surface-2, rgba(255, 255, 255, 0.08));
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-      }
-
-      .team-mobile-hero__text {
-        flex: 1;
-        min-width: 0;
-      }
-
-      .team-mobile-hero__name {
-        font-size: 17px;
-        font-weight: 800;
-        color: var(--m-text, #ffffff);
-        margin: 0;
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        text-transform: uppercase;
-        white-space: nowrap;
+      /* ── Carousel glow effects (matches profile) ── */
+      .carousel-glow-wrap {
+        position: relative;
+        max-width: 400px;
+        width: 100%;
+        border-radius: var(--nxt1-radius-2xl, 20px);
         overflow: hidden;
-        text-overflow: ellipsis;
       }
-
-      .team-mobile-hero__meta {
-        font-size: 12px;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.7));
-        margin: 2px 0 0;
+      .carousel-glow-border {
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        z-index: 2;
+        border: 1.5px solid rgba(255, 255, 255, 0.08);
       }
-
-      .team-mobile-hero__actions {
-        flex-shrink: 0;
+      .carousel-glow-ambient {
+        position: absolute;
+        inset: -2px;
+        border-radius: inherit;
+        pointer-events: none;
+        z-index: 0;
+        background: radial-gradient(
+          ellipse at 50% 0%,
+          color-mix(in srgb, var(--m-accent, #d4ff00) 10%, transparent) 0%,
+          transparent 70%
+        );
       }
-
-      .team-mobile-hero__follow-btn {
-        padding: 6px 14px;
-        border-radius: 999px;
-        border: 1px solid var(--m-accent, var(--nxt1-color-primary, #d4ff00));
+      .carousel-verified-badge {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
         background: color-mix(
           in srgb,
-          var(--m-accent, var(--nxt1-color-primary, #d4ff00)) 10%,
-          transparent
+          var(--m-accent, var(--nxt1-color-primary, #d4ff00)) 15%,
+          rgba(0, 0, 0, 0.65)
         );
+        border: 1px solid
+          color-mix(in srgb, var(--m-accent, var(--nxt1-color-primary, #d4ff00)) 40%, transparent);
         color: var(--m-accent, var(--nxt1-color-primary, #d4ff00));
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
-        cursor: pointer;
+        padding: 3px 8px;
+        border-radius: 999px;
+        z-index: 5;
+        pointer-events: none;
+        line-height: 1;
       }
 
-      .team-mobile-hero__follow-btn--following {
-        border-color: var(--m-border, rgba(255, 255, 255, 0.08));
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
-        color: var(--m-text-2, rgba(255, 255, 255, 0.7));
+      /* ── Large logo fallback hero (when no gallery images) ── */
+      .team-logo-hero-wrap {
+        overflow: visible;
       }
-
-      .team-mobile-hero__stats {
+      .team-logo-hero {
         display: flex;
-        gap: 24px;
-        padding: 12px 0 4px;
-        justify-content: center;
-      }
-
-      .team-mobile-hero__stat {
-        display: flex;
-        flex-direction: column;
         align-items: center;
-        gap: 2px;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        background: var(--m-surface, rgba(255, 255, 255, 0.04));
+        border-radius: inherit;
       }
-
-      .team-mobile-hero__stat-value {
-        font-size: 16px;
-        font-weight: 800;
-        color: var(--m-text, #ffffff);
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-      }
-
-      .team-mobile-hero__stat-label {
-        font-size: 10px;
+      .team-logo-hero__fallback {
         color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
+      }
+
+      /* ═══ MOBILE BREAKPOINT ═══ */
+      @media (max-width: 768px) {
+        .team-mobile-hero {
+          display: grid;
+          grid-template-columns: 148px minmax(0, 1fr);
+          gap: 12px;
+          align-items: start;
+          margin: 32px 12px 10px;
+        }
+
+        .team-mobile-hero__carousel {
+          width: 148px;
+        }
+        .team-mobile-hero__carousel .carousel-glow-wrap {
+          width: 148px;
+          max-width: none;
+          height: 220px;
+          border-radius: 14px;
+        }
+        .team-mobile-hero__carousel .team-hero-carousel {
+          width: 100%;
+          height: 100%;
+          border-radius: 14px;
+          overflow: hidden;
+        }
+        .team-mobile-hero__carousel .team-hero-carousel ::ng-deep .carousel {
+          height: 100%;
+          border-radius: 14px;
+        }
+        .team-mobile-hero__carousel .team-hero-carousel ::ng-deep .carousel::before {
+          border-radius: 14px;
+        }
+        .team-mobile-hero__carousel .team-hero-carousel ::ng-deep .carousel-track {
+          height: 100%;
+        }
+        .team-mobile-hero__carousel .team-hero-carousel ::ng-deep .carousel-slide {
+          height: 100%;
+        }
+        .team-mobile-hero__carousel .team-hero-carousel ::ng-deep .carousel-img {
+          height: 100%;
+          object-fit: cover;
+          object-position: center top;
+        }
+
+        /* ── Logo fallback sizing ── */
+        .team-mobile-hero__carousel .team-logo-hero-wrap {
+          width: 148px;
+          max-width: none;
+          height: 220px;
+          border-radius: 14px;
+        }
+        .team-mobile-hero__carousel .team-logo-hero {
+          border-radius: 14px;
+        }
+
+        /* ── Identity column ── */
+        .team-mobile-hero__identity {
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+          min-width: 0;
+          padding-top: 2px;
+        }
+        .team-mobile-hero__logo {
+          width: 60px;
+          height: 60px;
+          border-radius: 10px;
+          flex-shrink: 0;
+        }
+        .team-mobile-hero__logo-fallback {
+          width: 60px;
+          height: 60px;
+          border-radius: 10px;
+          background: var(--m-surface-2, rgba(255, 255, 255, 0.08));
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+        }
+        .team-mobile-hero__name {
+          margin: 0;
+          font-size: 22px;
+          font-weight: 800;
+          line-height: 1.12;
+          letter-spacing: -0.01em;
+          color: var(--m-text, #ffffff);
+        }
+        .team-mobile-hero__meta {
+          margin: 0;
+          font-size: 14px;
+          font-weight: 600;
+          line-height: 1.35;
+          color: var(--m-text-2, rgba(255, 255, 255, 0.7));
+        }
+        .team-mobile-hero__follow-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          margin-top: 6px;
+          align-self: flex-start;
+          border: 1.5px solid var(--m-accent, var(--nxt1-color-primary, #d4ff00));
+          background: color-mix(
+            in srgb,
+            var(--m-accent, var(--nxt1-color-primary, #d4ff00)) 12%,
+            transparent
+          );
+          color: var(--m-accent, var(--nxt1-color-primary, #d4ff00));
+          border-radius: var(--nxt1-radius-md, 8px);
+          font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+          font-size: 13px;
+          font-weight: var(--nxt1-fontWeight-semibold, 600);
+          letter-spacing: 0.01em;
+          line-height: 1;
+          padding: 7px 16px;
+          cursor: pointer;
+        }
+        .team-mobile-hero__follow-btn:active {
+          transform: scale(0.97);
+        }
+        .team-mobile-hero__follow-btn--following {
+          border-color: var(--m-border, rgba(255, 255, 255, 0.08));
+          background: var(--m-surface, rgba(255, 255, 255, 0.04));
+          color: var(--m-text-2, rgba(255, 255, 255, 0.7));
+        }
+
+        /* ── Followers count ── */
+        .team-mobile-hero__followers {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          margin-top: 8px;
+        }
+        .team-mobile-hero__followers-count {
+          font-size: 15px;
+          font-weight: 800;
+          color: var(--m-text, #ffffff);
+        }
+        .team-mobile-hero__followers-label {
+          font-size: 13px;
+          font-weight: 500;
+          color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+        }
       }
     `,
   ],
@@ -256,7 +403,7 @@ export class TeamMobileHeroComponent {
   // COMPUTED
   // ============================================
 
-  /** Header subtitle: Team type + sport (for example: "High School football") */
+  /** Header subtitle: Team type + sport (for example: "High School Football") */
   protected readonly headerSubtitle = computed(() => {
     const team = this.teamProfile.team();
     if (!team) return '';

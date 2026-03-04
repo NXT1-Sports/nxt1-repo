@@ -27,7 +27,7 @@ import type { OnboardingUserType } from './onboarding-persistence.api';
 export interface WelcomeSlide {
   /** Unique identifier for tracking */
   id: string;
-  /** Emoji icon (rendered as large visual) */
+  /** Icon token (emoji or special icon key such as 'agent-x') */
   icon: string;
   /** Primary headline (bold, large) */
   headline: string;
@@ -68,27 +68,26 @@ const ATHLETE_SLIDES: WelcomeSlidesConfig = {
   slides: [
     {
       id: 'athlete-celebrate',
-      icon: '🎉',
-      headline: "You're In!",
+      icon: 'agent-x',
+      headline: 'Meet Agent X',
       description:
-        'Your profile is ready. College coaches are waiting to discover talent like you.',
+        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
     },
     {
       id: 'athlete-showcase',
       icon: '🎬',
-      headline: 'Showcase Your Skills',
-      description:
-        'Upload highlights, stats, and achievements. Stand out with a professional profile.',
+      headline: 'Your Everyday Advantage',
+      description: 'From videos to analysis, Agent X handles whatever you need help with.',
       accentColor: '#8B5CF6',
       gradient: ['#1e1b4b', '#312e81'],
     },
     {
       id: 'athlete-discover',
       icon: '🏆',
-      headline: 'Get Recruited',
-      description: 'Connect directly with college coaches. Your next chapter starts here.',
+      headline: 'Set Up Your Agent',
+      description: "Now let's set up your Agent X experience and actions.",
       accentColor: '#F59E0B',
       gradient: ['#1c1917', '#292524'],
     },
@@ -106,25 +105,27 @@ const COACH_SLIDES: WelcomeSlidesConfig = {
   slides: [
     {
       id: 'coach-celebrate',
-      icon: '🎉',
-      headline: "You're In!",
-      description: 'Your coaching profile is set up. Time to build your team.',
+      icon: 'agent-x',
+      headline: 'Meet Agent X',
+      description:
+        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
     },
     {
       id: 'coach-manage',
       icon: '📋',
-      headline: 'Manage Your Roster',
-      description: 'Invite athletes, track progress, and keep your team organized in one place.',
+      headline: 'Delegate the Busywork',
+      description:
+        'From planning to operations, Agent X handles whatever your program needs help with.',
       accentColor: '#3B82F6',
       gradient: ['#0c1929', '#1e3a5f'],
     },
     {
       id: 'coach-connect',
       icon: '🤝',
-      headline: 'Connect Athletes to Colleges',
-      description: 'Help your athletes get discovered by college programs nationwide.',
+      headline: 'Set Up Your Agent',
+      description: "Now let's set up your Agent X experience and actions.",
       accentColor: '#10B981',
       gradient: ['#0d1f17', '#1a3c2e'],
     },
@@ -142,27 +143,27 @@ const COLLEGE_COACH_SLIDES: WelcomeSlidesConfig = {
   slides: [
     {
       id: 'college-celebrate',
-      icon: '🎉',
-      headline: "You're In!",
-      description: 'Access thousands of verified athlete profiles ready for evaluation.',
+      icon: 'agent-x',
+      headline: 'Meet Agent X',
+      description:
+        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
     },
     {
       id: 'college-search',
       icon: '🔍',
-      headline: 'Find Your Recruits',
+      headline: 'Operate Smarter, Faster',
       description:
-        'Search by position, stats, location, and academics. Filter to find the perfect fit.',
+        'From analysis to communications, Agent X handles whatever your staff needs help with.',
       accentColor: '#6366F1',
       gradient: ['#1e1b4b', '#312e81'],
     },
     {
       id: 'college-evaluate',
       icon: '📊',
-      headline: 'Evaluate Efficiently',
-      description:
-        'Watch highlights, compare stats, and connect with top prospects—all in one platform.',
+      headline: 'Set Up Your Agent',
+      description: "Now let's set up your Agent X experience and actions.",
       accentColor: '#EC4899',
       gradient: ['#2d1f2d', '#3d2d3d'],
     },
@@ -180,25 +181,27 @@ const DIRECTOR_SLIDES: WelcomeSlidesConfig = {
   slides: [
     {
       id: 'director-celebrate',
-      icon: '🎉',
-      headline: "You're In!",
-      description: 'Your program dashboard is ready. Get full visibility across all your teams.',
+      icon: 'agent-x',
+      headline: 'Meet Agent X',
+      description:
+        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
     },
     {
       id: 'director-oversight',
       icon: '📈',
-      headline: 'Program Analytics',
-      description: 'Track athlete development, team performance, and recruiting success metrics.',
+      headline: 'Lead with Clarity',
+      description:
+        'From analytics to execution, Agent X handles whatever your department needs help with.',
       accentColor: '#0EA5E9',
       gradient: ['#0c1929', '#1e3a5f'],
     },
     {
       id: 'director-manage',
       icon: '🏫',
-      headline: 'Unified Management',
-      description: 'Oversee all teams, coaches, and athletes from one powerful dashboard.',
+      headline: 'Set Up Your Agent',
+      description: "Now let's set up your Agent X experience and actions.",
       accentColor: '#14B8A6',
       gradient: ['#0d1f17', '#1a3c2e'],
     },
@@ -216,26 +219,27 @@ const RECRUITING_SERVICE_SLIDES: WelcomeSlidesConfig = {
   slides: [
     {
       id: 'recruiting-celebrate',
-      icon: '🎉',
-      headline: "You're In!",
-      description: 'Your professional recruiting tools are ready.',
+      icon: 'agent-x',
+      headline: 'Meet Agent X',
+      description:
+        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
     },
     {
       id: 'recruiting-clients',
       icon: '👥',
-      headline: 'Manage Your Roster',
+      headline: 'Scale Client Success',
       description:
-        'Track all your athlete clients, their progress, and college interests in one place.',
+        'From deliverables to follow-ups, Agent X handles whatever your clients need help with.',
       accentColor: '#8B5CF6',
       gradient: ['#1e1b4b', '#312e81'],
     },
     {
       id: 'recruiting-connect',
       icon: '🎯',
-      headline: 'Place Athletes Faster',
-      description: 'Connect clients with matching programs. Streamline your placement process.',
+      headline: 'Set Up Your Agent',
+      description: "Now let's set up your Agent X experience and actions.",
       accentColor: '#F97316',
       gradient: ['#1c1917', '#292524'],
     },
@@ -253,26 +257,27 @@ const PARENT_SLIDES: WelcomeSlidesConfig = {
   slides: [
     {
       id: 'parent-celebrate',
-      icon: '🎉',
-      headline: "You're In!",
-      description: "Stay connected to your athlete's recruiting journey.",
+      icon: 'agent-x',
+      headline: 'Meet Agent X',
+      description:
+        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
     },
     {
       id: 'parent-track',
       icon: '📱',
-      headline: 'Stay Informed',
-      description: "Follow your athlete's profile updates, college interest, and key milestones.",
+      headline: 'Support with Confidence',
+      description:
+        'From progress updates to planning, Agent X handles whatever support your family needs.',
       accentColor: '#E879F9',
       gradient: ['#2d1f2d', '#3d2d3d'],
     },
     {
       id: 'parent-learn',
       icon: '📚',
-      headline: 'Navigate Recruiting',
-      description:
-        'Access guides, timelines, and resources to support the college recruiting process.',
+      headline: 'Set Up Your Agent',
+      description: "Now let's set up your Agent X experience and actions.",
       accentColor: '#22D3EE',
       gradient: ['#0c1929', '#1e3a5f'],
     },
@@ -290,101 +295,28 @@ const SCOUT_SLIDES: WelcomeSlidesConfig = {
   slides: [
     {
       id: 'scout-celebrate',
-      icon: '🎉',
-      headline: "You're In!",
-      description: 'Your scouting toolkit is ready. Discover and evaluate top talent.',
+      icon: 'agent-x',
+      headline: 'Meet Agent X',
+      description:
+        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
       accentColor: 'var(--nxt1-color-primary)',
       gradient: ['#0f172a', '#1e293b'],
     },
     {
       id: 'scout-evaluate',
       icon: '👁️',
-      headline: 'Evaluate Talent',
-      description: 'Watch highlights, analyze stats, and create professional scouting reports.',
+      headline: 'Evaluate with Precision',
+      description: 'From film to reports, Agent X handles whatever you need help with.',
       accentColor: '#F59E0B',
       gradient: ['#1c1917', '#292524'],
     },
     {
       id: 'scout-share',
       icon: '📤',
-      headline: 'Share Your Insights',
-      description:
-        'Connect with coaches and programs. Your evaluations help athletes get discovered.',
+      headline: 'Set Up Your Agent',
+      description: "Now let's set up your Agent X experience and actions.",
       accentColor: '#10B981',
       gradient: ['#0d1f17', '#1a3c2e'],
-    },
-  ],
-};
-
-/**
- * Media-specific welcome slides
- * Focus: Content creation, athlete features, building audience
- */
-const MEDIA_SLIDES: WelcomeSlidesConfig = {
-  role: 'media',
-  greeting: 'Welcome to NXT1!',
-  ctaText: 'Create Content',
-  slides: [
-    {
-      id: 'media-celebrate',
-      icon: '🎉',
-      headline: "You're In!",
-      description: 'Your media credentials are set. Start telling athlete stories.',
-      accentColor: 'var(--nxt1-color-primary)',
-      gradient: ['#0f172a', '#1e293b'],
-    },
-    {
-      id: 'media-discover',
-      icon: '🎥',
-      headline: 'Find Great Stories',
-      description: 'Discover rising athletes, trending highlights, and breaking recruiting news.',
-      accentColor: '#EF4444',
-      gradient: ['#1c1917', '#292524'],
-    },
-    {
-      id: 'media-create',
-      icon: '✨',
-      headline: 'Build Your Audience',
-      description:
-        'Share content, feature athletes, and grow your following in the sports community.',
-      accentColor: '#A855F7',
-      gradient: ['#1e1b4b', '#312e81'],
-    },
-  ],
-};
-
-/**
- * Fan-specific welcome slides
- * Focus: Following athletes, staying updated, community engagement
- */
-const FAN_SLIDES: WelcomeSlidesConfig = {
-  role: 'fan',
-  greeting: 'Welcome to NXT1!',
-  ctaText: 'Start Exploring',
-  slides: [
-    {
-      id: 'fan-celebrate',
-      icon: '🎉',
-      headline: "You're In!",
-      description: "You're part of the NXT1 community. Discover amazing athletes.",
-      accentColor: 'var(--nxt1-color-primary)',
-      gradient: ['#0f172a', '#1e293b'],
-    },
-    {
-      id: 'fan-follow',
-      icon: '⭐',
-      headline: 'Follow Your Favorites',
-      description: 'Track athletes, teams, and recruiting updates. Never miss a highlight.',
-      accentColor: '#F59E0B',
-      gradient: ['#1c1917', '#292524'],
-    },
-    {
-      id: 'fan-engage',
-      icon: '💬',
-      headline: 'Join the Community',
-      description: 'Like, comment, and engage with the sports recruiting community.',
-      accentColor: '#3B82F6',
-      gradient: ['#0c1929', '#1e3a5f'],
     },
   ],
 };
@@ -405,8 +337,6 @@ export const WELCOME_SLIDES_BY_ROLE: Record<OnboardingUserType, WelcomeSlidesCon
   'recruiting-service': RECRUITING_SERVICE_SLIDES,
   parent: PARENT_SLIDES,
   scout: SCOUT_SLIDES,
-  media: MEDIA_SLIDES,
-  fan: FAN_SLIDES,
 } as const;
 
 // ============================================

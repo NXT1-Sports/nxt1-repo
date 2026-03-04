@@ -279,7 +279,7 @@ To:
 
 - [ ] Bottom sheet prompts when features require role:
   - Upload video → "Complete athlete profile"
-  - Search athletes → "Are you recruiting?"
+  - Search athletes → "Are you a coach?"
   - Create team → "Set up coach tools"
 - [ ] Multi-role selection support (athlete + parent + fan)
 - [ ] Role capabilities model vs. exclusive roles

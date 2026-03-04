@@ -46,7 +46,7 @@ import { Router, RouterModule } from '@angular/router';
 import { NavController } from '@ionic/angular/standalone';
 
 // Shared UI Components
-import { AuthShellComponent, AuthTitleComponent, AuthSubtitleComponent } from '@nxt1/ui';
+import { AuthShellComponent } from '@nxt1/ui';
 import {
   OnboardingRoleSelectionComponent,
   OnboardingProfileStepComponent,
@@ -55,6 +55,7 @@ import {
   OnboardingReferralStepComponent,
   OnboardingButtonMobileComponent,
   OnboardingStepCardComponent,
+  OnboardingAgentXTypewriterComponent,
   type AnimationDirection,
 } from '@nxt1/ui';
 
@@ -70,6 +71,8 @@ import {
   type SportFormData,
   type ReferralSourceData,
   ONBOARDING_STEPS,
+  AGENT_X_ONBOARDING_MESSAGES as _AGENT_X_ONBOARDING_MESSAGES,
+  getAgentXMessage,
   // ⭐ SHARED STATE MACHINE - Single source of truth
   createOnboardingStateMachine,
   type OnboardingStateMachine,
@@ -131,8 +134,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     CommonModule,
     RouterModule,
     AuthShellComponent,
-    AuthTitleComponent,
-    AuthSubtitleComponent,
     OnboardingRoleSelectionComponent,
     OnboardingProfileStepComponent,
     OnboardingTeamStepComponent,
@@ -140,6 +141,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     OnboardingReferralStepComponent,
     OnboardingButtonMobileComponent,
     OnboardingStepCardComponent,
+    OnboardingAgentXTypewriterComponent,
   ],
   template: `
     <nxt1-auth-shell
@@ -150,16 +152,17 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       [mobileFooterPadding]="true"
       (backClick)="onBack()"
     >
-      <!-- Title & Subtitle -->
-      <nxt1-auth-title authTitle testId="onboarding-title">
-        {{ currentStep().title }}
-      </nxt1-auth-title>
-      <nxt1-auth-subtitle authSubtitle testId="onboarding-subtitle">
-        {{ currentStep().subtitle }}
-      </nxt1-auth-subtitle>
+      <!-- Agent X text above glass container -->
+      <div authPreContent class="nxt1-onboarding-mobile-header" data-testid="onboarding-title">
+        <nxt1-onboarding-agent-x-typewriter [message]="agentXMessage()" />
+      </div>
 
       <!-- Main Content -->
       <div authContent>
+        <!-- Step title inside glass container -->
+        <div class="nxt1-onboarding-step-header">
+          <h2 class="nxt1-onboarding-step-title">{{ currentStep().title }}</h2>
+        </div>
         <!-- Step Card Container with Animations -->
         <nxt1-onboarding-step-card
           variant="seamless"
@@ -167,7 +170,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
           [animationDirection]="animationDirection()"
           [animationKey]="currentStep().id"
         >
-          <!-- Role Selection (Optional - Last Step) -->
+          <!-- Step 1: Role Selection -->
           @if (currentStep().id === 'role') {
             <nxt1-onboarding-role-selection
               [selectedRole]="selectedRole()"
@@ -176,7 +179,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             />
           }
 
-          <!-- Step 1: Profile -->
+          <!-- Step 2: Profile -->
           @if (currentStep().id === 'profile') {
             <nxt1-onboarding-profile-step
               #profileStep
@@ -205,6 +208,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
           @if (currentStep().id === 'sport') {
             <nxt1-onboarding-sport-step
               [sportData]="sportFormData()"
+              [role]="selectedRole()"
               [disabled]="isLoading()"
               (sportChange)="onSportChange($event)"
             />
@@ -264,6 +268,25 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     `
       .onboarding-page {
         --background: var(--nxt1-color-bg-primary);
+      }
+
+      .nxt1-onboarding-mobile-header {
+        text-align: center;
+        margin-bottom: var(--nxt1-spacing-3, 12px);
+      }
+
+      .nxt1-onboarding-step-header {
+        text-align: center;
+        margin-bottom: var(--nxt1-spacing-3, 12px);
+        min-height: 2.5rem;
+      }
+
+      .nxt1-onboarding-step-title {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-2xl, 1.5rem);
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary);
+        margin: var(--nxt1-spacing-2, 8px) 0 0 0;
       }
     `,
   ],
@@ -390,6 +413,9 @@ export class OnboardingPage implements OnInit, OnDestroy {
   /** Animation direction for step transitions */
   readonly animationDirection = signal<AnimationDirection>('none');
 
+  /** Whether current step passes validation (synced from state machine) */
+  private readonly _isCurrentStepValid = signal(true);
+
   // ============================================
   // COMPUTED SIGNALS (Derived from state)
   // ============================================
@@ -428,6 +454,13 @@ export class OnboardingPage implements OnInit, OnDestroy {
     );
   });
 
+  /** Agent X typewriter message for the current step — role-personalised */
+  readonly agentXMessage = computed(() => {
+    const stepId = this.currentStep().id;
+    const role = this.selectedRole();
+    return getAgentXMessage(stepId, role);
+  });
+
   /** Whether user can go back */
   readonly canGoBack = computed(() => this._currentStepIndex() > 0);
 
@@ -442,10 +475,8 @@ export class OnboardingPage implements OnInit, OnDestroy {
     return !this.currentStep().required;
   });
 
-  /** Whether current step is valid (delegated to state machine) */
-  readonly isCurrentStepValid = computed(() => {
-    return this.machine?.getState()?.isCurrentStepValid ?? true;
-  });
+  /** Whether current step is valid (synced from state machine snapshot) */
+  readonly isCurrentStepValid = computed(() => this._isCurrentStepValid());
 
   /** Completed step indices (0-based) for progress indicator */
   readonly completedStepIndices = computed(() => {
@@ -575,6 +606,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
     this.isLoading.set(state.isLoading);
     this.error.set(state.error);
     this.animationDirection.set(state.animationDirection as AnimationDirection);
+    this._isCurrentStepValid.set(state.isCurrentStepValid);
   }
 
   // ============================================

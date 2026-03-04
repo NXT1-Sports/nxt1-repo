@@ -658,8 +658,8 @@ export function createOnboardingStateMachine(
     // ============================================
 
     start(): void {
-      machineState = 'profile';
       currentStepIndex = 0;
+      machineState = getCurrentStep().id as OnboardingMachineState;
 
       emit({
         type: 'STARTED',

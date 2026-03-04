@@ -64,6 +64,7 @@ import {
   OnboardingStepCardComponent,
   type AnimationDirection,
 } from '@nxt1/ui/onboarding/onboarding-step-card';
+import { OnboardingAgentXTypewriterComponent } from '@nxt1/ui/onboarding/onboarding-agent-x-typewriter';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { NxtThemeService } from '@nxt1/ui/services/theme';
@@ -82,6 +83,8 @@ import {
   type ContactFormData,
   type ReferralSourceData,
   ONBOARDING_STEPS,
+  AGENT_X_ONBOARDING_MESSAGES as _AGENT_X_ONBOARDING_MESSAGES,
+  getAgentXMessage,
   // ⭐ SHARED STATE MACHINE - Single source of truth
   createOnboardingStateMachine,
   type OnboardingStateMachine,
@@ -158,6 +161,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     OnboardingNavigationButtonsComponent,
     OnboardingButtonMobileComponent,
     OnboardingStepCardComponent,
+    OnboardingAgentXTypewriterComponent,
   ],
   template: `
     <nxt1-auth-shell
@@ -172,17 +176,15 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         {{ currentStep().title || 'Loading...' }}
       </nxt1-auth-title>
       <nxt1-auth-subtitle authSubtitle testId="onboarding-subtitle">
-        {{ currentStep().subtitle || '' }}
+        <nxt1-onboarding-agent-x-typewriter [message]="agentXMessage()" />
       </nxt1-auth-subtitle>
 
       <!-- Mobile: Title & Subtitle shown in form panel (top) -->
       <div authTitleMobile class="nxt1-mobile-titles">
-        <h1 class="text-text-primary mb-2 text-2xl font-bold">
+        <nxt1-onboarding-agent-x-typewriter [message]="agentXMessage()" />
+        <h1 class="text-text-primary mt-2 mb-2 text-2xl font-bold">
           {{ currentStep().title || 'Loading...' }}
         </h1>
-        <p class="text-text-secondary text-base">
-          {{ currentStep().subtitle || '' }}
-        </p>
       </div>
 
       <!-- Main Content (Form Panel) -->
@@ -204,7 +206,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             [animationDirection]="animationDirection()"
             [animationKey]="currentStep().id || 'loading'"
           >
-            <!-- Role Selection (Optional - Last Step) -->
+            <!-- Step 1: Role Selection -->
             @if (currentStep().id === 'role') {
               <nxt1-onboarding-role-selection
                 [selectedRole]="selectedRole()"
@@ -213,7 +215,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               />
             }
 
-            <!-- Step 1: Profile -->
+            <!-- Step 2: Profile -->
             @if (currentStep().id === 'profile') {
               <nxt1-onboarding-profile-step
                 #profileStep
@@ -242,6 +244,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             @if (currentStep().id === 'sport') {
               <nxt1-onboarding-sport-step
                 [sportData]="sportFormData()"
+                [role]="selectedRole()"
                 [disabled]="isLoading()"
                 (sportChange)="onSportChange($event)"
               />
@@ -267,7 +270,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               />
             }
 
-            <!-- Step 7: Referral Source (Final Step) -->
+            <!-- Step 4: Referral Source -->
             @if (currentStep().id === 'referral-source') {
               <nxt1-onboarding-referral-step
                 [referralData]="referralFormData()"
@@ -357,10 +360,11 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         margin: var(--nxt1-spacing-2) 0 var(--nxt1-spacing-4) 0;
       }
 
-      /* Mobile titles styling */
+      /* Mobile titles styling — fixed min-height prevents logo from shifting */
       .nxt1-mobile-titles {
         text-align: center;
         padding: var(--nxt1-spacing-2) 0 var(--nxt1-spacing-4) 0;
+        min-height: 7rem;
       }
 
       /* Desktop footer visibility */
@@ -458,6 +462,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   /** Animation direction for step transitions */
   readonly animationDirection = signal<AnimationDirection>('none');
 
+  /** Whether current step passes validation (synced from state machine) */
+  private readonly _isCurrentStepValid = signal(true);
+
   // ============================================
   // COMPUTED SIGNALS (Derived from state)
   // ============================================
@@ -512,6 +519,13 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     );
   });
 
+  /** Agent X typewriter message for the current step — role-personalised */
+  readonly agentXMessage = computed(() => {
+    const stepId = this.currentStep().id;
+    const role = this.selectedRole();
+    return getAgentXMessage(stepId, role);
+  });
+
   /** Whether user can go back */
   readonly canGoBack = computed(() => this._currentStepIndex() > 0);
 
@@ -526,11 +540,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     return !this.currentStep().required;
   });
 
-  /** Whether current step is valid (delegated to state machine) */
-  readonly isCurrentStepValid = computed(() => {
-    // Machine handles validation - we just mirror the snapshot
-    return this.machine?.getState()?.isCurrentStepValid ?? true;
-  });
+  /** Whether current step is valid (synced from state machine snapshot) */
+  readonly isCurrentStepValid = computed(() => this._isCurrentStepValid());
 
   // ============================================
   // LIFECYCLE
@@ -696,6 +707,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     this.isLoading.set(state.isLoading);
     this.error.set(state.error);
     this.animationDirection.set(state.animationDirection as AnimationDirection);
+    this._isCurrentStepValid.set(state.isCurrentStepValid);
   }
 
   // ============================================

@@ -1,7 +1,7 @@
 # NXT1 Monorepo
 
-> Professional sports platform with unified web, mobile, and backend
-> architecture.
+> AI agent sports platform that does work for athletes and coaches — unified
+> web, mobile, and backend architecture.
 
 <!-- CI/CD Pipeline verified -->
 

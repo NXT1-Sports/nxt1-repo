@@ -46,9 +46,7 @@ export type OnboardingUserType =
   | 'director'
   | 'recruiting-service'
   | 'parent'
-  | 'scout'
-  | 'media'
-  | 'fan';
+  | 'scout';
 
 /** Step IDs */
 export type OnboardingStepId =
@@ -417,288 +415,197 @@ export interface UserDataForDetection {
 // CONSTANTS
 // ============================================
 
-/** Role selection step - shown at the END as optional enhancement */
+/** Role selection step - shown FIRST to personalize the experience */
 export const ROLE_SELECTION_STEP: OnboardingStep = {
   id: 'role',
   title: 'Select Your Role',
   subtitle: 'Personalize your experience',
+  required: true,
+  order: 1,
+};
+
+/** Shared role step config (DRY - used in all user type step arrays) */
+const ROLE_STEP: OnboardingStep = {
+  id: 'role',
+  title: 'Select Your Role',
+  subtitle: 'Personalize your experience',
+  required: true,
+  order: 1,
+};
+
+/** Shared referral step config (DRY) */
+const REFERRAL_STEP: OnboardingStep = {
+  id: 'referral-source',
+  title: 'Before We Begin',
+  subtitle: 'How did you hear about us?',
   required: false,
-  order: 999, // End of flow
+  order: 4,
 };
 
 /** Step configuration per user type */
 export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
   athlete: [
+    ROLE_STEP,
     {
       id: 'profile',
       title: 'Get Started',
       subtitle: "Let's get to know you",
       required: true,
-      order: 1,
+      order: 2,
     },
     {
       id: 'sport',
       title: 'Your Sports',
       subtitle: 'What sports do you follow?',
       required: true,
-      order: 2,
-    },
-    {
-      id: 'referral-source',
-      title: 'Before We Begin',
-      subtitle: 'How did you hear about us?',
-      required: false,
       order: 3,
     },
-    {
-      id: 'role',
-      title: 'Select Your Role',
-      subtitle: 'Personalize your experience',
-      required: false,
-      order: 4,
-    },
+    REFERRAL_STEP,
   ],
   coach: [
+    ROLE_STEP,
     {
       id: 'profile',
       title: 'Get Started',
       subtitle: "Let's get to know you",
       required: true,
-      order: 1,
+      order: 2,
     },
     {
       id: 'sport',
       title: 'Your Sports',
       subtitle: 'What sports do you follow?',
       required: true,
-      order: 2,
-    },
-    {
-      id: 'referral-source',
-      title: 'Before We Begin',
-      subtitle: 'How did you hear about us?',
-      required: false,
       order: 3,
     },
-    {
-      id: 'role',
-      title: 'Select Your Role',
-      subtitle: 'Personalize your experience',
-      required: false,
-      order: 4,
-    },
+    REFERRAL_STEP,
   ],
   parent: [
+    ROLE_STEP,
     {
       id: 'profile',
       title: 'Get Started',
       subtitle: "Let's get to know you",
       required: true,
-      order: 1,
+      order: 2,
     },
     {
       id: 'sport',
       title: 'Your Sports',
       subtitle: 'What sports do you follow?',
       required: true,
-      order: 2,
-    },
-    {
-      id: 'referral-source',
-      title: 'Before We Begin',
-      subtitle: 'How did you hear about us?',
-      required: false,
       order: 3,
     },
-    {
-      id: 'role',
-      title: 'Select Your Role',
-      subtitle: 'Personalize your experience',
-      required: false,
-      order: 4,
-    },
+    REFERRAL_STEP,
   ],
   scout: [
+    ROLE_STEP,
     {
       id: 'profile',
       title: 'Get Started',
       subtitle: "Let's get to know you",
       required: true,
-      order: 1,
+      order: 2,
     },
     {
       id: 'sport',
       title: 'Your Sports',
       subtitle: 'What sports do you follow?',
       required: true,
-      order: 2,
-    },
-    {
-      id: 'referral-source',
-      title: 'Before We Begin',
-      subtitle: 'How did you hear about us?',
-      required: false,
       order: 3,
     },
-    {
-      id: 'role',
-      title: 'Select Your Role',
-      subtitle: 'Personalize your experience',
-      required: false,
-      order: 4,
-    },
+    REFERRAL_STEP,
   ],
-  media: [
-    {
-      id: 'profile',
-      title: 'Get Started',
-      subtitle: "Let's get to know you",
-      required: true,
-      order: 1,
-    },
-    {
-      id: 'sport',
-      title: 'Your Sports',
-      subtitle: 'What sports do you follow?',
-      required: true,
-      order: 2,
-    },
-    {
-      id: 'referral-source',
-      title: 'Before We Begin',
-      subtitle: 'How did you hear about us?',
-      required: false,
-      order: 3,
-    },
-    {
-      id: 'role',
-      title: 'Select Your Role',
-      subtitle: 'Personalize your experience',
-      required: false,
-      order: 4,
-    },
-  ],
+
   'college-coach': [
+    ROLE_STEP,
     {
       id: 'profile',
       title: 'Get Started',
       subtitle: "Let's get to know you",
       required: true,
-      order: 1,
+      order: 2,
     },
     {
       id: 'sport',
       title: 'Your Sports',
       subtitle: 'What sports do you recruit for?',
       required: true,
-      order: 2,
-    },
-    {
-      id: 'referral-source',
-      title: 'Before We Begin',
-      subtitle: 'How did you hear about us?',
-      required: false,
       order: 3,
     },
-    {
-      id: 'role',
-      title: 'Select Your Role',
-      subtitle: 'Personalize your experience',
-      required: false,
-      order: 4,
-    },
+    REFERRAL_STEP,
   ],
   director: [
+    ROLE_STEP,
     {
       id: 'profile',
       title: 'Get Started',
       subtitle: "Let's get to know you",
       required: true,
-      order: 1,
+      order: 2,
     },
     {
       id: 'sport',
       title: 'Your Sports',
       subtitle: 'What sports does your program offer?',
       required: true,
-      order: 2,
-    },
-    {
-      id: 'referral-source',
-      title: 'Before We Begin',
-      subtitle: 'How did you hear about us?',
-      required: false,
       order: 3,
     },
-    {
-      id: 'role',
-      title: 'Select Your Role',
-      subtitle: 'Personalize your experience',
-      required: false,
-      order: 4,
-    },
+    REFERRAL_STEP,
   ],
   'recruiting-service': [
+    ROLE_STEP,
     {
       id: 'profile',
       title: 'Get Started',
       subtitle: "Let's set up your recruiting service profile",
       required: true,
-      order: 1,
+      order: 2,
     },
     {
       id: 'sport',
       title: 'Your Sports',
       subtitle: 'What sports do you recruit for?',
       required: true,
-      order: 2,
-    },
-    {
-      id: 'referral-source',
-      title: 'Before We Begin',
-      subtitle: 'How did you hear about us?',
-      required: false,
       order: 3,
     },
-    {
-      id: 'role',
-      title: 'Select Your Role',
-      subtitle: 'Personalize your experience',
-      required: false,
-      order: 4,
-    },
-  ],
-  fan: [
-    {
-      id: 'profile',
-      title: 'Get Started',
-      subtitle: "Let's get to know you",
-      required: true,
-      order: 1,
-    },
-    {
-      id: 'sport',
-      title: 'Your Sports',
-      subtitle: 'What sports do you follow?',
-      required: true,
-      order: 2,
-    },
-    {
-      id: 'referral-source',
-      title: 'Before We Begin',
-      subtitle: 'How did you hear about us?',
-      required: false,
-      order: 3,
-    },
-    {
-      id: 'role',
-      title: 'Select Your Role',
-      subtitle: 'Personalize your experience',
-      required: false,
-      order: 4,
-    },
+    REFERRAL_STEP,
   ],
 };
+
+// ============================================
+// AGENT X ONBOARDING MESSAGES
+// ============================================
+
+/**
+ * Agent X typewriter messages shown below the logo during each onboarding step.
+ * These create a guided, AI-host feel without requiring free-text chat.
+ *
+ * ⭐ PURE DATA - No dependencies
+ */
+export const AGENT_X_ONBOARDING_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
+  role: "Welcome to NXT1. I'm Agent X — tell me who you are so I can set up your experience.",
+  profile: "Great choice. Now let's build your identity — just the basics.",
+  sport: "Now pick your sports. I'll personalize everything from here.",
+  'referral-source': 'Almost there — one last question before I set everything up.',
+  school: 'Tell me about your school and team.',
+  organization: 'Tell me about your organization.',
+  positions: 'What positions do you play?',
+  contact: 'How can teams reach you?',
+  complete: "You're all set. Let's get to work.",
+});
+
+/**
+ * Returns the Agent X message for a given step and optional user role.
+ * Falls back to the default (role-agnostic) message if no role-specific
+ * copy exists.
+ *
+ * ⭐ PURE FUNCTION - No dependencies
+ */
+export function getAgentXMessage(stepId: string, userType?: OnboardingUserType | null): string {
+  void userType;
+  return AGENT_X_ONBOARDING_MESSAGES[stepId] ?? '';
+}
 
 // ============================================
 // PURE VALIDATION FUNCTIONS
@@ -706,17 +613,13 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
 
 /**
  * Validate profile step data
- * Requires first name, last name, and class year (for athletes)
+ * Requires first name and last name only.
+ * Class year is collected later in the sport step (not here).
  * ⭐ PURE FUNCTION - No dependencies
  */
-export function validateProfile(data?: ProfileFormData, requireClassYear = true): boolean {
+export function validateProfile(data?: ProfileFormData): boolean {
   if (!data) return false;
-  const hasNames = !!(data.firstName?.trim() && data.lastName?.trim());
-  // Class year is required for athletes (default), optional for other roles
-  if (requireClassYear) {
-    return hasNames && data.classYear !== null && data.classYear !== undefined;
-  }
-  return hasNames;
+  return !!(data.firstName?.trim() && data.lastName?.trim());
 }
 
 /**
@@ -819,15 +722,11 @@ export function validateStep(
   formData: Partial<OnboardingFormData>,
   pendingRole?: OnboardingUserType | null
 ): boolean {
-  // Determine if class year is required (only for athletes)
-  const userType = pendingRole ?? formData.userType;
-  const requireClassYear = userType === 'athlete';
-
   switch (stepId) {
     case 'role':
       return pendingRole !== null || !!formData.userType;
     case 'profile':
-      return validateProfile(formData.profile, requireClassYear);
+      return validateProfile(formData.profile);
     case 'school':
       // Legacy support - use validateSport for new v3.0 flow
       return validateTeam(formData.team) || validateSchool(formData.school);
@@ -956,7 +855,6 @@ export function mapTeamCodeRole(role: string): OnboardingUserType {
     admin: 'director', // Map admin to director
     'recruiting-service': 'recruiting-service',
     service: 'recruiting-service', // Legacy 'service' maps to recruiting-service
-    media: 'media',
     parent: 'parent',
     scout: 'scout',
   };
@@ -971,7 +869,6 @@ export function detectUserTypeFromTeamCode(teamCode: string): OnboardingUserType
   const roleCode = teamCode.slice(-2);
   if (roleCode === '01') return 'athlete';
   if (roleCode === '02') return 'coach';
-  if (roleCode === '03') return 'media';
   return 'athlete';
 }
 
@@ -984,7 +881,6 @@ export function detectUserTypeFromUserData(
 ): OnboardingUserType | null {
   if (userData.isRecruit === true) return 'athlete';
   if (userData.isCollegeCoach === true) return 'coach';
-  if (userData.isFan === true) return 'fan';
   if (userData.highSchool || userData.primarySport) return 'athlete';
   if (userData.organization || userData.coachTitle) return 'coach';
   return null;

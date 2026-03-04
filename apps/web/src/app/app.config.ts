@@ -81,6 +81,8 @@ import { NEWS_API_BASE_URL } from '@nxt1/ui';
 // - Analytics/Performance: Lazy-loaded after LCP (see AppComponent)
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
 import { provideAuth, getAuth } from '@angular/fire/auth';
+import { provideAnalytics, getAnalytics } from '@angular/fire/analytics';
+import { providePerformance, getPerformance } from '@angular/fire/performance';
 
 // Auth service with injection token pattern
 import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
@@ -211,10 +213,11 @@ export const appConfig: ApplicationConfig = {
 
     provideFirebaseApp(() => initializeApp(environment.firebase)),
     provideAuth(() => getAuth()),
+    provideAnalytics(() => getAnalytics()),
+    providePerformance(() => getPerformance()),
     // NOTE: Firestore and Storage are NOT provided in browser bundle:
     // - Firestore: Only used during SSR via firebase/firestore SDK (ServerAuthService)
     // - Storage: File uploads go through backend API for security
-    // - Analytics/Performance: Lazy-loaded after LCP (see AppComponent.initializeBrowserFeatures())
 
     // ============================================
     // AUTH SERVICE (Injection Token Pattern)

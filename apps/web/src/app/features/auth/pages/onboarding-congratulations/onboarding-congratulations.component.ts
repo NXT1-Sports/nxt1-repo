@@ -123,12 +123,12 @@ export class OnboardingCongratulationsComponent implements OnInit {
 
   /** Handle complete (CTA button click) */
   async onComplete(): Promise<void> {
-    await this.navigateToHome();
+    await this.navigateToAgent();
   }
 
   /** Handle skip */
   async onSkip(): Promise<void> {
-    await this.navigateToHome();
+    await this.navigateToAgent();
   }
 
   /** Handle slide viewed (for analytics) */
@@ -142,17 +142,17 @@ export class OnboardingCongratulationsComponent implements OnInit {
   // ============================================
 
   /**
-   * Navigate to home/feed using Angular Router
-   * Uses replaceUrl to replace the navigation stack (no back to onboarding)
+   * Navigate to Agent X using Angular Router.
+   * Uses replaceUrl to replace the navigation stack (no back to onboarding).
    *
    * Also clears the temporary theme override, restoring user's saved preference.
    */
-  private async navigateToHome(): Promise<void> {
+  private async navigateToAgent(): Promise<void> {
     // ⭐ THEME RESTORATION: Clear temporary override, restore user's preference
     // This ensures the app respects user's original theme choice going forward
     this.themeService.clearTemporaryOverride();
     this.logger.debug('Cleared temporary theme override, restored user preference');
 
-    await this.router.navigate([AUTH_REDIRECTS.DEFAULT], { replaceUrl: true });
+    await this.router.navigate([AUTH_REDIRECTS.AGENT], { replaceUrl: true });
   }
 }

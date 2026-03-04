@@ -29,7 +29,7 @@ import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
 import { HapticButtonDirective } from '../../services/haptics';
 import type { OnboardingUserType } from '@nxt1/core/api';
-import type { RoleIconName } from '@nxt1/design-tokens/assets/icons';
+import type { IconName } from '@nxt1/design-tokens/assets/icons';
 
 // ============================================
 // TYPES
@@ -44,7 +44,7 @@ export interface RoleOption {
   /** Description text */
   description: string;
   /** Icon name from @nxt1/design-tokens */
-  icon: RoleIconName;
+  icon: IconName;
 }
 
 // ============================================
@@ -54,11 +54,11 @@ export interface RoleOption {
 /**
  * Role options for onboarding (optional last step).
  * Maps to OnboardingUserType from @nxt1/core/api.
- * Icons reference @nxt1/design-tokens ROLE_ICONS.
+ * Icons reference @nxt1/design-tokens.
  *
- * All 9 roles supported by the NXT1 platform (as of 2026):
- * - athlete, coach, college-coach, director, recruiting-service
- * - parent, scout, media, fan
+ * 6 roles displayed during onboarding:
+ * - athlete, coach, college-coach (includes scout), director,
+ *   recruiting-service, parent
  */
 export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
   {
@@ -70,25 +70,25 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
   {
     type: 'coach',
     label: 'Coach',
-    description: 'High school or club coach',
-    icon: 'coach',
+    description: 'High school, JUCO, club, or travel coach',
+    icon: 'clipboard',
   },
   {
     type: 'college-coach',
-    label: 'College Coach',
-    description: 'College coach recruiting athletes',
+    label: 'College Coach / Scout',
+    description: 'College coach or scout recruiting athletes',
     icon: 'college-coach',
   },
   {
     type: 'director',
-    label: 'Athletic Director',
+    label: 'Director',
     description: 'Program director or administrator',
     icon: 'director',
   },
   {
     type: 'recruiting-service',
-    label: 'Recruiting Service',
-    description: 'Professional recruiting service',
+    label: 'Professional Service',
+    description: 'Recruiting service or sports professional',
     icon: 'recruiting-service',
   },
   {
@@ -96,24 +96,6 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
     label: 'Parent / Guardian',
     description: 'Supporting an athlete',
     icon: 'parent',
-  },
-  {
-    type: 'scout',
-    label: 'Scout',
-    description: 'Evaluating athletic talent',
-    icon: 'scout',
-  },
-  {
-    type: 'media',
-    label: 'Media',
-    description: 'Journalist or content creator',
-    icon: 'media',
-  },
-  {
-    type: 'fan',
-    label: 'Fan',
-    description: 'Following athletes and teams',
-    icon: 'fan',
   },
 ] as const;
 

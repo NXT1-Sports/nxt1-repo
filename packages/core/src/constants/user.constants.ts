@@ -148,7 +148,6 @@ export type AccountStatus = (typeof ACCOUNT_STATUSES)[keyof typeof ACCOUNT_STATU
 export const GENDERS = {
   MALE: 'male',
   FEMALE: 'female',
-  PREFER_NOT_TO_SAY: 'prefer-not-to-say',
 } as const;
 
 export type Gender = (typeof GENDERS)[keyof typeof GENDERS];
@@ -163,7 +162,6 @@ export interface GenderConfig {
 export const GENDER_CONFIGS: readonly GenderConfig[] = Object.freeze([
   { id: 'male', label: 'Male' },
   { id: 'female', label: 'Female' },
-  { id: 'prefer-not-to-say', label: 'Prefer not to say' },
 ]);
 
 // ============================================

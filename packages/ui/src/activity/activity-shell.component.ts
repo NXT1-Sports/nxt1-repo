@@ -71,7 +71,7 @@ export interface ActivityUser {
     <!-- Professional Page Header (Twitter/X style) -->
     <nxt1-page-header
       title="Activity"
-      leftVariant="hamburger"
+      leftVariant="avatar"
       [avatarSrc]="user()?.profileImg"
       [avatarName]="displayName()"
       [actions]="headerActions()"

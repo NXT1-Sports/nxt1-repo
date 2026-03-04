@@ -984,6 +984,8 @@ export { OnboardingCompleteComponent } from './onboarding/onboarding-complete';
 
 export { OnboardingWelcomeComponent } from './onboarding/onboarding-welcome';
 
+export { OnboardingAgentXTypewriterComponent } from './onboarding/onboarding-agent-x-typewriter';
+
 // ============================================
 // PULL-TO-REFRESH (2026 Native-Style)
 // ============================================

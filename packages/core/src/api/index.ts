@@ -161,6 +161,8 @@ export {
   type UserDataForDetection,
   ROLE_SELECTION_STEP,
   ONBOARDING_STEPS,
+  AGENT_X_ONBOARDING_MESSAGES,
+  getAgentXMessage,
   validateStep,
   validateProfile,
   validateTeam,

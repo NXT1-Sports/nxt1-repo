@@ -436,7 +436,7 @@ https://nxt1sports.com/sitemap.xml (Index)
 | ----------------------- | ----------------------------------- |
 | `/sitemap.xml`          | Sitemap index pointing to sub-maps  |
 | `/sitemap-static.xml`   | Static pages with priorities        |
-| `/sitemap-profiles.xml` | All recruit profiles from Firestore |
+| `/sitemap-profiles.xml` | All athlete profiles from Firestore |
 | `/sitemap-teams.xml`    | All teams from TeamCodes collection |
 | `POST /sitemap/refresh` | Admin endpoint to clear cache       |
 
@@ -459,7 +459,7 @@ const staticPages = [
 ### Profile Sitemap Generation
 
 ```javascript
-// Queries Firestore for all recruit profiles
+// Queries Firestore for all athlete profiles
 const snapshot = await usersRef
   .where('isRecruit', '==', true)
   .select('unicode', 'updatedAt', 'createdAt')

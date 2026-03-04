@@ -77,7 +77,7 @@ export interface MessagesUser {
     <!-- Page header with avatar (fixed within shell) -->
     <nxt1-page-header
       title="Messages"
-      leftVariant="hamburger"
+      leftVariant="avatar"
       [avatarSrc]="user()?.profileImg"
       [avatarName]="displayName()"
       [actions]="headerActions"
