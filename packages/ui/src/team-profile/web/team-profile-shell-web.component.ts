@@ -24,9 +24,8 @@ import {
   computed,
   signal,
   OnInit,
-  PLATFORM_ID,
 } from '@angular/core';
-import { CommonModule, isPlatformBrowser } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import {
   type TeamProfileTabId,
   type TeamProfileTab,
@@ -1004,8 +1003,6 @@ export class TeamProfileShellWebComponent implements OnInit {
   protected readonly teamProfile = inject(TeamProfileService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('TeamProfileShellWeb');
-  private readonly platformId = inject(PLATFORM_ID);
-  private readonly isBrowser = isPlatformBrowser(this.platformId);
 
   // ============================================
   // INPUTS
@@ -1335,15 +1332,13 @@ export class TeamProfileShellWebComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
-    this.teamProfile.startLoading();
+    // Note: Data loading is handled by the parent wrapper component
+    // (TeamComponent for web, TeamPageMobile for mobile)
+    // This shell component only handles display and UI state
 
-    if (!this.isBrowser) return;
-
-    const slug = this.teamSlug();
-    const isAdmin = this.isTeamAdmin();
-
-    if (slug) {
-      this.teamProfile.loadTeam(slug, isAdmin);
+    // Show loading state initially if no data yet
+    if (!this.teamProfile.team()) {
+      this.teamProfile.startLoading();
     }
   }
 

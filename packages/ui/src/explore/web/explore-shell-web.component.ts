@@ -95,7 +95,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
                   >
                     <!-- Time Icon -->
                     <svg
-                      class="text-text-tertiary h-[18px] w-[18px] flex-shrink-0"
+                      class="text-text-tertiary h-[18px] w-[18px] shrink-0"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -112,7 +112,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
                       search
                     }}</span>
                     <svg
-                      class="text-text-tertiary h-4 w-4 flex-shrink-0 opacity-50"
+                      class="text-text-tertiary h-4 w-4 shrink-0 opacity-50"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -144,7 +144,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
                   >
                     <!-- Trending Icon -->
                     <svg
-                      class="text-text-tertiary h-[18px] w-[18px] flex-shrink-0"
+                      class="text-text-tertiary h-[18px] w-[18px] shrink-0"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -161,7 +161,7 @@ import { ExploreFilterModalService } from '../explore-filter-modal.service';
                       search
                     }}</span>
                     <svg
-                      class="text-text-tertiary h-4 w-4 flex-shrink-0 opacity-50"
+                      class="text-text-tertiary h-4 w-4 shrink-0 opacity-50"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"

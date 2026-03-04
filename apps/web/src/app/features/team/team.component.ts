@@ -162,9 +162,20 @@ export class TeamComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.logger.info('Team component initialized', {
-      teamSlug: this.teamSlug(),
-    });
+    const slug = this.teamSlug();
+
+    this.logger.info('Team component initialized', { teamSlug: slug });
+
+    // Load team data from API
+    if (slug) {
+      this.teamProfile.loadTeam(slug, this.isTeamAdmin()).catch((error) => {
+        this.logger.error('Failed to load team on init', { slug, error });
+        this.toast.error('Failed to load team profile');
+      });
+    } else {
+      this.logger.warn('No team slug provided');
+      this.teamProfile.setError('Team not found');
+    }
   }
 
   // ============================================

@@ -340,9 +340,9 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   /**
    * User data for sidenav header - hybrid approach with intelligent avatar fallback.
    *
-   * ⭐ Avatar Priority Logic (Fixed for Google Sign-In) ⭐
-   * 1. Custom profileImg (if user uploaded one)
-   * 2. Google photoURL (from social sign-in)
+   * ⭐ Avatar Priority Logic ⭐
+   * 1. profileImg from database (if user uploaded one)
+   * 2. Google photoURL from Firebase Auth (if signed in with Google)
    * 3. Fallback to initials (handled by nxt1-avatar component)
    *
    * ⭐ Uses ProfileService (full User data) when available ⭐
@@ -359,11 +359,11 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       const primarySport = profile.sports?.find((s) => s.order === 0) ?? profile.sports?.[0];
       const position = primarySport?.positions?.[0] ?? '';
       const displayName = `${profile.firstName} ${profile.lastName}`.trim();
-      const avatarUrl = profile.profileImg || authUser?.profileImg || undefined;
+      const profileImg = profile.profileImg || authUser?.profileImg || undefined;
       return {
         name: displayName || 'User',
         subtitle: position ? `${primarySport?.sport ?? ''} • ${position}` : profile.email,
-        avatarUrl,
+        profileImg,
         initials: this.getInitials(displayName || profile.email || 'U'),
         verified: false,
         isPremium: this.profileService.isPremium(),
@@ -388,7 +388,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     return {
       name: authUser.displayName || 'User',
       subtitle: authUser.email,
-      avatarUrl: authUser.profileImg ?? undefined,
+      profileImg: authUser.profileImg ?? undefined,
       initials: this.getInitials(authUser.displayName || authUser.email || 'U'),
       verified: authUser.emailVerified,
       isPremium: authUser.isPremium,

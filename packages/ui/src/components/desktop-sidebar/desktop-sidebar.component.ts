@@ -419,7 +419,7 @@ import {
                 aria-label="User menu"
               >
                 <nxt1-avatar
-                  [src]="user()!.avatarUrl"
+                  [src]="user()!.profileImg"
                   [name]="user()!.name"
                   [initials]="user()!.initials"
                   [size]="isCollapsed() && !isHoverExpanded() ? 'sm' : 'md'"

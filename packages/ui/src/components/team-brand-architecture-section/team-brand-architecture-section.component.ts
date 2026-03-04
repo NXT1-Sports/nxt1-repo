@@ -92,7 +92,7 @@ let teamBrandArchitectureInstanceCounter = 0;
       <div class="team-brand-shell">
         <nxt1-section-header
           [titleId]="titleId()"
-          eyebrow="For Programs & Athletic Directors"
+          eyebrow="For Programs & Directors"
           title="One Identity."
           accentText="Infinite Assets."
           [headingLevel]="2"

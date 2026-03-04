@@ -117,7 +117,7 @@ export interface HelpNavigateEvent {
                     class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
                   >
                     <div
-                      class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors"
+                      class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
                     >
                       <svg
                         class="text-text-secondary h-5 w-5"
@@ -168,7 +168,7 @@ export interface HelpNavigateEvent {
                       <p class="text-text-secondary line-clamp-1 text-sm">{{ article.excerpt }}</p>
                     </div>
                     <svg
-                      class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
+                      class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 shrink-0 transition-colors"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -217,7 +217,7 @@ export interface HelpNavigateEvent {
                           class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
                         >
                           <div
-                            class="bg-primary/10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
+                            class="bg-primary/10 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
                           >
                             <svg
                               class="text-primary h-5 w-5"
@@ -268,7 +268,7 @@ export interface HelpNavigateEvent {
                               </h3>
                               @if (article.isNew) {
                                 <span
-                                  class="bg-primary text-text-inverse flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold"
+                                  class="bg-primary text-text-inverse shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold"
                                 >
                                   New
                                 </span>
@@ -279,7 +279,7 @@ export interface HelpNavigateEvent {
                             </p>
                           </div>
                           <svg
-                            class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
+                            class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 shrink-0 transition-colors"
                             fill="none"
                             stroke="currentColor"
                             viewBox="0 0 24 24"
@@ -314,7 +314,7 @@ export interface HelpNavigateEvent {
                           class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
                         >
                           <div
-                            class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors"
+                            class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
                           >
                             <span class="text-lg" [innerHTML]="getCategoryIcon(category)"></span>
                           </div>
@@ -329,7 +329,7 @@ export interface HelpNavigateEvent {
                             }
                           </div>
                           <svg
-                            class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
+                            class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 shrink-0 transition-colors"
                             fill="none"
                             stroke="currentColor"
                             viewBox="0 0 24 24"
@@ -364,7 +364,7 @@ export interface HelpNavigateEvent {
                           class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
                         >
                           <div
-                            class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors"
+                            class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
                           >
                             <svg
                               class="text-text-secondary h-5 w-5"
@@ -386,7 +386,7 @@ export interface HelpNavigateEvent {
                             </h3>
                           </div>
                           <svg
-                            class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
+                            class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 shrink-0 transition-colors"
                             fill="none"
                             stroke="currentColor"
                             viewBox="0 0 24 24"
@@ -418,7 +418,7 @@ export interface HelpNavigateEvent {
                         class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
                       >
                         <div
-                          class="bg-primary/10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg"
+                          class="bg-primary/10 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
                         >
                           <svg
                             class="text-primary h-5 w-5"
@@ -439,7 +439,7 @@ export interface HelpNavigateEvent {
                           <p class="text-text-secondary text-sm">Get help from our team</p>
                         </div>
                         <svg
-                          class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
+                          class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 shrink-0 transition-colors"
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"

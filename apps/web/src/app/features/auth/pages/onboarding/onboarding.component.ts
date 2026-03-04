@@ -975,7 +975,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       // Flatten nested form data to match OnboardingProfileData structure
       const sportEntries = formData.sport?.sports || [];
       const primarySport = sportEntries.find((e) => e.isPrimary) || sportEntries[0];
-      const secondarySport = sportEntries.find((e) => !e.isPrimary);
+      const nonPrimarySports = sportEntries.filter((e) => !e.isPrimary);
+      const secondarySport = nonPrimarySports[0];
+      const tertiarySport = nonPrimarySports[1];
 
       const profileData = {
         userType: formData.userType,
@@ -983,14 +985,20 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         lastName: formData.profile?.lastName || '',
         profileImg: formData.profile?.profileImg || undefined,
         bio: formData.profile?.bio,
+        gender: formData.profile?.gender ?? undefined,
         sport: primarySport?.sport,
         secondarySport: secondarySport?.sport,
+        tertiarySport: tertiarySport?.sport,
         positions: primarySport?.positions,
         highSchool: primarySport?.team?.name || formData.school?.schoolName,
         highSchoolSuffix: primarySport?.team?.type || formData.school?.schoolType,
         classOf: formData.profile?.classYear ?? formData.school?.classYear ?? undefined,
-        state: primarySport?.team?.state || formData.school?.state,
-        city: primarySport?.team?.city || formData.school?.city,
+        state:
+          primarySport?.team?.state || formData.school?.state || formData.profile?.location?.state,
+        city: primarySport?.team?.city || formData.school?.city || formData.profile?.location?.city,
+        zipCode: formData.profile?.location?.zipCode,
+        address: formData.profile?.location?.address,
+        country: formData.profile?.location?.country,
         teamLogo: primarySport?.team?.logo,
         teamColors: primarySport?.team?.colors,
         club: formData.school?.club,

@@ -1294,6 +1294,16 @@ export {
 export { TeamShellComponent, type TeamData } from './team';
 
 // ============================================
+// TEAM PROFILE (Public Team Profile Pages)
+// ============================================
+export {
+  TeamProfileService,
+  TeamProfileApiClient,
+  TEAM_PROFILE_API_BASE_URL,
+  TeamProfileShellWebComponent,
+} from './team-profile';
+
+// ============================================
 // APP DOWNLOAD BAR (Global Sticky Promotion)
 // ============================================
 export {

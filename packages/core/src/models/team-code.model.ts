@@ -106,13 +106,28 @@ export interface Code {
   mascot?: string;
   customUrl?: string;
   unicode?: string;
+  slug?: string;
   division?: string;
   conference?: string;
+  /** Team description/about text */
+  description?: string;
   seasonRecord?: {
     wins?: number | null;
     losses?: number | null;
     ties?: number | null;
   };
+  /** Season-by-season history entries (most recent first) */
+  seasonHistory?: Array<{
+    season: string;
+    wins: number;
+    losses: number;
+    ties?: number;
+    formatted?: string;
+    championships?: string[];
+    highlights?: string;
+    conference?: string;
+    division?: string;
+  }>;
   lastUpdatedStat?: string | Date | null;
   socialLinks?: SocialLinks;
   contactInfo?: ContactInfo;

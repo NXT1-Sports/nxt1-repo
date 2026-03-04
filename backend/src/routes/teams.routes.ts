@@ -18,6 +18,11 @@ import { asyncHandler, sendSuccess } from '@nxt1/core/errors/express';
 import { validationError } from '@nxt1/core/errors';
 import { ROLE } from '@nxt1/core/models';
 import * as teamCodeService from '../services/team-code.service.js';
+import {
+  mapTeamCodeToProfile,
+  parseSlugToUnicode,
+  type MapTeamProfileOptions,
+} from '../services/team-profile-mapper.service.js';
 import { logger } from '../utils/logger.js';
 import { performanceMiddleware, testPerformance } from '../middleware/performance.middleware.js';
 
@@ -244,6 +249,68 @@ router.get(
     }
 
     sendSuccess(res, team, { cached });
+  })
+);
+
+/**
+ * Get team profile by slug (for team profile pages)
+ * GET /api/v1/teams/by-slug/:slug
+ * Returns full TeamProfilePageData with roster, stats, etc.
+ */
+router.get(
+  '/by-slug/:slug',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { slug } = req.params;
+    const db = req.firebase!.db;
+    const userId = req.user?.uid; // Optional - for admin/member checks
+
+    validateRequired(slug, 'Slug');
+
+    // Parse unicode from slug
+    const unicode = parseSlugToUnicode(String(slug));
+
+    if (!unicode) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid team slug format. Expected: TeamName-Sport-Unicode',
+      });
+      return;
+    }
+
+    logger.debug('Fetching team by slug', { slug, unicode, userId });
+
+    // Fetch team by unicode (with Redis cache)
+    const { team: teamCode, cached } = await teamCodeService.getTeamCodeByUnicode(db, unicode);
+
+    if (!teamCode) {
+      res.status(404).json({
+        success: false,
+        error: 'Team not found',
+      });
+      return;
+    }
+
+    // Map to TeamProfilePageData
+    const options: MapTeamProfileOptions = {
+      userId,
+      includeRoster: true,
+      includeSchedule: true,
+      includePosts: true,
+    };
+
+    const profileData = await mapTeamCodeToProfile(teamCode, options, db);
+
+    logger.info('[Teams API] Team profile fetched by slug', {
+      teamId: teamCode.id,
+      slug,
+      unicode,
+      userId,
+      cached,
+      rosterCount: profileData.roster.length,
+      staffCount: profileData.staff.length,
+    });
+
+    sendSuccess(res, profileData, { cached });
   })
 );
 

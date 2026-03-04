@@ -266,7 +266,7 @@ import type {
                                 @if (child.icon) {
                                   <nxt1-icon
                                     [name]="child.icon"
-                                    class="dropdown-icon flex-shrink-0"
+                                    class="dropdown-icon shrink-0"
                                     size="18"
                                   />
                                 }
@@ -301,7 +301,7 @@ import type {
         <!-- ============================================
              ACTIONS SECTION
              ============================================ -->
-        <div class="nav-actions z-[2] ml-auto flex flex-shrink-0 items-center gap-3">
+        <div class="nav-actions z-2 ml-auto flex shrink-0 items-center gap-3">
           <!-- Search Bar (only when NOT in sidebar mode - sidebar mode has centered search) -->
           @if (showSearch() && config().showLogo !== false) {
             <div
@@ -389,9 +389,9 @@ import type {
               >
                 <!-- Avatar -->
                 <div class="user-avatar">
-                  @if (user()?.avatarUrl) {
+                  @if (user()?.profileImg) {
                     <img
-                      [src]="user()!.avatarUrl"
+                      [src]="user()!.profileImg"
                       [alt]="user()?.name || 'User avatar'"
                       class="avatar-img"
                       loading="lazy"
@@ -425,9 +425,9 @@ import type {
                 <!-- User Info Header -->
                 <div class="user-info">
                   <div class="user-info-avatar">
-                    @if (user()?.avatarUrl) {
+                    @if (user()?.profileImg) {
                       <img
-                        [src]="user()!.avatarUrl"
+                        [src]="user()!.profileImg"
                         [alt]="user()?.name || 'User avatar'"
                         class="avatar-img-lg"
                       />
@@ -470,7 +470,7 @@ import type {
                         @if (menuItem.icon) {
                           <nxt1-icon
                             [name]="menuItem.icon"
-                            class="menu-item-icon flex-shrink-0"
+                            class="menu-item-icon shrink-0"
                             size="18"
                           />
                         }
@@ -525,7 +525,7 @@ import type {
                 <span class="mobile-nav-label flex-1">{{ item.label }}</span>
                 @if (item.badge && item.badge > 0) {
                   <span
-                    class="mobile-nav-badge flex min-w-[20px] items-center justify-center rounded-[10px] bg-[var(--nxt1-ui-error)] px-1.5 text-[11px] font-semibold text-white"
+                    class="mobile-nav-badge bg-(--nxt1-ui-error)] flex min-w-[20px] items-center justify-center rounded-[10px] px-1.5 text-[11px] font-semibold text-white"
                   >
                     {{ item.badge > 99 ? '99+' : item.badge }}
                   </span>
@@ -537,32 +537,31 @@ import type {
 
         <!-- Mobile User Section -->
         @if (user()) {
-          <div class="mobile-user-section mt-auto border-t border-[var(--nxt1-nav-border)] p-4">
+          <div class="mobile-user-section border-(--nxt1-nav-border)] mt-auto border-t p-4">
             <div class="mobile-user-info mb-4 flex items-center gap-3">
               <div
-                class="mobile-user-avatar flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-[var(--nxt1-nav-active-bg)]"
+                class="mobile-user-avatar bg-(--nxt1-nav-active-bg)] flex h-12 w-12 items-center justify-center overflow-hidden rounded-full"
               >
-                @if (user()?.avatarUrl) {
+                @if (user()?.profileImg) {
                   <img
-                    [src]="user()!.avatarUrl"
+                    [src]="user()!.profileImg"
                     [alt]="user()?.name || 'User avatar'"
                     class="h-full w-full object-cover"
                   />
                 } @else {
                   <span
-                    class="mobile-avatar-initials text-lg font-semibold text-[var(--nxt1-nav-text)]"
+                    class="mobile-avatar-initials text-(--nxt1-nav-text)] text-lg font-semibold"
                   >
                     {{ userInitials() }}
                   </span>
                 }
               </div>
               <div class="mobile-user-text flex flex-col gap-0.5">
-                <span
-                  class="mobile-user-name text-base font-semibold text-[var(--nxt1-nav-text)]"
-                  >{{ user()?.name }}</span
-                >
+                <span class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold">{{
+                  user()?.name
+                }}</span>
                 @if (user()?.email) {
-                  <span class="mobile-user-email text-sm text-[var(--nxt1-nav-text-secondary)]">{{
+                  <span class="mobile-user-email text-(--nxt1-nav-text-secondary)] text-sm">{{
                     user()?.email
                   }}</span>
                 }
@@ -572,12 +571,12 @@ import type {
             <ul class="mobile-user-menu m-0 list-none p-0">
               @for (menuItem of userMenuItems(); track menuItem.id) {
                 @if (menuItem.divider) {
-                  <li class="mobile-menu-divider my-2 h-px bg-[var(--nxt1-nav-border)]"></li>
+                  <li class="mobile-menu-divider bg-(--nxt1-nav-border)] my-2 h-px"></li>
                 }
                 <li>
                   <button
                     type="button"
-                    class="mobile-menu-btn flex w-full items-center gap-3 rounded-md px-2 py-3 text-left text-sm text-[var(--nxt1-nav-text-secondary)] transition-colors hover:bg-[var(--nxt1-nav-hover-bg)] hover:text-[var(--nxt1-nav-text)]"
+                    class="mobile-menu-btn text-(--nxt1-nav-text-secondary)] hover:bg-(--nxt1-nav-hover-bg)] hover:text-(--nxt1-nav-text)] flex w-full items-center gap-3 rounded-md px-2 py-3 text-left text-sm transition-colors"
                     [class.danger]="menuItem.variant === 'danger'"
                     (click)="onUserMenuItemClick(menuItem, $event); closeMobileMenu()"
                   >
@@ -595,7 +594,7 @@ import type {
           <div class="mobile-auth-section flex flex-col gap-3 p-6">
             <button
               type="button"
-              class="mobile-auth-btn mobile-auth-btn--primary flex h-12 w-full items-center justify-center rounded-xl bg-[var(--nxt1-color-primary)] font-semibold text-white transition-all duration-200 hover:bg-[var(--nxt1-color-primary-dark)] active:scale-[0.98]"
+              class="mobile-auth-btn mobile-auth-btn--primary bg-(--nxt1-color-primary)] hover:bg-(--nxt1-color-primary-dark)] flex h-12 w-full items-center justify-center rounded-xl font-semibold text-white transition-all duration-200 active:scale-[0.98]"
               (click)="closeMobileMenu()"
               routerLink="/auth"
             >
@@ -603,7 +602,7 @@ import type {
             </button>
             <button
               type="button"
-              class="mobile-auth-btn mobile-auth-btn--secondary flex h-12 w-full items-center justify-center rounded-xl border border-[var(--nxt1-nav-border)] bg-transparent font-semibold text-[var(--nxt1-nav-text)] transition-all duration-200 hover:bg-[var(--nxt1-nav-hover-bg)] active:scale-[0.98]"
+              class="mobile-auth-btn mobile-auth-btn--secondary border-(--nxt1-nav-border)] text-(--nxt1-nav-text)] hover:bg-(--nxt1-nav-hover-bg)] flex h-12 w-full items-center justify-center rounded-xl border bg-transparent font-semibold transition-all duration-200 active:scale-[0.98]"
               (click)="closeMobileMenu()"
               routerLink="/auth"
             >
@@ -617,7 +616,7 @@ import type {
              ============================================ -->
         <button
           type="button"
-          class="mobile-menu-btn relative z-[1001] flex h-10 w-10 flex-col items-center justify-center gap-1.5 rounded-lg bg-transparent transition-colors duration-200 hover:bg-[var(--nxt1-nav-hover-bg)] lg:hidden"
+          class="mobile-menu-btn hover:bg-(--nxt1-nav-hover-bg)] relative z-1001 flex h-10 w-10 flex-col items-center justify-center gap-1.5 rounded-lg bg-transparent transition-colors duration-200 lg:hidden"
           [class.open]="mobileMenuOpen()"
           [attr.aria-expanded]="mobileMenuOpen()"
           aria-controls="mobile-menu"
@@ -625,13 +624,13 @@ import type {
           (click)="toggleMobileMenu()"
         >
           <span
-            class="hamburger-line block h-0.5 w-5 origin-center rounded-full bg-[var(--nxt1-nav-text)] transition-all duration-300"
+            class="hamburger-line bg-(--nxt1-nav-text)] block h-0.5 w-5 origin-center rounded-full transition-all duration-300"
           ></span>
           <span
-            class="hamburger-line block h-0.5 w-5 origin-center rounded-full bg-[var(--nxt1-nav-text)] transition-all duration-300"
+            class="hamburger-line bg-(--nxt1-nav-text)] block h-0.5 w-5 origin-center rounded-full transition-all duration-300"
           ></span>
           <span
-            class="hamburger-line block h-0.5 w-5 origin-center rounded-full bg-[var(--nxt1-nav-text)] transition-all duration-300"
+            class="hamburger-line bg-(--nxt1-nav-text)] block h-0.5 w-5 origin-center rounded-full transition-all duration-300"
           ></span>
         </button>
       </div>

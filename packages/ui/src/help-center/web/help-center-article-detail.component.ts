@@ -143,7 +143,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
                   class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
                 >
                   <div
-                    class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors"
+                    class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
                   >
                     <svg
                       class="text-text-secondary h-5 w-5"
@@ -166,7 +166,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
                     <p class="text-text-secondary line-clamp-1 text-sm">{{ related.excerpt }}</p>
                   </div>
                   <svg
-                    class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 flex-shrink-0 transition-colors"
+                    class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 shrink-0 transition-colors"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"

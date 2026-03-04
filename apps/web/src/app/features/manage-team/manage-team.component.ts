@@ -117,7 +117,7 @@ export class ManageTeamComponent implements OnInit {
       this.seo.updatePage({
         title: 'Team Management — Run Your Program Like a Pro | NXT1',
         description:
-          'Manage your roster, schedule, stats, staff, and sponsors from one powerful coaching dashboard. Built for head coaches, assistants, and athletic directors.',
+          'Manage your roster, schedule, stats, staff, and sponsors from one powerful coaching dashboard. Built for head coaches, assistants, and  directors.',
         keywords: [
           'team management',
           'coaching dashboard',

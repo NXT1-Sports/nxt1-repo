@@ -62,8 +62,8 @@ export const ROLE_CONFIGS: readonly RoleConfig[] = [
   },
   {
     id: 'director',
-    label: 'Athletic Director',
-    description: 'Athletic director or program administrator',
+    label: 'Director',
+    description: 'Director or program administrator',
     icon: '📋',
     canManageAthletes: true,
   },

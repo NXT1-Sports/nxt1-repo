@@ -106,7 +106,7 @@ const USAGE_AUDIENCES: AudienceSegment[] = [
   },
   {
     id: 'admins',
-    title: 'Athletic Directors',
+    title: 'Directors',
     description:
       'Oversee usage and billing across multiple teams. Export payment history for accounting and set organization-wide limits.',
     icon: 'briefcase-outline',

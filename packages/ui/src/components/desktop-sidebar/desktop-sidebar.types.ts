@@ -84,8 +84,8 @@ export interface DesktopSidebarUserData {
   /** User's display name */
   readonly name: string;
 
-  /** Avatar URL */
-  readonly avatarUrl?: string;
+  /** Profile image URL */
+  readonly profileImg?: string;
 
   /** Initials (fallback for avatar) */
   readonly initials?: string;

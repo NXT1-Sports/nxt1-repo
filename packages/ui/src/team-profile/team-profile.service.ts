@@ -25,11 +25,13 @@ import {
   TEAM_PROFILE_DEFAULT_TAB,
 } from '@nxt1/core';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { TeamProfileApiClient, type TeamProfileApiError } from './team-profile-api.client';
 import { MOCK_TEAM_PROFILE_PAGE_DATA, getMockAdminTeamData } from './team-profile.mock-data';
 
 @Injectable({ providedIn: 'root' })
 export class TeamProfileService {
   private readonly logger = inject(NxtLoggingService).child('TeamProfileService');
+  private readonly apiClient = inject(TeamProfileApiClient);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -273,28 +275,49 @@ export class TeamProfileService {
   // ============================================
 
   /**
-   * Load team profile data by slug/teamCode.
+   * Load team profile by slug (using real API)
    */
   async loadTeam(slug: string, isAdmin = false): Promise<void> {
-    this.logger.info('Loading team profile', { slug, isAdmin });
+    if (!slug) {
+      this.setError('Team slug is required');
+      return;
+    }
+
+    // Reset state
     this._isLoading.set(true);
     this._error.set(null);
     this._teamData.set(null);
 
+    this.logger.info('Loading team profile', { slug, isAdmin });
+
     try {
-      // TODO: Replace with actual API call
-      await this.simulateDelay(800);
+      // Fetch from API (with Redis cache)
+      const data = await this.apiClient.getTeamBySlug(slug);
 
-      const data = isAdmin ? getMockAdminTeamData() : MOCK_TEAM_PROFILE_PAGE_DATA;
+      // Update state
       this._teamData.set(data);
-
-      this.logger.info('Team profile loaded successfully', { slug });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to load team profile';
-      this._error.set(message);
-      this.logger.error('Failed to load team profile', { slug, error: err });
-    } finally {
       this._isLoading.set(false);
+
+      // Track page view (non-blocking)
+      if (data.team.id) {
+        this.apiClient.incrementTeamView(data.team.id).catch(() => {
+          // Ignore errors
+        });
+      }
+
+      this.logger.info('Team profile loaded', {
+        teamId: data.team.id,
+        teamName: data.team.teamName,
+        rosterCount: data.roster.length,
+      });
+    } catch (error) {
+      const apiError = error as any;
+      const message = apiError.message || 'Failed to load team profile';
+
+      this._error.set(message);
+      this._isLoading.set(false);
+
+      this.logger.error('Failed to load team profile', { slug, error: message });
     }
   }
 

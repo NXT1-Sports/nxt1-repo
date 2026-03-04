@@ -113,14 +113,19 @@ export interface OnboardingProfileData {
     | 'scout'
     | 'media'
     | 'fan';
+  gender?: string;
   sport?: string;
   secondarySport?: string;
+  tertiarySport?: string;
   positions?: string[];
   highSchool?: string;
   highSchoolSuffix?: string;
   classOf?: number;
   state?: string;
   city?: string;
+  zipCode?: string;
+  address?: string;
+  country?: string;
   club?: string;
   organization?: string;
   coachTitle?: string;

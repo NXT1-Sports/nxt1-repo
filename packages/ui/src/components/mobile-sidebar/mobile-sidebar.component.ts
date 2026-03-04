@@ -133,7 +133,7 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
               aria-label="View profile"
             >
               <nxt1-avatar
-                [src]="user()!.avatarUrl"
+                [src]="user()!.profileImg"
                 [name]="user()!.name"
                 [initials]="user()!.initials"
                 size="md"

@@ -68,6 +68,7 @@ interface UserV2Document {
 
   // V2: Single role field
   role?: UserRole;
+  lastLoginAt?: string;
 
   // V2: Sports array
   sports?: SportProfile[];
@@ -688,6 +689,7 @@ router.post(
     // ============================================
     const updateData: Partial<UserV2Document> = {
       updatedAt: now,
+      lastLoginAt: now,
       _schemaVersion: USER_SCHEMA_VERSION,
       // Mark onboarding as complete
       onboardingCompleted: true,
@@ -703,6 +705,7 @@ router.post(
     // Profile image and bio
     if (profileData['profileImg']) updateData.profileImg = profileData['profileImg'] as string;
     if (profileData['bio']) updateData.aboutMe = (profileData['bio'] as string).trim();
+    if (profileData['gender']) updateData.gender = profileData['gender'] as string;
 
     // V2: Set role (single field)
     if (profileData['userType']) {
@@ -730,17 +733,29 @@ router.post(
       sports.push(secondarySport);
     }
 
+    if (profileData['tertiarySport']) {
+      const tertiarySport = createSportProfile(profileData['tertiarySport'] as string, 2);
+      sports.push(tertiarySport);
+    }
+
     if (sports.length > 0) {
       updateData.sports = sports;
       updateData.activeSportIndex = 0;
     }
 
     // V2: Build location object
-    if (profileData['city'] || profileData['state']) {
+    if (
+      profileData['city'] ||
+      profileData['state'] ||
+      profileData['address'] ||
+      profileData['zipCode']
+    ) {
       updateData.location = {
+        address: (profileData['address'] as string) || '',
         city: (profileData['city'] as string) || '',
         state: (profileData['state'] as string) || '',
-        country: 'USA',
+        zipCode: (profileData['zipCode'] as string) || '',
+        country: (profileData['country'] as string) || 'USA',
       };
     }
 

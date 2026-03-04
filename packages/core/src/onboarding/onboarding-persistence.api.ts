@@ -157,6 +157,16 @@ export interface ProfileFormData {
   bio?: string;
   /** Graduation year (Class of) - required for athletes */
   classYear?: number | null;
+  /** Gender selection */
+  gender?: string | null;
+  /** Location data */
+  location?: {
+    address?: string;
+    city?: string;
+    state?: string;
+    zipCode?: string;
+    country?: string;
+  } | null;
 }
 
 /** School form data */

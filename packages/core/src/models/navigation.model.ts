@@ -650,8 +650,8 @@ export interface TopNavUserData {
   /** User email */
   email?: string;
 
-  /** Avatar URL */
-  avatarUrl?: string;
+  /** Profile image URL (from user.profileImg in database) */
+  profileImg?: string;
 
   /** User initials (fallback when no avatar) */
   initials?: string;
@@ -1090,7 +1090,7 @@ export interface SidenavSportProfile {
   isActive?: boolean;
 
   /** Profile-specific avatar URL (if different from main) */
-  avatarUrl?: string;
+  profileImg?: string;
 
   /** Class year for this sport (e.g., '2026') */
   classYear?: string;
@@ -1107,7 +1107,7 @@ export interface SidenavUserData {
   subtitle?: string;
 
   /** Avatar URL */
-  avatarUrl?: string;
+  profileImg?: string;
 
   /** User initials (fallback when no avatar) */
   initials?: string;

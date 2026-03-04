@@ -125,7 +125,7 @@ import type { SidenavItemSelectEvent } from './sidenav.types';
               <div class="nxt1-sidenav-profile">
                 <div class="nxt1-sidenav-profile__avatar-container">
                   <nxt1-avatar
-                    [src]="user()!.avatarUrl"
+                    [src]="user()!.profileImg"
                     [name]="user()!.name"
                     [initials]="user()!.initials"
                     size="md"
@@ -170,7 +170,7 @@ import type { SidenavItemSelectEvent } from './sidenav.types';
                           [attr.aria-label]="'Switch to ' + profile.sport + ' profile'"
                         >
                           <nxt1-avatar
-                            [src]="profile.avatarUrl || user()!.avatarUrl"
+                            [src]="profile.profileImg || user()!.profileImg"
                             [name]="profile.sport"
                             [initials]="getSportInitials(profile.sport)"
                             size="sm"
@@ -185,7 +185,7 @@ import type { SidenavItemSelectEvent } from './sidenav.types';
                         @if ((user()!.sportProfiles?.length ?? 0) === 1) {
                           <div class="nxt1-sidenav-sports__item nxt1-sidenav-sports__item--active">
                             <nxt1-avatar
-                              [src]="user()!.sportProfiles![0].avatarUrl || user()!.avatarUrl"
+                              [src]="user()!.sportProfiles![0].profileImg || user()!.profileImg"
                               [name]="user()!.sportProfiles![0].sport"
                               [initials]="getSportInitials(user()!.sportProfiles![0].sport)"
                               size="sm"

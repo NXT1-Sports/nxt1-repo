@@ -864,7 +864,7 @@ export class WebShellComponent {
 
     return {
       name,
-      avatarUrl: user?.profileImg || firebaseUser?.photoURL || undefined,
+      profileImg: user?.profileImg || firebaseUser?.photoURL || undefined,
       initials: this.getInitials(name),
       handle: user?.unicode ? `@${user.unicode}` : undefined,
       verified: false,
@@ -921,7 +921,7 @@ export class WebShellComponent {
         firebaseUser?.email?.split('@')[0] ||
         'User',
       email: user?.email || firebaseUser?.email || undefined,
-      avatarUrl: user?.profileImg || firebaseUser?.photoURL || undefined,
+      profileImg: user?.profileImg || firebaseUser?.photoURL || undefined,
       verified: false,
       roleBadge: undefined,
     };
@@ -1037,7 +1037,7 @@ export class WebShellComponent {
 
     return {
       name,
-      avatarUrl: user?.profileImg || firebaseUser?.photoURL || undefined,
+      profileImg: user?.profileImg || firebaseUser?.photoURL || undefined,
       initials: this.getInitials(name),
     };
   });

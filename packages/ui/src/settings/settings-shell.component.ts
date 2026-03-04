@@ -93,66 +93,94 @@ export interface SettingsUser {
       />
     }
 
-    <ion-content [fullscreen]="true" class="settings-content">
-      <!-- Pull-to-Refresh -->
-      <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
+    <!-- Use ion-content only on mobile (showPageHeader = true) -->
+    @if (showPageHeader()) {
+      <ion-content [fullscreen]="true" class="settings-content">
+        <!-- Pull-to-Refresh -->
+        <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
-      <div class="settings-container">
-        <!-- Desktop Page Header (when mobile page header is hidden) -->
-        @if (!showPageHeader()) {
+        <div class="settings-container">
+          <!-- Settings Sections -->
+          <div class="settings-sections">
+            @if (settings.isLoading()) {
+              <nxt1-settings-skeleton [sectionCount]="3" [itemsPerSection]="4" />
+            } @else {
+              @for (section of visibleSections(); track section.id) {
+                <nxt1-settings-section
+                  [section]="section"
+                  (sectionToggle)="onSectionToggle($event)"
+                  (toggle)="onToggle($event)"
+                  (navigate)="onNavigate($event)"
+                  (action)="onAction($event)"
+                  (select)="onSelect($event)"
+                  (copy)="onCopy($event)"
+                />
+              }
+            }
+
+            <!-- Footer -->
+            <footer class="settings-footer">
+              <p class="settings-footer__text">Made with ❤️ by NXT1 Sports</p>
+              <p class="settings-footer__version">Version {{ appVersion }}</p>
+            </footer>
+          </div>
+        </div>
+      </ion-content>
+    }
+
+    <!-- Desktop: Use regular div without ion-content -->
+    @if (!showPageHeader()) {
+      <div class="settings-content-wrapper">
+        <div class="settings-container">
+          <!-- Desktop Page Header -->
           <nxt1-desktop-page-header
             title="Settings"
             subtitle="Manage your account preferences and configuration."
           />
-        }
 
-        <div class="settings-layout" [class.settings-layout--desktop]="!showPageHeader()">
-          @if (!showPageHeader()) {
+          <div class="settings-layout settings-layout--desktop">
             <nxt1-section-nav-web
               [items]="sectionNavItems()"
               [activeId]="activeSectionId()"
               ariaLabel="Settings sections"
               (selectionChange)="onSectionNavChange($event)"
             />
-          }
 
-          <div
-            class="settings-content-panel"
-            [attr.id]="'section-' + activeSectionId()"
-            role="tabpanel"
-          >
-            <!-- Loading State -->
-            @if (settings.isLoading()) {
-              <nxt1-settings-skeleton
-                [sectionCount]="showPageHeader() ? 3 : 1"
-                [itemsPerSection]="showPageHeader() ? 4 : 6"
-              />
-            } @else {
-              <!-- Settings Sections -->
-              <div class="settings-sections">
-                @for (section of visibleSections(); track section.id) {
-                  <nxt1-settings-section
-                    [section]="section"
-                    (sectionToggle)="onSectionToggle($event)"
-                    (toggle)="onToggle($event)"
-                    (navigate)="onNavigate($event)"
-                    (action)="onAction($event)"
-                    (select)="onSelect($event)"
-                    (copy)="onCopy($event)"
-                  />
-                }
-              </div>
+            <div
+              class="settings-content-panel"
+              [attr.id]="'section-' + activeSectionId()"
+              role="tabpanel"
+            >
+              <!-- Loading State -->
+              @if (settings.isLoading()) {
+                <nxt1-settings-skeleton [sectionCount]="1" [itemsPerSection]="6" />
+              } @else {
+                <!-- Settings Sections -->
+                <div class="settings-sections">
+                  @for (section of visibleSections(); track section.id) {
+                    <nxt1-settings-section
+                      [section]="section"
+                      (sectionToggle)="onSectionToggle($event)"
+                      (toggle)="onToggle($event)"
+                      (navigate)="onNavigate($event)"
+                      (action)="onAction($event)"
+                      (select)="onSelect($event)"
+                      (copy)="onCopy($event)"
+                    />
+                  }
+                </div>
 
-              <!-- Footer -->
-              <footer class="settings-footer">
-                <p class="settings-footer__text">Made with ❤️ by NXT1 Sports</p>
-                <p class="settings-footer__version">Version {{ appVersion }}</p>
-              </footer>
-            }
+                <!-- Footer -->
+                <footer class="settings-footer">
+                  <p class="settings-footer__text">Made with ❤️ by NXT1 Sports</p>
+                  <p class="settings-footer__version">Version {{ appVersion }}</p>
+                </footer>
+              }
+            </div>
           </div>
         </div>
       </div>
-    </ion-content>
+    }
   `,
   styles: [
     `
@@ -181,6 +209,13 @@ export interface SettingsUser {
       /* Content area */
       .settings-content {
         --background: var(--settings-bg);
+      }
+
+      /* Desktop wrapper (replaces ion-content) */
+      .settings-content-wrapper {
+        min-height: 100vh;
+        background: var(--settings-bg);
+        display: block;
       }
 
       .settings-container {

@@ -35,16 +35,18 @@ import { SeoService } from '../../core/services';
   standalone: true,
   imports: [SettingsShellComponent],
   template: `
-    <nxt1-settings-shell
-      [user]="userInfo()"
-      [showPageHeader]="false"
-      (back)="onBack()"
-      (editProfile)="onEditProfile()"
-      (navigate)="onNavigate($event)"
-      (action)="onAction($event)"
-      (signOut)="onSignOut()"
-      (deleteAccount)="onDeleteAccount()"
-    />
+    <div class="min-h-screen bg-[var(--nxt1-color-bg-primary)]">
+      <nxt1-settings-shell
+        [user]="userInfo()"
+        [showPageHeader]="false"
+        (back)="onBack()"
+        (editProfile)="onEditProfile()"
+        (navigate)="onNavigate($event)"
+        (action)="onAction($event)"
+        (signOut)="onSignOut()"
+        (deleteAccount)="onDeleteAccount()"
+      />
+    </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

@@ -337,7 +337,7 @@ export class NxtSearchBarComponent {
   protected readonly agentXIconClass = computed(() => {
     const v = this.variant();
     if (v === 'mobile') {
-      return 'search-icon search-icon--brand pointer-events-none flex-shrink-0';
+      return 'search-icon search-icon--brand pointer-events-none shrink-0';
     }
     return 'search-icon search-icon--brand pointer-events-none absolute left-3';
   });
@@ -346,7 +346,7 @@ export class NxtSearchBarComponent {
   protected readonly iconClass = computed(() => {
     const v = this.variant();
     if (v === 'mobile') {
-      return 'search-icon search-icon--brand pointer-events-none flex-shrink-0';
+      return 'search-icon search-icon--brand pointer-events-none shrink-0';
     }
     const base = 'search-icon pointer-events-none absolute';
     if (v === 'desktop') {

@@ -70,7 +70,7 @@ import { AnalyticsService } from './core/services/analytics.service';
 import { provideBadgeBridge } from './core/services';
 
 // News API base URL (uses environment.apiURL — same origin + /api/v1/staging in dev)
-import { NEWS_API_BASE_URL } from '@nxt1/ui';
+import { NEWS_API_BASE_URL, TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui';
 
 // Firebase
 // IMPORTANT: Only import what's actually used in browser bundle
@@ -239,6 +239,9 @@ export const appConfig: ApplicationConfig = {
     // The news constants use /news/* paths (without /api/v1/ prefix),
     // so baseUrl + path = e.g. http://localhost:3000/api/v1/staging/news
     { provide: NEWS_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Team Profile API base URL
+    { provide: TEAM_PROFILE_API_BASE_URL, useFactory: () => environment.apiURL },
 
     // ============================================
     // LOGGING & ERROR HANDLING

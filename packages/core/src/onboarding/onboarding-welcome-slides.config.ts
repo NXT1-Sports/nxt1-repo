@@ -171,7 +171,7 @@ const COLLEGE_COACH_SLIDES: WelcomeSlidesConfig = {
 };
 
 /**
- * Athletic Director-specific welcome slides
+ * Director-specific welcome slides
  * Focus: Program oversight, staff management, analytics
  */
 const DIRECTOR_SLIDES: WelcomeSlidesConfig = {

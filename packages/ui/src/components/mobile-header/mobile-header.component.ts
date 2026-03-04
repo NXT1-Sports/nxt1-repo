@@ -156,9 +156,9 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
               [attr.aria-label]="'User menu for ' + user()!.name"
               (click)="onUserClick($event)"
             >
-              @if (user()!.avatarUrl) {
+              @if (user()!.profileImg) {
                 <img
-                  [src]="user()!.avatarUrl"
+                  [src]="user()!.profileImg"
                   [alt]="user()!.name"
                   class="mobile-header__avatar-img"
                   loading="lazy"

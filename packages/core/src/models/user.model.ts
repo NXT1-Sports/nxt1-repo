@@ -948,11 +948,11 @@ export interface CollegeCoachData extends CoachData {
 
 /**
  * Director-specific data
- * For Athletic Directors, Program Directors, and administrators
+ * For Directors, Program Directors, and administrators
  * who oversee multiple sports/programs organization-wide.
  */
 export interface DirectorData {
-  /** Job title (Athletic Director, Program Director, etc.) */
+  /** Job title (Director, Program Director, etc.) */
   title: string;
   /** Organization/school name */
   organization: string;
