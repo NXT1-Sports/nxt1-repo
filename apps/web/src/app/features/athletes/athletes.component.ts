@@ -7,7 +7,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
-import { NxtAthletesLandingComponent } from '@nxt1/ui/personas';
+import { NxtAthletesLandingComponent } from '../marketing/personas';
 import { SeoService } from '../../core/services/seo.service';
 
 @Component({

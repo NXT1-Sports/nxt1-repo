@@ -9,7 +9,7 @@
 
 import { Component, ChangeDetectionStrategy, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { NxtSportLandingComponent } from '@nxt1/ui/sport-landing';
+import { NxtSportLandingComponent } from '../marketing/sport-landing';
 import { getSportLandingConfig, type SportLandingConfig } from '@nxt1/core';
 import { SeoService } from '../../core/services/seo.service';
 
