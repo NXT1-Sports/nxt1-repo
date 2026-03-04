@@ -1,6 +1,6 @@
 /**
  * @fileoverview Coaches Persona Preview Component
- * @module @nxt1/ui/personas/coaches
+ * @module apps/web/features/marketing/personas/coaches
  * @version 1.0.0
  *
  * Interactive mockup of a college coach's recruiting dashboard

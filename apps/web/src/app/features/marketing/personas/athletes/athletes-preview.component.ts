@@ -1,6 +1,6 @@
 /**
  * @fileoverview Athletes Persona Preview Component
- * @module @nxt1/ui/personas/athletes
+ * @module apps/web/features/marketing/personas/athletes
  * @version 1.0.0
  *
  * Interactive mockup of an athlete's recruiting profile dashboard

@@ -1,6 +1,6 @@
 /**
  * @fileoverview Parents Persona Preview Component
- * @module @nxt1/ui/personas/parents
+ * @module apps/web/features/marketing/personas/parents
  * @version 1.0.0
  *
  * Interactive mockup of a parent's family recruiting dashboard

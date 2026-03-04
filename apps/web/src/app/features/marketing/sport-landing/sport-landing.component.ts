@@ -1,6 +1,6 @@
 /**
  * @fileoverview Sport Landing Page Component
- * @module @nxt1/ui/sport-landing
+ * @module apps/web/features/marketing/sport-landing
  * @version 1.0.0
  *
  * A single, reusable landing page that renders sport-specific marketing

@@ -1,6 +1,6 @@
 /**
  * @fileoverview Parents Persona Landing Page
- * @module @nxt1/ui/personas/parents
+ * @module apps/web/features/marketing/personas/parents
  * @version 1.0.0
  *
  * Orchestrator for the `/parents` persona marketing page.

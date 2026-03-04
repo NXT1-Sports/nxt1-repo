@@ -1,6 +1,6 @@
 /**
  * @fileoverview Coaches Persona Landing Page
- * @module @nxt1/ui/personas/coaches
+ * @module apps/web/features/marketing/personas/coaches
  * @version 1.0.0
  *
  * Orchestrator for the `/coaches` persona marketing page.

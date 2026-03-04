@@ -1,6 +1,6 @@
 /**
  * @fileoverview Scouts Persona Landing Page
- * @module @nxt1/ui/personas/scouts
+ * @module apps/web/features/marketing/personas/scouts
  * @version 1.0.0
  *
  * Orchestrator for the `/scouts` persona marketing page.

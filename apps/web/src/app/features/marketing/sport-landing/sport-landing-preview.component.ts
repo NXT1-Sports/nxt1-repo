@@ -1,6 +1,6 @@
 /**
  * @fileoverview Sport Landing Preview Component
- * @module @nxt1/ui/sport-landing
+ * @module apps/web/features/marketing/sport-landing
  * @version 1.0.0
  *
  * Interactive mockup that previews a sport-specific recruiting dashboard.

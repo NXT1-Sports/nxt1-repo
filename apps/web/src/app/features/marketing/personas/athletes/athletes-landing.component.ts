@@ -1,6 +1,6 @@
 /**
  * @fileoverview Athletes Persona Landing Page
- * @module @nxt1/ui/personas/athletes
+ * @module apps/web/features/marketing/personas/athletes
  * @version 1.0.0
  *
  * Orchestrator for the `/athletes` persona marketing page.

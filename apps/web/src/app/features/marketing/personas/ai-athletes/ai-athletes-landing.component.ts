@@ -1,6 +1,6 @@
 /**
  * @fileoverview AI for Athletes Landing Page
- * @module @nxt1/ui/personas/ai-athletes
+ * @module apps/web/features/marketing/personas/ai-athletes
  * @version 1.0.0
  *
  * Orchestrator for the `/ai-athletes` persona marketing page.

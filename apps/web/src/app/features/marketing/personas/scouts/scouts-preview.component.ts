@@ -1,6 +1,6 @@
 /**
  * @fileoverview Scouts Persona Preview Component
- * @module @nxt1/ui/personas/scouts
+ * @module apps/web/features/marketing/personas/scouts
  * @version 1.0.0
  *
  * Interactive mockup of an independent scout's evaluation dashboard
