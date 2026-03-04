@@ -69,7 +69,6 @@ import { MOCK_NEWS_ARTICLES } from '../../news/news.mock-data';
 import { TeamRecruitingWebComponent } from './team-recruiting-web.component';
 import { TeamTimelineWebComponent } from './team-timeline-web.component';
 import { TeamVideosWebComponent } from './team-videos-web.component';
-import { TeamPhotosWebComponent } from './team-photos-web.component';
 import { TeamContactWebComponent } from './team-contact-web.component';
 import { ProfileVerificationBannerComponent } from '../../profile/components/profile-verification-banner.component';
 import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component';
@@ -96,7 +95,6 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
     TeamVideosWebComponent,
     NewsBoardComponent,
     TeamRecruitingWebComponent,
-    TeamPhotosWebComponent,
     TeamContactWebComponent,
     ProfileVerificationBannerComponent,
     TeamProfileSkeletonComponent,
@@ -228,11 +226,10 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
                     }
 
                     @case ('recruiting') {
-                      <nxt1-team-recruiting-web [activeSection]="activeSideTab()" />
-                    }
-
-                    @case ('photos') {
-                      <nxt1-team-photos-web [activeSection]="activeSideTab()" />
+                      <nxt1-team-recruiting-web
+                        [activeSection]="activeSideTab()"
+                        cardLayout="horizontal"
+                      />
                     }
                   }
                 </section>
@@ -1299,19 +1296,24 @@ export class TeamProfileShellWebComponent implements OnInit {
       ],
       recruiting: [
         {
-          id: 'all-activity',
-          label: 'All Activity',
+          id: 'timeline',
+          label: 'Timeline',
           badge: this.teamProfile.recruitingActivity().length || undefined,
         },
-        { id: 'commitments', label: 'Commitments' },
-        { id: 'offers', label: 'Offers' },
-        { id: 'visits', label: 'Visits' },
-      ],
-      photos: [
         {
-          id: 'all-photos',
-          label: 'All Photos',
-          badge: this.teamProfile.galleryImages().length || undefined,
+          id: 'commitments',
+          label: 'Commitments',
+          badge:
+            this.teamProfile
+              .recruitingActivity()
+              .filter((a) => a.category === 'commitment-received').length || undefined,
+        },
+        {
+          id: 'offers',
+          label: 'Offers',
+          badge:
+            this.teamProfile.recruitingActivity().filter((a) => a.category === 'offer-sent')
+              .length || undefined,
         },
       ],
     };

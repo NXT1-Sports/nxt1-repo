@@ -13,7 +13,6 @@ export { TeamTimelineWebComponent } from './web';
 export { TeamVideosWebComponent } from './web';
 export { TeamRosterWebComponent } from './web';
 export { TeamRecruitingWebComponent } from './web';
-export { TeamPhotosWebComponent } from './web';
 export { TeamContactWebComponent } from './web';
 export {
   MOCK_TEAM,

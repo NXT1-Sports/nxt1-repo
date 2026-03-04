@@ -25,7 +25,7 @@ export type { DataVerification } from '../models/user.model';
 /**
  * Team Profile tab identifiers for content sections.
  *
- * Tab order: Overview, Timeline, Videos, Roster, Schedule, Stats, News, Recruiting, Photos
+ * Tab order: Overview, Timeline, Videos, Roster, Schedule, Stats, News, Recruiting
  * - Timeline and Videos reuse ProfileTimelineComponent patterns
  * - Overview sub-sections: About, Staff, Team History, Quick Stats, Sponsors
  * - Roster sub-sections: split by class year
@@ -38,8 +38,7 @@ export type TeamProfileTabId =
   | 'schedule'
   | 'stats'
   | 'news'
-  | 'recruiting'
-  | 'photos';
+  | 'recruiting';
 
 /**
  * Configuration for a team profile content tab.
@@ -342,17 +341,23 @@ export interface TeamProfileStaffMember {
 // ============================================
 
 /**
+ * Recruiting activity categories from the team perspective.
+ * Maps to human-readable labels and icons in TEAM_RECRUITING_CATEGORY_*.
+ */
+export type TeamProfileRecruitingCategory =
+  | 'offer-sent'
+  | 'commitment-received'
+  | 'visit-hosted'
+  | 'camp-hosted'
+  | 'contact';
+
+/**
  * A recruiting activity from the team perspective.
  * For college teams: offers sent, commitments received, etc.
  */
 export interface TeamProfileRecruitingActivity {
   readonly id: string;
-  readonly category:
-    | 'offer-sent'
-    | 'commitment-received'
-    | 'visit-hosted'
-    | 'camp-hosted'
-    | 'contact';
+  readonly category: TeamProfileRecruitingCategory;
   readonly athleteName: string;
   readonly athleteProfileCode?: string;
   readonly athleteProfileImg?: string;

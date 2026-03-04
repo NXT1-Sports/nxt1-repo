@@ -819,6 +819,7 @@ export {
   type TeamProfileStatsCategory,
   type TeamProfileStaffMember,
   type TeamProfileRecruitingActivity,
+  type TeamProfileRecruitingCategory,
   type TeamProfileFollowStats,
   type TeamProfileQuickStats,
   type TeamProfilePostType,
@@ -840,6 +841,8 @@ export {
   TEAM_PROFILE_QUICK_STATS_CONFIG,
   TEAM_PROFILE_ADMIN_HEADER_ACTIONS,
   TEAM_PROFILE_VISITOR_HEADER_ACTIONS,
+  TEAM_RECRUITING_CATEGORY_ICONS,
+  TEAM_RECRUITING_CATEGORY_LABELS,
   // Stats helpers
   mapTeamStatsToGameLogs,
   formatSeasonLabel,

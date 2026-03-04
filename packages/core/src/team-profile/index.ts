@@ -46,6 +46,7 @@ export {
   // Staff types
   type TeamProfileStaffMember,
   // Recruiting types
+  type TeamProfileRecruitingCategory,
   type TeamProfileRecruitingActivity,
   // Social types
   type TeamProfileFollowStats,
@@ -86,6 +87,9 @@ export {
   TEAM_PROFILE_VISITOR_HEADER_ACTIONS,
   // Empty states
   TEAM_PROFILE_EMPTY_STATES,
+  // Recruiting categories
+  TEAM_RECRUITING_CATEGORY_ICONS,
+  TEAM_RECRUITING_CATEGORY_LABELS,
   // UI config
   TEAM_PROFILE_UI_CONFIG,
   // Cache

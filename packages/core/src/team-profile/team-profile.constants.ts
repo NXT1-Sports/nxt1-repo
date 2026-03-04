@@ -16,6 +16,7 @@ import type {
   TeamProfileTabId,
   TeamProfilePostType,
   TeamProfileHeaderAction,
+  TeamProfileRecruitingCategory,
 } from './team-profile.types';
 
 // ============================================
@@ -27,7 +28,7 @@ import type {
  * Order determines display order in tab bar.
  *
  * Matches the user's spec:
- * Overview, Timeline, Roster, Schedule, Videos, News, Stats, Recruiting, Photos
+ * Overview, Timeline, Roster, Schedule, Videos, News, Stats, Recruiting
  */
 export const TEAM_PROFILE_TABS: readonly TeamProfileTab[] = [
   {
@@ -70,11 +71,6 @@ export const TEAM_PROFILE_TABS: readonly TeamProfileTab[] = [
     label: 'Recruiting',
     icon: 'trophy',
   },
-  {
-    id: 'photos',
-    label: 'Photos',
-    icon: 'image',
-  },
 ] as const;
 
 /**
@@ -85,9 +81,7 @@ export const TEAM_PROFILE_DEFAULT_TAB: TeamProfileTabId = 'overview';
 /**
  * Tabs where the verification banner is hidden.
  */
-export const TEAM_PROFILE_VERIFICATION_HIDDEN_TABS: ReadonlySet<TeamProfileTabId> = new Set([
-  'photos',
-]);
+export const TEAM_PROFILE_VERIFICATION_HIDDEN_TABS: ReadonlySet<TeamProfileTabId> = new Set([]);
 
 // ============================================
 // POST TYPE CONFIGURATION
@@ -309,12 +303,6 @@ export const TEAM_PROFILE_EMPTY_STATES: Record<
     message: 'Offers, commitments, and recruiting updates will appear here.',
     icon: 'trophy',
   },
-  photos: {
-    title: 'No photos yet',
-    message: 'Team photos and gallery images will appear here.',
-    icon: 'image',
-    ctaLabel: 'Upload Photos',
-  },
 } as const;
 
 // ============================================
@@ -368,4 +356,31 @@ export const TEAM_PROFILE_CACHE_KEYS = {
   ROSTER: 'team:profile:roster:',
   /** Team schedule — SHORT_TTL (1 min) */
   SCHEDULE: 'team:profile:schedule:',
+} as const;
+
+// ============================================
+// TEAM RECRUITING CATEGORY MAPPING
+// ============================================
+
+/**
+ * Icon mapping for team recruiting activity categories.
+ * Maps each team-perspective category to an Ionicon name.
+ */
+export const TEAM_RECRUITING_CATEGORY_ICONS: Record<TeamProfileRecruitingCategory, string> = {
+  'offer-sent': 'school',
+  'commitment-received': 'checkmark-circle',
+  'visit-hosted': 'location',
+  'camp-hosted': 'flag',
+  contact: 'call',
+} as const;
+
+/**
+ * Human-readable label mapping for team recruiting activity categories.
+ */
+export const TEAM_RECRUITING_CATEGORY_LABELS: Record<TeamProfileRecruitingCategory, string> = {
+  'offer-sent': 'Offer Sent',
+  'commitment-received': 'Committed',
+  'visit-hosted': 'Visit',
+  'camp-hosted': 'Camp',
+  contact: 'Contact',
 } as const;
