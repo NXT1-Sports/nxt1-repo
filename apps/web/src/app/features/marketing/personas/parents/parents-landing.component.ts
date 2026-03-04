@@ -21,7 +21,7 @@ import {
   type AudienceSegment,
 } from '@nxt1/ui/components/audience-section';
 import { NxtFaqSectionComponent, type FaqItem } from '@nxt1/ui/components/faq-section';
-import { NxtKillerComparisonComponent } from '@nxt1/ui/components/nxt1-killer-comparison';
+import { NxtKillerComparisonComponent } from '../../components/nxt1-killer-comparison';
 import { NxtCtaBannerComponent } from '@nxt1/ui/components/cta-banner';
 import { NxtParentsPreviewComponent } from './parents-preview.component';
 

@@ -54,14 +54,6 @@ export {
 } from './coach-authority-validation';
 export { NxtGraphicFactoryHeroComponent } from './graphic-factory-hero';
 export { NxtCoSignCollaborationSectionComponent } from './co-sign-collaboration-section';
-export {
-  NxtSuccessSimulationSectionComponent,
-  type SuccessSimulationScenario,
-} from './success-simulation-section';
-export {
-  NxtInvisibleAthletePainPointComponent,
-  type InvisibleAthleteSignal,
-} from './invisible-athlete-pain-point';
 export { NxtCoverageGapPainPointComponent, type CoverageGapLayer } from './coverage-gap-pain-point';
 export { NxtNewsletterFeatureSectionComponent } from './newsletter-feature-section';
 export { NxtContentFactoryLandingComponent } from './content-factory';
@@ -319,12 +311,6 @@ export {
 
 export { NxtEcosystemMapComponent, type EcosystemMapStep } from './ecosystem-map';
 
-export {
-  NxtKillerComparisonComponent,
-  type KillerComparisonRow,
-  KILLER_COMPARISON_DEFAULT_ROWS,
-} from './nxt1-killer-comparison';
-export { NxtOpenDoorsHeroComponent } from './open-doors-hero';
 export { NxtMediaEmpireHeroComponent } from './media-empire-hero';
 export { NxtBreakingNewsHeroComponent } from './breaking-news-hero';
 export { NxtValuePropComparisonComponent } from './value-prop-comparison';
@@ -359,9 +345,7 @@ export {
   NxtAgentXExecutionLayerSectionComponent,
   type ExecutionLayerTask,
 } from './agent-x-execution-layer-section';
-export { NxtAgentXHypeMachineSectionComponent } from './agent-x-hype-machine-section';
 export { NxtImmersiveHeroComponent, type ImmersiveHeroShot } from './immersive-hero';
-export { NxtD1DreamHeroComponent, type D1DreamHeadingLevel } from './d1-dream-hero';
 export { NxtAppStoreBadgesComponent, type AppStoreBadgeLayout } from './app-store-badges';
 export {
   NxtAgentXDemoComponent,
@@ -396,6 +380,14 @@ export {
 } from './partner-marquee';
 
 export { NxtFaqSectionComponent, type FaqItem } from './faq-section';
+export { NxtStatsBarComponent, type StatsBarItem } from './stats-bar';
+export { NxtFeatureShowcaseComponent, type FeatureShowcaseItem } from './feature-showcase';
+export { NxtAudienceSectionComponent, type AudienceSegment } from './audience-section';
+export {
+  NxtSiteFooterComponent,
+  type SiteFooterLink,
+  type SiteFooterLinkGroup,
+} from './site-footer';
 
 // ============================================
 // RECRUITMENT ENGINE (USA Map + Live Activity Pings)
@@ -407,25 +399,9 @@ export {
 } from './recruitment-engine';
 
 export {
-  NxtRecruitingRadarSectionComponent,
-  type RecruitingRadarEvent,
-} from './recruiting-radar-section';
-
-export {
-  NxtOpportunityRadarSectionComponent,
-  type OpportunityRadarSchoolMatch,
-} from './opportunity-radar-section';
-
-export { NxtCommunicationCenterSectionComponent } from './communication-center-section';
-
-export { NxtRecruitingCommandCenterSectionComponent } from './recruiting-command-center-section';
-
-export {
   NxtRecruitmentPillarsSectionComponent,
   type RecruitmentPillar,
 } from './recruitment-pillars-section';
-
-export { NxtXpLeaderboardSectionComponent } from './xp-leaderboard-section';
 
 export { NxtNilMonetizationUpsideComponent } from './nil-monetization-upside';
 
@@ -442,18 +418,6 @@ export {
 // UTILITY COMPONENTS
 // ============================================
 export { NxtRefreshContainerComponent, type RefreshEvent } from './refresh-container';
-export {
-  NxtGetItDoneWorkflowSectionComponent,
-  type GetItDoneWorkflow,
-  type GetItDoneWorkflowStep,
-} from './get-it-done-workflow-section';
-export {
-  NxtHighlightEngineActionSectionComponent,
-  type HighlightEngineStep,
-} from './highlight-engine-action-section';
-
-export { NxtLimitlessBoxSectionComponent, type LimitlessBurstNode } from './limitless-box-section';
-
 // ============================================
 // TIMELINE (Shared vertical-timeline components)
 // ============================================
