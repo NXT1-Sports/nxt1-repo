@@ -132,6 +132,8 @@ export interface OnboardingProfileData {
   teamCode?: string;
   referralSource?: string;
   referralDetails?: string;
+  teamLogo?: string | null;
+  teamColors?: string[];
 }
 
 /**

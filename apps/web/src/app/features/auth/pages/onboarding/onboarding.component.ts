@@ -121,6 +121,7 @@ import {
   AuthApiService,
   OnboardingAnalyticsService,
 } from '../../services';
+import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { SeoService } from '../../../../core/services';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
@@ -979,8 +980,14 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       const secondarySport = nonPrimarySports[0];
       const tertiarySport = nonPrimarySports[1];
 
+      // Map 'recruiter' to 'recruiting-service' for backend API compatibility
+      const userType: OnboardingProfileData['userType'] =
+        formData.userType === 'recruiter'
+          ? 'recruiting-service'
+          : (formData.userType as OnboardingProfileData['userType']);
+
       const profileData = {
-        userType: formData.userType,
+        userType,
         firstName: formData.profile?.firstName || '',
         lastName: formData.profile?.lastName || '',
         profileImg: formData.profile?.profileImg || undefined,
@@ -999,8 +1006,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         zipCode: formData.profile?.location?.zipCode,
         address: formData.profile?.location?.address,
         country: formData.profile?.location?.country,
-        teamLogo: primarySport?.team?.logo,
-        teamColors: primarySport?.team?.colors,
+        teamLogo: formData.school?.teamLogo || primarySport?.team?.logo,
+        teamColors: formData.school?.teamColors || primarySport?.team?.colors,
         club: formData.school?.club,
         organization: formData.organization?.organizationName,
         coachTitle: formData.organization?.title,
