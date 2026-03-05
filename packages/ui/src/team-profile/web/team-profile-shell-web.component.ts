@@ -136,7 +136,6 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
       @if (teamProfile.isLoading()) {
         <nxt1-team-profile-skeleton />
       }
-
       <!-- Error State -->
       @else if (teamProfile.error()) {
         <section class="madden-error">
@@ -146,9 +145,8 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
           <button type="button" class="madden-error-btn" (click)="onRetry()">Try Again</button>
         </section>
       }
-
-      <!-- ═══ MADDEN FRANCHISE MODE — SPLIT LAYOUT ═══ -->
-      @else if (teamProfile.team()) {
+      <!-- Content State -->
+      @else if (isContentReady()) {
         <div class="madden-stage">
           <!-- Faded halftone accent background -->
           <div class="stage-halftone-bg" aria-hidden="true">
@@ -161,14 +159,18 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
             <!-- LEFT SIDE: Header + Tabs + Content -->
             <div class="madden-split-left">
               <!-- Desktop Header (extracted component) -->
-              <div class="madden-header-top-pad hidden md:block">
-                <nxt1-team-page-header (back)="backClick.emit()" (follow)="followClick.emit()" />
-              </div>
+              @if (teamProfile.team()) {
+                <div class="madden-header-top-pad hidden md:block">
+                  <nxt1-team-page-header (back)="backClick.emit()" (follow)="followClick.emit()" />
+                </div>
+              }
 
               <!-- Mobile Hero (extracted component) -->
-              <div class="md:hidden">
-                <nxt1-team-mobile-hero (back)="backClick.emit()" (follow)="followClick.emit()" />
-              </div>
+              @if (teamProfile.team()) {
+                <div class="md:hidden">
+                  <nxt1-team-mobile-hero (back)="backClick.emit()" (follow)="followClick.emit()" />
+                </div>
+              }
 
               <!-- TOP TAB BAR -->
               <nav class="madden-top-tabs" aria-label="Team profile sections">
@@ -366,6 +368,10 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
 
         <!-- Projected content (e.g. CTA banner for logged-out users) -->
         <ng-content />
+      }
+      <!-- Fallback: Show skeleton if no state matches (safety net for SSR hydration) -->
+      @else {
+        <nxt1-team-profile-skeleton />
       }
     </main>
   `,
@@ -1101,6 +1107,15 @@ export class TeamProfileShellWebComponent implements OnInit {
   // ============================================
   // COMPUTED
   // ============================================
+
+  /** Check if content is ready to render (prevents SSR hydration mismatch) */
+  protected readonly isContentReady = computed(() => {
+    return (
+      !this.teamProfile.isLoading() &&
+      !this.teamProfile.error() &&
+      !!this.teamProfile.team()?.teamName
+    );
+  });
 
   /**
    * Maps TeamProfileScheduleEvent[] → ScheduleRow[] for the shared schedule board.

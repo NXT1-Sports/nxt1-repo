@@ -175,6 +175,9 @@ export class TeamComponent implements OnInit {
       return;
     }
 
+    // Set loading state immediately before async API call to prevent template flash
+    this.teamProfile.startLoading();
+
     // Load team data from API
     this.teamProfile.loadTeam(slug, this.isTeamAdmin()).catch((error) => {
       this.logger.error('Failed to load team on init', { slug, error });

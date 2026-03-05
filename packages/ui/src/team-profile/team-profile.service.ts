@@ -37,6 +37,10 @@ export class TeamProfileService {
   // PRIVATE WRITEABLE SIGNALS
   // ============================================
 
+  /**
+   * Start with loading=false to prevent SSR hydration mismatch.
+   * Will be set to true when loadTeam() is called.
+   */
   private readonly _isLoading = signal(false);
   private readonly _isLoadingMore = signal(false);
   private readonly _error = signal<string | null>(null);
@@ -408,15 +412,6 @@ export class TeamProfileService {
   }
 
   /**
-   * Set loading state to true.
-   * Used by platform wrappers that manage their own data fetching.
-   */
-  startLoading(): void {
-    this._isLoading.set(true);
-    this._error.set(null);
-  }
-
-  /**
    * Load team from externally-fetched data.
    * Used by platform wrappers (web SSR resolver, mobile deep-link bridge).
    */
@@ -437,10 +432,18 @@ export class TeamProfileService {
   }
 
   /**
+   * Manually start loading state.
+   */
+  startLoading(): void {
+    this._isLoading.set(true);
+    this._error.set(null);
+  }
+
+  /**
    * Reset all state.
    */
   reset(): void {
-    this._isLoading.set(false);
+    this._isLoading.set(true); // Reset to initial loading state
     this._isLoadingMore.set(false);
     this._error.set(null);
     this._activeTab.set(TEAM_PROFILE_DEFAULT_TAB);

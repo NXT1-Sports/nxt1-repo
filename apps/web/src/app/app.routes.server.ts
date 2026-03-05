@@ -199,13 +199,17 @@ export const serverRoutes: ServerRoute[] = [
     path: 'nil/**',
     renderMode: RenderMode.Server,
   },
+  /**
+   * Team profile routes - Use Client rendering to avoid SSR hydration mismatch
+   * Data is loaded async on client for better performance
+   */
   {
     path: 'team/:slug',
-    renderMode: RenderMode.Server,
+    renderMode: RenderMode.Client,
   },
   {
     path: 'team/**',
-    renderMode: RenderMode.Server,
+    renderMode: RenderMode.Client,
   },
   {
     path: 'manage-team',
