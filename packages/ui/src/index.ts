@@ -351,6 +351,10 @@ export {
   type BottomSheetConfig,
   type BottomSheetResult,
   type BottomSheetVariant,
+  // Content Sheet Header (standard header for openSheet components)
+  NxtSheetHeaderComponent,
+  type SheetHeaderIconShape,
+  type SheetHeaderClosePosition,
   // Content Sheet types (for full component injection)
   type ContentSheetConfig,
   type ContentSheetResult,
@@ -461,6 +465,15 @@ export {
 // AGENT X WEB (Zero Ionic, SSR-safe)
 // ============================================
 export { AgentXShellWebComponent, AgentXWelcomeWebComponent } from './agent-x/web';
+
+// ============================================
+// AGENT X ONBOARDING (Web + Mobile shells)
+// ============================================
+export {
+  AgentOnboardingService,
+  AgentOnboardingShellComponent,
+  AgentOnboardingShellMobileComponent,
+} from './agent-x/onboarding';
 
 // ============================================
 // CREATE POST (Post Creation - Shared Web & Mobile)
@@ -1216,6 +1229,12 @@ export {
   // Mock Data (Development Only)
   MOCK_MANAGE_TEAM_FORM_DATA,
 } from './manage-team';
+
+// ============================================
+// QR CODE (QR Code Modal/Bottom Sheet - Shared Web & Mobile)
+// ============================================
+export { QrCodeService, QrCodeBottomSheetService } from './qr-code';
+export type { QrCodeConfig, QrCodeResult } from './qr-code';
 
 // ============================================
 // USAGE (Usage Dashboard & Billing - Shared Web & Mobile)

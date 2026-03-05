@@ -1,19 +1,26 @@
 /**
- * @fileoverview Team Page - Mobile App Wrapper
+ * @fileoverview Team Profile Page — Mobile App Wrapper
  * @module @nxt1/mobile/features/team
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Thin wrapper page that imports the shared Team shell
- * from @nxt1/ui and wires up platform-specific concerns.
+ * Thin mobile wrapper for the shared TeamProfileShellWebComponent.
+ * Mirrors the Profile mobile wrapper pattern exactly.
  *
- * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
+ * Architecture:
+ * ┌─────────────────────────────────────────────────────────────┐
+ * │                 apps/mobile/team (~5%)                      │
+ * │     Mobile-specific: Routes, Ionic nav, native share        │
+ * ├─────────────────────────────────────────────────────────────┤
+ * │           @nxt1/ui/team-profile (~95% shared)               │
+ * │    TeamProfileShellWebComponent + TeamProfileService         │
+ * └─────────────────────────────────────────────────────────────┘
  *
- * The actual UI and logic live in @nxt1/ui (shared package).
- * This wrapper only handles:
- * - Ionic navigation integration
- * - Mobile-specific back navigation
- * - Team data fetching from backend
- * - Native share functionality
+ * Responsibilities:
+ * - Route parameter extraction (team slug)
+ * - API data fetching → TeamProfileService bridge
+ * - Ionic navigation (NavController)
+ * - Native share via ShareService
+ * - Follow with auth guard
  *
  * Routes:
  * - /team/:slug — View team by slug
@@ -24,90 +31,186 @@ import {
   ChangeDetectionStrategy,
   inject,
   computed,
-  signal,
+  DestroyRef,
   effect,
 } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
-import { NavController } from '@ionic/angular/standalone';
-import { TeamShellComponent, type TeamData, NxtLoggingService } from '@nxt1/ui';
+import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { map, distinctUntilChanged, switchMap, tap, from, combineLatest, filter } from 'rxjs';
+import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
+import {
+  TeamProfileShellWebComponent,
+  TeamProfileService,
+  ManageTeamBottomSheetService,
+  QrCodeService,
+  NxtLoggingService,
+  NxtToastService,
+} from '@nxt1/ui';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
+
+import { MobileAuthService } from '../auth/services/mobile-auth.service';
+import { AnalyticsService } from '../../core/services/analytics.service';
 import { ShareService } from '../../core/services/share.service';
+import { TeamProfileApiService } from '../../core/services/team-profile-api.service';
 
 @Component({
   selector: 'app-team',
   standalone: true,
-  imports: [TeamShellComponent],
+  imports: [IonHeader, IonContent, IonToolbar, TeamProfileShellWebComponent],
   template: `
-    <nxt1-team-shell
-      [teamId]="teamId()"
-      [teamData]="teamData()"
-      (backClick)="onBackClick()"
-      (shareClick)="onShare()"
-      (retryClick)="onRetry()"
-    />
+    <ion-header class="ion-no-border" [translucent]="true">
+      <ion-toolbar></ion-toolbar>
+    </ion-header>
+    <ion-content [fullscreen]="true">
+      <nxt1-team-profile-shell-web
+        [teamSlug]="teamSlug()"
+        [isTeamAdmin]="isTeamAdmin()"
+        [skipInternalLoad]="true"
+        (backClick)="onBackClick()"
+        (tabChange)="onTabChange($event)"
+        (shareClick)="onShare()"
+        (followClick)="onFollow()"
+        (qrCodeClick)="onQrCode()"
+        (manageTeamClick)="onManageTeam()"
+        (rosterMemberClick)="onRosterMemberClick($event)"
+        (postClick)="onPostClick($event)"
+      />
+    </ion-content>
+  `,
+  styles: `
+    :host {
+      display: block;
+      height: 100%;
+    }
+    ion-header {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: -1;
+      --background: transparent;
+    }
+    ion-toolbar {
+      --background: transparent;
+      --min-height: 0;
+      --padding-top: 0;
+      --padding-bottom: 0;
+    }
+    ion-content {
+      --background: var(--nxt1-color-bg-primary, #0a0a0a);
+    }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TeamPage {
-  private readonly navCtrl = inject(NavController);
+  // ============================================
+  // DEPENDENCIES
+  // ============================================
+
   private readonly route = inject(ActivatedRoute);
-  private readonly logger = inject(NxtLoggingService).child('TeamPage');
+  private readonly navController = inject(NavController);
+  private readonly authService = inject(MobileAuthService);
+  private readonly teamProfile = inject(TeamProfileService);
+  private readonly teamApi = inject(TeamProfileApiService);
+  private readonly manageTeamSheet = inject(ManageTeamBottomSheetService);
+  private readonly qrCode = inject(QrCodeService);
+  private readonly analytics = inject(AnalyticsService);
   private readonly share = inject(ShareService);
+  private readonly toast = inject(NxtToastService);
+  private readonly logger = inject(NxtLoggingService).child('TeamPage');
+  private readonly destroyRef = inject(DestroyRef);
 
   // ============================================
   // STATE
   // ============================================
 
-  protected readonly teamData = signal<TeamData | null>(null);
+  /**
+   * Team slug from route parameter — reactive via toSignal.
+   */
+  protected readonly teamSlug = toSignal(
+    this.route.paramMap.pipe(map((params) => params.get('slug') ?? '')),
+    { initialValue: '' }
+  );
 
   /**
-   * Team ID/slug from route parameter.
+   * Whether the current user is an admin of this team.
+   * Derived from TeamProfileService after data loads.
    */
-  protected readonly teamId = computed<string>(() => {
-    return this.route.snapshot.paramMap.get('slug') || '';
-  });
-
-  // ============================================
-  // LIFECYCLE
-  // ============================================
+  protected readonly isTeamAdmin = computed(() => this.teamProfile.isTeamAdmin());
 
   constructor() {
-    // Effect to load team data when slug changes
+    // Clean up service state when leaving this page
+    this.destroyRef.onDestroy(() => this.teamProfile.startLoading());
+
+    // Clear stale data immediately when slug changes (prevents old-data flash)
     effect(() => {
-      const slug = this.teamId();
-      if (slug) {
-        this.loadTeamData(slug);
-      }
+      this.teamSlug();
+      this.teamProfile.startLoading();
     });
-  }
 
-  // ============================================
-  // DATA LOADING
-  // ============================================
+    /**
+     * Bridge: fetch real API data → push into TeamProfileService.
+     *
+     * Waits for auth initialization before reacting to route changes.
+     * Without this guard, the first emit happens before auth.user() is
+     * populated, causing incorrect isTeamAdmin checks.
+     */
+    const authReady$ = toObservable(this.authService.isInitialized).pipe(
+      filter((initialized) => initialized)
+    );
 
-  private loadTeamData(slug: string): void {
-    this.logger.info('Loading team data', { slug });
+    combineLatest([toObservable(this.teamSlug).pipe(distinctUntilChanged()), authReady$])
+      .pipe(
+        map(([slug]) => slug),
+        distinctUntilChanged(),
+        tap(() => this.teamProfile.startLoading()),
+        switchMap((slug) => {
+          if (!slug) {
+            this.teamProfile.setError('No team slug provided');
+            return [];
+          }
+          return from(this.teamApi.getTeamBySlug(slug));
+        }),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe({
+        next: (response) => {
+          if (response.success && response.data) {
+            this.teamProfile.loadFromExternalData(response.data);
+            this.logger.info('Team profile loaded', {
+              slug: this.teamSlug(),
+              teamName: response.data.team?.teamName,
+            });
 
-    // Mock team data for now - replace with actual API call
-    // TODO: Connect to TeamService when backend is ready
-    const mockTeamData: TeamData = {
-      id: slug,
-      slug: slug,
-      teamName: 'Lincoln High School',
-      sport: 'Football',
-      location: 'Lincoln, NE',
-      logoUrl: '/assets/images/teams/lincoln-hs-logo.png',
-      imageUrl: '/assets/images/teams/lincoln-hs-cover.jpg',
-      record: '10-2',
-      description:
-        'Lincoln High School Football program with a rich tradition of excellence. Multiple state championships and a commitment to developing student-athletes both on and off the field.',
-      foundedYear: 1965,
-      coachName: 'John Smith',
-      homeVenue: 'Lincoln Stadium',
-      rosterCount: 45,
-    };
+            // Analytics: track team page view
+            this.analytics.trackEvent(APP_EVENTS.TEAM_PAGE_VIEWED, {
+              team_id: response.data.team?.id,
+              team_slug: this.teamSlug(),
+              team_name: response.data.team?.teamName,
+              sport: response.data.team?.sport,
+            });
 
-    this.teamData.set(mockTeamData);
-    this.logger.info('Team data loaded', { teamName: mockTeamData.teamName });
+            // Track page view (fire-and-forget)
+            const teamId = response.data.team?.id;
+            const viewerId = this.authService.user()?.uid;
+            if (teamId) {
+              void this.teamApi.trackPageView(teamId, viewerId);
+            }
+          } else {
+            this.teamProfile.setError(response.error ?? 'Failed to load team profile');
+            this.logger.error('Team profile API error', {
+              slug: this.teamSlug(),
+              error: response.error,
+            });
+          }
+        },
+        error: (err: unknown) => {
+          const message = err instanceof Error ? err.message : 'Failed to load team profile';
+          this.teamProfile.setError(message);
+          this.logger.error('Team profile fetch failed', err, { slug: this.teamSlug() });
+        },
+      });
   }
 
   // ============================================
@@ -115,16 +218,20 @@ export class TeamPage {
   // ============================================
 
   protected onBackClick(): void {
-    this.logger.info('Back button clicked');
-    this.navCtrl.back();
+    this.navController.back();
+  }
+
+  protected onTabChange(tab: TeamProfileTabId): void {
+    this.analytics.trackEvent(APP_EVENTS.TAB_CHANGED, {
+      tab,
+      team_slug: this.teamSlug(),
+      context: 'team_profile',
+    });
   }
 
   protected async onShare(): Promise<void> {
-    const team = this.teamData();
-    if (!team) {
-      this.logger.warn('Cannot share - no team data');
-      return;
-    }
+    const team = this.teamProfile.team();
+    if (!team) return;
 
     const result = await this.share.shareTeam({
       id: team.id,
@@ -133,20 +240,73 @@ export class TeamPage {
       sport: team.sport,
       location: team.location,
       logoUrl: team.logoUrl,
-      imageUrl: team.imageUrl,
-      record: team.record,
+      imageUrl: team.galleryImages?.[0] || team.logoUrl,
+      record: this.teamProfile.recordDisplay() || undefined,
     });
 
     if (result.completed) {
-      this.logger.info('Team shared', { teamSlug: team.slug, method: result.activityType });
+      this.logger.info('Team shared', { slug: team.slug, method: result.activityType });
     }
   }
 
-  protected onRetry(): void {
-    this.logger.info('Retry button clicked');
-    const slug = this.teamId();
-    if (slug) {
-      this.loadTeamData(slug);
+  protected async onFollow(): Promise<void> {
+    if (!this.authService.isAuthenticated()) {
+      this.toast.info('Sign in to follow teams');
+      void this.navController.navigateForward('/auth');
+      return;
+    }
+
+    await this.teamProfile.toggleFollow();
+    const isFollowing = this.teamProfile.followStats()?.isFollowing;
+    this.toast.success(isFollowing ? 'Following!' : 'Unfollowed');
+  }
+
+  protected async onQrCode(): Promise<void> {
+    const team = this.teamProfile.team();
+    if (!team) return;
+
+    try {
+      await this.qrCode.open({
+        url: `https://nxt1sports.com/team/${team.slug}`,
+        displayName: team.teamName,
+        profileImg: team.logoUrl || undefined,
+        sport: team.sport || 'Sports',
+        unicode: team.slug,
+        isOwnProfile: this.isTeamAdmin(),
+      });
+    } catch (err) {
+      this.logger.error('Failed to open QR code', err);
+      this.toast.error('Unable to open QR code');
+    }
+  }
+
+  protected async onManageTeam(): Promise<void> {
+    const result = await this.manageTeamSheet.open({
+      teamId: this.teamProfile.team()?.id,
+    });
+
+    if (result?.saved) {
+      // Refresh team data after management changes
+      const slug = this.teamSlug();
+      if (slug) {
+        this.teamApi.invalidateCache(slug);
+        const response = await this.teamApi.getTeamBySlug(slug);
+        if (response.success && response.data) {
+          this.teamProfile.loadFromExternalData(response.data);
+        }
+      }
+    }
+  }
+
+  protected onRosterMemberClick(member: TeamProfileRosterMember): void {
+    if (member.profileCode) {
+      void this.navController.navigateForward(`/profile/${member.profileCode}`);
+    }
+  }
+
+  protected onPostClick(post: TeamProfilePost): void {
+    if (post.id) {
+      void this.navController.navigateForward(`/post/${post.id}`);
     }
   }
 }

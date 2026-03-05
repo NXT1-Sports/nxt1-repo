@@ -510,7 +510,7 @@ export interface WeeklyPlaybookItem {
       @keyframes op-pulse-border {
         0%,
         100% {
-          border-color: transparent;
+          border-color: var(--agent-primary-glow);
         }
         50% {
           border-color: var(--agent-primary);

@@ -21,11 +21,19 @@
  */
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { ProfileSkeletonComponent } from '../../profile/profile-skeleton.component';
 
 @Component({
   selector: 'nxt1-team-profile-skeleton',
   standalone: true,
+  imports: [ProfileSkeletonComponent],
   template: `
+    <!-- Mobile: use the exact same full skeleton as /profile for perfect parity -->
+    <div class="sk-mobile-profile-match" aria-hidden="true">
+      <nxt1-profile-skeleton variant="full" />
+    </div>
+
+    <!-- Desktop / tablet: keep team-specific split skeleton -->
     <div class="sk-web" aria-hidden="true">
       <div class="sk-stage">
         <div class="sk-split">
@@ -182,6 +190,10 @@ import { Component, ChangeDetectionStrategy } from '@angular/core';
 
       :host {
         display: block;
+      }
+
+      .sk-mobile-profile-match {
+        display: none;
       }
 
       /* ─── Canonical Skeleton Animation ─── */
@@ -721,6 +733,14 @@ import { Component, ChangeDetectionStrategy } from '@angular/core';
       }
 
       @media (max-width: 768px) {
+        .sk-mobile-profile-match {
+          display: block;
+        }
+
+        .sk-web {
+          display: none;
+        }
+
         /* Show mobile hero, hide desktop header */
         .sk-page-header {
           display: none;

@@ -62,6 +62,7 @@ import {
   filterScheduleEvents,
   mapProfileEventsToScheduleRows,
   getScheduleSeasons,
+  formatSportDisplayName,
 } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtIconComponent } from '../components/icon';
@@ -270,7 +271,7 @@ export interface ProfileShellUser {
                       [showPlaceholder]="false"
                     />
                   }
-                  <span>{{ sport.name }}</span>
+                  <span>{{ formatSportDisplayName(sport.name) }}</span>
                 </button>
               }
             </div>
@@ -743,6 +744,8 @@ export class ProfileShellComponent implements OnInit {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShell');
   private readonly bottomSheet = inject(NxtBottomSheetService);
+
+  protected readonly formatSportDisplayName = formatSportDisplayName;
 
   // ============================================
   // INPUTS

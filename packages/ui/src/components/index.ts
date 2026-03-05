@@ -119,11 +119,14 @@ export { ScheduleBoardComponent } from './schedule-board';
 // ============================================
 export {
   NxtBottomSheetComponent,
+  NxtSheetHeaderComponent,
   NxtBottomSheetService,
   type BottomSheetAction,
   type BottomSheetConfig,
   type BottomSheetResult,
   type BottomSheetVariant,
+  type SheetHeaderIconShape,
+  type SheetHeaderClosePosition,
 } from './bottom-sheet';
 
 export {

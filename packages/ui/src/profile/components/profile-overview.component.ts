@@ -36,6 +36,7 @@ import {
   type TimelineEmptyConfig,
   type TimelineDotConfig,
   getVerification,
+  formatSportDisplayName,
 } from '@nxt1/core';
 import { ICONS, type IconName } from '@nxt1/design-tokens/assets/icons';
 
@@ -471,7 +472,7 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
                   class="ov-mobile-sport-switcher__item"
                   [class.ov-mobile-sport-switcher__item--active]="profile.activeSportIndex() === i"
                   [attr.aria-selected]="profile.activeSportIndex() === i"
-                  [attr.aria-label]="'Switch to ' + sport.name + ' profile'"
+                  [attr.aria-label]="'Switch to ' + formatSportDisplayName(sport.name) + ' profile'"
                   role="tab"
                   (click)="onSportSwitch(i)"
                 >
@@ -491,7 +492,9 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
                       {{ sport.name.charAt(0) }}
                     </span>
                   }
-                  <span class="ov-mobile-sport-switcher__sport-name">{{ sport.name }}</span>
+                  <span class="ov-mobile-sport-switcher__sport-name">{{
+                    formatSportDisplayName(sport.name)
+                  }}</span>
                   @if (profile.activeSportIndex() === i) {
                     <span class="ov-mobile-sport-switcher__active-badge" aria-hidden="true"></span>
                   }
@@ -1752,6 +1755,8 @@ export class ProfileOverviewComponent implements OnDestroy {
   private readonly toast = inject(NxtToastService);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly isBrowser = isPlatformBrowser(this.platformId);
+
+  protected readonly formatSportDisplayName = formatSportDisplayName;
 
   // Typewriter state
   private typewriterTimer: ReturnType<typeof setTimeout> | null = null;

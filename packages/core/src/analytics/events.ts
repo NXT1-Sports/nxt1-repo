@@ -509,6 +509,30 @@ export const APP_EVENTS = {
   AI_TASK_FAILED: 'ai_task_failed',
 
   // ============================================
+  // AGENT ONBOARDING EVENTS
+  // ============================================
+  /** Agent onboarding started */
+  AGENT_ONBOARDING_STARTED: 'agent_onboarding_started',
+  /** Agent onboarding step viewed */
+  AGENT_ONBOARDING_STEP_VIEWED: 'agent_onboarding_step_viewed',
+  /** Agent onboarding step completed */
+  AGENT_ONBOARDING_STEP_COMPLETED: 'agent_onboarding_step_completed',
+  /** Program searched during onboarding */
+  AGENT_ONBOARDING_PROGRAM_SEARCHED: 'agent_onboarding_program_searched',
+  /** Program selected/claimed during onboarding */
+  AGENT_ONBOARDING_PROGRAM_SELECTED: 'agent_onboarding_program_selected',
+  /** New program created during onboarding */
+  AGENT_ONBOARDING_PROGRAM_CREATED: 'agent_onboarding_program_created',
+  /** Goal selected during onboarding */
+  AGENT_ONBOARDING_GOAL_SELECTED: 'agent_onboarding_goal_selected',
+  /** Connection added during onboarding */
+  AGENT_ONBOARDING_CONNECTION_ADDED: 'agent_onboarding_connection_added',
+  /** Agent onboarding completed */
+  AGENT_ONBOARDING_COMPLETED: 'agent_onboarding_completed',
+  /** Agent onboarding skipped */
+  AGENT_ONBOARDING_SKIPPED: 'agent_onboarding_skipped',
+
+  // ============================================
   // NAVIGATION EVENTS
   // ============================================
   /** Screen viewed (for custom tracking) */

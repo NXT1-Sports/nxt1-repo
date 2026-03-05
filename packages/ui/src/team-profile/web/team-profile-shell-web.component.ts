@@ -24,8 +24,9 @@ import {
   computed,
   signal,
   OnInit,
+  PLATFORM_ID,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import {
   type TeamProfileTabId,
   type TeamProfileTab,
@@ -38,6 +39,7 @@ import {
 } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
+import { NxtPageHeaderComponent } from '../../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import {
   NxtOptionScrollerComponent,
@@ -52,6 +54,8 @@ import {
 import { NxtImageCarouselComponent } from '../../components/image-carousel';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
+import { NxtBottomSheetService } from '../../components/bottom-sheet';
+import type { BottomSheetAction } from '../../components/bottom-sheet/bottom-sheet.types';
 import { TeamProfileService } from '../team-profile.service';
 
 // ─── Extracted Section Components ───
@@ -78,6 +82,7 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
     CommonModule,
     NxtIconComponent,
     NxtImageComponent,
+    NxtPageHeaderComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
     NxtSectionNavWebComponent,
@@ -98,6 +103,32 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
     TeamProfileSkeletonComponent,
   ],
   template: `
+    <!-- Shared top header (mobile parity with profile shell) -->
+    <div class="md:hidden">
+      <nxt1-page-header [showBack]="true" (backClick)="backClick.emit()">
+        <div pageHeaderSlot="end" class="header-actions">
+          <button
+            type="button"
+            class="header-action-btn"
+            aria-label="More options"
+            (click)="onMenuClick()"
+          >
+            <nxt1-icon name="moreHorizontal" [size]="22" />
+          </button>
+          @if (isTeamAdmin()) {
+            <button
+              type="button"
+              class="header-action-btn"
+              aria-label="Manage team"
+              (click)="manageTeamClick.emit()"
+            >
+              <nxt1-icon name="plus" [size]="22" />
+            </button>
+          }
+        </div>
+      </nxt1-page-header>
+    </div>
+
     <main class="team-profile-main">
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
@@ -360,6 +391,36 @@ import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component'
         --m-text-2: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
         --m-text-3: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
         --m-accent: var(--team-accent, var(--nxt1-color-primary, #d4ff00));
+      }
+
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-1, 4px);
+      }
+
+      .header-action-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 40px;
+        height: 40px;
+        padding: 0;
+        margin: 0;
+        border: none;
+        background: transparent;
+        border-radius: var(--nxt1-radius-full, 50%);
+        color: var(--m-text);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition:
+          background-color 0.15s ease,
+          transform 0.1s ease;
+      }
+
+      .header-action-btn:active {
+        background: var(--m-surface-2);
+        transform: scale(0.92);
       }
 
       .team-profile-main {
@@ -1002,6 +1063,9 @@ export class TeamProfileShellWebComponent implements OnInit {
   protected readonly teamProfile = inject(TeamProfileService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('TeamProfileShellWeb');
+  private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly isBrowser = isPlatformBrowser(this.platformId);
 
   // ============================================
   // INPUTS
@@ -1013,6 +1077,13 @@ export class TeamProfileShellWebComponent implements OnInit {
   /** Whether the current user is an admin of this team */
   readonly isTeamAdmin = input(false);
 
+  /**
+   * When true, skip the internal ngOnInit data fetch.
+   * Used by platform wrappers (mobile) that manage their own API calls
+   * and push data via TeamProfileService.loadFromExternalData().
+   */
+  readonly skipInternalLoad = input(false);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -1020,6 +1091,7 @@ export class TeamProfileShellWebComponent implements OnInit {
   readonly backClick = output<void>();
   readonly tabChange = output<TeamProfileTabId>();
   readonly shareClick = output<void>();
+  readonly menuClick = output<void>();
   readonly followClick = output<void>();
   readonly qrCodeClick = output<void>();
   readonly manageTeamClick = output<void>();
@@ -1338,13 +1410,18 @@ export class TeamProfileShellWebComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
-    // Note: Data loading is handled by the parent wrapper component
-    // (TeamComponent for web, TeamPageMobile for mobile)
-    // This shell component only handles display and UI state
+    if (this.skipInternalLoad()) {
+      return; // Parent component handles data loading via loadFromExternalData()
+    }
 
-    // Show loading state initially if no data yet
-    if (!this.teamProfile.team()) {
+    if (!this.isBrowser) return;
+
+    const slug = this.teamSlug();
+    const isAdmin = this.isTeamAdmin();
+
+    if (slug) {
       this.teamProfile.startLoading();
+      this.teamProfile.loadTeam(slug, isAdmin);
     }
   }
 
@@ -1379,6 +1456,53 @@ export class TeamProfileShellWebComponent implements OnInit {
     const slug = this.teamSlug();
     if (slug) {
       this.teamProfile.loadTeam(slug, this.isTeamAdmin());
+    }
+  }
+
+  /**
+   * Opens team quick actions bottom sheet.
+   * Mirrors ProfileShell mobile header menu behavior.
+   */
+  protected async onMenuClick(): Promise<void> {
+    this.menuClick.emit();
+
+    const isAdmin = this.isTeamAdmin();
+    const actions: BottomSheetAction[] = isAdmin
+      ? [
+          { label: 'Share Team', role: 'secondary', icon: 'share' },
+          { label: 'QR Code', role: 'secondary', icon: 'qrCode' },
+          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+        ]
+      : [
+          { label: 'Share Team', role: 'secondary', icon: 'share' },
+          { label: 'Copy Link', role: 'secondary', icon: 'link' },
+          { label: 'Report', role: 'destructive', icon: 'flag' },
+        ];
+
+    const result = await this.bottomSheet.show<BottomSheetAction>({
+      actions,
+      showClose: false,
+      backdropDismiss: true,
+      breakpoints: [0, 0.35],
+      initialBreakpoint: 0.35,
+    });
+
+    const selected = result?.data as BottomSheetAction | undefined;
+    if (!selected) return;
+
+    switch (selected.label) {
+      case 'Share Team':
+        this.shareClick.emit();
+        break;
+      case 'QR Code':
+        this.qrCodeClick.emit();
+        break;
+      case 'Copy Link':
+        this.shareClick.emit();
+        break;
+      case 'Report':
+        this.logger.info('Report team requested');
+        break;
     }
   }
 

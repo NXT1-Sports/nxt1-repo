@@ -373,6 +373,51 @@ export const ONBOARDING_PAGE_TEST_IDS = {
   ONBOARDING_CELEBRATION: 'onboarding-celebration',
 } as const;
 
+// ============================================
+// AGENT ONBOARDING TEST IDS
+// ============================================
+
+export const AGENT_ONBOARDING_TEST_IDS = {
+  // Shell
+  SHELL: 'agent-onboarding-shell',
+  PROGRESS_BAR: 'agent-onboarding-progress-bar',
+
+  // Welcome Step
+  WELCOME_STEP: 'agent-onboarding-welcome',
+  WELCOME_TITLE: 'agent-onboarding-welcome-title',
+  WELCOME_CTA: 'agent-onboarding-welcome-cta',
+
+  // Program Search Step
+  PROGRAM_STEP: 'agent-onboarding-program',
+  PROGRAM_SEARCH_INPUT: 'agent-onboarding-program-search',
+  PROGRAM_RESULT: 'agent-onboarding-program-result',
+  PROGRAM_CREATE_BTN: 'agent-onboarding-program-create',
+  PROGRAM_CLAIM_BTN: 'agent-onboarding-program-claim',
+  PROGRAM_ROLE_SELECT: 'agent-onboarding-program-role',
+
+  // Goals Step
+  GOALS_STEP: 'agent-onboarding-goals',
+  GOAL_OPTION: 'agent-onboarding-goal-option',
+  GOAL_CUSTOM_INPUT: 'agent-onboarding-goal-custom',
+  GOALS_COUNT: 'agent-onboarding-goals-count',
+
+  // Connections Step
+  CONNECTIONS_STEP: 'agent-onboarding-connections',
+  CONNECTIONS_SEARCH: 'agent-onboarding-connections-search',
+  CONNECTION_CARD: 'agent-onboarding-connection-card',
+  CONNECTION_ADD_BTN: 'agent-onboarding-connection-add',
+
+  // Loading Step
+  LOADING_STEP: 'agent-onboarding-loading',
+  LOADING_MESSAGE: 'agent-onboarding-loading-message',
+  LOADING_PROGRESS: 'agent-onboarding-loading-progress',
+
+  // Navigation
+  BTN_CONTINUE: 'agent-onboarding-continue',
+  BTN_BACK: 'agent-onboarding-back',
+  BTN_SKIP: 'agent-onboarding-skip',
+} as const;
+
 /**
  * All test IDs combined for easy import
  */
@@ -382,6 +427,7 @@ export const TEST_IDS = {
   ONBOARDING: ONBOARDING_TEST_IDS,
   ONBOARDING_PAGE: ONBOARDING_PAGE_TEST_IDS,
   COMMON: COMMON_TEST_IDS,
+  AGENT_ONBOARDING: AGENT_ONBOARDING_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript
