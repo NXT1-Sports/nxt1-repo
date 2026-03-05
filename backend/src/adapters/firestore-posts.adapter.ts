@@ -119,11 +119,25 @@ export function userProfileToFeedAuthor(profile: UserProfile): FeedAuthor {
     'athlete',
     'coach',
     'team',
-    'college_coach',
-    'fan',
+    'recruiter',
     'parent',
     'official',
   ];
+
+  // Normalize legacy role strings to new FeedAuthorRole values
+  let profileRole = profile.role as string;
+  const legacyRoleMap: Record<string, FeedAuthorRole> = {
+    college_coach: 'recruiter',
+    'college-coach': 'recruiter',
+    'recruiting-service': 'recruiter',
+    scout: 'recruiter',
+    media: 'recruiter',
+    fan: 'athlete',
+  };
+  if (legacyRoleMap[profileRole]) {
+    profileRole = legacyRoleMap[profileRole];
+  }
+
   const validStatuses: readonly FeedVerificationStatus[] = [
     'unverified',
     'pending',
@@ -131,8 +145,8 @@ export function userProfileToFeedAuthor(profile: UserProfile): FeedAuthor {
     'premium',
   ];
 
-  const role: FeedAuthorRole = validRoles.includes(profile.role as FeedAuthorRole)
-    ? (profile.role as FeedAuthorRole)
+  const role: FeedAuthorRole = validRoles.includes(profileRole as FeedAuthorRole)
+    ? (profileRole as FeedAuthorRole)
     : 'athlete';
   const verificationStatus: FeedVerificationStatus = validStatuses.includes(
     profile.verificationStatus as FeedVerificationStatus

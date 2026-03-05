@@ -93,10 +93,10 @@ describe('Auth Guards', () => {
 
       it('should allow user with any of required roles', () => {
         const state = createMockAuthState({
-          user: USER_FIXTURES.scout,
+          user: USER_FIXTURES.recruiter,
           isInitialized: true,
         });
-        const options: AuthGuardOptions = { requiredRoles: ['coach', 'scout', 'media'] };
+        const options: AuthGuardOptions = { requiredRoles: ['coach', 'recruiter', 'director'] };
 
         const result = requireAuth(state, options);
 
@@ -108,7 +108,7 @@ describe('Auth Guards', () => {
           user: USER_FIXTURES.athlete,
           isInitialized: true,
         });
-        const options: AuthGuardOptions = { requiredRoles: ['coach', 'scout'] };
+        const options: AuthGuardOptions = { requiredRoles: ['coach', 'recruiter'] };
 
         const result = requireAuth(state, options);
 
@@ -188,7 +188,7 @@ describe('Auth Guards', () => {
           isInitialized: true,
         });
         const options: AuthGuardOptions = {
-          requiredRoles: ['coach', 'scout'],
+          requiredRoles: ['coach', 'recruiter'],
           requirePremium: true,
           requireOnboarding: true,
         };
@@ -298,7 +298,7 @@ describe('Auth Guards', () => {
     it('should deny user without matching role', () => {
       const state = STATE_FIXTURES.authenticated; // athlete
 
-      const result = requireRole(state, ['coach', 'scout']);
+      const result = requireRole(state, ['coach', 'recruiter']);
 
       expect(result.allowed).toBe(false);
     });
@@ -313,7 +313,7 @@ describe('Auth Guards', () => {
     });
 
     it('should check all user roles', () => {
-      const allRoles: UserRole[] = ['athlete', 'coach', 'parent', 'scout', 'media', 'fan'];
+      const allRoles: UserRole[] = ['athlete', 'coach', 'director', 'recruiter', 'parent'];
 
       for (const role of allRoles) {
         const state = createMockAuthState({
@@ -407,7 +407,7 @@ describe('Auth Guards', () => {
       const user = USER_FIXTURES.athlete;
 
       expect(hasAnyRole(user, ['coach'])).toBe(false);
-      expect(hasAnyRole(user, ['coach', 'scout'])).toBe(false);
+      expect(hasAnyRole(user, ['coach', 'recruiter'])).toBe(false);
     });
 
     it('should return false for null user', () => {
@@ -502,7 +502,7 @@ describe('Auth Guards', () => {
     });
 
     it('should handle all user roles for premium check', () => {
-      const roles: UserRole[] = ['athlete', 'coach', 'parent', 'scout', 'media', 'fan'];
+      const roles: UserRole[] = ['athlete', 'coach', 'director', 'recruiter', 'parent'];
 
       for (const role of roles) {
         const premiumUser = createMockAuthUser({ role, isPremium: true });

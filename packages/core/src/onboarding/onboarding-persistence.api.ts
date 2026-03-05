@@ -119,14 +119,7 @@ export type RetryErrorType =
   | 'unknown'; // Unknown, retry cautiously
 
 /** User type for onboarding */
-export type OnboardingUserType =
-  | 'athlete'
-  | 'coach'
-  | 'college-coach'
-  | 'director'
-  | 'recruiting-service'
-  | 'parent'
-  | 'scout';
+export type OnboardingUserType = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent';
 
 /** Team code prefill data */
 export interface TeamCodePrefillData {
@@ -410,6 +403,10 @@ function mapUserTypeToRole(userType: OnboardingUserType): string {
       return 'athlete';
     case 'coach':
       return 'coach';
+    case 'director':
+      return 'director';
+    case 'recruiter':
+      return 'recruiter';
     case 'parent':
       return 'parent';
     default:
@@ -510,13 +507,14 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   const sportEntries = formData.sport?.sports || [];
   if (sportEntries.length > 0) {
     const sports = sportEntries.map((entry, index) => {
+      const isAthlete = userType === 'athlete';
       const sportData: Record<string, unknown> = {
         sport: entry.sport,
         order: index,
         positions: entry.positions || [],
-        metrics: {},
-        seasonStats: [],
-        accountType: 'athlete',
+        // Only athletes get metrics/seasonStats; other roles get a lightweight sport association
+        ...(isAthlete ? { metrics: {}, seasonStats: [] } : {}),
+        accountType: userType,
         team: {
           name:
             entry.team ||
@@ -556,6 +554,19 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   if (userType === 'coach' && formData.organization) {
     payload['coach'] = {
       title: formData.organization.title || '',
+    };
+  }
+
+  if (userType === 'director' && formData.organization) {
+    payload['director'] = {
+      title: formData.organization.title || '',
+    };
+  }
+
+  if (userType === 'recruiter') {
+    payload['recruiter'] = {
+      recruiterType: 'college_coach', // Default; Agent X can refine later
+      ...(formData.organization?.title ? { title: formData.organization.title } : {}),
     };
   }
 

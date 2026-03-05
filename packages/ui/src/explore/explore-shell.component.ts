@@ -68,6 +68,8 @@ import { ExploreFilterModalService } from './explore-filter-modal.service';
 export interface ExploreUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
+  readonly followingCount?: number;
+  readonly followingIds?: readonly string[];
 }
 
 @Component({
@@ -93,14 +95,7 @@ export interface ExploreUser {
   template: `
     <!-- Professional Page Header with shared Top Nav search styling -->
     @if (!hideHeader()) {
-      <nxt1-page-header
-        leftVariant="avatar"
-        [avatarSrc]="user()?.profileImg"
-        [avatarName]="displayName()"
-        [hideAvatar]="explore.isSearchFocused()"
-        (avatarClick)="onAvatarClick()"
-        (menuClick)="onAvatarClick()"
-      >
+      <nxt1-page-header [hideAvatar]="explore.isSearchFocused()" (menuClick)="onAvatarClick()">
         @if (!explore.isSearchFocused()) {
           <ion-button
             pageHeaderSlot="end"
@@ -138,7 +133,7 @@ export interface ExploreUser {
       <nxt1-option-scroller
         [options]="tabOptions()"
         [selectedId]="explore.activeTab()"
-        [config]="{ scrollable: true, stretchToFill: false, showDivider: true }"
+        [config]="{ scrollable: false, stretchToFill: true, centered: true, showDivider: true }"
         (selectionChange)="onTabChange($event)"
       />
     }
@@ -434,17 +429,40 @@ export class ExploreShellComponent implements OnInit {
     this.explore.getActiveFilterCount(this.explore.activeTab())
   );
 
+  protected readonly hasFollowingOption = computed(() => {
+    const followingCount = this.user()?.followingCount ?? 0;
+    const followingIdsCount = this.user()?.followingIds?.length ?? 0;
+    return followingCount > 0 || followingIdsCount > 0;
+  });
+
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
     const counts = this.explore.tabCounts();
-    return EXPLORE_TABS.map((tab) => ({
-      id: tab.id,
-      label: tab.label,
-      badge: counts[tab.id] > 0 ? counts[tab.id] : undefined,
-    }));
+    const visibleTabIds: ExploreTabId[] = ['feed', 'for-you', 'news'];
+    if (this.hasFollowingOption()) {
+      visibleTabIds.splice(2, 0, 'following');
+    }
+
+    return visibleTabIds
+      .map((tabId) => EXPLORE_TABS.find((tab) => tab.id === tabId))
+      .filter((tab): tab is (typeof EXPLORE_TABS)[number] => tab !== undefined)
+      .map((tab) => ({
+        id: tab.id,
+        label: tab.id === 'feed' ? 'Pulse' : tab.id === 'for-you' ? 'Discover' : tab.label,
+        badge: counts[tab.id] > 0 ? counts[tab.id] : undefined,
+      }));
   });
 
   ngOnInit(): void {
     this.logger.info('Explore shell initialized');
+    const activeTab = this.explore.activeTab();
+    const isAllowedTab =
+      activeTab === 'feed' ||
+      activeTab === 'for-you' ||
+      activeTab === 'news' ||
+      (activeTab === 'following' && this.hasFollowingOption());
+    if (!isAllowedTab) {
+      void this.explore.switchTab('for-you');
+    }
     void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }
 

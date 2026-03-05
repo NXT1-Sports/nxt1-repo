@@ -673,6 +673,10 @@ export {
   // API Factory
   createActivityApi,
   type ActivityApi,
+  // Mapper (Conversation → ActivityItem)
+  conversationToActivityItem,
+  conversationsToActivityItems,
+  type MessageActivityMetadata,
 } from './activity';
 
 // ============================================

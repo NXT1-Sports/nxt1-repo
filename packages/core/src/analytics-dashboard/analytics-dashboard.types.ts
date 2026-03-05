@@ -245,7 +245,7 @@ export interface EngagementByTime {
  */
 export interface AnalyticsViewerBreakdown {
   /** Viewer category */
-  readonly type: 'college-coach' | 'athlete' | 'fan' | 'parent' | 'scout' | 'other';
+  readonly type: 'recruiter' | 'athlete' | 'coach' | 'parent' | 'director' | 'other';
   /** Display label */
   readonly label: string;
   /** Count */
@@ -552,7 +552,7 @@ export interface AnalyticsRecommendation {
 /**
  * User role for analytics context.
  */
-export type AnalyticsUserRole = 'athlete' | 'coach' | 'parent' | 'fan';
+export type AnalyticsUserRole = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent';
 
 /**
  * Complete analytics report for athletes.

@@ -633,16 +633,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      */
     async updateRole(
       userId: string,
-      userType:
-        | 'athlete'
-        | 'coach'
-        | 'college-coach'
-        | 'director'
-        | 'recruiting-service'
-        | 'parent'
-        | 'scout'
-        | 'media'
-        | 'fan'
+      userType: 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent'
     ): Promise<OnboardingStepResponse> {
       const v2Base = base.replace('/v1', '/v2');
       return http.patch(`${v2Base}/auth/profile/role`, { userId, userType });

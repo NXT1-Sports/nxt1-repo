@@ -133,16 +133,16 @@ const COACH_SLIDES: WelcomeSlidesConfig = {
 };
 
 /**
- * College Coach-specific welcome slides
+ * Recruiter-specific welcome slides (college coaches, scouts, recruiting services)
  * Focus: Finding recruits, evaluating talent, streamlining recruiting
  */
-const COLLEGE_COACH_SLIDES: WelcomeSlidesConfig = {
-  role: 'college-coach',
-  greeting: 'Welcome, Coach!',
+const RECRUITER_SLIDES: WelcomeSlidesConfig = {
+  role: 'recruiter',
+  greeting: 'Welcome to NXT1!',
   ctaText: 'Start Recruiting',
   slides: [
     {
-      id: 'college-celebrate',
+      id: 'recruiter-celebrate',
       icon: 'agent-x',
       headline: 'Meet Agent X',
       description:
@@ -151,16 +151,15 @@ const COLLEGE_COACH_SLIDES: WelcomeSlidesConfig = {
       gradient: ['#0f172a', '#1e293b'],
     },
     {
-      id: 'college-search',
+      id: 'recruiter-search',
       icon: '🔍',
       headline: 'Operate Smarter, Faster',
-      description:
-        'From analysis to communications, Agent X handles whatever your staff needs help with.',
+      description: 'From analysis to communications, Agent X handles whatever you need help with.',
       accentColor: '#6366F1',
       gradient: ['#1e1b4b', '#312e81'],
     },
     {
-      id: 'college-evaluate',
+      id: 'recruiter-evaluate',
       icon: '📊',
       headline: 'Set Up Your Agent',
       description: "Now let's set up your Agent X experience and actions.",
@@ -209,44 +208,6 @@ const DIRECTOR_SLIDES: WelcomeSlidesConfig = {
 };
 
 /**
- * Recruiting Service-specific welcome slides
- * Focus: Client management, athlete evaluation, placement success
- */
-const RECRUITING_SERVICE_SLIDES: WelcomeSlidesConfig = {
-  role: 'recruiting-service',
-  greeting: 'Welcome to NXT1!',
-  ctaText: 'Manage Clients',
-  slides: [
-    {
-      id: 'recruiting-celebrate',
-      icon: 'agent-x',
-      headline: 'Meet Agent X',
-      description:
-        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
-      accentColor: 'var(--nxt1-color-primary)',
-      gradient: ['#0f172a', '#1e293b'],
-    },
-    {
-      id: 'recruiting-clients',
-      icon: '👥',
-      headline: 'Scale Client Success',
-      description:
-        'From deliverables to follow-ups, Agent X handles whatever your clients need help with.',
-      accentColor: '#8B5CF6',
-      gradient: ['#1e1b4b', '#312e81'],
-    },
-    {
-      id: 'recruiting-connect',
-      icon: '🎯',
-      headline: 'Set Up Your Agent',
-      description: "Now let's set up your Agent X experience and actions.",
-      accentColor: '#F97316',
-      gradient: ['#1c1917', '#292524'],
-    },
-  ],
-};
-
-/**
  * Parent/Guardian-specific welcome slides
  * Focus: Supporting athlete, tracking progress, understanding process
  */
@@ -284,43 +245,6 @@ const PARENT_SLIDES: WelcomeSlidesConfig = {
   ],
 };
 
-/**
- * Scout-specific welcome slides
- * Focus: Evaluating talent, creating reports, sharing insights
- */
-const SCOUT_SLIDES: WelcomeSlidesConfig = {
-  role: 'scout',
-  greeting: 'Welcome to NXT1!',
-  ctaText: 'Start Scouting',
-  slides: [
-    {
-      id: 'scout-celebrate',
-      icon: 'agent-x',
-      headline: 'Meet Agent X',
-      description:
-        'Your all-around sports assistant in your pocket. Set your goals and let Agent X get to work.',
-      accentColor: 'var(--nxt1-color-primary)',
-      gradient: ['#0f172a', '#1e293b'],
-    },
-    {
-      id: 'scout-evaluate',
-      icon: '👁️',
-      headline: 'Evaluate with Precision',
-      description: 'From film to reports, Agent X handles whatever you need help with.',
-      accentColor: '#F59E0B',
-      gradient: ['#1c1917', '#292524'],
-    },
-    {
-      id: 'scout-share',
-      icon: '📤',
-      headline: 'Set Up Your Agent',
-      description: "Now let's set up your Agent X experience and actions.",
-      accentColor: '#10B981',
-      gradient: ['#0d1f17', '#1a3c2e'],
-    },
-  ],
-};
-
 // ============================================
 // SLIDE CONFIG MAP
 // ============================================
@@ -332,11 +256,9 @@ const SCOUT_SLIDES: WelcomeSlidesConfig = {
 export const WELCOME_SLIDES_BY_ROLE: Record<OnboardingUserType, WelcomeSlidesConfig> = {
   athlete: ATHLETE_SLIDES,
   coach: COACH_SLIDES,
-  'college-coach': COLLEGE_COACH_SLIDES,
   director: DIRECTOR_SLIDES,
-  'recruiting-service': RECRUITING_SERVICE_SLIDES,
+  recruiter: RECRUITER_SLIDES,
   parent: PARENT_SLIDES,
-  scout: SCOUT_SLIDES,
 } as const;
 
 // ============================================

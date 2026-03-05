@@ -139,12 +139,28 @@ export const USER_FIXTURES = {
     role: 'parent',
   }),
 
-  /** Scout user */
+  /** Recruiter user (college coach, scout, or recruiting service) */
+  recruiter: createMockAuthUser({
+    uid: 'recruiter-001',
+    email: 'recruiter@example.com',
+    displayName: 'Recruiter Williams',
+    role: 'recruiter',
+  }),
+
+  /** Director user (athletic director, program director) */
+  director: createMockAuthUser({
+    uid: 'director-001',
+    email: 'director@example.com',
+    displayName: 'Director Davis',
+    role: 'director',
+  }),
+
+  /** @deprecated Use recruiter instead */
   scout: createMockAuthUser({
-    uid: 'scout-001',
-    email: 'scout@example.com',
-    displayName: 'Scout Williams',
-    role: 'scout',
+    uid: 'recruiter-001',
+    email: 'recruiter@example.com',
+    displayName: 'Recruiter Williams',
+    role: 'recruiter',
   }),
 
   /** Premium athlete */

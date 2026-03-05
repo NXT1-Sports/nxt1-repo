@@ -7,7 +7,7 @@
  *
  * Features:
  * - Responsive grid layout (mobile-first)
- * - 4 audience cards: Athletes, HS/Clubs, Scouts, Fans
+ * - 4 audience cards: Athletes, HS/Clubs, Recruiters, Parents
  * - Animated gradient backgrounds
  * - Full accessibility support
  * - SEO-optimized with semantic HTML
@@ -54,7 +54,7 @@ import { NxtAppStoreBadgesComponent } from '../app-store-badges';
 /** Audience card configuration */
 export interface HeroAudienceCard {
   /** Unique identifier */
-  readonly id: 'athletes' | 'teams' | 'scouts' | 'fans';
+  readonly id: 'athletes' | 'teams' | 'scouts' | 'fans' | 'recruiters' | 'parents';
   /** Display title */
   readonly title: string;
   /** Short description */
@@ -121,24 +121,24 @@ const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
     ariaLabel: 'Learn about NXT1 for high schools and club teams',
   },
   {
-    id: 'scouts',
-    title: 'For Scouts',
+    id: 'recruiters',
+    title: 'For Recruiters',
     description: 'Discover top talent, build watch lists, and streamline your recruiting process.',
     icon: 'scout',
-    route: '/auth?role=scout',
+    route: '/auth?role=recruiter',
     cta: 'Find Elite Talent',
     gradientClass: 'hero-card--scouts',
-    ariaLabel: 'Learn about NXT1 for college scouts and recruiters',
+    ariaLabel: 'Learn about NXT1 for college recruiters and scouts',
   },
   {
-    id: 'fans',
-    title: 'For Fans',
-    description: 'Follow rising stars, get insider updates, and support athletes you believe in.',
+    id: 'parents',
+    title: 'For Parents',
+    description: "Support your athlete's journey, track progress, and stay connected with coaches.",
     icon: 'fan',
-    route: '/auth?role=fan',
-    cta: 'Join the Community',
+    route: '/auth?role=parent',
+    cta: 'Support Your Athlete',
     gradientClass: 'hero-card--fans',
-    ariaLabel: 'Learn about NXT1 for sports fans and supporters',
+    ariaLabel: 'Learn about NXT1 for sports parents',
   },
 ] as const;
 

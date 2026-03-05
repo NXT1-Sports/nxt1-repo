@@ -421,17 +421,40 @@ export class ExploreShellWebComponent implements OnInit {
     this.explore.getActiveFilterCount(this.explore.activeTab())
   );
 
+  protected readonly hasFollowingOption = computed(() => {
+    const followingCount = this.user()?.followingCount ?? 0;
+    const followingIdsCount = this.user()?.followingIds?.length ?? 0;
+    return followingCount > 0 || followingIdsCount > 0;
+  });
+
   protected readonly tabOptions = computed<readonly SectionNavItem[]>(() => {
     const counts = this.explore.tabCounts();
-    return EXPLORE_TABS.map((tab) => ({
-      id: tab.id,
-      label: tab.label,
-      badge: counts[tab.id] > 0 ? counts[tab.id] : undefined,
-    }));
+    const visibleTabIds: ExploreTabId[] = ['feed', 'for-you', 'news'];
+    if (this.hasFollowingOption()) {
+      visibleTabIds.splice(2, 0, 'following');
+    }
+
+    return visibleTabIds
+      .map((tabId) => EXPLORE_TABS.find((tab) => tab.id === tabId))
+      .filter((tab): tab is (typeof EXPLORE_TABS)[number] => tab !== undefined)
+      .map((tab) => ({
+        id: tab.id,
+        label: tab.id === 'feed' ? 'Pulse' : tab.id === 'for-you' ? 'Discover' : tab.label,
+        badge: counts[tab.id] > 0 ? counts[tab.id] : undefined,
+      }));
   });
 
   ngOnInit(): void {
     this.logger.info('Explore shell (web) initialized');
+    const activeTab = this.explore.activeTab();
+    const isAllowedTab =
+      activeTab === 'feed' ||
+      activeTab === 'for-you' ||
+      activeTab === 'news' ||
+      (activeTab === 'following' && this.hasFollowingOption());
+    if (!isAllowedTab) {
+      void this.explore.switchTab('for-you');
+    }
     void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }
 

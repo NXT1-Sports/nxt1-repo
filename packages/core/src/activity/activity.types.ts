@@ -14,9 +14,12 @@
 /**
  * Activity tab identifiers.
  * Each tab represents a filtered view of the activity feed.
- * 'all' shows combined items from all other tabs.
+ * - 'all' — Combined feed from all categories
+ * - 'inbox' — Direct notifications, messages, and personal alerts
+ * - 'agent' — Agent X activity, AI operations, and automated task updates
+ * - 'reactions' — Social engagement: likes, comments, follows, mentions
  */
-export type ActivityTabId = 'all' | 'notifications' | 'deals' | 'mentions' | 'system' | 'updates';
+export type ActivityTabId = 'all' | 'inbox' | 'agent' | 'reactions';
 
 /**
  * Configuration for an activity tab.

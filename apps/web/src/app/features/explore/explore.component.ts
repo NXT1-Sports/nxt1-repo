@@ -66,6 +66,8 @@ export class ExploreComponent {
     return {
       profileImg: user.profileImg,
       displayName: user.displayName,
+      followingCount: user.followingCount,
+      followingIds: user.followingIds,
     };
   });
 

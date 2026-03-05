@@ -45,8 +45,11 @@ import {
   sparklesOutline,
   chevronForward,
   ellipsisHorizontal,
+  pinOutline,
+  volumeMuteOutline,
 } from 'ionicons/icons';
 import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@nxt1/core';
+import type { MessageActivityMetadata } from '@nxt1/core';
 
 // Register all icons
 @Component({
@@ -59,6 +62,7 @@ import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@n
       [class.activity-item--unread]="!item().isRead"
       [class.activity-item--urgent]="item().priority === 'urgent'"
       [class.activity-item--high]="item().priority === 'high'"
+      [class.activity-item--message]="isMessage()"
       (click)="handleClick()"
       role="article"
       [attr.aria-label]="ariaLabel()"
@@ -71,10 +75,6 @@ import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@n
           <ion-avatar class="activity-item__avatar">
             <img [src]="avatarUrl()" [alt]="item().source?.userName ?? ''" />
           </ion-avatar>
-          <!-- Type badge overlay -->
-          <div class="activity-item__type-badge" [style.background-color]="typeColor()">
-            <ion-icon [name]="typeIcon()" size="small"></ion-icon>
-          </div>
         } @else {
           <div class="activity-item__icon-circle" [style.background-color]="typeColor()">
             <ion-icon [name]="typeIcon()"></ion-icon>
@@ -85,23 +85,50 @@ import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@n
       <!-- Center: Content -->
       <div class="activity-item__content">
         <div class="activity-item__header">
-          <span class="activity-item__title">{{ item().title }}</span>
+          <span class="activity-item__title" [class.activity-item__title--bold]="!item().isRead">
+            {{ item().title }}
+          </span>
           <span class="activity-item__time">{{ formattedTime() }}</span>
         </div>
 
         @if (item().body) {
-          <p class="activity-item__body">{{ item().body }}</p>
+          <p
+            class="activity-item__body"
+            [class.activity-item__body--dimmed]="isMessage() && msgMeta()?.isOwnLastMessage"
+          >
+            {{ item().body }}
+          </p>
         }
 
-        @if (item().source?.userName) {
+        @if (showSourceName()) {
           <span class="activity-item__source">{{ item().source?.userName }}</span>
         }
       </div>
 
       <!-- Right: Actions & Indicators -->
       <div class="activity-item__trailing">
+        <!-- Message indicators: pinned / muted -->
+        @if (isMessage()) {
+          @if (msgMeta()?.isPinned) {
+            <ion-icon name="pin-outline" class="activity-item__pin-icon"></ion-icon>
+          }
+          @if (msgMeta()?.isMuted) {
+            <ion-icon name="volume-mute-outline" class="activity-item__mute-icon"></ion-icon>
+          }
+        }
+
+        <!-- Unread indicator: badge count for messages, dot for others -->
         @if (!item().isRead) {
-          <div class="activity-item__unread-dot"></div>
+          @if (isMessage() && (msgMeta()?.unreadCount ?? 0) > 1) {
+            <span
+              class="activity-item__unread-badge"
+              [class.activity-item__unread-badge--muted]="msgMeta()?.isMuted"
+            >
+              {{ msgMeta()?.unreadCount }}
+            </span>
+          } @else {
+            <div class="activity-item__unread-dot"></div>
+          }
         }
 
         @if (item().action) {
@@ -186,24 +213,6 @@ import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@n
         width: 100%;
         height: 100%;
         object-fit: cover;
-      }
-
-      .activity-item__type-badge {
-        position: absolute;
-        bottom: -2px;
-        right: -2px;
-        width: 20px;
-        height: 20px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: 2px solid var(--nxt1-color-surface-primary, var(--ion-background-color));
-      }
-
-      .activity-item__type-badge ion-icon {
-        font-size: 10px;
-        color: white;
       }
 
       .activity-item__icon-circle {
@@ -326,6 +335,49 @@ import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@n
       .activity-item__action ion-icon {
         font-size: 14px;
       }
+
+      /* ============================================
+       MESSAGE-SPECIFIC STYLES
+       ============================================ */
+
+      /* Bold title for unread messages */
+      .activity-item__title--bold {
+        font-weight: 700;
+      }
+
+      /* Dimmed body for own last message ("You: ...") */
+      .activity-item__body--dimmed {
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+      }
+
+      /* Unread count badge (number) */
+      .activity-item__unread-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: 10px;
+        background: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-text-onPrimary, #000000);
+        font-size: 11px;
+        font-weight: 700;
+        flex-shrink: 0;
+        line-height: 1;
+      }
+
+      .activity-item__unread-badge--muted {
+        background: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
+      }
+
+      /* Pin / Mute icons */
+      .activity-item__pin-icon,
+      .activity-item__mute-icon {
+        font-size: 14px;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
+        flex-shrink: 0;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -347,6 +399,8 @@ export class ActivityItemComponent {
       sparklesOutline,
       chevronForward,
       ellipsisHorizontal,
+      pinOutline,
+      volumeMuteOutline,
     });
   }
 
@@ -368,6 +422,26 @@ export class ActivityItemComponent {
   // ============================================
   // COMPUTED PROPERTIES
   // ============================================
+
+  /** Whether this item is a message/conversation type */
+  protected readonly isMessage = computed(() => this.item().type === 'message');
+
+  /** Whether this item is a social reaction type */
+  protected readonly isReactionType = computed(() => {
+    const type = this.item().type;
+    return type === 'follow' || type === 'like' || type === 'comment' || type === 'mention';
+  });
+
+  /** Whether to render source name under the body */
+  protected readonly showSourceName = computed(() => {
+    return !this.isMessage() && !this.isReactionType() && !!this.item().source?.userName;
+  });
+
+  /** Message-specific metadata (only for type === 'message') */
+  protected readonly msgMeta = computed((): MessageActivityMetadata | null => {
+    if (this.item().type !== 'message') return null;
+    return (this.item().metadata as unknown as MessageActivityMetadata) ?? null;
+  });
 
   /** Whether to show avatar instead of icon */
   protected readonly hasAvatar = computed(() => {

@@ -140,9 +140,6 @@ export interface ProfileShellUser {
     <!-- ═══ TOP NAVIGATION HEADER ═══ -->
     <nxt1-page-header
       [showBack]="shouldShowBack()"
-      leftVariant="avatar"
-      [avatarSrc]="currentUser()?.profileImg"
-      [avatarName]="currentUser()?.displayName"
       (backClick)="backClick.emit()"
       (menuClick)="menuClick.emit()"
     >
@@ -803,9 +800,9 @@ export class ProfileShellComponent implements OnInit {
     return PROFILE_EMPTY_STATES[tab] || PROFILE_EMPTY_STATES['timeline'];
   });
 
-  /** Root /profile uses hamburger; nested /profile/:unicode keeps back arrow */
+  /** Root /profile (own) uses hamburger; nested /profile/:unicode (others) keeps back arrow */
   protected readonly shouldShowBack = computed(() => {
-    return this.profileUnicode().trim().length > 0;
+    return this.profileUnicode().trim().length > 0 && !this.profile.isOwnProfile();
   });
 
   // ============================================

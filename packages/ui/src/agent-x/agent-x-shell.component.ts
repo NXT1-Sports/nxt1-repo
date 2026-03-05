@@ -41,7 +41,6 @@ import { FormsModule } from '@angular/forms';
 import { IonContent } from '@ionic/angular/standalone';
 import type { AgentXQuickTask } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
-import { NxtDesktopPageHeaderComponent } from '../components/desktop-page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtIconComponent } from '../components/icon';
 import { AgentXService } from './agent-x.service';
@@ -51,6 +50,7 @@ import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
 } from './agent-x-operation-chat.component';
+import { AgentXOperationsLogComponent } from './agent-x-operations-log.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtBottomSheetService } from '../components/bottom-sheet';
@@ -113,7 +113,7 @@ export interface WeeklyPlaybookItem {
   readonly summary: string;
   readonly details: string;
   readonly actionLabel: string;
-  readonly status: 'pending' | 'in-progress' | 'complete';
+  readonly status: 'pending' | 'in-progress' | 'complete' | 'problem';
   readonly goal?: GoalTag;
 }
 
@@ -125,7 +125,6 @@ export interface WeeklyPlaybookItem {
     FormsModule,
     IonContent,
     NxtPageHeaderComponent,
-    NxtDesktopPageHeaderComponent,
     NxtRefresherComponent,
     NxtIconComponent,
     AgentXChatComponent,
@@ -134,13 +133,7 @@ export interface WeeklyPlaybookItem {
   template: `
     <!-- ═══ PAGE HEADER — Agent X Logo Centered ═══ -->
     @if (!hideHeader()) {
-      <nxt1-page-header
-        leftVariant="avatar"
-        [avatarSrc]="user()?.profileImg"
-        [avatarName]="displayName()"
-        (avatarClick)="avatarClick.emit()"
-        (menuClick)="avatarClick.emit()"
-      >
+      <nxt1-page-header (menuClick)="avatarClick.emit()">
         <!-- Agent X Title in center title slot -->
         <div pageHeaderSlot="title" class="header-logo">
           <span class="header-title-text">Agent</span>
@@ -174,13 +167,6 @@ export interface WeeklyPlaybookItem {
           <nxt1-icon name="time" [size]="22" className="agent-history-icon" />
         </button>
       </nxt1-page-header>
-    }
-
-    <!-- Desktop Page Header (when mobile page header is hidden) -->
-    @if (hideHeader()) {
-      <div class="desktop-header-wrapper">
-        <nxt1-desktop-page-header title="Agent X" subtitle="Your AI command center." />
-      </div>
     }
 
     <!-- ═══ SCROLLABLE CONTENT ═══ -->
@@ -223,10 +209,30 @@ export interface WeeklyPlaybookItem {
               }
             </div>
 
-            <!-- ═══ 2. ACTIVE OPERATIONS ═══ -->
+            <!-- ═══ 2. QUICK COMMANDS — Category Pills ═══ -->
+            <section class="commands-section" aria-label="Quick commands">
+              <h3 class="section-title">Quick Commands</h3>
+              <div class="cmd-categories">
+                @for (cat of commandCategories(); track cat.id) {
+                  <button type="button" class="cmd-category-pill" (click)="onCategoryTap(cat)">
+                    <div class="cmd-category-pill-icon">
+                      <nxt1-icon [name]="cat.icon" [size]="14" />
+                    </div>
+                    <span>{{ cat.label }}</span>
+                    <nxt1-icon
+                      name="chevronForward"
+                      [size]="10"
+                      className="cmd-category-pill-arrow"
+                    />
+                  </button>
+                }
+              </div>
+            </section>
+
+            <!-- ═══ 3. DAILY OPERATIONS ═══ -->
             @if (activeOperations().length > 0) {
-              <section class="operations-section" aria-label="Active operations">
-                <h3 class="section-title">Active Operations</h3>
+              <section class="operations-section" aria-label="Daily operations">
+                <h3 class="section-title">Daily Operations</h3>
                 <div class="operations-scroll">
                   @for (op of activeOperations(); track op.id) {
                     <button
@@ -295,121 +301,72 @@ export interface WeeklyPlaybookItem {
               </section>
             }
 
-            <!-- ═══ 3. WEEKLY PLAYBOOK ═══ -->
+            <!-- ═══ 4. WEEKLY PLAYBOOK ═══ -->
             @if (weeklyPlaybook().length > 0) {
               <section class="playbook-section" aria-label="Weekly playbook">
                 <div class="playbook-section-header">
                   <div class="playbook-title-row">
                     <h3 class="section-title">Weekly Playbook</h3>
-                    <button
-                      type="button"
-                      class="playbook-goal-pill"
-                      (click)="onGoalTap(primaryGoal() ?? null)"
-                      aria-label="Edit goals"
+                    <span class="playbook-counter"
+                      >{{ playbookCompletedCount() }}/{{ playbookTotalCount() }}</span
                     >
-                      <nxt1-icon name="flag" [size]="10" />
-                      <span class="playbook-goal-pill-text">Edit Goals</span>
-                    </button>
                   </div>
                   <button
                     type="button"
-                    class="playbook-section-toggle"
-                    [attr.aria-expanded]="isWeeklyPlaybookOpen()"
-                    (click)="toggleWeeklyPlaybook()"
+                    class="playbook-goal-pill"
+                    (click)="onGoalTap(primaryGoal() ?? null)"
+                    aria-label="Goals"
                   >
-                    {{ isWeeklyPlaybookOpen() ? 'Collapse' : 'Expand' }}
+                    <nxt1-icon name="flag" [size]="12" />
+                    <span class="playbook-goal-pill-text">Goals</span>
                   </button>
                 </div>
 
-                @if (isWeeklyPlaybookOpen()) {
-                  <ol class="weekly-timeline">
-                    @for (item of weeklyPlaybook(); track item.id; let isLast = $last) {
-                      <li
-                        class="timeline-item"
-                        [class.timeline-item--expanded]="isPlaybookExpanded(item.id)"
-                      >
-                        <div class="timeline-rail" aria-hidden="true">
-                          <span class="timeline-dot"></span>
-                          @if (!isLast) {
-                            <span class="timeline-line"></span>
+                <ol class="weekly-timeline">
+                  @for (item of weeklyPlaybook(); track item.id; let isLast = $last) {
+                    <li class="timeline-item">
+                      <div class="timeline-rail" aria-hidden="true">
+                        <span
+                          class="timeline-marker"
+                          [class.timeline-marker--pending]="item.status === 'pending'"
+                          [class.timeline-marker--in-progress]="item.status === 'in-progress'"
+                          [class.timeline-marker--complete]="item.status === 'complete'"
+                          [class.timeline-marker--problem]="item.status === 'problem'"
+                        >
+                          @if (item.status === 'in-progress') {
+                            <nxt1-icon name="play" [size]="10" />
+                          } @else if (item.status === 'complete') {
+                            <nxt1-icon name="checkmark" [size]="12" />
+                          } @else if (item.status === 'problem') {
+                            <nxt1-icon name="pause" [size]="10" />
+                          } @else {
+                            <span class="timeline-marker-dot"></span>
                           }
-                        </div>
+                        </span>
+                        @if (!isLast) {
+                          <span class="timeline-line"></span>
+                        }
+                      </div>
 
-                        <article class="timeline-card">
-                          <button
-                            type="button"
-                            class="timeline-toggle"
-                            [attr.aria-expanded]="isPlaybookExpanded(item.id)"
-                            (click)="togglePlaybookItem(item.id)"
-                          >
-                            <div class="timeline-toggle-top">
-                              <h4 class="timeline-title">{{ item.title }}</h4>
-                              @if (item.goal) {
-                                <span class="timeline-goal-tag">{{ item.goal.label }}</span>
-                              }
-                            </div>
-                            @if (isPlaybookExpanded(item.id)) {
-                              <p class="timeline-summary">{{ item.summary }}</p>
+                      <article class="timeline-card">
+                        <button
+                          type="button"
+                          class="timeline-toggle"
+                          (click)="onPlaybookAction(item)"
+                        >
+                          <div class="timeline-toggle-top">
+                            <h4 class="timeline-title">{{ item.title }}</h4>
+                            @if (item.goal) {
+                              <span class="timeline-goal-tag">{{ item.goal.label }}</span>
                             }
-                          </button>
-
-                          @if (isPlaybookExpanded(item.id)) {
-                            <div class="timeline-details">
-                              <p class="timeline-details-text">{{ item.details }}</p>
-                              <div class="timeline-actions">
-                                <span
-                                  class="timeline-status"
-                                  [class.timeline-status--pending]="item.status === 'pending'"
-                                  [class.timeline-status--in-progress]="
-                                    item.status === 'in-progress'
-                                  "
-                                  [class.timeline-status--complete]="item.status === 'complete'"
-                                >
-                                  {{
-                                    item.status === 'in-progress'
-                                      ? 'In Progress'
-                                      : item.status === 'complete'
-                                        ? 'Complete'
-                                        : 'Pending'
-                                  }}
-                                </span>
-                                <button
-                                  type="button"
-                                  class="playbook-action-btn"
-                                  (click)="onPlaybookAction(item)"
-                                >
-                                  {{ item.actionLabel }}
-                                </button>
-                              </div>
-                            </div>
-                          }
-                        </article>
-                      </li>
-                    }
-                  </ol>
-                }
+                          </div>
+                        </button>
+                      </article>
+                    </li>
+                  }
+                </ol>
               </section>
             }
-
-            <!-- ═══ 4. QUICK COMMANDS — Category Pills ═══ -->
-            <section class="commands-section" aria-label="Quick commands">
-              <h3 class="section-title">Quick Commands</h3>
-              <div class="cmd-categories">
-                @for (cat of commandCategories(); track cat.id) {
-                  <button type="button" class="cmd-category-pill" (click)="onCategoryTap(cat)">
-                    <div class="cmd-category-pill-icon">
-                      <nxt1-icon [name]="cat.icon" [size]="14" />
-                    </div>
-                    <span>{{ cat.label }}</span>
-                    <nxt1-icon
-                      name="chevronForward"
-                      [size]="10"
-                      className="cmd-category-pill-arrow"
-                    />
-                  </button>
-                }
-              </div>
-            </section>
           </section>
         }
 
@@ -522,10 +479,6 @@ export interface WeeklyPlaybookItem {
         --background: var(--agent-bg);
       }
 
-      .desktop-header-wrapper {
-        padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-4, 16px) 0;
-      }
-
       .agent-x-container {
         display: flex;
         flex-direction: column;
@@ -558,8 +511,8 @@ export interface WeeklyPlaybookItem {
       @keyframes op-pulse-border {
         0%,
         100% {
-          border-color: var(--agent-primary-glow);
         }
+        gap: 6px;
         50% {
           border-color: var(--agent-primary);
         }
@@ -917,6 +870,7 @@ export interface WeeklyPlaybookItem {
         align-items: center;
         gap: var(--nxt1-spacing-2, 8px);
         min-width: 0;
+        flex: 1;
       }
 
       .playbook-section-header .section-title {
@@ -924,23 +878,33 @@ export interface WeeklyPlaybookItem {
         flex-shrink: 0;
       }
 
+      .playbook-counter {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--agent-text-muted);
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
       /* Goal pill — tappable badge next to the title */
       .playbook-goal-pill {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
-        padding: 3px 10px 3px 7px;
+        justify-content: center;
+        gap: 6px;
+        padding: 8px 16px;
         border: 1px solid var(--agent-primary-glow);
         border-radius: var(--nxt1-radius-full, 9999px);
         background: var(--agent-primary-glow);
         color: var(--agent-primary);
-        font-size: 10px;
+        font-size: 13px;
         font-weight: var(--nxt1-font-weight-semibold, 600);
-        letter-spacing: 0.03em;
+        letter-spacing: 0.01em;
         line-height: 1;
         white-space: nowrap;
         cursor: pointer;
         font-family: inherit;
+        flex-shrink: 0;
         -webkit-tap-highlight-color: transparent;
         transition:
           background 0.15s ease,
@@ -954,9 +918,7 @@ export interface WeeklyPlaybookItem {
       }
 
       .playbook-goal-pill-text {
-        max-width: 120px;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        display: inline-block;
         white-space: nowrap;
       }
 
@@ -986,19 +948,51 @@ export interface WeeklyPlaybookItem {
       }
 
       .timeline-rail {
-        width: 14px;
+        width: 18px;
         display: flex;
         flex-direction: column;
         align-items: center;
       }
 
-      .timeline-dot {
+      .timeline-marker {
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        margin-top: 9px;
+        background: var(--agent-surface);
+        border: 1px solid var(--agent-border);
+      }
+
+      .timeline-marker-dot {
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        margin-top: 14px;
-        background: var(--agent-surface);
-        border: 2px solid var(--agent-primary);
+        background: var(--agent-primary);
+      }
+
+      .timeline-marker--pending {
+        border-color: color-mix(in srgb, var(--agent-primary) 40%, var(--agent-border));
+      }
+
+      .timeline-marker--in-progress {
+        border-color: var(--agent-primary);
+        background: var(--agent-primary-glow);
+        color: var(--agent-primary);
+      }
+
+      .timeline-marker--complete {
+        border-color: var(--nxt1-color-success, #4caf50);
+        background: color-mix(in srgb, var(--nxt1-color-success, #4caf50) 16%, transparent);
+        color: var(--nxt1-color-success, #4caf50);
+      }
+
+      .timeline-marker--problem {
+        border-color: var(--nxt1-color-warning, #ffb020);
+        background: color-mix(in srgb, var(--nxt1-color-warning, #ffb020) 16%, transparent);
+        color: var(--nxt1-color-warning, #ffb020);
       }
 
       .timeline-line {
@@ -1053,6 +1047,8 @@ export interface WeeklyPlaybookItem {
         color: var(--agent-primary);
         font-size: 11px;
         font-weight: 600;
+        white-space: nowrap;
+        flex-shrink: 0;
       }
 
       .timeline-title {
@@ -1061,6 +1057,10 @@ export interface WeeklyPlaybookItem {
         color: var(--agent-text-primary);
         margin: 0;
         line-height: 1.3;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .timeline-summary {
@@ -1135,6 +1135,7 @@ export interface WeeklyPlaybookItem {
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-3, 12px);
+        margin-bottom: var(--nxt1-spacing-5, 20px);
       }
 
       .commands-section .section-title {
@@ -1143,13 +1144,22 @@ export interface WeeklyPlaybookItem {
 
       .cmd-categories {
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         gap: var(--nxt1-spacing-2, 8px);
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+        padding-bottom: 2px;
+      }
+
+      .cmd-categories::-webkit-scrollbar {
+        display: none;
       }
 
       .cmd-category-pill {
         display: inline-flex;
         align-items: center;
+        flex-shrink: 0;
         gap: var(--nxt1-spacing-2, 8px);
         padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-3, 12px);
         border: 1px solid var(--agent-border);
@@ -1368,11 +1378,13 @@ export class AgentXShellComponent {
     },
   ]);
 
-  /** Expanded timeline items in weekly playbook. */
-  protected readonly expandedPlaybookItemIds = signal<Set<string>>(new Set(['wp-1']));
+  /** Number of completed playbook tasks. */
+  protected readonly playbookCompletedCount = computed(
+    () => this.weeklyPlaybook().filter((t) => t.status === 'complete').length
+  );
 
-  /** Whether the whole weekly playbook section is expanded. */
-  protected readonly isWeeklyPlaybookOpen = signal(true);
+  /** Total number of playbook tasks. */
+  protected readonly playbookTotalCount = computed(() => this.weeklyPlaybook().length);
 
   // ============================================
   // QUICK COMMANDS — Categorized Grid
@@ -1477,37 +1489,17 @@ export class AgentXShellComponent {
   // EVENT HANDLERS
   // ============================================
 
-  protected onActivityLogClick(): void {
-    this.toast.info('Activity log coming soon');
-  }
-
-  /**
-   * Toggle weekly timeline item expansion.
-   */
-  protected togglePlaybookItem(itemId: string): void {
-    this.expandedPlaybookItemIds.update((current) => {
-      const next = new Set(current);
-      if (next.has(itemId)) {
-        next.delete(itemId);
-      } else {
-        next.add(itemId);
-      }
-      return next;
+  protected async onActivityLogClick(): Promise<void> {
+    await this.haptics.impact('light');
+    await this.bottomSheet.openSheet({
+      component: AgentXOperationsLogComponent,
+      breakpoints: [0, 0.5, 0.92],
+      initialBreakpoint: 0.92,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operations-log-sheet',
     });
-  }
-
-  /**
-   * Toggle entire weekly playbook section visibility.
-   */
-  protected toggleWeeklyPlaybook(): void {
-    this.isWeeklyPlaybookOpen.update((value) => !value);
-  }
-
-  /**
-   * Whether a weekly timeline item is expanded.
-   */
-  protected isPlaybookExpanded(itemId: string): boolean {
-    return this.expandedPlaybookItemIds().has(itemId);
   }
 
   /**

@@ -266,6 +266,11 @@ export class ServerAuthService implements IAuthService, OnDestroy {
         email: data['email'] ?? '',
         displayName: data['displayName'] ?? data['firstName'] ?? 'User',
         profileImg: data['profileImg'] ?? data['photoURL'] ?? data['profilePhoto'] ?? undefined,
+        followingCount:
+          typeof data['followingCount'] === 'number' ? data['followingCount'] : undefined,
+        followingIds: Array.isArray(data['following'])
+          ? data['following'].filter((item): item is string => typeof item === 'string')
+          : undefined,
         role: (data['role'] as UserRole) ?? 'athlete',
         isPremium: data['isPremium'] ?? data['premium'] ?? false,
         hasCompletedOnboarding:

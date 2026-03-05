@@ -34,16 +34,9 @@ import { APP_EVENTS, type ViewerType } from '../analytics/events';
 
 /**
  * User type for onboarding - maps to UserRole from constants.
- * All roles supported by the platform.
+ * 5 core roles supported by the platform.
  */
-export type OnboardingUserType =
-  | 'athlete'
-  | 'coach'
-  | 'college-coach'
-  | 'director'
-  | 'recruiting-service'
-  | 'parent'
-  | 'scout';
+export type OnboardingUserType = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent';
 
 /** Step IDs */
 export type OnboardingStepId =
@@ -142,11 +135,9 @@ export function toAnalyticsUserType(userType: OnboardingUserType): ViewerType {
   const mapping: Record<OnboardingUserType, ViewerType> = {
     athlete: 'athlete',
     coach: 'coach',
-    'college-coach': 'coach', // College coaches map to coach viewer type
     director: 'coach', // Directors map to coach viewer type
-    'recruiting-service': 'recruiting-service', // Recruiting services get their own type
+    recruiter: 'recruiter',
     parent: 'parent',
-    scout: 'scout',
   };
   return mapping[userType] ?? 'anonymous';
 }

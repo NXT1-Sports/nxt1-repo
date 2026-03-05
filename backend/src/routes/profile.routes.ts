@@ -1001,12 +1001,14 @@ router.put(
       // Role-specific data
       'athlete',
       'coach',
-      'collegeCoach',
       'director',
+      'recruiter',
+      'parent',
+      // Legacy role data (backward compat for existing docs)
+      'collegeCoach',
       'scout',
       'recruitingService',
       'media',
-      'parent',
       // Preferences
       'preferences',
     ];

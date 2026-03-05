@@ -86,7 +86,7 @@ export class AnalyticsDashboardComponent implements OnInit {
     if (!role) return 'athlete';
 
     // Map UserRole to AnalyticsUserRole
-    // UserRole includes: 'athlete', 'coach', 'parent', 'fan', etc.
+    // UserRole includes: 'athlete', 'coach', 'director', 'recruiter', 'parent'
     if (role === 'coach') {
       return 'coach';
     }

@@ -70,7 +70,7 @@ import {
   MenuController,
 } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../icon';
-import { NxtAvatarComponent, type AvatarClickEvent } from '../avatar';
+import { NxtAvatarComponent } from '../avatar';
 import { NxtThemeSelectorComponent } from '../theme-selector';
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
@@ -117,108 +117,124 @@ import type { SidenavItemSelectEvent } from './sidenav.types';
       (ionWillClose)="onMenuWillClose()"
       (ionDidClose)="onMenuDidClose()"
     >
-      <!-- Header Section - Compact User Profile Row -->
+      <!-- Header Section - Compact Profile List Item -->
       @if (config().showUserHeader && user()) {
         <ion-header class="nxt1-sidenav-header ion-no-border">
           <ion-toolbar class="nxt1-sidenav-toolbar">
-            <div class="nxt1-sidenav-header-row">
-              <div class="nxt1-sidenav-profile">
-                <div class="nxt1-sidenav-profile__avatar-container">
+            <div class="nxt1-sidenav-profile-row">
+              <!-- Tappable profile area: avatar + info -->
+              <button
+                class="nxt1-sidenav-profile-row__main"
+                (click)="onProfileClick()"
+                aria-label="View profile"
+              >
+                <div class="nxt1-sidenav-profile-row__avatar">
                   <nxt1-avatar
                     [src]="user()!.profileImg"
                     [name]="user()!.name"
                     [initials]="user()!.initials"
                     size="md"
-                    [badge]="user()!.verified ? 'verified' : undefined"
-                    [clickable]="true"
-                    class="nxt1-sidenav-profile__avatar"
-                    (avatarClick)="onProfileClick($event)"
+                    [showSkeleton]="false"
+                    class="nxt1-sidenav-profile-row__avatar-img"
                   />
                   @if (user()!.isPremium) {
-                    <div class="nxt1-sidenav-profile__premium-badge">PRO</div>
+                    <span class="nxt1-sidenav-profile-row__pro">PRO</span>
                   }
                 </div>
 
-                <div class="nxt1-sidenav-profile__info">
-                  <div class="nxt1-sidenav-profile__name">
+                <div class="nxt1-sidenav-profile-row__info">
+                  <span class="nxt1-sidenav-profile-row__name">
                     {{ user()!.name }}
                     @if (user()!.verified) {
                       <nxt1-icon
                         name="verified"
-                        [size]="16"
-                        class="nxt1-sidenav-profile__verified"
+                        [size]="14"
+                        class="nxt1-sidenav-profile-row__verified"
                       />
                     }
-                  </div>
-                  <div class="nxt1-sidenav-profile__subtitle">
+                  </span>
+                  <span class="nxt1-sidenav-profile-row__sport">
                     {{ getUserSportLabel(user()!) }}
-                  </div>
+                  </span>
                 </div>
-              </div>
+              </button>
 
-              <div class="nxt1-sidenav-sports">
-                <div class="nxt1-sidenav-sports__title">Sports</div>
+              <!-- Expand arrow for sport profiles -->
+              @if ((user()!.sportProfiles?.length ?? 0) > 0) {
+                <button
+                  class="nxt1-sidenav-profile-row__expand"
+                  [class.nxt1-sidenav-profile-row__expand--open]="sportsExpanded()"
+                  (click)="toggleSportsExpanded($event)"
+                  [attr.aria-expanded]="sportsExpanded()"
+                  aria-label="Show sport profiles"
+                >
+                  <nxt1-icon name="chevronDown" [size]="18" />
+                </button>
+              }
+            </div>
 
-                <div class="nxt1-sidenav-sports__actions">
-                  @if ((user()!.sportProfiles?.length ?? 0) > 1) {
-                    <div class="nxt1-sidenav-sports__list">
-                      @for (profile of user()!.sportProfiles; track profile.id) {
-                        <button
-                          class="nxt1-sidenav-sports__item"
-                          [class.nxt1-sidenav-sports__item--active]="profile.isActive"
-                          (click)="onSportProfileSelect(profile, $event)"
-                          [attr.aria-label]="'Switch to ' + profile.sport + ' profile'"
-                        >
+            <div class="nxt1-sidenav-sports">
+              <div class="nxt1-sidenav-sports__title">Sports</div>
+
+              <div class="nxt1-sidenav-sports__actions">
+                @if ((user()!.sportProfiles?.length ?? 0) > 1) {
+                  <div class="nxt1-sidenav-sports__list">
+                    @for (profile of user()!.sportProfiles; track profile.id) {
+                      <button
+                        class="nxt1-sidenav-sports__item"
+                        [class.nxt1-sidenav-sports__item--active]="profile.isActive"
+                        (click)="onSportProfileSelect(profile, $event)"
+                        [attr.aria-label]="'Switch to ' + profile.sport + ' profile'"
+                      >
+                        <nxt1-avatar
+                          [src]="profile.profileImg || user()!.profileImg"
+                          [name]="profile.sport"
+                          [initials]="getSportInitials(profile.sport)"
+                          size="sm"
+                          class="nxt1-sidenav-sports__avatar"
+                        />
+                      </button>
+                    }
+                  </div>
+                } @else {
+                  <div class="nxt1-sidenav-sports__single">
+                    <div class="nxt1-sidenav-sports__single-row">
+                      @if ((user()!.sportProfiles?.length ?? 0) === 1) {
+                        <div class="nxt1-sidenav-sports__item nxt1-sidenav-sports__item--active">
                           <nxt1-avatar
-                            [src]="profile.profileImg || user()!.profileImg"
-                            [name]="profile.sport"
-                            [initials]="getSportInitials(profile.sport)"
+                            [src]="user()!.sportProfiles![0].profileImg || user()!.profileImg"
+                            [name]="user()!.sportProfiles![0].sport"
+                            [initials]="getSportInitials(user()!.sportProfiles![0].sport)"
                             size="sm"
                             class="nxt1-sidenav-sports__avatar"
                           />
-                        </button>
+                        </div>
                       }
-                    </div>
-                  } @else {
-                    <div class="nxt1-sidenav-sports__single">
-                      <div class="nxt1-sidenav-sports__single-row">
-                        @if ((user()!.sportProfiles?.length ?? 0) === 1) {
-                          <div class="nxt1-sidenav-sports__item nxt1-sidenav-sports__item--active">
-                            <nxt1-avatar
-                              [src]="user()!.sportProfiles![0].profileImg || user()!.profileImg"
-                              [name]="user()!.sportProfiles![0].sport"
-                              [initials]="getSportInitials(user()!.sportProfiles![0].sport)"
-                              size="sm"
-                              class="nxt1-sidenav-sports__avatar"
-                            />
-                          </div>
-                        }
 
-                        <button
-                          class="nxt1-sidenav-sports__add-icon-btn"
-                          (click)="onAddSportClick($event)"
-                          aria-label="Add sport profile"
-                          title="Add Sport"
+                      <button
+                        class="nxt1-sidenav-sports__add-icon-btn"
+                        (click)="onAddSportClick($event)"
+                        aria-label="Add sport profile"
+                        title="Add Sport"
+                      >
+                        <svg
+                          class="nxt1-sidenav-sports__add-icon"
+                          viewBox="0 0 24 24"
+                          width="16"
+                          height="16"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.2"
+                          stroke-linecap="round"
+                          aria-hidden="true"
                         >
-                          <svg
-                            class="nxt1-sidenav-sports__add-icon"
-                            viewBox="0 0 24 24"
-                            width="16"
-                            height="16"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2.2"
-                            stroke-linecap="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M12 5v14" />
-                            <path d="M5 12h14" />
-                          </svg>
-                        </button>
-                      </div>
+                          <path d="M12 5v14" />
+                          <path d="M5 12h14" />
+                        </svg>
+                      </button>
                     </div>
-                  }
-                </div>
+                  </div>
+                }
               </div>
             </div>
           </ion-toolbar>
@@ -562,9 +578,9 @@ import type { SidenavItemSelectEvent } from './sidenav.types';
         --background: transparent;
         --border-width: 0;
         --padding-start: 16px;
-        --padding-end: 16px;
-        --padding-top: 16px;
-        --padding-bottom: 12px;
+        --padding-end: 12px;
+        --padding-top: 12px;
+        --padding-bottom: 8px;
         --min-height: auto;
       }
 
@@ -574,43 +590,47 @@ import type { SidenavItemSelectEvent } from './sidenav.types';
         justify-content: flex-end;
       }
 
-      .nxt1-sidenav-header-row {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 10px;
-        width: 100%;
-      }
-
       /* ============================================
-         PROFILE HEADER (Professional Native-Style)
+         PROFILE ROW (Compact List-Item Style)
          ============================================ */
-      .nxt1-sidenav-profile {
+      .nxt1-sidenav-profile-row {
         display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 6px;
-        flex: 1 1 auto;
-        min-width: 0;
+        align-items: center;
+        gap: 0;
+        width: 100%;
         padding-top: env(safe-area-inset-top, 0px);
       }
 
-      .nxt1-sidenav-profile__avatar-container {
-        position: relative;
-        width: fit-content;
-      }
-
-      .nxt1-sidenav-profile__avatar {
-        flex-shrink: 0;
+      .nxt1-sidenav-profile-row__main {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex: 1;
+        min-width: 0;
+        padding: 8px;
+        border: none;
+        background: transparent;
+        border-radius: var(--nxt1-sidenav-item-radius);
         cursor: pointer;
-        transition: transform 0.15s ease;
+        transition: background 0.15s ease;
+        -webkit-tap-highlight-color: transparent;
+        text-align: left;
       }
 
-      .nxt1-sidenav-profile__avatar:active {
-        transform: scale(0.95);
+      .nxt1-sidenav-profile-row__main:active {
+        background: var(--nxt1-sidenav-item-hover);
       }
 
-      .nxt1-sidenav-profile__premium-badge {
+      .nxt1-sidenav-profile-row__avatar {
+        position: relative;
+        flex-shrink: 0;
+      }
+
+      .nxt1-sidenav-profile-row__avatar-img {
+        display: block;
+      }
+
+      .nxt1-sidenav-profile-row__pro {
         position: absolute;
         bottom: -2px;
         right: -4px;
@@ -620,181 +640,175 @@ import type { SidenavItemSelectEvent } from './sidenav.types';
           var(--nxt1-color-secondary, #10b981) 100%
         );
         color: #000;
-        font-size: 8px;
+        font-size: 7px;
         font-weight: 700;
         letter-spacing: 0.02em;
         padding: 1px 4px;
         border-radius: 3px;
         border: 1.5px solid var(--nxt1-sidenav-header-bg);
+        line-height: 1.2;
       }
 
-      .nxt1-sidenav-profile__info {
+      .nxt1-sidenav-profile-row__info {
         display: flex;
         flex-direction: column;
         gap: 2px;
         min-width: 0;
-        width: 100%;
+        flex: 1;
       }
 
-      .nxt1-sidenav-profile__name {
+      .nxt1-sidenav-profile-row__name {
         display: flex;
         align-items: center;
         gap: 4px;
         font-size: 15px;
-        font-weight: 700;
+        font-weight: 600;
         color: var(--nxt1-sidenav-text-primary);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        line-height: 1.3;
       }
 
-      .nxt1-sidenav-profile__verified {
+      .nxt1-sidenav-profile-row__verified {
         color: var(--nxt1-sidenav-accent);
         flex-shrink: 0;
       }
 
-      .nxt1-sidenav-profile__subtitle {
+      .nxt1-sidenav-profile-row__sport {
         font-size: 13px;
         color: var(--nxt1-sidenav-text-secondary);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        line-height: 1.3;
       }
 
-      .nxt1-sidenav-sports {
-        flex: 0 0 152px;
+      .nxt1-sidenav-profile-row__expand {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        padding: 6px;
-        border: 1px solid var(--nxt1-sidenav-border);
-        border-radius: var(--nxt1-sidenav-item-radius);
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        flex-shrink: 0;
+        border: none;
+        background: transparent;
+        border-radius: 50%;
+        color: var(--nxt1-sidenav-text-secondary);
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease,
+          transform 0.2s ease;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-sidenav-profile-row__expand:active {
         background: var(--nxt1-sidenav-item-hover);
       }
 
-      .nxt1-sidenav-sports__title {
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--nxt1-sidenav-text-tertiary);
+      .nxt1-sidenav-profile-row__expand nxt1-icon {
+        transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
-      .nxt1-sidenav-sports__list {
+      .nxt1-sidenav-profile-row__expand--open nxt1-icon {
+        transform: rotate(180deg);
+      }
+
+      /* ============================================
+         EXPANDABLE SPORT LIST
+         ============================================ */
+      .nxt1-sidenav-sport-list {
         display: flex;
-        flex-direction: row;
-        gap: 4px;
+        flex-direction: column;
+        gap: 2px;
+        padding: 4px 0 4px 0;
+        margin-top: 4px;
+        border-top: 1px solid var(--nxt1-sidenav-header-border);
+        animation: sport-list-expand 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
-      .nxt1-sidenav-sports__actions {
+      @keyframes sport-list-expand {
+        from {
+          opacity: 0;
+          transform: translateY(-4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .nxt1-sidenav-sport-list__item {
         display: flex;
         align-items: center;
-        justify-content: flex-end;
+        gap: 10px;
+        padding: 8px 10px;
+        border: none;
+        background: transparent;
+        border-radius: var(--nxt1-sidenav-item-radius);
+        color: var(--nxt1-sidenav-text-primary);
+        cursor: pointer;
+        transition: background 0.15s ease;
+        -webkit-tap-highlight-color: transparent;
+        text-align: left;
+        width: 100%;
+        font-size: 14px;
+      }
+
+      .nxt1-sidenav-sport-list__item:active {
+        background: var(--nxt1-sidenav-item-hover);
+      }
+
+      .nxt1-sidenav-sport-list__item--active {
+        background: var(--nxt1-sidenav-item-hover);
+      }
+
+      .nxt1-sidenav-sport-list__item--add {
+        color: var(--nxt1-sidenav-accent);
+      }
+
+      .nxt1-sidenav-sport-list__info {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        flex: 1;
         min-width: 0;
       }
 
-      .nxt1-sidenav-sports__item {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
-        min-height: 34px;
-        padding: 2px;
-        border: 1px solid transparent;
-        border-radius: 8px;
-        background: transparent;
+      .nxt1-sidenav-sport-list__name {
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .nxt1-sidenav-sport-list__position {
+        font-size: 12px;
         color: var(--nxt1-sidenav-text-secondary);
-        cursor: pointer;
-        position: relative;
-        transition:
-          background 0.15s ease,
-          border-color 0.15s ease,
-          color 0.15s ease;
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
-      .nxt1-sidenav-sports__item:hover {
-        background: var(--nxt1-sidenav-item-active);
-        color: var(--nxt1-sidenav-text-primary);
-      }
-
-      .nxt1-sidenav-sports__item--active {
-        background: var(--nxt1-sidenav-item-active);
-        border-color: var(--nxt1-sidenav-accent);
-        color: var(--nxt1-sidenav-text-primary);
-      }
-
-      .nxt1-sidenav-sports__avatar {
-        display: block;
-        flex-shrink: 0;
-        line-height: 0;
-        margin: 0 auto;
-      }
-
-      .nxt1-sidenav-sports__item nxt1-avatar {
-        display: block;
-      }
-
-      .nxt1-sidenav-sports__single {
-        display: flex;
-        align-items: center;
-      }
-
-      .nxt1-sidenav-sports__single-row {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-      }
-
-      .nxt1-sidenav-sports__single-row .nxt1-sidenav-sports__item {
-        width: 34px;
-        min-width: 34px;
-        min-height: 34px;
-      }
-
-      .nxt1-sidenav-sports__empty {
-        flex: 1;
-        font-size: 11px;
-        color: var(--nxt1-sidenav-text-tertiary);
-        padding: 6px 4px;
-      }
-
-      .nxt1-sidenav-sports__add-icon {
+      .nxt1-sidenav-sport-list__check {
         color: var(--nxt1-sidenav-accent);
-        display: block;
+        flex-shrink: 0;
       }
 
-      .nxt1-sidenav-sports__add-icon-btn {
-        display: inline-flex;
+      .nxt1-sidenav-sport-list__add-icon {
+        display: flex;
         align-items: center;
         justify-content: center;
-        width: 30px;
-        height: 30px;
-        border: 1px solid var(--nxt1-sidenav-border);
-        border-radius: 8px;
-        background: var(--nxt1-sidenav-item-hover);
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        border: 1.5px dashed var(--nxt1-sidenav-accent);
         color: var(--nxt1-sidenav-accent);
-        cursor: pointer;
-        transition:
-          background 0.15s ease,
-          border-color 0.15s ease,
-          transform 0.1s ease;
-      }
-
-      .nxt1-sidenav-sports__add-icon-btn:hover {
-        background: var(--nxt1-sidenav-item-active);
-        border-color: var(--nxt1-sidenav-accent);
-      }
-
-      .nxt1-sidenav-sports__add-icon-btn:active {
-        transform: scale(0.96);
-      }
-
-      @media (max-width: 400px) {
-        .nxt1-sidenav-sports {
-          flex: 0 0 138px;
-          padding: 6px;
-        }
+        flex-shrink: 0;
       }
 
       /* Legacy User Styles (for backwards compatibility) */
@@ -1343,7 +1357,7 @@ export class NxtSidenavComponent {
   readonly toggle = output<SidenavToggleEvent>();
 
   /** Emits when user profile is clicked */
-  readonly profileClick = output<AvatarClickEvent>();
+  readonly profileClick = output<void>();
 
   /** Emits when a social link is clicked */
   readonly socialClick = output<{ social: SocialLink; event: Event }>();
@@ -1360,6 +1374,9 @@ export class NxtSidenavComponent {
 
   /** Track expanded sections */
   private readonly expandedSections = signal<Set<string>>(new Set());
+
+  /** Whether sport profiles dropdown is expanded */
+  readonly sportsExpanded = signal(false);
 
   /** Active route for highlighting */
   private readonly activeRoute = signal<string>('');
@@ -1630,9 +1647,9 @@ export class NxtSidenavComponent {
   /**
    * Handle profile click.
    */
-  async onProfileClick(event: AvatarClickEvent): Promise<void> {
+  async onProfileClick(): Promise<void> {
     await this.triggerHaptic('light');
-    this.profileClick.emit(event);
+    this.profileClick.emit();
 
     // Navigate to profile if user ID is available
     const currentUser = this.user();
@@ -1695,6 +1712,15 @@ export class NxtSidenavComponent {
     await this.triggerHaptic('light');
     await this.router.navigate(['/profile']);
     await this.close();
+  }
+
+  /**
+   * Toggle sport profiles dropdown expansion.
+   */
+  async toggleSportsExpanded(event: Event): Promise<void> {
+    event.stopPropagation();
+    await this.triggerHaptic('light');
+    this.sportsExpanded.update((v) => !v);
   }
 
   /**

@@ -221,7 +221,7 @@ export interface SettingsUser {
       .settings-container {
         min-height: 100%;
         padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-4, 16px);
-        padding-bottom: calc(80px + env(safe-area-inset-bottom, 0));
+        padding-bottom: calc(160px + env(safe-area-inset-bottom, 0));
       }
 
       .settings-layout {

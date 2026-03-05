@@ -31,7 +31,7 @@ export const SETTINGS_SECTIONS_META: Record<
   { title: string; description: string; icon: string }
 > = {
   account: {
-    title: 'Account',
+    title: 'Account Information',
     description: 'Manage your account information and security',
     icon: 'person-outline',
   },
@@ -79,15 +79,6 @@ export const SETTINGS_SECTION_ORDER: readonly SettingsSectionId[] = [
 // ============================================
 
 export const SETTINGS_ACCOUNT_ITEMS: readonly SettingsItem[] = [
-  {
-    id: 'profile',
-    section: 'account',
-    type: 'navigation',
-    label: 'Profile Information',
-    description: 'Name, photo, and bio',
-    icon: 'person-outline',
-    route: '/profile/edit',
-  },
   {
     id: 'email',
     section: 'account',
@@ -146,21 +137,6 @@ export const SETTINGS_ACCOUNT_ITEMS: readonly SettingsItem[] = [
 
 export const SETTINGS_PREFERENCES_ITEMS: readonly SettingsItem[] = [
   {
-    id: 'theme',
-    section: 'preferences',
-    type: 'select',
-    label: 'Appearance',
-    description: 'Choose your preferred theme',
-    icon: 'moon-outline',
-    value: 'system',
-    settingKey: 'theme',
-    options: [
-      { id: 'light', label: 'Light', icon: 'sunny-outline' },
-      { id: 'dark', label: 'Dark', icon: 'moon-outline' },
-      { id: 'system', label: 'System', icon: 'color-palette-outline' },
-    ],
-  },
-  {
     id: 'pushNotifications',
     section: 'preferences',
     type: 'toggle',
@@ -189,31 +165,6 @@ export const SETTINGS_PREFERENCES_ITEMS: readonly SettingsItem[] = [
     icon: 'mail-outline',
     value: false,
     settingKey: 'marketingEmails',
-  },
-  {
-    id: 'profileVisibility',
-    section: 'preferences',
-    type: 'select',
-    label: 'Profile Visibility',
-    description: 'Control who can see your profile',
-    icon: 'eye-outline',
-    value: 'public',
-    settingKey: 'profileVisibility',
-    options: [
-      { id: 'public', label: 'Public' },
-      { id: 'connections', label: 'Connections Only' },
-      { id: 'private', label: 'Private' },
-    ],
-  },
-  {
-    id: 'showActivityStatus',
-    section: 'preferences',
-    type: 'toggle',
-    label: 'Show Activity Status',
-    description: "Let others see when you're active",
-    icon: 'eye-outline',
-    value: true,
-    settingKey: 'showActivityStatus',
   },
 ] as const;
 
@@ -294,26 +245,6 @@ export const SETTINGS_TOOLS_ITEMS: readonly SettingsItem[] = [
     icon: 'trending-up-outline',
     value: true,
     settingKey: 'analyticsTracking',
-  },
-  {
-    id: 'crashReporting',
-    section: 'tools',
-    type: 'toggle',
-    label: 'Crash Reporting',
-    description: 'Automatically send crash reports to help fix issues',
-    icon: 'bug-outline',
-    value: true,
-    settingKey: 'crashReporting',
-  },
-  {
-    id: 'cloudSync',
-    section: 'tools',
-    type: 'toggle',
-    label: 'Cloud Sync',
-    description: 'Sync your data across devices',
-    icon: 'cloud-outline',
-    value: true,
-    settingKey: 'cloudSync',
   },
 ] as const;
 
@@ -409,7 +340,7 @@ export const SETTINGS_LEGAL_ITEMS: readonly SettingsItem[] = [
 export const DEFAULT_SETTINGS_SECTIONS: readonly SettingsSection[] = [
   {
     id: 'account',
-    title: SETTINGS_SECTIONS_META.account.title,
+    title: 'Account Information',
     description: SETTINGS_SECTIONS_META.account.description,
     icon: 'person-outline',
     items: SETTINGS_ACCOUNT_ITEMS,

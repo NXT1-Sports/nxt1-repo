@@ -55,6 +55,7 @@ import { Router, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import { IonTabBar, IonTabButton } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../icon';
+import { NxtAvatarComponent } from '../avatar';
 import { NxtPlatformService } from '../../services/platform';
 import { HapticsService } from '../../services/haptics';
 import type {
@@ -68,7 +69,7 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
 @Component({
   selector: 'nxt1-mobile-footer',
   standalone: true,
-  imports: [IonTabBar, IonTabButton, NxtIconComponent],
+  imports: [IonTabBar, IonTabButton, NxtIconComponent, NxtAvatarComponent],
   template: `
     <!-- Footer wrapper for pill + FAB layout -->
     <div
@@ -151,50 +152,19 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
                   />
                 </svg>
               } @else if (isProfileTab(tab)) {
-                <!-- Profile icon with sparkles -->
-                <svg
-                  class="profile-sparkle-icon"
-                  viewBox="0 0 28 28"
-                  width="26"
-                  height="26"
-                  fill="none"
-                  aria-hidden="true"
+                <!-- Profile avatar (Instagram-style) -->
+                <div
+                  class="profile-avatar-wrapper"
+                  [class.profile-avatar-wrapper--active]="isActiveTab(tab)"
                 >
-                  <!-- User silhouette -->
-                  <circle
-                    cx="14"
-                    cy="9"
-                    r="4"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    fill="none"
+                  <nxt1-avatar
+                    [src]="profileAvatarSrc"
+                    [name]="profileAvatarName"
+                    [customSize]="28"
+                    [showSkeleton]="false"
+                    cssClass="footer-profile-avatar"
                   />
-                  <path
-                    d="M6 23v-1.5a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6V23"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                    fill="none"
-                  />
-                  <!-- Sparkle top-right (4-point star) -->
-                  <path
-                    class="sparkle sparkle-1"
-                    d="M23 3l.7 1.8L25.5 5.5l-1.8.7L23 8l-.7-1.8L20.5 5.5l1.8-.7Z"
-                    fill="currentColor"
-                  />
-                  <!-- Sparkle right (small diamond) -->
-                  <path
-                    class="sparkle sparkle-2"
-                    d="M26 12l.45 1.05L27.5 13.5l-1.05.45L26 15l-.45-1.05L24.5 13.5l1.05-.45Z"
-                    fill="currentColor"
-                  />
-                  <!-- Sparkle top-left (tiny) -->
-                  <path
-                    class="sparkle sparkle-3"
-                    d="M4.5 1.5l.35.85 .85.35-.85.35-.35.85-.35-.85-.85-.35.85-.35Z"
-                    fill="currentColor"
-                  />
-                </svg>
+                </div>
               } @else {
                 <nxt1-icon [name]="tab.icon" [size]="24" class="tab-icon" />
               }
@@ -444,24 +414,49 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         color: var(--footer-icon-active);
       }
 
-      /* Profile Icon with Sparkles */
-      .profile-sparkle-icon {
-        color: var(--footer-icon-inactive);
-        transition: color 0.2s ease;
-        overflow: visible;
+      /* Profile Avatar (Instagram-style) */
+      .profile-avatar-wrapper {
+        width: 31px;
+        height: 31px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5px;
+        border: 1.5px solid transparent;
+        transition: border-color 0.2s ease;
+        box-sizing: border-box;
+        overflow: hidden;
       }
 
-      .tab-button--active .profile-sparkle-icon {
-        color: var(--footer-icon-active);
+      .profile-avatar-wrapper--active {
+        border-color: var(--footer-icon-active, #ffffff);
       }
 
-      /* Sparkle elements - static, no animation */
-      .profile-sparkle-icon .sparkle {
-        opacity: 0.8;
+      .profile-avatar-wrapper :host ::ng-deep .footer-profile-avatar {
+        width: 100% !important;
+        height: 100% !important;
       }
 
-      .tab-button--active .profile-sparkle-icon .sparkle {
-        opacity: 1;
+      .profile-avatar-wrapper ::ng-deep nxt1-avatar {
+        width: 100%;
+        height: 100%;
+      }
+
+      .profile-avatar-wrapper ::ng-deep .avatar {
+        width: 100% !important;
+        height: 100% !important;
+        min-width: unset !important;
+        min-height: unset !important;
+      }
+
+      .profile-avatar-wrapper ::ng-deep .avatar__image {
+        width: 100% !important;
+        height: 100% !important;
+      }
+
+      .tab-button--active .profile-avatar-wrapper {
+        border-color: var(--footer-icon-active, #ffffff);
       }
 
       /* Label styling */
@@ -664,6 +659,12 @@ export class NxtMobileFooterComponent {
 
   /** Tab items to display */
   @Input() tabs: FooterTabItem[] = DEFAULT_FOOTER_TABS;
+
+  /** Profile avatar image URL (for profile tab) */
+  @Input() profileAvatarSrc?: string | null;
+
+  /** Profile avatar display name (for initials fallback) */
+  @Input() profileAvatarName?: string;
 
   /** Currently active tab ID (if controlling externally). Set to null for no selection. */
   @Input() activeTabId?: string | null;

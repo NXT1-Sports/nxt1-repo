@@ -52,32 +52,19 @@ export interface RoleOption {
 // ============================================
 
 /**
- * Role options for onboarding (optional last step).
+ * Role options for onboarding.
  * Maps to OnboardingUserType from @nxt1/core/api.
  * Icons reference @nxt1/design-tokens.
  *
- * 6 roles displayed during onboarding:
- * - athlete, coach, college-coach (includes scout), director,
- *   recruiting-service, parent
+ * 5 core roles displayed during onboarding:
+ * - Athlete, Coach, Director, Recruiter, Parent
  */
 export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
-  {
-    type: 'athlete',
-    label: 'Athlete',
-    description: 'High school, club, or college athlete',
-    icon: 'athlete',
-  },
   {
     type: 'coach',
     label: 'Coach',
     description: 'High school, JUCO, club, or travel coach',
     icon: 'clipboard',
-  },
-  {
-    type: 'college-coach',
-    label: 'College Coach / Scout',
-    description: 'College coach or scout recruiting athletes',
-    icon: 'college-coach',
   },
   {
     type: 'director',
@@ -86,10 +73,16 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
     icon: 'director',
   },
   {
-    type: 'recruiting-service',
-    label: 'Professional Service',
-    description: 'Recruiting service or sports professional',
-    icon: 'recruiting-service',
+    type: 'athlete',
+    label: 'Athlete',
+    description: 'High school, club, or college athlete',
+    icon: 'athlete',
+  },
+  {
+    type: 'recruiter',
+    label: 'Recruiter',
+    description: 'College coach, scout, or recruiting service',
+    icon: 'college-coach',
   },
   {
     type: 'parent',

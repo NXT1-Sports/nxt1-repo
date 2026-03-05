@@ -328,12 +328,12 @@ export const AGENT_X_CENTER_FOOTER_TABS: FooterTabItem[] = [
 
 /**
  * AI-First layout: Agent X on the far left as the home anchor.
- * Visual order: Agent X, Explore, Activity, Create.
+ * Visual order: Agent X, Explore, Profile, Activity.
  *
  * Notes:
  * - Agent X remains a circular action button for visual prominence.
- * - Profile is accessed via the avatar in the top-left header.
- * - Create ("+") in the bottom right for quick content uploads.
+ * - Profile is a primary bottom-tab destination.
+ * - Connections move to the sidebar for account/link management.
  */
 export const AGENT_X_LEFT_FOOTER_TABS: FooterTabItem[] = [
   {
@@ -354,20 +354,20 @@ export const AGENT_X_LEFT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Explore athletes and teams',
   },
   {
-    id: 'create',
-    label: 'Create',
-    icon: 'plusCircle',
-    iconActive: 'plusCircleFilled',
-    route: '/create',
-    ariaLabel: 'Add film, stats, or offers to your resume',
-  },
-  {
     id: 'activity',
     label: 'Activity',
     icon: 'bell',
     iconActive: 'bellFilled',
     route: '/activity',
     ariaLabel: 'View your activity and notifications',
+  },
+  {
+    id: 'profile',
+    label: 'Profile',
+    icon: 'user',
+    iconActive: 'userFilled',
+    route: '/profile',
+    ariaLabel: 'View your profile',
   },
 ];
 
@@ -407,7 +407,7 @@ export const FOOTER_ANIMATION = {
  */
 export const MAIN_PAGE_ROUTES = [
   '/explore',
-  '/create',
+  '/profile',
   '/agent',
   '/messages',
   '/activity',
@@ -1298,10 +1298,10 @@ export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
     id: 'main',
     items: [
       {
-        id: 'profile',
-        label: 'Profile',
-        icon: 'user',
-        route: '/profile',
+        id: 'connections',
+        label: 'Connections',
+        icon: 'link',
+        route: '/create',
       },
       {
         id: 'analytics',

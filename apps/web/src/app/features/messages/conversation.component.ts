@@ -67,9 +67,9 @@ export class ConversationComponent implements OnInit {
     });
   }
 
-  /** Navigate back to messages list */
+  /** Navigate back to activity */
   protected onBack(): void {
-    this.router.navigate(['/messages']);
+    this.router.navigate(['/activity']);
   }
 
   /** Open conversation info/details */

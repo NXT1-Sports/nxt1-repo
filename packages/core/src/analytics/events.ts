@@ -576,7 +576,7 @@ export const USER_PROPERTIES = {
   // ============================================
   // USER TYPE & ROLE
   // ============================================
-  /** User role: athlete, coach, parent, scout, media, fan */
+  /** User role: athlete, coach, director, recruiter, parent */
   USER_TYPE: 'user_type',
   /** Whether user is verified */
   IS_VERIFIED: 'is_verified',
@@ -734,17 +734,7 @@ export type TrafficSource =
   | 'unknown';
 
 /** User role type */
-export type UserRole =
-  | 'athlete'
-  | 'coach'
-  | 'college-coach'
-  | 'director'
-  | 'recruiting-service'
-  | 'parent'
-  | 'scout'
-  | 'media'
-  | 'fan'
-  | 'anonymous';
+export type UserRole = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent' | 'anonymous';
 
 /** Viewer type (alias for UserRole for analytics compatibility) */
 export type ViewerType = UserRole;

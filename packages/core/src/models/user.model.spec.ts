@@ -10,6 +10,8 @@ import {
   isAthlete,
   isCoach,
   isCollegeCoach,
+  isRecruiter,
+  isDirector,
   isOnboarded,
   getPrimarySport,
   getActiveSport,
@@ -24,6 +26,7 @@ import {
   type AthleteData,
   type CoachData,
   type CollegeCoachData,
+  type RecruiterData,
 } from './user.model';
 
 // ============================================
@@ -103,18 +106,66 @@ describe('User Model Type Guards', () => {
     });
   });
 
-  describe('isCollegeCoach', () => {
-    it('should return true for college-coach role with data', () => {
+  describe('isCollegeCoach (deprecated — wraps isRecruiter)', () => {
+    it('should return true for recruiter role with collegeCoach data', () => {
       const user = createMockUser({
-        role: 'college-coach',
+        role: 'recruiter',
         collegeCoach: { title: 'Assistant Coach', institution: 'State U' } as CollegeCoachData,
       });
       expect(isCollegeCoach(user)).toBe(true);
     });
 
-    it('should return false for college-coach role without data', () => {
-      const user = createMockUser({ role: 'college-coach' });
+    it('should return false for recruiter role without data', () => {
+      const user = createMockUser({ role: 'recruiter' });
       expect(isCollegeCoach(user)).toBe(false);
+    });
+  });
+
+  describe('isRecruiter', () => {
+    it('should return true for recruiter role with recruiter data', () => {
+      const user = createMockUser({
+        role: 'recruiter',
+        recruiter: { recruiterType: 'college_coach', institution: 'State U' } as RecruiterData,
+      });
+      expect(isRecruiter(user)).toBe(true);
+    });
+
+    it('should return true for recruiter role with legacy collegeCoach data', () => {
+      const user = createMockUser({
+        role: 'recruiter',
+        collegeCoach: { title: 'Head Coach', institution: 'State U' } as CollegeCoachData,
+      });
+      expect(isRecruiter(user)).toBe(true);
+    });
+
+    it('should return false for recruiter role without any data', () => {
+      const user = createMockUser({ role: 'recruiter' });
+      expect(isRecruiter(user)).toBe(false);
+    });
+
+    it('should return false for non-recruiter role', () => {
+      const user = createMockUser({ role: 'athlete' });
+      expect(isRecruiter(user)).toBe(false);
+    });
+  });
+
+  describe('isDirector', () => {
+    it('should return true for director role with director data', () => {
+      const user = createMockUser({
+        role: 'director',
+        director: { title: 'Athletic Director', organization: 'State High School' },
+      });
+      expect(isDirector(user)).toBe(true);
+    });
+
+    it('should return false for director role without data', () => {
+      const user = createMockUser({ role: 'director' });
+      expect(isDirector(user)).toBe(false);
+    });
+
+    it('should return false for non-director role', () => {
+      const user = createMockUser({ role: 'coach' });
+      expect(isDirector(user)).toBe(false);
     });
   });
 

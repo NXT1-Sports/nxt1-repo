@@ -37,16 +37,9 @@ import type { Location } from '../models/user.model';
 
 /**
  * User type for onboarding - matches UserRole from constants.
- * All roles supported by the platform.
+ * 5 core roles supported by the platform.
  */
-export type OnboardingUserType =
-  | 'athlete'
-  | 'coach'
-  | 'college-coach'
-  | 'director'
-  | 'recruiting-service'
-  | 'parent'
-  | 'scout';
+export type OnboardingUserType = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent';
 
 /** Step IDs */
 export type OnboardingStepId =
@@ -498,26 +491,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
     },
     REFERRAL_STEP,
   ],
-  scout: [
-    ROLE_STEP,
-    {
-      id: 'profile',
-      title: 'Get Started',
-      subtitle: "Let's get to know you",
-      required: true,
-      order: 2,
-    },
-    {
-      id: 'sport',
-      title: 'Your Sports',
-      subtitle: 'What sports do you follow?',
-      required: true,
-      order: 3,
-    },
-    REFERRAL_STEP,
-  ],
-
-  'college-coach': [
+  recruiter: [
     ROLE_STEP,
     {
       id: 'profile',
@@ -548,24 +522,6 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       id: 'sport',
       title: 'Your Sports',
       subtitle: 'What sports does your program offer?',
-      required: true,
-      order: 3,
-    },
-    REFERRAL_STEP,
-  ],
-  'recruiting-service': [
-    ROLE_STEP,
-    {
-      id: 'profile',
-      title: 'Get Started',
-      subtitle: "Let's set up your recruiting service profile",
-      required: true,
-      order: 2,
-    },
-    {
-      id: 'sport',
-      title: 'Your Sports',
-      subtitle: 'What sports do you recruit for?',
       required: true,
       order: 3,
     },
@@ -850,13 +806,17 @@ export function mapTeamCodeRole(role: string): OnboardingUserType {
   const roleMap: Record<string, OnboardingUserType> = {
     athlete: 'athlete',
     coach: 'coach',
-    'college-coach': 'college-coach',
     director: 'director',
-    admin: 'director', // Map admin to director
-    'recruiting-service': 'recruiting-service',
-    service: 'recruiting-service', // Legacy 'service' maps to recruiting-service
+    admin: 'director',
+    recruiter: 'recruiter',
     parent: 'parent',
-    scout: 'scout',
+    // Legacy aliases
+    'college-coach': 'recruiter',
+    'recruiting-service': 'recruiter',
+    service: 'recruiter',
+    scout: 'recruiter',
+    media: 'recruiter',
+    fan: 'athlete',
   };
   return roleMap[role.toLowerCase()] ?? 'athlete';
 }

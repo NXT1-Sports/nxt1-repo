@@ -59,12 +59,7 @@ interface CreateOption {
     <ion-content [fullscreen]="true">
       @if (viewMode() === 'options') {
         <section class="create-selection">
-          <nxt1-page-header
-            title="Create/Add"
-            [avatarSrc]="currentUser()?.photoUrl"
-            [avatarName]="currentUser()?.displayName"
-            (avatarClick)="onAvatarClick()"
-          />
+          <nxt1-page-header title="Create/Add" (menuClick)="onAvatarClick()" />
 
           <div class="create-selection__content">
             <p class="create-selection__subtitle">Choose what you want to create.</p>
@@ -414,7 +409,7 @@ export class CreatePostComponent implements OnInit, OnDestroy {
 
   private mapRoleToTagType(role: string | undefined): TaggableUser['type'] {
     if (role === 'coach') return 'coach';
-    if (role === 'college-coach') return 'college';
+    if (role === 'recruiter') return 'college';
     if (role === 'director') return 'team';
     return 'athlete';
   }

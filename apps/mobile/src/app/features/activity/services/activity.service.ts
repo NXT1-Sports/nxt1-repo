@@ -46,12 +46,10 @@ import { MobileCacheService } from '../../../core/services';
 
 /** Mock badge counts for development */
 const MOCK_BADGE_COUNTS: Record<ActivityTabId, number> = {
-  all: 12,
-  notifications: 5,
-  deals: 2,
-  mentions: 1,
-  system: 1,
-  updates: 0,
+  all: 7,
+  inbox: 4,
+  agent: 2,
+  reactions: 4,
 };
 
 /**

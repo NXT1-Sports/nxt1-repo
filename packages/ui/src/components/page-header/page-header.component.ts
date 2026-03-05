@@ -192,12 +192,19 @@ import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
               [attr.aria-label]="avatarName() || 'Open profile'"
               [attr.tabindex]="hideAvatar() ? -1 : 0"
             >
-              <nxt1-avatar
-                [src]="avatarSrc()"
-                [name]="avatarName() ?? undefined"
-                size="md"
-                [clickable]="true"
-              />
+              @if (avatarSrc()) {
+                <nxt1-avatar
+                  [src]="avatarSrc()"
+                  [name]="avatarName() ?? undefined"
+                  size="md"
+                  [clickable]="true"
+                />
+              } @else {
+                <div class="avatar-brand-fallback" aria-hidden="true">
+                  <span class="avatar-brand-fallback__initials">{{ avatarInitials() }}</span>
+                  <span class="avatar-brand-fallback__pulse"></span>
+                </div>
+              }
             </button>
           } @else if (shouldRenderHamburger()) {
             <!-- Hamburger variant: uses design-token SVG icon for exact color consistency -->
@@ -571,6 +578,50 @@ import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
         opacity: 0.7;
       }
 
+      .avatar-brand-fallback {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        background: linear-gradient(
+          160deg,
+          var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08)) 0%,
+          var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04)) 100%
+        );
+        border: 1px solid var(--nxt1-color-primary, #a3e635);
+        box-shadow:
+          0 0 0 1px var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.05)) inset,
+          0 6px 14px rgba(0, 0, 0, 0.24);
+        overflow: hidden;
+      }
+
+      .avatar-brand-fallback__initials {
+        position: relative;
+        z-index: 2;
+        font-family: var(--nxt1-font-family-brand, var(--ion-font-family));
+        font-size: 15px;
+        font-weight: var(--nxt1-font-weight-semibold, 600);
+        line-height: 1;
+        letter-spacing: var(--nxt1-letter-spacing-tight, -0.01em);
+        color: var(--nxt1-color-text-primary, var(--ion-text-color));
+        text-transform: uppercase;
+      }
+
+      .avatar-brand-fallback__pulse {
+        position: absolute;
+        width: 18px;
+        height: 18px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        right: -6px;
+        bottom: -6px;
+        background: var(--nxt1-color-primary, #a3e635);
+        opacity: 0.3;
+        filter: blur(3px);
+      }
+
       /* Hidden state: collapsed to allow search bar to expand */
       .avatar-button--hidden {
         opacity: 0;
@@ -895,6 +946,19 @@ export class NxtPageHeaderComponent {
     return this.shouldRenderAvatar() && !this.hideAvatar();
   });
 
+  /** Branded initials fallback for headers when no avatar image exists. */
+  protected readonly avatarInitials = computed(() => {
+    const value = (this.avatarName() ?? '').trim();
+    if (!value) return 'NX';
+
+    const parts = value.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) {
+      return parts[0].slice(0, 2).toUpperCase();
+    }
+
+    return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
+  });
+
   // --- Navigation Buttons ---
 
   /** Show back button */
@@ -925,12 +989,12 @@ export class NxtPageHeaderComponent {
   readonly showMenu = input(false);
 
   /**
-   * Left-side variant: 'avatar' (default) shows profile image,
+   * Left-side variant: 'avatar' shows profile image,
    * 'hamburger' shows a hamburger menu icon.
    * When 'hamburger', avatarSrc/avatarName are ignored and
    * the hamburger icon is rendered. Tapping it emits menuClick.
    */
-  readonly leftVariant = input<PageHeaderLeftVariant>('avatar');
+  readonly leftVariant = input<PageHeaderLeftVariant>('hamburger');
 
   /** Show search toolbar */
   readonly showSearch = input(false);

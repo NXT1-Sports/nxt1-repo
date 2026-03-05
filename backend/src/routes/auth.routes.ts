@@ -129,24 +129,27 @@ interface UserV2Document {
 // ============================================
 
 /**
- * Map frontend userType to V2 role
- * @param userType - The user type from frontend (e.g., 'athlete', 'coach')
+ * Map frontend userType to V2 role (5 core roles).
+ * Handles legacy role strings from existing Firestore documents.
+ * @param userType - The user type from frontend (e.g., 'athlete', 'coach', 'recruiter')
  * @returns UserRole - The mapped V2 role
  */
 function mapUserTypeToRole(userType: string): UserRole {
   const roleMap: Record<string, UserRole> = {
     athlete: 'athlete',
     coach: 'coach',
-    'college-coach': 'college-coach' as UserRole,
     director: 'director' as UserRole,
-    'recruiting-service': 'recruiting-service' as UserRole,
-    scout: 'scout',
-    media: 'media',
+    recruiter: 'recruiter' as UserRole,
     parent: 'parent',
-    fan: 'fan',
-    service: 'recruiting-service' as UserRole,
+    // Legacy aliases
+    'college-coach': 'recruiter' as UserRole,
+    'recruiting-service': 'recruiter' as UserRole,
+    scout: 'recruiter' as UserRole,
+    media: 'recruiter' as UserRole,
+    fan: 'athlete',
+    service: 'recruiter' as UserRole,
   };
-  return roleMap[userType as keyof typeof roleMap] ?? 'fan';
+  return roleMap[userType as keyof typeof roleMap] ?? 'athlete';
 }
 
 /**
@@ -188,7 +191,7 @@ function createSportProfile(
   const profile: SportProfile = {
     sport,
     order,
-    accountType: 'athlete',
+    accountType: 'athlete', // Will be overridden by caller for non-athlete roles
     positions: options?.positions ?? [],
     metrics: {},
     team: { type: 'club', name: '', logo: '', colors: [] },
@@ -767,12 +770,11 @@ router.post(
       };
     }
 
-    // V2: Coach-specific data
+    // V2: Coach-specific data (coach, director, recruiter)
     const isCoachRole =
       (updateData.role as UserRole) === ('coach' as UserRole) ||
-      (updateData.role as UserRole) === ('college-coach' as UserRole) ||
       (updateData.role as UserRole) === ('director' as UserRole) ||
-      (updateData.role as UserRole) === ('recruiting-service' as UserRole);
+      (updateData.role as UserRole) === ('recruiter' as UserRole);
     if (isCoachRole && (profileData['coachTitle'] || profileData['organization'])) {
       updateData.coach = {
         ...currentUser?.coach,
