@@ -200,42 +200,42 @@ import { formatSportDisplayName } from '@nxt1/core';
                           profile.position
                         }}</span>
                       }
-
-                      <!-- Add sport button -->
-                      <button
-                        class="nxt1-sidenav-sport-list__item nxt1-sidenav-sport-list__item--add"
-                        (click)="onAddSportClick($event)"
-                        aria-label="Add sport profile"
-                      >
-                        <div class="nxt1-sidenav-sport-list__add-icon">
-                          <svg
-                            viewBox="0 0 24 24"
-                            width="16"
-                            height="16"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2.2"
-                            stroke-linecap="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M12 5v14" />
-                            <path d="M5 12h14" />
-                          </svg>
-                        </div>
-                        <span class="nxt1-sidenav-sport-list__name">Add Sport</span>
-                      </button>
                     </div>
-                          aria-hidden="true"
-                        >
-                          <path d="M12 5v14" />
-                          <path d="M5 12h14" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
+                    @if (profile.isActive) {
+                      <nxt1-icon
+                        name="checkmark"
+                        [size]="16"
+                        class="nxt1-sidenav-sport-list__check"
+                      />
+                    }
+                  </button>
                 }
+
+                <!-- Add sport button -->
+                <button
+                  class="nxt1-sidenav-sport-list__item nxt1-sidenav-sport-list__item--add"
+                  (click)="onAddSportClick($event)"
+                  aria-label="Add sport profile"
+                >
+                  <div class="nxt1-sidenav-sport-list__add-icon">
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="16"
+                      height="16"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.2"
+                      stroke-linecap="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M12 5v14" />
+                      <path d="M5 12h14" />
+                    </svg>
+                  </div>
+                  <span class="nxt1-sidenav-sport-list__name">Add Sport</span>
+                </button>
               </div>
-            </div>
+            }
           </ion-toolbar>
         </ion-header>
       }

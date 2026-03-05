@@ -24,8 +24,9 @@ import {
   computed,
   signal,
   OnInit,
+  PLATFORM_ID,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import {
   type TeamProfileTabId,
   type TeamProfileTab,
