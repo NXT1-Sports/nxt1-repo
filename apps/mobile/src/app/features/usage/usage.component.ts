@@ -10,9 +10,12 @@
  * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
  */
 
-import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, DestroyRef } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
+import { map, distinctUntilChanged } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
-import { UsageShellComponent } from '@nxt1/ui';
+import { UsageShellComponent, UsageService, type UsageSection } from '@nxt1/ui';
 
 @Component({
   selector: 'app-usage',
@@ -58,6 +61,37 @@ import { UsageShellComponent } from '@nxt1/ui';
 })
 export class UsageComponent {
   private readonly navController = inject(NavController);
+  private readonly route = inject(ActivatedRoute);
+  private readonly usage = inject(UsageService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  private readonly usageSections: readonly UsageSection[] = [
+    'overview',
+    'metered-usage',
+    'breakdown',
+    'payment-history',
+    'budgets',
+    'payment-info',
+  ] as const;
+
+  constructor() {
+    this.route.queryParamMap
+      .pipe(
+        map((params) => this.toUsageSection(params.get('section'))),
+        distinctUntilChanged(),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((section) => {
+        if (section) {
+          this.usage.setActiveSection(section);
+        }
+      });
+  }
+
+  private toUsageSection(value: string | null): UsageSection | null {
+    if (!value) return null;
+    return this.usageSections.includes(value as UsageSection) ? (value as UsageSection) : null;
+  }
 
   protected navigateBack(): void {
     this.navController.navigateBack('/settings');

@@ -31,46 +31,7 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon, IonToggle, IonRippleEffect, IonBadge } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  personOutline,
-  mailOutline,
-  shieldOutline,
-  keyOutline,
-  fingerPrintOutline,
-  logOutOutline,
-  trashOutline,
-  moonOutline,
-  sunnyOutline,
-  notificationsOutline,
-  globeOutline,
-  colorPaletteOutline,
-  eyeOutline,
-  eyeOffOutline,
-  cardOutline,
-  receiptOutline,
-  trendingUpOutline,
-  starOutline,
-  diamondOutline,
-  linkOutline,
-  analyticsOutline,
-  cloudOutline,
-  syncOutline,
-  extensionPuzzleOutline,
-  helpCircleOutline,
-  chatbubbleOutline,
-  documentTextOutline,
-  refreshOutline,
-  bugOutline,
-  lockClosedOutline,
-  documentOutline,
-  informationCircleOutline,
-  chevronForward,
-  openOutline,
-  copyOutline,
-  checkmarkOutline,
-} from 'ionicons/icons';
+import { IonToggle, IonRippleEffect, IonBadge } from '@ionic/angular/standalone';
 import type {
   SettingsItem,
   SettingsToggleItem,
@@ -80,6 +41,7 @@ import type {
   SettingsSelectItem,
 } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
+import { NxtIconComponent } from '../components/icon';
 
 // Register all icons used
 /**
@@ -130,7 +92,7 @@ export interface SettingsCopyEvent {
 @Component({
   selector: 'nxt1-settings-item',
   standalone: true,
-  imports: [CommonModule, IonIcon, IonToggle, IonRippleEffect, IonBadge],
+  imports: [CommonModule, IonToggle, IonRippleEffect, IonBadge, NxtIconComponent],
   template: `
     <div
       class="settings-item"
@@ -154,7 +116,7 @@ export interface SettingsCopyEvent {
           class="settings-item__icon"
           [class.settings-item__icon--danger]="item().variant === 'danger'"
         >
-          <ion-icon [name]="item().icon!"></ion-icon>
+          <nxt1-icon [name]="item().icon!" [size]="18"></nxt1-icon>
         </div>
       }
 
@@ -196,13 +158,18 @@ export interface SettingsCopyEvent {
             @if (asNavigation().displayValue) {
               <span class="settings-item__value">{{ asNavigation().displayValue }}</span>
             }
-            <ion-icon
-              [name]="asNavigation().externalUrl ? 'open-outline' : 'chevron-forward'"
-              class="settings-item__chevron"
-            ></ion-icon>
+            <nxt1-icon
+              [name]="asNavigation().externalUrl ? 'arrowForward' : 'chevronForward'"
+              [size]="18"
+              className="settings-item__chevron"
+            ></nxt1-icon>
           }
           @case ('action') {
-            <ion-icon name="chevron-forward" class="settings-item__chevron"></ion-icon>
+            <nxt1-icon
+              name="chevronForward"
+              [size]="18"
+              className="settings-item__chevron"
+            ></nxt1-icon>
           }
           @case ('info') {
             <div class="settings-item__info-value">
@@ -215,14 +182,21 @@ export interface SettingsCopyEvent {
                   (click)="onCopy($event)"
                   [attr.aria-label]="isCopied() ? 'Copied' : 'Copy'"
                 >
-                  <ion-icon [name]="isCopied() ? 'checkmark-outline' : 'copy-outline'"></ion-icon>
+                  <nxt1-icon
+                    [name]="isCopied() ? 'checkmarkCircle' : 'documentText'"
+                    [size]="14"
+                  ></nxt1-icon>
                 </button>
               }
             </div>
           }
           @case ('select') {
             <span class="settings-item__value">{{ getSelectDisplayValue() }}</span>
-            <ion-icon name="chevron-forward" class="settings-item__chevron"></ion-icon>
+            <nxt1-icon
+              name="chevronForward"
+              [size]="18"
+              className="settings-item__chevron"
+            ></nxt1-icon>
           }
         }
       </div>
@@ -292,7 +266,7 @@ export interface SettingsCopyEvent {
         flex-shrink: 0;
       }
 
-      .settings-item__icon ion-icon {
+      .settings-item__icon nxt1-icon {
         font-size: 18px;
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
       }
@@ -301,7 +275,7 @@ export interface SettingsCopyEvent {
         background: var(--nxt1-color-alpha-error10, rgba(239, 68, 68, 0.1));
       }
 
-      .settings-item__icon--danger ion-icon {
+      .settings-item__icon--danger nxt1-icon {
         color: var(--nxt1-color-error, #ef4444);
       }
 
@@ -428,7 +402,7 @@ export interface SettingsCopyEvent {
         transition: all 0.15s ease;
       }
 
-      .settings-item__copy-btn ion-icon {
+      .settings-item__copy-btn nxt1-icon {
         font-size: 14px;
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
@@ -441,7 +415,7 @@ export interface SettingsCopyEvent {
         background: var(--nxt1-color-alpha-success15, rgba(34, 197, 94, 0.15));
       }
 
-      .settings-item__copy-btn--copied ion-icon {
+      .settings-item__copy-btn--copied nxt1-icon {
         color: var(--nxt1-color-success, #22c55e);
       }
 
@@ -468,7 +442,7 @@ export interface SettingsCopyEvent {
           background: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.04));
         }
 
-        .settings-item__icon ion-icon {
+        .settings-item__icon nxt1-icon {
           color: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
         }
 
@@ -498,47 +472,6 @@ export interface SettingsCopyEvent {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsItemComponent {
-  constructor() {
-    addIcons({
-      personOutline,
-      mailOutline,
-      shieldOutline,
-      keyOutline,
-      fingerPrintOutline,
-      logOutOutline,
-      trashOutline,
-      moonOutline,
-      sunnyOutline,
-      notificationsOutline,
-      globeOutline,
-      colorPaletteOutline,
-      eyeOutline,
-      eyeOffOutline,
-      cardOutline,
-      receiptOutline,
-      trendingUpOutline,
-      starOutline,
-      diamondOutline,
-      linkOutline,
-      analyticsOutline,
-      cloudOutline,
-      syncOutline,
-      extensionPuzzleOutline,
-      helpCircleOutline,
-      chatbubbleOutline,
-      documentTextOutline,
-      refreshOutline,
-      bugOutline,
-      lockClosedOutline,
-      documentOutline,
-      informationCircleOutline,
-      chevronForward,
-      openOutline,
-      copyOutline,
-      checkmarkOutline,
-    });
-  }
-
   private readonly haptics = inject(HapticsService);
 
   // ============================================

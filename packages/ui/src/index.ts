@@ -358,6 +358,10 @@ export {
   // Content Sheet types (for full component injection)
   type ContentSheetConfig,
   type ContentSheetResult,
+  // Sheet Presets (standardized breakpoint configurations)
+  SHEET_PRESETS,
+  type SheetPreset,
+  type SheetPresetName,
 } from './components/bottom-sheet';
 
 // ============================================

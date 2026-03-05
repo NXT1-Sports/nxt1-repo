@@ -121,7 +121,7 @@ export class ActivityService {
       );
     }
 
-    // Agent, Reactions: regular activity items only
+    // Agent, Alerts: regular activity items only
     return this._items();
   });
 

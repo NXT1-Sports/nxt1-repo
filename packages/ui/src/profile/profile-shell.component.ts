@@ -80,7 +80,7 @@ import {
 } from '../components/section-nav-web';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
-import { NxtBottomSheetService } from '../components/bottom-sheet/bottom-sheet.service';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import type { BottomSheetAction } from '../components/bottom-sheet/bottom-sheet.types';
 import { ProfileService } from './profile.service';
 import { ProfileTimelineComponent } from './profile-timeline.component';
@@ -1251,8 +1251,7 @@ export class ProfileShellComponent implements OnInit {
       actions,
       showClose: false,
       backdropDismiss: true,
-      breakpoints: [0, 0.35],
-      initialBreakpoint: 0.35,
+      ...SHEET_PRESETS.COMPACT,
     });
 
     const selected = result?.data as BottomSheetAction | undefined;

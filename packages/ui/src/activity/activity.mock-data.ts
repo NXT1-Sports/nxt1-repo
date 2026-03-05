@@ -19,10 +19,10 @@ const now = Date.now();
  * All activity items combined and sorted by timestamp (most recent first).
  * NOTE: Inbox/messages content comes from MessagesService via the
  * conversationToActivityItem mapper — not from mock activity data.
- * This only aggregates Agent + Reactions activity items for the "All" tab base.
+ * This only aggregates Agent + Alerts activity items for the "All" tab base.
  */
 function getAllItems(): ActivityItem[] {
-  const allItems: ActivityItem[] = [...MOCK_AGENT_ITEMS, ...MOCK_REACTIONS_ITEMS];
+  const allItems: ActivityItem[] = [...MOCK_AGENT_ITEMS, ...MOCK_ALERTS_ITEMS];
   // Sort by timestamp descending (most recent first)
   return allItems.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 }
@@ -95,11 +95,11 @@ const MOCK_AGENT_ITEMS: ActivityItem[] = [
   },
 ];
 
-const MOCK_REACTIONS_ITEMS: ActivityItem[] = [
+const MOCK_ALERTS_ITEMS: ActivityItem[] = [
   {
     id: '4',
     type: 'like',
-    tab: 'reactions',
+    tab: 'alerts',
     priority: 'normal',
     title: 'Sarah Johnson liked your post',
     body: '"Amazing performance at the championship game! 🏀"',
@@ -118,7 +118,7 @@ const MOCK_REACTIONS_ITEMS: ActivityItem[] = [
   {
     id: '5',
     type: 'comment',
-    tab: 'reactions',
+    tab: 'alerts',
     priority: 'normal',
     title: 'Marcus Brown commented on your video',
     body: 'Those handles are next level! Keep grinding 💪',
@@ -133,7 +133,7 @@ const MOCK_REACTIONS_ITEMS: ActivityItem[] = [
   {
     id: '6',
     type: 'follow',
-    tab: 'reactions',
+    tab: 'alerts',
     priority: 'normal',
     title: 'Coach Martinez started following you',
     body: 'Head Coach at UCLA - Division I Basketball',
@@ -152,7 +152,7 @@ const MOCK_REACTIONS_ITEMS: ActivityItem[] = [
   {
     id: '7',
     type: 'mention',
-    tab: 'reactions',
+    tab: 'alerts',
     priority: 'normal',
     title: 'You were tagged in a post',
     body: 'Tyler mentioned you: "Congrats to @you on making All-State! Well deserved 👏"',
@@ -167,7 +167,7 @@ const MOCK_REACTIONS_ITEMS: ActivityItem[] = [
   {
     id: '8',
     type: 'like',
-    tab: 'reactions',
+    tab: 'alerts',
     priority: 'normal',
     title: 'Coach Wilson liked your highlight reel',
     body: '"Just finished watching @you dominate the paint. This kid is going places! 🚀"',
@@ -195,7 +195,7 @@ export const MOCK_ACTIVITY_DATA: Record<ActivityTabId, ActivityItem[]> = {
   },
   inbox: MOCK_INBOX_ITEMS,
   agent: MOCK_AGENT_ITEMS,
-  reactions: MOCK_REACTIONS_ITEMS,
+  alerts: MOCK_ALERTS_ITEMS,
 };
 
 /**
@@ -204,11 +204,11 @@ export const MOCK_ACTIVITY_DATA: Record<ActivityTabId, ActivityItem[]> = {
  */
 export const MOCK_BADGE_COUNTS: Record<ActivityTabId, number> = {
   get all() {
-    return this.inbox + this.agent + this.reactions;
+    return this.inbox + this.agent + this.alerts;
   },
   inbox: 4,
   agent: 2,
-  reactions: 4,
+  alerts: 4,
 };
 
 /**

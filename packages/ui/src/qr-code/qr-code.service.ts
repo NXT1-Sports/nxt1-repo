@@ -36,7 +36,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { NxtPlatformService } from '../services/platform';
-import { NxtBottomSheetService } from '../components/bottom-sheet';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { NxtOverlayService } from '../components/overlay';
 import { NxtLoggingService } from '../services/logging';
 import { NxtQrCodeContentComponent } from './qr-code-content.component';
@@ -85,12 +85,10 @@ export class QrCodeService {
         profileImg: config.profileImg ?? '',
         sport: config.sport ?? '',
       },
-      breakpoints: [0, 0.75, 1],
-      initialBreakpoint: 0.75,
+      ...SHEET_PRESETS.TALL,
       showHandle: true,
       handleBehavior: 'cycle',
       backdropDismiss: true,
-      backdropBreakpoint: 0.5,
       canDismiss: true,
       cssClass: 'nxt1-qr-code-modal',
     });

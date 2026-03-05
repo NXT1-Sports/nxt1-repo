@@ -26,7 +26,7 @@
 import { Injectable, inject, Component, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ModalController } from '@ionic/angular/standalone';
-import { NxtBottomSheetService } from '../components/bottom-sheet';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { EditProfileShellComponent } from './edit-profile-shell.component';
 import { EditProfileService } from './edit-profile.service';
 
@@ -119,9 +119,8 @@ export class EditProfileBottomSheetService {
       // The component to inject
       component: EditProfileModalComponent,
 
-      // Breakpoints for draggable resize
-      breakpoints: [0, 0.5, 0.75, 1],
-      initialBreakpoint: 0.75,
+      // Standardized sheet preset
+      ...SHEET_PRESETS.TALL,
 
       // Show native drag handle bar
       showHandle: true,
@@ -129,7 +128,6 @@ export class EditProfileBottomSheetService {
 
       // Backdrop behavior
       backdropDismiss: false,
-      backdropBreakpoint: 0.5,
 
       // Swipe-to-dismiss confirmation for unsaved changes
       canDismiss: async (_data, role) => {

@@ -50,7 +50,7 @@ const MOCK_BADGE_COUNTS: Record<ActivityTabId, number> = {
   all: 7,
   inbox: 4,
   agent: 2,
-  reactions: 4,
+  alerts: 4,
 };
 
 /**

@@ -60,6 +60,7 @@ import { ModalController } from '@ionic/angular/standalone';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { NxtPlatformService } from '../../services/platform';
 import { NxtBottomSheetComponent } from './bottom-sheet.component';
+import { SHEET_PRESETS } from './sheet-presets';
 import type {
   BottomSheetConfig,
   BottomSheetResult,
@@ -90,8 +91,7 @@ export class NxtBottomSheetService {
    * // Open Edit Profile in a draggable sheet
    * const result = await bottomSheet.openSheet({
    *   component: EditProfileModalComponent,
-   *   breakpoints: [0, 0.5, 0.75, 1],
-   *   initialBreakpoint: 0.75,
+   *   ...SHEET_PRESETS.TALL,
    *   canDismiss: async () => {
    *     return await this.confirmDiscard();
    *   },
@@ -118,8 +118,8 @@ export class NxtBottomSheetService {
       componentProps: config.componentProps,
 
       // Breakpoints for draggable resize
-      breakpoints: config.breakpoints ?? [0, 1],
-      initialBreakpoint: config.initialBreakpoint ?? 1,
+      breakpoints: config.breakpoints ?? SHEET_PRESETS.FULL.breakpoints,
+      initialBreakpoint: config.initialBreakpoint ?? SHEET_PRESETS.FULL.initialBreakpoint,
 
       // Native drag handle
       handle: config.showHandle ?? true,
@@ -243,8 +243,8 @@ export class NxtBottomSheetService {
       },
       // Platform-adaptive presentation
       presentingElement: config.presentingElement,
-      breakpoints: config.breakpoints ?? [0, 1],
-      initialBreakpoint: config.initialBreakpoint ?? 1,
+      breakpoints: config.breakpoints ?? SHEET_PRESETS.FULL.breakpoints,
+      initialBreakpoint: config.initialBreakpoint ?? SHEET_PRESETS.FULL.initialBreakpoint,
       backdropDismiss: config.backdropDismiss ?? true,
       showBackdrop: true,
       canDismiss: config.canDismiss ?? true,

@@ -26,11 +26,6 @@ import { HapticsService } from '../../services/haptics/haptics.service';
   imports: [NxtIconComponent, NxtSearchBarComponent],
   template: `
     <section class="program-container" [attr.data-testid]="testIds.PROGRAM_STEP">
-      <div class="step-header">
-        <h2 class="step-title">Find Your Program</h2>
-        <p class="step-subtitle">Search for your team or create a new one.</p>
-      </div>
-
       @if (!selectedProgram()) {
         <!-- Search Phase -->
         <div class="search-section">
@@ -182,28 +177,9 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       }
 
       .program-container {
-        padding: var(--nxt1-spacing-lg) 0;
+        padding: var(--nxt1-spacing-xs) 0 var(--nxt1-spacing-lg);
         max-width: 540px;
         margin: 0 auto;
-      }
-
-      .step-header {
-        text-align: center;
-        margin-bottom: var(--nxt1-spacing-xl);
-      }
-
-      .step-title {
-        font-family: var(--nxt1-fontFamily-brand, var(--nxt1-fontFamily-heading));
-        font-size: var(--nxt1-fontSize-2xl, 28px);
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-xs);
-      }
-
-      .step-subtitle {
-        font-size: var(--nxt1-fontSize-md, 16px);
-        color: var(--nxt1-color-text-secondary);
-        margin: 0;
       }
 
       .search-section {

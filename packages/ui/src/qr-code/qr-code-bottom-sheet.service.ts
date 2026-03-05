@@ -38,7 +38,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
-import { NxtBottomSheetService } from '../components/bottom-sheet';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { NxtQrCodeModalComponent } from './qr-code-modal.component';
 import type { QrCodeConfig, QrCodeResult } from './qr-code.types';
 
@@ -70,10 +70,8 @@ export class QrCodeBottomSheetService {
         sport: config.sport ?? '',
       },
 
-      // Breakpoints for draggable resize
-      // 0 = closed, 0.75 = default (shows full QR), 1 = full screen
-      breakpoints: [0, 0.75, 1],
-      initialBreakpoint: 0.75,
+      // Standardized sheet preset
+      ...SHEET_PRESETS.TALL,
 
       // Show native drag handle bar
       showHandle: true,
@@ -81,7 +79,6 @@ export class QrCodeBottomSheetService {
 
       // Backdrop behavior
       backdropDismiss: true,
-      backdropBreakpoint: 0.5,
 
       // Allow swipe-to-dismiss
       canDismiss: true,

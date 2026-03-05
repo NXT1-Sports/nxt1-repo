@@ -25,8 +25,7 @@
  * // Content sheet (inject any component)
  * const result = await bottomSheet.openSheet({
  *   component: MyComponent,
- *   breakpoints: [0, 0.5, 0.75, 1],
- *   initialBreakpoint: 0.75,
+ *   ...SHEET_PRESETS.TALL,
  * });
  * ```
  */
@@ -51,3 +50,6 @@ export type {
   ContentSheetConfig,
   ContentSheetResult,
 } from './bottom-sheet.types';
+
+// Presets
+export { SHEET_PRESETS, type SheetPreset, type SheetPresetName } from './sheet-presets';

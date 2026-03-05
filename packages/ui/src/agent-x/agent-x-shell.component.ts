@@ -52,7 +52,7 @@ import {
 import { AgentXOperationsLogComponent } from './agent-x-operations-log.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
-import { NxtBottomSheetService } from '../components/bottom-sheet';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 
 // ============================================
 // INTERFACES
@@ -1492,8 +1492,7 @@ export class AgentXShellComponent {
     await this.haptics.impact('light');
     await this.bottomSheet.openSheet({
       component: AgentXOperationsLogComponent,
-      breakpoints: [0, 0.5, 0.92],
-      initialBreakpoint: 0.92,
+      ...SHEET_PRESETS.FULL,
       showHandle: true,
       handleBehavior: 'cycle',
       backdropDismiss: true,
@@ -1560,8 +1559,7 @@ export class AgentXShellComponent {
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
       componentProps: { contextId, contextTitle, contextIcon, contextType, quickActions },
-      breakpoints: [0, 0.5, 0.92],
-      initialBreakpoint: 0.92,
+      ...SHEET_PRESETS.FULL,
       showHandle: true,
       handleBehavior: 'cycle',
       backdropDismiss: true,

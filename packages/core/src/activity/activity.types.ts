@@ -17,9 +17,9 @@
  * - 'all' — Combined feed from all categories
  * - 'inbox' — Direct notifications, messages, and personal alerts
  * - 'agent' — Agent X activity, AI operations, and automated task updates
- * - 'reactions' — Social engagement: likes, comments, follows, mentions
+ * - 'alerts' — Social and system alerts: likes, comments, follows, mentions, updates
  */
-export type ActivityTabId = 'all' | 'inbox' | 'agent' | 'reactions';
+export type ActivityTabId = 'all' | 'inbox' | 'agent' | 'alerts';
 
 /**
  * Configuration for an activity tab.

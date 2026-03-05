@@ -80,22 +80,13 @@ export const SETTINGS_SECTION_ORDER: readonly SettingsSectionId[] = [
 
 export const SETTINGS_ACCOUNT_ITEMS: readonly SettingsItem[] = [
   {
-    id: 'email',
+    id: 'accountInformation',
     section: 'account',
     type: 'navigation',
-    label: 'Email Address',
-    description: 'Manage your email address',
-    icon: 'mail-outline',
-    route: '/settings/email',
-  },
-  {
-    id: 'password',
-    section: 'account',
-    type: 'navigation',
-    label: 'Password & Security',
-    description: 'Change password and security settings',
+    label: 'Account Information',
+    description: 'Manage your email address and password',
     icon: 'shield-outline',
-    route: '/settings/security',
+    route: '/settings/account-information',
   },
   {
     id: 'biometrics',
@@ -106,28 +97,6 @@ export const SETTINGS_ACCOUNT_ITEMS: readonly SettingsItem[] = [
     icon: 'finger-print-outline',
     value: false,
     settingKey: 'biometricLogin',
-  },
-  {
-    id: 'signOut',
-    section: 'account',
-    type: 'action',
-    label: 'Sign Out',
-    icon: 'log-out-outline',
-    variant: 'default',
-    action: 'signOut',
-  },
-  {
-    id: 'deleteAccount',
-    section: 'account',
-    type: 'action',
-    label: 'Delete Account',
-    description: 'Permanently delete your account and data',
-    icon: 'trash-outline',
-    variant: 'danger',
-    action: 'deleteAccount',
-    requiresConfirmation: true,
-    confirmationMessage:
-      'Are you sure you want to delete your account? This action cannot be undone.',
   },
 ] as const;
 
@@ -180,7 +149,7 @@ export const SETTINGS_BILLING_ITEMS: readonly SettingsItem[] = [
     label: 'Current Plan',
     description: 'View and upgrade your subscription',
     icon: 'star-outline',
-    route: '/usage',
+    route: '/usage?section=overview',
     displayValue: 'Free',
   },
   {
@@ -190,7 +159,7 @@ export const SETTINGS_BILLING_ITEMS: readonly SettingsItem[] = [
     label: 'Payment Methods',
     description: 'Manage cards and payment options',
     icon: 'card-outline',
-    route: '/usage',
+    route: '/usage?section=payment-info',
   },
   {
     id: 'billingHistory',
@@ -199,7 +168,7 @@ export const SETTINGS_BILLING_ITEMS: readonly SettingsItem[] = [
     label: 'Billing History',
     description: 'View past invoices and receipts',
     icon: 'receipt-outline',
-    route: '/usage',
+    route: '/usage?section=payment-history',
   },
   {
     id: 'usage',
@@ -208,7 +177,7 @@ export const SETTINGS_BILLING_ITEMS: readonly SettingsItem[] = [
     label: 'Usage & Limits',
     description: 'View your current usage statistics',
     icon: 'trending-up-outline',
-    route: '/usage',
+    route: '/usage?section=metered-usage',
   },
 ] as const;
 
@@ -289,14 +258,6 @@ export const SETTINGS_SUPPORT_ITEMS: readonly SettingsItem[] = [
     icon: 'refresh-outline',
     action: 'checkUpdate',
   },
-  {
-    id: 'version',
-    section: 'support',
-    type: 'info',
-    label: 'App Version',
-    icon: 'information-circle-outline',
-    value: '2.0.0',
-  },
 ] as const;
 
 // ============================================
@@ -319,14 +280,6 @@ export const SETTINGS_LEGAL_ITEMS: readonly SettingsItem[] = [
     label: 'Terms of Service',
     icon: 'document-outline',
     externalUrl: 'https://nxt1sports.com/terms',
-  },
-  {
-    id: 'licenses',
-    section: 'legal',
-    type: 'navigation',
-    label: 'Open Source Licenses',
-    icon: 'document-text-outline',
-    route: '/settings/licenses',
   },
 ] as const;
 

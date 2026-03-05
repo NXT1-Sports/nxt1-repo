@@ -110,7 +110,7 @@ export class SettingsComponent {
    * Handle edit profile navigation.
    */
   protected onEditProfile(): void {
-    this.navController.navigateForward('/profile/edit');
+    this.navController.navigateForward('/settings/account-information');
   }
 
   /**

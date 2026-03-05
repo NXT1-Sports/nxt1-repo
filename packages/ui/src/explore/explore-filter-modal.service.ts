@@ -11,7 +11,7 @@
 import { Injectable, inject } from '@angular/core';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtPlatformService } from '../services/platform';
-import { NxtBottomSheetService } from '../components/bottom-sheet';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import type { ExploreFilters, ExploreTabId } from '@nxt1/core';
 import { ExploreFilterModalComponent } from './explore-filter-modal.component';
 
@@ -57,8 +57,7 @@ export class ExploreFilterModalService {
         activeTab: config.tab,
         initialFilters: config.currentFilters,
       },
-      breakpoints: [0, 1],
-      initialBreakpoint: 1,
+      ...SHEET_PRESETS.FULL,
       backdropDismiss: true,
       cssClass: ['nxt1-picker-modal', 'nxt1-picker-modal--sheet'],
     });

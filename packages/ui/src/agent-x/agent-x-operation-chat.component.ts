@@ -22,8 +22,7 @@
  *     contextIcon: 'play',
  *     contextType: 'operation',
  *   },
- *   breakpoints: [0, 0.65, 1],
- *   initialBreakpoint: 0.65,
+ *   ...SHEET_PRESETS.FULL,
  * });
  * ```
  */

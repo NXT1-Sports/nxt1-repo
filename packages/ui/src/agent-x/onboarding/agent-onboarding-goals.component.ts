@@ -20,28 +20,15 @@ import { type AgentGoal, AGENT_MAX_GOALS, AGENT_GOAL_CATEGORIES } from '@nxt1/co
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../components/icon/icon.component';
 import { NxtSearchBarComponent } from '../../components/search-bar/search-bar.component';
-import { OnboardingNavigationButtonsComponent } from '../../onboarding/onboarding-navigation-buttons/onboarding-navigation-buttons.component';
 import { HapticsService } from '../../services/haptics/haptics.service';
-import { AgentOnboardingOrbComponent } from './agent-onboarding-orb.component';
 
 @Component({
   selector: 'nxt1-agent-onboarding-goals',
   standalone: true,
-  imports: [
-    NxtIconComponent,
-    NxtSearchBarComponent,
-    OnboardingNavigationButtonsComponent,
-    AgentOnboardingOrbComponent,
-  ],
+  imports: [NxtIconComponent, NxtSearchBarComponent],
   template: `
     <section class="goals-container" [attr.data-testid]="testIds.GOALS_STEP">
-      <!-- Animated Agent X orb (shared component, size variant) -->
-      <nxt1-agent-onboarding-orb size="md" />
-
       <div class="step-header">
-        <span class="goals-badge">Agent X</span>
-        <h2 class="step-title">Set Your Goals</h2>
-        <p class="step-subtitle">What should Agent X focus on? Pick up to two.</p>
         <div class="goals-counter" [attr.data-testid]="testIds.GOALS_COUNT">
           <span class="counter-current">{{ selectedGoals().length }}</span>
           <span class="counter-sep">/</span>
@@ -94,17 +81,6 @@ import { AgentOnboardingOrbComponent } from './agent-onboarding-orb.component';
         </div>
       }
 
-      <div class="goals-continue-row">
-        <nxt1-onboarding-navigation-buttons
-          [disabled]="!hasSelectedGoals()"
-          [continueText]="'Continue'"
-          [continueTestId]="testIds.BTN_CONTINUE"
-          [compact]="true"
-          [mobileLayout]="'row'"
-          (continueClick)="continueClicked.emit()"
-        />
-      </div>
-
       <div class="quick-options-panel">
         <button type="button" class="quick-options-toggle" (click)="toggleQuickOptions()">
           <span>{{ showQuickOptions() ? 'Hide quick options' : 'Show quick options' }}</span>
@@ -146,7 +122,7 @@ import { AgentOnboardingOrbComponent } from './agent-onboarding-orb.component';
       }
 
       .goals-container {
-        padding: var(--nxt1-spacing-lg) 0
+        padding: var(--nxt1-spacing-xs) 0
           calc(var(--nxt1-spacing-xl, 24px) + env(safe-area-inset-bottom, 0px));
         max-width: 540px;
         margin: 0 auto;
@@ -157,43 +133,11 @@ import { AgentOnboardingOrbComponent } from './agent-onboarding-orb.component';
       }
 
       .step-header {
-        text-align: center;
-        margin-bottom: var(--nxt1-spacing-md);
+        margin-bottom: var(--nxt1-spacing-sm);
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: clamp(8px, 1.4vh, 12px);
-      }
-
-      .goals-badge {
-        display: inline-block;
-        padding: 4px 10px;
-        border-radius: var(--nxt1-borderRadius-full, 9999px);
-        background: rgba(204, 255, 0, 0.1);
-        color: var(--nxt1-color-primary);
-        font-size: var(--nxt1-fontSize-xs, 12px);
-        font-weight: 600;
-        text-transform: none;
-        letter-spacing: 1.2px;
-        margin: 0;
-      }
-
-      .step-title {
-        font-family: var(--nxt1-fontFamily-brand, var(--nxt1-fontFamily-heading));
-        font-size: clamp(1.55rem, 6vw, 2.2rem);
-        font-weight: 800;
-        color: var(--nxt1-color-text-primary);
-        margin: 0;
-        line-height: 1.06;
-        letter-spacing: -0.02em;
-      }
-
-      .step-subtitle {
-        font-size: var(--nxt1-fontSize-sm, 15px);
-        color: var(--nxt1-color-text-secondary);
-        margin: 0;
-        max-width: 360px;
-        line-height: 1.45;
+        gap: clamp(6px, 1.1vh, 10px);
       }
 
       /* Counter */
@@ -532,9 +476,6 @@ export class AgentOnboardingGoalsComponent {
 
   /** Emitted when goals change */
   readonly goalsChanged = output<AgentGoal[]>();
-
-  /** Emitted when user wants to proceed to next step */
-  readonly continueClicked = output<void>();
 
   // Internal state
   protected readonly selectedGoals = signal<AgentGoal[]>([]);

@@ -22,9 +22,10 @@ import { TEST_IDS } from '@nxt1/core/testing';
 import { AGENT_ONBOARDING_STEPS } from '@nxt1/core';
 import type { SelectedProgramData, AgentGoal, AgentConnection } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon/icon.component';
+import { NxtBackButtonComponent } from '../../components/back-button/back-button.component';
 import { OnboardingNavigationButtonsComponent } from '../../onboarding/onboarding-navigation-buttons/onboarding-navigation-buttons.component';
 import { AgentOnboardingService } from './agent-onboarding.service';
-import { AgentOnboardingWelcomeComponent } from './agent-onboarding-welcome.component';
+import { AgentOnboardingPromptComponent } from './agent-onboarding-prompt.component';
 import { AgentOnboardingProgramComponent } from './agent-onboarding-program.component';
 import { AgentOnboardingGoalsComponent } from './agent-onboarding-goals.component';
 import { AgentOnboardingConnectionsComponent } from './agent-onboarding-connections.component';
@@ -35,14 +36,27 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
   standalone: true,
   imports: [
     NxtIconComponent,
+    NxtBackButtonComponent,
     OnboardingNavigationButtonsComponent,
-    AgentOnboardingWelcomeComponent,
+    AgentOnboardingPromptComponent,
     AgentOnboardingProgramComponent,
     AgentOnboardingGoalsComponent,
     AgentOnboardingConnectionsComponent,
     AgentOnboardingLoadingComponent,
   ],
   template: `
+    <!-- Floating Back Button (top-left, matches auth onboarding) -->
+    @if (showBackButton()) {
+      <div class="floating-header">
+        <nxt1-back-button
+          variant="floating"
+          [testId]="testIds.BTN_BACK"
+          ariaLabel="Go back"
+          (backClick)="onBack()"
+        />
+      </div>
+    }
+
     <div class="onboarding-shell" [attr.data-testid]="testIds.SHELL">
       <!-- Progress Bar (hidden on welcome & loading steps) -->
       @if (showProgress()) {
@@ -67,11 +81,47 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         </div>
       }
 
+      @if (showAgentHeader()) {
+        <div class="agent-header-shell">
+          @switch (currentStepId()) {
+            @case ('welcome') {
+              <nxt1-agent-onboarding-prompt
+                [titleText]="'Let us get your agent started.'"
+                [descriptionText]="'Hi, I am Agent X.'"
+                [titleTestId]="testIds.WELCOME_TITLE"
+                [orbSize]="'lg'"
+              />
+            }
+            @case ('program-search') {
+              <nxt1-agent-onboarding-prompt
+                [titleText]="'Find your team.'"
+                [descriptionText]="'Agent X: Let us map your program.'"
+                [orbSize]="'lg'"
+              />
+            }
+            @case ('goals') {
+              <nxt1-agent-onboarding-prompt
+                [titleText]="'Set your goals.'"
+                [descriptionText]="'Agent X: Tell me what matters most.'"
+                [orbSize]="'lg'"
+              />
+            }
+            @case ('connections') {
+              <nxt1-agent-onboarding-prompt
+                [titleText]="'Add connections.'"
+                [descriptionText]="'Agent X: Build your circle.'"
+                [orbSize]="'lg'"
+              />
+            }
+          }
+        </div>
+      }
+
       <!-- Step Content -->
-      <div class="step-container">
+      <div class="step-container" [class.step-container--welcome]="currentStepId() === 'welcome'">
         @switch (currentStepId()) {
           @case ('welcome') {
-            <nxt1-agent-onboarding-welcome (start)="onStart()" />
+            <div class="welcome-step-spacer" [attr.data-testid]="testIds.WELCOME_STEP"></div>
           }
 
           @case ('program-search') {
@@ -87,7 +137,6 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
             <nxt1-agent-onboarding-goals
               [predefinedGoals]="service.predefinedGoals()"
               (goalsChanged)="onGoalsChanged($event)"
-              (continueClicked)="onContinue()"
             />
           }
 
@@ -107,22 +156,21 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         }
       </div>
 
-      <!-- Navigation Footer (hidden on welcome & loading steps) -->
+      <!-- Navigation Footer — fixed above bottom, matches Agent X input bar -->
       @if (showNavigation()) {
-        <div class="nav-footer" [attr.data-testid]="'agent-onboarding-nav-footer'">
-          <nxt1-onboarding-navigation-buttons
-            [showBack]="service.canGoBack()"
-            [showSkip]="currentStep().skippable"
-            [disabled]="!service.canProceed()"
-            [continueText]="continueLabel()"
-            [continueTestId]="testIds.BTN_CONTINUE"
-            [skipTestId]="testIds.BTN_SKIP"
-            [backTestId]="testIds.BTN_BACK"
-            [compact]="true"
-            (backClick)="onBack()"
-            (skipClick)="onSkip()"
-            (continueClick)="onContinue()"
-          />
+        <div class="nav-footer-fixed" [attr.data-testid]="'agent-onboarding-nav-footer'">
+          <div class="nav-footer-inner">
+            <nxt1-onboarding-navigation-buttons
+              [showSkip]="currentStep().skippable"
+              [disabled]="!service.canProceed()"
+              [continueText]="continueLabel()"
+              [continueTestId]="testIds.BTN_CONTINUE"
+              [skipTestId]="testIds.BTN_SKIP"
+              [compact]="true"
+              (skipClick)="onSkip()"
+              (continueClick)="onContinue()"
+            />
+          </div>
         </div>
       }
     </div>
@@ -135,6 +183,22 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         background: var(--nxt1-color-bg-primary);
       }
 
+      /* ──────────────────────────────────
+       Floating Back Button (top-left)
+      ────────────────────────────────── */
+      .floating-header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1000;
+        padding: var(--nxt1-spacing-4);
+        pointer-events: none;
+      }
+
+      .floating-header nxt1-back-button {
+        pointer-events: auto;
+      }
+
       .onboarding-shell {
         display: flex;
         flex-direction: column;
@@ -142,6 +206,7 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         max-width: 720px;
         margin: 0 auto;
         padding: 0 var(--nxt1-spacing-4);
+        padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
       }
 
       /* ──────────────────────────────────
@@ -203,6 +268,14 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         background: var(--nxt1-color-primary);
       }
 
+      .agent-header-shell {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: clamp(260px, 36vh, 340px);
+        margin-bottom: clamp(6px, 1.2vh, 12px);
+      }
+
       /* ──────────────────────────────────
        Step Container
     ────────────────────────────────── */
@@ -211,6 +284,16 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         display: flex;
         flex-direction: column;
         animation: fadeSlideIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .step-container--welcome {
+        justify-content: flex-start;
+        padding-top: 0;
+        padding-bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+      }
+
+      .welcome-step-spacer {
+        flex: 1;
       }
 
       @keyframes fadeSlideIn {
@@ -225,12 +308,29 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
       }
 
       /* ──────────────────────────────────
-       Navigation Footer
+       Navigation Footer — Fixed bottom, glass morphism (matches Agent X input bar)
     ────────────────────────────────── */
-      .nav-footer {
-        padding: var(--nxt1-spacing-4) 0 var(--nxt1-spacing-6);
-        border-top: 1px solid var(--nxt1-color-border-subtle);
-        margin-top: auto;
+      .nav-footer-fixed {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 24px;
+        z-index: var(--nxt1-z-index-fixed, 999);
+        pointer-events: none;
+        padding: 0 0.75rem;
+      }
+
+      .nav-footer-inner {
+        max-width: 720px;
+        margin: 0 auto;
+        pointer-events: auto;
+        background: var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8));
+        border: 1px solid var(--nxt1-glass-borderSubtle, rgba(255, 255, 255, 0.08));
+        border-radius: var(--nxt1-ui-radius-full, 999px);
+        box-shadow: var(--nxt1-glass-shadow, 0 4px 16px rgba(0, 0, 0, 0.16));
+        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+        padding: 0.375rem 1rem;
       }
 
       /* ──────────────────────────────────
@@ -239,10 +339,19 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
       @media (max-width: 640px) {
         .onboarding-shell {
           padding: 0 var(--nxt1-spacing-3);
+          padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
         }
 
-        .nav-footer {
-          padding: var(--nxt1-spacing-3) 0 var(--nxt1-spacing-4);
+        .nav-footer-fixed {
+          left: 16px;
+          right: 16px;
+          bottom: 20px;
+        }
+
+        .nav-footer-inner {
+          max-width: 344px;
+          margin: 0 auto;
+          padding: 0.3125rem 0.75rem;
         }
       }
     `,
@@ -292,10 +401,19 @@ export class AgentOnboardingShellComponent implements OnInit {
     return id !== 'welcome' && id !== 'loading' && id !== 'goals';
   });
 
-  /** Show navigation footer? (not on welcome/loading) */
+  /** Show navigation footer? (all steps except loading) */
   protected readonly showNavigation = computed(() => {
     const id = this.currentStepId();
-    return id !== 'welcome' && id !== 'loading' && id !== 'goals';
+    return id !== 'loading';
+  });
+
+  /** Show fixed Agent X interview header? (all interactive steps) */
+  protected readonly showAgentHeader = computed(() => this.currentStepId() !== 'loading');
+
+  /** Show floating back button? (not on welcome/loading, and only when can go back) */
+  protected readonly showBackButton = computed(() => {
+    const id = this.currentStepId();
+    return id !== 'welcome' && id !== 'loading' && this.service.canGoBack();
   });
 
   /** Dynamic continue button label */
@@ -304,6 +422,7 @@ export class AgentOnboardingShellComponent implements OnInit {
     const totalVisible = this.visibleSteps().length;
     const activeIdx = this.activeVisibleIndex();
 
+    if (id === 'welcome') return 'Get Started';
     if (activeIdx >= totalVisible - 1) return 'Finish';
     if (id === 'connections') return 'Launch Agent X';
     return 'Continue';
@@ -343,9 +462,15 @@ export class AgentOnboardingShellComponent implements OnInit {
   }
 
   async onContinue(): Promise<void> {
-    if (!this.service.canProceed()) return;
-
     const currentId = this.currentStepId();
+
+    // Welcome step: start onboarding flow
+    if (currentId === 'welcome') {
+      this.onStart();
+      return;
+    }
+
+    if (!this.service.canProceed()) return;
 
     // If on the last visible step before loading, trigger loading
     if (currentId === 'connections') {

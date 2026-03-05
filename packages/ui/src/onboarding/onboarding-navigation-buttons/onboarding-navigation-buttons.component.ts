@@ -63,7 +63,8 @@ import { NxtPlatformService } from '../../services/platform';
       @if (showBack) {
         <button
           type="button"
-          class="nxt1-back-btn px-6 py-3"
+          class="nxt1-back-btn"
+          [class]="compact ? 'rounded-full px-5 py-2.5' : 'rounded-lg px-6 py-3'"
           [disabled]="loading"
           (click)="backClick.emit()"
           [attr.data-testid]="backTestId"
@@ -78,7 +79,8 @@ import { NxtPlatformService } from '../../services/platform';
       @if (showSkip && !isLastStep) {
         <button
           type="button"
-          class="nxt1-skip-btn px-6 py-3"
+          class="nxt1-skip-btn"
+          [class]="compact ? 'rounded-full px-5 py-2.5' : 'rounded-lg px-6 py-3'"
           [disabled]="loading"
           (click)="skipClick.emit()"
           [attr.data-testid]="skipTestId"
@@ -92,7 +94,13 @@ import { NxtPlatformService } from '../../services/platform';
       <button
         type="button"
         class="nxt1-continue-btn flex w-full items-center justify-center gap-2 whitespace-nowrap"
-        [class]="isMobile() ? 'rounded-xl px-6 py-4' : 'rounded-lg px-7 py-4'"
+        [class]="
+          compact
+            ? 'rounded-full px-6 py-3'
+            : isMobile()
+              ? 'rounded-xl px-6 py-4'
+              : 'rounded-lg px-7 py-4'
+        "
         [class.completing]="isLastStep"
         [disabled]="disabled || loading"
         (click)="continueClick.emit()"

@@ -12,6 +12,7 @@
 import { Injectable, inject } from '@angular/core';
 import { ModalController } from '@ionic/angular/standalone';
 import type { ManageTeamFormData, ManageTeamSectionId } from '@nxt1/core';
+import { SHEET_PRESETS } from '../components/bottom-sheet';
 import { ManageTeamShellComponent, type ManageTeamCloseEvent } from './manage-team-shell.component';
 import { NxtLoggingService } from '../services/logging';
 
@@ -74,8 +75,8 @@ export class ManageTeamBottomSheetService {
       initialSection,
       title = teamId ? 'Manage Team' : 'Create Team',
       showProgress = true,
-      breakpoints = [0, 0.5, 0.75, 1],
-      initialBreakpoint = 0.75,
+      breakpoints = SHEET_PRESETS.TALL.breakpoints,
+      initialBreakpoint = SHEET_PRESETS.TALL.initialBreakpoint,
       cssClass = 'manage-team-sheet',
     } = options;
 
@@ -150,7 +151,7 @@ export class ManageTeamBottomSheetService {
     return this.open({
       teamId,
       initialSection: section,
-      initialBreakpoint: 0.75,
+      initialBreakpoint: SHEET_PRESETS.TALL.initialBreakpoint,
     });
   }
 
@@ -162,7 +163,7 @@ export class ManageTeamBottomSheetService {
       teamId: null,
       title: 'Create Team',
       initialSection: 'team-info',
-      initialBreakpoint: 1,
+      initialBreakpoint: SHEET_PRESETS.FULL.initialBreakpoint,
     });
   }
 

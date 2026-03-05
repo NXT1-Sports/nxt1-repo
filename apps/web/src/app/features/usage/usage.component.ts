@@ -17,11 +17,23 @@
  * - Landing page content is indexable; dashboard is noindex
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  OnInit,
+  DestroyRef,
+} from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
+import { map, distinctUntilChanged } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   UsageShellWebComponent,
   UsageSkeletonComponent,
   NxtUsageLandingComponent,
+  UsageService,
+  type UsageSection,
 } from '@nxt1/ui/usage';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
@@ -60,6 +72,9 @@ import { SeoService } from '../../core/services';
 export class UsageComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly seo = inject(SeoService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly usage = inject(UsageService);
+  private readonly destroyRef = inject(DestroyRef);
 
   /** Auth state signals */
   protected readonly isAuthenticated = this.authService.isAuthenticated;
@@ -67,7 +82,33 @@ export class UsageComponent implements OnInit {
     () => !this.authService.isInitialized() || this.authService.isLoading()
   );
 
+  private readonly usageSections: readonly UsageSection[] = [
+    'overview',
+    'metered-usage',
+    'breakdown',
+    'payment-history',
+    'budgets',
+    'payment-info',
+  ] as const;
+
+  private toUsageSection(value: string | null): UsageSection | null {
+    if (!value) return null;
+    return this.usageSections.includes(value as UsageSection) ? (value as UsageSection) : null;
+  }
+
   ngOnInit(): void {
+    this.route.queryParamMap
+      .pipe(
+        map((params) => this.toUsageSection(params.get('section'))),
+        distinctUntilChanged(),
+        takeUntilDestroyed(this.destroyRef)
+      )
+      .subscribe((section) => {
+        if (section) {
+          this.usage.setActiveSection(section);
+        }
+      });
+
     if (this.isAuthenticated()) {
       this.seo.updatePage({
         title: 'Billing & Usage',

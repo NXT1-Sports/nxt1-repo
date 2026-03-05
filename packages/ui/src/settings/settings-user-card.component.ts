@@ -28,18 +28,17 @@
 
 import { Component, ChangeDetectionStrategy, input, output, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { cameraOutline, createOutline, checkmarkCircle, star } from 'ionicons/icons';
+import { IonRippleEffect } from '@ionic/angular/standalone';
 import type { SettingsUserInfo, SettingsSubscription } from '@nxt1/core';
 import { NxtAvatarComponent } from '../components/avatar';
 import { HapticsService } from '../services/haptics/haptics.service';
+import { NxtIconComponent } from '../components/icon';
 
 // Register icons
 @Component({
   selector: 'nxt1-settings-user-card',
   standalone: true,
-  imports: [CommonModule, IonIcon, IonRippleEffect, NxtAvatarComponent],
+  imports: [CommonModule, IonRippleEffect, NxtAvatarComponent, NxtIconComponent],
   template: `
     <div class="user-card" (click)="onCardClick()" role="button" tabindex="0">
       <ion-ripple-effect></ion-ripple-effect>
@@ -52,7 +51,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
           size="xl"
         />
         <div class="user-card__avatar-edit">
-          <ion-icon name="camera-outline"></ion-icon>
+          <nxt1-icon name="pencil" [size]="14"></nxt1-icon>
         </div>
       </div>
 
@@ -61,7 +60,11 @@ import { HapticsService } from '../services/haptics/haptics.service';
         <div class="user-card__name-row">
           <h2 class="user-card__name">{{ displayName() }}</h2>
           @if (isVerified()) {
-            <ion-icon name="checkmark-circle" class="user-card__verified"></ion-icon>
+            <nxt1-icon
+              name="checkmarkCircle"
+              [size]="18"
+              className="user-card__verified"
+            ></nxt1-icon>
           }
         </div>
 
@@ -82,7 +85,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
               [class.user-card__badge--team]="subscription()?.tier === 'team'"
             >
               @if (subscription()?.tier !== 'free') {
-                <ion-icon name="star" class="user-card__badge-icon"></ion-icon>
+                <nxt1-icon name="star" [size]="10" className="user-card__badge-icon"></nxt1-icon>
               }
               {{ planBadge() }}
             </span>
@@ -92,7 +95,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
 
       <!-- Edit Icon -->
       <div class="user-card__action">
-        <ion-icon name="create-outline"></ion-icon>
+        <nxt1-icon name="pencil" [size]="18"></nxt1-icon>
       </div>
     </div>
   `,
@@ -155,7 +158,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
         border: 2px solid var(--nxt1-color-bg-primary, #0a0a0a);
       }
 
-      .user-card__avatar-edit ion-icon {
+      .user-card__avatar-edit nxt1-icon {
         font-size: 14px;
         color: var(--nxt1-color-text-onPrimary, #000000);
       }
@@ -268,7 +271,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
         flex-shrink: 0;
       }
 
-      .user-card__action ion-icon {
+      .user-card__action nxt1-icon {
         font-size: 18px;
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
       }
@@ -310,7 +313,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
           background: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.04));
         }
 
-        .user-card__action ion-icon {
+        .user-card__action nxt1-icon {
           color: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
         }
       }
@@ -319,15 +322,6 @@ import { HapticsService } from '../services/haptics/haptics.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsUserCardComponent {
-  constructor() {
-    addIcons({
-      cameraOutline,
-      createOutline,
-      checkmarkCircle,
-      star,
-    });
-  }
-
   private readonly haptics = inject(HapticsService);
 
   // ============================================

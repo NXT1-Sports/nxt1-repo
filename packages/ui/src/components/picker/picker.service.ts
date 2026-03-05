@@ -64,6 +64,7 @@ import { Injectable, inject } from '@angular/core';
 import { ModalController } from '@ionic/angular/standalone';
 import { DEFAULT_SPORTS, getPositionGroupsForSport } from '@nxt1/core/constants';
 import { NxtPlatformService } from '../../services/platform';
+import { SHEET_PRESETS } from '../bottom-sheet';
 import { NxtPickerComponent } from './picker.component';
 import type {
   SportPickerConfig,
@@ -209,8 +210,7 @@ export class NxtPickerService {
       ...(useBottomSheet
         ? {
             // Mobile/Touch: Bottom sheet with breakpoints
-            breakpoints: [0, 0.5, 0.85, 1],
-            initialBreakpoint: 0.85,
+            ...SHEET_PRESETS.STANDARD,
             handle: true,
             handleBehavior: 'cycle' as const,
             cssClass: 'nxt1-picker-modal nxt1-picker-modal--sheet',

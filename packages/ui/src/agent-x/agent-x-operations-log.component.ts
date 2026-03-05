@@ -21,8 +21,7 @@
  * ```typescript
  * await this.bottomSheet.openSheet({
  *   component: AgentXOperationsLogComponent,
- *   breakpoints: [0, 0.5, 0.92],
- *   initialBreakpoint: 0.92,
+ *   ...SHEET_PRESETS.FULL,
  *   showHandle: true,
  *   backdropDismiss: true,
  *   cssClass: 'agent-x-operations-log-sheet',

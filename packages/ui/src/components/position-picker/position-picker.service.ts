@@ -39,6 +39,7 @@
 import { Injectable, inject } from '@angular/core';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtPlatformService } from '../../services/platform';
+import { SHEET_PRESETS } from '../bottom-sheet';
 import { NxtPositionPickerComponent } from './position-picker.component';
 import type { PositionPickerConfig, PositionPickerResult } from './position-picker.types';
 import { POSITION_PICKER_DEFAULTS } from './position-picker.types';
@@ -112,8 +113,7 @@ export class NxtPositionPickerService {
       ...(useBottomSheet
         ? {
             // Mobile: Bottom sheet with breakpoints
-            breakpoints: [0, 0.5, 0.75, 1],
-            initialBreakpoint: 0.5,
+            ...SHEET_PRESETS.HALF,
             handle: true,
             handleBehavior: 'cycle' as const,
           }

@@ -29,11 +29,6 @@ import { HapticsService } from '../../services/haptics/haptics.service';
   imports: [NxtIconComponent, NxtSearchBarComponent],
   template: `
     <section class="connections-container" [attr.data-testid]="testIds.CONNECTIONS_STEP">
-      <div class="step-header">
-        <h2 class="step-title">Add Connections</h2>
-        <p class="step-subtitle">Build your network so Agent X can work smarter.</p>
-      </div>
-
       <!-- Search (shared NxtSearchBarComponent) -->
       <div class="search-section">
         <nxt1-search-bar
@@ -148,28 +143,9 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       }
 
       .connections-container {
-        padding: var(--nxt1-spacing-lg) 0;
+        padding: var(--nxt1-spacing-xs) 0 var(--nxt1-spacing-lg);
         max-width: 540px;
         margin: 0 auto;
-      }
-
-      .step-header {
-        text-align: center;
-        margin-bottom: var(--nxt1-spacing-xl);
-      }
-
-      .step-title {
-        font-family: var(--nxt1-fontFamily-brand, var(--nxt1-fontFamily-heading));
-        font-size: var(--nxt1-fontSize-2xl, 28px);
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-xs);
-      }
-
-      .step-subtitle {
-        font-size: var(--nxt1-fontSize-md, 16px);
-        color: var(--nxt1-color-text-secondary);
-        margin: 0;
       }
 
       /* Search Section */

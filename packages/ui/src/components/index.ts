@@ -121,12 +121,15 @@ export {
   NxtBottomSheetComponent,
   NxtSheetHeaderComponent,
   NxtBottomSheetService,
+  SHEET_PRESETS,
   type BottomSheetAction,
   type BottomSheetConfig,
   type BottomSheetResult,
   type BottomSheetVariant,
   type SheetHeaderIconShape,
   type SheetHeaderClosePosition,
+  type SheetPreset,
+  type SheetPresetName,
 } from './bottom-sheet';
 
 export {

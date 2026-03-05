@@ -1900,6 +1900,7 @@ export const ALIAS_ICONS = {
 
   // ---- Content ----
   'document-text-outline': UI_ICONS.documentText,
+  'document-outline': UI_ICONS.documentText,
   'newspaper-outline': UI_ICONS.newspaper,
   'flag-outline': UI_ICONS.flag,
   'bookmark-outline': UI_ICONS.bookmark,
@@ -1917,6 +1918,7 @@ export const ALIAS_ICONS = {
   'star-outline': UI_ICONS.star,
 
   // ---- Actions ----
+  'bug-outline': UI_ICONS.alertCircle,
   'refresh-outline': UI_ICONS.refresh,
   'download-outline': UI_ICONS.download,
   'flash-outline': UI_ICONS.bolt,
@@ -1934,6 +1936,8 @@ export const ALIAS_ICONS = {
   'hardware-chip-outline': UI_ICONS.hardwareChip,
 
   // ---- Security / Privacy ----
+  'finger-print-outline': UI_ICONS.shieldCheck,
+  'lock-closed-outline': UI_ICONS.lock,
   'shield-outline': UI_ICONS.shield,
   'shield-checkmark-outline': UI_ICONS.shieldCheck,
 
@@ -1950,6 +1954,8 @@ export const ALIAS_ICONS = {
   'receipt-outline': UI_ICONS.receipt,
 
   // ---- Misc UI ----
+  'extension-puzzle-outline': UI_ICONS.settings,
+  'help-circle-outline': UI_ICONS.help,
   'color-palette-outline': UI_ICONS.colorPalette,
   'link-outline': UI_ICONS.link,
   'briefcase-outline': UI_ICONS.business,

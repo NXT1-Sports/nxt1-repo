@@ -37,18 +37,6 @@ import {
   inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  personOutline,
-  colorPaletteOutline,
-  cardOutline,
-  extensionPuzzleOutline,
-  helpCircleOutline,
-  documentTextOutline,
-  chevronDown,
-  chevronUp,
-} from 'ionicons/icons';
 import type { SettingsSection } from '@nxt1/core';
 import {
   SettingsItemComponent,
@@ -59,6 +47,7 @@ import {
   type SettingsCopyEvent,
 } from './settings-item.component';
 import { HapticsService } from '../services/haptics/haptics.service';
+import { NxtIconComponent } from '../components/icon';
 
 // Register icons
 /**
@@ -72,7 +61,7 @@ export interface SettingsSectionToggleEvent {
 @Component({
   selector: 'nxt1-settings-section',
   standalone: true,
-  imports: [CommonModule, IonIcon, SettingsItemComponent],
+  imports: [CommonModule, SettingsItemComponent, NxtIconComponent],
   template: `
     <section
       class="settings-section"
@@ -94,7 +83,7 @@ export interface SettingsSectionToggleEvent {
         <div class="settings-section__header-content">
           @if (section().icon) {
             <div class="settings-section__icon">
-              <ion-icon [name]="section().icon!"></ion-icon>
+              <nxt1-icon [name]="section().icon!" [size]="20"></nxt1-icon>
             </div>
           }
           <div class="settings-section__titles">
@@ -105,10 +94,11 @@ export interface SettingsSectionToggleEvent {
           </div>
         </div>
         @if (section().collapsible) {
-          <ion-icon
-            [name]="isCollapsed() ? 'chevron-down' : 'chevron-up'"
-            class="settings-section__collapse-icon"
-          ></ion-icon>
+          <nxt1-icon
+            [name]="isCollapsed() ? 'chevronDown' : 'chevronUp'"
+            [size]="20"
+            className="settings-section__collapse-icon"
+          ></nxt1-icon>
         }
       </header>
 
@@ -189,7 +179,7 @@ export interface SettingsSectionToggleEvent {
         background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
       }
 
-      .settings-section__icon ion-icon {
+      .settings-section__icon nxt1-icon {
         font-size: 20px;
         color: var(--nxt1-color-primary, #ccff00);
       }
@@ -294,19 +284,6 @@ export interface SettingsSectionToggleEvent {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsSectionComponent {
-  constructor() {
-    addIcons({
-      personOutline,
-      colorPaletteOutline,
-      cardOutline,
-      extensionPuzzleOutline,
-      helpCircleOutline,
-      documentTextOutline,
-      chevronDown,
-      chevronUp,
-    });
-  }
-
   private readonly haptics = inject(HapticsService);
 
   // ============================================

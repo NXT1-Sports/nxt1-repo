@@ -411,7 +411,7 @@ export class SettingsShellComponent implements OnInit {
     this.editProfile.emit();
     this.navigate.emit({
       itemId: 'profile',
-      route: '/profile/edit',
+      route: '/settings/account-information',
     });
   }
 

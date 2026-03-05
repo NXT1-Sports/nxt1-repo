@@ -23,7 +23,7 @@
 import { Injectable, inject, Component, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ModalController } from '@ionic/angular/standalone';
-import { NxtBottomSheetService } from '../components/bottom-sheet';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { InviteShellComponent, type InviteUser } from './invite-shell.component';
 import type { InviteType, InviteTeam } from '@nxt1/core';
 
@@ -153,10 +153,8 @@ export class InviteBottomSheetService {
         user: config.user ?? null,
       },
 
-      // Breakpoints for draggable resize
-      // 0 = closed, 0.5 = peek/half, 0.9 = default (near full), 1 = full
-      breakpoints: [0, 0.5, 0.9, 1],
-      initialBreakpoint: 0.9,
+      // Standardized sheet preset
+      ...SHEET_PRESETS.STANDARD,
 
       // Show native drag handle bar
       showHandle: true,
@@ -164,7 +162,6 @@ export class InviteBottomSheetService {
 
       // Backdrop behavior
       backdropDismiss: true,
-      backdropBreakpoint: 0.5,
 
       // Allow swipe-to-dismiss
       canDismiss: true,

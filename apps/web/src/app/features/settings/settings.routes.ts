@@ -13,19 +13,11 @@ export const SETTINGS_ROUTES: Routes = [
     path: '',
     loadComponent: () => import('./settings.component').then((m) => m.SettingsComponent),
   },
-  // Sub-routes for settings pages
-  // {
-  //   path: 'profile',
-  //   loadComponent: () => import('./pages/profile/profile.component').then((m) => m.ProfileSettingsComponent),
-  // },
-  // {
-  //   path: 'security',
-  //   loadComponent: () => import('./pages/security/security.component').then((m) => m.SecuritySettingsComponent),
-  // },
-  // {
-  //   path: 'subscription',
-  //   loadComponent: () => import('./pages/subscription/subscription.component').then((m) => m.SubscriptionComponent),
-  // },
+  {
+    path: 'account-information',
+    loadComponent: () =>
+      import('./account-information.component').then((m) => m.AccountInformationComponent),
+  },
 ];
 
 export default SETTINGS_ROUTES;

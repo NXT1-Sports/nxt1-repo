@@ -140,8 +140,7 @@ export type BottomSheetVariant =
  * const result = await bottomSheet.openSheet({
  *   component: EditProfileModalComponent,
  *   componentProps: { userId: '123' },
- *   breakpoints: [0, 0.5, 0.75, 1],
- *   initialBreakpoint: 0.75,
+ *   ...SHEET_PRESETS.TALL,
  * });
  * ```
  */

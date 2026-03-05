@@ -33,7 +33,7 @@ import {
   computed,
   OnInit,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, Location } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import {
@@ -210,6 +210,7 @@ export class AuthPage implements OnInit {
   private readonly authApi = inject(AuthApiService);
   private readonly haptics = inject(HapticsService);
   private readonly router = inject(Router);
+  private readonly location = inject(Location);
   private readonly nav = inject(AuthNavigationService);
   private readonly route = inject(ActivatedRoute);
   readonly biometricService = inject(BiometricService);
@@ -399,29 +400,30 @@ export class AuthPage implements OnInit {
   }
 
   /**
-   * Update URL query params based on current state
+   * Update URL query params based on current state.
+   * Uses Location.replaceState() instead of Router.navigate() to avoid
+   * triggering Ionic's page lifecycle which causes a visible reload.
    */
   private updateUrl(): void {
-    const queryParams: Record<string, string | null> = {};
+    const params = new URLSearchParams();
 
     if (this.mode() === 'signup') {
-      queryParams['mode'] = 'signup';
+      params.set('mode', 'signup');
     }
 
     if (this.validatedTeam()) {
-      queryParams['code'] = this.validatedTeam()!.code;
+      params.set('code', this.validatedTeam()!.code);
     }
 
-    this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams,
-      queryParamsHandling: '',
-      replaceUrl: true,
-    });
+    const query = params.toString();
+    const path = query ? `/auth?${query}` : '/auth';
+    this.location.replaceState(path);
   }
 
   /**
-   * Handle back button click
+   * Handle back button click.
+   * Only updates signals — no URL manipulation to avoid Ionic page reload.
+   * Matches onboarding's onBack() pattern (signal-only state transitions).
    */
   async onBackClick(): Promise<void> {
     await this.haptics.impact('light');
@@ -440,8 +442,6 @@ export class AuthPage implements OnInit {
     } else {
       this.mode.set('login');
     }
-
-    this.updateUrl();
   }
 
   // ============================================

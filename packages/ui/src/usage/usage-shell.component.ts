@@ -33,6 +33,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonContent, IonIcon, ModalController } from '@ionic/angular/standalone';
+import { SHEET_PRESETS } from '../components/bottom-sheet';
 import { addIcons } from 'ionicons';
 import { helpCircleOutline, closeOutline } from 'ionicons/icons';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
@@ -574,8 +575,10 @@ export class UsageShellComponent implements OnInit {
     const modal = await this.modalController.create({
       component: UsageHelpContentComponent,
       cssClass: this.platform.isMobile() ? 'usage-help-sheet' : 'usage-help-modal',
-      breakpoints: this.platform.isMobile() ? [0, 0.9, 1] : undefined,
-      initialBreakpoint: this.platform.isMobile() ? 0.9 : undefined,
+      breakpoints: this.platform.isMobile() ? SHEET_PRESETS.STANDARD.breakpoints : undefined,
+      initialBreakpoint: this.platform.isMobile()
+        ? SHEET_PRESETS.STANDARD.initialBreakpoint
+        : undefined,
       handle: this.platform.isMobile(),
       showBackdrop: true,
       backdropDismiss: true,

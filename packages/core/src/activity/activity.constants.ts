@@ -35,8 +35,8 @@ export const ACTIVITY_TABS: readonly ActivityTab[] = [
     icon: 'sparkles-outline',
   },
   {
-    id: 'reactions',
-    label: 'Reactions',
+    id: 'alerts',
+    label: 'Alerts',
     icon: 'heart-outline',
   },
 ] as const;
@@ -171,9 +171,9 @@ export const ACTIVITY_EMPTY_STATES: Record<
     icon: 'sparkles-outline',
     ctaLabel: 'Open Agent X',
   },
-  reactions: {
-    title: 'No reactions yet',
-    message: 'Likes, comments, follows, and mentions will appear here.',
+  alerts: {
+    title: 'No alerts yet',
+    message: 'Social activity and system updates will appear here.',
     icon: 'heart-outline',
     ctaLabel: 'Create a post',
   },

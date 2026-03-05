@@ -51,6 +51,7 @@ import { Injectable, inject } from '@angular/core';
 import { ModalController } from '@ionic/angular/standalone';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { NxtPlatformService } from '../../services/platform';
+import { SHEET_PRESETS } from '../../components/bottom-sheet';
 import { BiometricPromptContentComponent } from './biometric-prompt-content.component';
 
 // ============================================
@@ -102,8 +103,7 @@ export class BiometricPromptService {
         email: config.email,
       },
       // Native bottom sheet presentation
-      breakpoints: [0, 1],
-      initialBreakpoint: 1,
+      ...SHEET_PRESETS.FULL,
       handle: true,
       handleBehavior: 'none' as const,
       backdropDismiss: true,

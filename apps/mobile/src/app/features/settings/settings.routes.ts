@@ -14,6 +14,11 @@ export const SETTINGS_ROUTES: Routes = [
     path: '',
     loadComponent: () => import('./settings.component').then((m) => m.SettingsComponent),
   },
+  {
+    path: 'account-information',
+    loadComponent: () =>
+      import('./account-information.component').then((m) => m.AccountInformationComponent),
+  },
 ];
 
 export default SETTINGS_ROUTES;

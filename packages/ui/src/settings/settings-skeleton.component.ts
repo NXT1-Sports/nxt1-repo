@@ -49,7 +49,29 @@ import { CommonModule } from '@angular/common';
                     <div class="settings-skeleton__item-description shimmer"></div>
                   }
                 </div>
-                <div class="settings-skeleton__item-trailing shimmer"></div>
+
+                @switch (item.trailingType) {
+                  @case ('toggle') {
+                    <div
+                      class="settings-skeleton__item-trailing settings-skeleton__item-trailing--toggle shimmer"
+                    ></div>
+                  }
+                  @case ('value') {
+                    <div class="settings-skeleton__item-trailing-group">
+                      <div
+                        class="settings-skeleton__item-trailing settings-skeleton__item-trailing--value shimmer"
+                      ></div>
+                      <div
+                        class="settings-skeleton__item-trailing settings-skeleton__item-trailing--chevron shimmer"
+                      ></div>
+                    </div>
+                  }
+                  @default {
+                    <div
+                      class="settings-skeleton__item-trailing settings-skeleton__item-trailing--chevron shimmer"
+                    ></div>
+                  }
+                }
               </div>
             }
           </div>
@@ -69,7 +91,7 @@ import { CommonModule } from '@angular/common';
       }
 
       .settings-skeleton {
-        padding: 16px 0;
+        padding: 0;
       }
 
       /* ============================================
@@ -86,7 +108,7 @@ import { CommonModule } from '@angular/common';
         );
         background-size: 200% 100%;
         animation: skeleton-shimmer 1.5s ease-in-out infinite;
-        border-radius: 4px;
+        border-radius: var(--nxt1-radius-sm, 4px);
       }
 
       @keyframes skeleton-shimmer {
@@ -111,7 +133,7 @@ import { CommonModule } from '@angular/common';
        ============================================ */
 
       .settings-skeleton__section {
-        margin-bottom: 24px;
+        margin-bottom: var(--nxt1-spacing-6, 24px);
       }
 
       /* ============================================
@@ -121,20 +143,20 @@ import { CommonModule } from '@angular/common';
       .settings-skeleton__header {
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 12px 16px;
-        margin-bottom: 4px;
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+        margin-bottom: var(--nxt1-spacing-1, 4px);
       }
 
       .settings-skeleton__header-icon {
         width: 36px;
         height: 36px;
-        border-radius: 10px;
+        border-radius: var(--nxt1-radius-md, 10px);
       }
 
       .settings-skeleton__header-text {
-        width: 100px;
-        height: 14px;
+        width: 72px;
+        height: 12px;
       }
 
       /* ============================================
@@ -142,7 +164,7 @@ import { CommonModule } from '@angular/common';
        ============================================ */
 
       .settings-skeleton__items {
-        border-radius: 12px;
+        border-radius: var(--nxt1-radius-lg, 12px);
         background: var(--nxt1-color-surface-primary, var(--ion-background-color, #0a0a0a));
         border: 0.5px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
         overflow: hidden;
@@ -155,8 +177,9 @@ import { CommonModule } from '@angular/common';
       .settings-skeleton__item {
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 14px 16px;
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-3_5, 14px) var(--nxt1-spacing-4, 16px);
+        min-height: 52px;
         border-bottom: 0.5px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
       }
 
@@ -167,7 +190,7 @@ import { CommonModule } from '@angular/common';
       .settings-skeleton__item-icon {
         width: 32px;
         height: 32px;
-        border-radius: 8px;
+        border-radius: var(--nxt1-radius-md, 8px);
         flex-shrink: 0;
       }
 
@@ -175,24 +198,54 @@ import { CommonModule } from '@angular/common';
         flex: 1;
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 2px;
+        min-width: 0;
       }
 
       .settings-skeleton__item-label {
-        width: 140px;
+        width: 148px;
         height: 16px;
       }
 
       .settings-skeleton__item-description {
-        width: 200px;
+        width: 182px;
         height: 12px;
       }
 
+      .settings-skeleton__item-trailing-group {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
       .settings-skeleton__item-trailing {
+        flex-shrink: 0;
+      }
+
+      .settings-skeleton__item-trailing--toggle {
         width: 48px;
         height: 28px;
-        border-radius: 14px;
-        flex-shrink: 0;
+        border-radius: var(--nxt1-radius-full, 9999px);
+      }
+
+      .settings-skeleton__item-trailing--value {
+        width: 54px;
+        height: 14px;
+      }
+
+      .settings-skeleton__item-trailing--chevron {
+        width: 14px;
+        height: 14px;
+      }
+
+      @media (max-width: 768px) {
+        .settings-skeleton__item-label {
+          width: 132px;
+        }
+
+        .settings-skeleton__item-description {
+          width: 164px;
+        }
       }
     `,
   ],
@@ -220,7 +273,8 @@ export class SettingsSkeletonComponent {
   protected readonly sectionItems = computed(() => {
     const count = this.itemsPerSection();
     return Array.from({ length: count }, (_, i) => ({
-      hasDescription: i % 2 === 0, // Every other item has description
+      hasDescription: i % 3 !== 1,
+      trailingType: i % 4 === 0 ? 'toggle' : i % 4 === 1 ? 'value' : 'chevron',
     }));
   });
 }

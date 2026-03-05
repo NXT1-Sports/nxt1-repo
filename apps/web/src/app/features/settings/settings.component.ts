@@ -91,7 +91,7 @@ export class SettingsComponent implements OnInit {
    * Handle edit profile navigation.
    */
   protected onEditProfile(): void {
-    this.router.navigate(['/profile/edit']);
+    this.router.navigate(['/settings/account-information']);
   }
 
   /**
@@ -101,7 +101,7 @@ export class SettingsComponent implements OnInit {
     this.logger.debug('Navigate requested', { itemId: event.itemId, route: event.route });
 
     if (event.route) {
-      this.router.navigate([event.route]);
+      this.router.navigateByUrl(event.route);
     }
     // External URLs are handled by the shell component
   }
