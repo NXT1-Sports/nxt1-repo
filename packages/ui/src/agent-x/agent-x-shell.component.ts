@@ -39,7 +39,6 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonContent } from '@ionic/angular/standalone';
-import type { AgentXQuickTask } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtIconComponent } from '../components/icon';
@@ -511,8 +510,8 @@ export interface WeeklyPlaybookItem {
       @keyframes op-pulse-border {
         0%,
         100% {
+          border-color: transparent;
         }
-        gap: 6px;
         50% {
           border-color: var(--agent-primary);
         }

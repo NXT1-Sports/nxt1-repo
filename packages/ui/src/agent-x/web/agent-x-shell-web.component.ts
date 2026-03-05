@@ -39,7 +39,6 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import type { AgentXQuickTask } from '@nxt1/core';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
 import { NxtIconComponent } from '../../components/icon';
 import { AgentXService } from '../agent-x.service';
