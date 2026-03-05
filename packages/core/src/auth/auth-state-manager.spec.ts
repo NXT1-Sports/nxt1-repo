@@ -592,7 +592,7 @@ describe('createAuthStateManager', () => {
       await Promise.all([
         authManager.setUser(USER_FIXTURES.athlete),
         authManager.setUser(USER_FIXTURES.coach),
-        authManager.setUser(USER_FIXTURES.scout),
+        authManager.setUser(USER_FIXTURES.recruiter),
       ]);
 
       // Final state should be deterministic (last one wins)
@@ -600,7 +600,7 @@ describe('createAuthStateManager', () => {
     });
 
     it('should work with different user roles', async () => {
-      const roles = ['athlete', 'coach', 'parent', 'scout', 'media', 'fan'] as const;
+      const roles = ['athlete', 'coach', 'director', 'recruiter', 'parent'] as const;
 
       for (const role of roles) {
         const user = createMockAuthUser({ role });

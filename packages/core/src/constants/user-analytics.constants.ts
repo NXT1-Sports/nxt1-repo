@@ -107,13 +107,19 @@ export type TrendDirection = (typeof TREND_DIRECTIONS)[keyof typeof TREND_DIRECT
 // ============================================
 
 export const VIEWER_TYPES = {
-  COLLEGE_COACH: 'college_coach',
+  RECRUITER: 'recruiter',
   HIGH_SCHOOL_COACH: 'high_school_coach',
-  SCOUT: 'scout',
+  COACH: 'coach',
   ATHLETE: 'athlete',
   PARENT: 'parent',
-  FAN: 'fan',
+  DIRECTOR: 'director',
   ANONYMOUS: 'anonymous',
+  /** @deprecated Use RECRUITER instead */
+  COLLEGE_COACH: 'recruiter',
+  /** @deprecated Use RECRUITER instead */
+  SCOUT: 'recruiter',
+  /** @deprecated Removed */
+  FAN: 'athlete',
 } as const;
 
 export type ViewerType = (typeof VIEWER_TYPES)[keyof typeof VIEWER_TYPES];

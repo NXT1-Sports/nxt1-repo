@@ -367,10 +367,9 @@ export class SettingsUserCardComponent {
     const roleLabels: Record<string, string> = {
       athlete: 'Athlete',
       coach: 'Coach',
-      collegeCoach: 'College Coach',
-      fan: 'Fan',
+      director: 'Director',
+      recruiter: 'Recruiter',
       parent: 'Parent',
-      admin: 'Admin',
     };
 
     return roleLabels[role] ?? role;

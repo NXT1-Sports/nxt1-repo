@@ -24,6 +24,13 @@ export {
   AgentXOperationChatComponent,
   type OperationQuickAction,
 } from './agent-x-operation-chat.component';
+export {
+  AgentXOperationsLogComponent,
+  OPERATIONS_LOG_TEST_IDS,
+  type OperationLogEntry,
+  type OperationStatus,
+  type OperationCategory,
+} from './agent-x-operations-log.component';
 export { AgentXWelcomeComponent } from './agent-x-welcome.component';
 export { AgentXChatComponent } from './agent-x-chat.component';
 export { AgentXInputComponent } from './agent-x-input.component';

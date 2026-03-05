@@ -87,11 +87,9 @@ export interface AnalyticsUser {
     @if (!hideHeader()) {
       <nxt1-page-header
         title="Analytics"
-        [avatarSrc]="user()?.profileImg"
-        [avatarName]="displayName()"
         [showBack]="showBack()"
         [actions]="headerActions()"
-        (avatarClick)="avatarClick.emit()"
+        (menuClick)="avatarClick.emit()"
         (backClick)="back.emit()"
         (actionClick)="onHeaderAction($event)"
       >

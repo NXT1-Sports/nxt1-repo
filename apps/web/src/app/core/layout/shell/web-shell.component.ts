@@ -568,6 +568,8 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
           [tabs]="footerTabs"
           [activeTabId]="activeTabId()"
           [config]="footerConfig()"
+          [profileAvatarSrc]="sidebarUserData()?.avatarUrl"
+          [profileAvatarName]="sidebarUserData()?.name"
           (tabSelect)="onTabSelect($event)"
           (scrollToTop)="onScrollToTop($event)"
         />

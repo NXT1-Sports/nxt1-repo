@@ -325,7 +325,7 @@ export interface GetSidebarSectionsOptions {
   /**
    * User role for role-based filtering (optional, future-ready).
    * When provided, sections can be filtered by role.
-   * Example: 'athlete' | 'coach' | 'parent' | 'fan' | 'admin'
+   * Example: 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent'
    */
   readonly role?: string;
 

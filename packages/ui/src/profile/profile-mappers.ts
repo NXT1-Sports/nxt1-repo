@@ -308,17 +308,21 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
   const act = academics?.actScore !== undefined ? String(academics.actScore) : undefined;
 
   // ── Role-derived fields ────────────────────────────────────────────────────
-  const isCollegeCoach = user.role === 'college-coach';
+  const isRecruiterRole = user.role === 'recruiter';
 
-  // College team name: for college coaches use their institution; for athletes
+  // College team name: for recruiters (college coaches) use their institution; for athletes
   // with a college affiliation use the college sport team name.
-  const collegeTeamName: string | undefined = isCollegeCoach
-    ? (user.collegeCoach?.institution ?? undefined)
+  const collegeTeamName: string | undefined = isRecruiterRole
+    ? (user.recruiter?.institution ?? user.collegeCoach?.institution ?? undefined)
     : (user.sports?.find((s) => s.team?.type === 'college')?.team?.name ?? undefined);
 
-  // Title: coaches and directors carry a role-specific title field.
+  // Title: coaches, recruiters, and directors carry a role-specific title field.
   const title: string | undefined =
-    user.coach?.title ?? user.collegeCoach?.title ?? user.director?.title ?? undefined;
+    user.coach?.title ??
+    user.recruiter?.title ??
+    user.collegeCoach?.title ??
+    user.director?.title ??
+    undefined;
 
   // ── Profile images ────────────────────────────────────────────────────────
   const profileImg = user.profileImg ?? undefined;
@@ -350,7 +354,7 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     // Role
     role: (user.role ?? 'athlete') as unknown as ProfileUserRole,
     isRecruit: user.role === 'athlete' || !user.role,
-    isCollegeCoach,
+    isCollegeCoach: isRecruiterRole,
 
     // Status
     verificationStatus: user.verificationStatus ?? 'unverified',

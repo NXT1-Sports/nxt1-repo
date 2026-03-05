@@ -119,13 +119,19 @@ export interface SourceBreakdown {
 }
 
 export interface ViewerBreakdown {
-  college_coach: number;
+  recruiter: number;
   high_school_coach: number;
-  scout: number;
+  coach: number;
   athlete: number;
   parent: number;
-  fan: number;
+  director: number;
   anonymous: number;
+  /** @deprecated Use recruiter instead */
+  college_coach?: number;
+  /** @deprecated Use recruiter instead */
+  scout?: number;
+  /** @deprecated Removed role */
+  fan?: number;
 }
 
 export interface GeoBreakdown {
@@ -353,12 +359,12 @@ export function createEmptySourceBreakdown(): SourceBreakdown {
 
 export function createEmptyViewerBreakdown(): ViewerBreakdown {
   return {
-    college_coach: 0,
+    recruiter: 0,
     high_school_coach: 0,
-    scout: 0,
+    coach: 0,
     athlete: 0,
     parent: 0,
-    fan: 0,
+    director: 0,
     anonymous: 0,
   };
 }

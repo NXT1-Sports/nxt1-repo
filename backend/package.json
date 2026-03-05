@@ -6,7 +6,7 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "start": "node --require dotenv/config dist/index.js",
+    "start": "node --import dotenv/config dist/index.js",
     "dev": "nodemon --watch src --ext ts,js,json --exec \"npm run build && npm start\"",
     "build": "rimraf tsconfig.tsbuildinfo && tsc",
     "build:watch": "tsc --watch",

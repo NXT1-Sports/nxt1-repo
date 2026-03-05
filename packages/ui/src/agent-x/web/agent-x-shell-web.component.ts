@@ -45,6 +45,7 @@ import { NxtIconComponent } from '../../components/icon';
 import { AgentXService } from '../agent-x.service';
 import { AgentXChatComponent } from '../agent-x-chat.component';
 import { AgentXInputComponent } from '../agent-x-input.component';
+import { AgentXOperationsLogComponent } from '../agent-x-operations-log.component';
 import { NxtToastService } from '../../services/toast/toast.service';
 import type {
   ActiveOperation,
@@ -71,11 +72,21 @@ export interface AgentXUser {
     NxtIconComponent,
     AgentXChatComponent,
     AgentXInputComponent,
+    AgentXOperationsLogComponent,
   ],
   template: `
     <main class="agent-main" role="main">
       <!-- Desktop Page Header -->
-      <nxt1-desktop-page-header title="Agent X" subtitle="Your AI command center." />
+      <nxt1-desktop-page-header title="Agent X" subtitle="Your AI command center.">
+        <button
+          type="button"
+          class="agent-history-action"
+          aria-label="Activity log"
+          (click)="onActivityLogClick()"
+        >
+          <nxt1-icon name="time" [size]="20" className="agent-history-icon" />
+        </button>
+      </nxt1-desktop-page-header>
 
       <!-- Content Area -->
       <div class="agent-content">
@@ -114,10 +125,22 @@ export interface AgentXUser {
               }
             </div>
 
-            <!-- ═══ 2. ACTIVE OPERATIONS ═══ -->
+            <!-- ═══ 2. QUICK COMMANDS ═══ -->
+            <div class="chips-section" aria-label="Quick commands">
+              <h3 class="section-title">Quick Commands</h3>
+              <div class="chips-scroll">
+                @for (chip of actionChips(); track chip.id) {
+                  <button type="button" class="action-chip" (click)="onChipTap(chip)">
+                    {{ chip.label }}
+                  </button>
+                }
+              </div>
+            </div>
+
+            <!-- ═══ 3. DAILY OPERATIONS ═══ -->
             @if (activeOperations().length > 0) {
-              <section class="operations-section" aria-label="Active operations">
-                <h3 class="section-title">Active Operations</h3>
+              <section class="operations-section" aria-label="Daily operations">
+                <h3 class="section-title">Daily Operations</h3>
                 <div class="operations-scroll">
                   @for (op of activeOperations(); track op.id) {
                     <div
@@ -142,102 +165,72 @@ export interface AgentXUser {
               </section>
             }
 
-            <!-- ═══ 3. WEEKLY PLAYBOOK ═══ -->
+            <!-- ═══ 4. WEEKLY PLAYBOOK ═══ -->
             @if (weeklyPlaybook().length > 0) {
               <section class="playbook-section" aria-label="Weekly playbook">
                 <div class="playbook-section-header">
-                  <h3 class="section-title">Weekly Playbook</h3>
+                  <div class="playbook-title-row">
+                    <h3 class="section-title">Weekly Playbook</h3>
+                    <span class="playbook-counter"
+                      >{{ playbookCompletedCount() }}/{{ playbookTotalCount() }}</span
+                    >
+                  </div>
                   <button
                     type="button"
-                    class="playbook-section-toggle"
-                    [attr.aria-expanded]="isWeeklyPlaybookOpen()"
-                    (click)="toggleWeeklyPlaybook()"
+                    class="playbook-goal-pill"
+                    (click)="onGoalTap()"
+                    aria-label="Goals"
                   >
-                    {{ isWeeklyPlaybookOpen() ? 'Collapse' : 'Expand' }}
+                    <nxt1-icon name="flag" [size]="12" />
+                    <span class="playbook-goal-pill-text">Goals</span>
                   </button>
                 </div>
 
-                @if (isWeeklyPlaybookOpen()) {
-                  <ol class="weekly-timeline">
-                    @for (item of weeklyPlaybook(); track item.id; let isLast = $last) {
-                      <li
-                        class="timeline-item"
-                        [class.timeline-item--expanded]="isPlaybookExpanded(item.id)"
-                      >
-                        <div class="timeline-rail" aria-hidden="true">
-                          <span class="timeline-dot"></span>
-                          @if (!isLast) {
-                            <span class="timeline-line"></span>
+                <ol class="weekly-timeline">
+                  @for (item of weeklyPlaybook(); track item.id; let isLast = $last) {
+                    <li class="timeline-item">
+                      <div class="timeline-rail" aria-hidden="true">
+                        <span
+                          class="timeline-marker"
+                          [class.timeline-marker--pending]="item.status === 'pending'"
+                          [class.timeline-marker--in-progress]="item.status === 'in-progress'"
+                          [class.timeline-marker--complete]="item.status === 'complete'"
+                          [class.timeline-marker--problem]="item.status === 'problem'"
+                        >
+                          @if (item.status === 'in-progress') {
+                            <nxt1-icon name="play" [size]="10" />
+                          } @else if (item.status === 'complete') {
+                            <nxt1-icon name="checkmark" [size]="12" />
+                          } @else if (item.status === 'problem') {
+                            <nxt1-icon name="pause" [size]="10" />
+                          } @else {
+                            <span class="timeline-marker-dot"></span>
                           }
-                        </div>
+                        </span>
+                        @if (!isLast) {
+                          <span class="timeline-line"></span>
+                        }
+                      </div>
 
-                        <article class="timeline-card">
-                          <button
-                            type="button"
-                            class="timeline-toggle"
-                            [attr.aria-expanded]="isPlaybookExpanded(item.id)"
-                            (click)="togglePlaybookItem(item.id)"
-                          >
-                            <div class="timeline-toggle-top">
-                              <h4 class="timeline-title">{{ item.title }}</h4>
-                              @if (item.goal) {
-                                <span class="timeline-goal-tag">{{ item.goal.label }}</span>
-                              }
-                            </div>
-                            @if (isPlaybookExpanded(item.id)) {
-                              <p class="timeline-summary">{{ item.summary }}</p>
+                      <article class="timeline-card">
+                        <button
+                          type="button"
+                          class="timeline-toggle"
+                          (click)="onPlaybookAction(item)"
+                        >
+                          <div class="timeline-toggle-top">
+                            <h4 class="timeline-title">{{ item.title }}</h4>
+                            @if (item.goal) {
+                              <span class="timeline-goal-tag">{{ item.goal.label }}</span>
                             }
-                          </button>
-
-                          @if (isPlaybookExpanded(item.id)) {
-                            <div class="timeline-details">
-                              <p class="timeline-details-text">{{ item.details }}</p>
-                              <div class="timeline-actions">
-                                <span
-                                  class="timeline-status"
-                                  [class.timeline-status--pending]="item.status === 'pending'"
-                                  [class.timeline-status--in-progress]="
-                                    item.status === 'in-progress'
-                                  "
-                                  [class.timeline-status--complete]="item.status === 'complete'"
-                                >
-                                  {{
-                                    item.status === 'in-progress'
-                                      ? 'In Progress'
-                                      : item.status === 'complete'
-                                        ? 'Complete'
-                                        : 'Pending'
-                                  }}
-                                </span>
-                                <button
-                                  type="button"
-                                  class="playbook-action-btn"
-                                  (click)="onPlaybookAction(item)"
-                                >
-                                  {{ item.actionLabel }}
-                                </button>
-                              </div>
-                            </div>
-                          }
-                        </article>
-                      </li>
-                    }
-                  </ol>
-                }
+                          </div>
+                        </button>
+                      </article>
+                    </li>
+                  }
+                </ol>
               </section>
             }
-
-            <!-- ═══ 4. QUICK COMMANDS ═══ -->
-            <div class="chips-section" aria-label="Quick commands">
-              <h3 class="section-title">Quick Commands</h3>
-              <div class="chips-scroll">
-                @for (chip of actionChips(); track chip.id) {
-                  <button type="button" class="action-chip" (click)="onChipTap(chip)">
-                    {{ chip.label }}
-                  </button>
-                }
-              </div>
-            </div>
           </section>
         }
 
@@ -247,6 +240,14 @@ export interface AgentXUser {
         }
       </div>
     </main>
+
+    <!-- ═══ OPERATIONS LOG SLIDE-OVER PANEL ═══ -->
+    @if (isOperationsLogOpen()) {
+      <div class="log-overlay-backdrop" (click)="closeOperationsLog()" aria-hidden="true"></div>
+      <aside class="log-overlay-panel" role="dialog" aria-label="Operations log">
+        <nxt1-agent-x-operations-log (closePanel)="closeOperationsLog()" />
+      </aside>
+    }
 
     <!-- Shared Input Bar (fixed, outside main scroll) -->
     @if (!hideInput()) {
@@ -555,6 +556,58 @@ export interface AgentXUser {
 
       .playbook-section-header .section-title {
         margin: 0;
+        flex-shrink: 0;
+      }
+
+      .playbook-title-row {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        min-width: 0;
+        flex: 1;
+      }
+
+      .playbook-counter {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--agent-text-muted);
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      .playbook-goal-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 8px 16px;
+        border: 1px solid color-mix(in srgb, var(--agent-primary) 45%, transparent);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        background: color-mix(in srgb, var(--agent-primary) 12%, transparent);
+        color: var(--agent-primary);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        cursor: pointer;
+        flex-shrink: 0;
+        -webkit-tap-highlight-color: transparent;
+        transition:
+          background 0.2s ease,
+          border-color 0.2s ease,
+          opacity 0.15s ease;
+      }
+
+      .playbook-goal-pill:hover {
+        background: color-mix(in srgb, var(--agent-primary) 18%, transparent);
+      }
+
+      .playbook-goal-pill:active {
+        opacity: 0.9;
+      }
+
+      .playbook-goal-pill-text {
+        line-height: 1;
       }
 
       .playbook-section-toggle {
@@ -583,19 +636,51 @@ export interface AgentXUser {
       }
 
       .timeline-rail {
-        width: 14px;
+        width: 18px;
         display: flex;
         flex-direction: column;
         align-items: center;
       }
 
-      .timeline-dot {
+      .timeline-marker {
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        margin-top: 9px;
+        background: var(--agent-surface);
+        border: 1px solid var(--agent-border);
+      }
+
+      .timeline-marker-dot {
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        margin-top: 14px;
-        background: var(--agent-surface);
-        border: 2px solid var(--agent-primary);
+        background: var(--agent-primary);
+      }
+
+      .timeline-marker--pending {
+        border-color: color-mix(in srgb, var(--agent-primary) 40%, var(--agent-border));
+      }
+
+      .timeline-marker--in-progress {
+        border-color: var(--agent-primary);
+        background: var(--agent-primary-glow);
+        color: var(--agent-primary);
+      }
+
+      .timeline-marker--complete {
+        border-color: var(--nxt1-color-success, #4caf50);
+        background: color-mix(in srgb, var(--nxt1-color-success, #4caf50) 16%, transparent);
+        color: var(--nxt1-color-success, #4caf50);
+      }
+
+      .timeline-marker--problem {
+        border-color: var(--nxt1-color-warning, #ffb020);
+        background: color-mix(in srgb, var(--nxt1-color-warning, #ffb020) 16%, transparent);
+        color: var(--nxt1-color-warning, #ffb020);
       }
 
       .timeline-line {
@@ -650,6 +735,8 @@ export interface AgentXUser {
         color: var(--agent-primary);
         font-size: 11px;
         font-weight: 600;
+        white-space: nowrap;
+        flex-shrink: 0;
       }
 
       .timeline-title {
@@ -658,6 +745,11 @@ export interface AgentXUser {
         color: var(--agent-text-primary);
         margin: 0;
         line-height: 1.3;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       }
 
       .timeline-summary {
@@ -730,6 +822,7 @@ export interface AgentXUser {
       .chips-section {
         width: 100%;
         max-width: 480px;
+        margin-bottom: var(--nxt1-spacing-5, 20px);
       }
 
       .chips-label {
@@ -789,6 +882,72 @@ export interface AgentXUser {
           padding-bottom: 0;
         }
       }
+
+      /* ── Activity Log Button (Header) ── */
+      .agent-history-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border: 0;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        padding: 0;
+        background: var(--agent-surface);
+        color: var(--agent-text-secondary);
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .agent-history-action:hover {
+        background: var(--agent-surface-hover);
+        color: var(--agent-primary);
+      }
+
+      .agent-history-icon {
+        display: block;
+      }
+
+      /* ── Operations Log Slide-Over Panel ── */
+      .log-overlay-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        z-index: 999;
+        animation: log-fade-in 0.2s ease;
+      }
+
+      .log-overlay-panel {
+        position: fixed;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 420px;
+        max-width: 100vw;
+        background: var(--agent-bg, var(--nxt1-color-bg-primary, #0a0a0a));
+        border-left: 1px solid var(--agent-border);
+        z-index: 1000;
+        animation: log-slide-in 0.25s ease;
+        box-shadow: -8px 0 32px rgba(0, 0, 0, 0.2);
+      }
+
+      @keyframes log-fade-in {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+
+      @keyframes log-slide-in {
+        from { transform: translateX(100%); }
+        to { transform: translateX(0); }
+      }
+
+      @media (max-width: 480px) {
+        .log-overlay-panel {
+          width: 100vw;
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -813,6 +972,9 @@ export class AgentXShellWebComponent {
 
   /** Whether the full briefing list is expanded. */
   protected readonly isBriefingExpanded = signal(false);
+
+  /** Whether the operations log overlay panel is open. */
+  protected readonly isOperationsLogOpen = signal(false);
 
   // ============================================
   // OUTPUTS
@@ -942,11 +1104,13 @@ export class AgentXShellWebComponent {
     },
   ]);
 
-  /** Expanded timeline items in weekly playbook. */
-  protected readonly expandedPlaybookItemIds = signal<Set<string>>(new Set(['wp-1']));
+  /** Number of completed playbook tasks. */
+  protected readonly playbookCompletedCount = computed(
+    () => this.weeklyPlaybook().filter((t) => t.status === 'complete').length
+  );
 
-  /** Whether the whole weekly playbook section is expanded. */
-  protected readonly isWeeklyPlaybookOpen = signal(true);
+  /** Total number of playbook tasks. */
+  protected readonly playbookTotalCount = computed(() => this.weeklyPlaybook().length);
 
   // ============================================
   // QUICK COMMANDS (Utility Pills)
@@ -971,32 +1135,25 @@ export class AgentXShellWebComponent {
   // ============================================
 
   /**
-   * Toggle weekly timeline item expansion.
+   * Open the operations log slide-over panel.
    */
-  protected togglePlaybookItem(itemId: string): void {
-    this.expandedPlaybookItemIds.update((current) => {
-      const next = new Set(current);
-      if (next.has(itemId)) {
-        next.delete(itemId);
-      } else {
-        next.add(itemId);
-      }
-      return next;
-    });
+  protected onActivityLogClick(): void {
+    this.isOperationsLogOpen.set(true);
   }
 
   /**
-   * Toggle entire weekly playbook section visibility.
+   * Close the operations log slide-over panel.
    */
-  protected toggleWeeklyPlaybook(): void {
-    this.isWeeklyPlaybookOpen.update((value) => !value);
+  protected closeOperationsLog(): void {
+    this.isOperationsLogOpen.set(false);
   }
 
   /**
-   * Whether a weekly timeline item is expanded.
+   * Handle goal pill tap.
    */
-  protected isPlaybookExpanded(itemId: string): boolean {
-    return this.expandedPlaybookItemIds().has(itemId);
+  protected async onGoalTap(): Promise<void> {
+    this.agentX.setUserMessage('Edit Goals');
+    await this.agentX.sendMessage();
   }
 
   /**

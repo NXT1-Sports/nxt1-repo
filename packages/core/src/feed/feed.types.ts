@@ -50,14 +50,7 @@ export type FeedPostVisibility = 'public' | 'followers' | 'team' | 'private';
 /**
  * User role for post attribution.
  */
-export type FeedAuthorRole =
-  | 'athlete'
-  | 'coach'
-  | 'team'
-  | 'college_coach'
-  | 'fan'
-  | 'parent'
-  | 'official';
+export type FeedAuthorRole = 'athlete' | 'coach' | 'team' | 'recruiter' | 'parent' | 'official';
 
 /**
  * Verification status for post authors.

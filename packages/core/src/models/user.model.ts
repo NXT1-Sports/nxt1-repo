@@ -931,7 +931,8 @@ export interface CoachData {
 
 /**
  * College coach-specific data
- * Extends CoachData with college recruiting capabilities.
+ * @deprecated Use RecruiterData with recruiterType: 'college_coach' instead.
+ * Kept for backward compatibility with existing Firestore documents.
  */
 export interface CollegeCoachData extends CoachData {
   /** College/university name */
@@ -944,6 +945,42 @@ export interface CollegeCoachData extends CoachData {
   division?: string;
   /** Conference affiliation */
   conference?: string;
+}
+
+/**
+ * Recruiter-specific data (role: 'recruiter')
+ * Consolidates college coaches, scouts, and recruiting services
+ * into a single role with a sub-type discriminator.
+ */
+export interface RecruiterData {
+  /** Discriminator: what kind of recruiter */
+  recruiterType: 'college_coach' | 'independent_scout' | 'media_service';
+  /** Job title (e.g., 'Head Coach', 'Scout', 'Recruiting Director') */
+  title?: string;
+  /** Organization/institution/company name */
+  organization?: string;
+  /** For college coaches: institution name */
+  institution?: string;
+  /** NCAA Division (D1, D2, D3) or NAIA, JUCO */
+  division?: string;
+  /** Conference affiliation */
+  conference?: string;
+  /** Sports they recruit for / evaluate / cover */
+  sports?: string[];
+  /** Geographic regions they cover */
+  regions?: string[];
+  /** Professional affiliations / credentials */
+  affiliations?: string[];
+  /** Business website (for recruiting services) */
+  website?: string;
+  /** Service offerings (for recruiting services) */
+  services?: string[];
+  /** Can manage multiple athlete clients */
+  canManageAthletes?: boolean;
+  /** Athlete UIDs they manage */
+  managedAthleteIds?: string[];
+  /** Years of experience */
+  yearsExperience?: number;
 }
 
 /**
@@ -1214,19 +1251,23 @@ export interface User {
   athlete?: AthleteData;
   /** HS/Club coach-specific data - role: 'coach' */
   coach?: CoachData;
-  /** College coach-specific data - role: 'college-coach' */
-  collegeCoach?: CollegeCoachData;
   /** Athletic/Program director data - role: 'director' */
   director?: DirectorData;
-  /** Recruiting service-specific data - role: 'recruiting-service' */
-  recruitingService?: RecruitingServiceData;
-  /** Scout-specific data - role: 'scout' */
-  scout?: ScoutData;
-  /** Media-specific data - role: 'media' */
-  media?: MediaData;
+  /** Recruiter data (college coach, scout, service) - role: 'recruiter' */
+  recruiter?: RecruiterData;
   /** Parent-specific data - role: 'parent' */
   parent?: ParentData;
-  /** Fan-specific data - role: 'fan' */
+
+  // --- Legacy role data (backward compat for existing Firestore docs) ---
+  /** @deprecated Use recruiter instead */
+  collegeCoach?: CollegeCoachData;
+  /** @deprecated Use recruiter instead */
+  recruitingService?: RecruitingServiceData;
+  /** @deprecated Use recruiter instead */
+  scout?: ScoutData;
+  /** @deprecated Removed role */
+  media?: MediaData;
+  /** @deprecated Removed role */
   fan?: FanData;
 
   // ============================================
@@ -1354,8 +1395,22 @@ export function isCoach(user: User): boolean {
 }
 
 /** Check if user is a college coach with college coach data populated */
+/** @deprecated Use isRecruiter() instead */
 export function isCollegeCoach(user: User): boolean {
-  return user.role === USER_ROLES.COLLEGE_COACH && !!user.collegeCoach;
+  return user.role === USER_ROLES.RECRUITER && !!(user.recruiter || user.collegeCoach);
+}
+
+/** Check if user is a recruiter (college coach, scout, or recruiting service) */
+export function isRecruiter(user: User): boolean {
+  return (
+    user.role === USER_ROLES.RECRUITER &&
+    !!(user.recruiter || user.collegeCoach || user.recruitingService || user.scout)
+  );
+}
+
+/** Check if user is a director with director data populated */
+export function isDirector(user: User): boolean {
+  return user.role === USER_ROLES.DIRECTOR && !!user.director;
 }
 
 /** Check if user has completed onboarding */
@@ -1810,7 +1865,7 @@ export interface UserSportDoc extends UserFirestoreDoc {
   season?: string;
   /** Display order / priority (0 = primary sport). */
   order: number;
-  accountType: 'athlete' | 'coach' | 'parent' | 'scout';
+  accountType: 'athlete' | 'coach' | 'parent' | 'recruiter' | 'director';
   positions?: string[];
   classOf?: number;
   state?: string;

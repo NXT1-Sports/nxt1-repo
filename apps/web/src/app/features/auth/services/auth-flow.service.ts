@@ -505,7 +505,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               planTier: currentUser.isPremium ? 'premium' : null,
               onboardingCompleted: true, // Preserve the completed status
               completeSignUp: true,
-              isCollegeCoach: currentUser.role === 'college-coach',
+              isCollegeCoach: currentUser.role === 'recruiter',
               isRecruit: currentUser.role === 'athlete',
               profileImg: currentUser.profileImg ?? null,
               sports: [],

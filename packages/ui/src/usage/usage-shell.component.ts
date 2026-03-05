@@ -91,11 +91,9 @@ export interface UsageUser {
       <nxt1-page-header
         title="Billing & Usage"
         [showBack]="true"
-        [avatarSrc]="user()?.profileImg"
-        [avatarName]="displayName()"
         [actions]="headerActions"
         (backClick)="back.emit()"
-        (avatarClick)="avatarClick.emit()"
+        (menuClick)="avatarClick.emit()"
         (actionClick)="onHeaderAction($event)"
       />
     }

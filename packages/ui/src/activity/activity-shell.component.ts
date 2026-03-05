@@ -35,7 +35,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonContent } from '@ionic/angular/standalone';
-import { type ActivityTabId, ACTIVITY_TABS } from '@nxt1/core';
+import { type ActivityTabId, type ActivityItem, ACTIVITY_TABS } from '@nxt1/core';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import {
@@ -45,6 +45,7 @@ import {
 } from '../components/option-scroller';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { NxtBrowserService } from '../services/browser';
 import { ActivityService } from './activity.service';
 import { ActivityListComponent } from './activity-list.component';
 
@@ -71,11 +72,7 @@ export interface ActivityUser {
     <!-- Professional Page Header (Twitter/X style) -->
     <nxt1-page-header
       title="Activity"
-      leftVariant="avatar"
-      [avatarSrc]="user()?.profileImg"
-      [avatarName]="displayName()"
       [actions]="headerActions()"
-      (avatarClick)="avatarClick.emit()"
       (menuClick)="avatarClick.emit()"
       (actionClick)="onHeaderAction($event)"
     />
@@ -84,7 +81,7 @@ export interface ActivityUser {
     <nxt1-option-scroller
       [options]="tabOptions()"
       [selectedId]="activity.activeTab()"
-      [config]="{ scrollable: true, stretchToFill: false, showDivider: true }"
+      [config]="{ scrollable: false, stretchToFill: false, centered: true, showDivider: true }"
       (selectionChange)="onTabChange($event)"
     />
 
@@ -93,9 +90,9 @@ export interface ActivityUser {
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="activity-container">
-        <!-- Activity List with all states -->
+        <!-- Unified Activity List — all tabs render through the same component -->
         <nxt1-activity-list
-          [items]="activity.items()"
+          [items]="activity.unifiedItems()"
           [isLoading]="activity.isLoading()"
           [isLoadingMore]="activity.isLoadingMore()"
           [isEmpty]="activity.isEmpty()"
@@ -152,6 +149,7 @@ export class ActivityShellComponent implements OnInit {
   protected readonly activity = inject(ActivityService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ActivityShell');
+  private readonly browser = inject(NxtBrowserService);
 
   // ============================================
   // INPUTS
@@ -169,6 +167,9 @@ export class ActivityShellComponent implements OnInit {
 
   /** Emitted when a tab changes */
   readonly tabChange = output<ActivityTabId>();
+
+  /** Emitted when an activity item is clicked (for platform-specific navigation) */
+  readonly itemNavigate = output<ActivityItem>();
 
   // ============================================
   // COMPUTED PROPERTIES
@@ -202,7 +203,6 @@ export class ActivityShellComponent implements OnInit {
     return ACTIVITY_TABS.map((tab) => ({
       id: tab.id,
       label: tab.label,
-      icon: tab.icon,
       badge: badges[tab.id] ?? 0,
     }));
   });
@@ -215,7 +215,7 @@ export class ActivityShellComponent implements OnInit {
   // ============================================
 
   ngOnInit(): void {
-    // Load initial feed
+    // Load initial feed (ActivityService handles loading messages for inbox/all tabs)
     this.activity.loadFeed(this.activity.activeTab());
 
     // Load badge counts
@@ -228,6 +228,7 @@ export class ActivityShellComponent implements OnInit {
 
   /**
    * Handle tab selection change.
+   * ActivityService internally handles loading messages for inbox/all tabs.
    */
   protected async onTabChange(event: OptionScrollerChangeEvent): Promise<void> {
     const tabId = event.option.id as ActivityTabId;
@@ -247,9 +248,10 @@ export class ActivityShellComponent implements OnInit {
 
   /**
    * Handle pull-to-refresh.
+   * ActivityService handles refreshing messages + activity internally.
    */
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
-    this.logger.debug('Pull-to-refresh triggered');
+    this.logger.debug('Pull-to-refresh triggered', { tab: this.activity.activeTab() });
     await this.activity.refresh();
     event.complete();
   }
@@ -281,37 +283,41 @@ export class ActivityShellComponent implements OnInit {
    * Handle empty state CTA click.
    */
   protected onEmptyCta(): void {
-    // Navigate based on tab - apps should handle this
     this.logger.debug('Empty CTA clicked', { tab: this.activity.activeTab() });
   }
 
   /**
    * Handle item click.
+   * Emits the full ActivityItem for platform-specific navigation.
+   * Message-type items include deepLink to /messages/:id.
    */
-  protected onItemClick(item: import('@nxt1/core').ActivityItem): void {
-    this.logger.debug('Item clicked', { id: item.id, type: item.type });
+  protected onItemClick(item: ActivityItem): void {
+    this.logger.debug('Item clicked', { id: item.id, type: item.type, deepLink: item.deepLink });
 
-    // Navigation should be handled by the app wrapper
-    // based on item.deepLink or item.type
+    // Mark as read handled by ActivityItemComponent → markRead output
+    // Emit for platform-specific navigation
+    this.itemNavigate.emit(item);
   }
 
   /**
    * Handle action button click on item.
    */
-  protected onActionClick(item: import('@nxt1/core').ActivityItem): void {
+  protected onActionClick(item: ActivityItem): void {
     this.logger.debug('Item action clicked', { id: item.id, action: item.action?.id });
 
-    // Handle action based on item.action config
     if (item.action?.route) {
-      // Navigation handled by app wrapper
+      this.itemNavigate.emit(item);
     } else if (item.action?.url) {
-      // Open external URL
-      window.open(item.action.url, '_blank', 'noopener');
+      void this.browser.openLink({
+        url: item.action.url,
+        source: 'activity_action',
+      });
     }
   }
 
   /**
    * Handle mark read request.
+   * Delegates to ActivityService which handles both activity items and messages.
    */
   protected async onMarkRead(id: string): Promise<void> {
     await this.activity.markRead([id]);

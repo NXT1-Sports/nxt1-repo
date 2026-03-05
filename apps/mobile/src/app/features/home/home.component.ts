@@ -58,10 +58,8 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
     <!-- Professional Page Header with Logo (Twitter/X style) -->
     <nxt1-page-header
       [showLogo]="true"
-      [avatarSrc]="profileImg()"
-      [avatarName]="displayName()"
       [actions]="headerActions()"
-      (avatarClick)="onAvatarClick()"
+      (menuClick)="onAvatarClick()"
       (actionClick)="onHeaderAction($event)"
     />
 

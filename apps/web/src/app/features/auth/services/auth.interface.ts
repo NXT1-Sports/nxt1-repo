@@ -31,6 +31,8 @@ export interface AppUser {
   email: string;
   displayName: string;
   profileImg?: string;
+  followingCount?: number;
+  followingIds?: string[];
   role: UserRole;
   isPremium: boolean;
   hasCompletedOnboarding: boolean;

@@ -155,6 +155,8 @@ import { ActivityService } from '../../../features/activity/services/activity.se
         [tabs]="tabs()"
         [activeTabId]="activeTabId()"
         [config]="footerConfig()"
+        [profileAvatarSrc]="sidenavUser()?.avatarUrl"
+        [profileAvatarName]="sidenavUser()?.name"
         (tabSelect)="onTabSelect($event)"
         (scrollToTop)="onScrollToTop($event)"
       />

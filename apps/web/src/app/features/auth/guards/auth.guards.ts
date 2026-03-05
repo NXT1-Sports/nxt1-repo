@@ -400,7 +400,7 @@ export const emailVerificationGuard: CanActivateFn = () => {
  *   {
  *     path: 'coach-dashboard',
  *     loadComponent: () => import('./coach/dashboard.component'),
- *     canActivate: [roleGuard(['coach', 'scout'])]
+ *     canActivate: [roleGuard(['coach', 'recruiter'])]
  *   }
  * ];
  * ```

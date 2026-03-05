@@ -332,7 +332,7 @@ export class OnboardingSportStepComponent {
     if (currentRole === 'director') {
       return 'What sports do you oversee?';
     }
-    if (currentRole === 'college-coach' || currentRole === 'scout') {
+    if (currentRole === 'recruiter') {
       return 'What sports do you evaluate?';
     }
     return 'Select your sport(s).';

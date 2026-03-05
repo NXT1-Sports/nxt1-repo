@@ -39,10 +39,15 @@ import {
   ACTIVITY_DEFAULT_TAB,
   ACTIVITY_TABS,
   ACTIVITY_PAGINATION_DEFAULTS,
+  conversationsToActivityItems,
 } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { NxtBreadcrumbService } from '../services/breadcrumb';
+import { MessagesService } from '../messages/messages.service';
 // ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
 import {
   getMockActivityItems,
@@ -62,6 +67,9 @@ export class ActivityService {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ActivityService');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumbs = inject(NxtBreadcrumbService);
+  private readonly messagesService = inject(MessagesService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -87,11 +95,46 @@ export class ActivityService {
   /** Currently active tab */
   readonly activeTab = computed(() => this._activeTab());
 
+  /**
+   * Unified items for the active tab.
+   * - 'inbox': Conversations converted to ActivityItems
+   * - 'all': Merged conversations + activity items, sorted by timestamp
+   * - Other tabs: Regular activity items only
+   */
+  readonly unifiedItems = computed((): ActivityItem[] => {
+    const tab = this._activeTab();
+
+    if (tab === 'inbox') {
+      // Inbox: only conversations as ActivityItems
+      const conversations = this.messagesService.conversations();
+      return conversationsToActivityItems(conversations);
+    }
+
+    if (tab === 'all') {
+      // All: merge conversations + activity items, sorted by timestamp
+      const conversations = this.messagesService.conversations();
+      const messageItems = conversationsToActivityItems(conversations);
+      const activityItems = this._items();
+      const merged = [...messageItems, ...activityItems];
+      return merged.sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+    }
+
+    // Agent, Reactions: regular activity items only
+    return this._items();
+  });
+
   /** Badge counts per tab */
   readonly badges = computed(() => this._badges());
 
-  /** Whether initial load is in progress */
-  readonly isLoading = computed(() => this._isLoading());
+  /** Whether initial load is in progress (includes messages for inbox/all tabs) */
+  readonly isLoading = computed(() => {
+    const tab = this._activeTab();
+    if (tab === 'inbox') return this.messagesService.isLoading();
+    if (tab === 'all') return this._isLoading() || this.messagesService.isLoading();
+    return this._isLoading();
+  });
 
   /** Whether loading more items */
   readonly isLoadingMore = computed(() => this._isLoadingMore());
@@ -99,14 +142,35 @@ export class ActivityService {
   /** Whether refreshing */
   readonly isRefreshing = computed(() => this._isRefreshing());
 
-  /** Current error message */
-  readonly error = computed(() => this._error());
+  /** Current error message (includes message service errors for inbox/all tabs) */
+  readonly error = computed(() => {
+    const tab = this._activeTab();
+    const activityError = this._error();
+    const messagesError = this.messagesService.error();
+
+    if (tab === 'inbox') return messagesError;
+    if (tab === 'all') return activityError ?? messagesError;
+    return activityError;
+  });
 
   /** Current pagination info */
   readonly pagination = computed(() => this._pagination());
 
-  /** Whether the feed is empty */
-  readonly isEmpty = computed(() => this._items().length === 0 && !this._isLoading());
+  /** Whether the feed is empty (uses unified items) */
+  readonly isEmpty = computed(() => {
+    const tab = this._activeTab();
+    const isLoadingActivity = this._isLoading();
+    const isLoadingMessages = this.messagesService.isLoading();
+
+    // For tabs that include messages, check both loading states
+    if (tab === 'inbox') {
+      return this.messagesService.isEmpty() && !isLoadingMessages;
+    }
+    if (tab === 'all') {
+      return this.unifiedItems().length === 0 && !isLoadingActivity && !isLoadingMessages;
+    }
+    return this._items().length === 0 && !isLoadingActivity;
+  });
 
   /** Whether there are more items to load */
   readonly hasMore = computed(() => this._pagination()?.hasMore ?? false);
@@ -144,13 +208,32 @@ export class ActivityService {
   /**
    * Load activity feed for a tab.
    * Resets items and loads fresh data.
+   * For inbox/all tabs, also loads conversations from MessagesService.
    *
    * @param tab - Tab ID to load
    */
   async loadFeed(tab: ActivityTabId): Promise<void> {
     this._activeTab.set(tab);
-    this._items.set([]);
     this._error.set(null);
+    this.analytics?.trackEvent(APP_EVENTS.SCREEN_VIEWED, {
+      screen: 'activity',
+      tab,
+    });
+    await this.breadcrumbs.trackStateChange('activity_load_feed', { tab });
+
+    // Load messages for inbox and all tabs
+    if (tab === 'inbox' || tab === 'all') {
+      this.messagesService.loadConversations();
+    }
+
+    // Inbox tab only needs conversations — skip mock activity data
+    if (tab === 'inbox') {
+      this._items.set([]);
+      this._pagination.set(null);
+      return;
+    }
+
+    this._items.set([]);
     this._isLoading.set(true);
     this._pagination.set(null);
 
@@ -173,6 +256,11 @@ export class ActivityService {
         total,
         totalPages,
         hasMore,
+      });
+
+      this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
+        tab,
+        count: items.length,
       });
 
       await this.haptics.impact('light');
@@ -232,6 +320,7 @@ export class ActivityService {
   /**
    * Refresh current tab (pull-to-refresh).
    * Replaces all items with fresh data.
+   * For inbox/all tabs, also refreshes conversations.
    */
   async refresh(): Promise<void> {
     if (this._isRefreshing()) return;
@@ -240,6 +329,47 @@ export class ActivityService {
     const tab = this._activeTab();
 
     this.logger.debug('Refreshing activity feed', { tab });
+    await this.breadcrumbs.trackStateChange('activity_refresh_start', { tab });
+
+    // For inbox tab — only refresh messages
+    if (tab === 'inbox') {
+      try {
+        await this.messagesService.refresh();
+        await this.haptics.notification('success');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to refresh';
+        this.toast.error(message);
+        this.logger.error('Failed to refresh messages', err, { tab });
+      } finally {
+        this._isRefreshing.set(false);
+      }
+      return;
+    }
+
+    // For all tab — refresh both in parallel
+    if (tab === 'all') {
+      try {
+        const [, activityResult] = await Promise.allSettled([
+          this.messagesService.refresh(),
+          this.refreshActivityData(),
+        ]);
+        if (activityResult.status === 'rejected') {
+          throw activityResult.reason;
+        }
+        this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
+          tab,
+          action: 'refresh',
+        });
+        await this.haptics.notification('success');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to refresh';
+        this.toast.error(message);
+        this.logger.error('Failed to refresh combined feed', err, { tab });
+      } finally {
+        this._isRefreshing.set(false);
+      }
+      return;
+    }
 
     // ⚠️ TEMPORARY: Using mock data instead of API call
     try {
@@ -272,19 +402,33 @@ export class ActivityService {
 
   /**
    * Mark specific items as read.
+   * For message-type items, delegates to MessagesService.
    *
    * @param ids - Item IDs to mark as read
    */
   async markRead(ids: string[]): Promise<void> {
     if (ids.length === 0) return;
 
-    // Optimistic update
+    // Separate message IDs (prefixed with "msg-") from regular activity IDs
+    const messageIds = ids
+      .filter((id) => id.startsWith('msg-'))
+      .map((id) => id.replace('msg-', ''));
+    const activityIds = ids.filter((id) => !id.startsWith('msg-'));
+
+    // Mark message conversations as read via MessagesService
+    for (const msgId of messageIds) {
+      this.messagesService.markAsRead(msgId);
+    }
+
+    if (activityIds.length === 0) return;
+
+    // Optimistic update for activity items
     const previousItems = this._items();
     this._items.update((items) =>
-      items.map((item) => (ids.includes(item.id) ? { ...item, isRead: true } : item))
+      items.map((item) => (activityIds.includes(item.id) ? { ...item, isRead: true } : item))
     );
 
-    this.logger.debug('Marking items as read', { count: ids.length });
+    this.logger.debug('Marking items as read', { count: activityIds.length });
 
     // ⚠️ TEMPORARY: Mock implementation without API call
     try {
@@ -293,11 +437,17 @@ export class ActivityService {
 
       // Update badge count
       const tab = this._activeTab();
-      const newUnreadCount = getMockUnreadCount(tab) - ids.length;
+      const newUnreadCount = getMockUnreadCount(tab) - activityIds.length;
       this._badges.update((badges) => ({
         ...badges,
         [tab]: Math.max(0, newUnreadCount),
       }));
+
+      this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
+        tab,
+        action: 'mark_read',
+        count: activityIds.length,
+      });
 
       await this.haptics.impact('light');
     } catch (err) {
@@ -323,6 +473,10 @@ export class ActivityService {
     this._items.update((items) => items.map((item) => ({ ...item, isRead: true })));
 
     this.logger.debug('Marking all as read', { tab, count: unreadCount });
+    await this.breadcrumbs.trackStateChange('activity_mark_all_read', {
+      tab,
+      count: unreadCount,
+    });
 
     // ⚠️ TEMPORARY: Mock implementation without API call
     try {
@@ -334,6 +488,11 @@ export class ActivityService {
         ...badges,
         [tab]: 0,
       }));
+
+      this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
+        tab,
+        action: 'mark_all_read',
+      });
 
       this.toast.success('All marked as read');
       await this.haptics.notification('success');
@@ -357,11 +516,19 @@ export class ActivityService {
     this._items.update((items) => items.filter((item) => item.id !== id));
 
     this.logger.debug('Archiving item', { id });
+    await this.breadcrumbs.trackUserAction('activity_archive', {
+      id,
+      tab: this._activeTab(),
+    });
 
     // ⚠️ TEMPORARY: Mock implementation without API call
     try {
       // Simulate network delay
       await new Promise((resolve) => setTimeout(resolve, 200));
+      this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
+        tab: this._activeTab(),
+        action: 'archive',
+      });
       await this.haptics.impact('medium');
     } catch (err) {
       // Rollback on failure
@@ -391,6 +558,8 @@ export class ActivityService {
   async switchTab(tab: ActivityTabId): Promise<void> {
     if (tab === this._activeTab()) return;
 
+    this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, { tab, source: 'activity_tabs' });
+    await this.breadcrumbs.trackStateChange('activity_tab_changed', { tab });
     await this.haptics.impact('light');
     await this.loadFeed(tab);
   }
@@ -400,5 +569,35 @@ export class ActivityService {
    */
   clearError(): void {
     this._error.set(null);
+    this.messagesService.clearError();
+  }
+
+  // ============================================
+  // PRIVATE HELPERS
+  // ============================================
+
+  /**
+   * Refresh only the activity data (not messages).
+   * Used internally by refresh() for parallel refresh on 'all' tab.
+   * ⚠️ TEMPORARY: Using mock data
+   */
+  private async refreshActivityData(): Promise<void> {
+    const tab = this._activeTab();
+
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const items = getMockActivityItems(tab, 1, ACTIVITY_PAGINATION_DEFAULTS.pageSize);
+    const total = getMockItemCount(tab);
+    const totalPages = Math.ceil(total / ACTIVITY_PAGINATION_DEFAULTS.pageSize);
+    const hasMore = items.length < total;
+
+    this._items.set(items);
+    this._pagination.set({
+      page: 1,
+      limit: ACTIVITY_PAGINATION_DEFAULTS.pageSize,
+      total,
+      totalPages,
+      hasMore,
+    });
   }
 }

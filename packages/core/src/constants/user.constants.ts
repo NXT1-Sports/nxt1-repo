@@ -17,16 +17,36 @@
 export const USER_ROLES = {
   ATHLETE: 'athlete',
   COACH: 'coach',
-  COLLEGE_COACH: 'college-coach',
   DIRECTOR: 'director',
-  RECRUITING_SERVICE: 'recruiting-service',
-  SCOUT: 'scout',
-  MEDIA: 'media',
+  RECRUITER: 'recruiter',
   PARENT: 'parent',
-  FAN: 'fan',
+
+  // ============================================
+  // LEGACY ALIASES (backward compatibility)
+  // These map to the 5 core roles above.
+  // Existing Firestore documents may still have these values.
+  // Use the core roles above for all new code.
+  // ============================================
+  /** @deprecated Use RECRUITER instead */
+  COLLEGE_COACH: 'recruiter',
+  /** @deprecated Use RECRUITER instead */
+  RECRUITING_SERVICE: 'recruiter',
+  /** @deprecated Use RECRUITER instead */
+  SCOUT: 'recruiter',
+  /** @deprecated Removed — assign ATHLETE, PARENT, or RECRUITER */
+  MEDIA: 'recruiter',
+  /** @deprecated Removed — assign ATHLETE or PARENT */
+  FAN: 'athlete',
 } as const;
 
-export type UserRole = (typeof USER_ROLES)[keyof typeof USER_ROLES];
+export type UserRole = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent';
+
+/**
+ * Sub-type for the 'recruiter' role.
+ * Stored on the user's recruiterData object to distinguish
+ * college coaches from independent scouts and services.
+ */
+export type RecruiterType = 'college_coach' | 'independent_scout' | 'media_service';
 
 export interface RoleConfig {
   id: UserRole;
@@ -49,59 +69,54 @@ export const ROLE_CONFIGS: readonly RoleConfig[] = [
   {
     id: 'coach',
     label: 'Coach',
-    description: 'High school or club coach',
+    description: 'High school, club, or travel coach',
     icon: '🏆',
     canManageAthletes: true,
   },
   {
-    id: 'college-coach',
-    label: 'College Coach',
-    description: 'College coach recruiting athletes',
-    icon: '🎓',
-    canRecruit: true,
-  },
-  {
     id: 'director',
-    label: 'Athletic Director',
+    label: 'Director',
     description: 'Athletic director or program administrator',
     icon: '📋',
     canManageAthletes: true,
   },
   {
-    id: 'scout',
-    label: 'Scout',
-    description: 'Professional scout evaluating athletes',
+    id: 'recruiter',
+    label: 'Recruiter',
+    description: 'College coach, scout, or recruiting service',
     icon: '🔍',
     canRecruit: true,
   },
   {
-    id: 'recruiting-service',
-    label: 'Recruiting Service',
-    description: 'Professional recruiting service helping athletes get recruited',
-    icon: '🎯',
-    canRecruit: true,
-    canManageAthletes: true,
-  },
-  {
-    id: 'media',
-    label: 'Media',
-    description: 'Journalist, photographer, or content creator',
-    icon: '📰',
-  },
-  {
     id: 'parent',
-    label: 'Parent/Guardian',
-    description: 'Parent managing athlete profile',
+    label: 'Parent / Guardian',
+    description: 'Supporting an athlete',
     icon: '👨‍👩‍👧',
     canManageAthletes: true,
   },
-  {
-    id: 'fan',
-    label: 'Fan',
-    description: 'Following athletes and teams',
-    icon: '📣',
-  },
 ] as const;
+
+/**
+ * Normalize any legacy role string to a core 5-role UserRole.
+ * Handles old Firestore documents that still have 'college-coach', 'scout', etc.
+ */
+export function normalizeRole(role: string): UserRole {
+  const legacyMap: Record<string, UserRole> = {
+    athlete: 'athlete',
+    coach: 'coach',
+    director: 'director',
+    recruiter: 'recruiter',
+    parent: 'parent',
+    // Legacy mappings
+    'college-coach': 'recruiter',
+    scout: 'recruiter',
+    'recruiting-service': 'recruiter',
+    media: 'recruiter',
+    fan: 'athlete',
+    service: 'recruiter',
+  };
+  return legacyMap[role] ?? 'athlete';
+}
 
 // ============================================
 // PROFILE TEMPLATES

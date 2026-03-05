@@ -54,17 +54,7 @@ export interface ProfileTab {
 /**
  * User role types in the platform.
  */
-export type ProfileUserRole =
-  | 'athlete'
-  | 'coach'
-  | 'college-coach'
-  | 'director'
-  | 'recruiting-service'
-  | 'scout'
-  | 'media'
-  | 'parent'
-  | 'fan'
-  | 'team';
+export type ProfileUserRole = 'athlete' | 'coach' | 'director' | 'recruiter' | 'parent' | 'team';
 
 /**
  * Verification status for profiles.

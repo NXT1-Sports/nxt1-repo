@@ -16,7 +16,6 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
-import { Router } from '@angular/router';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import {
   ActivityShellComponent,
@@ -24,7 +23,7 @@ import {
   NxtLoggingService,
   type ActivityUser,
 } from '@nxt1/ui';
-import type { ActivityTabId } from '@nxt1/core';
+import type { ActivityTabId, ActivityItem } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 
 @Component({
@@ -40,6 +39,7 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
         [user]="userInfo()"
         (avatarClick)="onAvatarClick()"
         (tabChange)="onTabChange($event)"
+        (itemNavigate)="onItemNavigate($event)"
       />
     </ion-content>
   `,
@@ -77,7 +77,6 @@ export class ActivityComponent {
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly navController = inject(NavController);
-  private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
 
   /**
@@ -105,7 +104,22 @@ export class ActivityComponent {
    */
   protected onTabChange(tab: ActivityTabId): void {
     this.logger.debug('Activity tab changed', { tab });
-    // In production: track analytics event
-    // this.analytics.track('activity_tab_change', { tab });
+  }
+
+  /**
+   * Handle item navigation — route based on item type and deepLink.
+   * Uses NavController for native page transitions.
+   */
+  protected onItemNavigate(item: ActivityItem): void {
+    if (item.deepLink) {
+      this.logger.debug('Navigating to item', {
+        id: item.id,
+        type: item.type,
+        deepLink: item.deepLink,
+      });
+      this.navController.navigateForward(item.deepLink);
+    } else {
+      this.logger.debug('Item clicked without deepLink', { id: item.id, type: item.type });
+    }
   }
 }

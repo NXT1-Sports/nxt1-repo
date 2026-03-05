@@ -214,39 +214,16 @@ export const TEST_PROFILES: Record<UserRole, TestProfile> = {
     displayName: 'Parent Test',
     childName: 'Test Athlete Jr',
   },
-  scout: {
-    role: 'scout',
-    displayName: 'Scout Test',
-    organization: 'Test Scouting Agency',
-    sport: 'Basketball',
-  },
-  'recruiting-service': {
-    role: 'recruiting-service',
-    displayName: 'Recruiting Service Test',
-    organization: 'Test Recruiting Services LLC',
-    sport: 'Basketball',
-  },
-  media: {
-    role: 'media',
-    displayName: 'Media Test',
-    outlet: 'Test Sports Network',
-    sport: 'Basketball',
+  recruiter: {
+    role: 'recruiter',
+    displayName: 'Recruiter Test',
+    organization: 'Test University',
+    sport: 'Football',
   },
   director: {
     role: 'director',
     displayName: 'Director Test',
     organization: 'Test High School',
-  },
-  'college-coach': {
-    role: 'college-coach',
-    displayName: 'College Coach Test',
-    organization: 'Test University',
-    sport: 'Football',
-  },
-  fan: {
-    role: 'fan',
-    displayName: 'Fan Test',
-    sport: 'Basketball',
   },
 } as const;
 

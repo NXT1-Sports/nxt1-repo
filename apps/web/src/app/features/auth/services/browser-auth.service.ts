@@ -187,6 +187,17 @@ export class BrowserAuthService implements IAuthService {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (profile as any).completeSignUp === true;
 
+      const profileRecord = profile as unknown as Record<string, unknown>;
+      const followingCount =
+        typeof profileRecord['followingCount'] === 'number'
+          ? profileRecord['followingCount']
+          : undefined;
+      const followingIds = Array.isArray(profileRecord['following'])
+        ? profileRecord['following'].filter(
+            (item: unknown): item is string => typeof item === 'string'
+          )
+        : undefined;
+
       this._user.set({
         uid: firebaseUser.uid,
         email: profile.email ?? firebaseUser.email ?? '',
@@ -194,6 +205,8 @@ export class BrowserAuthService implements IAuthService {
           (profile.displayName ?? `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim()) ||
           (firebaseUser.displayName ?? 'User'),
         profileImg: profile.profileImg ?? firebaseUser.photoURL ?? undefined,
+        followingCount,
+        followingIds,
         role: (profile.role as UserRole) ?? 'athlete',
         isPremium: false, // extend when backend exposes isPremium
         hasCompletedOnboarding,

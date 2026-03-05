@@ -81,10 +81,10 @@ export class ConversationComponent {
   /** Conversation ID from route parameter */
   readonly conversationId = input.required<string>();
 
-  /** Navigate back to messages list */
+  /** Navigate back to activity */
   protected async onBack(): Promise<void> {
     await this.haptics.impact('light');
-    await this.navController.navigateBack('/messages');
+    await this.navController.navigateBack('/activity');
   }
 
   /** Open conversation info/details */

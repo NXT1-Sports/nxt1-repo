@@ -20,7 +20,7 @@ import { Router } from '@angular/router';
 import { ActivityShellComponent, type ActivityUser } from '@nxt1/ui/activity';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import type { ActivityTabId } from '@nxt1/core';
+import type { ActivityTabId, ActivityItem } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 
@@ -33,6 +33,7 @@ import { SeoService } from '../../core/services';
       [user]="userInfo()"
       (avatarClick)="onAvatarClick()"
       (tabChange)="onTabChange($event)"
+      (itemNavigate)="onItemNavigate($event)"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -78,7 +79,22 @@ export class ActivityComponent implements OnInit {
    */
   protected onTabChange(tab: ActivityTabId): void {
     this.logger.debug('Activity tab changed', { tab });
-    // In production: track analytics event
-    // this.analytics.track('activity_tab_change', { tab });
+  }
+
+  /**
+   * Handle item navigation — route based on item type and deepLink.
+   * Message items navigate to /messages/:id, others use deepLink.
+   */
+  protected onItemNavigate(item: ActivityItem): void {
+    if (item.deepLink) {
+      this.logger.debug('Navigating to item', {
+        id: item.id,
+        type: item.type,
+        deepLink: item.deepLink,
+      });
+      this.router.navigateByUrl(item.deepLink);
+    } else {
+      this.logger.debug('Item clicked without deepLink', { id: item.id, type: item.type });
+    }
   }
 }

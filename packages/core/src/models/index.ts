@@ -98,6 +98,7 @@ export {
   type CoachData,
   type CollegeCoachData,
   type DirectorData,
+  type RecruiterData,
   type ScoutData,
   type RecruitingServiceData,
   type MediaData,
@@ -113,6 +114,8 @@ export {
   isAthlete,
   isCoach,
   isCollegeCoach,
+  isRecruiter,
+  isDirector,
   isOnboarded,
   isVerified,
   // Helper functions

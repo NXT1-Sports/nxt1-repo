@@ -84,11 +84,9 @@ import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/pag
     @if (!hideHeader()) {
       <nxt1-page-header
         title="XP"
-        [avatarSrc]="avatarSrc()"
-        [avatarName]="avatarName()"
         [showBack]="showBack()"
         [actions]="headerActions()"
-        (avatarClick)="avatarClick.emit()"
+        (menuClick)="avatarClick.emit()"
         (backClick)="back.emit()"
         (actionClick)="onHeaderAction($event)"
       />

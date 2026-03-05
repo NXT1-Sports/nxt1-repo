@@ -25,29 +25,19 @@ export const ACTIVITY_TABS: readonly ActivityTab[] = [
     icon: 'layers-outline',
   },
   {
-    id: 'notifications',
-    label: 'Notifications',
-    icon: 'notifications-outline',
+    id: 'inbox',
+    label: 'Inbox',
+    icon: 'mail-outline',
   },
   {
-    id: 'deals',
-    label: 'Deals',
-    icon: 'pricetag-outline',
-  },
-  {
-    id: 'mentions',
-    label: 'Mentions',
-    icon: 'at-outline',
-  },
-  {
-    id: 'system',
-    label: 'System',
-    icon: 'settings-outline',
-  },
-  {
-    id: 'updates',
-    label: 'Updates',
+    id: 'agent',
+    label: 'Agent',
     icon: 'sparkles-outline',
+  },
+  {
+    id: 'reactions',
+    label: 'Reactions',
+    icon: 'heart-outline',
   },
 ] as const;
 
@@ -169,31 +159,23 @@ export const ACTIVITY_EMPTY_STATES: Record<
     icon: 'checkmark-done-outline',
     ctaLabel: 'Explore athletes',
   },
-  notifications: {
-    title: 'No notifications yet',
-    message: 'Likes, comments, and follows will appear here.',
-    icon: 'notifications-outline',
+  inbox: {
+    title: 'No messages yet',
+    message: 'Notifications, messages, and direct alerts will appear here.',
+    icon: 'mail-outline',
     ctaLabel: 'Explore athletes',
   },
-  deals: {
-    title: 'No deals available',
-    message: 'Check back soon for exclusive offers and promotions!',
-    icon: 'pricetag-outline',
-  },
-  mentions: {
-    title: 'No mentions yet',
-    message: 'When someone mentions you, it will show up here.',
-    icon: 'at-outline',
-  },
-  system: {
-    title: 'All caught up!',
-    message: 'System updates and announcements will appear here.',
-    icon: 'checkmark-circle-outline',
-  },
-  updates: {
-    title: 'No new updates',
-    message: 'Product updates and new features will be announced here.',
+  agent: {
+    title: 'No Agent X activity',
+    message: 'AI operations, task updates, and Agent X results will show up here.',
     icon: 'sparkles-outline',
+    ctaLabel: 'Open Agent X',
+  },
+  reactions: {
+    title: 'No reactions yet',
+    message: 'Likes, comments, follows, and mentions will appear here.',
+    icon: 'heart-outline',
+    ctaLabel: 'Create a post',
   },
 } as const;
 

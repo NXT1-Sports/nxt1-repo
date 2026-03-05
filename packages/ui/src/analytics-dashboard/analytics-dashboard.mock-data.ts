@@ -201,11 +201,11 @@ export const MOCK_GEO_DISTRIBUTION: GeoDistribution[] = [
 
 export const MOCK_VIEWER_TYPES: readonly AnalyticsViewerBreakdown[] = [
   {
-    type: 'college-coach' as const,
-    label: 'College Coaches',
-    count: 142,
-    percentage: 5.0,
-    trend: createTrend(142, 34.2),
+    type: 'recruiter' as const,
+    label: 'Recruiters',
+    count: 209,
+    percentage: 7.3,
+    trend: createTrend(209, 28.4),
   },
   {
     type: 'athlete' as const,
@@ -222,15 +222,8 @@ export const MOCK_VIEWER_TYPES: readonly AnalyticsViewerBreakdown[] = [
     trend: createTrend(423, 8.1),
   },
   {
-    type: 'scout' as const,
-    label: 'Scouts',
-    count: 67,
-    percentage: 2.4,
-    trend: createTrend(67, 15.5),
-  },
-  {
-    type: 'fan' as const,
-    label: 'Fans',
+    type: 'coach' as const,
+    label: 'Coaches',
     count: 589,
     percentage: 20.7,
     trend: createTrend(589, -3.2),
