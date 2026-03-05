@@ -8,6 +8,7 @@
 
 import type { TeamCode } from '@nxt1/core/models';
 import { ROLE } from '@nxt1/core/models';
+import type { TeamEvent } from '@nxt1/core/models';
 import type {
   TeamProfilePageData,
   TeamProfileTeam,
@@ -15,7 +16,13 @@ import type {
   TeamProfileStaffMember,
   TeamProfileFollowStats,
   TeamProfileQuickStats,
+  TeamProfilePost,
+  TeamProfilePostType,
+  TeamProfileScheduleEvent,
+  TeamProfileStatsCategory,
+  TeamProfileRecruitingActivity,
 } from '@nxt1/core/team-profile';
+import type { NewsArticle } from '@nxt1/core';
 import { getUsersByIds, type UserData } from './users.service.js';
 import { logger } from '../utils/logger.js';
 
@@ -291,6 +298,196 @@ function generateFollowStats(): TeamProfileFollowStats {
 }
 
 /**
+ * Fetch team schedule events from the TeamEvents collection
+ */
+async function fetchTeamSchedule(
+  teamId: string,
+  firestore: FirebaseFirestore.Firestore,
+  limit = 50
+): Promise<TeamProfileScheduleEvent[]> {
+  if (!teamId) return [];
+
+  try {
+    const snapshot = await firestore.collection('TeamEvents').where('teamId', '==', teamId).get();
+
+    if (snapshot.empty) {
+      logger.info('[team-profile-mapper] No schedule events found for team', { teamId });
+      return [];
+    }
+
+    // Sort in-memory by date asc (upcoming first), avoid composite index
+    const sortedDocs = snapshot.docs
+      .sort((a, b) => {
+        const aDate = a.data()['date'] ?? '';
+        const bDate = b.data()['date'] ?? '';
+        return aDate.localeCompare(bDate);
+      })
+      .slice(0, limit);
+
+    const events: TeamProfileScheduleEvent[] = sortedDocs.map((doc) => {
+      // Cast Firestore data to TeamEvent (includes doc id)
+      const raw = doc.data() as Partial<TeamEvent>;
+
+      const result = raw.result
+        ? {
+            teamScore: raw.result.teamScore ?? 0,
+            opponentScore: raw.result.opponentScore ?? 0,
+            outcome: raw.result.outcome ?? 'tie',
+            overtime: raw.result.overtime ?? false,
+          }
+        : undefined;
+
+      return {
+        id: doc.id,
+        type: raw.type ?? 'game',
+        name: raw.name,
+        opponent: raw.opponent,
+        opponentLogoUrl: raw.opponentLogoUrl,
+        date: raw.date ?? new Date().toISOString(),
+        time: raw.time,
+        location: raw.location,
+        isHome: raw.isHome ?? true,
+        result,
+        status: raw.status ?? 'upcoming',
+      } satisfies TeamProfileScheduleEvent;
+    });
+
+    logger.info('[team-profile-mapper] Fetched team schedule', { teamId, count: events.length });
+    return events;
+  } catch (error) {
+    logger.error('[team-profile-mapper] Failed to fetch team schedule', { teamId, error });
+    return [];
+  }
+}
+
+/**
+ * Map raw Firestore post type string to TeamProfilePostType
+ */
+function toTeamPostType(raw: string): TeamProfilePostType {
+  const allowed: TeamProfilePostType[] = [
+    'video',
+    'image',
+    'text',
+    'highlight',
+    'news',
+    'announcement',
+  ];
+  return allowed.includes(raw as TeamProfilePostType) ? (raw as TeamProfilePostType) : 'text';
+}
+
+/**
+ * Fetch team posts from the Posts collection (shared with the feed)
+ * Looks for documents with teamId == teamCode.id, ordered by createdAt desc
+ */
+async function fetchTeamPosts(
+  teamId: string,
+  firestore: FirebaseFirestore.Firestore,
+  limit = 20
+): Promise<TeamProfilePost[]> {
+  if (!teamId) return [];
+
+  try {
+    const snapshot = await firestore.collection('Posts').where('teamId', '==', teamId).get();
+
+    if (snapshot.empty) {
+      logger.info('[team-profile-mapper] No posts found for team', { teamId });
+      return [];
+    }
+
+    // Sort in-memory (newest first) to avoid a composite Firestore index requirement
+    const sortedDocs = snapshot.docs
+      .sort((a, b) => {
+        const aMs = (a.data()['createdAt']?.toMillis?.() as number) ?? 0;
+        const bMs = (b.data()['createdAt']?.toMillis?.() as number) ?? 0;
+        return bMs - aMs;
+      })
+      .slice(0, limit);
+
+    const posts: TeamProfilePost[] = sortedDocs.map((doc) => {
+      const d = doc.data();
+      const createdAt: string =
+        d['createdAt']?.toDate?.()?.toISOString?.() ?? new Date().toISOString();
+
+      const post: TeamProfilePost = {
+        id: doc.id,
+        type: toTeamPostType(d['type'] ?? 'text'),
+        title: d['title'] ?? undefined,
+        body: d['content'] ?? undefined,
+        thumbnailUrl:
+          Array.isArray(d['images']) && d['images'].length > 0
+            ? d['images'][0]
+            : (d['thumbnailUrl'] ?? undefined),
+        mediaUrl: d['videoUrl'] ?? d['mediaUrl'] ?? undefined,
+        externalLink:
+          Array.isArray(d['externalLinks']) && d['externalLinks'].length > 0
+            ? d['externalLinks'][0]
+            : undefined,
+        likeCount: d['stats']?.likes ?? 0,
+        commentCount: d['stats']?.comments ?? 0,
+        shareCount: d['stats']?.shares ?? 0,
+        viewCount: d['stats']?.views ?? 0,
+        duration: d['duration'] ?? undefined,
+        isPinned: d['isPinned'] ?? false,
+        createdAt,
+      };
+
+      return post;
+    });
+
+    logger.info('[team-profile-mapper] Fetched team posts', {
+      teamId,
+      count: posts.length,
+    });
+
+    return posts;
+  } catch (error) {
+    logger.error('[team-profile-mapper] Failed to fetch team posts', { teamId, error });
+    return [];
+  }
+}
+
+/**
+ * Fetch team news articles from the News collection (type==='team' documents).
+ */
+async function fetchTeamNews(
+  teamId: string,
+  firestore: FirebaseFirestore.Firestore,
+  limit = 10
+): Promise<NewsArticle[]> {
+  if (!teamId) return [];
+  try {
+    const snapshot = await firestore
+      .collection('News')
+      .where('teamId', '==', teamId)
+      .where('type', '==', 'team')
+      .get();
+    if (snapshot.empty) {
+      logger.info('[team-profile-mapper] No news articles found for team', { teamId });
+      return [];
+    }
+    const articles = snapshot.docs
+      .sort((a, b) => {
+        const aTime = String(a.data()['publishedAt'] ?? '');
+        const bTime = String(b.data()['publishedAt'] ?? '');
+        return bTime.localeCompare(aTime);
+      })
+      .slice(0, limit)
+      .map((doc) => {
+        const d = doc.data();
+        return { id: doc.id, ...d } as NewsArticle;
+      });
+    logger.info('[team-profile-mapper] Fetched team news articles', {
+      teamId,
+      count: articles.length,
+    });
+    return articles;
+  } catch (error) {
+    logger.error('[team-profile-mapper] Failed to fetch team news', { teamId, error });
+    return [];
+  }
+}
+
+/**
  * Generate quick stats
  */
 function generateQuickStats(teamCode: TeamCode): TeamProfileQuickStats {
@@ -360,10 +557,21 @@ export async function mapTeamCodeToProfile(
   });
   const members = teamCode.memberIds ? await fetchUsersByIds(teamCode.memberIds, firestore) : [];
 
-  // Helper to check if user is athlete/roster member
-  // Athletes: role is "athlete", "player", or "roster"
-  // Staff: everyone else (coach, admin, media, etc.)
+  // Helper to check if user is athlete/roster member.
+  // Priority: role in TeamCode.members array (if present) → fallback to User doc role.
+  // Athletes: 'Athlete' | 'athlete' | 'player'
+  // Staff: 'Coach' | 'Administrative' | 'Media' | 'admin' | 'coach' | 'media'
+  const memberRoleMap = new Map<string, string>();
+  for (const m of teamCode.members ?? []) {
+    if (m.id) memberRoleMap.set(m.id, (m.role || '').toLowerCase());
+  }
+
   const isAthlete = (user: UserData) => {
+    const teamRole = memberRoleMap.get(user.id || '');
+    if (teamRole) {
+      return teamRole === 'athlete' || teamRole === 'player';
+    }
+    // Fallback: use User doc's own role field
     const role = ((user as any).role || '').toLowerCase();
     return role === 'athlete' || role === 'player';
   };
@@ -394,16 +602,33 @@ export async function mapTeamCodeToProfile(
   const isMember = isUserTeamMember(teamCode, userId);
   const canEdit = isTeamAdmin;
 
+  // Posts — fetch from shared Posts collection using teamId
+  const recentPosts = firestore ? await fetchTeamPosts(teamCode.id || '', firestore) : [];
+
+  // News articles — fetch from News collection (type==='team' documents)
+  const newsArticles = firestore ? await fetchTeamNews(teamCode.id || '', firestore) : [];
+
+  // Schedule — fetch from TeamEvents collection
+  const schedule = firestore ? await fetchTeamSchedule(teamCode.id || '', firestore) : [];
+
+  // Update quick stats with real post count
+  const finalQuickStats: TeamProfileQuickStats = {
+    ...quickStats,
+    totalPosts: recentPosts.length,
+    eventCount: schedule.length,
+  };
+
   return {
     team,
     roster,
     staff,
     followStats,
-    quickStats,
-    schedule: [], // TODO: Implement schedule
-    stats: [], // TODO: Implement stats
-    recentPosts: [], // TODO: Implement posts
-    recruitingActivity: [], // TODO: Implement recruiting
+    quickStats: finalQuickStats,
+    schedule,
+    stats: (teamCode.statsCategories ?? []) as TeamProfileStatsCategory[],
+    recentPosts,
+    newsArticles,
+    recruitingActivity: (teamCode.recruitingActivities ?? []) as TeamProfileRecruitingActivity[],
     isTeamAdmin,
     isMember,
     canEdit,

@@ -76,10 +76,30 @@ import { TeamProfileService } from '../team-profile.service';
                 }
               </div>
               <div class="roster-card__info">
-                <h3 class="roster-card__name">
-                  {{ member.displayName ?? member.firstName + ' ' + member.lastName }}
-                </h3>
-                <p class="roster-card__position">{{ member.position ?? '' }}</p>
+                <div class="roster-card__name-row">
+                  <h3 class="roster-card__name">
+                    {{ member.displayName ?? member.firstName + ' ' + member.lastName }}
+                  </h3>
+                  @if (member.jerseyNumber) {
+                    <span class="roster-card__jersey">#{{ member.jerseyNumber }}</span>
+                  }
+                </div>
+                @if (member.position) {
+                  <p class="roster-card__position">{{ member.position }}</p>
+                }
+                @if (member.height || member.weight) {
+                  <p class="roster-card__measurables">
+                    @if (member.height) {
+                      <span>{{ member.height }}</span>
+                    }
+                    @if (member.height && member.weight) {
+                      <span class="roster-card__sep">·</span>
+                    }
+                    @if (member.weight) {
+                      <span>{{ member.weight }}</span>
+                    }
+                  </p>
+                }
                 @if (member.classYear) {
                   <p class="roster-card__class">Class of {{ member.classYear }}</p>
                 }
@@ -198,7 +218,36 @@ import { TeamProfileService } from '../team-profile.service';
       .roster-card__image ::ng-deep img {
         width: 100%;
         height: 100%;
-        object-fit: cover;
+      }
+
+      /* ─── CARD INFO ─── */
+      .roster-card__name-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 6px;
+      }
+
+      .roster-card__jersey {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--m-accent, #d4ff00);
+        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      .roster-card__measurables {
+        font-size: 11px;
+        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+        margin: 2px 0 0;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .roster-card__sep {
+        opacity: 0.4;
       }
 
       .roster-card__placeholder {
@@ -347,7 +396,9 @@ export class TeamRosterWebComponent {
       return sorted;
     }
 
-    return sorted.filter((m) => m.classYear === sideTab);
+    // Side tab id is 'class-{year}' (e.g. 'class-2027'), member.classYear is '{year}' (e.g. '2027')
+    const yearFilter = sideTab.startsWith('class-') ? sideTab.slice(6) : sideTab;
+    return sorted.filter((m) => m.classYear === yearFilter);
   });
 
   // ============================================

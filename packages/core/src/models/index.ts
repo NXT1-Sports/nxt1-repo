@@ -41,6 +41,16 @@ export {
   type BulkUpdateResult,
 } from './team-code.model';
 
+// Team event model (Firestore: TeamEvents collection)
+export {
+  type TeamEventType,
+  type TeamEventStatus,
+  type TeamEventOutcome,
+  type TeamEventResult,
+  type TeamEventDoc,
+  type TeamEvent,
+} from './team-event.model';
+
 // User model - Core types (use these)
 export {
   USER_SCHEMA_VERSION,

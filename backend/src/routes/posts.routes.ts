@@ -14,20 +14,14 @@ import { CreatePostDto, CreateCommentDto } from '../dtos/common.dto.js';
 import { logger } from '../utils/logger.js';
 
 // Import from @nxt1/core
-import { validationError, notFoundError, forbiddenError } from '@nxt1/core/errors';
+import { notFoundError, forbiddenError } from '@nxt1/core/errors';
 import {
   PostVisibility,
   POSTS_COLLECTIONS,
   POSTS_CACHE_PREFIX,
   POSTS_CACHE_TTL,
 } from '@nxt1/core/constants';
-import type {
-  GetFeedQuery,
-  GetCommentsQuery,
-  FeedCursor,
-  FeedPost,
-  FeedComment,
-} from '@nxt1/core/feed';
+import type { GetCommentsQuery, FeedPost, FeedComment } from '@nxt1/core/feed';
 import { sanitizeContent, extractHashtags, extractMentions } from '@nxt1/core/validation';
 import { getCacheService } from '../services/cache.service.js';
 import type {
@@ -47,41 +41,11 @@ const router: ExpressRouter = Router();
 // ============================================
 // CACHE CONFIGURATION (from @nxt1/core)
 // ============================================
-const {
-  FEED: CACHE_TTL_FEED,
-  POST: CACHE_TTL_POST,
-  COMMENTS: CACHE_TTL_COMMENTS,
-} = POSTS_CACHE_TTL;
+const { POST: CACHE_TTL_POST, COMMENTS: CACHE_TTL_COMMENTS } = POSTS_CACHE_TTL;
 
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
-
-/**
- * Build cache key for feed
- */
-function buildFeedCacheKey(
-  visibility: PostVisibility,
-  teamId: string | undefined,
-  limit: number
-): string {
-  return `${POSTS_CACHE_PREFIX}feed:${visibility}:${teamId || 'all'}:${limit}`;
-}
-
-/**
- * Build next cursor for pagination
- */
-function buildNextCursor(posts: FeedPost[]): string | undefined {
-  if (posts.length === 0) return undefined;
-
-  const lastPost = posts[posts.length - 1];
-  const cursor: FeedCursor = {
-    lastCreatedAt: lastPost.createdAt,
-    lastPostId: lastPost.id,
-  };
-
-  return Buffer.from(JSON.stringify(cursor)).toString('base64');
-}
 
 /**
  * Build comments cursor
@@ -173,60 +137,6 @@ async function hasUserLikedPost(db: Firestore, postId: string, userId: string): 
 }
 
 /**
- * Enrich posts with metadata (author info, isLiked) - converts to FeedPost
- */
-async function enrichPostsWithMetadata(
-  posts: Array<{ id: string; data: FirestorePostDoc }>,
-  db: Firestore,
-  currentUserId?: string
-): Promise<FeedPost[]> {
-  if (posts.length === 0) return [];
-
-  // Get unique user IDs
-  const userIds = [...new Set(posts.map((p) => p.data.userId))];
-
-  // Batch get user info
-  const usersMap = await batchGetUsersInfo(db, userIds);
-
-  // Convert to FeedPost
-  const feedPosts: FeedPost[] = await Promise.all(
-    posts.map(async (post) => {
-      const authorInfo = usersMap.get(post.data.userId);
-      if (!authorInfo) {
-        throw new Error(`User ${post.data.userId} not found`);
-      }
-
-      // Convert to UserProfile for adapter
-      const userProfile: UserProfile = {
-        uid: post.data.userId,
-        displayName: authorInfo.displayName,
-        photoURL: authorInfo.photoURL,
-        position: authorInfo.position,
-        schoolName: authorInfo.schoolName,
-        isVerified: false,
-      };
-
-      const author = userProfileToFeedAuthor(userProfile);
-
-      // Check if liked
-      let isLiked = false;
-      if (currentUserId) {
-        isLiked = await hasUserLikedPost(db, post.id, currentUserId);
-      }
-
-      return firestorePostToFeedPost(post.id, post.data, author, {
-        isLiked,
-        isBookmarked: false,
-        isReposted: false,
-        isFollowingAuthor: false,
-      });
-    })
-  );
-
-  return feedPosts;
-}
-
-/**
  * Enrich comments with author info - converts to FeedComment
  */
 async function enrichCommentsWithMetadata(
@@ -293,131 +203,6 @@ async function invalidateCommentsCache(postId: string): Promise<void> {
   const cache = getCacheService();
   await cache.del(`${POSTS_CACHE_PREFIX}comments:${postId}:*`);
 }
-
-// ============================================
-// FEED
-// ============================================
-
-/**
- * Get feed with pagination
- * GET /api/v1/posts/feed
- * Query params: visibility, teamId, limit, cursor
- */
-router.get('/feed', optionalAuth, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const query = req.query as GetFeedQuery;
-    const db = req.firebase!.db;
-    const currentUserId = req.user?.uid;
-
-    // Parse and validate query params
-    const visibility = (query.visibility?.toUpperCase() as PostVisibility) || PostVisibility.PUBLIC;
-    const limit = Math.min(parseInt(String(query.limit || 20)) || 20, 50);
-    const cursor = query.cursor as string | undefined;
-    const teamId = query.teamId as string | undefined;
-
-    // Validate visibility
-    if (!['PUBLIC', 'FOLLOWERS', 'TEAM', 'PRIVATE'].includes(visibility)) {
-      const error = validationError([
-        {
-          field: 'visibility',
-          message: 'visibility must be PUBLIC, FOLLOWERS, TEAM, or PRIVATE',
-          rule: 'enum',
-        },
-      ]);
-      res.status(error.statusCode).json(error.toResponse());
-      return;
-    }
-
-    // Parse cursor
-    let feedCursor: FeedCursor | undefined;
-    if (cursor) {
-      try {
-        feedCursor = JSON.parse(Buffer.from(cursor, 'base64').toString());
-      } catch {
-        logger.warn('[Posts] Invalid cursor', { cursor });
-      }
-    }
-
-    // Check cache (only for first page)
-    if (!feedCursor) {
-      const cacheKey = buildFeedCacheKey(visibility, teamId, limit);
-      const cache = getCacheService();
-      const cached = await cache.get<FeedPost[]>(cacheKey);
-
-      if (cached) {
-        logger.debug('[Posts] Feed cache hit', { cacheKey });
-        res.set('X-Cache-Status', 'HIT');
-        res.json({
-          success: true,
-          data: {
-            posts: cached,
-            nextCursor: buildNextCursor(cached),
-            hasMore: cached.length === limit,
-          },
-          cached: true,
-        });
-        return;
-      }
-    }
-
-    // Build Firestore query
-    let queryRef = db
-      .collection(POSTS_COLLECTIONS.POSTS)
-      .where('deletedAt', '==', null)
-      .where('visibility', '==', visibility);
-
-    if (teamId) {
-      queryRef = queryRef.where('teamId', '==', teamId);
-    }
-
-    queryRef = queryRef.orderBy('createdAt', 'desc');
-
-    // Apply cursor
-    if (feedCursor) {
-      const cursorDate = new Date(feedCursor.lastCreatedAt);
-      queryRef = queryRef.startAfter(Timestamp.fromMillis(cursorDate.getTime()));
-    }
-
-    queryRef = queryRef.limit(limit + 1); // Fetch one extra to check hasMore
-
-    // Execute query
-    const snapshot = await queryRef.get();
-    const posts = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      data: doc.data() as FirestorePostDoc,
-    }));
-
-    const hasMore = posts.length > limit;
-    const resultPosts = hasMore ? posts.slice(0, limit) : posts;
-
-    // Enrich with metadata (converts to FeedPost)
-    const enrichedPosts = await enrichPostsWithMetadata(resultPosts, db, currentUserId);
-
-    // Cache first page only
-    if (!feedCursor) {
-      const cacheKey = buildFeedCacheKey(visibility, teamId, limit);
-      const cache = getCacheService();
-      await cache.set(cacheKey, enrichedPosts, { ttl: CACHE_TTL_FEED });
-    }
-
-    res.set('X-Cache-Status', 'MISS');
-    res.json({
-      success: true,
-      data: {
-        posts: enrichedPosts,
-        nextCursor: buildNextCursor(enrichedPosts),
-        hasMore,
-      },
-      cached: false,
-    });
-  } catch (error) {
-    logger.error('[Posts] Failed to get feed', { error });
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get feed',
-    });
-  }
-});
 
 // ============================================
 // POST CREATION & DRAFTS

@@ -756,6 +756,18 @@ router.get('/trending', async (req: Request, res: Response) => {
   try {
     const limit = parseInt(req.query['limit'] as string) || 10;
 
+    // Check cache first
+    const cacheKey = `${limit}`;
+    const cached = await cacheHelper.get<string[]>('trending', cacheKey);
+    if (cached) {
+      res.set('X-Cache-Status', 'HIT');
+      return res.json({
+        success: true,
+        trending: cached,
+        cached: true,
+      });
+    }
+
     const db = req.firebase?.db;
     if (!db) {
       throw new Error('Firestore not initialized');
@@ -775,9 +787,13 @@ router.get('/trending', async (req: Request, res: Response) => {
       trending.push(data['title']);
     });
 
+    await cacheHelper.set('trending', cacheKey, trending, CACHE_TTL.trending);
+
+    res.set('X-Cache-Status', 'MISS');
     return res.json({
       success: true,
       trending,
+      cached: false,
     });
   } catch (error) {
     logger.error('Trending error', {

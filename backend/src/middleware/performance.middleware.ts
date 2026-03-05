@@ -92,7 +92,10 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
         method: req.method,
         path: req.path,
         route: req.route?.path || 'unknown',
-        cached: res.locals['cached'] ? 'true' : 'false',
+        cached:
+          res.locals['cached'] || (req as unknown as Record<string, unknown>)['cacheHit']
+            ? 'true'
+            : 'false',
       },
       metrics: {
         duration_ms: duration,
@@ -103,13 +106,17 @@ export function performanceMiddleware(req: Request, res: Response, next: NextFun
     });
 
     // Log performance
+    // Note: cache hit can be signalled via res.locals['cached'] (sendSuccess path)
+    // OR via req.cacheHit (markCacheHit path used in profile/team routes)
+    const isCached =
+      res.locals['cached'] || (req as unknown as Record<string, unknown>)['cacheHit'] || false;
     logger.info('[Performance]', {
       trace: traceName,
       duration: `${duration}ms`,
       status: res.statusCode,
       method: req.method,
       path: req.path,
-      cached: res.locals['cached'] || false,
+      cached: isCached,
     });
 
     // Call original end

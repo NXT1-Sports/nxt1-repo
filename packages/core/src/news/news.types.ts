@@ -155,6 +155,18 @@ export interface NewsArticle {
   readonly isFeatured?: boolean;
   /** Whether article is breaking news */
   readonly isBreaking?: boolean;
+  /**
+   * Ownership type — distinguishes user news from team news.
+   * - `'user'` — generated for an individual athlete/user (`userId` is set)
+   * - `'team'` — generated for a team (`teamId` is set)
+   * Absent on legacy documents; treat as `'user'`.
+   */
+  readonly type?: 'user' | 'team';
+  /**
+   * Team ID — present when `type === 'team'`.
+   * Mirrors the top-level `TeamCodes` document ID.
+   */
+  readonly teamId?: string;
 }
 
 // ============================================

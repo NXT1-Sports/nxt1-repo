@@ -166,16 +166,20 @@ export class TeamComponent implements OnInit {
 
     this.logger.info('Team component initialized', { teamSlug: slug });
 
-    // Load team data from API
-    if (slug) {
-      this.teamProfile.loadTeam(slug, this.isTeamAdmin()).catch((error) => {
-        this.logger.error('Failed to load team on init', { slug, error });
-        this.toast.error('Failed to load team profile');
+    // Guard: a slug containing '.' is a static asset (e.g. team-profile-skeleton.component.css.map)
+    // being requested relative to the current /team/* URL. Skip the API call.
+    if (!slug || slug.includes('.')) {
+      this.logger.warn('Invalid team slug (static asset request caught by router), skipping load', {
+        slug,
       });
-    } else {
-      this.logger.warn('No team slug provided');
-      this.teamProfile.setError('Team not found');
+      return;
     }
+
+    // Load team data from API
+    this.teamProfile.loadTeam(slug, this.isTeamAdmin()).catch((error) => {
+      this.logger.error('Failed to load team on init', { slug, error });
+      this.toast.error('Failed to load team profile');
+    });
   }
 
   // ============================================

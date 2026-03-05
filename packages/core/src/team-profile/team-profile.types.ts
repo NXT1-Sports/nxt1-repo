@@ -15,6 +15,7 @@
  */
 
 import type { VerificationStatus, DataVerification } from '../models/user.model';
+import type { NewsArticle } from '../news/news.types';
 export type { VerificationStatus } from '../models/user.model';
 export type { DataVerification } from '../models/user.model';
 
@@ -219,8 +220,12 @@ export interface TeamProfileSeasonHistory {
   readonly formatted?: string;
   /** Conference at the time */
   readonly conference?: string;
-  /** Notable highlight text (e.g. "State Runner-Up") */
-  readonly highlight?: string;
+  /** Division at the time */
+  readonly division?: string;
+  /** Notable highlight text for the season (e.g. "State Runner-Up", "Conference Champions") */
+  readonly highlights?: string;
+  /** List of championships/titles won this season */
+  readonly championships?: readonly string[];
 }
 
 // ============================================
@@ -474,6 +479,8 @@ export interface TeamProfilePageData {
   readonly staff: readonly TeamProfileStaffMember[];
   /** Recent posts/news */
   readonly recentPosts: readonly TeamProfilePost[];
+  /** Team news articles from the News collection (type==='team' documents). */
+  readonly newsArticles?: readonly NewsArticle[];
   /** Recruiting activity (college teams) */
   readonly recruitingActivity?: readonly TeamProfileRecruitingActivity[];
   /** Whether current user is a team admin */

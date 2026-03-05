@@ -64,7 +64,6 @@ import { ScheduleBoardComponent } from '../../components/schedule-board';
 import { StatsDashboardComponent } from '../../components/stats-dashboard/stats-dashboard.component';
 import { mapTeamStatsToGameLogs, formatSeasonLabel, buildSeasonRecordMap } from '@nxt1/core';
 import { NewsBoardComponent } from '../../components/news-board/news-board.component';
-import { MOCK_NEWS_ARTICLES } from '../../news/news.mock-data';
 import { TeamRecruitingWebComponent } from './team-recruiting-web.component';
 import { TeamTimelineWebComponent } from './team-timeline-web.component';
 import { TeamVideosWebComponent } from './team-videos-web.component';
@@ -1108,8 +1107,15 @@ export class TeamProfileShellWebComponent implements OnInit {
     mapTeamStatsToGameLogs(this.teamProfile.stats(), this.seasonRecordMap())
   );
 
-  /** Mock news articles for the shared NewsBoardComponent (UI setup — will be replaced with real API data). */
-  protected readonly teamNewsBoardItems = computed(() => MOCK_NEWS_ARTICLES);
+  /**
+   * News board items sourced from the News collection (type==='team' documents).
+   * Sorted newest-first. The news-board component accepts NewsArticle[] directly.
+   */
+  protected readonly teamNewsBoardItems = computed((): readonly NewsArticle[] =>
+    [...this.teamProfile.newsArticles()].sort(
+      (a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+    )
+  );
 
   /** Header subtitle: sport · location · conference · record */
   protected readonly headerSubtitle = computed(() => {

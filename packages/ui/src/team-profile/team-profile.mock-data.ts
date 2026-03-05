@@ -88,7 +88,7 @@ export const MOCK_TEAM: TeamProfileTeam = {
       losses: 4,
       ties: 0,
       conference: 'Metro Conference',
-      highlight: 'District Semi-Finals',
+      highlights: 'District Semi-Finals',
     },
     {
       season: '2023',
@@ -96,7 +96,8 @@ export const MOCK_TEAM: TeamProfileTeam = {
       losses: 1,
       ties: 0,
       conference: 'Metro Conference',
-      highlight: 'State Runner-Up',
+      highlights: 'State Runner-Up',
+      championships: ['State Runner-Up'],
     },
     {
       season: '2022',
@@ -111,7 +112,8 @@ export const MOCK_TEAM: TeamProfileTeam = {
       losses: 3,
       ties: 0,
       conference: 'Metro Conference',
-      highlight: 'District Champions',
+      highlights: 'District Champions',
+      championships: ['District Champions'],
     },
   ],
   foundedYear: 1965,

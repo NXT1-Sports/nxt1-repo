@@ -11,6 +11,10 @@
  */
 
 import type { TeamType } from '../constants/user.constants';
+import type {
+  TeamProfileRecruitingActivity,
+  TeamProfileStatsCategory,
+} from '../team-profile/team-profile.types';
 import type { ContactInfo, SocialLinks } from './user.model';
 
 // ============================================
@@ -142,6 +146,10 @@ export interface Code {
   };
   totalTraffic?: number;
   analytic?: TeamAnalytics;
+  /** Stats categories embedded in the team document (e.g. Offense, Defense, Season Record) */
+  statsCategories?: TeamProfileStatsCategory[];
+  /** Recruiting activity items embedded in the team document */
+  recruitingActivities?: TeamProfileRecruitingActivity[];
 }
 
 export type TeamCode = Code;

@@ -93,8 +93,13 @@ export class TeamProfileApiClient {
 
       return response.data;
     } catch (error) {
-      this.logger.error('Failed to fetch team profile', { slug, error });
-      throw this.handleError(error);
+      const apiError = this.handleError(error);
+      this.logger.error('Failed to fetch team profile', error, {
+        slug,
+        status: apiError.status,
+        code: apiError.code,
+      });
+      throw apiError;
     }
   }
 

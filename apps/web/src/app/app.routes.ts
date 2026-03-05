@@ -1,4 +1,14 @@
-import { Routes } from '@angular/router';
+import { type Routes, type CanMatchFn, type UrlSegment } from '@angular/router';
+
+/**
+ * Prevents the team route from activating for static asset URLs.
+ * Browsers request .css.map / .js files relative to the current page URL,
+ * which can match the `team/:slug` route and trigger spurious API calls.
+ */
+const rejectFileExtensionSlugs: CanMatchFn = (_route, segments: UrlSegment[]) => {
+  const slug = segments[1]?.path ?? '';
+  return !slug.includes('.');
+};
 
 /**
  * @fileoverview Web App Routes — 2026 Professional Pattern
@@ -220,6 +230,7 @@ export const routes: Routes = [
       // Team Profile - Public Team Pages (with shell)
       {
         path: 'team/:slug',
+        canMatch: [rejectFileExtensionSlugs],
         loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
       },
 

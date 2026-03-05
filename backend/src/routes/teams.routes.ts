@@ -25,6 +25,9 @@ import {
 } from '../services/team-profile-mapper.service.js';
 import { logger } from '../utils/logger.js';
 import { performanceMiddleware, testPerformance } from '../middleware/performance.middleware.js';
+import { getCacheService, CACHE_TTL } from '../services/cache.service.js';
+import { markCacheHit } from '../middleware/cache-status.middleware.js';
+import type { TeamProfilePageData } from '@nxt1/core/team-profile';
 
 const router: ExpressRouter = Router();
 
@@ -290,6 +293,17 @@ router.get(
       return;
     }
 
+    // Check full-profile Redis cache (separate from teamCode cache)
+    const cache = getCacheService();
+    const profileCacheKey = `team:profile:slug:${unicode}:${userId ?? 'public'}`;
+    const cachedProfile = await cache.get<TeamProfilePageData>(profileCacheKey);
+    if (cachedProfile) {
+      logger.debug('[Teams API] Team profile served from cache', { slug, unicode, userId });
+      markCacheHit(req, 'redis', profileCacheKey);
+      sendSuccess(res, cachedProfile, { cached: true });
+      return;
+    }
+
     // Map to TeamProfilePageData
     const options: MapTeamProfileOptions = {
       userId,
@@ -299,6 +313,9 @@ router.get(
     };
 
     const profileData = await mapTeamCodeToProfile(teamCode, options, db);
+
+    // Store in Redis cache (3-minute TTL — balances freshness vs DB load)
+    await cache.set(profileCacheKey, profileData, { ttl: CACHE_TTL.POSTS });
 
     logger.info('[Teams API] Team profile fetched by slug', {
       teamId: teamCode.id,
@@ -591,6 +608,57 @@ router.get(
     const { teams, cached } = await teamCodeService.getUserTeams(db, userId);
 
     sendSuccess(res, { teams }, { cached });
+  })
+);
+
+/**
+ * Get team schedule events from TeamEvents collection.
+ * Supports filtering by status and pagination.
+ * GET /api/v1/teams/:teamId/events
+ */
+router.get(
+  '/:teamId/events',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { teamId } = req.params;
+    const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
+    const status = req.query['status'] as string | undefined; // upcoming | final | live | postponed | cancelled
+
+    validateRequired(teamId, 'Team ID');
+
+    const cache = getCacheService();
+    const cacheKey = `team:events:${teamId}${status ? `:${status}` : ''}:${limit}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      sendSuccess(res, { events: hit, total: hit.length }, { cached: true });
+      return;
+    }
+
+    const db = req.firebase!.db;
+    let query = db
+      .collection('TeamEvents')
+      .where('teamId', '==', teamId) as FirebaseFirestore.Query;
+
+    if (status) {
+      query = query.where('status', '==', status);
+    }
+
+    const snap = await query.get();
+
+    // Sort in-memory by date asc (avoid composite index requirement)
+    const events = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+        const aDate = String(a['date'] ?? '');
+        const bDate = String(b['date'] ?? '');
+        return aDate.localeCompare(bDate);
+      })
+      .slice(0, limit);
+
+    await cache.set(cacheKey, events, { ttl: CACHE_TTL.FEED });
+
+    logger.info('[Teams API] Team events fetched', { teamId, count: events.length, status });
+    sendSuccess(res, { events, total: events.length });
   })
 );
 

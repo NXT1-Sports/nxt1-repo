@@ -506,6 +506,15 @@ router.get(
     const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
     const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
 
+    const cache = getCacheService();
+    const cacheKey = `profile:sub:timeline:${userId}${sportId ? `:${sportId}` : ''}:${limit}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: hit });
+      return;
+    }
+
     const db = req.firebase!.db;
     let query = db.collection('Posts').where('userId', '==', userId) as FirebaseFirestore.Query;
     if (sportId) query = query.where('sportId', '==', sportId);
@@ -513,6 +522,7 @@ router.get(
 
     const snap = await query.get();
     const posts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    await cache.set(cacheKey, posts, { ttl: CACHE_TTL.FEED });
     res.json({ success: true, data: posts });
   })
 );
@@ -528,6 +538,15 @@ router.get(
     const { userId, sportId } = req.params as { userId: string; sportId: string };
     const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
 
+    const cache = getCacheService();
+    const cacheKey = `profile:sub:stats:${userId}:${sportId}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: hit });
+      return;
+    }
+
     const db = req.firebase!.db;
     const snap = await db
       .collection(USERS_COLLECTION)
@@ -540,6 +559,7 @@ router.get(
       .get();
 
     const stats = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    await cache.set(cacheKey, stats, { ttl: CACHE_TTL.STATS });
     res.json({ success: true, data: stats });
   })
 );
@@ -555,6 +575,15 @@ router.get(
     const { userId, sportId } = req.params as { userId: string; sportId: string };
     const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
 
+    const cache = getCacheService();
+    const cacheKey = `profile:sub:metrics:${userId}:${sportId}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: hit });
+      return;
+    }
+
     const db = req.firebase!.db;
     const snap = await db
       .collection(USERS_COLLECTION)
@@ -567,6 +596,7 @@ router.get(
       .get();
 
     const metrics = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    await cache.set(cacheKey, metrics, { ttl: CACHE_TTL.STATS });
     res.json({ success: true, data: metrics });
   })
 );
@@ -584,6 +614,15 @@ router.get(
     const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
     const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
 
+    const cache = getCacheService();
+    const cacheKey = `profile:sub:news:${userId}${sportId ? `:${sportId}` : ''}:${limit}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: hit });
+      return;
+    }
+
     const db = req.firebase!.db;
     let query = db.collection('News').where('userId', '==', userId) as FirebaseFirestore.Query;
     if (sportId) query = query.where('sportId', '==', sportId);
@@ -591,6 +630,7 @@ router.get(
 
     const snap = await query.get();
     const articles = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    await cache.set(cacheKey, articles, { ttl: CACHE_TTL.FEED });
     res.json({ success: true, data: articles });
   })
 );
@@ -608,6 +648,15 @@ router.get(
     const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
     const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
 
+    const cache = getCacheService();
+    const cacheKey = `profile:sub:rankings:${userId}${sportId ? `:${sportId}` : ''}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: hit });
+      return;
+    }
+
     const db = req.firebase!.db;
     let query = db.collection('Rankings').where('userId', '==', userId) as FirebaseFirestore.Query;
     if (sportId) query = query.where('sportId', '==', sportId);
@@ -622,6 +671,7 @@ router.get(
         const bRank = (b['nationalRank'] as number | null) ?? Infinity;
         return aRank - bRank;
       });
+    await cache.set(cacheKey, rankings, { ttl: CACHE_TTL.RANKINGS });
     res.json({ success: true, data: rankings });
   })
 );
@@ -639,6 +689,15 @@ router.get(
     const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
     const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
 
+    const cache = getCacheService();
+    const cacheKey = `profile:sub:scout-reports:${userId}${sportId ? `:${sportId}` : ''}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: hit });
+      return;
+    }
+
     const db = req.firebase!.db;
     let query = db
       .collection('ScoutReports')
@@ -655,6 +714,7 @@ router.get(
         const bDate = new Date(String(b['publishedAt'] ?? '')).getTime();
         return bDate - aDate;
       });
+    await cache.set(cacheKey, reports, { ttl: CACHE_TTL.STATS });
     res.json({ success: true, data: reports });
   })
 );
@@ -670,6 +730,15 @@ router.get(
     const { userId } = req.params as { userId: string };
     const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
 
+    const cache = getCacheService();
+    const cacheKey = `profile:sub:followers:${userId}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: hit });
+      return;
+    }
+
     const db = req.firebase!.db;
     const snap = await db
       .collection(USERS_COLLECTION)
@@ -680,6 +749,7 @@ router.get(
       .get();
 
     const followers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    await cache.set(cacheKey, followers, { ttl: CACHE_TTL.FOLLOWERS });
     res.json({ success: true, data: followers });
   })
 );
@@ -695,6 +765,15 @@ router.get(
     const { userId } = req.params as { userId: string };
     const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
 
+    const cache = getCacheService();
+    const cacheKey = `profile:sub:following:${userId}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: hit });
+      return;
+    }
+
     const db = req.firebase!.db;
     const snap = await db
       .collection(USERS_COLLECTION)
@@ -705,6 +784,7 @@ router.get(
       .get();
 
     const following = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    await cache.set(cacheKey, following, { ttl: CACHE_TTL.FOLLOWERS });
     res.json({ success: true, data: following });
   })
 );
@@ -720,6 +800,15 @@ router.get(
     const { userId } = req.params as { userId: string };
     const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
 
+    const cache = getCacheService();
+    const cacheKey = `profile:sub:videos:${userId}:${limit}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: hit });
+      return;
+    }
+
     const db = req.firebase!.db;
     const snap = await db
       .collection(USERS_COLLECTION)
@@ -730,6 +819,7 @@ router.get(
       .get();
 
     const videos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    await cache.set(cacheKey, videos, { ttl: CACHE_TTL.POSTS });
     res.json({ success: true, data: videos });
   })
 );
@@ -747,6 +837,15 @@ router.get(
     const { userId } = req.params as { userId: string };
     const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
     const sportId = req.query['sportId'] as string | undefined;
+
+    const cache = getCacheService();
+    const cacheKey = `profile:sub:schedule:${userId}${sportId ? `:${sportId}` : ''}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: hit });
+      return;
+    }
 
     const db = req.firebase!.db;
     let query = db
@@ -796,6 +895,7 @@ router.get(
       sportFilter: sportId,
     });
 
+    await cache.set(cacheKey, events, { ttl: CACHE_TTL.FEED });
     res.json({ success: true, data: events });
   })
 );

@@ -22,11 +22,11 @@ import {
   type TeamProfileStaffMember,
   type TeamProfileRecruitingActivity,
   type TeamProfileStatsCategory,
+  type NewsArticle,
   TEAM_PROFILE_DEFAULT_TAB,
 } from '@nxt1/core';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { TeamProfileApiClient, type TeamProfileApiError } from './team-profile-api.client';
-import { MOCK_TEAM_PROFILE_PAGE_DATA, getMockAdminTeamData } from './team-profile.mock-data';
 
 @Injectable({ providedIn: 'root' })
 export class TeamProfileService {
@@ -195,6 +195,11 @@ export class TeamProfileService {
     this.allPosts().filter((p) => p.type === 'news' || p.type === 'announcement')
   );
 
+  /** Structured news articles from News collection (type==='team' documents). */
+  readonly newsArticles = computed<readonly NewsArticle[]>(
+    () => this._teamData()?.newsArticles ?? []
+  );
+
   /** Recruiting activity */
   readonly recruitingActivity = computed<readonly TeamProfileRecruitingActivity[]>(
     () => this._teamData()?.recruitingActivity ?? []
@@ -243,7 +248,7 @@ export class TeamProfileService {
     roster: this.roster().length,
     schedule: this.schedule().length,
     stats: 0,
-    news: this.newsPosts().length,
+    news: this.newsPosts().length + this.newsArticles().length,
     recruiting: this.recruitingActivity().length,
     photos: this.galleryImages().length,
   }));
@@ -311,13 +316,12 @@ export class TeamProfileService {
         rosterCount: data.roster.length,
       });
     } catch (error) {
-      const apiError = error as any;
-      const message = apiError.message || 'Failed to load team profile';
+      const { message, code, status } = error as TeamProfileApiError;
 
       this._error.set(message);
       this._isLoading.set(false);
 
-      this.logger.error('Failed to load team profile', { slug, error: message });
+      this.logger.error('Failed to load team profile', error as unknown, { slug, code, status });
     }
   }
 
@@ -376,7 +380,9 @@ export class TeamProfileService {
     } catch (err) {
       // Rollback on error
       this._teamData.set(data);
-      this.logger.error('Failed to toggle team follow', { error: err });
+      this.logger.error('Failed to toggle team follow', {
+        error: (err as TeamProfileApiError).message,
+      });
     }
   }
 
@@ -393,7 +399,9 @@ export class TeamProfileService {
       // TODO: Replace with actual API call
       await this.simulateDelay(500);
     } catch (err) {
-      this.logger.error('Failed to load more team posts', { error: err });
+      this.logger.error('Failed to load more team posts', {
+        error: (err as TeamProfileApiError).message,
+      });
     } finally {
       this._isLoadingMore.set(false);
     }

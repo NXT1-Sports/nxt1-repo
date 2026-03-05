@@ -97,6 +97,8 @@ function docToTeamCode(doc: FirebaseFirestore.DocumentSnapshot): TeamCode {
     sponsor: data['sponsor'],
     totalTraffic: data['totalTraffic'] ?? 0,
     analytic: data['analytic'],
+    statsCategories: data['statsCategories'],
+    recruitingActivities: data['recruitingActivities'],
   } as TeamCode;
 }
 

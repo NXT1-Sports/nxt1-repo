@@ -783,7 +783,7 @@ export class TeamOverviewWebComponent {
           label: season.season,
           name: team.teamName,
           logoUrl: team.logoUrl,
-          subtitle: season.highlight ?? season.conference ?? team.location,
+          subtitle: season.highlights ?? season.conference ?? team.location,
           record: recordText,
           fallbackIcon: 'shield',
         });
