@@ -47,6 +47,7 @@ import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/pag
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
+import { formatSportDisplayName } from '@nxt1/core';
 
 // Register icons
 /**
@@ -133,7 +134,7 @@ export interface TeamData {
               @if (teamData.sport) {
                 <div class="team-sport">
                   <ion-icon name="trophy-outline"></ion-icon>
-                  <span>{{ teamData.sport }}</span>
+                  <span>{{ formatSportDisplayName(teamData.sport) }}</span>
                 </div>
               }
               @if (teamData.location) {
@@ -455,6 +456,8 @@ export interface TeamData {
 export class TeamShellComponent {
   private readonly logger = inject(NxtLoggingService).child('TeamShellComponent');
   private readonly toast = inject(NxtToastService);
+
+  protected readonly formatSportDisplayName = formatSportDisplayName;
 
   // ============================================
   // INPUTS

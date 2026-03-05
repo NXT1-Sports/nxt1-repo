@@ -95,7 +95,13 @@ import {
   personAdd,
   personAddOutline,
 } from 'ionicons/icons';
-import type { InviteType, InviteTeam, InviteChannel, InviteChannelConfig } from '@nxt1/core';
+import {
+  formatSportDisplayName,
+  type InviteType,
+  type InviteTeam,
+  type InviteChannel,
+  type InviteChannelConfig,
+} from '@nxt1/core';
 import { InviteService } from './invite.service';
 import { InviteStatsCardComponent } from './invite-stats-card.component';
 import { InviteChannelGridComponent } from './invite-channel-grid.component';
@@ -104,6 +110,7 @@ import { InviteAchievementsComponent } from './invite-achievements.component';
 import { InviteCelebrationComponent } from './invite-celebration.component';
 import { InviteSkeletonComponent } from './invite-skeleton.component';
 import { HapticsService } from '../services/haptics/haptics.service';
+import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 
 // Register all icons
 /**
@@ -129,38 +136,26 @@ export interface InviteUser {
     InviteAchievementsComponent,
     InviteCelebrationComponent,
     InviteSkeletonComponent,
+    NxtSheetHeaderComponent,
   ],
   template: `
     <div class="invite-shell" [class.invite-shell--modal]="isModal()">
       <!-- Header -->
-      <header class="invite-header">
-        @if (showClose()) {
-          <button type="button" class="invite-header__close" (click)="onClose()" aria-label="Close">
-            <ion-icon name="close-outline"></ion-icon>
-          </button>
-        }
-
-        <div class="invite-header__content">
-          <h1 class="invite-header__title">
-            @if (inviteType() === 'team') {
-              Invite Teammates
-            } @else if (inviteType() === 'profile') {
-              Share Profile
-            } @else {
-              Invite Friends
-            }
-          </h1>
-          <p class="invite-header__subtitle">Earn XP for every friend who joins!</p>
-        </div>
-
-        <!-- XP Badge -->
+      <nxt1-sheet-header
+        [title]="inviteTitle()"
+        subtitle="Earn XP for every friend who joins!"
+        [showClose]="showClose()"
+        closePosition="left"
+        [showBorder]="true"
+        (closeSheet)="onClose()"
+      >
         @if (invite.stats()) {
-          <div class="invite-header__xp-badge">
+          <div sheetHeaderAction class="invite-header__xp-badge">
             <ion-icon name="sparkles"></ion-icon>
             <span>{{ invite.stats()!.totalXp }} XP</span>
           </div>
         }
-      </header>
+      </nxt1-sheet-header>
 
       <ion-content [fullscreen]="true" class="invite-content">
         @if (invite.isLoading()) {
@@ -180,7 +175,7 @@ export interface InviteUser {
                 <div class="invite-team-badge__info">
                   <span class="invite-team-badge__name">{{ team()!.name }}</span>
                   <span class="invite-team-badge__sport"
-                    >{{ team()!.sport }} • {{ team()!.level }}</span
+                    >{{ formatSportDisplayName(team()!.sport) }} • {{ team()!.level }}</span
                   >
                 </div>
               </div>
@@ -323,61 +318,8 @@ export interface InviteUser {
       }
 
       /* ============================================
-       HEADER
+       HEADER (XP Badge styling for projected content)
        ============================================ */
-
-      .invite-header {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-4);
-        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-5);
-        background: var(--invite-surface);
-        border-bottom: 1px solid var(--invite-border);
-        position: relative;
-      }
-
-      .invite-header__close {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        background: var(--invite-surface-elevated);
-        border: none;
-        color: var(--invite-text-secondary);
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-
-      .invite-header__close:hover {
-        background: var(--nxt1-color-surface-300);
-        color: var(--invite-text-primary);
-      }
-
-      .invite-header__close ion-icon {
-        font-size: 20px;
-      }
-
-      .invite-header__content {
-        flex: 1;
-        min-width: 0;
-      }
-
-      .invite-header__title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-xl);
-        font-weight: var(--nxt1-fontWeight-bold);
-        color: var(--invite-text-primary);
-        margin: 0;
-        line-height: 1.2;
-      }
-
-      .invite-header__subtitle {
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--invite-text-secondary);
-        margin: 2px 0 0;
-      }
 
       .invite-header__xp-badge {
         display: flex;
@@ -606,6 +548,8 @@ export interface InviteUser {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InviteShellComponent implements OnInit {
+  protected readonly formatSportDisplayName = formatSportDisplayName;
+
   constructor() {
     addIcons({
       close,
@@ -702,6 +646,13 @@ export class InviteShellComponent implements OnInit {
   // ============================================
   // COMPUTED
   // ============================================
+
+  protected readonly inviteTitle = computed(() => {
+    const type = this.inviteType();
+    if (type === 'team') return 'Invite Teammates';
+    if (type === 'profile') return 'Share Profile';
+    return 'Invite Friends';
+  });
 
   protected readonly shortUrl = computed(() => {
     const link = this.invite.inviteLink();

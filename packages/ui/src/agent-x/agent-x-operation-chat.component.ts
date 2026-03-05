@@ -43,6 +43,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../components/icon/icon.component';
+import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 
 // ============================================
 // INTERFACES
@@ -68,23 +69,18 @@ interface OperationMessage {
 @Component({
   selector: 'nxt1-agent-x-operation-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, NxtIconComponent],
+  imports: [CommonModule, FormsModule, NxtIconComponent, NxtSheetHeaderComponent],
   template: `
     <!-- ═══ HEADER ═══ -->
-    <header class="sheet-header">
-      <div class="sheet-header-left">
-        <div class="context-icon-wrap">
-          <nxt1-icon [name]="contextIcon" [size]="18" />
-        </div>
-        <div class="context-meta">
-          <span class="context-type">{{ contextTypeLabel() }}</span>
-          <h2 class="context-title">{{ contextTitle }}</h2>
-        </div>
-      </div>
-      <button type="button" class="close-btn" (click)="dismiss()" aria-label="Close">
-        <nxt1-icon name="close" [size]="20" />
-      </button>
-    </header>
+    <nxt1-sheet-header
+      [title]="contextTitle"
+      [subtitle]="contextTypeLabel()"
+      [icon]="contextIcon"
+      iconShape="rounded"
+      closePosition="right"
+      [showBorder]="true"
+      (closeSheet)="dismiss()"
+    />
 
     <!-- ═══ MESSAGES ═══ -->
     <div class="messages-area" #messagesArea>
@@ -167,83 +163,6 @@ interface OperationMessage {
         --op-text-muted: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         --op-primary: var(--nxt1-color-primary, #ccff00);
         --op-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
-      }
-
-      /* ── HEADER ── */
-      .sheet-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 16px 20px 12px;
-        border-bottom: 1px solid var(--op-border);
-        flex-shrink: 0;
-      }
-
-      .sheet-header-left {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        min-width: 0;
-      }
-
-      .context-icon-wrap {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 34px;
-        height: 34px;
-        border-radius: 10px;
-        background: var(--op-primary-glow);
-        color: var(--op-primary);
-        flex-shrink: 0;
-      }
-
-      .context-meta {
-        display: flex;
-        flex-direction: column;
-        gap: 1px;
-        min-width: 0;
-      }
-
-      .context-type {
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: var(--op-primary);
-        line-height: 1;
-      }
-
-      .context-title {
-        font-size: 15px;
-        font-weight: 600;
-        color: var(--op-text);
-        margin: 0;
-        line-height: 1.3;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-
-      .close-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        border: 1px solid var(--op-border);
-        background: var(--op-surface);
-        color: var(--op-text-secondary);
-        cursor: pointer;
-        flex-shrink: 0;
-        transition: background 0.15s ease;
-        -webkit-tap-highlight-color: transparent;
-      }
-
-      .close-btn:active {
-        background: var(--op-border);
       }
 
       /* ── MESSAGES ── */

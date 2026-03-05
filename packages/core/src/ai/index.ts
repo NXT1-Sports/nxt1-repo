@@ -66,3 +66,34 @@ export {
 
 // API
 export { createAgentXApi, type AgentXApi } from './agent-x.api';
+
+// Agent Onboarding Types
+export type {
+  AgentOnboardingStepId,
+  AgentOnboardingStep,
+  AgentProgramResult,
+  CoachProgramRole,
+  CoachRoleOption,
+  ProgramAction,
+  SelectedProgramData,
+  AgentGoal,
+  AgentGoalCategory,
+  AgentConnection,
+  AgentOnboardingState,
+  AgentOnboardingPayload,
+} from './agent-onboarding.types';
+
+// Agent Onboarding Constants
+export {
+  AGENT_ONBOARDING_STEPS,
+  AGENT_MAX_GOALS,
+  AGENT_MIN_GOALS,
+  COACH_ROLE_OPTIONS,
+  AGENT_GOAL_CATEGORIES,
+  COACH_PREDEFINED_GOALS,
+  ATHLETE_PREDEFINED_GOALS,
+  AGENT_LOADING_MESSAGES,
+  AGENT_LOADING_MESSAGE_INTERVAL,
+  AGENT_LOADING_TOTAL_DURATION,
+  AGENT_ONBOARDING_ENDPOINTS,
+} from './agent-onboarding.constants';

@@ -49,6 +49,7 @@ import {
   filterScheduleEvents,
   mapProfileEventsToScheduleRows,
   getScheduleSeasons,
+  formatSportDisplayName,
 } from '@nxt1/core';
 // NxtPageHeaderComponent removed — web profile uses shell top nav on mobile and page header in wide layouts
 import { ProfilePageHeaderComponent } from './profile-page-header.component';
@@ -219,7 +220,9 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                             class="sport-switcher__item"
                             [class.sport-switcher__item--active]="profile.activeSportIndex() === i"
                             [attr.aria-selected]="profile.activeSportIndex() === i"
-                            [attr.aria-label]="'Switch to ' + sport.name + ' profile'"
+                            [attr.aria-label]="
+                              'Switch to ' + formatSportDisplayName(sport.name) + ' profile'
+                            "
                             role="tab"
                             (click)="onSportSwitch(i)"
                           >
@@ -239,7 +242,9 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                                 {{ sport.name.charAt(0) }}
                               </span>
                             }
-                            <span class="sport-switcher__sport-name">{{ sport.name }}</span>
+                            <span class="sport-switcher__sport-name">{{
+                              formatSportDisplayName(sport.name)
+                            }}</span>
                             @if (profile.activeSportIndex() === i) {
                               <span class="sport-switcher__active-badge" aria-hidden="true"></span>
                             }
@@ -1435,6 +1440,8 @@ export class ProfileShellWebComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('ProfileShellWeb');
   private readonly platformId = inject(PLATFORM_ID);
   private readonly isBrowser = isPlatformBrowser(this.platformId);
+
+  protected readonly formatSportDisplayName = formatSportDisplayName;
 
   // ============================================
   // INPUTS

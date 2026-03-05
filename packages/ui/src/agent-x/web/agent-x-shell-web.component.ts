@@ -750,7 +750,6 @@ export interface AgentXUser {
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      }
 
       .timeline-summary {
         font-size: 13px;
@@ -934,13 +933,21 @@ export interface AgentXUser {
       }
 
       @keyframes log-fade-in {
-        from { opacity: 0; }
-        to { opacity: 1; }
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
       }
 
       @keyframes log-slide-in {
-        from { transform: translateX(100%); }
-        to { transform: translateX(0); }
+        from {
+          transform: translateX(100%);
+        }
+        to {
+          transform: translateX(0);
+        }
       }
 
       @media (max-width: 480px) {

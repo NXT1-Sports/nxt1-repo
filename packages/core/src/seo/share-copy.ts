@@ -7,6 +7,7 @@
  */
 
 import type { ShareableProfile, ShareableTeam, ShareableVideo, ShareablePost } from './index';
+import { formatSportDisplayName } from '../constants/sport.constants';
 
 export type ProfileShareSource = Omit<ShareableProfile, 'type' | 'title' | 'description'> & {
   id: string;
@@ -33,7 +34,7 @@ export function buildProfileShareText(profile: ProfileShareSource): string {
   const parts: string[] = [`Check out ${profile.athleteName}`];
 
   if (profile.position && profile.sport) {
-    parts.push(`- ${profile.position} in ${profile.sport}`);
+    parts.push(`- ${profile.position} in ${formatSportDisplayName(profile.sport)}`);
   } else if (profile.position) {
     parts.push(`- ${profile.position}`);
   }
@@ -51,7 +52,7 @@ export function buildProfileShareDescription(profile: ProfileShareSource): strin
   const parts: string[] = [];
 
   if (profile.position) parts.push(profile.position);
-  if (profile.sport) parts.push(profile.sport);
+  if (profile.sport) parts.push(formatSportDisplayName(profile.sport));
   if (profile.school) parts.push(`at ${profile.school}`);
   if (profile.classYear) parts.push(`Class of ${profile.classYear}`);
 

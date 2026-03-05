@@ -35,25 +35,35 @@ import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { NxtIconComponent } from '../components/icon/icon.component';
 import { NxtAvatarComponent } from '../components/avatar/avatar.component';
 import { NxtLogoComponent } from '../components/logo/logo.component';
+import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtToastService } from '../services/toast';
 import { NxtLoggingService } from '../services/logging';
+import { formatSportDisplayName } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-qr-code-content',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, NxtAvatarComponent, NxtLogoComponent],
+  imports: [
+    CommonModule,
+    NxtIconComponent,
+    NxtAvatarComponent,
+    NxtLogoComponent,
+    NxtSheetHeaderComponent,
+  ],
   template: `
     <!-- ═══════════════════════════════════════════════════════════
          QR CODE CARD — Horizontal on desktop, vertical on mobile
          ═══════════════════════════════════════════════════════════ -->
     <div class="qr-code-container">
       <!-- ─── HEADER (mobile only — desktop has inline close) ─── -->
-      <div class="qr-header qr-mobile-only">
-        <button type="button" class="qr-close-btn" (click)="close.emit()" aria-label="Close">
-          <nxt1-icon name="close" [size]="22" />
-        </button>
-        <span class="qr-header-title">QR Code</span>
-        <div class="qr-header-spacer"></div>
+      <div class="qr-mobile-only">
+        <nxt1-sheet-header
+          title="QR Code"
+          closePosition="left"
+          [centerTitle]="true"
+          [showBorder]="false"
+          (closeSheet)="close.emit()"
+        />
       </div>
 
       <!-- ─── HORIZONTAL BODY (splits into left + right on desktop) ─── -->
@@ -64,7 +74,7 @@ import { NxtLoggingService } from '../services/logging';
             <nxt1-avatar [src]="profileImg" [name]="displayName" size="xl" shape="circle" />
             <h2 class="qr-display-name">{{ displayName }}</h2>
             @if (sport) {
-              <span class="qr-sport-badge">{{ sport }}</span>
+              <span class="qr-sport-badge">{{ formatSportDisplay(sport) }}</span>
             }
           </div>
 
@@ -205,12 +215,6 @@ import { NxtLoggingService } from '../services/logging';
       }
 
       /* ─── HEADER (mobile top bar) ─── */
-      .qr-header {
-        display: flex;
-        align-items: center;
-        width: 100%;
-        padding-bottom: var(--nxt1-spacing-1, 0.25rem);
-      }
 
       .qr-close-btn {
         display: flex;
@@ -236,19 +240,6 @@ import { NxtLoggingService } from '../services/logging';
 
       .qr-close-btn:active {
         transform: scale(0.95);
-      }
-
-      .qr-header-title {
-        flex: 1;
-        text-align: center;
-        font-size: var(--nxt1-fontSize-md, 1.125rem);
-        font-weight: var(--nxt1-fontWeight-semibold, 600);
-        color: var(--nxt1-color-text-primary, #111827);
-        letter-spacing: -0.01em;
-      }
-
-      .qr-header-spacer {
-        width: 36px;
       }
 
       /* ─── BODY: Vertical (mobile) / Horizontal (desktop) ─── */
@@ -622,6 +613,10 @@ export class NxtQrCodeContentComponent {
 
   /** Primary sport */
   @Input() sport = '';
+
+  protected formatSportDisplay(sport: string): string {
+    return formatSportDisplayName(sport);
+  }
 
   /**
    * Whether this component is embedded inside the shared overlay host.

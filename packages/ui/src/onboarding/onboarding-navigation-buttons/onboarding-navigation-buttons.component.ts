@@ -49,8 +49,31 @@ import { NxtPlatformService } from '../../services/platform';
     <!-- Navigation Container - Tailwind for layout -->
     <div
       class="flex w-full"
-      [class]="isMobile() ? 'mt-0 flex-col gap-0 p-0' : 'mt-6 items-center justify-end gap-3'"
+      [class]="
+        isMobile()
+          ? mobileLayout === 'row'
+            ? 'mt-0 items-center justify-end gap-2 p-0'
+            : 'mt-0 flex-col gap-0 p-0'
+          : compact
+            ? 'mt-0 items-center justify-end gap-3'
+            : 'mt-6 items-center justify-end gap-3'
+      "
     >
+      <!-- Back Button (optional) -->
+      @if (showBack) {
+        <button
+          type="button"
+          class="nxt1-back-btn px-6 py-3"
+          [disabled]="loading"
+          (click)="backClick.emit()"
+          [attr.data-testid]="backTestId"
+          nxtHaptic="light"
+        >
+          <nxt1-icon name="chevronLeft" [size]="18" />
+          Back
+        </button>
+      }
+
       <!-- Skip Button (optional steps) -->
       @if (showSkip && !isLastStep) {
         <button
@@ -58,7 +81,7 @@ import { NxtPlatformService } from '../../services/platform';
           class="nxt1-skip-btn px-6 py-3"
           [disabled]="loading"
           (click)="skipClick.emit()"
-          data-testid="onboarding-skip"
+          [attr.data-testid]="skipTestId"
           nxtHaptic="light"
         >
           Skip
@@ -73,15 +96,17 @@ import { NxtPlatformService } from '../../services/platform';
         [class.completing]="isLastStep"
         [disabled]="disabled || loading"
         (click)="continueClick.emit()"
-        [attr.data-testid]="isLastStep ? 'onboarding-complete' : 'onboarding-continue'"
+        [attr.data-testid]="
+          continueTestId || (isLastStep ? 'onboarding-complete' : 'onboarding-continue')
+        "
         [attr.aria-busy]="loading"
         [nxtHaptic]="isLastStep ? 'success' : 'medium'"
       >
         @if (loading) {
           <div class="nxt1-spinner"></div>
         }
-        <span>{{ isLastStep ? 'Complete' : 'Continue' }}</span>
-        @if (!isLastStep && !loading) {
+        <span>{{ continueText || (isLastStep ? 'Complete' : 'Continue') }}</span>
+        @if (!isLastStep && !loading && showContinueIcon) {
           <nxt1-icon name="arrowRight" [size]="20" />
         }
       </button>
@@ -102,6 +127,32 @@ import { NxtPlatformService } from '../../services/platform';
         color: var(--nxt1-color-text-secondary);
         cursor: pointer;
         transition: all var(--nxt1-duration-normal) var(--nxt1-easing-inOut);
+      }
+
+      .nxt1-back-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: transparent;
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: var(--nxt1-borderRadius-lg);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        color: var(--nxt1-color-text-secondary);
+        cursor: pointer;
+        transition: all var(--nxt1-duration-normal) var(--nxt1-easing-inOut);
+      }
+
+      .nxt1-back-btn:hover:not(:disabled) {
+        border-color: var(--nxt1-color-border-strong);
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .nxt1-back-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
       }
 
       .nxt1-skip-btn:hover:not(:disabled) {
@@ -182,6 +233,27 @@ export class OnboardingNavigationButtonsComponent {
 
   /** Whether this is the last step (shows "Complete" instead of "Continue") */
   @Input() isLastStep = false;
+
+  /** Override continue/complete label per step */
+  @Input() continueText = '';
+
+  /** Show/hide icon on continue button */
+  @Input() showContinueIcon = true;
+
+  /** Remove default desktop top margin when embedded in custom containers */
+  @Input() compact = false;
+
+  /** Mobile layout mode for button row */
+  @Input() mobileLayout: 'stack' | 'row' = 'stack';
+
+  /** Test id override for continue button */
+  @Input() continueTestId = '';
+
+  /** Test id override for skip button */
+  @Input() skipTestId = 'onboarding-skip';
+
+  /** Test id override for back button */
+  @Input() backTestId = 'onboarding-back';
 
   /** Whether the continue button is disabled */
   @Input() disabled = false;

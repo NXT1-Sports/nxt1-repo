@@ -40,6 +40,7 @@ import {
 } from '@angular/core';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../components/icon/icon.component';
+import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
@@ -280,29 +281,20 @@ export const OPERATIONS_LOG_TEST_IDS = {
 
 @Component({
   selector: 'nxt1-agent-x-operations-log',
-  imports: [NxtIconComponent],
+  imports: [NxtIconComponent, NxtSheetHeaderComponent],
   template: `
     <!-- ═══ HEADER ═══ -->
-    <header class="log-header" [attr.data-testid]="testIds.HEADER">
-      <div class="log-header-left">
-        <div class="log-header-icon">
-          <nxt1-icon name="time" [size]="18" />
-        </div>
-        <div class="log-header-meta">
-          <span class="log-header-label">Operations</span>
-          <h2 class="log-header-title">Activity Log</h2>
-        </div>
-      </div>
-      <button
-        type="button"
-        class="log-close-btn"
-        [attr.data-testid]="testIds.CLOSE_BUTTON"
-        (click)="dismiss()"
-        aria-label="Close"
-      >
-        <nxt1-icon name="close" [size]="20" />
-      </button>
-    </header>
+    <nxt1-sheet-header
+      title="Activity Log"
+      subtitle="Operations"
+      icon="time"
+      iconShape="circle"
+      closePosition="right"
+      [showBorder]="false"
+      [testId]="testIds.HEADER"
+      [closeTestId]="testIds.CLOSE_BUTTON"
+      (closeSheet)="dismiss()"
+    />
 
     <!-- ═══ SUMMARY BAR ═══ -->
     <div class="log-summary" [attr.data-testid]="testIds.SUMMARY_BAR">
@@ -499,75 +491,6 @@ export const OPERATIONS_LOG_TEST_IDS = {
         100% {
           background-position: 200% 0;
         }
-      }
-
-      /* ═══ HEADER ═══ */
-      .log-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-3, 12px);
-        flex-shrink: 0;
-      }
-
-      .log-header-left {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-3, 12px);
-      }
-
-      .log-header-icon {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 36px;
-        height: 36px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        background: var(--log-primary-glow);
-        color: var(--log-primary);
-        flex-shrink: 0;
-      }
-
-      .log-header-meta {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-      }
-
-      .log-header-label {
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: var(--log-primary);
-        line-height: 1;
-      }
-
-      .log-header-title {
-        font-size: 17px;
-        font-weight: 700;
-        color: var(--log-text-primary);
-        margin: 0;
-        line-height: 1.2;
-      }
-
-      .log-close-btn {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 36px;
-        height: 36px;
-        border: 0;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        background: var(--log-surface);
-        color: var(--log-text-secondary);
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-        transition: background 0.15s ease;
-      }
-
-      .log-close-btn:active {
-        background: var(--log-surface-hover);
       }
 
       /* ═══ SUMMARY BAR ═══ */

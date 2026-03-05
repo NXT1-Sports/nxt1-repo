@@ -51,6 +51,18 @@ export {
   type IdentityTreeInput,
 } from '../components/agent-x-identity-section';
 
+// Onboarding Flow
+export {
+  AgentOnboardingService,
+  AgentOnboardingShellComponent,
+  AgentOnboardingShellMobileComponent,
+  AgentOnboardingWelcomeComponent,
+  AgentOnboardingProgramComponent,
+  AgentOnboardingGoalsComponent,
+  AgentOnboardingConnectionsComponent,
+  AgentOnboardingLoadingComponent,
+} from './onboarding';
+
 // FAB Chat Widget (Web-only, SSR-safe)
 export { AgentXFabComponent } from './fab';
 export { AgentXFabChatPanelComponent } from './fab';

@@ -511,8 +511,8 @@ export interface WeeklyPlaybookItem {
       @keyframes op-pulse-border {
         0%,
         100% {
+          border-color: var(--agent-primary-glow);
         }
-        gap: 6px;
         50% {
           border-color: var(--agent-primary);
         }

@@ -53,6 +53,7 @@ import { EditProfileProgressComponent } from './edit-profile-progress.component'
 import { EditProfileSectionComponent } from './edit-profile-section.component';
 import { EditProfileSkeletonComponent } from './edit-profile-skeleton.component';
 import type { EditProfileSectionId } from '@nxt1/core';
+import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 
 // Register icons
 @Component({
@@ -66,6 +67,7 @@ import type { EditProfileSectionId } from '@nxt1/core';
     EditProfileProgressComponent,
     EditProfileSectionComponent,
     EditProfileSkeletonComponent,
+    NxtSheetHeaderComponent,
   ],
   template: `
     <div class="edit-profile-shell">
@@ -102,9 +104,14 @@ import type { EditProfileSectionId } from '@nxt1/core';
 
       <!-- Minimal Sheet Header (when showHeader is false - used in native bottom sheet) -->
       @if (!showHeader()) {
-        <header class="edit-profile-sheet-header">
-          <h1 class="sheet-title">Edit Profile</h1>
+        <nxt1-sheet-header
+          title="Edit Profile"
+          [showClose]="false"
+          [showBorder]="true"
+          (closeSheet)="onClose()"
+        >
           <button
+            sheetHeaderAction
             type="button"
             class="sheet-save-btn"
             [class.sheet-save-btn--active]="profile.hasUnsavedChanges()"
@@ -118,7 +125,7 @@ import type { EditProfileSectionId } from '@nxt1/core';
               <span>{{ profile.hasUnsavedChanges() ? 'Save' : 'Done' }}</span>
             }
           </button>
-        </header>
+        </nxt1-sheet-header>
       }
 
       <ion-content [fullscreen]="true" class="edit-profile-content">
@@ -303,25 +310,8 @@ import type { EditProfileSectionId } from '@nxt1/core';
       }
 
       /* ============================================
-         SHEET HEADER (Minimal header for native bottom sheet)
+         SHEET HEADER (Save button styling for projected content)
          ============================================ */
-
-      .edit-profile-sheet-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4) var(--nxt1-spacing-3);
-        background: var(--nxt1-color-bg-primary);
-        border-bottom: 1px solid var(--nxt1-color-border-subtle);
-      }
-
-      .sheet-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-lg);
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary);
-        margin: 0;
-      }
 
       .sheet-save-btn {
         display: flex;

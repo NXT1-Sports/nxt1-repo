@@ -85,6 +85,7 @@ import type {
 } from './sidenav.types';
 import { DEFAULT_SOCIAL_LINKS, DEFAULT_SIDENAV_ITEMS, createSidenavConfig } from './sidenav.types';
 import type { SidenavItemSelectEvent } from './sidenav.types';
+import { formatSportDisplayName } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-sidenav',
@@ -173,59 +174,57 @@ import type { SidenavItemSelectEvent } from './sidenav.types';
               }
             </div>
 
-            <div class="nxt1-sidenav-sports">
-              <div class="nxt1-sidenav-sports__title">Sports</div>
-
-              <div class="nxt1-sidenav-sports__actions">
-                @if ((user()!.sportProfiles?.length ?? 0) > 1) {
-                  <div class="nxt1-sidenav-sports__list">
-                    @for (profile of user()!.sportProfiles; track profile.id) {
-                      <button
-                        class="nxt1-sidenav-sports__item"
-                        [class.nxt1-sidenav-sports__item--active]="profile.isActive"
-                        (click)="onSportProfileSelect(profile, $event)"
-                        [attr.aria-label]="'Switch to ' + profile.sport + ' profile'"
-                      >
-                        <nxt1-avatar
-                          [src]="profile.profileImg || user()!.profileImg"
-                          [name]="profile.sport"
-                          [initials]="getSportInitials(profile.sport)"
-                          size="sm"
-                          class="nxt1-sidenav-sports__avatar"
-                        />
-                      </button>
-                    }
-                  </div>
-                } @else {
-                  <div class="nxt1-sidenav-sports__single">
-                    <div class="nxt1-sidenav-sports__single-row">
-                      @if ((user()!.sportProfiles?.length ?? 0) === 1) {
-                        <div class="nxt1-sidenav-sports__item nxt1-sidenav-sports__item--active">
-                          <nxt1-avatar
-                            [src]="user()!.sportProfiles![0].profileImg || user()!.profileImg"
-                            [name]="user()!.sportProfiles![0].sport"
-                            [initials]="getSportInitials(user()!.sportProfiles![0].sport)"
-                            size="sm"
-                            class="nxt1-sidenav-sports__avatar"
-                          />
-                        </div>
+            <!-- Expandable sport profiles list -->
+            @if (sportsExpanded() && (user()!.sportProfiles?.length ?? 0) > 0) {
+              <div class="nxt1-sidenav-sport-list">
+                @for (profile of user()!.sportProfiles; track profile.id) {
+                  <button
+                    class="nxt1-sidenav-sport-list__item"
+                    [class.nxt1-sidenav-sport-list__item--active]="profile.isActive"
+                    (click)="onSportProfileSelect(profile, $event)"
+                    [attr.aria-label]="'Switch to ' + formatSportDisplay(profile.sport)"
+                  >
+                    <nxt1-avatar
+                      [src]="profile.profileImg || user()!.profileImg"
+                      [name]="profile.sport"
+                      [initials]="getSportInitials(profile.sport)"
+                      [customSize]="28"
+                      [showSkeleton]="false"
+                    />
+                    <div class="nxt1-sidenav-sport-list__info">
+                      <span class="nxt1-sidenav-sport-list__name">{{
+                        formatSportDisplay(profile.sport)
+                      }}</span>
+                      @if (profile.position) {
+                        <span class="nxt1-sidenav-sport-list__position">{{
+                          profile.position
+                        }}</span>
                       }
 
+                      <!-- Add sport button -->
                       <button
-                        class="nxt1-sidenav-sports__add-icon-btn"
+                        class="nxt1-sidenav-sport-list__item nxt1-sidenav-sport-list__item--add"
                         (click)="onAddSportClick($event)"
                         aria-label="Add sport profile"
-                        title="Add Sport"
                       >
-                        <svg
-                          class="nxt1-sidenav-sports__add-icon"
-                          viewBox="0 0 24 24"
-                          width="16"
-                          height="16"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2.2"
-                          stroke-linecap="round"
+                        <div class="nxt1-sidenav-sport-list__add-icon">
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="16"
+                            height="16"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.2"
+                            stroke-linecap="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M12 5v14" />
+                            <path d="M5 12h14" />
+                          </svg>
+                        </div>
+                        <span class="nxt1-sidenav-sport-list__name">Add Sport</span>
+                      </button>
+                    </div>
                           aria-hidden="true"
                         >
                           <path d="M12 5v14" />
@@ -1677,11 +1676,11 @@ export class NxtSidenavComponent {
     const profile = activeSport ?? firstSport;
 
     if (profile?.sport && profile.position) {
-      return `${profile.sport} • ${profile.position}`;
+      return `${formatSportDisplayName(profile.sport)} • ${profile.position}`;
     }
 
     if (profile?.sport) {
-      return profile.sport;
+      return formatSportDisplayName(profile.sport);
     }
 
     if (userData.subtitle && !userData.subtitle.includes('@')) {
@@ -1689,6 +1688,13 @@ export class NxtSidenavComponent {
     }
 
     return 'Athlete';
+  }
+
+  /**
+   * Format sport name for display using the centralized formatter.
+   */
+  formatSportDisplay(sportName: string): string {
+    return formatSportDisplayName(sportName);
   }
 
   /**

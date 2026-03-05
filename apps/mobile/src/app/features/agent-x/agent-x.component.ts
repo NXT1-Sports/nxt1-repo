@@ -15,10 +15,12 @@
  * - User context from AuthFlowService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
-import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
+import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import { IonHeader, IonContent, IonToolbar } from '@ionic/angular/standalone';
 import {
   AgentXShellComponent,
+  AgentOnboardingShellMobileComponent,
+  AgentOnboardingService,
   NxtSidenavService,
   NxtLoggingService,
   type AgentXUser,
@@ -28,14 +30,26 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
 @Component({
   selector: 'app-agent-x',
   standalone: true,
-  imports: [IonHeader, IonContent, IonToolbar, AgentXShellComponent],
+  imports: [
+    IonHeader,
+    IonContent,
+    IonToolbar,
+    AgentXShellComponent,
+    AgentOnboardingShellMobileComponent,
+  ],
   template: `
-    <ion-header class="ion-no-border" [translucent]="true">
-      <ion-toolbar></ion-toolbar>
-    </ion-header>
-    <ion-content [fullscreen]="true">
-      <nxt1-agent-x-shell [user]="userInfo()" (avatarClick)="onAvatarClick()" />
-    </ion-content>
+    @if (showOnboarding()) {
+      <!-- Onboarding flow — native Ionic shell -->
+      <nxt1-agent-onboarding-shell-mobile (onboardingComplete)="onOnboardingComplete()" />
+    } @else {
+      <!-- Agent X Command Center -->
+      <ion-header class="ion-no-border" [translucent]="true">
+        <ion-toolbar></ion-toolbar>
+      </ion-header>
+      <ion-content [fullscreen]="true">
+        <nxt1-agent-x-shell [user]="userInfo()" (avatarClick)="onAvatarClick()" />
+      </ion-content>
+    }
   `,
   styles: [
     `
@@ -67,10 +81,14 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXComponent {
+export class AgentXComponent implements OnInit {
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
+  private readonly onboarding = inject(AgentOnboardingService);
+
+  /** Whether to show onboarding flow */
+  protected readonly showOnboarding = computed(() => this.onboarding.needsOnboarding());
 
   /**
    * Transform auth user to AgentXUser interface.
@@ -85,6 +103,23 @@ export class AgentXComponent {
       role: user.role,
     };
   });
+
+  ngOnInit(): void {
+    const user = this.authFlow.user();
+    const role = user?.role ?? 'athlete';
+    // TODO: Check backend for onboarding completion status
+    const needsOnboarding = true;
+    this.onboarding.initialize(role, needsOnboarding);
+    this.logger.info('Agent X initialized (mobile)', { role, needsOnboarding });
+  }
+
+  /**
+   * Handle onboarding completion — transition to Agent X shell.
+   */
+  onOnboardingComplete(): void {
+    this.logger.info('Onboarding complete, transitioning to Agent X shell');
+    this.onboarding.markAsCompleted();
+  }
 
   /**
    * Handle avatar click — open sidenav (Twitter/X pattern).

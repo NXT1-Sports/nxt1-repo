@@ -18,23 +18,11 @@ import {
   OnInit,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import {
-  IonHeader,
-  IonToolbar,
-  IonTitle,
-  IonButtons,
-  IonButton,
-  IonIcon,
-  IonContent,
-  IonFooter,
-  IonLabel,
-  IonRange,
-  IonToggle,
-} from '@ionic/angular/standalone';
+import { IonLabel, IonRange, IonToggle } from '@ionic/angular/standalone';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtChipComponent } from '../components/chip';
-import { addIcons } from 'ionicons';
-import { closeOutline, refreshOutline, checkmarkOutline } from 'ionicons/icons';
+import { NxtSheetHeaderComponent } from '../components/bottom-sheet';
+import { NxtIconComponent } from '../components/icon';
 import {
   type ExploreFilters,
   type ExploreTabId,
@@ -52,45 +40,32 @@ import {
   standalone: true,
   imports: [
     CommonModule,
-    IonHeader,
-    IonToolbar,
-    IonTitle,
-    IonButtons,
-    IonButton,
-    IonIcon,
-    IonContent,
-    IonFooter,
     IonLabel,
     IonRange,
     IonToggle,
     NxtChipComponent,
+    NxtSheetHeaderComponent,
+    NxtIconComponent,
   ],
   template: `
-    <ion-header>
-      <ion-toolbar>
-        <ion-buttons slot="start">
-          <ion-button fill="clear" (click)="onCancel()">
-            <ion-icon name="close-outline" slot="icon-only" />
-          </ion-button>
-        </ion-buttons>
+    <nxt1-sheet-header
+      [title]="filterTitle()"
+      closePosition="left"
+      [showBorder]="true"
+      (closeSheet)="onCancel()"
+    >
+      <div sheetHeaderAction class="filter-header-actions">
+        @if (activeFilterCount() > 0) {
+          <span class="filter-count">{{ activeFilterCount() }}</span>
+        }
+        <button class="filter-reset-btn" [disabled]="activeFilterCount() === 0" (click)="onReset()">
+          <nxt1-icon name="refresh" [size]="16" />
+          Reset
+        </button>
+      </div>
+    </nxt1-sheet-header>
 
-        <ion-title>
-          Filters · {{ activeTabLabel() }}
-          @if (activeFilterCount() > 0) {
-            <span class="filter-count">{{ activeFilterCount() }}</span>
-          }
-        </ion-title>
-
-        <ion-buttons slot="end">
-          <ion-button fill="clear" [disabled]="activeFilterCount() === 0" (click)="onReset()">
-            <ion-icon name="refresh-outline" slot="start" />
-            Reset
-          </ion-button>
-        </ion-buttons>
-      </ion-toolbar>
-    </ion-header>
-
-    <ion-content class="filter-content">
+    <div class="filter-scroll-content">
       @if (fields().sport) {
         <section class="filter-section">
           <h3>Sport</h3>
@@ -207,44 +182,37 @@ import {
           />
         </section>
       }
-    </ion-content>
+    </div>
 
-    <ion-footer>
-      <ion-toolbar>
-        <ion-button expand="block" class="apply-btn" (click)="onApply()">
-          <ion-icon name="checkmark-outline" slot="start" />
-          Apply Filters
-        </ion-button>
-      </ion-toolbar>
-    </ion-footer>
+    <div class="filter-footer">
+      <button class="filter-apply-btn" (click)="onApply()">
+        <nxt1-icon name="checkmark" [size]="18" />
+        Apply Filters
+      </button>
+    </div>
   `,
   styles: [
     `
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
         height: 100%;
-        --ion-background-color: var(--nxt1-color-background-primary);
         background: var(--nxt1-color-background-primary);
       }
 
-      ion-header {
-        --ion-toolbar-background: var(--nxt1-color-background-elevated);
-      }
-
-      ion-toolbar {
-        --background: var(--nxt1-color-background-elevated);
-        --border-color: var(--nxt1-color-border-subtle);
-      }
-
-      ion-title {
-        font-size: var(--nxt1-fontSize-lg);
+      /* ============================================
+       * Header Actions (badge + reset)
+       * ============================================ */
+      .filter-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
       }
 
       .filter-count {
-        margin-left: 8px;
         display: inline-flex;
-        min-width: 18px;
-        height: 18px;
+        min-width: 20px;
+        height: 20px;
         align-items: center;
         justify-content: center;
         border-radius: 999px;
@@ -252,11 +220,43 @@ import {
         color: var(--nxt1-color-on-primary);
         font-size: 11px;
         font-weight: 700;
+        padding: 0 5px;
       }
 
-      .filter-content {
-        --background: var(--nxt1-color-background-primary);
-        --ion-background-color: var(--nxt1-color-background-primary);
+      .filter-reset-btn {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        border: none;
+        background: none;
+        color: var(--nxt1-color-text-secondary);
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 6px 8px;
+        border-radius: var(--nxt1-radius-sm, 6px);
+        transition:
+          color 0.15s ease,
+          opacity 0.15s ease;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .filter-reset-btn:hover:not(:disabled) {
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .filter-reset-btn:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+
+      /* ============================================
+       * Scrollable Content
+       * ============================================ */
+      .filter-scroll-content {
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
       }
 
       .filter-section {
@@ -312,32 +312,43 @@ import {
         color: var(--nxt1-color-text-secondary);
       }
 
-      ion-footer {
-        --ion-toolbar-background: var(--nxt1-color-background-elevated);
+      /* ============================================
+       * Sticky Footer
+       * ============================================ */
+      .filter-footer {
+        flex-shrink: 0;
+        padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+        border-top: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-background-elevated);
       }
 
-      ion-footer ion-toolbar {
-        --background: var(--nxt1-color-background-elevated);
-        --padding-start: 16px;
-        --padding-end: 16px;
-        --padding-top: 12px;
-        --padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-      }
-
-      .apply-btn {
-        --background: var(--nxt1-color-primary);
-        --color: var(--nxt1-color-on-primary);
+      .filter-apply-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        width: 100%;
+        min-height: 48px;
+        border: none;
+        border-radius: var(--nxt1-radius-md, 10px);
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-on-primary);
+        font-size: 15px;
         font-weight: 700;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition: opacity 0.15s ease;
+      }
+
+      .filter-apply-btn:active {
+        opacity: 0.85;
+        transform: scale(0.99);
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ExploreFilterModalComponent implements OnInit {
-  constructor() {
-    addIcons({ closeOutline, refreshOutline, checkmarkOutline });
-  }
-
   private readonly modalCtrl = inject(ModalController);
 
   activeTab: ExploreTabId = 'feed';
@@ -356,6 +367,8 @@ export class ExploreFilterModalComponent implements OnInit {
   protected readonly activeTabLabel = computed(() => {
     return EXPLORE_TABS.find((tab) => tab.id === this.activeTab)?.label ?? 'Explore';
   });
+
+  protected readonly filterTitle = computed(() => `Filters · ${this.activeTabLabel()}`);
 
   protected readonly activeFilterCount = computed(() => {
     const filters = this.draftFilters();

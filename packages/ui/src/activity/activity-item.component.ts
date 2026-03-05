@@ -45,7 +45,6 @@ import {
   sparklesOutline,
   chevronForward,
   ellipsisHorizontal,
-  pinOutline,
   volumeMuteOutline,
 } from 'ionicons/icons';
 import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@nxt1/core';
@@ -107,11 +106,8 @@ import type { MessageActivityMetadata } from '@nxt1/core';
 
       <!-- Right: Actions & Indicators -->
       <div class="activity-item__trailing">
-        <!-- Message indicators: pinned / muted -->
+        <!-- Message indicators: muted -->
         @if (isMessage()) {
-          @if (msgMeta()?.isPinned) {
-            <ion-icon name="pin-outline" class="activity-item__pin-icon"></ion-icon>
-          }
           @if (msgMeta()?.isMuted) {
             <ion-icon name="volume-mute-outline" class="activity-item__mute-icon"></ion-icon>
           }
@@ -371,8 +367,7 @@ import type { MessageActivityMetadata } from '@nxt1/core';
         background: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
       }
 
-      /* Pin / Mute icons */
-      .activity-item__pin-icon,
+      /* Mute icon */
       .activity-item__mute-icon {
         font-size: 14px;
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
@@ -399,7 +394,6 @@ export class ActivityItemComponent {
       sparklesOutline,
       chevronForward,
       ellipsisHorizontal,
-      pinOutline,
       volumeMuteOutline,
     });
   }

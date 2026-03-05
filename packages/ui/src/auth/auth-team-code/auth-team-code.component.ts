@@ -30,7 +30,11 @@ import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from 
 import { CommonModule, TitleCasePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonButton, IonInput, IonSpinner } from '@ionic/angular/standalone';
-import type { ValidatedTeamInfo, TeamCodeValidationState } from '@nxt1/core';
+import {
+  formatSportDisplayName,
+  type ValidatedTeamInfo,
+  type TeamCodeValidationState,
+} from '@nxt1/core';
 
 // Re-export types for convenience
 export type { ValidatedTeamInfo, TeamCodeValidationState } from '@nxt1/core';
@@ -91,7 +95,8 @@ export type { ValidatedTeamInfo, TeamCodeValidationState } from '@nxt1/core';
             <div class="flex-1">
               <p class="text-text-primary font-semibold">{{ validatedTeam.teamName }}</p>
               <p class="text-text-secondary text-sm">
-                {{ validatedTeam.sport }} • {{ validatedTeam.teamType | titlecase }}
+                {{ formatSportDisplayName(validatedTeam.sport) }} •
+                {{ validatedTeam.teamType | titlecase }}
               </p>
             </div>
             <div class="text-green-500">
@@ -220,6 +225,8 @@ export type { ValidatedTeamInfo, TeamCodeValidationState } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthTeamCodeComponent {
+  protected readonly formatSportDisplayName = formatSportDisplayName;
+
   // ============================================
   // INPUTS
   // ============================================

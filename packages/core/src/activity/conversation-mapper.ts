@@ -90,7 +90,7 @@ export function conversationToActivityItem(conversation: Conversation): Activity
     id: `msg-${conversation.id}`,
     type: 'message',
     tab: 'inbox',
-    priority: conversation.isPinned ? 'high' : 'normal',
+    priority: 'normal',
     title: conversation.title,
     body,
     timestamp: lastMessage?.timestamp ?? conversation.updatedAt,

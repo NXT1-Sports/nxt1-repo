@@ -20,6 +20,7 @@ import {
   type ExploreVideoItem,
   type ExploreAthleteItem,
   type ExploreTeamItem,
+  formatSportDisplayName,
 } from '@nxt1/core';
 import { NxtAvatarComponent } from '../../components/avatar';
 import { NxtIconComponent } from '../../components/icon';
@@ -125,7 +126,9 @@ const ICON_PATHS = {
               </svg>
             }
           </div>
-          <p class="item-subtitle">{{ athlete.position }} · {{ athlete.sport }}</p>
+          <p class="item-subtitle">
+            {{ athlete.position }} · {{ formatSportDisplayName(athlete.sport) }}
+          </p>
           <div class="item-meta">
             @if (athlete.team) {
               <span class="meta-item">{{ athlete.team }}</span>
@@ -160,7 +163,9 @@ const ICON_PATHS = {
               </svg>
             }
           </div>
-          <p class="item-subtitle">{{ team.sport }} · {{ team.location }}</p>
+          <p class="item-subtitle">
+            {{ formatSportDisplayName(team.sport) }} · {{ team.location }}
+          </p>
           <div class="item-meta">
             <span class="meta-item">{{ team.memberCount }} members</span>
             @if (team.record) {
@@ -323,6 +328,8 @@ const ICON_PATHS = {
 })
 export class ExploreItemWebComponent {
   private readonly haptics = inject(HapticsService);
+
+  protected readonly formatSportDisplayName = formatSportDisplayName;
 
   // ============================================
   // INPUTS / OUTPUTS

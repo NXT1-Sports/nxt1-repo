@@ -33,6 +33,11 @@
 
 // Components
 export { NxtBottomSheetComponent } from './bottom-sheet.component';
+export {
+  NxtSheetHeaderComponent,
+  type SheetHeaderIconShape,
+  type SheetHeaderClosePosition,
+} from './sheet-header.component';
 
 // Services
 export { NxtBottomSheetService } from './bottom-sheet.service';

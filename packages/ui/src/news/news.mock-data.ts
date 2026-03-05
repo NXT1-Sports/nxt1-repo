@@ -126,7 +126,7 @@ const MOCK_RECRUITING_ARTICLES: NewsArticle[] = [
     likeCount: 892,
     isFeatured: true,
     sportContext: {
-      sport: 'football',
+      sport: 'Football',
       colleges: ['Alabama', 'Ohio State', 'Georgia'],
       players: ['Marcus Thompson'],
     },
@@ -155,7 +155,7 @@ const MOCK_RECRUITING_ARTICLES: NewsArticle[] = [
     shareCount: 289,
     likeCount: 1456,
     sportContext: {
-      sport: 'football',
+      sport: 'Football',
     },
   },
   {
@@ -182,7 +182,7 @@ const MOCK_RECRUITING_ARTICLES: NewsArticle[] = [
     shareCount: 178,
     likeCount: 967,
     sportContext: {
-      sport: 'football',
+      sport: 'Football',
     },
   },
 ];
@@ -214,7 +214,7 @@ const MOCK_COMMITS_ARTICLES: NewsArticle[] = [
     likeCount: 445,
     isBreaking: true,
     sportContext: {
-      sport: 'football',
+      sport: 'Football',
       colleges: ['USC', 'Texas', 'LSU'],
       players: ['Jaylen Carter'],
     },
@@ -241,7 +241,7 @@ const MOCK_COMMITS_ARTICLES: NewsArticle[] = [
     shareCount: 134,
     likeCount: 678,
     sportContext: {
-      sport: 'basketball',
+      sport: 'Basketball',
       colleges: ['Duke'],
       players: ['Jordan Williams'],
     },
@@ -272,7 +272,7 @@ const MOCK_TRANSFERS_ARTICLES: NewsArticle[] = [
     likeCount: 2341,
     isFeatured: true,
     sportContext: {
-      sport: 'football',
+      sport: 'Football',
     },
   },
   {
@@ -297,7 +297,7 @@ const MOCK_TRANSFERS_ARTICLES: NewsArticle[] = [
     shareCount: 234,
     likeCount: 1123,
     sportContext: {
-      sport: 'football',
+      sport: 'Football',
       colleges: ['Michigan', 'Florida'],
       players: ['Marcus Johnson'],
     },
@@ -330,7 +330,7 @@ const MOCK_COLLEGE_ARTICLES: NewsArticle[] = [
     shareCount: 789,
     likeCount: 3456,
     sportContext: {
-      sport: 'football',
+      sport: 'Football',
     },
   },
   {
@@ -355,7 +355,7 @@ const MOCK_COLLEGE_ARTICLES: NewsArticle[] = [
     shareCount: 456,
     likeCount: 2134,
     sportContext: {
-      sport: 'basketball',
+      sport: 'Basketball',
     },
   },
 ];
@@ -385,7 +385,7 @@ const MOCK_HIGHLIGHTS_ARTICLES: NewsArticle[] = [
     likeCount: 5678,
     isFeatured: true,
     sportContext: {
-      sport: 'football',
+      sport: 'Football',
     },
   },
 ];
@@ -413,7 +413,7 @@ const MOCK_PRO_ARTICLES: NewsArticle[] = [
     shareCount: 654,
     likeCount: 3210,
     sportContext: {
-      sport: 'football',
+      sport: 'Football',
     },
   },
 ];

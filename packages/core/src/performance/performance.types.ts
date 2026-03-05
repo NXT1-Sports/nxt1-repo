@@ -313,6 +313,12 @@ export const TRACE_NAMES = {
   // AI traces
   AI_REQUEST: 'ai_request',
   AI_RESPONSE_PARSE: 'ai_response_parse',
+
+  // Agent onboarding traces
+  AGENT_ONBOARDING_COMPLETE: 'agent_onboarding_complete',
+  AGENT_ONBOARDING_PROGRAM_SEARCH: 'agent_onboarding_program_search',
+  AGENT_ONBOARDING_PROGRAM_CLAIM: 'agent_onboarding_program_claim',
+  AGENT_ONBOARDING_CONNECTIONS_LOAD: 'agent_onboarding_connections_load',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

@@ -23,6 +23,7 @@
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { NxtIconComponent } from '../components/icon';
+import { formatSportDisplayName } from '@nxt1/core';
 
 // ============================================
 // PREVIEW MOCK DATA
@@ -165,7 +166,7 @@ const PREVIEW_STATS = {
 
                 <!-- Sport & Position -->
                 <div class="card-sport">
-                  <span class="card-sport-badge">{{ athlete.sport }}</span>
+                  <span class="card-sport-badge">{{ formatSportDisplayName(athlete.sport) }}</span>
                   <span class="card-position-badge">{{ athlete.position }}</span>
                 </div>
 
@@ -542,6 +543,7 @@ const PREVIEW_STATS = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtAthleteProfilesPreviewComponent {
+  protected readonly formatSportDisplayName = formatSportDisplayName;
   protected readonly athletes = PREVIEW_ATHLETES;
   protected readonly sportTabs = PREVIEW_SPORTS;
   protected readonly resultStats = PREVIEW_STATS;

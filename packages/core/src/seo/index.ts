@@ -14,6 +14,8 @@
  * @version 1.0.0
  */
 
+import { formatSportDisplayName } from '../constants/sport.constants';
+
 // ============================================
 // BASE TYPES
 // ============================================
@@ -373,7 +375,7 @@ export function buildProfileSeoConfig(profile: ShareableProfile): SeoConfig {
  */
 export function buildTeamSeoConfig(team: ShareableTeam): SeoConfig {
   const url = buildShareUrl(team);
-  const title = `${team.teamName}${team.sport ? ` ${team.sport}` : ''} | NXT1 Sports`;
+  const title = `${team.teamName}${team.sport ? ` ${formatSportDisplayName(team.sport)}` : ''} | NXT1 Sports`;
   const description =
     team.description ||
     `Follow ${team.teamName}${team.location ? ` from ${team.location}` : ''}. View roster, schedule, highlights, and recruiting information on NXT1 Sports.`;
@@ -478,11 +480,11 @@ function buildProfileDescription(profile: ShareableProfile): string {
   const parts: string[] = [];
 
   if (profile.position && profile.sport) {
-    parts.push(`${profile.position} in ${profile.sport}`);
+    parts.push(`${profile.position} in ${formatSportDisplayName(profile.sport)}`);
   } else if (profile.position) {
     parts.push(profile.position);
   } else if (profile.sport) {
-    parts.push(`${profile.sport} athlete`);
+    parts.push(`${formatSportDisplayName(profile.sport)} athlete`);
   }
 
   if (profile.school) {
@@ -509,7 +511,11 @@ function buildProfileDescription(profile: ShareableProfile): string {
 function buildProfileKeywords(profile: ShareableProfile): string[] {
   const keywords: string[] = [profile.athleteName, 'recruiting', 'highlights', 'NXT1'];
 
-  if (profile.sport) keywords.push(profile.sport, `${profile.sport} recruiting`);
+  if (profile.sport)
+    keywords.push(
+      formatSportDisplayName(profile.sport),
+      `${formatSportDisplayName(profile.sport)} recruiting`
+    );
   if (profile.position) keywords.push(profile.position);
   if (profile.school) keywords.push(profile.school);
   if (profile.location) keywords.push(profile.location);
