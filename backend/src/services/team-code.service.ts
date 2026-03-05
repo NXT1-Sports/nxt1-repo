@@ -2,7 +2,7 @@
  * @fileoverview Team Code Service (Firebase)
  * @module @nxt1/backend/services/team-code
  *
- * Manages TeamCodes collection in Firebase Firestore
+ * Manages Teams collection in Firebase Firestore
  * - Role-based membership (Administrative, Coach, Athlete, Media)
  * - Redis caching
  * - Supports production/staging Firebase instances
@@ -227,7 +227,7 @@ export async function getTeamCodeById(
     }
   }
 
-  const doc = await db.collection('TeamCodes').doc(teamId).get();
+  const doc = await db.collection('Teams').doc(teamId).get();
   const team = docToTeamCode(doc);
 
   // Cache result
@@ -260,7 +260,7 @@ export async function getTeamCodeByCode(
   }
 
   const snapshot = await db
-    .collection('TeamCodes')
+    .collection('Teams')
     .where('teamCode', '==', normalizedCode)
     .where('isActive', '==', true)
     .limit(1)
@@ -298,7 +298,7 @@ export async function getTeamCodeByUnicode(
     }
   }
 
-  const snapshot = await db.collection('TeamCodes').where('unicode', '==', unicode).limit(1).get();
+  const snapshot = await db.collection('Teams').where('unicode', '==', unicode).limit(1).get();
 
   if (snapshot.empty) {
     return { team: null, cached: false };
@@ -327,11 +327,7 @@ async function generateUniqueUnicode(db: Firestore): Promise<string> {
     const unicode = randomNum.toString().padStart(6, '0');
 
     // Check if unique
-    const existing = await db
-      .collection('TeamCodes')
-      .where('unicode', '==', unicode)
-      .limit(1)
-      .get();
+    const existing = await db.collection('Teams').where('unicode', '==', unicode).limit(1).get();
 
     if (existing.empty) {
       return unicode;
@@ -381,7 +377,7 @@ export async function createTeamCode(db: Firestore, input: CreateTeamCodeInput):
     validateUnicodeFormat(input.unicode);
     // Check if unicode already exists
     const existingUnicode = await db
-      .collection('TeamCodes')
+      .collection('Teams')
       .where('unicode', '==', input.unicode)
       .limit(1)
       .get();
@@ -431,7 +427,7 @@ export async function createTeamCode(db: Firestore, input: CreateTeamCodeInput):
     totalTraffic: 0,
   };
 
-  const docRef = await db.collection('TeamCodes').add(teamData);
+  const docRef = await db.collection('Teams').add(teamData);
   const doc = await docRef.get();
 
   const team = docToTeamCode(doc);
@@ -483,7 +479,7 @@ export async function updateTeamCode(
     return team;
   }
 
-  await db.collection('TeamCodes').doc(teamId).update(updateData);
+  await db.collection('Teams').doc(teamId).update(updateData);
 
   // Invalidate cache
   await invalidateTeamCache(teamId, team.teamCode, team.unicode);
@@ -507,7 +503,7 @@ export async function deleteTeamCode(db: Firestore, teamId: string, userId: stri
     throw forbiddenError('admin');
   }
 
-  await db.collection('TeamCodes').doc(teamId).update({
+  await db.collection('Teams').doc(teamId).update({
     isActive: false,
   });
 
@@ -566,7 +562,7 @@ export async function joinTeam(db: Firestore, input: JoinTeamInput): Promise<Tea
 
   // Update team with new member (atomic operation)
   await db
-    .collection('TeamCodes')
+    .collection('Teams')
     .doc(team.id!)
     .update({
       members: FieldValue.arrayUnion(newMember) as unknown as FieldValueType,
@@ -626,7 +622,7 @@ export async function inviteMember(db: Firestore, input: InviteMemberInput): Pro
 
   // Update team with invited member
   await db
-    .collection('TeamCodes')
+    .collection('Teams')
     .doc(input.teamId)
     .update({
       members: FieldValue.arrayUnion(newMember) as unknown as FieldValueType,
@@ -680,7 +676,7 @@ export async function removeMember(
   const updatedMembers = team.members?.filter((m: TeamMember) => m.id !== userId) ?? [];
   const updatedMemberIds = team.memberIds?.filter((id: string) => id !== userId) ?? [];
 
-  await db.collection('TeamCodes').doc(teamId).update({
+  await db.collection('Teams').doc(teamId).update({
     members: updatedMembers,
     memberIds: updatedMemberIds,
   });
@@ -737,7 +733,7 @@ export async function updateMemberRole(
     return m;
   });
 
-  await db.collection('TeamCodes').doc(input.teamId).update({
+  await db.collection('Teams').doc(input.teamId).update({
     members: updatedMembers,
   });
 
@@ -817,7 +813,7 @@ export async function bulkUpdateMemberRoles(
 
   // Apply updates if any succeeded
   if (result.successCount > 0) {
-    await db.collection('TeamCodes').doc(teamId).update({
+    await db.collection('Teams').doc(teamId).update({
       members: updatedMembers,
     });
 
@@ -876,7 +872,7 @@ export async function getAllTeams(
   } = options;
 
   // Start with base query
-  let query = db.collection('TeamCodes').where('isActive', '==', true);
+  let query = db.collection('Teams').where('isActive', '==', true);
 
   // Apply filters (where clauses)
   if (sportName) {
@@ -962,11 +958,7 @@ export async function getAllTeamsData(
   }
 
   // Fetch from Firestore with reasonable limit
-  const snapshot = await db
-    .collection('TeamCodes')
-    .where('isActive', '==', true)
-    .limit(maxLimit)
-    .get();
+  const snapshot = await db.collection('Teams').where('isActive', '==', true).limit(maxLimit).get();
 
   const teams = snapshot.docs.map(docToTeamCode);
 
@@ -1001,7 +993,7 @@ export async function getUserTeams(
   }
 
   const snapshot = await db
-    .collection('TeamCodes')
+    .collection('Teams')
     .where('memberIds', 'array-contains', userId)
     .where('isActive', '==', true)
     .get();
@@ -1016,21 +1008,28 @@ export async function getUserTeams(
 
 /**
  * Update team page view counter
+ * Uses Teams collection only
  */
 export async function incrementTeamPageView(db: Firestore, teamId: string): Promise<void> {
-  await db
-    .collection('TeamCodes')
-    .doc(teamId)
-    .update({
-      totalTraffic: FieldValue.increment(1) as unknown as FieldValueType,
-    });
+  const teamDoc = await db.collection('Teams').doc(teamId).get();
 
-  // Invalidate cache
-  const team = await db.collection('TeamCodes').doc(teamId).get();
-  if (team.exists) {
-    const data = team.data();
+  if (teamDoc.exists) {
+    await db
+      .collection('Teams')
+      .doc(teamId)
+      .update({
+        totalTraffic: FieldValue.increment(1) as unknown as FieldValueType,
+      });
+
+    // Invalidate cache
+    const data = teamDoc.data();
     if (data) {
-      await invalidateTeamCache(teamId, data['teamCode'], data['unicode']);
+      await invalidateTeamCache(teamId, data['teamCode'] || data['code'], data['unicode']);
     }
+
+    logger.debug('Incremented page view for team', { teamId });
+    return;
   }
+
+  logger.warn('Team not found in Teams collection', { teamId });
 }

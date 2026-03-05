@@ -106,6 +106,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
       (qrCodeClick)="onQrCode()"
       (aiSummaryClick)="onAiSummary()"
       (createPostClick)="onCreatePost()"
+      (retryClick)="onRetry()"
     >
       <!-- ═══ PROJECTED BELOW-FOLD CONTENT (inside shell scroll container) ═══ -->
       @defer (on viewport) {
@@ -663,6 +664,27 @@ export class ProfileComponent implements OnInit, OnDestroy {
       window.history.back();
     } else {
       this.router.navigate(['/home']);
+    }
+  }
+
+  /**
+   * Handle retry after error - re-fetch profile data from API.
+   */
+  protected onRetry(): void {
+    this.logger.info('Retrying profile load');
+
+    // Clear error state and start loading
+    this.uiProfileService.startLoading();
+
+    // Trigger reload by updating route params (forces subscription to re-execute)
+    const currentRoute = this.route.snapshot;
+    if (currentRoute.params['username']) {
+      this.router.navigate(['/profile', currentRoute.params['username']], { replaceUrl: true });
+    } else if (currentRoute.params['unicode']) {
+      this.router.navigate(['/profile', currentRoute.params['unicode']], { replaceUrl: true });
+    } else {
+      // Own profile - reload current route
+      this.router.navigate(['/profile'], { replaceUrl: true });
     }
   }
 

@@ -778,6 +778,7 @@ export class ProfileShellComponent implements OnInit {
   readonly aiSummaryClick = output<void>();
   readonly agentXClick = output<void>();
   readonly createPostClick = output<void>();
+  readonly retryClick = output<void>();
 
   // ============================================
   // COMPUTED — Tab Options
@@ -1133,6 +1134,11 @@ export class ProfileShellComponent implements OnInit {
 
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
     try {
+      // Don't use internal refresh when parent is handling data loading
+      if (this.skipInternalLoad()) {
+        this.logger.warn('Refresh skipped - parent handles data loading');
+        return;
+      }
       await this.profile.refresh();
     } finally {
       event.complete();
@@ -1144,12 +1150,9 @@ export class ProfileShellComponent implements OnInit {
   }
 
   protected onRetry(): void {
-    const unicode = this.profileUnicode();
-    if (unicode) {
-      this.profile.loadProfile(unicode, this.isOwnProfile());
-    } else {
-      this.profile.loadProfile('me', true);
-    }
+    // Emit retry event so parent component can re-fetch from API
+    // Don't call loadProfile() here - it uses mock data
+    this.retryClick.emit();
   }
 
   protected onFollowToggle(): void {

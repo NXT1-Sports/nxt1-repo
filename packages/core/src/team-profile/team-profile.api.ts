@@ -78,21 +78,23 @@ export type TeamProfileApi = ReturnType<typeof createTeamProfileApi>;
  * ```
  */
 export function createTeamProfileApi(http: HttpAdapter, baseUrl: string) {
-  const endpoint = `${baseUrl}/team`;
+  const endpoint = `${baseUrl}/teams`;
 
   return {
     /**
-     * Get team profile by slug/teamCode.
+     * Get team profile by slug.
+     * Calls: GET /api/v1/teams/by-slug/:slug
      */
     async getTeamBySlug(slug: string): Promise<TeamProfileApiResponse<TeamProfilePageData>> {
-      return http.get<TeamProfileApiResponse<TeamProfilePageData>>(`${endpoint}/${slug}`);
+      return http.get<TeamProfileApiResponse<TeamProfilePageData>>(`${endpoint}/by-slug/${slug}`);
     },
 
     /**
      * Get team profile by ID.
+     * Calls: GET /api/v1/teams/:id
      */
     async getTeamById(teamId: string): Promise<TeamProfileApiResponse<TeamProfilePageData>> {
-      return http.get<TeamProfileApiResponse<TeamProfilePageData>>(`${endpoint}/id/${teamId}`);
+      return http.get<TeamProfileApiResponse<TeamProfilePageData>>(`${endpoint}/${teamId}`);
     },
 
     /**

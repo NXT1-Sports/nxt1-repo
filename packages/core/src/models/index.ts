@@ -41,6 +41,44 @@ export {
   type BulkUpdateResult,
 } from './team-code.model';
 
+// ============================================
+// NEW ARCHITECTURE (v3.0) - Relational Models
+// ============================================
+
+// Organization model
+export {
+  OrganizationStatus,
+  type Organization,
+  type OrganizationBilling,
+  type OrganizationAdmin,
+  type CreateOrganizationInput,
+  type UpdateOrganizationInput,
+  type AddOrganizationAdminInput,
+} from './organization.model';
+
+// Team model (v3.0 - refactored from TeamCode)
+export { TeamStatus, type Team, type CreateTeamInput, type UpdateTeamInput } from './team.model';
+
+// Roster Entry model (Junction table: User <-> Team)
+export {
+  RosterEntryStatus,
+  RosterRole,
+  type RosterEntry,
+  type CreateRosterEntryInput,
+  type UpdateRosterEntryInput,
+  type ApproveRosterEntryInput,
+  type GetUserTeamsQuery,
+  type GetTeamRosterQuery,
+  type GetOrganizationMembersQuery,
+  type RosterEntryWithTeam,
+  type RosterEntryWithUser,
+  type LegacyTeamMember,
+  teamMemberToRosterEntry,
+  rosterEntryToTeamMember,
+} from './roster-entry.model';
+
+// ============================================
+
 // Team event model (Firestore: TeamEvents collection)
 export {
   type TeamEventType,

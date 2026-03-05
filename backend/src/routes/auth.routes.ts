@@ -241,7 +241,7 @@ router.get(
 
     // Query Firestore - automatically uses staging or prod based on route
     const snapshot = await db
-      .collection('TeamCodes')
+      .collection('Teams')
       .where('teamCode', '==', code.toUpperCase())
       .where('isActive', '==', true)
       .limit(1)
@@ -365,7 +365,7 @@ router.post(
 
     if (teamCode?.trim() && isValidTeamCode(teamCode)) {
       const teamSnapshot = await db
-        .collection('TeamCodes')
+        .collection('Teams')
         .where('teamCode', '==', teamCode.toUpperCase())
         .where('isActive', '==', true)
         .limit(1)
@@ -468,7 +468,7 @@ router.post(
         transaction.set(subscriptionRef, subscriptionData);
 
         // Add user to team's memberIds array
-        const teamRef = db.collection('TeamCodes').doc(validatedTeam!.id);
+        const teamRef = db.collection('Teams').doc(validatedTeam!.id);
         const { FieldValue } = await import('firebase-admin/firestore');
         transaction.update(teamRef, {
           memberIds: FieldValue.arrayUnion(uid),
@@ -555,7 +555,7 @@ router.post(
 
     // Find and validate team code
     const teamSnapshot = await db
-      .collection('TeamCodes')
+      .collection('Teams')
       .where('teamCode', '==', code.toUpperCase())
       .where('isActive', '==', true)
       .limit(1)
@@ -576,7 +576,7 @@ router.post(
     // Use transaction to update both user and team atomically
     await db.runTransaction(async (transaction) => {
       const userRef = db.collection('Users').doc(userId);
-      const teamRef = db.collection('TeamCodes').doc(teamDoc.id);
+      const teamRef = db.collection('Teams').doc(teamDoc.id);
       const { FieldValue } = await import('firebase-admin/firestore');
 
       // Update user with team info

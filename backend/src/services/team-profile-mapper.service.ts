@@ -209,7 +209,7 @@ function mapUserToRoster(user: UserData, index: number): TeamProfileRosterMember
     height: userData.height,
     weight: userData.weight,
     profileImg: userData.profileImg || userData.profilePhoto || undefined,
-    profileCode: userData.username || user.id || '', // Profile link uses username
+    profileCode: userData.unicode || userData.username || user.id || '', // Profile link uses unicode > username > uid
     isVerified: userData.isVerify || false,
     views: undefined, // TODO: Add analytics
   };
@@ -239,7 +239,7 @@ function mapUserToStaff(user: UserData): TeamProfileStaffMember {
       userData.title || staffRole.replace('-', ' ').replace(/^\w/, (c: string) => c.toUpperCase()),
     role: staffRole,
     profileImg: userData.profileImg || userData.profilePhoto || undefined,
-    profileCode: userData.username || user.id || '',
+    profileCode: userData.unicode || userData.username || user.id || '', // Profile link uses unicode > username > uid
     email: userData.email,
     phone: userData.phone || userData.phoneNumber,
     bio: userData.bio,

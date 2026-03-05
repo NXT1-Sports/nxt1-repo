@@ -197,7 +197,14 @@ export type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'premiu
 // TEAM HISTORY
 // ============================================
 
-/** A team affiliation entry (past or current) */
+/**
+ * A team affiliation entry (past or current)
+ *
+ * NEW in v3.0:
+ * - For active memberships, query RosterEntries collection (source of truth)
+ * - teamHistory is for display/historical purposes only
+ * - rosterEntryId links to the RosterEntry document for this affiliation
+ */
 export interface TeamHistoryEntry {
   /** Team/school/club name */
   name: string;
@@ -221,6 +228,19 @@ export interface TeamHistoryEntry {
   endDate?: Date | string;
   /** Whether this is the current team */
   isCurrent?: boolean;
+  /**
+   * NEW (v3.0): Reference to RosterEntry document ID
+   * Use this to query for detailed team-specific data
+   */
+  rosterEntryId?: string;
+  /**
+   * NEW (v3.0): Reference to Team document ID
+   */
+  teamId?: string;
+  /**
+   * NEW (v3.0): Reference to Organization document ID
+   */
+  organizationId?: string;
 }
 
 // ============================================

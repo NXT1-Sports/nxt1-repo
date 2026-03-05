@@ -1,8 +1,8 @@
 /**
- * @fileoverview Team Management Routes (Firebase TeamCodes)
+ * @fileoverview Team Management Routes (Firebase Teams)
  * @module @nxt1/backend/routes/teams
  *
- * Complete team management with Firebase Firestore TeamCodes:
+ * Complete team management with Firebase Firestore Teams collection:
  * - TeamCode CRUD operations
  * - Role-based membership (Administrative, Coach, Athlete, Media)
  * - Bulk operations
@@ -18,9 +18,9 @@ import { asyncHandler, sendSuccess } from '@nxt1/core/errors/express';
 import { validationError } from '@nxt1/core/errors';
 import { ROLE } from '@nxt1/core/models';
 import * as teamCodeService from '../services/team-code.service.js';
+import { createTeamAdapter } from '../services/team-adapter.service.js';
 import {
   mapTeamCodeToProfile,
-  parseSlugToUnicode,
   type MapTeamProfileOptions,
 } from '../services/team-profile-mapper.service.js';
 import { logger } from '../utils/logger.js';
@@ -259,6 +259,7 @@ router.get(
  * Get team profile by slug (for team profile pages)
  * GET /api/v1/teams/by-slug/:slug
  * Returns full TeamProfilePageData with roster, stats, etc.
+ * Uses Teams collection with TeamAdapter.
  */
 router.get(
   '/by-slug/:slug',
@@ -269,21 +270,11 @@ router.get(
 
     validateRequired(slug, 'Slug');
 
-    // Parse unicode from slug
-    const unicode = parseSlugToUnicode(String(slug));
+    logger.debug('Fetching team by slug', { slug, userId });
 
-    if (!unicode) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid team slug format. Expected: TeamName-Sport-Unicode',
-      });
-      return;
-    }
-
-    logger.debug('Fetching team by slug', { slug, unicode, userId });
-
-    // Fetch team by unicode (with Redis cache)
-    const { team: teamCode, cached } = await teamCodeService.getTeamCodeByUnicode(db, unicode);
+    // Use team adapter to support both old and new architectures
+    const teamAdapter = createTeamAdapter(db);
+    const teamCode = await teamAdapter.getTeamBySlug(String(slug));
 
     if (!teamCode) {
       res.status(404).json({
@@ -295,10 +286,10 @@ router.get(
 
     // Check full-profile Redis cache (separate from teamCode cache)
     const cache = getCacheService();
-    const profileCacheKey = `team:profile:slug:${unicode}:${userId ?? 'public'}`;
+    const profileCacheKey = `team:profile:slug:${slug}:${userId ?? 'public'}`;
     const cachedProfile = await cache.get<TeamProfilePageData>(profileCacheKey);
     if (cachedProfile) {
-      logger.debug('[Teams API] Team profile served from cache', { slug, unicode, userId });
+      logger.debug('[Teams API] Team profile served from cache', { slug, userId });
       markCacheHit(req, 'redis', profileCacheKey);
       sendSuccess(res, cachedProfile, { cached: true });
       return;
@@ -320,14 +311,12 @@ router.get(
     logger.info('[Teams API] Team profile fetched by slug', {
       teamId: teamCode.id,
       slug,
-      unicode,
       userId,
-      cached,
       rosterCount: profileData.roster.length,
       staffCount: profileData.staff.length,
     });
 
-    sendSuccess(res, profileData, { cached });
+    sendSuccess(res, profileData, { cached: false });
   })
 );
 

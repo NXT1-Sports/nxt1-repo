@@ -1473,6 +1473,7 @@ export class ProfileShellWebComponent implements OnInit {
   readonly qrCodeClick = output<void>();
   readonly aiSummaryClick = output<void>();
   readonly createPostClick = output<void>();
+  readonly retryClick = output<void>();
 
   // ============================================
   // COMPUTED
@@ -1821,6 +1822,11 @@ export class ProfileShellWebComponent implements OnInit {
 
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
     try {
+      // Don't use internal refresh when parent is handling data loading
+      if (this.skipInternalLoad()) {
+        this.logger.warn('Refresh skipped - parent handles data loading');
+        return;
+      }
       await this.profile.refresh();
     } finally {
       event.complete();
@@ -1832,12 +1838,9 @@ export class ProfileShellWebComponent implements OnInit {
   }
 
   protected onRetry(): void {
-    const unicode = this.profileUnicode();
-    if (unicode) {
-      this.profile.loadProfile(unicode, this.isOwnProfile());
-    } else {
-      this.profile.loadProfile('me', true);
-    }
+    // Emit retry event so parent component can re-fetch from API
+    // Don't call loadProfile() here - it uses mock data
+    this.retryClick.emit();
   }
 
   // Header actions
