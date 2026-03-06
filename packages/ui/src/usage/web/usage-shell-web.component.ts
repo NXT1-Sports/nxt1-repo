@@ -43,7 +43,7 @@ import type { SectionNavChangeEvent } from '../../components/section-nav-web';
 import { NxtRefresherComponent, type RefreshEvent } from '../../components/refresh-container';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
-import { UsageService, USAGE_SECTION_NAVS } from '../usage.service';
+import { UsageService, USAGE_SECTION_NAVS, type UsageSection } from '../usage.service';
 import { UsageSkeletonComponent } from '../usage-skeleton.component';
 import { UsageHelpContentComponent } from '../usage-help-content.component';
 import {
@@ -469,7 +469,7 @@ export class UsageShellWebComponent implements OnInit {
   // ============================================
 
   protected onSectionNavChange(event: SectionNavChangeEvent): void {
-    this.svc.setActiveSection(event.id as any);
+    this.svc.setActiveSection(event.id as UsageSection);
   }
 
   protected onManageSubscriptions(): void {

@@ -178,7 +178,7 @@ async function fallbackSequentialGeneration(userId: string): Promise<string> {
         logger.info(`Sequential fallback: assigned unicode ${unicode} to user ${userId}`);
         return unicode;
       }
-    } catch (error) {
+    } catch {
       // Continue searching
       continue;
     }

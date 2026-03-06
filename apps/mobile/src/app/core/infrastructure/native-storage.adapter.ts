@@ -30,7 +30,7 @@ async function isPreferencesAvailable(): Promise<boolean> {
     }
 
     // Try a simple get operation to verify it works
-    const testResult = await Preferences.get({ key: '__nxt1_test__' });
+    await Preferences.get({ key: '__nxt1_test__' });
 
     // If we got here without error, it works
     preferencesAvailable = true;

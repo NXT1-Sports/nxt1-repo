@@ -12,6 +12,7 @@ import type { TeamEvent } from '@nxt1/core/models';
 import type {
   TeamProfilePageData,
   TeamProfileTeam,
+  TeamProfileSocialLink,
   TeamProfileRosterMember,
   TeamProfileStaffMember,
   TeamProfileFollowStats,
@@ -39,6 +40,35 @@ export interface MapTeamProfileOptions {
   includeSchedule?: boolean;
   /** Whether to include posts */
   includePosts?: boolean;
+}
+
+type UserDataRecord = UserData & {
+  firstName?: string;
+  lastName?: string;
+  displayName?: string;
+  name?: string;
+  jerseyNumber?: string;
+  classOf?: string | number;
+  height?: string;
+  weight?: string;
+  profileImg?: string;
+  profilePhoto?: string;
+  unicode?: string;
+  username?: string;
+  isVerify?: boolean;
+  role?: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+  phoneNumber?: string;
+  bio?: string;
+  sports?: Array<{
+    positions?: string[];
+  }>;
+};
+
+function toTeamProfileType(teamType: TeamCode['teamType']): TeamProfileTeam['teamType'] {
+  return teamType;
 }
 
 // ============================================
@@ -118,14 +148,14 @@ function mapTeamCodeToTeam(teamCode: TeamCode): TeamProfileTeam {
     slug: buildTeamSlug(teamCode),
     unicode: teamCode.unicode || '',
     teamName: teamCode.teamName,
-    teamType: teamCode.teamType as any,
+    teamType: toTeamProfileType(teamCode.teamType),
     sport: teamCode.sportName || '',
     city: teamCode.city,
     state: teamCode.state,
     location,
     logoUrl: teamCode.teamLogoImg,
     galleryImages: [], // TODO: Add gallery support
-    description: (teamCode as any).description, // Team description
+    description: teamCode.description,
     branding: {
       primaryColor: teamCode.teamColor1,
       secondaryColor: teamCode.teamColor2,
@@ -141,13 +171,16 @@ function mapTeamCodeToTeam(teamCode: TeamCode): TeamProfileTeam {
       : undefined,
     division: teamCode.division,
     conference: teamCode.conference,
-    seasonHistory: (teamCode as any).seasonHistory, // Season-by-season history
+    seasonHistory: teamCode.seasonHistory,
     social: teamCode.socialLinks
-      ? Object.entries(teamCode.socialLinks).map(([platform, url]) => ({
-          platform: platform as any,
-          url: url || '',
-          username: extractHandle(url || ''),
-        }))
+      ? Object.entries(teamCode.socialLinks).map(
+          ([platform, url]) =>
+            ({
+              platform,
+              url: url || '',
+              username: extractHandle(url || ''),
+            }) satisfies TeamProfileSocialLink
+        )
       : [],
     contact: teamCode.contactInfo
       ? {
@@ -185,7 +218,7 @@ function mapTeamCodeToTeam(teamCode: TeamCode): TeamProfileTeam {
  */
 function mapUserToRoster(user: UserData, index: number): TeamProfileRosterMember {
   // Get primary sport data (user.sports is array of SportProfile)
-  const userData = user as any;
+  const userData = user as UserDataRecord;
   const primarySport =
     Array.isArray(userData.sports) && userData.sports.length > 0 ? userData.sports[0] : null;
 
@@ -219,7 +252,7 @@ function mapUserToRoster(user: UserData, index: number): TeamProfileRosterMember
  * Map User to TeamProfileStaffMember
  */
 function mapUserToStaff(user: UserData): TeamProfileStaffMember {
-  const userData = user as any;
+  const userData = user as UserDataRecord;
 
   // Determine staff role from role string
   let staffRole: TeamProfileStaffMember['role'] = 'other';
@@ -572,7 +605,7 @@ export async function mapTeamCodeToProfile(
       return teamRole === 'athlete' || teamRole === 'player';
     }
     // Fallback: use User doc's own role field
-    const role = ((user as any).role || '').toLowerCase();
+    const role = ((user as UserDataRecord).role || '').toLowerCase();
     return role === 'athlete' || role === 'player';
   };
 

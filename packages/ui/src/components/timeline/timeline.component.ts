@@ -21,6 +21,7 @@ import type {
   TimelineEmptyConfig,
   TimelineDotConfig,
   TimelineCardLayout,
+  TimelineVariant,
 } from '@nxt1/core';
 import { TIMELINE_DOT_DEFAULTS, getTimelineVariantClass } from '@nxt1/core';
 import { NxtIconComponent } from '../icon';
@@ -501,8 +502,8 @@ export class NxtTimelineComponent {
   // HELPERS
   // ============================================
 
-  protected getVariantCss(variant: string): string {
-    return getTimelineVariantClass(variant as any);
+  protected getVariantCss(variant: TimelineVariant): string {
+    return getTimelineVariantClass(variant);
   }
 
   protected getDotConfig(variant: string): TimelineDotConfig {

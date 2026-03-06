@@ -119,6 +119,15 @@ export const MOCK_ATHLETE_OVERVIEW_CARDS: Record<string, MetricCard> = {
   },
 };
 
+const ATHLETE_OVERVIEW: AthleteAnalyticsReport['overview'] = {
+  profileViews: MOCK_ATHLETE_OVERVIEW_CARDS['profileViews'],
+  videoViews: MOCK_ATHLETE_OVERVIEW_CARDS['videoViews'],
+  followers: MOCK_ATHLETE_OVERVIEW_CARDS['followers'],
+  engagementRate: MOCK_ATHLETE_OVERVIEW_CARDS['engagementRate'],
+  profileScore: MOCK_ATHLETE_OVERVIEW_CARDS['profileScore'],
+  collegeCoachViews: MOCK_ATHLETE_OVERVIEW_CARDS['collegeCoachViews'],
+};
+
 export const MOCK_COACH_OVERVIEW_CARDS: Record<string, MetricCard> = {
   totalViews: {
     id: 'total-views',
@@ -175,6 +184,15 @@ export const MOCK_COACH_OVERVIEW_CARDS: Record<string, MetricCard> = {
     trend: createTrend(3, 0),
     variant: 'highlight',
   },
+};
+
+const COACH_OVERVIEW_CARDS: CoachAnalyticsReport['overviewCards'] = {
+  totalViews: MOCK_COACH_OVERVIEW_CARDS['totalViews'],
+  teamPageViews: MOCK_COACH_OVERVIEW_CARDS['teamPageViews'],
+  activeAthletes: MOCK_COACH_OVERVIEW_CARDS['activeAthletes'],
+  avgEngagement: MOCK_COACH_OVERVIEW_CARDS['avgEngagement'],
+  totalOffers: MOCK_COACH_OVERVIEW_CARDS['totalOffers'],
+  commitments: MOCK_COACH_OVERVIEW_CARDS['commitments'],
 };
 
 // ============================================
@@ -718,7 +736,7 @@ export function getMockAthleteReport(): AthleteAnalyticsReport {
       end: new Date().toISOString(),
       label: 'Last 7 Days',
     },
-    overview: MOCK_ATHLETE_OVERVIEW_CARDS as any,
+    overview: ATHLETE_OVERVIEW,
     engagement: {
       viewsBySource: MOCK_VIEWS_BY_SOURCE,
       viewsByTime: MOCK_ENGAGEMENT_BY_TIME,
@@ -762,7 +780,7 @@ export function getMockCoachReport(): CoachAnalyticsReport {
       label: 'Last 7 Days',
     },
     overview: MOCK_TEAM_OVERVIEW,
-    overviewCards: MOCK_COACH_OVERVIEW_CARDS as any,
+    overviewCards: COACH_OVERVIEW_CARDS,
     topPerformer: MOCK_TOP_PERFORMER,
     roster: MOCK_ROSTER_ANALYTICS,
     patterns: {

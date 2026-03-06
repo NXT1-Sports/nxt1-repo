@@ -18,7 +18,7 @@ import { environment } from '../../../../environments/environment';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
 import { PerformanceService } from '../../../core/services/performance.service';
-import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
+import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 
 /**
  * Angular service wrapper for @nxt1/core Auth API

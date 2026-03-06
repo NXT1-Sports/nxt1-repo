@@ -215,7 +215,7 @@ export class ProfileComponent {
     // This effect runs synchronously when routeParam changes, BEFORE the
     // combineLatest pipe executes, preventing old data flash.
     effect(() => {
-      const param = this.routeParam();
+      this.routeParam();
       // Trigger on any param change (including undefined → value transitions)
       // startLoading() will clear all old data synchronously
       this.uiProfileService.startLoading();

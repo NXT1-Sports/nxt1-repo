@@ -104,6 +104,18 @@ const RATE_LIMIT_CONFIGS = {
   },
 } as const;
 
+interface RateLimitCacheWithGet {
+  get: (key: string) => Promise<unknown>;
+}
+
+interface RateLimitCacheWithDelete {
+  delete: (key: string) => Promise<unknown>;
+}
+
+interface RateLimitCacheEntry {
+  hits?: number;
+}
+
 export type RateLimitType = keyof typeof RATE_LIMIT_CONFIGS;
 
 // ============================================
@@ -218,8 +230,8 @@ export async function resetRateLimit(type: RateLimitType, identifier: string): P
     const cache = await getCache();
     if (cache && typeof cache === 'object' && 'delete' in cache) {
       const key = `nxt1:rate-limit:${type}:${identifier}`;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (cache as any).delete(key);
+      const cacheWithDelete = cache as unknown as RateLimitCacheWithDelete;
+      await cacheWithDelete.delete(key);
       logger.info('[Rate Limit] Reset rate limit', { type, identifier, key });
       return true;
     }
@@ -248,14 +260,15 @@ export async function getRateLimitStatus(
     const cache = await getCache();
     if (cache && typeof cache === 'object' && 'get' in cache) {
       const key = `nxt1:rate-limit:${type}:${identifier}`;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const data = await (cache as any).get(key);
+      const cacheWithGet = cache as unknown as RateLimitCacheWithGet;
+      const data = await cacheWithGet.get(key);
 
       if (data && typeof data === 'object') {
         const config = RATE_LIMIT_CONFIGS[type];
+        const entry = data as RateLimitCacheEntry;
 
         return {
-          remaining: Math.max(0, config.max - ((data as any).hits || 0)),
+          remaining: Math.max(0, config.max - (entry.hits ?? 0)),
           resetTime: new Date(Date.now() + config.windowMs),
           total: config.max,
         };
