@@ -79,6 +79,12 @@ export const routes: Routes = [
           import('./features/agent-x/agent-x.routes').then((m) => m.AGENT_X_ROUTES),
       },
 
+      // Brand - Brand Vault (raw materials for Agent X)
+      {
+        path: 'brand',
+        loadChildren: () => import('./features/brand/brand.routes').then((m) => m.BRAND_ROUTES),
+      },
+
       // Activity Tab - Notifications & Activity Feed
       {
         path: 'activity',

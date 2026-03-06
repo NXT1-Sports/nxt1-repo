@@ -36,6 +36,8 @@ export type NavIconName =
   | 'plusCircleFilled'
   | 'bolt'
   | 'boltFilled'
+  | 'brand'
+  | 'brandFilled'
   | 'messages'
   | 'messagesFilled';
 
@@ -328,7 +330,7 @@ export const AGENT_X_CENTER_FOOTER_TABS: FooterTabItem[] = [
 
 /**
  * AI-First layout: Agent X on the far left as the home anchor.
- * Visual order: Agent X, Explore, Profile, Activity.
+ * Visual order: Agent X, Explore, Brand, Activity, Profile.
  *
  * Notes:
  * - Agent X remains a circular action button for visual prominence.
@@ -352,6 +354,14 @@ export const AGENT_X_LEFT_FOOTER_TABS: FooterTabItem[] = [
     iconActive: 'compassFilled',
     route: '/explore',
     ariaLabel: 'Explore athletes and teams',
+  },
+  {
+    id: 'brand',
+    label: 'Brand',
+    icon: 'brand',
+    iconActive: 'brandFilled',
+    route: '/brand',
+    ariaLabel: 'Open Brand vault',
   },
   {
     id: 'activity',
@@ -407,6 +417,7 @@ export const FOOTER_ANIMATION = {
  */
 export const MAIN_PAGE_ROUTES = [
   '/explore',
+  '/brand',
   '/profile',
   '/agent',
   '/messages',

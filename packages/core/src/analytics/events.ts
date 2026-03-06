@@ -571,6 +571,30 @@ export const APP_EVENTS = {
   SESSION_ENDED: 'session_ended',
   /** App updated */
   APP_UPDATED: 'app_updated',
+
+  // ============================================
+  // SETTINGS EVENTS
+  // ============================================
+  /** Settings page viewed */
+  SETTINGS_VIEWED: 'settings_viewed',
+  /** Account information page viewed */
+  SETTINGS_ACCOUNT_INFO_VIEWED: 'settings_account_info_viewed',
+  /** Contact support email opened */
+  SETTINGS_CONTACT_SUPPORT: 'settings_contact_support',
+  /** Bug report email opened */
+  SETTINGS_REPORT_BUG: 'settings_report_bug',
+  /** Check for updates initiated */
+  SETTINGS_CHECK_UPDATES: 'settings_check_updates',
+
+  // ============================================
+  // BRAND VAULT EVENTS
+  // ============================================
+  /** Brand page viewed */
+  BRAND_VIEWED: 'brand_viewed',
+  /** Brand category selected from grid */
+  BRAND_CATEGORY_SELECTED: 'brand_category_selected',
+  /** Agent X chat opened from brand category */
+  BRAND_AGENT_CHAT_OPENED: 'brand_agent_chat_opened',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];

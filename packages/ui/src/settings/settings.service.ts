@@ -26,7 +26,8 @@
  * ```
  */
 
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, inject, signal, computed, PLATFORM_ID } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import {
   type SettingsUserInfo,
   type SettingsSubscription,
@@ -40,26 +41,20 @@ import {
   DEFAULT_SETTINGS_PREFERENCES,
   DEFAULT_CONNECTED_PROVIDERS,
 } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import type { AnalyticsAdapter } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { NxtBrowserService } from '../services/browser/browser.service';
+import { NxtBreadcrumbService } from '../services/breadcrumb';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 
 /**
- * Mock data for development.
- * TODO: Replace with actual API calls when backend is ready.
+ * Default subscription for users without active billing data.
  */
-const MOCK_USER: SettingsUserInfo = {
-  id: 'user_123',
-  email: 'john.doe@example.com',
-  displayName: 'John Doe',
-  profileImg: null,
-  role: 'athlete',
-  emailVerified: true,
-  createdAt: '2024-01-15T10:00:00Z',
-  lastLoginAt: '2026-02-02T08:30:00Z',
-};
-
-const MOCK_SUBSCRIPTION: SettingsSubscription = {
+const DEFAULT_SUBSCRIPTION: SettingsSubscription = {
   tier: 'free',
   status: 'active',
   currentPeriodEnd: null,
@@ -67,26 +62,25 @@ const MOCK_SUBSCRIPTION: SettingsSubscription = {
   trialEnd: null,
 };
 
-const MOCK_USAGE: SettingsUsage = {
-  profileViews: 156,
-  profileViewsLimit: 500,
-  videosUploaded: 3,
-  videosLimit: 5,
-  storageUsedMb: 245,
-  storageLimitMb: 500,
-  aiRequestsUsed: 12,
-  aiRequestsLimit: 25,
-};
-
 /**
  * Settings state management service.
  * Provides reactive state for the settings interface.
+ *
+ * Platform wrappers (web/mobile) provide user and subscription
+ * data via `setUser()` and `setSubscription()` before the shell
+ * calls `loadSettings()`.
  */
 @Injectable({ providedIn: 'root' })
 export class SettingsService {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('SettingsService');
+  private readonly browser = inject(NxtBrowserService);
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly analytics: AnalyticsAdapter | null =
+    inject(ANALYTICS_ADAPTER, { optional: true }) ?? null;
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -157,8 +151,27 @@ export class SettingsService {
   // ============================================
 
   /**
+   * Set user info from platform-specific auth service.
+   * Call this from the web/mobile wrapper before the shell initializes.
+   */
+  setUser(user: SettingsUserInfo | null): void {
+    this._user.set(user);
+    this.logger.debug('User info set', { userId: user?.id ?? null });
+  }
+
+  /**
+   * Set subscription info from platform-specific billing service.
+   * Falls back to DEFAULT_SUBSCRIPTION if not called.
+   */
+  setSubscription(subscription: SettingsSubscription): void {
+    this._subscription.set(subscription);
+    this.logger.debug('Subscription set', { tier: subscription.tier });
+  }
+
+  /**
    * Load all settings data.
    * Call this when entering the settings page.
+   * Expects `setUser()` to have been called first by the platform wrapper.
    */
   async loadSettings(): Promise<void> {
     if (this._isLoading()) return;
@@ -169,13 +182,14 @@ export class SettingsService {
     this.logger.debug('Loading settings data');
 
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      // Use default subscription if none was set by the wrapper
+      if (!this._subscription()) {
+        this._subscription.set(DEFAULT_SUBSCRIPTION);
+      }
 
-      // Set mock data
-      this._user.set(MOCK_USER);
-      this._subscription.set(MOCK_SUBSCRIPTION);
-      this._usage.set(MOCK_USAGE);
+      // Usage data will come from a backend API when available
+      // For now, leave as null (UI handles null gracefully)
+
       this._preferences.set(DEFAULT_SETTINGS_PREFERENCES);
       this._connectedProviders.set(DEFAULT_CONNECTED_PROVIDERS);
 
@@ -183,6 +197,8 @@ export class SettingsService {
       this.updateSectionsWithPreferences();
 
       this.logger.info('Settings loaded successfully');
+      this.breadcrumb.trackStateChange('settings:loaded');
+      this.analytics?.trackEvent(APP_EVENTS.SETTINGS_VIEWED);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load settings';
       this._error.set(message);
@@ -206,6 +222,7 @@ export class SettingsService {
    */
   async updatePreference(key: string, value: boolean): Promise<void> {
     this._isSaving.set(true);
+    const previous = this._preferences();
 
     try {
       this.logger.debug('Updating preference', { key, value });
@@ -219,17 +236,14 @@ export class SettingsService {
       // Update section items
       this.updateSectionsWithPreferences();
 
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // TODO: Persist to backend when preferences API is available
+      // await this.api.updatePreference(key, value);
 
       await this.haptics.notification('success');
       this.logger.info('Preference updated', { key, value });
     } catch (err) {
       // Rollback on error
-      this._preferences.update((prefs) => ({
-        ...prefs,
-        [key]: !value,
-      }));
+      this._preferences.set(previous);
       this.updateSectionsWithPreferences();
 
       const message = err instanceof Error ? err.message : 'Failed to update preference';
@@ -245,6 +259,7 @@ export class SettingsService {
    */
   async updateSelectPreference(key: string, value: string): Promise<void> {
     this._isSaving.set(true);
+    const previous = this._preferences();
 
     try {
       this.logger.debug('Updating select preference', { key, value });
@@ -258,12 +273,16 @@ export class SettingsService {
       // Update section items
       this.updateSectionsWithPreferences();
 
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // TODO: Persist to backend when preferences API is available
+      // await this.api.updateSelectPreference(key, value);
 
       await this.haptics.notification('success');
       this.logger.info('Select preference updated', { key, value });
     } catch (err) {
+      // Rollback with previous state
+      this._preferences.set(previous);
+      this.updateSectionsWithPreferences();
+
       const message = err instanceof Error ? err.message : 'Failed to update preference';
       this.toast.error(message);
       this.logger.error('Failed to update select preference', err, { key, value });
@@ -313,19 +332,29 @@ export class SettingsService {
 
   /**
    * Sign out user.
+   * The actual sign-out is handled by the platform wrapper
+   * via the shell's (signOut) event. This method handles the
+   * service-side cleanup.
    */
   async signOut(): Promise<void> {
     this.logger.info('Sign out requested');
-    // TODO: Implement actual sign out
+    this.breadcrumb.trackUserAction('settings:sign-out');
     await this.haptics.impact('medium');
+    // Clear settings state
+    this._user.set(null);
+    this._subscription.set(null);
+    this._usage.set(null);
   }
 
   /**
    * Delete account.
+   * The actual deletion is handled by the platform wrapper
+   * via the shell's (deleteAccount) event. This method handles
+   * service-side cleanup.
    */
   async deleteAccount(): Promise<void> {
     this.logger.info('Delete account requested');
-    // TODO: Implement actual account deletion
+    this.breadcrumb.trackUserAction('settings:delete-account');
     await this.haptics.notification('warning');
   }
 
@@ -334,14 +363,42 @@ export class SettingsService {
    */
   async checkForUpdates(): Promise<void> {
     this.logger.debug('Checking for updates');
+    this.breadcrumb.trackStateChange('settings:checking-updates');
+    this.analytics?.trackEvent(APP_EVENTS.SETTINGS_CHECK_UPDATES);
 
     try {
       await this.haptics.impact('light');
 
-      // Simulate check
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const result = await this.bottomSheet.show({
+        showClose: false,
+        actions: [
+          {
+            label: 'App is up to date',
+            role: 'secondary',
+            icon: 'checkmark-circle-outline',
+            disabled: true,
+          },
+          {
+            label: 'Update',
+            role: 'primary',
+            icon: 'download-outline',
+          },
+          {
+            label: 'Later',
+            role: 'cancel',
+          },
+        ],
+        ...SHEET_PRESETS.COMPACT,
+      });
 
-      this.toast.success('App is up to date');
+      if (!result.confirmed) return;
+
+      if (isPlatformBrowser(this.platformId)) {
+        window.location.reload();
+        return;
+      }
+
+      this.toast.info('Please update from your app store if an update is available.');
     } catch (err) {
       this.toast.error('Failed to check for updates');
       this.logger.error('Failed to check for updates', err);
@@ -353,9 +410,54 @@ export class SettingsService {
    */
   async reportBug(): Promise<void> {
     this.logger.debug('Report bug requested');
+    this.breadcrumb.trackUserAction('report-bug');
+    this.analytics?.trackEvent(APP_EVENTS.SETTINGS_REPORT_BUG);
     await this.haptics.impact('light');
-    // TODO: Open bug report form/modal
-    this.toast.info('Bug reporting coming soon');
+
+    const result = await this.browser.openMailto({
+      to: 'support@nxt1sports.com',
+      subject: 'Bug Report - NXT1 Sports',
+      body: [
+        'Describe the issue you encountered:',
+        '',
+        'Steps to reproduce:',
+        '1. ',
+        '2. ',
+        '3. ',
+        '',
+        'Expected result:',
+        '',
+        'Actual result:',
+        '',
+        'Device/Platform:',
+      ].join('\n'),
+    });
+
+    if (!result.success) {
+      this.logger.error('Failed to open email for bug report', { error: result.error });
+      this.toast.error('Unable to open email. Please email support@nxt1sports.com directly.');
+    }
+  }
+
+  /**
+   * Contact support via email.
+   */
+  async contactSupport(): Promise<void> {
+    this.logger.debug('Contact support requested');
+    this.breadcrumb.trackUserAction('contact-support');
+    this.analytics?.trackEvent(APP_EVENTS.SETTINGS_CONTACT_SUPPORT);
+    await this.haptics.impact('light');
+
+    const result = await this.browser.openMailto({
+      to: 'support@nxt1sports.com',
+      subject: 'Support Request - NXT1 Sports',
+      body: ['Hi NXT1 Support Team,', '', 'I need help with:', '', 'My account email:'].join('\n'),
+    });
+
+    if (!result.success) {
+      this.logger.error('Failed to open email for support', { error: result.error });
+      this.toast.error('Unable to open email. Please email support@nxt1sports.com directly.');
+    }
   }
 
   // ============================================

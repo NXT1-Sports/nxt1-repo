@@ -463,8 +463,16 @@ export class SettingsShellComponent implements OnInit {
         await this.settings.checkForUpdates();
         break;
 
+      case 'contactSupport':
+        await this.settings.contactSupport();
+        break;
+
       case 'reportBug':
         await this.settings.reportBug();
+        break;
+
+      case 'connectedAccounts':
+        this.toast.info('Connected accounts coming soon');
         break;
 
       default:

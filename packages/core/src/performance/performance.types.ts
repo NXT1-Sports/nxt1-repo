@@ -319,6 +319,14 @@ export const TRACE_NAMES = {
   AGENT_ONBOARDING_PROGRAM_SEARCH: 'agent_onboarding_program_search',
   AGENT_ONBOARDING_PROGRAM_CLAIM: 'agent_onboarding_program_claim',
   AGENT_ONBOARDING_CONNECTIONS_LOAD: 'agent_onboarding_connections_load',
+
+  // Brand vault traces
+  BRAND_LOAD: 'brand_load',
+  BRAND_CATEGORY_SELECT: 'brand_category_select',
+
+  // Settings traces
+  SETTINGS_LOAD: 'settings_load',
+  SETTINGS_PREFERENCE_UPDATE: 'settings_preference_update',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

@@ -446,6 +446,32 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Brand icon (outline) - for brand creation/navigation */
+  brand: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 1.9,
+    paths: [
+      { d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z' },
+      { d: 'M9 7v10' },
+      { d: 'M9 7h4.1a2.3 2.3 0 0 1 0 4.6H9' },
+      { d: 'M9 11.6h4.8a2.4 2.4 0 0 1 0 4.8H9' },
+    ],
+  },
+
+  /** Brand icon filled - active state for brand creation/navigation */
+  brandFilled: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      { d: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z' },
+      {
+        d: 'M9 7v10h4.8a2.4 2.4 0 0 0 .13-4.8A2.3 2.3 0 0 0 13.1 7H9zm2 2h1.8a.9.9 0 1 1 0 1.8H11V9zm0 3.8h2.3a1 1 0 1 1 0 2H11v-2z',
+        fill: 'var(--nxt1-color-surface-100, #111111)',
+      },
+    ],
+  },
+
   /** Bell/Notification icon (outline) */
   bell: {
     viewBox: '0 0 24 24',
@@ -2043,7 +2069,9 @@ export type NavIconName =
   | 'bell'
   | 'bellFilled'
   | 'plusCircle'
-  | 'plusCircleFilled';
+  | 'plusCircleFilled'
+  | 'brand'
+  | 'brandFilled';
 
 // ============================================
 // HELPER FUNCTIONS

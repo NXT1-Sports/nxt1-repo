@@ -199,6 +199,14 @@ export const serverRoutes: ServerRoute[] = [
     path: 'nil/**',
     renderMode: RenderMode.Server,
   },
+  {
+    path: 'brand',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'brand/**',
+    renderMode: RenderMode.Server,
+  },
   /**
    * Team profile routes - Use Client rendering to avoid SSR hydration mismatch
    * Data is loaded async on client for better performance

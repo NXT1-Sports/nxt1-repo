@@ -143,14 +143,14 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       }
 
       .connections-container {
-        padding: var(--nxt1-spacing-xs) 0 var(--nxt1-spacing-lg);
+        padding: var(--nxt1-spacing-1) 0 var(--nxt1-spacing-5);
         max-width: 540px;
         margin: 0 auto;
       }
 
       /* Search Section */
       .search-section {
-        margin-bottom: var(--nxt1-spacing-md);
+        margin-bottom: var(--nxt1-spacing-4);
       }
 
       .search-section nxt1-search-bar {
@@ -162,14 +162,14 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       .added-summary {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        padding: 6px 14px;
-        border-radius: var(--nxt1-borderRadius-full, 9999px);
-        background: rgba(204, 255, 0, 0.08);
+        gap: var(--nxt1-spacing-1_5);
+        padding: var(--nxt1-spacing-1_5) var(--nxt1-spacing-3_5);
+        border-radius: var(--nxt1-borderRadius-full);
+        background: var(--nxt1-color-alpha-primary10);
         color: var(--nxt1-color-primary);
-        font-size: var(--nxt1-fontSize-xs, 12px);
-        font-weight: 600;
-        margin-bottom: var(--nxt1-spacing-md);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        margin-bottom: var(--nxt1-spacing-4);
       }
 
       .summary-icon {
@@ -180,30 +180,30 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       .connection-list {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-xs);
+        gap: var(--nxt1-spacing-1);
       }
 
       .connection-card {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-md);
-        padding: 12px 16px;
-        border-radius: var(--nxt1-borderRadius-md, 8px);
+        gap: var(--nxt1-spacing-4);
+        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
+        border-radius: var(--nxt1-borderRadius-md);
         background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-subtle);
-        transition: all var(--nxt1-duration-fast, 150ms);
-        animation: fadeIn var(--nxt1-duration-normal, 200ms) ease-out;
+        transition: all var(--nxt1-duration-fast);
+        animation: fadeIn var(--nxt1-duration-normal) var(--nxt1-easing-out);
       }
 
       .connection-card--added {
-        border-color: rgba(204, 255, 0, 0.3);
-        background: rgba(204, 255, 0, 0.03);
+        border-color: var(--nxt1-color-alpha-primary30);
+        background: var(--nxt1-color-alpha-primary4);
       }
 
       .connection-avatar {
-        width: 42px;
-        height: 42px;
-        border-radius: 50%;
+        width: var(--nxt1-spacing-11);
+        height: var(--nxt1-spacing-11);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-surface-200);
         display: flex;
         align-items: center;
@@ -228,8 +228,8 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       }
 
       .connection-name {
-        font-size: var(--nxt1-fontSize-sm, 14px);
-        font-weight: 600;
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-semibold);
         color: var(--nxt1-color-text-primary);
         white-space: nowrap;
         overflow: hidden;
@@ -237,29 +237,29 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       }
 
       .connection-meta {
-        font-size: var(--nxt1-fontSize-xs, 12px);
+        font-size: var(--nxt1-fontSize-xs);
         color: var(--nxt1-color-text-tertiary);
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: var(--nxt1-spacing-1);
       }
 
       .role-tag {
         text-transform: capitalize;
-        font-weight: 500;
+        font-weight: var(--nxt1-fontWeight-medium);
         color: var(--nxt1-color-text-secondary);
       }
 
       .connection-action {
         display: inline-flex;
         align-items: center;
-        gap: 4px;
-        padding: 6px 14px;
-        border-radius: var(--nxt1-borderRadius-full, 9999px);
-        font-size: var(--nxt1-fontSize-xs, 12px);
-        font-weight: 600;
+        gap: var(--nxt1-spacing-1);
+        padding: var(--nxt1-spacing-1_5) var(--nxt1-spacing-3_5);
+        border-radius: var(--nxt1-borderRadius-full);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
         cursor: pointer;
-        transition: all var(--nxt1-duration-fast, 150ms);
+        transition: all var(--nxt1-duration-fast);
         flex-shrink: 0;
         background: var(--nxt1-color-surface-200);
         border: 1px solid var(--nxt1-color-border-subtle);
@@ -280,14 +280,14 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       .connection-skeleton {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-md);
-        padding: 12px 16px;
+        gap: var(--nxt1-spacing-4);
+        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
       }
 
       .skeleton-avatar-circle {
-        width: 42px;
-        height: 42px;
-        border-radius: 50%;
+        width: var(--nxt1-spacing-11);
+        height: var(--nxt1-spacing-11);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-surface-200);
       }
 
@@ -295,11 +295,11 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         flex: 1;
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: var(--nxt1-spacing-1_5);
       }
       .skeleton-line {
-        height: 12px;
-        border-radius: 4px;
+        height: var(--nxt1-spacing-3);
+        border-radius: var(--nxt1-borderRadius-sm);
         background: var(--nxt1-color-surface-200);
       }
       .skeleton-line--name {
@@ -309,44 +309,44 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         width: 35%;
       }
       .skeleton-btn {
-        width: 60px;
-        height: 28px;
-        border-radius: 14px;
+        width: var(--nxt1-spacing-15, 60px);
+        height: var(--nxt1-spacing-7);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-surface-200);
       }
 
       /* No Results */
       .no-results {
         text-align: center;
-        padding: var(--nxt1-spacing-xl);
+        padding: var(--nxt1-spacing-6);
       }
       .no-results-icon {
         color: var(--nxt1-color-text-tertiary);
       }
       .no-results-text {
         color: var(--nxt1-color-text-secondary);
-        font-size: var(--nxt1-fontSize-sm, 14px);
-        margin: var(--nxt1-spacing-sm) 0 0;
+        font-size: var(--nxt1-fontSize-sm);
+        margin: var(--nxt1-spacing-2) 0 0;
       }
 
       /* Section Label */
       .section-label {
         display: flex;
         align-items: center;
-        gap: 6px;
-        margin-top: var(--nxt1-spacing-lg);
-        margin-bottom: var(--nxt1-spacing-sm);
+        gap: var(--nxt1-spacing-1_5);
+        margin-top: var(--nxt1-spacing-5);
+        margin-bottom: var(--nxt1-spacing-2);
         color: var(--nxt1-color-text-tertiary);
-        font-size: var(--nxt1-fontSize-xs, 12px);
-        font-weight: 600;
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
         text-transform: uppercase;
-        letter-spacing: 1px;
+        letter-spacing: var(--nxt1-letterSpacing-widest);
       }
 
       @keyframes fadeIn {
         from {
           opacity: 0;
-          transform: translateY(4px);
+          transform: translateY(var(--nxt1-spacing-1));
         }
         to {
           opacity: 1;

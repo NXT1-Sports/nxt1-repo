@@ -31,8 +31,7 @@ import { SeoService } from '../../core/services';
       [conversationId]="conversationId()"
       (backClick)="onBack()"
       (infoClick)="onInfo()"
-      (callClick)="onCall()"
-      (videoClick)="onVideo()"
+      (agentXClick)="onAgentX()"
     />
   `,
   styles: [
@@ -78,15 +77,9 @@ export class ConversationComponent implements OnInit {
     this.toast.info('Profile view coming soon');
   }
 
-  /** Initiate voice call */
-  protected onCall(): void {
-    this.logger.debug('Voice call requested');
-    this.toast.info('Voice calls coming soon');
-  }
-
-  /** Initiate video call */
-  protected onVideo(): void {
-    this.logger.debug('Video call requested');
-    this.toast.info('Video calls coming soon');
+  /** Navigate to Agent X from conversation header */
+  protected onAgentX(): void {
+    this.logger.debug('Agent X requested from conversation header');
+    this.router.navigate(['/agent']);
   }
 }

@@ -190,7 +190,7 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         position: fixed;
         top: 0;
         left: 0;
-        z-index: 1000;
+        z-index: var(--nxt1-zIndex-dropdown);
         padding: var(--nxt1-spacing-4);
         pointer-events: none;
       }
@@ -206,12 +206,12 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         max-width: 720px;
         margin: 0 auto;
         padding: 0 var(--nxt1-spacing-4);
-        padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(var(--nxt1-spacing-20) + env(safe-area-inset-bottom, 0px));
       }
 
       /* ──────────────────────────────────
        Progress Header
-    ────────────────────────────────── */
+      ────────────────────────────────── */
       .progress-header {
         padding: var(--nxt1-spacing-6) 0 var(--nxt1-spacing-4);
         display: flex;
@@ -221,17 +221,17 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
 
       .progress-track {
         width: 100%;
-        height: 4px;
+        height: var(--nxt1-spacing-1);
         background: var(--nxt1-color-surface-200);
-        border-radius: 2px;
+        border-radius: var(--nxt1-borderRadius-xs);
         overflow: hidden;
       }
 
       .progress-fill {
         height: 100%;
         background: var(--nxt1-color-primary);
-        border-radius: 2px;
-        transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        border-radius: var(--nxt1-borderRadius-xs);
+        transition: width var(--nxt1-duration-slower) var(--nxt1-easing-inOut);
       }
 
       .step-indicators {
@@ -241,14 +241,14 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
       }
 
       .step-dot {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
+        width: var(--nxt1-spacing-7);
+        height: var(--nxt1-spacing-7);
+        border-radius: var(--nxt1-borderRadius-full);
         border: 2px solid var(--nxt1-color-border-subtle);
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: all 0.3s ease;
+        transition: all var(--nxt1-duration-slow) var(--nxt1-easing-out);
         background: transparent;
       }
 
@@ -261,7 +261,7 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
       .step-dot.current {
         border-color: var(--nxt1-color-primary);
         background: transparent;
-        box-shadow: 0 0 0 3px rgba(204, 255, 0, 0.2);
+        box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary20);
       }
 
       .step-dot.current.active {
@@ -273,17 +273,17 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         align-items: center;
         justify-content: center;
         min-height: clamp(260px, 36vh, 340px);
-        margin-bottom: clamp(6px, 1.2vh, 12px);
+        margin-bottom: clamp(var(--nxt1-spacing-1_5), 1.2vh, var(--nxt1-spacing-3));
       }
 
       /* ──────────────────────────────────
        Step Container
-    ────────────────────────────────── */
+      ────────────────────────────────── */
       .step-container {
         flex: 1;
         display: flex;
         flex-direction: column;
-        animation: fadeSlideIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        animation: fadeSlideIn var(--nxt1-duration-slow) var(--nxt1-easing-inOut);
       }
 
       .step-container--welcome {
@@ -299,7 +299,7 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
       @keyframes fadeSlideIn {
         from {
           opacity: 0;
-          transform: translateY(12px);
+          transform: translateY(var(--nxt1-spacing-3));
         }
         to {
           opacity: 1;
@@ -309,49 +309,49 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
 
       /* ──────────────────────────────────
        Navigation Footer — Fixed bottom, glass morphism (matches Agent X input bar)
-    ────────────────────────────────── */
+      ────────────────────────────────── */
       .nav-footer-fixed {
         position: fixed;
         left: 0;
         right: 0;
-        bottom: 24px;
-        z-index: var(--nxt1-z-index-fixed, 999);
+        bottom: var(--nxt1-spacing-6);
+        z-index: var(--nxt1-zIndex-fixed);
         pointer-events: none;
-        padding: 0 0.75rem;
+        padding: 0 var(--nxt1-spacing-3);
       }
 
       .nav-footer-inner {
         max-width: 720px;
         margin: 0 auto;
         pointer-events: auto;
-        background: var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8));
-        border: 1px solid var(--nxt1-glass-borderSubtle, rgba(255, 255, 255, 0.08));
-        border-radius: var(--nxt1-ui-radius-full, 999px);
-        box-shadow: var(--nxt1-glass-shadow, 0 4px 16px rgba(0, 0, 0, 0.16));
-        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
-        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
-        padding: 0.375rem 1rem;
+        background: var(--nxt1-glass-bg);
+        border: 1px solid var(--nxt1-glass-borderSubtle);
+        border-radius: var(--nxt1-borderRadius-full);
+        box-shadow: var(--nxt1-glass-shadow);
+        backdrop-filter: var(--nxt1-glass-backdrop);
+        -webkit-backdrop-filter: var(--nxt1-glass-backdrop);
+        padding: var(--nxt1-spacing-1_5) var(--nxt1-spacing-4);
       }
 
       /* ──────────────────────────────────
        Responsive
-    ────────────────────────────────── */
+      ────────────────────────────────── */
       @media (max-width: 640px) {
         .onboarding-shell {
           padding: 0 var(--nxt1-spacing-3);
-          padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+          padding-bottom: calc(var(--nxt1-spacing-20) + env(safe-area-inset-bottom, 0px));
         }
 
         .nav-footer-fixed {
-          left: 16px;
-          right: 16px;
-          bottom: 20px;
+          left: var(--nxt1-spacing-4);
+          right: var(--nxt1-spacing-4);
+          bottom: var(--nxt1-spacing-5);
         }
 
         .nav-footer-inner {
           max-width: 344px;
           margin: 0 auto;
-          padding: 0.3125rem 0.75rem;
+          padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
         }
       }
     `,

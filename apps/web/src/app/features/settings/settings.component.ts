@@ -16,26 +16,35 @@
  * - Confirmation dialogs
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  OnInit,
+  effect,
+} from '@angular/core';
 import { Router } from '@angular/router';
 import {
   SettingsShellComponent,
   type SettingsUser,
   type SettingsNavigateEvent,
   type SettingsActionEvent,
+  SettingsService,
 } from '@nxt1/ui/settings';
-import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtBottomSheetService } from '@nxt1/ui/components/bottom-sheet';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
+import { SettingsApiService } from './services/settings-api.service';
+import type { SettingsUserInfo, SettingsSubscription } from '@nxt1/core';
 
 @Component({
   selector: 'app-settings',
   standalone: true,
   imports: [SettingsShellComponent],
   template: `
-    <div class="min-h-screen bg-[var(--nxt1-color-bg-primary)]">
+    <div class="min-h-screen bg-[var(--nxt1-color-bg-primary)]" data-testid="settings-page">
       <nxt1-settings-shell
         [user]="userInfo()"
         [showPageHeader]="false"
@@ -52,11 +61,46 @@ import { SeoService } from '../../core/services';
 })
 export class SettingsComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
-  private readonly sidenavService = inject(NxtSidenavService);
+  private readonly settingsService = inject(SettingsService);
+  private readonly settingsApi = inject(SettingsApiService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('SettingsComponent');
   private readonly seo = inject(SeoService);
+
+  constructor() {
+    // Reactively sync auth user → SettingsService whenever auth state changes
+    effect(() => {
+      const user = this.authService.user();
+      const firebaseUser = this.authService.firebaseUser();
+
+      if (user) {
+        const settingsUser: SettingsUserInfo = {
+          id: user.uid,
+          email: user.email,
+          displayName: user.displayName || null,
+          profileImg: user.profileImg ?? null,
+          role: user.role,
+          emailVerified: firebaseUser?.emailVerified ?? false,
+          createdAt: user.createdAt,
+          lastLoginAt: firebaseUser?.metadata?.lastSignInTime ?? null,
+        };
+        this.settingsService.setUser(settingsUser);
+
+        // Derive subscription from auth state
+        const subscription: SettingsSubscription = {
+          tier: user.isPremium ? 'premium' : 'free',
+          status: 'active',
+          currentPeriodEnd: null,
+          cancelAtPeriodEnd: false,
+          trialEnd: null,
+        };
+        this.settingsService.setSubscription(subscription);
+      } else {
+        this.settingsService.setUser(null);
+      }
+    });
+  }
 
   ngOnInit(): void {
     this.seo.updatePage({
@@ -64,6 +108,10 @@ export class SettingsComponent implements OnInit {
       description: 'Manage your account settings, preferences, and privacy options.',
       keywords: ['settings', 'preferences', 'account', 'privacy'],
       noIndex: true, // Protected page - don't index
+    });
+    // Run performance-traced load (traces the init + future API calls)
+    void this.settingsApi.loadSettings().catch((err) => {
+      this.logger.error('Settings API load failed', err);
     });
   }
 

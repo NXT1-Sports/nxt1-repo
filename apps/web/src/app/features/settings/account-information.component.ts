@@ -8,8 +8,13 @@ import {
   type SettingsCopyEvent,
 } from '@nxt1/ui/settings';
 import { NxtDesktopPageHeaderComponent } from '@nxt1/ui/components/desktop-page-header';
+import { NxtBottomSheetService } from '@nxt1/ui/components/bottom-sheet';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import type { AnalyticsAdapter } from '@nxt1/core/analytics';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 
@@ -18,7 +23,7 @@ import { SeoService } from '../../core/services';
   standalone: true,
   imports: [NxtDesktopPageHeaderComponent, SettingsSectionComponent, SettingsSkeletonComponent],
   template: `
-    <div class="account-information-page">
+    <div class="account-information-page" data-testid="settings-account-info-page">
       <div class="account-information-page__container">
         <nxt1-desktop-page-header
           title="Account Information"
@@ -59,8 +64,12 @@ import { SeoService } from '../../core/services';
 export class AccountInformationComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly router = inject(Router);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('AccountInformationComponent');
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly analytics: AnalyticsAdapter | null =
+    inject(ANALYTICS_ADAPTER, { optional: true }) ?? null;
   private readonly seo = inject(SeoService);
 
   protected readonly isAuthLoading = computed(
@@ -94,6 +103,25 @@ export class AccountInformationComponent implements OnInit {
         icon: 'lock-closed-outline',
         action: 'changePassword',
       },
+      {
+        id: 'accountSignOut',
+        section: 'account',
+        type: 'action',
+        label: 'Sign Out',
+        description: 'Sign out from your current session',
+        icon: 'log-out-outline',
+        action: 'signOut',
+      },
+      {
+        id: 'accountDelete',
+        section: 'account',
+        type: 'action',
+        label: 'Delete Account',
+        description: 'Permanently delete your account and all data',
+        icon: 'trash-outline',
+        action: 'deleteAccount',
+        variant: 'danger',
+      },
     ],
   }));
 
@@ -104,26 +132,77 @@ export class AccountInformationComponent implements OnInit {
       keywords: ['account', 'email', 'password', 'settings'],
       noIndex: true,
     });
+    this.breadcrumb.trackStateChange('account-info:viewed');
+    this.analytics?.trackEvent(APP_EVENTS.SETTINGS_ACCOUNT_INFO_VIEWED);
   }
 
   protected async onAction(event: SettingsActionEvent): Promise<void> {
-    if (event.action !== 'changePassword') return;
+    switch (event.action) {
+      case 'changePassword': {
+        const email = this.userEmail();
+        if (!email) {
+          this.toast.error('No account email found. Please refresh and try again.');
+          return;
+        }
 
-    const email = this.userEmail();
-    if (!email) {
-      this.toast.error('No account email found. Please refresh and try again.');
-      return;
+        this.logger.info('Sending password reset email', { itemId: event.itemId });
+        this.breadcrumb.trackUserAction('password-reset-requested');
+        this.analytics?.trackEvent(APP_EVENTS.AUTH_PASSWORD_RESET, { source: 'account-info' });
+
+        const sent = await this.authService.sendPasswordResetEmail(email);
+        if (sent) {
+          this.toast.success(`Password reset link sent to ${email}`);
+          return;
+        }
+
+        this.toast.error('Unable to send password reset email. Please try again.');
+        return;
+      }
+
+      case 'signOut': {
+        const confirm = await this.bottomSheet.show({
+          title: 'Sign Out',
+          subtitle: 'Are you sure you want to sign out?',
+          actions: [
+            { label: 'Sign Out', role: 'destructive' },
+            { label: 'Cancel', role: 'cancel' },
+          ],
+        });
+
+        if (!confirm.confirmed) return;
+
+        try {
+          await this.authService.signOut();
+          this.router.navigateByUrl('/auth');
+        } catch (err) {
+          this.logger.error('Sign out failed', err);
+          this.toast.error('Unable to sign out. Please try again.');
+        }
+        return;
+      }
+
+      case 'deleteAccount': {
+        const confirm = await this.bottomSheet.show({
+          title: 'Delete Account',
+          subtitle:
+            'This action cannot be undone. All your data will be permanently deleted. Are you sure you want to continue?',
+          destructive: true,
+          actions: [
+            { label: 'Delete My Account', role: 'destructive' },
+            { label: 'Cancel', role: 'cancel' },
+          ],
+        });
+
+        if (!confirm.confirmed) return;
+
+        this.logger.info('Delete account requested from account information');
+        this.toast.info('Delete account flow will be available soon.');
+        return;
+      }
+
+      default:
+        return;
     }
-
-    this.logger.info('Sending password reset email', { itemId: event.itemId });
-
-    const sent = await this.authService.sendPasswordResetEmail(email);
-    if (sent) {
-      this.toast.success(`Password reset link sent to ${email}`);
-      return;
-    }
-
-    this.toast.error('Unable to send password reset email. Please try again.');
   }
 
   protected onCopy(event: SettingsCopyEvent): void {

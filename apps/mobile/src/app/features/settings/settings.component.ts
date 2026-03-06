@@ -16,17 +16,18 @@
  * - Confirmation dialogs
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, computed, effect } from '@angular/core';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import {
   SettingsShellComponent,
-  NxtSidenavService,
+  SettingsService,
   NxtLoggingService,
   NxtBottomSheetService,
   type SettingsUser,
   type SettingsNavigateEvent,
   type SettingsActionEvent,
 } from '@nxt1/ui';
+import type { SettingsUserInfo, SettingsSubscription } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
 
 @Component({
@@ -81,10 +82,44 @@ import { AuthFlowService } from '../auth/services/auth-flow.service';
 })
 export class SettingsComponent {
   private readonly authService = inject(AuthFlowService);
-  private readonly sidenavService = inject(NxtSidenavService);
+  private readonly settingsService = inject(SettingsService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly navController = inject(NavController);
   private readonly logger = inject(NxtLoggingService).child('SettingsComponent');
+
+  constructor() {
+    // Reactively sync auth user → SettingsService whenever auth state changes
+    effect(() => {
+      const user = this.authService.user();
+      const firebaseUser = this.authService.firebaseUser();
+
+      if (user) {
+        const settingsUser: SettingsUserInfo = {
+          id: user.uid,
+          email: user.email,
+          displayName: user.displayName || null,
+          profileImg: user.profileImg ?? null,
+          role: user.role,
+          emailVerified: user.emailVerified,
+          createdAt: user.createdAt,
+          lastLoginAt: firebaseUser?.metadata?.lastSignInTime ?? null,
+        };
+        this.settingsService.setUser(settingsUser);
+
+        // Derive subscription from auth state
+        const subscription: SettingsSubscription = {
+          tier: user.isPremium ? 'premium' : 'free',
+          status: 'active',
+          currentPeriodEnd: null,
+          cancelAtPeriodEnd: false,
+          trialEnd: null,
+        };
+        this.settingsService.setSubscription(subscription);
+      } else {
+        this.settingsService.setUser(null);
+      }
+    });
+  }
 
   /**
    * Transform auth user to SettingsUser interface.

@@ -30,7 +30,6 @@
  */
 
 import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { IonToggle, IonRippleEffect, IonBadge } from '@ionic/angular/standalone';
 import type {
   SettingsItem,
@@ -92,7 +91,7 @@ export interface SettingsCopyEvent {
 @Component({
   selector: 'nxt1-settings-item',
   standalone: true,
-  imports: [CommonModule, IonToggle, IonRippleEffect, IonBadge, NxtIconComponent],
+  imports: [IonToggle, IonRippleEffect, IonBadge, NxtIconComponent],
   template: `
     <div
       class="settings-item"
@@ -100,6 +99,7 @@ export interface SettingsCopyEvent {
       [class.settings-item--danger]="item().variant === 'danger'"
       [class.settings-item--warning]="item().variant === 'warning'"
       [class.settings-item--clickable]="isClickable()"
+      [attr.data-testid]="item().id"
       [attr.role]="isClickable() ? 'button' : undefined"
       [attr.tabindex]="isClickable() ? 0 : undefined"
       [attr.aria-disabled]="item().disabled"
@@ -108,7 +108,9 @@ export interface SettingsCopyEvent {
       (keydown.enter)="handleClick($event)"
       (keydown.space)="handleClick($event)"
     >
-      <ion-ripple-effect *ngIf="isClickable()"></ion-ripple-effect>
+      @if (isClickable()) {
+        <ion-ripple-effect></ion-ripple-effect>
+      }
 
       <!-- Left: Icon -->
       @if (item().icon) {

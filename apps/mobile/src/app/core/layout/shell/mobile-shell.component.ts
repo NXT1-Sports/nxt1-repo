@@ -128,7 +128,7 @@ import { ActivityService } from '../../../features/activity/services/activity.se
     <nxt1-sidenav
       contentId="main-content"
       [user]="sidenavUser() ?? undefined"
-      [sections]="sidenavSections"
+      [sections]="sidenavSections()"
       [socialLinks]="socialLinks"
       [config]="sidenavConfig()"
       (toggle)="onSidenavToggle($event)"
@@ -404,7 +404,12 @@ export class MobileShellComponent implements OnInit, OnDestroy {
    * Sidenav sections (using defaults from @nxt1/core)
    * Both web and mobile now use clean URLs (no tabs prefix)
    */
-  readonly sidenavSections: SidenavSection[] = DEFAULT_SIDENAV_ITEMS;
+  readonly sidenavSections = computed<SidenavSection[]>(() =>
+    DEFAULT_SIDENAV_ITEMS.map((section) => ({
+      ...section,
+      items: section.items.filter((item) => item.id !== 'connections'),
+    }))
+  );
 
   /** Social links for sidenav footer */
   readonly socialLinks: SocialLink[] = DEFAULT_SOCIAL_LINKS;

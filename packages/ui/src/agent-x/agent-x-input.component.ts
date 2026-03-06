@@ -57,7 +57,7 @@ import type { AgentXQuickTask } from '@nxt1/core';
           [ngModel]="userMessage()"
           (ngModelChange)="onMessageChange($event)"
           (keydown.enter)="onEnterPress($event)"
-          placeholder="Message Agent X"
+          [placeholder]="placeholder()"
           rows="1"
           [maxlength]="1000"
           class="message-input"
@@ -327,6 +327,7 @@ export class AgentXInputComponent {
   readonly isLoading = input<boolean>(false);
   readonly canSend = input<boolean>(false);
   readonly userMessage = input<string>('');
+  readonly placeholder = input<string>('Type a message');
 
   // ============================================
   // OUTPUTS

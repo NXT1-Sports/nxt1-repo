@@ -336,16 +336,16 @@ import type {
             </div>
           }
 
-          <!-- Create Button -->
+          <!-- Brand Button -->
           @if (config().showCreate !== false) {
             <button
               type="button"
               class="nav-create-btn"
-              aria-label="Create new post"
+              aria-label="Open Brand Vault"
               (click)="onCreateClick($event)"
             >
               <nxt1-icon name="plus" size="20" />
-              <span class="nav-create-label hidden lg:inline">Create</span>
+              <span class="nav-create-label hidden lg:inline">Brand</span>
             </button>
           }
 

@@ -418,6 +418,48 @@ export const AGENT_ONBOARDING_TEST_IDS = {
   BTN_SKIP: 'agent-onboarding-skip',
 } as const;
 
+// ============================================
+// SETTINGS TEST IDS
+// Defined in packages/ui/src/settings/
+// ============================================
+
+/**
+ * Test IDs for the Settings feature (web and mobile)
+ */
+export const SETTINGS_TEST_IDS = {
+  // Page containers
+  PAGE: 'settings-page',
+  ACCOUNT_INFO_PAGE: 'settings-account-info-page',
+
+  // Shell & sections
+  SHELL: 'settings-shell',
+  LOADING_SKELETON: 'settings-loading-skeleton',
+
+  // Account Information items (match item IDs)
+  EMAIL_ITEM: 'accountEmail',
+  CHANGE_PASSWORD_ITEM: 'accountChangePassword',
+  SIGN_OUT_ITEM: 'accountSignOut',
+  DELETE_ACCOUNT_ITEM: 'accountDelete',
+} as const;
+
+/**
+ * Brand Vault test IDs
+ */
+export const BRAND_TEST_IDS = {
+  /** Brand page container */
+  CONTAINER: 'brand-container',
+  /** Brand page header */
+  HEADER: 'brand-header',
+  /** Brand category grid */
+  GRID: 'brand-category-grid',
+  /** Individual brand category card */
+  CARD: 'brand-category-card',
+  /** Loading skeleton */
+  SKELETON: 'brand-skeleton',
+  /** Empty state */
+  EMPTY_STATE: 'brand-empty-state',
+} as const;
+
 /**
  * All test IDs combined for easy import
  */
@@ -428,6 +470,8 @@ export const TEST_IDS = {
   ONBOARDING_PAGE: ONBOARDING_PAGE_TEST_IDS,
   COMMON: COMMON_TEST_IDS,
   AGENT_ONBOARDING: AGENT_ONBOARDING_TEST_IDS,
+  BRAND: BRAND_TEST_IDS,
+  SETTINGS: SETTINGS_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript
@@ -437,6 +481,7 @@ export type OnboardingTestId = (typeof ONBOARDING_TEST_IDS)[keyof typeof ONBOARD
 export type OnboardingPageTestId =
   (typeof ONBOARDING_PAGE_TEST_IDS)[keyof typeof ONBOARDING_PAGE_TEST_IDS];
 export type CommonTestId = (typeof COMMON_TEST_IDS)[keyof typeof COMMON_TEST_IDS];
+export type BrandTestId = (typeof BRAND_TEST_IDS)[keyof typeof BRAND_TEST_IDS];
 
 // ============================================
 // SHARED TEST DATA

@@ -29,6 +29,7 @@ import {
   input,
   output,
   computed,
+  signal,
   OnInit,
   OnDestroy,
   viewChild,
@@ -42,7 +43,7 @@ import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ConversationService } from './conversation.service';
 import { ConversationHeaderComponent } from './conversation-header.component';
 import { MessageBubbleComponent } from './message-bubble.component';
-import { MessageInputComponent } from './message-input.component';
+import { AgentXInputComponent } from '../../agent-x/agent-x-input.component';
 
 @Component({
   selector: 'nxt1-conversation-shell-web',
@@ -51,7 +52,7 @@ import { MessageInputComponent } from './message-input.component';
     CommonModule,
     ConversationHeaderComponent,
     MessageBubbleComponent,
-    MessageInputComponent,
+    AgentXInputComponent,
   ],
   template: `
     <div class="conversation-container">
@@ -63,8 +64,7 @@ import { MessageInputComponent } from './message-input.component';
         [isOnline]="conversationService.isOnline()"
         (backClick)="backClick.emit()"
         (infoClick)="infoClick.emit()"
-        (callClick)="callClick.emit()"
-        (videoClick)="videoClick.emit()"
+        (agentXClick)="agentXClick.emit()"
       />
 
       <!-- Scrollable messages area -->
@@ -170,12 +170,16 @@ import { MessageInputComponent } from './message-input.component';
         </div>
       </div>
 
-      <!-- Message input (fixed at bottom) -->
-      <nxt1-message-input
-        [replyTo]="conversationService.replyTo()"
-        [isSending]="conversationService.isSending()"
-        (messageSend)="onSend($event)"
-        (dismissReply)="conversationService.clearReplyTo()"
+      <!-- Shared Agent X input used across the app -->
+      <nxt1-agent-x-input
+        [hasMessages]="!conversationService.isEmpty()"
+        [selectedTask]="null"
+        [isLoading]="conversationService.isSending()"
+        [canSend]="canSendDraft()"
+        [userMessage]="draftMessage()"
+        [placeholder]="'Type a message'"
+        (messageChange)="onDraftChange($event)"
+        (send)="onSendFromDraft()"
       />
     </div>
   `,
@@ -211,7 +215,10 @@ import { MessageInputComponent } from './message-input.component';
         flex-direction: column;
         min-height: 100%;
         padding-top: var(--nxt1-spacing-2);
-        padding-bottom: var(--nxt1-spacing-2);
+        padding-bottom: calc(
+          var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px + 140px +
+            env(safe-area-inset-bottom, 0px)
+        );
       }
 
       /* ============================================
@@ -499,6 +506,7 @@ export class ConversationShellWebComponent implements OnInit, OnDestroy {
   readonly conversationService = inject(ConversationService);
   private readonly logger = inject(NxtLoggingService).child('ConversationShellWeb');
   private readonly platformId = inject(PLATFORM_ID);
+  protected readonly draftMessage = signal('');
 
   private readonly scrollAnchor = viewChild<ElementRef>('scrollAnchor');
 
@@ -511,11 +519,8 @@ export class ConversationShellWebComponent implements OnInit, OnDestroy {
   /** Emitted when conversation info is requested */
   readonly infoClick = output<void>();
 
-  /** Emitted when call is requested */
-  readonly callClick = output<void>();
-
-  /** Emitted when video call is requested */
-  readonly videoClick = output<void>();
+  /** Emitted when Agent X action is requested */
+  readonly agentXClick = output<void>();
 
   /** Skeleton items */
   readonly skeletonItems = Array.from({ length: 8 }, (_, i) => i);
@@ -524,6 +529,8 @@ export class ConversationShellWebComponent implements OnInit, OnDestroy {
   readonly conversationType = computed((): ConversationType => {
     return this.conversationService.conversation()?.type ?? 'direct';
   });
+
+  readonly canSendDraft = computed(() => this.draftMessage().trim().length > 0);
 
   constructor() {
     effect(() => {
@@ -549,6 +556,17 @@ export class ConversationShellWebComponent implements OnInit, OnDestroy {
   async onSend(body: string): Promise<void> {
     await this.conversationService.sendMessage(body);
     this.scrollToBottom();
+  }
+
+  onDraftChange(value: string): void {
+    this.draftMessage.set(value);
+  }
+
+  async onSendFromDraft(): Promise<void> {
+    const body = this.draftMessage().trim();
+    if (!body) return;
+    await this.onSend(body);
+    this.draftMessage.set('');
   }
 
   async onRetrySend(messageId: string): Promise<void> {

@@ -85,6 +85,7 @@ import { environment } from '../../../environments/environment';
         [isOwnProfile]="isOwnProfile()"
         [skipInternalLoad]="true"
         (avatarClick)="onAvatarClick()"
+        (menuClick)="onMenuClick()"
         (backClick)="onBackClick()"
         (tabChange)="onTabChange($event)"
         (editProfileClick)="onEditProfile()"
@@ -455,6 +456,13 @@ export class ProfileComponent {
    * Opens the sidenav (mobile pattern - avatar opens sidenav).
    */
   protected onAvatarClick(): void {
+    this.sidenavService.open();
+  }
+
+  /**
+   * Opens the sidenav from the top-left hamburger menu.
+   */
+  protected onMenuClick(): void {
     this.sidenavService.open();
   }
 

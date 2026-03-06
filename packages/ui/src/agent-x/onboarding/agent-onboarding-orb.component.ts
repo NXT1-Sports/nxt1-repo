@@ -62,6 +62,15 @@ export type OrbSize = 'lg' | 'md';
         display: flex;
         align-items: center;
         justify-content: center;
+
+        /* Scoped orb sizing tokens — override per variant via host class */
+        --_orb-wrapper: 132px;
+        --_orb-outer: 132px;
+        --_orb-middle: 98px;
+        --_orb-inner: 66px;
+        --_orb-core: 58px;
+        --_orb-logo: 40px;
+        --_orb-glow: var(--nxt1-glow-md);
       }
 
       .orb-wrapper {
@@ -69,24 +78,52 @@ export type OrbSize = 'lg' | 'md';
         display: flex;
         align-items: center;
         justify-content: center;
+        width: var(--_orb-wrapper);
+        height: var(--_orb-wrapper);
       }
 
       .orb-ring {
         position: absolute;
-        border-radius: 50%;
+        border-radius: var(--nxt1-borderRadius-full);
         border: 1px solid var(--nxt1-color-primary);
       }
 
+      .orb-ring--outer {
+        width: var(--_orb-outer);
+        height: var(--_orb-outer);
+        opacity: 0.1;
+        animation: orb-pulse 3s ease-in-out infinite;
+      }
+
+      .orb-ring--middle {
+        width: var(--_orb-middle);
+        height: var(--_orb-middle);
+        opacity: 0.2;
+        animation: orb-pulse 3s ease-in-out 0.5s infinite;
+      }
+
+      .orb-ring--inner {
+        width: var(--_orb-inner);
+        height: var(--_orb-inner);
+        opacity: 0.3;
+        animation: orb-pulse 3s ease-in-out 1s infinite;
+      }
+
       .orb-core {
-        border-radius: 50%;
+        width: var(--_orb-core);
+        height: var(--_orb-core);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-primary);
         display: flex;
         align-items: center;
         justify-content: center;
         z-index: 1;
+        box-shadow: var(--_orb-glow);
       }
 
       .orb-agent-logo {
+        width: var(--_orb-logo);
+        height: var(--_orb-logo);
         color: var(--nxt1-color-bg-primary);
       }
 
@@ -104,82 +141,28 @@ export type OrbSize = 'lg' | 'md';
 
       /* ──────────────────────────────────
        Size: lg (Welcome step)
-    ────────────────────────────────── */
-      :host(.onboarding-orb--lg) .orb-wrapper {
-        width: 132px;
-        height: 132px;
-      }
-
-      :host(.onboarding-orb--lg) .orb-ring--outer {
-        width: 132px;
-        height: 132px;
-        opacity: 0.1;
-        animation: orb-pulse 3s ease-in-out infinite;
-      }
-
-      :host(.onboarding-orb--lg) .orb-ring--middle {
-        width: 98px;
-        height: 98px;
-        opacity: 0.2;
-        animation: orb-pulse 3s ease-in-out 0.5s infinite;
-      }
-
-      :host(.onboarding-orb--lg) .orb-ring--inner {
-        width: 66px;
-        height: 66px;
-        opacity: 0.3;
-        animation: orb-pulse 3s ease-in-out 1s infinite;
-      }
-
-      :host(.onboarding-orb--lg) .orb-core {
-        width: 58px;
-        height: 58px;
-        box-shadow: 0 0 40px rgba(204, 255, 0, 0.3);
-      }
-
-      :host(.onboarding-orb--lg) .orb-agent-logo {
-        width: 40px;
-        height: 40px;
+      ────────────────────────────────── */
+      :host(.onboarding-orb--lg) {
+        --_orb-wrapper: 132px;
+        --_orb-outer: 132px;
+        --_orb-middle: 98px;
+        --_orb-inner: 66px;
+        --_orb-core: 58px;
+        --_orb-logo: 40px;
+        --_orb-glow: var(--nxt1-glow-md);
       }
 
       /* ──────────────────────────────────
        Size: md (Goals step)
-    ────────────────────────────────── */
-      :host(.onboarding-orb--md) .orb-wrapper {
-        width: 112px;
-        height: 112px;
-      }
-
-      :host(.onboarding-orb--md) .orb-ring--outer {
-        width: 112px;
-        height: 112px;
-        opacity: 0.1;
-        animation: orb-pulse 3s ease-in-out infinite;
-      }
-
-      :host(.onboarding-orb--md) .orb-ring--middle {
-        width: 84px;
-        height: 84px;
-        opacity: 0.2;
-        animation: orb-pulse 3s ease-in-out 0.5s infinite;
-      }
-
-      :host(.onboarding-orb--md) .orb-ring--inner {
-        width: 58px;
-        height: 58px;
-        opacity: 0.3;
-        animation: orb-pulse 3s ease-in-out 1s infinite;
-      }
-
-      :host(.onboarding-orb--md) .orb-core {
-        width: 50px;
-        height: 50px;
-        box-shadow: 0 0 30px rgba(204, 255, 0, 0.25);
-      }
-
-      :host(.onboarding-orb--md) .orb-agent-logo {
-        width: 34px;
-        height: 34px;
+      ────────────────────────────────── */
+      :host(.onboarding-orb--md) {
+        --_orb-wrapper: 112px;
+        --_orb-outer: 112px;
+        --_orb-middle: 84px;
+        --_orb-inner: 58px;
+        --_orb-core: 50px;
+        --_orb-logo: 34px;
+        --_orb-glow: var(--nxt1-glow-sm);
       }
 
       /* ──────────────────────────────────

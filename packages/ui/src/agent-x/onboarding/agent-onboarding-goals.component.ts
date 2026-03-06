@@ -122,38 +122,38 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       }
 
       .goals-container {
-        padding: var(--nxt1-spacing-xs) 0
-          calc(var(--nxt1-spacing-xl, 24px) + env(safe-area-inset-bottom, 0px));
+        padding: var(--nxt1-spacing-1) 0
+          calc(var(--nxt1-spacing-6) + env(safe-area-inset-bottom, 0px));
         max-width: 540px;
         margin: 0 auto;
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: clamp(10px, 1.8vh, 18px);
+        gap: clamp(var(--nxt1-spacing-2_5), 1.8vh, var(--nxt1-spacing-4_5));
       }
 
       .step-header {
-        margin-bottom: var(--nxt1-spacing-sm);
+        margin-bottom: var(--nxt1-spacing-2);
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: clamp(6px, 1.1vh, 10px);
+        gap: clamp(var(--nxt1-spacing-1_5), 1.1vh, var(--nxt1-spacing-2_5));
       }
 
       /* Counter */
       .goals-counter {
         display: inline-flex;
         align-items: baseline;
-        gap: 4px;
-        padding: 6px 16px;
-        border-radius: var(--nxt1-borderRadius-full, 9999px);
+        gap: var(--nxt1-spacing-1);
+        padding: var(--nxt1-spacing-1_5) var(--nxt1-spacing-4);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-subtle);
       }
 
       .counter-current {
-        font-size: var(--nxt1-fontSize-lg, 18px);
-        font-weight: 700;
+        font-size: var(--nxt1-fontSize-lg);
+        font-weight: var(--nxt1-fontWeight-bold);
         color: var(--nxt1-color-primary);
       }
 
@@ -162,15 +162,15 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       }
 
       .counter-max {
-        font-size: var(--nxt1-fontSize-md, 16px);
-        font-weight: 600;
+        font-size: var(--nxt1-fontSize-md);
+        font-weight: var(--nxt1-fontWeight-semibold);
         color: var(--nxt1-color-text-secondary);
       }
 
       .counter-label {
-        font-size: var(--nxt1-fontSize-xs, 12px);
+        font-size: var(--nxt1-fontSize-xs);
         color: var(--nxt1-color-text-tertiary);
-        margin-left: 4px;
+        margin-left: var(--nxt1-spacing-1);
       }
 
       .goal-category-list {
@@ -178,22 +178,22 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         max-width: 520px;
         display: flex;
         flex-direction: column;
-        gap: 10px;
-        margin-bottom: var(--nxt1-spacing-md);
+        gap: var(--nxt1-spacing-2_5);
+        margin-bottom: var(--nxt1-spacing-4);
       }
 
       .goal-category {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: var(--nxt1-spacing-1_5);
       }
 
       .goal-category-label {
         margin: 0;
         padding-left: 2px;
-        font-size: var(--nxt1-fontSize-xs, 11px);
-        font-weight: 600;
-        letter-spacing: 0.03em;
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        letter-spacing: var(--nxt1-letterSpacing-wide);
         text-transform: uppercase;
         color: var(--nxt1-color-text-tertiary);
       }
@@ -201,7 +201,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       .goals-row {
         display: flex;
         flex-wrap: nowrap;
-        gap: 6px;
+        gap: var(--nxt1-spacing-1_5);
         width: 100%;
         overflow-x: auto;
         overflow-y: hidden;
@@ -218,12 +218,12 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        padding: 7px 11px;
-        border-radius: var(--nxt1-borderRadius-full, 9999px);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-subtle);
         cursor: pointer;
-        transition: all var(--nxt1-duration-fast, 150ms);
+        transition: all var(--nxt1-duration-fast);
         text-align: center;
         min-height: 0;
         max-width: 100%;
@@ -233,12 +233,12 @@ import { HapticsService } from '../../services/haptics/haptics.service';
 
       .goal-card:hover:not(:disabled) {
         border-color: var(--nxt1-color-primary);
-        background: rgba(204, 255, 0, 0.03);
+        background: var(--nxt1-color-alpha-primary4);
       }
 
       .goal-card--selected {
         border-color: var(--nxt1-color-primary) !important;
-        background: rgba(204, 255, 0, 0.06) !important;
+        background: var(--nxt1-color-alpha-primary6) !important;
       }
 
       .goal-card--disabled {
@@ -247,21 +247,21 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       }
 
       .goal-text {
-        font-size: var(--nxt1-fontSize-xs, 11.5px);
-        font-weight: 500;
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-medium);
         color: var(--nxt1-color-text-primary);
-        line-height: 1.2;
+        line-height: var(--nxt1-lineHeight-tight);
         white-space: nowrap;
       }
 
       /* Custom Goal */
       .custom-goal-section {
-        margin-bottom: var(--nxt1-spacing-md);
+        margin-bottom: var(--nxt1-spacing-4);
         width: 100%;
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 8px;
+        gap: var(--nxt1-spacing-2);
       }
 
       .custom-goal-input-row {
@@ -269,7 +269,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         max-width: 520px;
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--nxt1-spacing-2);
       }
 
       .custom-goal-section nxt1-search-bar {
@@ -282,14 +282,14 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         border: 1px solid var(--nxt1-color-border-subtle);
         background: var(--nxt1-color-surface-100);
         color: var(--nxt1-color-text-primary);
-        border-radius: var(--nxt1-borderRadius-full, 9999px);
-        height: 40px;
-        padding: 0 14px;
-        font-size: var(--nxt1-fontSize-xs, 12px);
-        font-weight: 600;
+        border-radius: var(--nxt1-borderRadius-full);
+        height: var(--nxt1-spacing-10);
+        padding: 0 var(--nxt1-spacing-3_5);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
         cursor: pointer;
         flex: 0 0 auto;
-        transition: all var(--nxt1-duration-fast, 150ms);
+        transition: all var(--nxt1-duration-fast);
       }
 
       .custom-add-goal-btn:disabled {
@@ -311,7 +311,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       }
 
       .custom-label {
-        font-size: var(--nxt1-fontSize-xs, 12px);
+        font-size: var(--nxt1-fontSize-xs);
         color: var(--nxt1-color-text-secondary);
         margin: 0;
         text-align: center;
@@ -321,7 +321,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       .selected-summary {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-xs);
+        gap: var(--nxt1-spacing-1);
         width: 100%;
       }
 
@@ -335,24 +335,24 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         max-width: 520px;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: var(--nxt1-spacing-2);
       }
 
       .quick-options-toggle {
         width: 100%;
         height: 38px;
-        border-radius: var(--nxt1-borderRadius-full, 9999px);
+        border-radius: var(--nxt1-borderRadius-full);
         border: 1px solid var(--nxt1-color-border-subtle);
         background: var(--nxt1-color-surface-100);
         color: var(--nxt1-color-text-secondary);
         display: inline-flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0 14px;
-        font-size: var(--nxt1-fontSize-xs, 12px);
-        font-weight: 600;
+        padding: 0 var(--nxt1-spacing-3_5);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
         cursor: pointer;
-        transition: border-color var(--nxt1-duration-fast, 150ms);
+        transition: border-color var(--nxt1-duration-fast);
       }
 
       .quick-options-toggle:active {
@@ -366,18 +366,18 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       .selected-pill {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-sm);
-        padding: 10px 14px;
-        border-radius: var(--nxt1-borderRadius-md, 8px);
-        background: rgba(204, 255, 0, 0.08);
-        border: 1px solid rgba(204, 255, 0, 0.2);
-        animation: fadeIn var(--nxt1-duration-normal, 200ms) ease-out;
+        gap: var(--nxt1-spacing-2);
+        padding: var(--nxt1-spacing-2_5) var(--nxt1-spacing-3_5);
+        border-radius: var(--nxt1-borderRadius-md);
+        background: var(--nxt1-color-alpha-primary10);
+        border: 1px solid var(--nxt1-color-alpha-primary20);
+        animation: fadeIn var(--nxt1-duration-normal) var(--nxt1-easing-out);
       }
 
       .pill-text {
         flex: 1;
-        font-size: var(--nxt1-fontSize-sm, 14px);
-        font-weight: 500;
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
         color: var(--nxt1-color-text-primary);
       }
 
@@ -386,10 +386,10 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         border: none;
         color: var(--nxt1-color-text-tertiary);
         cursor: pointer;
-        padding: 4px;
+        padding: var(--nxt1-spacing-1);
         display: flex;
-        border-radius: 50%;
-        transition: color var(--nxt1-duration-fast, 150ms);
+        border-radius: var(--nxt1-borderRadius-full);
+        transition: color var(--nxt1-duration-fast);
       }
 
       .pill-remove:hover {
@@ -399,7 +399,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
       @keyframes fadeIn {
         from {
           opacity: 0;
-          transform: translateY(4px);
+          transform: translateY(var(--nxt1-spacing-1));
         }
         to {
           opacity: 1;
@@ -413,7 +413,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         }
 
         .goal-category-list {
-          gap: 8px;
+          gap: var(--nxt1-spacing-2);
           max-width: 100%;
         }
 
@@ -426,30 +426,30 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         }
 
         .goal-category-label {
-          font-size: 10.5px;
+          font-size: var(--nxt1-fontSize-2xs);
         }
 
         .goals-row {
-          gap: 5px;
+          gap: var(--nxt1-spacing-1);
         }
 
         .goal-card {
-          padding: 6px 10px;
+          padding: var(--nxt1-spacing-1_5) var(--nxt1-spacing-2_5);
         }
 
         .goal-text {
-          font-size: 11px;
+          font-size: var(--nxt1-fontSize-2xs);
         }
 
         .custom-goal-input-row {
           width: 94%;
           max-width: 400px;
-          gap: 6px;
+          gap: var(--nxt1-spacing-1_5);
         }
 
         .custom-add-goal-btn {
           height: 36px;
-          padding: 0 12px;
+          padding: 0 var(--nxt1-spacing-3);
         }
 
         .custom-goal-section nxt1-search-bar {

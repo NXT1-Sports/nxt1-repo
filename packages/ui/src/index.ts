@@ -448,6 +448,8 @@ export {
   AgentXWelcomeComponent,
   AgentXChatComponent,
   AgentXInputComponent,
+  AgentXOperationChatComponent,
+  type OperationQuickAction,
   // Mode Content (shared web & mobile)
   AgentXModeContentComponent,
   AgentXDraftsComponent,
@@ -576,6 +578,20 @@ export {
   type ExploreFilterModalConfig,
   type ExploreFilterModalResult,
 } from './explore';
+
+// ============================================
+// BRAND (Brand Vault)
+// ============================================
+export {
+  // Service
+  BrandService,
+  // Mobile (Ionic)
+  BrandShellComponent,
+  // Web (Zero Ionic)
+  BrandShellWebComponent,
+  // Shared
+  BrandCategoryCardComponent,
+} from './brand';
 
 // ============================================
 // PROFILE (User Profile)

@@ -117,17 +117,20 @@ const MOCK_ALERTS_ITEMS: ActivityItem[] = [
   },
   {
     id: '5',
-    type: 'comment',
+    type: 'system',
     tab: 'alerts',
     priority: 'normal',
-    title: 'Marcus Brown commented on your video',
-    body: 'Those handles are next level! Keep grinding 💪',
+    title: 'NCAA eligibility reminder',
+    body: 'Submit your latest transcript by Friday to keep your recruiting profile up to date.',
     timestamp: new Date(now - 1000 * 60 * 30).toISOString(),
     isRead: false,
     source: {
-      userId: 'marcus-brown',
-      userName: 'Marcus Brown',
-      avatarUrl: 'https://i.pravatar.cc/150?img=52',
+      userId: 'nxt1-system',
+      userName: 'NXT1 Compliance',
+    },
+    metadata: {
+      category: 'eligibility',
+      dueBy: 'Friday',
     },
   },
   {
@@ -183,6 +186,63 @@ const MOCK_ALERTS_ITEMS: ActivityItem[] = [
       likeCount: 89,
     },
   },
+  {
+    id: '13',
+    type: 'announcement',
+    tab: 'alerts',
+    priority: 'normal',
+    title: 'New camp invite available',
+    body: 'Your profile matches a regional showcase camp in Dallas. Review details and register.',
+    timestamp: new Date(now - 1000 * 60 * 80).toISOString(),
+    isRead: false,
+    source: {
+      userId: 'nxt1-events',
+      userName: 'NXT1 Events',
+    },
+    action: {
+      id: 'view-camp',
+      label: 'View',
+      variant: 'outline',
+      route: '/explore',
+    },
+  },
+  {
+    id: '14',
+    type: 'update',
+    tab: 'alerts',
+    priority: 'normal',
+    title: 'Profile visibility increased',
+    body: 'After your latest stats update, your profile appeared in 18 new coach searches.',
+    timestamp: new Date(now - 1000 * 60 * 120).toISOString(),
+    isRead: true,
+    source: {
+      userId: 'nxt1-insights',
+      userName: 'NXT1 Insights',
+    },
+    metadata: {
+      coachSearchAppearances: 18,
+    },
+  },
+  {
+    id: '15',
+    type: 'reminder',
+    tab: 'alerts',
+    priority: 'high',
+    title: 'Complete your verification steps',
+    body: 'Finish your remaining account verification tasks to unlock full recruiting visibility.',
+    timestamp: new Date(now - 1000 * 60 * 180).toISOString(),
+    isRead: false,
+    source: {
+      userId: 'nxt1-system',
+      userName: 'NXT1 System',
+    },
+    action: {
+      id: 'open-settings',
+      label: 'Open',
+      variant: 'outline',
+      route: '/settings',
+    },
+  },
 ];
 
 /**
@@ -208,7 +268,7 @@ export const MOCK_BADGE_COUNTS: Record<ActivityTabId, number> = {
   },
   inbox: 4,
   agent: 2,
-  alerts: 4,
+  alerts: 6,
 };
 
 /**

@@ -256,6 +256,7 @@ export interface AgentXUser {
         [isLoading]="agentX.isLoading()"
         [canSend]="agentX.canSend()"
         [userMessage]="agentX.getUserMessage()"
+        [placeholder]="'Message Agent X'"
         (messageChange)="agentX.setUserMessage($event)"
         (send)="onSendMessage()"
         (removeTask)="agentX.clearTask()"

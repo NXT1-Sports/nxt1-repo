@@ -28,7 +28,7 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { IonIcon, IonAvatar, IonRippleEffect } from '@ionic/angular/standalone';
+import { IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {
   personAddOutline,
@@ -49,12 +49,13 @@ import {
 } from 'ionicons/icons';
 import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@nxt1/core';
 import type { MessageActivityMetadata } from '@nxt1/core';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-logo.constants';
 
 // Register all icons
 @Component({
   selector: 'nxt1-activity-item',
   standalone: true,
-  imports: [CommonModule, IonIcon, IonAvatar, IonRippleEffect],
+  imports: [CommonModule, IonIcon, IonRippleEffect],
   template: `
     <div
       class="activity-item"
@@ -70,13 +71,39 @@ import type { MessageActivityMetadata } from '@nxt1/core';
 
       <!-- Left: Icon or Avatar -->
       <div class="activity-item__visual">
-        @if (hasAvatar()) {
-          <ion-avatar class="activity-item__avatar">
-            <img [src]="avatarUrl()" [alt]="item().source?.userName ?? ''" />
-          </ion-avatar>
+        @if (showAvatarVisual()) {
+          <div class="activity-item__avatar">
+            @if (avatarUrl()) {
+              <img [src]="avatarUrl()" [alt]="item().source?.userName ?? ''" />
+            } @else {
+              <div class="activity-item__avatar-placeholder" aria-hidden="true">
+                {{ avatarInitials() }}
+              </div>
+            }
+          </div>
         } @else {
-          <div class="activity-item__icon-circle" [style.background-color]="typeColor()">
-            <ion-icon [name]="typeIcon()"></ion-icon>
+          <div
+            class="activity-item__icon-circle"
+            [style.--activity-icon-accent]="iconAccentColor()"
+          >
+            @if (isAgentItem()) {
+              <svg
+                class="activity-item__agent-logo"
+                viewBox="0 0 612 792"
+                width="32"
+                height="32"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="8"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path [attr.d]="agentXLogoPath" />
+                <polygon [attr.points]="agentXLogoPolygon" />
+              </svg>
+            } @else {
+              <ion-icon [name]="typeIcon()"></ion-icon>
+            }
           </div>
         }
       </div>
@@ -201,28 +228,86 @@ import type { MessageActivityMetadata } from '@nxt1/core';
       }
 
       .activity-item__avatar {
-        width: 44px;
-        height: 44px;
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px;
+        background:
+          radial-gradient(
+            circle at 30% 22%,
+            var(--nxt1-color-alpha-white20, rgba(255, 255, 255, 0.2)),
+            transparent 44%
+          ),
+          linear-gradient(
+            145deg,
+            var(--nxt1-color-primary, #ccff00),
+            var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.1))
+          );
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.24));
+        box-shadow:
+          0 10px 18px var(--nxt1-color-alpha-black30, rgba(0, 0, 0, 0.3)),
+          inset 0 1px 1px var(--nxt1-color-alpha-white28, rgba(255, 255, 255, 0.28));
       }
 
       .activity-item__avatar img {
         width: 100%;
         height: 100%;
         object-fit: cover;
+        border-radius: 50%;
+        display: block;
       }
 
-      .activity-item__icon-circle {
-        width: 44px;
-        height: 44px;
+      .activity-item__avatar-placeholder {
+        width: 100%;
+        height: 100%;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        background: linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
+      }
+
+      .activity-item__icon-circle {
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(
+            circle at 30% 22%,
+            var(--nxt1-color-alpha-white20, rgba(255, 255, 255, 0.2)),
+            transparent 44%
+          ),
+          linear-gradient(
+            145deg,
+            var(--activity-icon-accent, var(--nxt1-color-primary, #ccff00)),
+            var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.1))
+          );
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.24));
+        box-shadow:
+          0 10px 18px var(--nxt1-color-alpha-black30, rgba(0, 0, 0, 0.3)),
+          inset 0 1px 1px var(--nxt1-color-alpha-white28, rgba(255, 255, 255, 0.28));
       }
 
       .activity-item__icon-circle ion-icon {
-        font-size: 20px;
-        color: white;
+        font-size: 21px;
+        color: var(--nxt1-color-text-onDark, #ffffff);
+      }
+
+      .activity-item__agent-logo {
+        color: #ffffff;
+        display: block;
+        filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.35));
       }
 
       /* ============================================
@@ -437,10 +522,15 @@ export class ActivityItemComponent {
     return (this.item().metadata as unknown as MessageActivityMetadata) ?? null;
   });
 
-  /** Whether to show avatar instead of icon */
-  protected readonly hasAvatar = computed(() => {
+  /** Whether we should show avatar visual (image or sleek placeholder) */
+  protected readonly showAvatarVisual = computed(() => {
     const source = this.item().source;
-    return !!(source?.avatarUrl || source?.teamLogoUrl);
+    // Keep avatars for direct person-driven items; alerts use semantic type icons.
+    const shouldUseAvatar = this.isMessage() || this.isReactionType();
+    return (
+      shouldUseAvatar &&
+      !!(source?.userName || source?.teamName || source?.avatarUrl || source?.teamLogoUrl)
+    );
   });
 
   /** Avatar URL to display */
@@ -448,6 +538,25 @@ export class ActivityItemComponent {
     const source = this.item().source;
     return source?.avatarUrl ?? source?.teamLogoUrl ?? '';
   });
+
+  /** Avatar fallback initials when no image is available */
+  protected readonly avatarInitials = computed(() => {
+    const source = this.item().source;
+    const name = source?.userName ?? source?.teamName ?? 'NXT1';
+    const parts = name
+      .split(' ')
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return 'N';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
+  });
+
+  /** Agent tab/system visual uses branded Agent X mark */
+  protected readonly isAgentItem = computed(() => this.item().tab === 'agent');
+
+  readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
 
   /** Icon name for the activity type */
   protected readonly typeIcon = computed(() => {
@@ -457,6 +566,14 @@ export class ActivityItemComponent {
   /** Color for the activity type */
   protected readonly typeColor = computed(() => {
     return ACTIVITY_TYPE_COLORS[this.item().type] ?? 'var(--nxt1-color-primary)';
+  });
+
+  /** Accent color used by the premium icon container */
+  protected readonly iconAccentColor = computed(() => {
+    if (this.isAgentItem()) {
+      return 'var(--nxt1-color-primary, #ccff00)';
+    }
+    return this.typeColor();
   });
 
   /** Formatted time string */

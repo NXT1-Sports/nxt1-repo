@@ -122,120 +122,126 @@ import { formatSportDisplayName } from '@nxt1/core';
       @if (config().showUserHeader && user()) {
         <ion-header class="nxt1-sidenav-header ion-no-border">
           <ion-toolbar class="nxt1-sidenav-toolbar">
-            <div class="nxt1-sidenav-profile-row">
-              <!-- Tappable profile area: avatar + info -->
-              <button
-                class="nxt1-sidenav-profile-row__main"
-                (click)="onProfileClick()"
-                aria-label="View profile"
-              >
-                <div class="nxt1-sidenav-profile-row__avatar">
-                  <nxt1-avatar
-                    [src]="user()!.profileImg"
-                    [name]="user()!.name"
-                    [initials]="user()!.initials"
-                    size="md"
-                    [showSkeleton]="false"
-                    class="nxt1-sidenav-profile-row__avatar-img"
-                  />
-                  @if (user()!.isPremium) {
-                    <span class="nxt1-sidenav-profile-row__pro">PRO</span>
+            <section class="nxt1-sidenav-switcher" aria-label="Profile switcher">
+              <span class="nxt1-sidenav-switcher__label">{{ getSwitcherTitle(user()!) }}</span>
+
+              <div class="nxt1-sidenav-switcher__panel">
+                <div class="nxt1-sidenav-profile-row">
+                  <!-- Tappable profile area: avatar + info -->
+                  <button
+                    class="nxt1-sidenav-profile-row__main"
+                    (click)="onProfileClick()"
+                    aria-label="View profile"
+                  >
+                    <div class="nxt1-sidenav-profile-row__avatar">
+                      <nxt1-avatar
+                        [src]="user()!.profileImg"
+                        [name]="user()!.name"
+                        [initials]="user()!.initials"
+                        size="md"
+                        [showSkeleton]="false"
+                        class="nxt1-sidenav-profile-row__avatar-img"
+                      />
+                      @if (user()!.isPremium) {
+                        <span class="nxt1-sidenav-profile-row__pro">PRO</span>
+                      }
+                    </div>
+
+                    <div class="nxt1-sidenav-profile-row__info">
+                      <span class="nxt1-sidenav-profile-row__name">
+                        {{ user()!.name }}
+                        @if (user()!.verified) {
+                          <nxt1-icon
+                            name="verified"
+                            [size]="14"
+                            class="nxt1-sidenav-profile-row__verified"
+                          />
+                        }
+                      </span>
+                      <span class="nxt1-sidenav-profile-row__sport">
+                        {{ getUserSportLabel(user()!) }}
+                      </span>
+                    </div>
+                  </button>
+
+                  <!-- Expand arrow for sport profiles -->
+                  @if ((user()!.sportProfiles?.length ?? 0) > 0) {
+                    <button
+                      class="nxt1-sidenav-profile-row__expand"
+                      [class.nxt1-sidenav-profile-row__expand--open]="sportsExpanded()"
+                      (click)="toggleSportsExpanded($event)"
+                      [attr.aria-expanded]="sportsExpanded()"
+                      [attr.aria-label]="'Show ' + getSwitcherTitle(user()!).toLowerCase()"
+                    >
+                      <nxt1-icon name="chevronDown" [size]="18" />
+                    </button>
                   }
                 </div>
 
-                <div class="nxt1-sidenav-profile-row__info">
-                  <span class="nxt1-sidenav-profile-row__name">
-                    {{ user()!.name }}
-                    @if (user()!.verified) {
-                      <nxt1-icon
-                        name="verified"
-                        [size]="14"
-                        class="nxt1-sidenav-profile-row__verified"
-                      />
+                <!-- Expandable sport profiles list -->
+                @if (sportsExpanded() && (user()!.sportProfiles?.length ?? 0) > 0) {
+                  <div class="nxt1-sidenav-sport-list">
+                    @for (profile of user()!.sportProfiles; track profile.id) {
+                      <button
+                        class="nxt1-sidenav-sport-list__item"
+                        [class.nxt1-sidenav-sport-list__item--active]="profile.isActive"
+                        (click)="onSportProfileSelect(profile, $event)"
+                        [attr.aria-label]="'Switch to ' + formatSportDisplay(profile.sport)"
+                      >
+                        <nxt1-avatar
+                          [src]="profile.profileImg || user()!.profileImg"
+                          [name]="profile.sport"
+                          [initials]="getSportInitials(profile.sport)"
+                          [customSize]="28"
+                          [showSkeleton]="false"
+                        />
+                        <div class="nxt1-sidenav-sport-list__info">
+                          <span class="nxt1-sidenav-sport-list__name">{{
+                            formatSportDisplay(profile.sport)
+                          }}</span>
+                          @if (profile.position) {
+                            <span class="nxt1-sidenav-sport-list__position">{{
+                              profile.position
+                            }}</span>
+                          }
+                        </div>
+                        @if (profile.isActive) {
+                          <nxt1-icon
+                            name="checkmark"
+                            [size]="16"
+                            class="nxt1-sidenav-sport-list__check"
+                          />
+                        }
+                      </button>
                     }
-                  </span>
-                  <span class="nxt1-sidenav-profile-row__sport">
-                    {{ getUserSportLabel(user()!) }}
-                  </span>
-                </div>
-              </button>
 
-              <!-- Expand arrow for sport profiles -->
-              @if ((user()!.sportProfiles?.length ?? 0) > 0) {
-                <button
-                  class="nxt1-sidenav-profile-row__expand"
-                  [class.nxt1-sidenav-profile-row__expand--open]="sportsExpanded()"
-                  (click)="toggleSportsExpanded($event)"
-                  [attr.aria-expanded]="sportsExpanded()"
-                  aria-label="Show sport profiles"
-                >
-                  <nxt1-icon name="chevronDown" [size]="18" />
-                </button>
-              }
-            </div>
-
-            <!-- Expandable sport profiles list -->
-            @if (sportsExpanded() && (user()!.sportProfiles?.length ?? 0) > 0) {
-              <div class="nxt1-sidenav-sport-list">
-                @for (profile of user()!.sportProfiles; track profile.id) {
-                  <button
-                    class="nxt1-sidenav-sport-list__item"
-                    [class.nxt1-sidenav-sport-list__item--active]="profile.isActive"
-                    (click)="onSportProfileSelect(profile, $event)"
-                    [attr.aria-label]="'Switch to ' + formatSportDisplay(profile.sport)"
-                  >
-                    <nxt1-avatar
-                      [src]="profile.profileImg || user()!.profileImg"
-                      [name]="profile.sport"
-                      [initials]="getSportInitials(profile.sport)"
-                      [customSize]="28"
-                      [showSkeleton]="false"
-                    />
-                    <div class="nxt1-sidenav-sport-list__info">
-                      <span class="nxt1-sidenav-sport-list__name">{{
-                        formatSportDisplay(profile.sport)
-                      }}</span>
-                      @if (profile.position) {
-                        <span class="nxt1-sidenav-sport-list__position">{{
-                          profile.position
-                        }}</span>
-                      }
-                    </div>
-                    @if (profile.isActive) {
-                      <nxt1-icon
-                        name="checkmark"
-                        [size]="16"
-                        class="nxt1-sidenav-sport-list__check"
-                      />
-                    }
-                  </button>
-                }
-
-                <!-- Add sport button -->
-                <button
-                  class="nxt1-sidenav-sport-list__item nxt1-sidenav-sport-list__item--add"
-                  (click)="onAddSportClick($event)"
-                  aria-label="Add sport profile"
-                >
-                  <div class="nxt1-sidenav-sport-list__add-icon">
-                    <svg
-                      viewBox="0 0 24 24"
-                      width="16"
-                      height="16"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2.2"
-                      stroke-linecap="round"
-                      aria-hidden="true"
+                    <!-- Add sport button -->
+                    <button
+                      class="nxt1-sidenav-sport-list__item nxt1-sidenav-sport-list__item--add"
+                      (click)="onAddSportClick($event)"
+                      aria-label="Add sport profile"
                     >
-                      <path d="M12 5v14" />
-                      <path d="M5 12h14" />
-                    </svg>
+                      <div class="nxt1-sidenav-sport-list__add-icon">
+                        <svg
+                          viewBox="0 0 24 24"
+                          width="16"
+                          height="16"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.2"
+                          stroke-linecap="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M12 5v14" />
+                          <path d="M5 12h14" />
+                        </svg>
+                      </div>
+                      <span class="nxt1-sidenav-sport-list__name">Add Sport</span>
+                    </button>
                   </div>
-                  <span class="nxt1-sidenav-sport-list__name">Add Sport</span>
-                </button>
+                }
               </div>
-            }
+            </section>
           </ion-toolbar>
         </ion-header>
       }
@@ -589,6 +595,28 @@ import { formatSportDisplayName } from '@nxt1/core';
         justify-content: flex-end;
       }
 
+      .nxt1-sidenav-switcher {
+        width: 100%;
+        padding-top: env(safe-area-inset-top, 0px);
+      }
+
+      .nxt1-sidenav-switcher__panel {
+        border: 1px solid var(--nxt1-sidenav-header-border);
+        border-radius: calc(var(--nxt1-sidenav-item-radius) + 2px);
+        background: var(--nxt1-color-surface-elevated, rgba(255, 255, 255, 0.04));
+        padding: 8px;
+      }
+
+      .nxt1-sidenav-switcher__label {
+        display: block;
+        padding: 0 4px 6px;
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: normal;
+        text-transform: none;
+        color: var(--nxt1-sidenav-text-tertiary);
+      }
+
       /* ============================================
          PROFILE ROW (Compact List-Item Style)
          ============================================ */
@@ -597,7 +625,7 @@ import { formatSportDisplayName } from '@nxt1/core';
         align-items: center;
         gap: 0;
         width: 100%;
-        padding-top: env(safe-area-inset-top, 0px);
+        padding-top: 0;
       }
 
       .nxt1-sidenav-profile-row__main {
@@ -1688,6 +1716,14 @@ export class NxtSidenavComponent {
     }
 
     return 'Athlete';
+  }
+
+  /**
+   * Header label for the top switcher block.
+   * Sports for multi-sport users, Profiles for team-style accounts.
+   */
+  getSwitcherTitle(userData: SidenavUserData): 'Sports' | 'Profiles' {
+    return (userData.sportProfiles?.length ?? 0) > 0 ? 'Sports' : 'Profiles';
   }
 
   /**

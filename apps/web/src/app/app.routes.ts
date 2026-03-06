@@ -157,6 +157,12 @@ export const routes: Routes = [
         loadChildren: () => import('./features/agent-x/agent-x.routes'),
       },
 
+      // Brand - Brand Vault (raw materials for Agent X)
+      {
+        path: 'brand',
+        loadChildren: () => import('./features/brand/brand.routes'),
+      },
+
       // Activity - Notifications & Activity Feed
       {
         path: 'activity',

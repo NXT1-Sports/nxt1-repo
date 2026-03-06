@@ -175,6 +175,10 @@ const STATUS_ICONS = {
     `
       :host {
         display: block;
+        --nxt1-message-own-bubble-bg: var(--nxt1-color-info, #3b82f6);
+        --nxt1-message-own-text: var(--nxt1-color-text-inverse, #ffffff);
+        --nxt1-message-other-bubble-bg: var(--nxt1-color-surface-100, #1f2937);
+        --nxt1-message-other-text: var(--nxt1-color-text-primary, #f3f4f6);
       }
 
       /* ============================================
@@ -295,8 +299,8 @@ const STATUS_ICONS = {
 
       /* Other's bubble: gray, left-aligned */
       .bubble--other {
-        background: var(--nxt1-color-surface-100);
-        color: var(--nxt1-color-text-primary);
+        background: var(--nxt1-message-other-bubble-bg);
+        color: var(--nxt1-message-other-text);
         border-bottom-left-radius: var(--nxt1-spacing-1);
       }
 
@@ -310,8 +314,8 @@ const STATUS_ICONS = {
 
       /* Own bubble: primary blue, right-aligned */
       .bubble--own {
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-inverse);
+        background: var(--nxt1-message-own-bubble-bg);
+        color: var(--nxt1-message-own-text);
         border-bottom-right-radius: var(--nxt1-spacing-1);
       }
 
@@ -351,14 +355,14 @@ const STATUS_ICONS = {
 
       .bubble-time {
         font-size: var(--nxt1-fontSize-2xs);
-        opacity: 0.7;
+        color: currentColor;
         line-height: 1;
       }
 
       .bubble-edited {
         font-size: var(--nxt1-fontSize-2xs);
         font-style: italic;
-        opacity: 0.6;
+        color: currentColor;
         line-height: 1;
       }
 
@@ -375,20 +379,22 @@ const STATUS_ICONS = {
       }
 
       .status-icon--sent {
-        opacity: 0.6;
+        color: currentColor;
+        opacity: 1;
       }
 
       .status-icon--delivered {
-        opacity: 0.7;
+        color: currentColor;
+        opacity: 1;
       }
 
       .status-icon--read {
-        color: var(--nxt1-color-info, #60a5fa);
+        color: currentColor;
         opacity: 1;
       }
 
       .bubble--own .status-icon--read {
-        color: rgba(255, 255, 255, 0.9);
+        color: currentColor;
       }
 
       .status-icon--failed {

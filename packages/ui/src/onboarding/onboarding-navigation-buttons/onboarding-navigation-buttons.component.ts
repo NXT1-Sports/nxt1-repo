@@ -140,7 +140,7 @@ import { NxtPlatformService } from '../../services/platform';
       .nxt1-back-btn {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
+        gap: var(--nxt1-spacing-2);
         background: transparent;
         border: 1px solid var(--nxt1-color-border-subtle);
         border-radius: var(--nxt1-borderRadius-lg);
@@ -213,8 +213,8 @@ import { NxtPlatformService } from '../../services/platform';
        SPINNER - Keyframe animation (must be CSS)
        ============================================ */
       .nxt1-spinner {
-        width: 16px;
-        height: 16px;
+        width: var(--nxt1-spacing-4);
+        height: var(--nxt1-spacing-4);
         border: 2px solid transparent;
         border-top-color: currentColor;
         border-radius: var(--nxt1-borderRadius-full);

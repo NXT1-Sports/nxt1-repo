@@ -17,6 +17,9 @@ export { BasePage, type PageOptions } from './base.page';
 // Auth pages
 export * from './auth';
 
+// Settings pages
+export { SettingsPage, AccountInformationPage } from './settings.page';
+
 // Add additional page exports here as features are developed:
 // export * from './profile';
 // export * from './onboarding';

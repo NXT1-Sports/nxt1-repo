@@ -44,16 +44,25 @@ import { AgentOnboardingOrbComponent } from './agent-onboarding-orb.component';
       :host {
         display: block;
         width: 100%;
+
+        /* Scoped Agent X prompt tokens */
+        --_prompt-chip-color: var(--nxt1-color-infoLight, #29d9ff);
+        --_prompt-chip-bg: rgba(6, 200, 255, 0.12);
+        --_prompt-chip-border: rgba(38, 220, 255, 0.28);
+        --_prompt-gap: clamp(var(--nxt1-spacing-2), 1.4vh, var(--nxt1-spacing-3));
+        --_prompt-min-h: clamp(260px, 34vh, 320px);
+        --_prompt-title-size: clamp(var(--nxt1-fontSize-2xl), 6.2vw, var(--nxt1-fontSize-3xl));
+        --_prompt-desc-size: clamp(var(--nxt1-fontSize-base), 3.8vw, var(--nxt1-fontSize-lg));
       }
 
       .agent-prompt {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: clamp(8px, 1.4vh, 12px);
+        gap: var(--_prompt-gap);
         width: 100%;
         text-align: center;
-        min-height: clamp(260px, 34vh, 320px);
+        min-height: var(--_prompt-min-h);
       }
 
       .agent-prompt--centered {
@@ -64,21 +73,21 @@ import { AgentOnboardingOrbComponent } from './agent-onboarding-orb.component';
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        padding: 5px 12px;
-        border-radius: var(--nxt1-borderRadius-full, 9999px);
-        border: 1px solid rgba(38, 220, 255, 0.28);
-        background: rgba(6, 200, 255, 0.12);
-        color: #29d9ff;
-        font-size: var(--nxt1-fontSize-xs, 12px);
-        font-weight: 700;
-        letter-spacing: 0.08em;
+        padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
+        border-radius: var(--nxt1-borderRadius-full);
+        border: 1px solid var(--_prompt-chip-border);
+        background: var(--_prompt-chip-bg);
+        color: var(--_prompt-chip-color);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-bold);
+        letter-spacing: var(--nxt1-letterSpacing-widest);
         text-transform: uppercase;
         animation: promptIn 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
       }
 
       .agent-prompt-title-wrap {
         width: 100%;
-        min-height: calc(2 * 1.06em + 0.1em);
+        min-height: calc(2 * var(--nxt1-lineHeight-none) * 1em + 0.1em);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -86,7 +95,7 @@ import { AgentOnboardingOrbComponent } from './agent-onboarding-orb.component';
 
       .agent-prompt-description-wrap {
         width: 100%;
-        min-height: calc(2 * 1.4em + 0.1em);
+        min-height: calc(2 * var(--nxt1-lineHeight-snug) * 1em + 0.1em);
         display: flex;
         align-items: flex-start;
         justify-content: center;
@@ -95,38 +104,38 @@ import { AgentOnboardingOrbComponent } from './agent-onboarding-orb.component';
       .agent-prompt-line {
         margin: 0;
         opacity: 0;
-        transform: translateY(8px);
+        transform: translateY(var(--nxt1-spacing-2));
         filter: blur(2px);
-        animation: lineReveal 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        animation: lineReveal var(--nxt1-duration-slower) cubic-bezier(0.22, 1, 0.36, 1) both;
       }
 
       .agent-prompt-line--typed {
         overflow: hidden;
         clip-path: inset(0 100% 0 0);
         animation-name: lineReveal, typeReveal;
-        animation-duration: 560ms, 820ms;
+        animation-duration: var(--nxt1-duration-slower), 820ms;
         animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1), steps(30, end);
         animation-fill-mode: both, both;
       }
 
       .agent-prompt-line--title {
-        font-family: var(--nxt1-fontFamily-brand, var(--nxt1-fontFamily-heading));
-        font-size: clamp(1.65rem, 6.2vw, 2.35rem);
-        font-weight: 800;
-        line-height: 1.06;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--_prompt-title-size);
+        font-weight: var(--nxt1-fontWeight-bold);
+        line-height: var(--nxt1-lineHeight-none);
         color: var(--nxt1-color-text-primary);
-        letter-spacing: -0.02em;
+        letter-spacing: var(--nxt1-letterSpacing-tight);
         max-width: 20ch;
         text-wrap: balance;
       }
 
       .agent-prompt-line--description {
-        font-family: var(--nxt1-fontFamily-brand, var(--nxt1-fontFamily-heading));
-        font-size: clamp(1rem, 3.8vw, 1.2rem);
-        font-weight: 500;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--_prompt-desc-size);
+        font-weight: var(--nxt1-fontWeight-medium);
         color: var(--nxt1-color-text-secondary);
-        letter-spacing: 0.01em;
-        line-height: 1.4;
+        letter-spacing: var(--nxt1-letterSpacing-normal);
+        line-height: var(--nxt1-lineHeight-snug);
         max-width: 32ch;
         text-wrap: pretty;
       }
@@ -134,7 +143,7 @@ import { AgentOnboardingOrbComponent } from './agent-onboarding-orb.component';
       @keyframes promptIn {
         from {
           opacity: 0;
-          transform: translateY(6px) scale(0.98);
+          transform: translateY(var(--nxt1-spacing-1_5)) scale(0.98);
         }
         to {
           opacity: 1;
@@ -145,7 +154,7 @@ import { AgentOnboardingOrbComponent } from './agent-onboarding-orb.component';
       @keyframes lineReveal {
         from {
           opacity: 0;
-          transform: translateY(8px);
+          transform: translateY(var(--nxt1-spacing-2));
           filter: blur(2px);
         }
         to {

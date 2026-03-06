@@ -213,9 +213,9 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         position: fixed;
         top: 0;
         left: 0;
-        z-index: 1000;
-        padding: var(--nxt1-spacing-4, 16px);
-        padding-top: calc(var(--nxt1-spacing-4, 16px) + env(safe-area-inset-top, 0px));
+        z-index: var(--nxt1-zIndex-dropdown);
+        padding: var(--nxt1-spacing-4);
+        padding-top: calc(var(--nxt1-spacing-4) + env(safe-area-inset-top, 0px));
         pointer-events: none;
       }
 
@@ -224,7 +224,7 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
       }
 
       .onboarding-content {
-        --background: var(--nxt1-color-bg-primary, #0a0a0a);
+        --background: var(--nxt1-color-bg-primary);
       }
 
       .onboarding-shell {
@@ -233,7 +233,7 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         min-height: 100%;
         max-width: 640px;
         margin: 0 auto;
-        padding: 0 var(--nxt1-spacing-3, 12px);
+        padding: 0 var(--nxt1-spacing-3);
         padding-top: env(safe-area-inset-top, 0);
       }
 
@@ -241,59 +241,59 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
        Progress Header
       ────────────────────────────────── */
       .progress-header {
-        padding: var(--nxt1-spacing-3, 12px) 0 var(--nxt1-spacing-2, 8px);
+        padding: var(--nxt1-spacing-3) 0 var(--nxt1-spacing-2);
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-2, 8px);
+        gap: var(--nxt1-spacing-2);
       }
 
       .progress-track {
         width: 100%;
-        height: 4px;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
-        border-radius: 2px;
+        height: var(--nxt1-spacing-1);
+        background: var(--nxt1-color-surface-200);
+        border-radius: var(--nxt1-borderRadius-xs);
         overflow: hidden;
       }
 
       .progress-fill {
         height: 100%;
-        background: var(--nxt1-color-primary, #c8ff00);
-        border-radius: 2px;
-        transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        background: var(--nxt1-color-primary);
+        border-radius: var(--nxt1-borderRadius-xs);
+        transition: width var(--nxt1-duration-slower) var(--nxt1-easing-inOut);
       }
 
       .step-indicators {
         display: flex;
         justify-content: center;
-        gap: var(--nxt1-spacing-2, 8px);
+        gap: var(--nxt1-spacing-2);
       }
 
       .step-dot {
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        border: 2px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.1));
+        width: var(--nxt1-spacing-6);
+        height: var(--nxt1-spacing-6);
+        border-radius: var(--nxt1-borderRadius-full);
+        border: 2px solid var(--nxt1-color-border-subtle);
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: all 0.3s ease;
+        transition: all var(--nxt1-duration-slow) var(--nxt1-easing-out);
         background: transparent;
       }
 
       .step-dot.active {
-        border-color: var(--nxt1-color-primary, #c8ff00);
-        background: var(--nxt1-color-primary, #c8ff00);
-        color: var(--nxt1-color-bg-primary, #0a0a0a);
+        border-color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-bg-primary);
       }
 
       .step-dot.current {
-        border-color: var(--nxt1-color-primary, #c8ff00);
+        border-color: var(--nxt1-color-primary);
         background: transparent;
-        box-shadow: 0 0 0 3px rgba(200, 255, 0, 0.2);
+        box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary20);
       }
 
       .step-dot.current.active {
-        background: var(--nxt1-color-primary, #c8ff00);
+        background: var(--nxt1-color-primary);
       }
 
       .agent-header-shell {
@@ -301,7 +301,7 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         align-items: center;
         justify-content: center;
         min-height: clamp(248px, 34vh, 320px);
-        margin-bottom: clamp(6px, 1.2vh, 12px);
+        margin-bottom: clamp(var(--nxt1-spacing-1_5), 1.2vh, var(--nxt1-spacing-3));
       }
 
       /* ──────────────────────────────────
@@ -311,20 +311,22 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         flex: 1;
         display: flex;
         flex-direction: column;
-        padding-bottom: var(--nxt1-spacing-2, 8px);
-        animation: fadeSlideIn 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        padding-bottom: var(--nxt1-spacing-2);
+        animation: fadeSlideIn var(--nxt1-duration-slow) var(--nxt1-easing-inOut);
       }
 
       .step-container--welcome {
         justify-content: flex-start;
         padding-top: 0;
-        padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(
+          var(--nxt1-spacing-20) + var(--nxt1-spacing-2) + env(safe-area-inset-bottom, 0px)
+        );
       }
 
       .step-container--goals {
         justify-content: flex-start;
-        padding-top: clamp(10px, 3.2vh, 24px);
-        padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+        padding-top: clamp(var(--nxt1-spacing-2_5), 3.2vh, var(--nxt1-spacing-6));
+        padding-bottom: calc(var(--nxt1-spacing-20) + env(safe-area-inset-bottom, 0px));
       }
 
       .welcome-step-spacer {
@@ -334,7 +336,7 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
       @keyframes fadeSlideIn {
         from {
           opacity: 0;
-          transform: translateY(12px);
+          transform: translateY(var(--nxt1-spacing-3));
         }
         to {
           opacity: 1;
@@ -347,10 +349,13 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
       ────────────────────────────────── */
       .nav-footer-fixed {
         position: fixed;
-        left: var(--nxt1-footer-left, 16px);
-        right: var(--nxt1-footer-right, 16px);
-        bottom: calc(var(--nxt1-footer-bottom, 20px) + var(--nxt1-pill-height, 44px) + 16px);
-        z-index: var(--nxt1-z-index-fixed, 999);
+        left: var(--nxt1-footer-left, var(--nxt1-spacing-4));
+        right: var(--nxt1-footer-right, var(--nxt1-spacing-4));
+        bottom: calc(
+          var(--nxt1-footer-bottom, var(--nxt1-spacing-5)) +
+            var(--nxt1-pill-height, var(--nxt1-spacing-11)) + var(--nxt1-spacing-4)
+        );
+        z-index: var(--nxt1-zIndex-fixed);
         pointer-events: none;
       }
 
@@ -358,13 +363,13 @@ import { AgentOnboardingLoadingComponent } from './agent-onboarding-loading.comp
         max-width: 344px;
         margin: 0 auto;
         pointer-events: auto;
-        background: var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8));
-        border: 1px solid var(--nxt1-glass-borderSubtle, rgba(255, 255, 255, 0.08));
-        border-radius: var(--nxt1-ui-radius-full, 999px);
-        box-shadow: var(--nxt1-glass-shadow, 0 4px 16px rgba(0, 0, 0, 0.16));
-        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
-        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
-        padding: 0.3125rem 0.75rem;
+        background: var(--nxt1-glass-bg);
+        border: 1px solid var(--nxt1-glass-borderSubtle);
+        border-radius: var(--nxt1-borderRadius-full);
+        box-shadow: var(--nxt1-glass-shadow);
+        backdrop-filter: var(--nxt1-glass-backdrop);
+        -webkit-backdrop-filter: var(--nxt1-glass-backdrop);
+        padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
       }
     `,
   ],

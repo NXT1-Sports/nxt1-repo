@@ -134,12 +134,10 @@ export interface ActivityUser {
 
       .activity-container {
         min-height: 100%;
-        padding-bottom: env(safe-area-inset-bottom, 0);
-      }
-
-      /* Content padding for scrolling */
-      .activity-container {
-        padding-bottom: 80px; /* Space for tab bar */
+        padding-bottom: max(
+          220px,
+          calc(var(--nxt1-safe-area-bottom, env(safe-area-inset-bottom, 0px)) + 128px)
+        );
       }
     `,
   ],

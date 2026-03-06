@@ -560,6 +560,67 @@ export class NxtBrowserService {
     });
   }
 
+  /**
+   * Open native email composer with pre-filled fields.
+   *
+   * On Capacitor native (iOS/Android), triggers the WebView's URL scheme
+   * handler which delegates mailto: to the platform email app via
+   * UIApplication.open (iOS) or Intent.ACTION_VIEW (Android).
+   *
+   * On web, navigates to mailto: URL which opens the default email client.
+   *
+   * @param options - Email composition options
+   * @returns Result indicating success/failure
+   */
+  async openMailto(options: {
+    to: string;
+    subject?: string;
+    body?: string;
+  }): Promise<BrowserOpenResult> {
+    if (!this.isBrowser) {
+      return { success: false, error: 'Not in browser environment' };
+    }
+
+    await this.initialize();
+
+    // Build mailto: URL with RFC 6068 encoding
+    const params: string[] = [];
+    if (options.subject) params.push(`subject=${encodeURIComponent(options.subject)}`);
+    if (options.body) params.push(`body=${encodeURIComponent(options.body)}`);
+    const mailto = `mailto:${options.to}${params.length ? '?' + params.join('&') : ''}`;
+
+    if (this.config.enableHaptics) {
+      await this.haptics.impact('light');
+    }
+
+    if (this.config.enableBreadcrumbs) {
+      void this.breadcrumbs.trackUserAction('email_compose', {
+        to: options.to,
+        hasSubject: !!options.subject,
+      });
+    }
+
+    try {
+      if (this.isNativePlatform) {
+        // On Capacitor native, window.open with _blank target triggers the
+        // WebView's WKUIDelegate (iOS) / shouldOverrideUrlLoading (Android)
+        // which recognizes mailto: as a non-http scheme and delegates to the
+        // native email app through the OS URL handler
+        window.open(mailto, '_blank');
+      } else {
+        // On web, direct navigation to mailto: opens the default email client
+        window.location.href = mailto;
+      }
+
+      this.logger.debug('Email composer opened', { to: options.to });
+      return { success: true, url: mailto };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Failed to open email';
+      this.logger.error('Failed to open email composer', { error: msg });
+      return { success: false, error: msg, url: mailto };
+    }
+  }
+
   // ============================================
   // CLEANUP
   // ============================================
