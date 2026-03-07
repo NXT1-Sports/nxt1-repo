@@ -903,7 +903,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         firstName: currentProfile?.firstName || '',
         lastName: currentProfile?.lastName || '',
         ...(currentProfile || {}),
-        profileImg: photoURL,
+        profileImgs: [photoURL],
       });
 
       this.toast.success('Photo uploaded successfully!');
@@ -990,7 +990,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         userType,
         firstName: formData.profile?.firstName || '',
         lastName: formData.profile?.lastName || '',
-        profileImg: formData.profile?.profileImg || undefined,
+        profileImgs: formData.profile?.profileImgs || undefined,
         bio: formData.profile?.bio,
         gender: formData.profile?.gender ?? undefined,
         sport: primarySport?.sport,

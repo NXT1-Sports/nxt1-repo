@@ -1,27 +1,21 @@
 /**
- * @fileoverview Settings API Service - Angular HTTP Adapter
- * @module @nxt1/web/features/settings
+ * @fileoverview Settings API Service — Mobile Capacitor Adapter
+ * @module @nxt1/mobile/core/services
  * @version 1.0.0
  *
- * Angular HTTP adapter for the Settings API.
- * Implements SettingsPersistenceAdapter so it can be provided as the
- * DI token that SettingsService uses for load/persist operations.
+ * Implements SettingsPersistenceAdapter so SettingsService can load/persist
+ * user preferences via the backend. Uses CapacitorHttpAdapter for native
+ * HTTP calls (bypasses CORS on iOS/Android).
  *
- * Pattern:
- * - Performance traces go here (not in SettingsService which is in @nxt1/ui)
- * - HTTP calls go here using Angular HttpClient
- * - SettingsService (packages/ui) calls this via SETTINGS_PERSISTENCE_ADAPTER token
+ * Pattern mirrors apps/web/src/app/features/settings/services/settings-api.service.ts
+ * but uses CapacitorHttpAdapter instead of Angular HttpClient.
  */
-
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
 import type { SettingsPreferences, SettingsUsage, UserPreferences } from '@nxt1/core';
 import { DEFAULT_SETTINGS_PREFERENCES } from '@nxt1/core';
 import type { SettingsPersistenceAdapter } from '@nxt1/ui/settings';
-import { environment } from '../../../../environments/environment';
-import { PerformanceService } from '../../../core/services/performance.service';
-import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
+import { CapacitorHttpAdapter } from '../infrastructure';
+import { environment } from '../../../environments/environment';
 
 /** Shape of all settings API responses */
 interface ApiResponse<T> {
@@ -31,16 +25,15 @@ interface ApiResponse<T> {
 }
 
 /**
- * Settings API Service.
+ * Settings API Service (Mobile).
  *
- * Implements SettingsPersistenceAdapter so it can be registered via:
+ * Registered via:
  *   { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService }
  */
 @Injectable({ providedIn: 'root' })
 export class SettingsApiService implements SettingsPersistenceAdapter {
-  private readonly http = inject(HttpClient);
-  private readonly performance = inject(PerformanceService);
-  private readonly baseUrl = environment.apiURL;
+  private readonly http = inject(CapacitorHttpAdapter);
+  private readonly baseUrl = environment.apiUrl;
 
   // ============================================================
   // SettingsPersistenceAdapter implementation
@@ -51,31 +44,20 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
    * Called once during settings initialisation by SettingsService.
    */
   async loadPreferences(): Promise<SettingsPreferences> {
-    return this.performance.trace(
-      TRACE_NAMES.SETTINGS_LOAD,
-      async () => {
-        const response = await firstValueFrom(
-          this.http.get<ApiResponse<UserPreferences>>(`${this.baseUrl}/settings/preferences`)
-        );
-
-        if (!response.success || !response.data) {
-          throw new Error(response.error ?? 'Failed to load preferences');
-        }
-
-        return this.mapToSettingsPreferences(response.data);
-      },
-      {
-        attributes: {
-          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'settings',
-          operation: 'load_preferences',
-        },
-      }
+    const response = await this.http.get<ApiResponse<UserPreferences>>(
+      `${this.baseUrl}/settings/preferences`
     );
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error ?? 'Failed to load preferences');
+    }
+
+    return this.mapToSettingsPreferences(response.data);
   }
 
   /**
    * Persist a single preference change to the backend.
-   * Uses PATCH /settings/preferences/:key with merging for nested fields.
+   * Uses PATCH /settings/preferences/:key.
    */
   async updatePreference(key: string, value: unknown): Promise<void> {
     const { backendKey, backendValue } = this.mapToBackendPreference(key, value);
@@ -85,49 +67,28 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
       return;
     }
 
-    return this.performance.trace(
-      TRACE_NAMES.SETTINGS_PREFERENCE_UPDATE,
-      async () => {
-        await firstValueFrom(
-          this.http.patch<ApiResponse<UserPreferences>>(
-            `${this.baseUrl}/settings/preferences/${backendKey}`,
-            { value: backendValue }
-          )
-        );
-      },
-      {
-        attributes: {
-          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'settings',
-          preference_key: key,
-        },
-      }
+    await this.http.patch<ApiResponse<UserPreferences>>(
+      `${this.baseUrl}/settings/preferences/${backendKey}`,
+      { value: backendValue }
     );
   }
 
   // ============================================================
-  // Additional helpers (available to the wrapper component)
+  // Additional helpers
   // ============================================================
 
   /**
    * Fetch current usage stats (storage, AI requests, etc.).
    */
   async getUsage(): Promise<SettingsUsage | null> {
-    return this.performance.trace(
-      TRACE_NAMES.SETTINGS_LOAD,
-      async (): Promise<SettingsUsage | null> => {
-        const response = await firstValueFrom(
-          this.http.get<ApiResponse<SettingsUsage>>(`${this.baseUrl}/settings/usage`)
-        ).catch(() => ({ success: false, data: undefined }));
-
-        return response.success ? (response.data ?? null) : null;
-      },
-      {
-        attributes: {
-          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'settings',
-          operation: 'get_usage',
-        },
-      }
-    );
+    try {
+      const response = await this.http.get<ApiResponse<SettingsUsage>>(
+        `${this.baseUrl}/settings/usage`
+      );
+      return response.success ? (response.data ?? null) : null;
+    } catch {
+      return null;
+    }
   }
 
   // ============================================================
@@ -136,7 +97,6 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
 
   /**
    * Map backend UserPreferences → frontend SettingsPreferences.
-   * Fields that have no backend equivalent keep their default value.
    */
   private mapToSettingsPreferences(prefs: UserPreferences): SettingsPreferences {
     const theme = prefs.theme as 'light' | 'dark' | 'system' | undefined;
@@ -159,7 +119,7 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
 
   /**
    * Map a frontend settingKey + value to the backend's preference key and payload.
-   * Returns { backendKey: null } for keys that are managed client-side only.
+   * Returns { backendKey: null } for client-side-only keys.
    */
   private mapToBackendPreference(
     key: string,
@@ -182,7 +142,6 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
         return { backendKey: 'theme', backendValue: value };
       case 'language':
         return { backendKey: 'language', backendValue: value };
-      // crashReporting / compactMode etc. are client-side only for now
       default:
         return { backendKey: null, backendValue: null };
     }

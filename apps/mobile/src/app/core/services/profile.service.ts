@@ -177,7 +177,7 @@ export class ProfileService implements OnDestroy, IProfileService {
   /**
    * Profile image URL
    */
-  readonly profileImg = computed(() => this._user()?.profileImg ?? null);
+  readonly profileImg = computed(() => this._user()?.profileImgs?.[0] ?? null);
 
   /**
    * Is premium user

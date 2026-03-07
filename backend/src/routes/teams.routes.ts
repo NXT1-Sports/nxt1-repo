@@ -601,7 +601,7 @@ router.get(
 );
 
 /**
- * Get team schedule events from TeamEvents collection.
+ * Get team schedule events from Schedule collection.
  * Supports filtering by status and pagination.
  * GET /api/v1/teams/:teamId/events
  */
@@ -624,9 +624,11 @@ router.get(
     }
 
     const db = req.firebase!.db;
+    // Query top-level Events collection for team events
     let query = db
-      .collection('TeamEvents')
-      .where('teamId', '==', teamId) as FirebaseFirestore.Query;
+      .collection('Events')
+      .where('teamId', '==', teamId)
+      .where('ownerType', '==', 'team') as FirebaseFirestore.Query;
 
     if (status) {
       query = query.where('status', '==', status);
@@ -666,6 +668,30 @@ router.post(
     await teamCodeService.incrementTeamPageView(db, String(id));
 
     sendSuccess(res, { message: 'View recorded' });
+  })
+);
+
+/**
+ * Track team page view (client-side analytics)
+ * POST /api/v1/teams/:id/page-view
+ *
+ * Body: { viewerId?: string }
+ * Auth: Optional — anonymous views are counted too.
+ */
+router.post(
+  '/:id/page-view',
+  asyncHandler(async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const db = req.firebase!.db;
+
+    validateRequired(id, 'Team ID');
+
+    await teamCodeService.incrementTeamPageView(db, String(id));
+
+    const viewerId: string | undefined = req.body?.viewerId;
+    logger.debug('[Teams API] Page view recorded', { teamId: id, viewerId });
+
+    sendSuccess(res, { message: 'Page view recorded' });
   })
 );
 

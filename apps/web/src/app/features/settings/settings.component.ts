@@ -36,7 +36,6 @@ import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtBottomSheetService } from '@nxt1/ui/components/bottom-sheet';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
-import { SettingsApiService } from './services/settings-api.service';
 import type { SettingsUserInfo, SettingsSubscription } from '@nxt1/core';
 
 @Component({
@@ -62,7 +61,6 @@ import type { SettingsUserInfo, SettingsSubscription } from '@nxt1/core';
 export class SettingsComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly settingsService = inject(SettingsService);
-  private readonly settingsApi = inject(SettingsApiService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('SettingsComponent');
@@ -109,10 +107,8 @@ export class SettingsComponent implements OnInit {
       keywords: ['settings', 'preferences', 'account', 'privacy'],
       noIndex: true, // Protected page - don't index
     });
-    // Run performance-traced load (traces the init + future API calls)
-    void this.settingsApi.loadSettings().catch((err) => {
-      this.logger.error('Settings API load failed', err);
-    });
+    // Preferences are now loaded via SETTINGS_PERSISTENCE_ADAPTER injected into SettingsService.
+    // The shell component calls settingsService.loadSettings() on ngOnInit which triggers the adapter.
   }
 
   /**
@@ -123,7 +119,7 @@ export class SettingsComponent implements OnInit {
     if (!user) return null;
 
     return {
-      profileImg: user.profileImg,
+      profileImg: user.profileImg ?? null,
       displayName: user.displayName,
     };
   });
@@ -231,26 +227,55 @@ export class SettingsComponent implements OnInit {
   protected async onDeleteAccount(): Promise<void> {
     this.logger.info('Delete account requested');
 
-    const result = await this.bottomSheet.show({
+    // Step 1: Warn the user
+    const confirm = await this.bottomSheet.show({
       title: 'Delete Account',
       subtitle:
         'This action cannot be undone. All your data will be permanently deleted. Are you sure you want to continue?',
       destructive: true,
       actions: [
-        {
-          label: 'Delete My Account',
-          role: 'destructive',
-        },
-        {
-          label: 'Cancel',
-          role: 'cancel',
-        },
+        { label: 'Delete My Account', role: 'destructive' },
+        { label: 'Cancel', role: 'cancel' },
       ],
     });
 
-    if (result.confirmed) {
-      this.logger.info('Delete account confirmed');
-      // TODO: Implement actual account deletion with password confirmation
+    if (!confirm.confirmed) return;
+
+    // Step 2: If the user has an email/password account, ask for password re-auth
+    const firebaseUser = this.authService.firebaseUser();
+    const hasEmailProvider = firebaseUser?.email && !firebaseUser?.photoURL;
+    // Re-auth only needed for email/password users (Google users are already session-validated)
+    const currentUser = this.authService.user();
+
+    if (currentUser?.email) {
+      // Use window.prompt as a lightweight password input — replace with custom dialog if desired
+      const password = window.prompt(
+        `Enter your password for ${currentUser.email} to confirm account deletion:`
+      );
+
+      if (password === null) return; // user cancelled
+
+      if (!password.trim()) {
+        alert('Password is required to delete your account.');
+        return;
+      }
+
+      const reauthed = await this.authService.reauthenticateWithPassword(password.trim());
+      if (!reauthed) {
+        alert('Incorrect password. Please try again.');
+        return;
+      }
+    }
+
+    // Step 3: Delete the account
+    const result = await this.authService.deleteAccount();
+
+    if (result.success) {
+      this.logger.info('Account deleted — redirecting to auth');
+      this.router.navigate(['/auth']);
+    } else {
+      this.logger.error('Account deletion failed', result.error);
+      alert(`Failed to delete account: ${result.error ?? 'Unknown error'}`);
     }
   }
 }

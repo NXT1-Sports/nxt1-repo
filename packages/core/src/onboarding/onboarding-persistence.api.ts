@@ -441,7 +441,7 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
     payload['firstName'] = formData.profile.firstName;
     payload['lastName'] = formData.profile.lastName;
     if (formData.profile.profileImg) {
-      payload['profileImg'] = formData.profile.profileImg;
+      payload['profileImgs'] = [formData.profile.profileImg];
     }
     if (formData.profile.bio) {
       payload['aboutMe'] = formData.profile.bio;

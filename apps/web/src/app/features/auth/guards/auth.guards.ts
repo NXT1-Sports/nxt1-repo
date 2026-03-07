@@ -67,7 +67,7 @@ function getAuthState(authService: AuthFlowService): AuthState {
           uid: user.uid,
           email: user.email,
           displayName: user.displayName,
-          profileImg: user.profileImg,
+          profileImg: user.profileImg ?? undefined,
           role: user.role,
           isPremium: user.isPremium,
           hasCompletedOnboarding: user.hasCompletedOnboarding,

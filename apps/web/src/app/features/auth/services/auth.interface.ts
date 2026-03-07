@@ -197,6 +197,23 @@ export interface IAuthService {
    * Refresh user profile from backend
    */
   refreshUserProfile(): Promise<void>;
+
+  // ============================================
+  // ACCOUNT DELETION
+  // ============================================
+
+  /**
+   * Re-authenticate with email/password before sensitive operations.
+   * @returns true if re-auth succeeded
+   */
+  reauthenticateWithPassword(password: string): Promise<boolean>;
+
+  /**
+   * Permanently delete the current user's account.
+   * Caller must call reauthenticateWithPassword first for email/password users.
+   * @returns success flag and optional error message
+   */
+  deleteAccount(): Promise<{ success: boolean; error?: string }>;
 }
 
 // ============================================

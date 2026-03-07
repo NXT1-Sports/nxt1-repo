@@ -414,7 +414,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         uid: firebaseUser.uid,
         email: userEmail,
         displayName: firebaseUser.displayName ?? userDisplayName ?? 'User',
-        profileImg: userProfile?.profileImg ?? firebaseUser.photoURL ?? undefined,
+        profileImg: userProfile?.profileImgs?.[0] ?? firebaseUser.photoURL ?? undefined,
         role: this.profileService.role() ?? 'athlete',
         isPremium: this.profileService.isPremium(),
         hasCompletedOnboarding,
@@ -886,5 +886,64 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     // Re-sync auth state with new profile data
     await this.syncUserProfile(firebaseUser.uid);
+  }
+
+  // ============================================
+  // ACCOUNT DELETION
+  // ============================================
+
+  /**
+   * Re-authenticate the current user with email + password.
+   * Required before deleteAccount() for email/password users.
+   *
+   * @returns true on success, false on wrong password / not authenticated
+   */
+  async reauthenticateWithPassword(password: string): Promise<boolean> {
+    const user = this.user();
+    if (!user?.email) return false;
+
+    try {
+      return await this.firebaseAuth.reauthenticateWithPassword(user.email, password);
+    } catch (err) {
+      this.logger.warn('Re-authentication failed', { error: err });
+      return false;
+    }
+  }
+
+  /**
+   * Delete the current user's account.
+   *
+   * Calls the backend to remove Firestore data, then deletes the Firebase Auth user.
+   * For email/password users, call reauthenticateWithPassword() first.
+   *
+   * @returns { success: true } on success or { success: false, error } on failure
+   */
+  async deleteAccount(): Promise<{ success: boolean; error?: string }> {
+    const firebaseUser = this.firebaseAuth.getCurrentUser();
+    if (!firebaseUser) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    try {
+      // Call backend: deletes Firestore data, cache, and Firebase Auth user via Admin SDK
+      await this.httpAdapter.delete(`${environment.apiUrl}/settings/account`);
+
+      // Sign out locally to clear the Firebase session (backend already deleted the Auth user)
+      await this.firebaseAuth.signOut();
+
+      // Clear local state (profile, analytics context, etc.)
+      await this.profileService.clear();
+      this.analytics.clearUser();
+      await this.crashlytics.clearUser();
+      await this.authManager.reset();
+      this.httpAdapter.setTokenProvider(null);
+
+      this.logger.info('Account deleted successfully');
+      return { success: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete account';
+      this.logger.error('Account deletion failed', { error: err });
+      return { success: false, error: message };
+    }
   }
 }

@@ -147,7 +147,7 @@ export function toUserLocation(data: ProfileLocationData): Location | undefined 
 export interface ProfileFormData {
   firstName: string;
   lastName: string;
-  profileImg?: string | null;
+  profileImgs?: string[] | null;
   bio?: string;
   /**
    * Gender selection (inclusive options).
@@ -972,7 +972,7 @@ export function buildInitialFormDataFromUser(userData: {
     profile: {
       firstName: userData.firstName ?? '',
       lastName: userData.lastName ?? '',
-      profileImg: userData.profileImg ?? null,
+      profileImgs: userData.profileImg ? [userData.profileImg] : null,
     },
   };
 }

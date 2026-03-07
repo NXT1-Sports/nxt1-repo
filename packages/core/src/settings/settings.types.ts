@@ -61,6 +61,7 @@ export type SettingsIconName =
   | 'color-palette-outline'
   | 'eye-outline'
   | 'eye-off-outline'
+  | 'gift-outline'
   // Billing
   | 'card-outline'
   | 'receipt-outline'
@@ -315,6 +316,9 @@ export interface SettingsPreferences {
   readonly activityTracking: boolean;
   readonly analyticsTracking: boolean;
   readonly crashReporting: boolean;
+
+  // Security
+  readonly biometricLogin: boolean;
 
   // Display
   readonly theme: 'light' | 'dark' | 'system';

@@ -81,9 +81,19 @@ export class ProfileService {
    * Non-null (even []) = authoritative API result; overrides embedded data.
    * Stored separately from _profileData so switchSport() cannnot overwrite it.
    */
-  private readonly _scheduleEvents = signal<readonly ProfileEvent[] | null>(
+  private readonly _scheduleEvents = signal<readonly ProfileEvent[] | null>(null);
+
+  /**
+   * Recruiting activities fetched from the Recruiting collection.
+   * `null` = not yet fetched (fall back to embedded sports[].recruitingActivities).
+   * Non-null (even []) = authoritative API result; overrides embedded data.
+   * Stored separately from _profileData so switchSport() cannot overwrite it.
+   */
+  private readonly _recruitingActivities = signal<readonly ProfileRecruitingActivity[] | null>(
     null
-  ); /** Active season filter (‘season’ field value, or null = all) */
+  );
+
+  /** Active season filter ('season' field value, or null = all) */
   private readonly _activeSeason = signal<string | null>(null);
   /** Active sportId filter (sport name/id, or null = all) */
   private readonly _activeSportFilter = signal<string | null>(null);
@@ -130,11 +140,53 @@ export class ProfileService {
 
   /** All posts — sourced from the user's timeline sub-collection */
   readonly allPosts = computed(() => this._timelinePosts());
+
+  /**
+   * Filtered posts by active sport.
+   * Only filters when the user has explicitly switched sport profiles.
+   * Default (no explicit filter): shows ALL posts regardless of sport.
+   */
+  readonly filteredPosts = computed<readonly ProfilePost[]>(() => {
+    const posts = this.allPosts();
+    const sportFilter = this._activeSportFilter();
+
+    // Only filter when user has explicitly selected a sport (via sport switcher).
+    // Do NOT auto-filter by activeSport on initial load — posts may not be tagged.
+    if (!sportFilter) return posts;
+
+    return posts.filter((p) => {
+      const postSport =
+        (p as unknown as { sport?: string; sportId?: string }).sport ||
+        (p as unknown as { sport?: string; sportId?: string }).sportId;
+      // Posts without a sport tag are shown for all sports
+      if (!postSport) return true;
+      return postSport.toLowerCase() === sportFilter;
+    });
+  });
+
   /** Videos from the dedicated videos sub-collection (falls back to timeline video-type posts) */
   readonly videoPosts = computed<readonly ProfilePost[]>(() => {
     const dedicated = this._videoPosts();
-    if (dedicated.length > 0) return dedicated;
-    return this.allPosts().filter((p: ProfilePost) => p.type === 'video' || p.type === 'highlight');
+    const sportFilter = this._activeSportFilter();
+
+    let videos =
+      dedicated.length > 0
+        ? dedicated
+        : this.allPosts().filter((p: ProfilePost) => p.type === 'video' || p.type === 'highlight');
+
+    // Only filter when user has explicitly selected a sport (via sport switcher).
+    // Videos without a sport tag are shown for all sports.
+    if (sportFilter) {
+      videos = videos.filter((v) => {
+        const videoSport =
+          (v as unknown as { sport?: string; sportId?: string }).sport ||
+          (v as unknown as { sport?: string; sportId?: string }).sportId;
+        if (!videoSport) return true;
+        return videoSport.toLowerCase() === sportFilter;
+      });
+    }
+
+    return videos;
   });
 
   /** Currently active season filter (null → all seasons shown) */
@@ -163,10 +215,27 @@ export class ProfileService {
     }
     return Array.from(seen).sort().reverse();
   });
-  /** All recruiting activity (unified) */
-  readonly recruitingActivity = computed<readonly ProfileRecruitingActivity[]>(
-    () => this._profileData()?.recruitingActivity ?? this._profileData()?.offers ?? []
-  );
+  /** All recruiting activity (unified) - filtered by active sport */
+  readonly recruitingActivity = computed<readonly ProfileRecruitingActivity[]>(() => {
+    // Prioritize API-fetched recruiting over embedded sport data
+    const apiActivities = this._recruitingActivities();
+    const embeddedActivities =
+      this._profileData()?.recruitingActivity ?? this._profileData()?.offers ?? [];
+
+    // If API data exists (even if empty), use it; otherwise fall back to embedded
+    const allActivity = apiActivities !== null ? apiActivities : embeddedActivities;
+
+    const sportFilter = this._activeSportFilter();
+    const activeSport = this.activeSport();
+    const filterSport = sportFilter || activeSport?.name?.toLowerCase();
+
+    if (!filterSport) return allActivity;
+
+    return allActivity.filter((a) => {
+      const activitySport = (a as unknown as { sport?: string }).sport;
+      return activitySport?.toLowerCase() === filterSport;
+    });
+  });
 
   /** Offers (category: 'offer') */
   readonly offers = computed<readonly ProfileRecruitingActivity[]>(() =>
@@ -204,16 +273,99 @@ export class ProfileService {
   /** Rankings from various scouting services */
   readonly rankings = computed(() => this._rankings());
 
-  /** Scout reports from the user's scoutReports sub-collection */
-  readonly scoutReports = computed(() => this._scoutReports());
+  /** Scout reports from the user's scoutReports sub-collection - filtered by sport */
+  readonly scoutReports = computed(() => {
+    const allReports = this._scoutReports();
+    const sportFilter = this._activeSportFilter();
+    const activeSport = this.activeSport();
+    const filterSport = sportFilter || activeSport?.name?.toLowerCase();
 
-  /** Awards list */
-  readonly awards = computed(() => this._profileData()?.user?.awards ?? []);
+    if (!filterSport) return allReports;
+
+    return allReports.filter((r) => {
+      const reportSport =
+        (r as unknown as { sport?: string }).sport ||
+        (r as unknown as { sportId?: string }).sportId;
+      return reportSport?.toLowerCase() === filterSport;
+    });
+  });
+
+  /** News articles - filtered by sport */
+  readonly newsArticles = computed(() => {
+    const allNews = this._newsArticles();
+    const sportFilter = this._activeSportFilter();
+
+    // Only filter when user has explicitly selected a sport (via sport switcher).
+    // News without a sport tag are shown for all sports.
+    if (!sportFilter) return allNews;
+
+    return allNews.filter((n) => {
+      const newsSport =
+        (n as unknown as { sport?: string }).sport ||
+        (n as unknown as { sportId?: string }).sportId;
+      if (!newsSport) return true;
+      return newsSport.toLowerCase() === sportFilter;
+    });
+  });
+
+  /**
+   * Awards list - filtered by active sport
+   * Shows all awards when no sport filter is set, or filters by sport when switching profiles
+   */
+  readonly awards = computed(() => {
+    const allAwards = this._profileData()?.user?.awards ?? [];
+    const sportFilter = this._activeSportFilter();
+    const activeSport = this.activeSport();
+    const filterSport = sportFilter || activeSport?.name?.toLowerCase();
+
+    // If no sport filter or award doesn't have sport field, show all
+    if (!filterSport) return allAwards;
+
+    // Filter awards by sport
+    return allAwards.filter((award) => {
+      if (!award.sport) return true; // Show general awards (no sport specified)
+      return award.sport.toLowerCase() === filterSport;
+    });
+  });
+
+  /**
+   * Team affiliations - filtered by active sport
+   * Shows team affiliations for the currently active sport
+   */
+  readonly teamAffiliations = computed(() => {
+    const allAffiliations = this._profileData()?.user?.teamAffiliations ?? [];
+    const sportFilter = this._activeSportFilter();
+    const activeSport = this.activeSport();
+    const filterSport = sportFilter || activeSport?.name?.toLowerCase();
+
+    // If no sport filter, show all affiliations
+    if (!filterSport) return allAffiliations;
+
+    // Filter team affiliations by sport
+    return allAffiliations.filter((team) => {
+      if (!team.sport) return true; // Show general teams (no sport specified)
+      return team.sport.toLowerCase() === filterSport;
+    });
+  });
 
   /** Events list (schedule items — games, practices, etc.)
    * Prefers API-fetched _scheduleEvents when available (non-null),
-   * falls back to embedded sports[].upcomingEvents from _profileData. */
-  readonly events = computed(() => this._scheduleEvents() ?? this._profileData()?.events ?? []);
+   * falls back to embedded sports[].upcomingEvents from _profileData.
+   * Filtered by active sport.
+   */
+  readonly events = computed(() => {
+    const allEvents = this._scheduleEvents() ?? this._profileData()?.events ?? [];
+    const sportFilter = this._activeSportFilter();
+    const activeSport = this.activeSport();
+    const filterSport = sportFilter || activeSport?.name?.toLowerCase();
+
+    if (!filterSport) return allEvents;
+
+    return allEvents.filter((e) => {
+      const eventSport = (e as unknown as { sport?: string }).sport;
+      return eventSport?.toLowerCase() === filterSport;
+    });
+  });
 
   /** Player card data (Agent X / Madden-style) */
   readonly playerCard = computed(() => this._profileData()?.playerCard ?? null);
@@ -232,7 +384,21 @@ export class ProfileService {
     if (!data?.user) return [];
 
     const author = profileUserToFeedAuthor(data.user);
-    const posts = this._timelinePosts();
+    const sportFilter = this._activeSportFilter();
+
+    // Apply sport filter when user has explicitly selected a sport profile.
+    // Posts without a sport tag are always included (general content).
+    let posts = this._timelinePosts();
+    if (sportFilter) {
+      posts = posts.filter((p) => {
+        const postSport =
+          (p as unknown as { sport?: string; sportId?: string }).sport ||
+          (p as unknown as { sport?: string; sportId?: string }).sportId;
+        if (!postSport) return true;
+        return postSport.toLowerCase() === sportFilter;
+      });
+    }
+
     const offers = data.offers ?? [];
     const events = data.events ?? [];
 
@@ -312,27 +478,20 @@ export class ProfileService {
   /** Current edit section */
   readonly editSection = computed(() => this._editSection());
 
-  /** Filtered posts based on active tab */
-  readonly filteredPosts = computed<readonly ProfilePost[]>(() => {
-    const tab = this._activeTab();
-    if (tab === 'timeline') return this.allPosts();
-    if (tab === 'videos') return this.videoPosts();
-    return [];
-  });
-
   /** News posts only */
   readonly newsPosts = computed(() =>
     this.allPosts().filter((p: ProfilePost) => p.type === 'news')
   );
 
-  /** News articles from the dedicated news sub-collection */
-  readonly newsArticles = computed(() => this._newsArticles());
-
   /** Pinned posts */
   readonly pinnedPosts = computed(() => this.allPosts().filter((p: ProfilePost) => p.isPinned));
 
-  /** Whether posts list is empty */
-  readonly isEmpty = computed(() => this.filteredPosts().length === 0);
+  /**
+   * Whether the user genuinely has no posts at all.
+   * Based on allPosts (unfiltered) so sport-filter doesn't hide the "Create" CTA.
+   * For sport-filtered empty state, ProfileTimelineComponent.isFilteredEmpty handles it.
+   */
+  readonly isEmpty = computed(() => this.allPosts().length === 0);
 
   /** Whether there are more posts to load */
   readonly hasMore = computed(() => {
@@ -468,6 +627,7 @@ export class ProfileService {
     this._rankings.set([]);
     this._scoutReports.set([]);
     this._scheduleEvents.set(null);
+    this._recruitingActivities.set(null);
     this._newsArticles.set([]);
     this._activeSeason.set(null);
     this._activeSportFilter.set(null);
@@ -549,6 +709,16 @@ export class ProfileService {
    */
   setScheduleEvents(events: readonly ProfileEvent[]): void {
     this._scheduleEvents.set(events);
+  }
+
+  /**
+   * Store recruiting activities fetched from GET /auth/profile/:userId/recruiting.
+   * Stored in a separate signal so sport-switching (switchSport) cannot
+   * overwrite API data by re-running userToProfilePageData.
+   * Non-null value overrides the embedded sports[].recruitingActivities data.
+   */
+  setRecruitingActivities(activities: readonly ProfileRecruitingActivity[]): void {
+    this._recruitingActivities.set(activities);
   }
 
   /**
@@ -699,6 +869,7 @@ export class ProfileService {
 
   /**
    * Switch to a different sport profile by index.
+   * Automatically updates sport filter so all tabs show content for the selected sport.
    */
   setActiveSportIndex(index: number): void {
     const sports = this.allSports();
@@ -722,6 +893,9 @@ export class ProfileService {
         rawIndex: rawSportIndex,
         sport: selectedSport?.name,
       });
+
+      // Update sport filter to match selected sport (for cross-tab filtering)
+      this._activeSportFilter.set(selectedSport?.name?.toLowerCase() ?? null);
 
       // Re-map full profile data so tab content (stats, metrics, events, recruiting)
       // reflects the newly selected sport rather than the original load.
@@ -777,6 +951,7 @@ export class ProfileService {
     this._activeSeason.set(null);
     this._activeSportFilter.set(null);
     this._scheduleEvents.set(null);
+    this._recruitingActivities.set(null);
     this._newsArticles.set([]);
   }
 

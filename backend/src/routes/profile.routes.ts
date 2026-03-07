@@ -60,9 +60,8 @@ type UserFirestoreDoc = DocumentData & {
   status?: string;
 
   // Profile
-  profileImg?: string | null;
   bannerImg?: string | null;
-  profileImages?: string[];
+  profileImgs?: string[];
   aboutMe?: string;
 
   // Physical attributes (top-level)
@@ -186,8 +185,9 @@ function buildProfileSearchCacheKey(params: ProfileSearchParams): string {
 /**
  * Invalidate all cached representations of a user profile.
  * Called after any write operation.
+ * Exported so auth.routes.ts can invalidate on onboarding updates.
  */
-async function invalidateProfileCaches(
+export async function invalidateProfileCaches(
   userId: string,
   username?: string,
   unicode?: string | null
@@ -228,13 +228,17 @@ function docToUser(docId: string, data: UserFirestoreDoc): User {
 function docToUserSummary(docId: string, data: UserFirestoreDoc): UserSummary {
   const sports = data['sports'] as SportProfile[] | undefined;
   const primarySport = sports?.find((s) => s.order === 0) ?? sports?.[0];
+
+  // Use profileImgs array only
+  const profileImgs = data['profileImgs'] as string[] | undefined;
+
   return {
     id: docId,
     unicode: data['unicode'] as string | null | undefined,
     firstName: data['firstName'] ?? '',
     lastName: data['lastName'] ?? '',
     displayName: data['displayName'] as string | undefined,
-    profileImg: (data['profileImg'] as string | null) ?? null,
+    profileImgs,
     role: data['role'] as UserSummary['role'],
     verificationStatus: data['verificationStatus'] as UserSummary['verificationStatus'],
     location: {
@@ -791,6 +795,7 @@ router.get(
 
 /**
  * Get video highlights from the user's videos sub-collection.
+ * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/videos?sportId=football
  * GET /api/v1/auth/profile/:userId/videos
  */
 router.get(
@@ -799,9 +804,10 @@ router.get(
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { userId } = req.params as { userId: string };
     const limit = Math.min(50, parseInt(String(req.query['limit'] ?? '20'), 10));
+    const sportId = req.query['sportId'] ? String(req.query['sportId']) : null;
 
     const cache = getCacheService();
-    const cacheKey = `profile:sub:videos:${userId}:${limit}`;
+    const cacheKey = `profile:sub:videos:${userId}${sportId ? `:${sportId}` : ''}:${limit}`;
     const hit = await cache.get<unknown[]>(cacheKey);
     if (hit) {
       markCacheHit(req, 'redis', cacheKey);
@@ -810,14 +816,20 @@ router.get(
     }
 
     const db = req.firebase!.db;
-    const snap = await db
-      .collection(USERS_COLLECTION)
-      .doc(userId)
-      .collection('videos')
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get();
+    // Query top-level Videos collection filtered by userId and ownerType
+    let query = db
+      .collection('Videos')
+      .where('userId', '==', userId)
+      .where('ownerType', '==', 'user') as FirebaseFirestore.Query;
 
+    // Filter by sport if provided (for multi-sport athletes)
+    if (sportId) {
+      query = query.where('sportId', '==', sportId);
+    }
+
+    query = query.orderBy('createdAt', 'desc').limit(limit);
+
+    const snap = await query.get();
     const videos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     await cache.set(cacheKey, videos, { ttl: CACHE_TTL.POSTS });
     res.json({ success: true, data: videos });
@@ -848,12 +860,13 @@ router.get(
     }
 
     const db = req.firebase!.db;
+    // Query top-level Events collection filtered by userId and ownerType
     let query = db
-      .collection(USERS_COLLECTION)
-      .doc(userId)
-      .collection('schedule')
+      .collection('Events')
+      .where('userId', '==', userId)
+      .where('ownerType', '==', 'user')
       .orderBy('date', 'asc')
-      .limit(limit);
+      .limit(limit) as FirebaseFirestore.Query;
 
     // Filter by sport if provided (for multi-sport athletes)
     if (sportId) {
@@ -885,6 +898,7 @@ router.get(
         result: data['result'],
         logoUrl: data['logoUrl'],
         graphicUrl: data['graphicUrl'],
+        sport: data['sport'], // Add sport field for frontend filtering
       };
     });
 
@@ -897,6 +911,83 @@ router.get(
 
     await cache.set(cacheKey, events, { ttl: CACHE_TTL.FEED });
     res.json({ success: true, data: events });
+  })
+);
+
+/**
+ * Get user recruiting activities (offers, visits, contacts, interest).
+ * Supports sport filtering for multi-sport athletes.
+ *
+ * GET /api/v1/auth/profile/:userId/recruiting?sportId=football
+ */
+router.get(
+  '/:userId/recruiting',
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params;
+    const sportId = (req.query['sportId'] as string) || null;
+    const limit = parseInt((req.query['limit'] as string) || '50', 10);
+
+    const cacheKey = sportId
+      ? `profile:${userId}:recruiting:${sportId}`
+      : `profile:${userId}:recruiting:all`;
+
+    const cache = getCacheService();
+    const cached = await cache.get(cacheKey);
+    if (cached) {
+      logger.debug('[Profile] Recruiting activities cache hit', { userId, sportId });
+      res.json({ success: true, data: cached });
+      return;
+    }
+
+    const db = req.firebase!.db;
+    let query = db
+      .collection('Recruiting')
+      .where('userId', '==', userId)
+      .where('ownerType', '==', 'user')
+      .orderBy('date', 'desc')
+      .limit(limit) as FirebaseFirestore.Query;
+
+    // Filter by sport if provided (for multi-sport athletes)
+    if (sportId) {
+      query = query.where('sport', '==', sportId.toLowerCase()) as FirebaseFirestore.Query;
+    }
+
+    const snap = await query.get();
+    const activities = snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        category: data['category'], // 'offer' | 'visit' | 'contact' | 'interest'
+        collegeId: data['collegeId'],
+        collegeName: data['collegeName'],
+        division: data['division'],
+        conference: data['conference'],
+        city: data['city'],
+        state: data['state'],
+        sport: data['sport'], // For sport filtering
+        scholarshipType: data['scholarshipType'],
+        visitType: data['visitType'],
+        date: data['date'],
+        endDate: data['endDate'],
+        coachName: data['coachName'],
+        coachTitle: data['coachTitle'],
+        notes: data['notes'],
+        source: data['source'],
+        verified: data['verified'],
+        createdAt: data['createdAt'],
+        updatedAt: data['updatedAt'],
+      };
+    });
+
+    logger.debug('[Profile] Recruiting activities fetched', {
+      userId,
+      count: activities.length,
+      categories: activities.map((a) => a.category),
+      sportFilter: sportId,
+    });
+
+    await cache.set(cacheKey, activities, { ttl: CACHE_TTL.FEED });
+    res.json({ success: true, data: activities });
   })
 );
 
@@ -977,9 +1068,8 @@ router.put(
       'displayName',
       'username',
       'aboutMe',
-      'profileImg',
       'bannerImg',
-      'profileImages',
+      'profileImgs',
       'gender',
       // Physical / class
       'height',
@@ -1098,8 +1188,17 @@ router.post(
     const currentUsername = currentData['username'] as string | undefined;
     const currentUnicode = currentData['unicode'] as string | null | undefined;
 
+    // Store as profileImgs array (new format)
+    const existingImgs = (currentData['profileImgs'] as string[] | undefined) ?? [];
+
+    // Add new image at the beginning
+    const updatedImgs = [
+      imageUrl.trim(),
+      ...existingImgs.filter((img) => img !== imageUrl.trim()),
+    ].slice(0, 5);
+
     await userRef.update({
-      profileImg: imageUrl.trim(),
+      profileImgs: updatedImgs,
       updatedAt: new Date().toISOString(),
     });
 

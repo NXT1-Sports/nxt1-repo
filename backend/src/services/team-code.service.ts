@@ -903,13 +903,20 @@ export async function getAllTeams(
   const sortField =
     sortBy === 'name'
       ? 'teamName'
-      : sortBy === 'traffic'
-        ? 'totalTraffic'
-        : sortBy === 'members'
-          ? 'memberIds'
+      : sortBy === 'members'
+        ? 'memberIds'
+        : sortBy === 'traffic'
+          ? null // handled separately below
           : 'createAt';
 
   teams.sort((a, b) => {
+    if (sortBy === 'traffic') {
+      // Prefer analytic.totalTeamPageTraffic; fall back to legacy totalTraffic
+      const aTraffic = (a.analytic?.totalTeamPageTraffic ?? a.totalTraffic) || 0;
+      const bTraffic = (b.analytic?.totalTeamPageTraffic ?? b.totalTraffic) || 0;
+      return sortOrder === 'desc' ? bTraffic - aTraffic : aTraffic - bTraffic;
+    }
+
     const aVal = a[sortField as keyof TeamCode];
     const bVal = b[sortField as keyof TeamCode];
 
@@ -962,8 +969,12 @@ export async function getAllTeamsData(
 
   const teams = snapshot.docs.map(docToTeamCode);
 
-  // Sort client-side (since Firestore index not available)
-  teams.sort((a, b) => (b.totalTraffic || 0) - (a.totalTraffic || 0));
+  // Sort client-side by traffic — prefer analytic.totalTeamPageTraffic, fallback to legacy totalTraffic
+  teams.sort(
+    (a, b) =>
+      ((b.analytic?.totalTeamPageTraffic ?? b.totalTraffic) || 0) -
+      ((a.analytic?.totalTeamPageTraffic ?? a.totalTraffic) || 0)
+  );
 
   // Cache result
   if (useCache) {
@@ -1018,7 +1029,7 @@ export async function incrementTeamPageView(db: Firestore, teamId: string): Prom
       .collection('Teams')
       .doc(teamId)
       .update({
-        totalTraffic: FieldValue.increment(1) as unknown as FieldValueType,
+        'analytic.totalTeamPageTraffic': FieldValue.increment(1) as unknown as FieldValueType,
       });
 
     // Invalidate cache

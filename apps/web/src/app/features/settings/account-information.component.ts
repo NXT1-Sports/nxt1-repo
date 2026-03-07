@@ -195,8 +195,39 @@ export class AccountInformationComponent implements OnInit {
 
         if (!confirm.confirmed) return;
 
+        // Re-auth required for email/password accounts
+        const currentUser = this.authService.user();
+        if (currentUser?.email) {
+          const password = window.prompt(
+            `Enter your password for ${currentUser.email} to confirm account deletion:`
+          );
+
+          if (password === null) return; // user cancelled
+
+          if (!password.trim()) {
+            this.toast.error('Password is required to delete your account.');
+            return;
+          }
+
+          const reauthed = await this.authService.reauthenticateWithPassword(password.trim());
+          if (!reauthed) {
+            this.toast.error('Incorrect password. Please try again.');
+            return;
+          }
+        }
+
         this.logger.info('Delete account requested from account information');
-        this.toast.info('Delete account flow will be available soon.');
+        this.breadcrumb.trackUserAction('delete-account-requested');
+
+        const result = await this.authService.deleteAccount();
+
+        if (result.success) {
+          this.logger.info('Account deleted — redirecting to auth');
+          this.router.navigateByUrl('/auth');
+        } else {
+          this.logger.error('Account deletion failed', result.error);
+          this.toast.error(`Failed to delete account: ${result.error ?? 'Unknown error'}`);
+        }
         return;
       }
 

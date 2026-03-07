@@ -23,7 +23,11 @@
     "worker:stripe": "tsx src/workers/stripe-worker.ts",
     "reconcile:usage": "tsx scripts/reconcile-usage-events.ts",
     "reconcile:usage:dry-run": "tsx scripts/reconcile-usage-events.ts --dry-run",
-    "reconcile:usage:staging": "tsx scripts/reconcile-usage-events.ts --staging"
+    "reconcile:usage:staging": "tsx scripts/reconcile-usage-events.ts --staging",
+    "cache:clear": "tsx scripts/clear-cache.ts",
+    "cache:clear:staging": "tsx scripts/clear-cache.ts --env=staging",
+    "cache:clear:profiles": "tsx scripts/clear-cache.ts --pattern=profile:*",
+    "cache:clear:teams": "tsx scripts/clear-cache.ts --pattern=team:*"
   },
   "dependencies": {
     "@google-cloud/firestore": "^8.0.0",

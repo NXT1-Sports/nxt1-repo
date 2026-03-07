@@ -50,7 +50,7 @@ import {
 } from 'rxjs';
 import {
   ProfileShellWebComponent,
-  ProfileService as UiProfileService,
+  ProfileService,
   type ProfileShellUser,
   RelatedAthletesComponent,
   type RelatedAthlete,
@@ -186,7 +186,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * Injected here so we can push real API data into it, bypassing mock data.
    * @see packages/ui/src/profile/profile.service.ts
    */
-  private readonly uiProfileService = inject(UiProfileService);
+  private readonly profileService: ProfileService = inject(ProfileService);
 
   private readonly platformId = inject(PLATFORM_ID);
 
@@ -229,7 +229,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
       school: primarySport?.team?.name || undefined,
       sport: primarySport?.sport || undefined,
       location: location || undefined,
-      imageUrl: profile.profileImg || undefined,
+      imageUrl: profile.profileImgs?.[0] || undefined,
     };
   });
 
@@ -337,14 +337,14 @@ export class ProfileComponent implements OnInit, OnDestroy {
       const user = this.authService.user();
       if (!user) return null;
       return {
-        profileImg: user.profileImg,
+        profileImg: user.profileImg ?? null,
         displayName: user.displayName,
       };
     } else {
       const profile = this.fetchedProfile();
       if (!profile) return null;
       return {
-        profileImg: profile.profileImg,
+        profileImg: profile.profileImgs?.[0],
         displayName: `${profile.firstName} ${profile.lastName}`,
       };
     }
@@ -354,7 +354,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     // Clear any stale error/data state immediately so the skeleton loader
     // shows from the first render instead of flashing a leftover error
     // (ProfileService is providedIn:'root' — it persists across navigations).
-    this.uiProfileService.startLoading();
+    this.profileService.startLoading();
 
     // CRITICAL: Clear old profile data immediately when route params change
     // This effect runs synchronously when fetchSource changes, BEFORE the
@@ -363,7 +363,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
       const source = this.fetchSource();
       if (source) {
         // Route changed to a different profile — clear immediately
-        this.uiProfileService.startLoading();
+        this.profileService.startLoading();
       }
     });
 
@@ -392,7 +392,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
         this.authService.isInitialized() &&
         !this.authService.user()
       ) {
-        this.uiProfileService.setError('Please sign in to continue.');
+        this.profileService.setError('Please sign in to continue.');
         this.authModal.present();
       }
     });
@@ -422,7 +422,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
           } => source !== null
         ),
         distinctUntilChanged((a, b) => a.mode === b.mode && a.param === b.param && a.uid === b.uid),
-        tap(() => this.uiProfileService.startLoading()),
+        tap(() => this.profileService.startLoading()),
         switchMap(({ mode, param, uid }) => {
           if (mode === 'me') {
             // uid is always defined here (fetchSource blocks when uid is missing)
@@ -443,7 +443,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     // Reset to loading state so if user navigates back to /profile the
     // skeleton shows immediately instead of flashing stale error/data.
-    this.uiProfileService.startLoading();
+    this.profileService.startLoading();
   }
 
   ngOnInit(): void {
@@ -457,7 +457,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     if (!response.success || !response.data) {
       // API returned a non-success response — treat as an error so the shell
       // shows the error state instead of stale data.
-      this.uiProfileService.setError(response.error ?? 'Failed to load profile');
+      this.profileService.setError(response.error ?? 'Failed to load profile');
       this.logger.warn('Profile API returned non-success response', {
         error: response.error,
       });
@@ -479,7 +479,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     // actual profile data instead of mock data.
     // Pass the raw User so ProfileService can re-map tab content on sport switch.
     const profilePageData = userToProfilePageData(profile, isOwn);
-    this.uiProfileService.loadFromExternalData(profilePageData, profile, isOwn);
+    this.profileService.loadFromExternalData(profilePageData, profile, isOwn);
     this.fetchRelatedAthletes(profile);
 
     // profileMeta computed updates automatically via fetchedProfile signal
@@ -532,17 +532,17 @@ export class ProfileComponent implements OnInit, OnDestroy {
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe(({ timeline, rankings, scoutReports, videos, schedule, news }) => {
-        if (timeline.success) this.uiProfileService.setTimelinePosts(timeline.data);
+        if (timeline.success) this.profileService.setTimelinePosts(timeline.data);
         if (rankings.success && rankings.data.length > 0) {
-          this.uiProfileService.setRankings(rankings.data as unknown as RankingSource[]);
+          this.profileService.setRankings(rankings.data as unknown as RankingSource[]);
         }
-        if (scoutReports.success) this.uiProfileService.setScoutReports(scoutReports.data);
-        if (videos.success) this.uiProfileService.setVideoPosts(videos.data);
-        if (news.success) this.uiProfileService.setNewsArticles(news.data);
+        if (scoutReports.success) this.profileService.setScoutReports(scoutReports.data);
+        if (videos.success) this.profileService.setVideoPosts(videos.data);
+        if (news.success) this.profileService.setNewsArticles(news.data);
         // Always call setScheduleEvents when API succeeds, even for empty arrays.
         // This signals that real API data loaded (overrides embedded mock data).
         if (schedule.success) {
-          this.uiProfileService.setScheduleEvents(schedule.data);
+          this.profileService.setScheduleEvents(schedule.data);
         }
       });
     this.seo.updateForProfile(meta);
@@ -607,7 +607,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
           unicode: u.unicode!,
           firstName: u.firstName,
           lastName: u.lastName,
-          profileImg: u.profileImg ?? null,
+          profileImg: u.profileImgs?.[0] ?? null,
           sport: u.primarySport ?? '',
           position: u.primaryPosition ?? '',
           classYear: u.classOf ? String(u.classOf) : '',
@@ -632,7 +632,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
       code: parsed.code,
       statusCode: parsed.statusCode,
     });
-    this.uiProfileService.setError(parsed.message);
+    this.profileService.setError(parsed.message);
 
     if (requiresAuth(err) && isPlatformBrowser(this.platformId)) {
       this.authModal.present();
@@ -674,7 +674,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
     this.logger.info('Retrying profile load');
 
     // Clear error state and start loading
-    this.uiProfileService.startLoading();
+    this.profileService.startLoading();
 
     // Trigger reload by updating route params (forces subscription to re-execute)
     const currentRoute = this.route.snapshot;
@@ -707,7 +707,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
           .pipe(first())
           .subscribe({
             next: (resp) => {
-              if (resp.success) this.uiProfileService.setTimelinePosts(resp.data);
+              if (resp.success) this.profileService.setTimelinePosts(resp.data);
             },
             error: (err) => this.logger.warn('Failed to refresh timeline posts', { err }),
           });

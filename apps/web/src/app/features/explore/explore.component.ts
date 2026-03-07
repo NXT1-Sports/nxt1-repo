@@ -64,7 +64,7 @@ export class ExploreComponent {
     if (!user) return null;
 
     return {
-      profileImg: user.profileImg,
+      profileImg: user.profileImg ?? null,
       displayName: user.displayName,
       followingCount: user.followingCount,
       followingIds: user.followingIds,

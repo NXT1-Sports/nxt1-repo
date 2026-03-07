@@ -91,8 +91,7 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
             [filterType]="'following'"
             (postClick)="onPostSelect($event)"
             (authorClick)="onAuthorSelect($event)"
-            (likeClick)="onLikeClick($event)"
-            (commentClick)="onCommentClick($event)"
+            (reactClick)="onLikeClick($event)"
             (shareClick)="onShareClick($event)"
             (bookmarkClick)="onBookmarkClick($event)"
             (loadMore)="onLoadMore()"
@@ -108,8 +107,7 @@ import { AUTH_ROUTES } from '@nxt1/core/constants';
             [filterType]="'for-you'"
             (postClick)="onPostSelect($event)"
             (authorClick)="onAuthorSelect($event)"
-            (likeClick)="onLikeClick($event)"
-            (commentClick)="onCommentClick($event)"
+            (reactClick)="onLikeClick($event)"
             (shareClick)="onShareClick($event)"
             (bookmarkClick)="onBookmarkClick($event)"
             (loadMore)="onLoadMore()"
@@ -169,7 +167,7 @@ export class HomeComponent implements OnInit {
   // Map User model fields to template-friendly names
   readonly profileImg = computed(() => {
     const profile = this.profile();
-    if (profile) return profile.profileImg;
+    if (profile) return profile.profileImgs?.[0];
     return this.authUser()?.profileImg;
   });
 

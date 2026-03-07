@@ -466,14 +466,19 @@ export class ProfileService {
 
   /**
    * Get timeline posts from the user's timeline sub-collection.
+   * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/timeline?sportId=football
    * GET /api/v1/auth/profile/:userId/timeline
    */
-  getProfileTimeline(userId: string): Observable<{ success: boolean; data: ProfilePost[] }> {
+  getProfileTimeline(
+    userId: string,
+    sportId?: string
+  ): Observable<{ success: boolean; data: ProfilePost[] }> {
+    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
     return this.http
       .get<{
         success: boolean;
         data: Record<string, unknown>[];
-      }>(`${environment.apiURL}/auth/profile/${userId}/timeline`)
+      }>(`${environment.apiURL}/auth/profile/${userId}/timeline${queryParams}`)
       .pipe(
         map((resp) => ({
           success: resp.success,
@@ -484,47 +489,65 @@ export class ProfileService {
 
   /**
    * Get news articles from the user's news sub-collection.
+   * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/news?sportId=football
    * GET /api/v1/auth/profile/:userId/news
    */
-  getProfileNews(userId: string): Observable<{ success: boolean; data: NewsArticle[] }> {
+  getProfileNews(
+    userId: string,
+    sportId?: string
+  ): Observable<{ success: boolean; data: NewsArticle[] }> {
+    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
     return this.http.get<{ success: boolean; data: NewsArticle[] }>(
-      `${environment.apiURL}/auth/profile/${userId}/news`
+      `${environment.apiURL}/auth/profile/${userId}/news${queryParams}`
     );
   }
 
   /**
    * Get rankings from the user's rankings sub-collection.
+   * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/rankings?sportId=football
    * GET /api/v1/auth/profile/:userId/rankings
    */
   getProfileRankings(
-    userId: string
+    userId: string,
+    sportId?: string
   ): Observable<{ success: boolean; data: Record<string, unknown>[] }> {
+    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
     return this.http.get<{ success: boolean; data: Record<string, unknown>[] }>(
-      `${environment.apiURL}/auth/profile/${userId}/rankings`
+      `${environment.apiURL}/auth/profile/${userId}/rankings${queryParams}`
     );
   }
 
   /**
    * Get scout reports from the user's scoutReports sub-collection.
+   * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/scout-reports?sportId=football
    * GET /api/v1/auth/profile/:userId/scout-reports
    */
-  getProfileScoutReports(userId: string): Observable<{ success: boolean; data: ScoutReport[] }> {
+  getProfileScoutReports(
+    userId: string,
+    sportId?: string
+  ): Observable<{ success: boolean; data: ScoutReport[] }> {
+    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
     return this.http.get<{ success: boolean; data: ScoutReport[] }>(
-      `${environment.apiURL}/auth/profile/${userId}/scout-reports`
+      `${environment.apiURL}/auth/profile/${userId}/scout-reports${queryParams}`
     );
   }
 
   /**
    * Get videos from the user's videos sub-collection.
    * Maps raw Firestore video docs to ProfilePost (type: 'video' | 'highlight').
+   * Optionally filter by sportId: GET /api/v1/auth/profile/:userId/videos?sportId=football
    * GET /api/v1/auth/profile/:userId/videos
    */
-  getProfileVideos(userId: string): Observable<{ success: boolean; data: ProfilePost[] }> {
+  getProfileVideos(
+    userId: string,
+    sportId?: string
+  ): Observable<{ success: boolean; data: ProfilePost[] }> {
+    const queryParams = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
     return this.http
       .get<{
         success: boolean;
         data: Record<string, unknown>[];
-      }>(`${environment.apiURL}/auth/profile/${userId}/videos`)
+      }>(`${environment.apiURL}/auth/profile/${userId}/videos${queryParams}`)
       .pipe(
         map((resp) => ({
           success: resp.success,

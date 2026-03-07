@@ -34,6 +34,10 @@ import {
 } from '@nxt1/ui';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
+// Settings persistence adapter (connects SettingsService → backend API)
+import { SETTINGS_PERSISTENCE_ADAPTER } from '@nxt1/ui/settings';
+import { SettingsApiService } from './core/services/settings-api.service';
+
 // Local services
 import { CrashlyticsService } from './core/services/crashlytics.service';
 import { AnalyticsService } from './core/services/analytics.service';
@@ -123,5 +127,8 @@ export const appConfig: ApplicationConfig = {
 
     // Analytics adapter (used by @nxt1/ui shared services like FeedService)
     { provide: ANALYTICS_ADAPTER, useExisting: AnalyticsService },
+
+    // Settings persistence adapter (connects SettingsService → backend API)
+    { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },
   ],
 };

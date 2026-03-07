@@ -253,7 +253,7 @@ export class CreatePostComponent implements OnInit, OnDestroy {
       id: profile?.id ?? authUser?.uid ?? 'user',
       displayName,
       username,
-      photoUrl: profile?.profileImg ?? authUser?.profileImg ?? undefined,
+      photoUrl: profile?.profileImgs?.[0] ?? authUser?.profileImg ?? undefined,
       verified: authUser?.emailVerified ?? false,
       type: this.mapRoleToTagType(role),
     };

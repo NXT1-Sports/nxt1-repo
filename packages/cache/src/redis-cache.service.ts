@@ -27,7 +27,7 @@ export class RedisCacheService implements CacheService {
         socket: {
           // Fail fast - don't retry endlessly
           reconnectStrategy: (retries) => {
-            if (retries > 3) {
+            if (retries > 10) {
               console.warn('[Redis] Max reconnection attempts reached, giving up');
               return false; // Stop retrying
             }

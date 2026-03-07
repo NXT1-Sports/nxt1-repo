@@ -202,7 +202,7 @@ export class ProfileComponent {
       const profile = this.fetchedProfile();
       if (!profile) return null;
       return {
-        profileImg: profile.profileImg ?? null,
+        profileImg: profile.profileImgs?.[0] ?? null,
         displayName: `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim() || 'Athlete',
       };
     }
@@ -403,7 +403,7 @@ export class ProfileComponent {
         unicode: u.unicode ?? u.id,
         firstName: u.firstName,
         lastName: u.lastName,
-        profileImg: u.profileImg ?? null,
+        profileImg: u.profileImgs?.[0] ?? null,
         sport: u.primarySport ?? '',
         position: u.primaryPosition ?? '',
         classYear: u.classOf ? String(u.classOf) : '',
@@ -552,7 +552,7 @@ export class ProfileComponent {
         school: user.school?.name,
         sport: user.primarySport?.name,
         location: user.location || user.school?.location,
-        imageUrl: user.profileImg,
+        imageUrl: user.profileImg ?? undefined,
       },
       {
         analyticsProps: {

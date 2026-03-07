@@ -87,6 +87,10 @@ import { providePerformance, getPerformance } from '@angular/fire/performance';
 // Auth service with injection token pattern
 import { AUTH_SERVICE, BrowserAuthService } from './features/auth';
 
+// Settings persistence adapter (connects SettingsService → backend API)
+import { SETTINGS_PERSISTENCE_ADAPTER } from '@nxt1/ui/settings';
+import { SettingsApiService } from './features/settings/services/settings-api.service';
+
 import { environment } from '../environments/environment';
 
 /**
@@ -265,6 +269,9 @@ export const appConfig: ApplicationConfig = {
 
     // Provide analytics adapter for shared services (@nxt1/ui)
     { provide: ANALYTICS_ADAPTER, useExisting: AnalyticsService },
+
+    // Provide settings persistence adapter (web: HTTP → backend API)
+    { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },
 
     // Global error handler - catches all unhandled errors
     // Handles chunk loading failures, tracks errors, provides recovery

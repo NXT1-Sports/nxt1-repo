@@ -645,7 +645,7 @@ export class OnboardingProfileStepComponent {
       if (data) {
         this.firstName.set(data.firstName || '');
         this.lastName.set(data.lastName || '');
-        this.profileImg.set(data.profileImg || null);
+        this.profileImg.set(data.profileImgs?.[0] || null);
         this.gender.set(data.gender ?? null);
         this.location.set(data.location ?? null);
       }
@@ -810,7 +810,7 @@ export class OnboardingProfileStepComponent {
     this.profileChange.emit({
       firstName: this.firstName(),
       lastName: this.lastName(),
-      profileImg: this.profileImg(),
+      profileImgs: this.profileImg() ? [this.profileImg()!] : null,
       gender: this.gender(),
       location: this.location(),
       // classYear intentionally omitted - collected in sport step for athletes

@@ -27,6 +27,8 @@ import {
   buildTeamNewsArticles,
   buildTeamStatsCategories,
   buildTeamRecruitingActivities,
+  buildRecruitingActivities,
+  buildBasketballRecruitingActivities,
 } from '../src/utils/seed-factories.js';
 
 // ─── CLI Args ─────────────────────────────────────────────────────────────────
@@ -66,12 +68,17 @@ const app =
 const db = getFirestore(app);
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const TEAMCODES_COL = 'TeamCodes';
+const ORGANIZATIONS_COL = 'Organizations';
+const TEAMS_COL = 'Teams';
 const USERS_COL = 'Users';
 const POSTS_COL = 'Posts';
-const TEAM_EVENTS_COL = 'TeamEvents';
+const EVENTS_COL = 'Events'; // All events: games, camps, visits (ownerType: 'user' | 'team')
 const NEWS_COL = 'News';
-const REAL_USER_IDS = ['rGFVloZtNwhbiI6ohX1I8MDhJFG3', '6kjm7AJieFNWYkmTp2HOmYp4r8E3'];
+const VIDEOS_COL = 'Videos'; // Top-level (ownerType: 'user' | 'team')
+const RECRUITING_COL = 'Recruiting'; // Top-level (ownerType: 'user' | 'team')
+const ROSTER_ENTRIES_COL = 'RosterEntries';
+const FOLLOWS_COL = 'Follows'; // Top-level (not subcollections!)
+const REAL_USER_IDS = ['6kjm7AJieFNWYkmTp2HOmYp4r8E3', '05naPoH3KWZftqsdZr7IVwxLHqo2'];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface TeamMember {
@@ -91,7 +98,7 @@ interface TeamMember {
   jerseyNumber?: string;
   height?: string;
   weight?: string;
-  profileImg?: string;
+  profileImgs?: string[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -105,7 +112,7 @@ async function generateUniqueUnicode(): Promise<string> {
 
     try {
       const existing = await db
-        .collection(TEAMCODES_COL)
+        .collection(TEAMS_COL)
         .where('unicode', '==', unicode)
         .limit(1)
         .get();
@@ -138,11 +145,7 @@ async function generateUniqueTeamCode(): Promise<string> {
     }
 
     try {
-      const existing = await db
-        .collection(TEAMCODES_COL)
-        .where('teamCode', '==', code)
-        .limit(1)
-        .get();
+      const existing = await db.collection(TEAMS_COL).where('teamCode', '==', code).limit(1).get();
 
       if (existing.empty) {
         return code;
@@ -160,9 +163,30 @@ async function generateUniqueTeamCode(): Promise<string> {
   return 'SEED' + Date.now().toString().slice(-4);
 }
 
-function buildTeamSlug(teamName: string, sportName: string, unicode: string): string {
-  const namePart = teamName.replace(/\s+/g, '_');
-  return `${namePart}-${sportName}-${unicode}`;
+/**
+ * Build team slug from team name only (no unicode)
+ * Format: lowercase-team-name-with-dashes
+ * Example: riverside-phoenix
+ */
+function buildTeamSlug(teamName: string): string {
+  const slug = teamName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, ''); // Remove leading/trailing dashes
+  return slug;
+}
+
+/**
+ * Remove undefined fields from an object (Firestore doesn't allow undefined)
+ */
+function removeUndefined<T extends Record<string, any>>(obj: T): Partial<T> {
+  const result: any = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 async function fetchUserData(userId: string): Promise<any> {
@@ -263,7 +287,7 @@ async function buildMembers(): Promise<TeamMember[]> {
         isVerify: true,
         email: userData.email || `user${i}@example.com`,
         phoneNumber: userData.phone || userData.phoneNumber || '+1-310-000-0000',
-        profileImg: userData.profilePhoto || userData.photoURL, // Get from User document
+        profileImgs: userData.profileImgs || [],
       };
 
       // Only add optional fields for athletes
@@ -313,7 +337,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       email: 'coach.williams@riverside-phoenix.com',
       phoneNumber: '+1-310-234-5678',
       title: 'Head Coach',
-      profileImg: 'https://i.pravatar.cc/300?img=12',
+      profileImgs: ['https://i.pravatar.cc/300?img=12'],
     },
     {
       id: 'fake_coach_2',
@@ -326,7 +350,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       email: 'd.thompson@riverside-phoenix.com',
       phoneNumber: '+1-310-234-6789',
       title: 'Assistant Coach',
-      profileImg: 'https://i.pravatar.cc/300?img=15',
+      profileImgs: ['https://i.pravatar.cc/300?img=15'],
     },
     // ── Staff ─────────────────────────────────────────────────
     {
@@ -340,7 +364,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       email: 'media@riverside-phoenix.com',
       phoneNumber: '+1-310-234-7890',
       title: 'Media Manager',
-      profileImg: 'https://i.pravatar.cc/300?img=47',
+      profileImgs: ['https://i.pravatar.cc/300?img=47'],
     },
     // ── Athletes — Class of 2026 ───────────────────────────────
     {
@@ -359,7 +383,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       jerseyNumber: '23',
       height: `6'3"`,
       weight: '185 lbs',
-      profileImg: 'https://i.pravatar.cc/300?img=33',
+      profileImgs: ['https://i.pravatar.cc/300?img=33'],
     },
     {
       id: 'fake_athlete_2',
@@ -377,7 +401,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       jerseyNumber: '15',
       height: `6'8"`,
       weight: '220 lbs',
-      profileImg: 'https://i.pravatar.cc/300?img=52',
+      profileImgs: ['https://i.pravatar.cc/300?img=52'],
     },
     {
       id: 'fake_athlete_3',
@@ -395,7 +419,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       jerseyNumber: '3',
       height: `6'5"`,
       weight: '195 lbs',
-      profileImg: 'https://i.pravatar.cc/300?img=61',
+      profileImgs: ['https://i.pravatar.cc/300?img=61'],
     },
     // ── Athletes — Class of 2027 ───────────────────────────────
     {
@@ -414,7 +438,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       jerseyNumber: '5',
       height: `6'1"`,
       weight: '170 lbs',
-      profileImg: 'https://i.pravatar.cc/300?img=68',
+      profileImgs: ['https://i.pravatar.cc/300?img=68'],
     },
     {
       id: 'fake_athlete_5',
@@ -432,7 +456,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       jerseyNumber: '32',
       height: `6'6"`,
       weight: '210 lbs',
-      profileImg: 'https://i.pravatar.cc/300?img=57',
+      profileImgs: ['https://i.pravatar.cc/300?img=57'],
     },
     {
       id: 'fake_athlete_6',
@@ -450,7 +474,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       jerseyNumber: '11',
       height: `6'4"`,
       weight: '188 lbs',
-      profileImg: 'https://i.pravatar.cc/300?img=63',
+      profileImgs: ['https://i.pravatar.cc/300?img=63'],
     },
     // ── Athletes — Class of 2028 ───────────────────────────────
     {
@@ -469,7 +493,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       jerseyNumber: '2',
       height: `5'11"`,
       weight: '160 lbs',
-      profileImg: 'https://i.pravatar.cc/300?img=70',
+      profileImgs: ['https://i.pravatar.cc/300?img=70'],
     },
     {
       id: 'fake_athlete_8',
@@ -487,7 +511,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       jerseyNumber: '44',
       height: `6'7"`,
       weight: '215 lbs',
-      profileImg: 'https://i.pravatar.cc/300?img=54',
+      profileImgs: ['https://i.pravatar.cc/300?img=54'],
     },
     {
       id: 'fake_athlete_9',
@@ -505,7 +529,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       jerseyNumber: '21',
       height: `6'4"`,
       weight: '192 lbs',
-      profileImg: 'https://i.pravatar.cc/300?img=66',
+      profileImgs: ['https://i.pravatar.cc/300?img=66'],
     },
   ];
 
@@ -524,8 +548,7 @@ async function buildMembers(): Promise<TeamMember[]> {
       email: fake.email,
       phone: fake.phoneNumber,
       phoneNumber: fake.phoneNumber,
-      profileImg: fake.profileImg,
-      profilePhoto: fake.profileImg,
+      profileImgs: fake.profileImgs,
       role: fake.role.toLowerCase(), // "Coach" → "coach", "Athlete" → "athlete"
       isVerify: fake.isVerify,
       createdAt: Timestamp.now(),
@@ -565,6 +588,8 @@ async function seedTeamPosts(teamId: string, authorId: string): Promise<void> {
     {
       userId: authorId,
       teamId,
+      ownerType: 'team', // ⭐ Type field to distinguish team vs user posts
+      sportId: 'Basketball_mens',
       type: 'announcement',
       title: '🎉 Welcome to the 2024-2025 Season!',
       content:
@@ -582,6 +607,8 @@ async function seedTeamPosts(teamId: string, authorId: string): Promise<void> {
     {
       userId: authorId,
       teamId,
+      ownerType: 'team',
+      sportId: 'Basketball_mens',
       type: 'news',
       title: '🏆 Northern Conference Champions 2024-2025!',
       content:
@@ -598,7 +625,9 @@ async function seedTeamPosts(teamId: string, authorId: string): Promise<void> {
     },
     {
       userId: authorId,
+      ownerType: 'team',
       teamId,
+      sportId: 'Basketball_mens',
       type: 'image',
       title: 'Monday Morning Practice 💪',
       content:
@@ -617,7 +646,9 @@ async function seedTeamPosts(teamId: string, authorId: string): Promise<void> {
     },
     {
       userId: REAL_USER_IDS[1],
+      ownerType: 'team',
       teamId,
+      sportId: 'Basketball_mens',
       type: 'text',
       title: null,
       content:
@@ -632,8 +663,10 @@ async function seedTeamPosts(teamId: string, authorId: string): Promise<void> {
       updatedAt: daysAgo(5),
     },
     {
+      ownerType: 'team',
       userId: authorId,
       teamId,
+      sportId: 'Basketball_mens',
       type: 'video',
       title: 'Highlights | 87-72 Win vs. City Stars',
       content:
@@ -650,8 +683,10 @@ async function seedTeamPosts(teamId: string, authorId: string): Promise<void> {
       updatedAt: daysAgo(11),
     },
     {
+      ownerType: 'team',
       userId: authorId,
       teamId,
+      sportId: 'Basketball_mens',
       type: 'announcement',
       title: '📋 Weekly Practice Schedule',
       content:
@@ -672,8 +707,11 @@ async function seedTeamPosts(teamId: string, authorId: string): Promise<void> {
       updatedAt: daysAgo(2),
     },
     {
+      ownerType: 'team',
+
       userId: REAL_USER_IDS[1],
       teamId,
+      sportId: 'Basketball_mens',
       type: 'highlight',
       title: 'Top 5 Plays - February 🔥',
       content:
@@ -715,6 +753,8 @@ async function seedTeamSchedule(teamId: string): Promise<void> {
   const events = [
     {
       teamId,
+      ownerType: 'team', // ⭐ Type field to distinguish team vs user events
+      sport: 'Basketball_mens',
       type: 'game',
       opponent: 'Eastside Eagles',
       opponentLogoUrl: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=100',
@@ -727,6 +767,8 @@ async function seedTeamSchedule(teamId: string): Promise<void> {
     },
     {
       teamId,
+      ownerType: 'team',
+      sport: 'Basketball_mens',
       type: 'game',
       opponent: 'Sherman Warriors',
       date: daysAgo(45),
@@ -737,7 +779,9 @@ async function seedTeamSchedule(teamId: string): Promise<void> {
       result: { teamScore: 68, opponentScore: 74, outcome: 'loss', overtime: false },
     },
     {
+      ownerType: 'team',
       teamId,
+      sport: 'Basketball_mens',
       type: 'game',
       opponent: 'Northside Thunder',
       date: daysAgo(30),
@@ -748,7 +792,9 @@ async function seedTeamSchedule(teamId: string): Promise<void> {
       result: { teamScore: 91, opponentScore: 65, outcome: 'win', overtime: false },
     },
     {
+      ownerType: 'team',
       teamId,
+      sport: 'Basketball_mens',
       type: 'game',
       opponent: 'Southeast Dragons',
       date: daysAgo(14),
@@ -759,7 +805,9 @@ async function seedTeamSchedule(teamId: string): Promise<void> {
       result: { teamScore: 79, opponentScore: 77, outcome: 'win', overtime: true },
     },
     {
+      ownerType: 'team',
       teamId,
+      sport: 'Basketball_mens',
       type: 'scrimmage',
       opponent: 'City Stars (Scrimmage)',
       date: daysAgo(7),
@@ -770,7 +818,9 @@ async function seedTeamSchedule(teamId: string): Promise<void> {
       result: { teamScore: 82, opponentScore: 78, outcome: 'win', overtime: false },
     },
     {
+      ownerType: 'team',
       teamId,
+      sport: 'Basketball_mens',
       type: 'game',
       opponent: 'Eastside Eagles',
       date: daysAhead(7),
@@ -781,6 +831,8 @@ async function seedTeamSchedule(teamId: string): Promise<void> {
     },
     {
       teamId,
+      ownerType: 'team',
+      sport: 'Basketball_mens',
       type: 'game',
       opponent: 'Sherman Warriors',
       date: daysAhead(21),
@@ -791,6 +843,8 @@ async function seedTeamSchedule(teamId: string): Promise<void> {
     },
     {
       teamId,
+      ownerType: 'team',
+      sport: 'Basketball_mens',
       type: 'game',
       opponent: 'Northside Thunder',
       date: daysAhead(35),
@@ -804,7 +858,7 @@ async function seedTeamSchedule(teamId: string): Promise<void> {
   const batch = db.batch();
   const eventIds: string[] = [];
   for (const event of events) {
-    const ref = db.collection(TEAM_EVENTS_COL).doc();
+    const ref = db.collection(EVENTS_COL).doc();
     eventIds.push(ref.id);
     batch.set(ref, event);
   }
@@ -816,7 +870,7 @@ async function seedTeamSchedule(teamId: string): Promise<void> {
 
 // ─── DELETE TEAM SCHEDULE ─────────────────────────────────────────────────────
 async function deleteTeamSchedule(teamId: string): Promise<void> {
-  const snap = await db.collection(TEAM_EVENTS_COL).where('teamId', '==', teamId).get();
+  const snap = await db.collection(EVENTS_COL).where('teamId', '==', teamId).get();
   if (snap.empty) {
     console.log(`    ℹ️  No schedule events found for team ${teamId}`);
     return;
@@ -870,6 +924,759 @@ async function deleteTeamPosts(teamId: string): Promise<void> {
   console.log(`    ✓ Deleted ${snap.size} posts for team ${teamId}`);
 }
 
+// ─── SEED USER RECRUITING ──────────────────────────────────────────────────────
+/**
+ * Seed Recruiting collection with user recruiting activities for both sports
+ * This allows sport filtering when switching between football/basketball profiles
+ */
+async function seedUserRecruiting(userId: string): Promise<void> {
+  console.log(`\n  💼 Seeding user recruiting activities for user "${userId}"...`);
+
+  // Get football recruiting activities
+  const footballActivities = buildRecruitingActivities(userId);
+
+  // Get basketball recruiting activities
+  const basketballActivities = buildBasketballRecruitingActivities(userId);
+
+  // Combine all activities
+  const allActivities = [...footballActivities, ...basketballActivities];
+
+  const batch = db.batch();
+  const activityIds: string[] = [];
+
+  for (const activity of allActivities) {
+    const activityData = {
+      ...activity,
+      userId,
+      ownerType: 'user', // ⭐ Type field to distinguish user vs team recruiting
+    };
+
+    // Use the id from the factory as the document ID
+    const ref = db.collection(RECRUITING_COL).doc(activityData.id);
+    activityIds.push(ref.id);
+    batch.set(ref, activityData);
+  }
+
+  await batch.commit();
+  console.log(
+    `    ✓ Seeded ${allActivities.length} recruiting activities (${footballActivities.length} football + ${basketballActivities.length} basketball)`
+  );
+}
+
+// ─── DELETE USER RECRUITING ────────────────────────────────────────────────────
+async function deleteUserRecruiting(userId: string): Promise<void> {
+  const snap = await db.collection(RECRUITING_COL).where('userId', '==', userId).get();
+  if (snap.empty) {
+    console.log(`    ℹ️  No recruiting activities found for user ${userId}`);
+    return;
+  }
+  const batch = db.batch();
+  snap.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
+  console.log(`    ✓ Deleted ${snap.size} recruiting activities for user ${userId}`);
+}
+
+// ─── SEED USER POSTS ───────────────────────────────────────────────────────────
+/**
+ * Seed user timeline posts with sport filtering support
+ */
+async function seedUserPosts(userId: string, sport: string): Promise<void> {
+  console.log(`\n  📝 Seeding user posts for user "${userId}" (${sport})...`);
+
+  const posts = [
+    {
+      userId,
+      ownerType: 'user',
+      sport: sport.toLowerCase(),
+      sportId: sport,
+      type: 'text',
+      content:
+        'Great practice today! Working on my defensive skills and footwork. Ready for the next game! 🏀💪',
+      visibility: 'public',
+      images: [],
+      mentions: [],
+      hashtags: ['basketball', 'training', 'defense'],
+      isPinned: false,
+      commentsDisabled: false,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+      stats: { likes: 24, comments: 5, shares: 2, views: 150 },
+    },
+    {
+      userId,
+      ownerType: 'user',
+      sport: sport.toLowerCase(),
+      sportId: sport,
+      type: 'image',
+      content: 'Game highlights from last night! Team came through with the W! 🏆',
+      visibility: 'public',
+      images: ['https://placehold.co/800x600/1a1a1a/00FF00?text=Game+Highlights'],
+      mentions: [],
+      hashtags: ['gameday', 'victory', 'teamwork'],
+      isPinned: true,
+      commentsDisabled: false,
+      createdAt: Timestamp.fromDate(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)),
+      updatedAt: Timestamp.fromDate(new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)),
+      stats: { likes: 89, comments: 15, shares: 8, views: 450 },
+    },
+    {
+      userId,
+      ownerType: 'user',
+      sport: sport.toLowerCase(),
+      sportId: sport,
+      type: 'video',
+      content: 'Check out this crossover move from practice! 🔥',
+      visibility: 'public',
+      images: [],
+      mediaUrl: 'https://placehold.co/800x600/1a1a1a/00FF00?text=Crossover+Move',
+      thumbnailUrl: 'https://placehold.co/800x600/1a1a1a/00FF00?text=Thumbnail',
+      duration: 15,
+      mentions: [],
+      hashtags: ['skills', 'crossover', 'basketball'],
+      isPinned: false,
+      commentsDisabled: false,
+      createdAt: Timestamp.fromDate(new Date(Date.now() - 5 * 24 * 60 * 60 * 1000)),
+      updatedAt: Timestamp.fromDate(new Date(Date.now() - 5 * 24 * 60 * 60 * 1000)),
+      stats: { likes: 156, comments: 28, shares: 15, views: 890 },
+    },
+  ];
+
+  const batch = db.batch();
+  const postIds: string[] = [];
+  for (const post of posts) {
+    const ref = db.collection(POSTS_COL).doc();
+    postIds.push(ref.id);
+    batch.set(ref, post);
+  }
+  await batch.commit();
+  console.log(
+    `    ✓ Seeded ${posts.length} user posts (IDs: ${postIds.slice(0, 3).join(', ')}...)`
+  );
+}
+
+// ─── SEED USER EVENTS ──────────────────────────────────────────────────────────
+/**
+ * Seed user schedule events (camps, visits, showcases) with sport filtering
+ */
+async function seedUserEvents(userId: string, sport: string): Promise<void> {
+  console.log(`\n  📅 Seeding user events for user "${userId}" (${sport})...`);
+
+  const daysAhead = (n: number) => new Date(Date.now() + n * 24 * 60 * 60 * 1000).toISOString();
+  const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
+
+  const events = [
+    {
+      userId,
+      ownerType: 'user',
+      sport: sport.toLowerCase(),
+      eventType: 'camp',
+      title: 'Elite Basketball Skills Camp',
+      description: 'Three-day intensive skills development camp with college coaches',
+      location: 'Los Angeles, CA',
+      date: daysAhead(10),
+      endDate: daysAhead(12),
+      isAllDay: true,
+      url: 'https://eliteskillscamp.com',
+      logoUrl: 'https://placehold.co/200x200/1a1a1a/00FF00?text=Camp',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      userId,
+      ownerType: 'user',
+      sport: sport.toLowerCase(),
+      eventType: 'visit',
+      title: 'UCLA Campus Visit',
+      description: 'Official recruiting visit to UCLA Basketball program',
+      location: 'Westwood, CA',
+      date: daysAhead(25),
+      isAllDay: false,
+      url: 'https://uclabruins.com',
+      logoUrl: 'https://placehold.co/200x200/1a1a1a/00FF00?text=UCLA',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      userId,
+      ownerType: 'user',
+      sport: sport.toLowerCase(),
+      eventType: 'showcase',
+      title: 'West Coast Basketball Showcase',
+      description: 'Elite showcase featuring top recruits from California',
+      location: 'San Diego, CA',
+      date: daysAhead(45),
+      endDate: daysAhead(46),
+      isAllDay: true,
+      url: 'https://westcoastshowcase.com',
+      graphicUrl: 'https://placehold.co/800x600/1a1a1a/00FF00?text=Showcase',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  ];
+
+  const batch = db.batch();
+  const eventIds: string[] = [];
+  for (const event of events) {
+    const ref = db.collection(EVENTS_COL).doc();
+    eventIds.push(ref.id);
+    batch.set(ref, event);
+  }
+  await batch.commit();
+  console.log(
+    `    ✓ Seeded ${events.length} user events (IDs: ${eventIds.slice(0, 3).join(', ')}...)`
+  );
+}
+
+// ─── SEED USER NEWS ────────────────────────────────────────────────────────────
+/**
+ * Seed user news articles with sport filtering
+ */
+async function seedUserNews(userId: string, sport: string): Promise<void> {
+  console.log(`\n  📰 Seeding user news for user "${userId}" (${sport})...`);
+
+  const articles = [
+    {
+      userId,
+      ownerType: 'user',
+      sport: sport.toLowerCase(),
+      sportId: sport,
+      type: 'user',
+      title: 'Top Recruit Named to All-State First Team',
+      excerpt: 'Stellar season performance earns recognition from coaches association',
+      content: 'After an outstanding season averaging 22 points and 8 assists per game...',
+      author: 'Sports Insider',
+      source: 'High School Sports Today',
+      sourceUrl: 'https://hssportstoday.com',
+      imageUrl: 'https://placehold.co/800x600/1a1a1a/00FF00?text=All-State+Award',
+      publishedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      visibility: 'public',
+      tags: ['awards', 'all-state', 'recognition'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+    {
+      userId,
+      ownerType: 'user',
+      sport: sport.toLowerCase(),
+      sportId: sport,
+      type: 'user',
+      title: 'Rising Star Attracts Interest from Top Programs',
+      excerpt: 'Multiple Division I schools showing interest in standout guard',
+      content:
+        'College coaches from across the nation are taking notice of this talented player...',
+      author: 'Recruiting Analyst',
+      source: '247 Sports',
+      sourceUrl: 'https://247sports.com',
+      imageUrl: 'https://placehold.co/800x600/1a1a1a/00FF00?text=Recruiting+News',
+      publishedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      visibility: 'public',
+      tags: ['recruiting', 'division-i', 'offers'],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    },
+  ];
+
+  const batch = db.batch();
+  const newsIds: string[] = [];
+  for (const article of articles) {
+    const ref = db.collection(NEWS_COL).doc();
+    newsIds.push(ref.id);
+    batch.set(ref, article);
+  }
+  await batch.commit();
+  console.log(
+    `    ✓ Seeded ${articles.length} user news articles (IDs: ${newsIds.slice(0, 2).join(', ')}...)`
+  );
+}
+
+// ─── SEED USER VIDEOS ──────────────────────────────────────────────────────────
+/**
+ * Seed user highlight videos with sport filtering
+ */
+async function seedUserVideos(userId: string, sport: string): Promise<void> {
+  console.log(`\n  🎥 Seeding user videos for user "${userId}" (${sport})...`);
+
+  const videos = [
+    {
+      userId,
+      ownerType: 'user',
+      sport: sport.toLowerCase(),
+      sportId: sport,
+      title: 'Season Highlights 2024-2025',
+      description: 'Best plays from this season including game winners, dunks, and assists',
+      videoUrl: 'https://placehold.co/800x600/1a1a1a/00FF00?text=Season+Highlights',
+      thumbnailUrl: 'https://placehold.co/800x600/1a1a1a/00FF00?text=Thumbnail+1',
+      duration: 185, // seconds
+      visibility: 'public',
+      category: 'highlights',
+      tags: ['season', 'highlights', 'basketball'],
+      views: 1250,
+      likes: 98,
+      createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      updatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      userId,
+      ownerType: 'user',
+      sport: sport.toLowerCase(),
+      sportId: sport,
+      title: 'Training Session - Ball Handling Drills',
+      description: 'Advanced ball handling and dribbling workout routine',
+      videoUrl: 'https://placehold.co/800x600/1a1a1a/00FF00?text=Training+Session',
+      thumbnailUrl: 'https://placehold.co/800x600/1a1a1a/00FF00?text=Thumbnail+2',
+      duration: 120,
+      visibility: 'public',
+      category: 'training',
+      tags: ['training', 'drills', 'skills'],
+      views: 680,
+      likes: 54,
+      createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+      updatedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+    {
+      userId,
+      ownerType: 'user',
+      sport: sport.toLowerCase(),
+      sportId: sport,
+      title: 'Championship Game - Full Highlights',
+      description: 'Complete highlights from the state championship game',
+      videoUrl: 'https://placehold.co/800x600/1a1a1a/00FF00?text=Championship',
+      thumbnailUrl: 'https://placehold.co/800x600/1a1a1a/00FF00?text=Thumbnail+3',
+      duration: 240,
+      visibility: 'public',
+      category: 'game',
+      tags: ['championship', 'game', 'playoffs'],
+      views: 2150,
+      likes: 187,
+      createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+      updatedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+    },
+  ];
+
+  const batch = db.batch();
+  const videoIds: string[] = [];
+  for (const video of videos) {
+    const ref = db.collection(VIDEOS_COL).doc();
+    videoIds.push(ref.id);
+    batch.set(ref, video);
+  }
+  await batch.commit();
+  console.log(
+    `    ✓ Seeded ${videos.length} user videos (IDs: ${videoIds.slice(0, 3).join(', ')}...)`
+  );
+}
+
+// ─── DELETE USER CONTENT ───────────────────────────────────────────────────────
+async function deleteUserPosts(userId: string): Promise<void> {
+  const snap = await db
+    .collection(POSTS_COL)
+    .where('userId', '==', userId)
+    .where('ownerType', '==', 'user')
+    .get();
+  if (!snap.empty) {
+    const batch = db.batch();
+    snap.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    console.log(`    ✓ Deleted ${snap.size} user posts`);
+  }
+}
+
+async function deleteUserEvents(userId: string): Promise<void> {
+  const snap = await db
+    .collection(EVENTS_COL)
+    .where('userId', '==', userId)
+    .where('ownerType', '==', 'user')
+    .get();
+  if (!snap.empty) {
+    const batch = db.batch();
+    snap.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    console.log(`    ✓ Deleted ${snap.size} user events`);
+  }
+}
+
+async function deleteUserNews(userId: string): Promise<void> {
+  const snap = await db
+    .collection(NEWS_COL)
+    .where('userId', '==', userId)
+    .where('ownerType', '==', 'user')
+    .get();
+  if (!snap.empty) {
+    const batch = db.batch();
+    snap.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    console.log(`    ✓ Deleted ${snap.size} user news articles`);
+  }
+}
+
+async function deleteUserVideos(userId: string): Promise<void> {
+  const snap = await db
+    .collection(VIDEOS_COL)
+    .where('userId', '==', userId)
+    .where('ownerType', '==', 'user')
+    .get();
+  if (!snap.empty) {
+    const batch = db.batch();
+    snap.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    console.log(`    ✓ Deleted ${snap.size} user videos`);
+  }
+}
+
+// ─── SEED USER AWARDS & TEAM HISTORY ────────────────────────────────────────────
+/**
+ * Add awards and team history to user document with sport filtering
+ */
+async function seedUserAwardsAndHistory(userId: string, sport: string): Promise<void> {
+  console.log(`\n  🏆 Seeding user awards and team history for user "${userId}" (${sport})...`);
+
+  const currentYear = new Date().getFullYear();
+  const sportLower = sport.toLowerCase();
+
+  const awards = [
+    {
+      title: 'All-State First Team',
+      category: 'Athletic',
+      sport: sportLower,
+      season: `${currentYear - 1}-${currentYear}`,
+      issuer: 'California Coaches Association',
+      date: new Date(currentYear, 2, 15).toISOString(), // March 15
+    },
+    {
+      title: 'Team MVP',
+      category: 'Athletic',
+      sport: sportLower,
+      season: `${currentYear - 1}-${currentYear}`,
+      issuer: 'Riverside Phoenix High School',
+      date: new Date(currentYear, 1, 28).toISOString(), // Feb 28
+    },
+    {
+      title: 'Scholar Athlete Award',
+      category: 'Academic',
+      // No sport - applies to all sports
+      season: `${currentYear - 1}`,
+      issuer: 'National Honor Society',
+      date: new Date(currentYear, 4, 1).toISOString(), // May 1
+    },
+  ];
+
+  const teamHistory = [
+    {
+      name: 'Riverside Phoenix High School',
+      type: 'high-school',
+      logoUrl: 'https://placehold.co/200x200/1a1a1a/00FF00?text=RPX',
+      sport: sportLower,
+      location: { city: 'Los Angeles', state: 'California' },
+      record: { wins: 18, losses: 4, ties: 0 },
+      startDate: new Date(currentYear - 3, 8, 1).toISOString(), // Freshman year
+      isCurrent: true,
+    },
+    {
+      name: 'SoCal Elite AAU',
+      type: 'aau',
+      logoUrl: 'https://placehold.co/200x200/1a1a1a/00FF00?text=AAU',
+      sport: sportLower,
+      location: { city: 'Los Angeles', state: 'California' },
+      record: { wins: 24, losses: 6, ties: 0 },
+      startDate: new Date(currentYear - 2, 5, 1).toISOString(),
+      endDate: new Date(currentYear - 1, 7, 31).toISOString(),
+      isCurrent: false,
+    },
+  ];
+
+  // Update user document with awards and teamHistory
+  await db.collection(USERS_COL).doc(userId).update({
+    awards,
+    teamHistory,
+    updatedAt: new Date().toISOString(),
+  });
+
+  console.log(`    ✓ Added ${awards.length} awards and ${teamHistory.length} team history entries`);
+}
+
+/**
+ * Clear awards and team history from user document
+ */
+async function clearUserAwardsAndHistory(userId: string): Promise<void> {
+  await db.collection(USERS_COL).doc(userId).update({
+    awards: [],
+    teamHistory: [],
+    updatedAt: new Date().toISOString(),
+  });
+  console.log(`    ✓ Cleared user awards and team history`);
+}
+
+// ─── SEED ORGANIZATION ─────────────────────────────────────────────────────────
+/**
+ * Seed Organizations collection - the top-level entity that owns teams
+ * Organizations can have multiple teams (e.g., school with basketball, football, baseball teams)
+ */
+async function seedOrganization(orgId: string, orgName: string): Promise<void> {
+  console.log(`\n  🏢 Seeding organization "${orgName}" (${orgId})...`);
+
+  const orgData = {
+    id: orgId,
+    name: orgName,
+    code: 'RPX', // Riverside Phoenix code
+    type: 'school', // 'school' | 'club' | 'aau'
+    status: 'active',
+    location: {
+      city: 'Los Angeles',
+      state: 'California',
+      country: 'USA',
+    },
+    admins: REAL_USER_IDS.slice(0, 1), // First real user is admin
+    branding: {
+      logoUrl: 'https://images.unsplash.com/photo-1546519638-68e109498ffc?w=200',
+      primaryColor: '#DC2626',
+      secondaryColor: '#F59E0B',
+    },
+    billing: {
+      plan: 'pro',
+      status: 'active',
+      seats: 50,
+    },
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+  };
+
+  await db.collection(ORGANIZATIONS_COL).doc(orgId).set(orgData);
+  console.log(`    ✓ Created organization`);
+}
+
+// ─── DELETE ORGANIZATION ───────────────────────────────────────────────────────
+async function deleteOrganization(orgId: string): Promise<void> {
+  const orgDoc = await db.collection(ORGANIZATIONS_COL).doc(orgId).get();
+  if (!orgDoc.exists) {
+    console.log(`    ℹ️  Organization ${orgId} not found`);
+    return;
+  }
+
+  await db.collection(ORGANIZATIONS_COL).doc(orgId).delete();
+  console.log(`    ✓ Deleted organization ${orgId}`);
+}
+
+// ─── SEED ROSTER ENTRIES ──────────────────────────────────────────────────────
+/**
+ * Seed RosterEntries collection - the junction table connecting Users to Teams
+ * This is CRITICAL for proper user-team relationships with sport-specific data
+ */
+async function seedRosterEntries(
+  teamId: string,
+  members: TeamMember[],
+  sportName: string
+): Promise<void> {
+  console.log(`\n  👥 Seeding RosterEntries for team "${teamId}"...`);
+
+  const batch = db.batch();
+  const entryIds: string[] = [];
+  const now = Timestamp.now();
+
+  for (const member of members) {
+    const ref = db.collection(ROSTER_ENTRIES_COL).doc();
+    entryIds.push(ref.id);
+
+    // Determine role based on member.role
+    let rosterRole: string;
+    if (member.role === 'Administrative') {
+      rosterRole = 'owner';
+    } else if (member.role === 'Coach') {
+      rosterRole = member.title?.toLowerCase().includes('head') ? 'head-coach' : 'assistant-coach';
+    } else if (member.role === 'Media') {
+      rosterRole = 'media';
+    } else {
+      // Athlete
+      rosterRole = 'athlete';
+    }
+
+    // ⭐ RosterEntries is a JUNCTION TABLE - keep it minimal!
+    // Only store relationship data + team-specific fields
+    // User data should be fetched from Users collection via userId
+    const rosterEntry = {
+      id: ref.id,
+      userId: member.id,
+      teamId,
+      organizationId: 'org_seed_default', // Default org for seed data
+      role: rosterRole,
+      status: 'active',
+
+      // Team-specific data (valid to store here)
+      jerseyNumber: member.jerseyNumber || undefined,
+      positions: member.position || [],
+      primaryPosition: member.position?.[0] || undefined,
+
+      // Season context
+      season: '2024-2025',
+      classOfWhenJoined: member.classOf || undefined,
+
+      // Stats (placeholder - actual stats should be computed from games)
+      stats:
+        member.role === 'Athlete'
+          ? {
+              gamesPlayed: Math.floor(Math.random() * 15) + 5,
+              gamesStarted: Math.floor(Math.random() * 10) + 3,
+              points: Math.floor(Math.random() * 200) + 50,
+              assists: Math.floor(Math.random() * 80) + 20,
+              rebounds: Math.floor(Math.random() * 120) + 40,
+            }
+          : undefined,
+
+      // Relationship metadata
+      joinedAt: now,
+      updatedAt: now,
+      invitedBy: REAL_USER_IDS[0],
+      approvedBy: REAL_USER_IDS[0],
+      approvedAt: now,
+
+      // ⚠️ MINIMAL cached user data for UI performance (roster list display)
+      // Only cache what's needed for list rendering without joining Users table
+      // Full user data should be fetched from Users collection when needed
+      displayName: `${member.firstName} ${member.lastName}`,
+      profileImg: member.profileImgs?.[0] || undefined,
+    };
+
+    // Remove undefined fields (Firestore doesn't allow them)
+    const cleanEntry = removeUndefined(rosterEntry);
+    batch.set(ref, cleanEntry);
+  }
+
+  await batch.commit();
+  console.log(
+    `    ✓ Seeded ${members.length} roster entries (IDs: ${entryIds.slice(0, 3).join(', ')}...)`
+  );
+}
+
+// ─── DELETE ROSTER ENTRIES ────────────────────────────────────────────────────
+async function deleteRosterEntries(teamId: string): Promise<void> {
+  const snap = await db.collection(ROSTER_ENTRIES_COL).where('teamId', '==', teamId).get();
+  if (snap.empty) {
+    console.log(`    ℹ️  No roster entries found for team ${teamId}`);
+    return;
+  }
+  const batch = db.batch();
+  snap.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
+  console.log(`    ✓ Deleted ${snap.size} roster entries for team ${teamId}`);
+}
+
+// ─── SEED FOLLOWERS/FOLLOWING ─────────────────────────────────────────────────
+/**
+ * Seed follower/following relationships between team members
+ * Uses TOP-LEVEL Follows collection (not subcollections!)
+ *
+ * Architecture:
+ * - Collection: Follows (top-level)
+ * - Document ID: {followerId}_{followingId}
+ * - Fields: followerId, followingId, followerType, followingType, createdAt
+ * - Query "who follows X": where('followingId', '==', X)
+ * - Query "who X follows": where('followerId', '==', X)
+ */
+async function seedFollowerRelationships(members: TeamMember[]): Promise<void> {
+  console.log(`\n  💫 Seeding follower/following relationships (top-level Follows collection)...`);
+
+  const athletes = members.filter((m) => m.role === 'Athlete');
+  const staff = members.filter((m) => m.role !== 'Athlete');
+  let followCount = 0;
+  const batch = db.batch();
+
+  // Each athlete follows:
+  // 1. All coaches/staff (for updates)
+  // 2. 3-5 random teammates (for social connection)
+  for (const athlete of athletes) {
+    // Follow all staff members
+    for (const staffMember of staff) {
+      const docId = `${athlete.id}_${staffMember.id}`;
+      const followRef = db.collection(FOLLOWS_COL).doc(docId);
+
+      batch.set(followRef, {
+        id: docId,
+        followerId: athlete.id,
+        followingId: staffMember.id,
+        followerType: 'user',
+        followingType: 'user',
+        source: 'team_member',
+        createdAt: Timestamp.now(),
+      });
+
+      followCount++;
+    }
+
+    // Follow 3-5 random teammates
+    const numTeammatesToFollow = Math.floor(Math.random() * 3) + 3;
+    const shuffledAthletes = [...athletes]
+      .filter((a) => a.id !== athlete.id)
+      .sort(() => Math.random() - 0.5)
+      .slice(0, numTeammatesToFollow);
+
+    for (const teammate of shuffledAthletes) {
+      const docId = `${athlete.id}_${teammate.id}`;
+      const followRef = db.collection(FOLLOWS_COL).doc(docId);
+
+      batch.set(followRef, {
+        id: docId,
+        followerId: athlete.id,
+        followingId: teammate.id,
+        followerType: 'user',
+        followingType: 'user',
+        source: 'team_member',
+        createdAt: Timestamp.now(),
+      });
+
+      followCount++;
+    }
+  }
+
+  await batch.commit();
+  console.log(`    ✓ Seeded ${followCount} follow relationships (top-level Follows collection)`);
+}
+
+// ─── DELETE FOLLOWER RELATIONSHIPS ────────────────────────────────────────────
+async function deleteFollowerRelationships(members: TeamMember[]): Promise<void> {
+  console.log(
+    `\n  🗑️  Deleting follower/following relationships (top-level Follows collection)...`
+  );
+  let deleteCount = 0;
+
+  // Query Follows collection where followerId OR followingId matches team members
+  const memberIds = members.map((m) => m.id);
+
+  for (const memberId of memberIds) {
+    // Delete where this user is the follower
+    const followingSnap = await db
+      .collection(FOLLOWS_COL)
+      .where('followerId', '==', memberId)
+      .where('source', '==', 'team_member')
+      .get();
+
+    if (!followingSnap.empty) {
+      const batch = db.batch();
+      followingSnap.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+        deleteCount++;
+      });
+      await batch.commit();
+    }
+
+    // Delete where this user is being followed
+    const followersSnap = await db
+      .collection(FOLLOWS_COL)
+      .where('followingId', '==', memberId)
+      .where('source', '==', 'team_member')
+      .get();
+
+    if (!followersSnap.empty) {
+      const batch = db.batch();
+      followersSnap.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+        deleteCount++;
+      });
+      await batch.commit();
+    }
+  }
+
+  console.log(`    ✓ Deleted ${deleteCount} follow relationships (top-level Follows collection)`);
+}
+
 // ─── SEED ─────────────────────────────────────────────────────────────────────
 async function runSeed(teamId: string | null): Promise<void> {
   console.log(`[seed-team] Seeding team on project="${projectId}"\n`);
@@ -878,7 +1685,7 @@ async function runSeed(teamId: string | null): Promise<void> {
   const teamCode = await generateUniqueTeamCode();
   const teamName = 'Riverside Phoenix';
   const sportName = 'Basketball_mens';
-  const slug = buildTeamSlug(teamName, sportName, unicode);
+  const slug = buildTeamSlug(teamName);
 
   const finalTeamId = teamId || `seed_team_${unicode}`;
 
@@ -890,8 +1697,15 @@ async function runSeed(teamId: string | null): Promise<void> {
 
   const members = await buildMembers();
 
+  const orgId = 'org_riverside_phoenix';
+  const orgName = 'Riverside Phoenix High School';
+
+  // ⭐ Seed Organization first (Teams belong to Organizations)
+  await seedOrganization(orgId, orgName);
+
   const teamData = {
     id: finalTeamId,
+    organizationId: orgId, // ⭐ Link team to organization
     teamCode,
     teamName,
     teamType: 'high-school',
@@ -992,8 +1806,14 @@ Notable achievements: Northern Conference Champions 2024-2025, National Youth Ch
     recruitingActivities: buildTeamRecruitingActivities(finalTeamId),
   };
 
-  const teamRef = db.collection(TEAMCODES_COL).doc(finalTeamId);
+  const teamRef = db.collection(TEAMS_COL).doc(finalTeamId);
   await teamRef.set(teamData);
+
+  // Seed RosterEntries (CRITICAL: junction table for user-team relationships)
+  await seedRosterEntries(finalTeamId, members, sportName);
+
+  // Seed follower/following relationships between team members
+  await seedFollowerRelationships(members);
 
   // Seed team posts
   await seedTeamPosts(finalTeamId, REAL_USER_IDS[0]);
@@ -1004,14 +1824,36 @@ Notable achievements: Northern Conference Champions 2024-2025, National Youth Ch
   // Seed team news articles to News collection
   await seedTeamNews(finalTeamId);
 
-  console.log(`\n✅ Seed complete for team="${finalTeamId}" on project="${projectId}"`);
-  console.log('   Seeded:');
+  // Seed user content for first real user (6kjm7AJieFNWYkmTp2HOmYp4r8E3)
+  const mainUserId = REAL_USER_IDS[0]; // 6kjm7AJieFNWYkmTp2HOmYp4r8E3
+  const mainUserSport = 'Basketball_mens'; // Match team sport
+  await seedUserPosts(mainUserId, mainUserSport);
+  await seedUserEvents(mainUserId, mainUserSport);
+  await seedUserNews(mainUserId, mainUserSport);
+  await seedUserVideos(mainUserId, mainUserSport);
+  await seedUserAwardsAndHistory(mainUserId, mainUserSport);
+  console.log(`     Organization: ${orgName} (${orgId})`);
   console.log(`     Team Name: ${teamName}`);
+  console.log(`     Slug: ${slug} (team name only, no unicode)`);
   console.log(`     Members: ${members.length}`);
   console.log(`       - Real users: ${REAL_USER_IDS.join(', ')}`);
   console.log(`       - Athletes: ${teamData.athleteMember}`);
   console.log(`       - Staff: ${teamData.panelMember}`);
-  console.log(`     News Articles: 3 (in News collection, type=team)`);
+  console.log(`     RosterEntries: ${members.length} (junction table - minimal user data cached)`);
+  console.log(`     Followers/Following: ~${members.length * 5} relationships`);
+  console.log(`     Posts: 7 (team)`);
+  console.log(`     Schedule Events: 8 (team)`);
+  console.log(`     News Articles: 3 (team, in News collection)`);
+  console.log(`     User Content for ${REAL_USER_IDS[0]}:`);
+  console.log(`       - Posts: 3 (Basketball_mens)`);
+  console.log(`       - Events: 3 (camps, visits, showcases)`);
+  console.log(`       - News: 2 (Basketball_mens)`);
+  console.log(`       - Videos: 3 (highlights, training, games)`);
+  console.log(`       - Awards: 3 (2 Basketball, 1 General)`);
+  console.log(`       - Team History: 2 (Basketball teams)`);
+  console.log(
+    `     User Recruiting: ~12 activities for ${REAL_USER_IDS[1]} (football + basketball)`
+  );
   console.log(`\n   Access team at:`);
   console.log(`   http://localhost:4200/team/${slug}`);
   console.log(`\n   To DELETE this seed data later:`);
@@ -1026,15 +1868,61 @@ async function runDelete(teamId: string): Promise<void> {
     `\n[seed-team] Deleting seed data for teamId="${teamId}" on project="${projectId}"\n`
   );
 
-  const teamRef = db.collection(TEAMCODES_COL).doc(teamId);
+  // Fetch team to get member IDs for cleanup
+  const teamDoc = await db.collection(TEAMS_COL).doc(teamId).get();
+  const teamData = teamDoc.data();
+  const memberIds = teamData?.memberIds || [];
+  const organizationId = teamData?.organizationId || null;
+
+  // Recreate TeamMember objects for follower cleanup
+  const members: TeamMember[] = memberIds.map((id: string) => ({
+    id,
+    firstName: '',
+    lastName: '',
+    name: '',
+    joinTime: '',
+    role: 'Athlete' as const,
+    isVerify: false,
+    email: '',
+    phoneNumber: '',
+  }));
+
+  // Delete follower/following relationships first
+  if (members.length > 0) {
+    await deleteFollowerRelationships(members);
+  }
+
+  // Delete roster entries
+  await deleteRosterEntries(teamId);
+
+  // Delete team document
+  const teamRef = db.collection(TEAMS_COL).doc(teamId);
   await teamRef.delete();
 
-  // Also delete all posts, schedule events and news articles for this team
+  // Delete all posts, schedule events and news articles for this team
   await deleteTeamPosts(teamId);
   await deleteTeamSchedule(teamId);
   await deleteTeamNews(teamId);
 
-  console.log(`\n✅ Deleted team="${teamId}", its posts, schedule and news\n`);
+  // Delete user content for first real user
+  const mainUserId = REAL_USER_IDS[0]; // 6kjm7AJieFNWYkmTp2HOmYp4r8E3
+  await deleteUserPosts(mainUserId);
+  await deleteUserEvents(mainUserId);
+  await deleteUserNews(mainUserId);
+  await deleteUserVideos(mainUserId);
+  await clearUserAwardsAndHistory(mainUserId);
+
+  // Delete user recruiting activities for second real user
+  await deleteUserRecruiting(REAL_USER_IDS[1]); // 05naPoH3KWZftqsdZr7IVwxLHqo2
+
+  // Delete organization (if exists)
+  if (organizationId) {
+    await deleteOrganization(organizationId);
+  }
+
+  console.log(
+    `\n✅ Deleted team="${teamId}", organization, all relationships, posts, schedule, news, user content, and user recruiting\n`
+  );
 }
 
 // ─── MAIN ─────────────────────────────────────────────────────────────────────

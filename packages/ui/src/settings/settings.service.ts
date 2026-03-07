@@ -50,6 +50,10 @@ import { NxtBrowserService } from '../services/browser/browser.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+import {
+  SETTINGS_PERSISTENCE_ADAPTER,
+  type SettingsPersistenceAdapter,
+} from './settings-persistence-adapter';
 
 /**
  * Default subscription for users without active billing data.
@@ -79,6 +83,8 @@ export class SettingsService {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly analytics: AnalyticsAdapter | null =
     inject(ANALYTICS_ADAPTER, { optional: true }) ?? null;
+  private readonly persistence: SettingsPersistenceAdapter | null =
+    inject(SETTINGS_PERSISTENCE_ADAPTER, { optional: true }) ?? null;
   private readonly platformId = inject(PLATFORM_ID);
   private readonly bottomSheet = inject(NxtBottomSheetService);
 
@@ -160,6 +166,16 @@ export class SettingsService {
   }
 
   /**
+   * Set preferences from platform-specific persistence adapter.
+   * Also updates section items to reflect the new values.
+   */
+  setPreferences(prefs: SettingsPreferences): void {
+    this._preferences.set(prefs);
+    this.updateSectionsWithPreferences();
+    this.logger.debug('Preferences set from adapter');
+  }
+
+  /**
    * Set subscription info from platform-specific billing service.
    * Falls back to DEFAULT_SUBSCRIPTION if not called.
    */
@@ -190,7 +206,21 @@ export class SettingsService {
       // Usage data will come from a backend API when available
       // For now, leave as null (UI handles null gracefully)
 
-      this._preferences.set(DEFAULT_SETTINGS_PREFERENCES);
+      // Load persisted preferences via platform adapter (web/mobile)
+      if (this.persistence) {
+        try {
+          const persisted = await this.persistence.loadPreferences();
+          this._preferences.set(persisted);
+        } catch (prefErr) {
+          this.logger.warn('Failed to load persisted preferences, using defaults', {
+            error: prefErr instanceof Error ? prefErr.message : String(prefErr),
+          });
+          this._preferences.set(DEFAULT_SETTINGS_PREFERENCES);
+        }
+      } else {
+        this._preferences.set(DEFAULT_SETTINGS_PREFERENCES);
+      }
+
       this._connectedProviders.set(DEFAULT_CONNECTED_PROVIDERS);
 
       // Update sections with current preference values
@@ -236,8 +266,10 @@ export class SettingsService {
       // Update section items
       this.updateSectionsWithPreferences();
 
-      // TODO: Persist to backend when preferences API is available
-      // await this.api.updatePreference(key, value);
+      // Persist via platform adapter
+      if (this.persistence) {
+        await this.persistence.updatePreference(key, value);
+      }
 
       await this.haptics.notification('success');
       this.logger.info('Preference updated', { key, value });

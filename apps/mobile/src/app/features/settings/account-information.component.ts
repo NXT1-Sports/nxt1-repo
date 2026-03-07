@@ -1,5 +1,11 @@
 import { Component, ChangeDetectionStrategy, computed, inject, OnInit } from '@angular/core';
-import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
+import {
+  IonHeader,
+  IonContent,
+  IonToolbar,
+  NavController,
+  AlertController,
+} from '@ionic/angular/standalone';
 import type { SettingsSection } from '@nxt1/core';
 import {
   NxtPageHeaderComponent,
@@ -88,6 +94,7 @@ export class AccountInformationComponent implements OnInit {
   private readonly authService = inject(AuthFlowService);
   private readonly navController = inject(NavController);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly alertController = inject(AlertController);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('AccountInformationComponent');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
@@ -215,8 +222,56 @@ export class AccountInformationComponent implements OnInit {
 
         if (!confirm.confirmed) return;
 
+        // If email/password account, require password re-authentication
+        const currentUser = this.authService.user();
+        if (currentUser?.email) {
+          const passwordAlert = await this.alertController.create({
+            header: 'Confirm Identity',
+            message: `Enter your password for ${currentUser.email} to confirm account deletion.`,
+            inputs: [
+              {
+                name: 'password',
+                type: 'password',
+                placeholder: 'Password',
+              },
+            ],
+            buttons: [
+              { text: 'Cancel', role: 'cancel' },
+              { text: 'Confirm', role: 'destructive' },
+            ],
+          });
+
+          await passwordAlert.present();
+          const { role, data } = await passwordAlert.onDidDismiss<{
+            values: { password: string };
+          }>();
+
+          if (role === 'cancel' || role === 'backdrop') return;
+
+          const password = data?.values?.password?.trim() ?? '';
+          if (!password) {
+            this.toast.error('Password is required to delete your account.');
+            return;
+          }
+
+          const reauthed = await this.authService.reauthenticateWithPassword(password);
+          if (!reauthed) {
+            this.toast.error('Incorrect password. Please try again.');
+            return;
+          }
+        }
+
         this.logger.info('Delete account requested from account information');
-        this.toast.info('Delete account flow will be available soon.');
+        this.breadcrumb.trackUserAction('delete-account-requested');
+
+        const result = await this.authService.deleteAccount();
+        if (result.success) {
+          this.logger.info('Account deleted — redirecting to auth');
+          await this.navController.navigateRoot('/auth');
+        } else {
+          this.logger.error('Account deletion failed', result.error);
+          this.toast.error(`Failed to delete account: ${result.error ?? 'Unknown error'}`);
+        }
         return;
       }
 

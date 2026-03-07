@@ -17,6 +17,8 @@
 
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { Router } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 import {
   Auth,
   User as FirebaseUser,
@@ -26,6 +28,8 @@ import {
   signOut,
   signInWithPopup,
   sendPasswordResetEmail,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
 } from '@angular/fire/auth';
 // GoogleAuthProvider must be imported from firebase/auth, not @angular/fire/auth
 import { GoogleAuthProvider } from 'firebase/auth';
@@ -59,6 +63,7 @@ export class BrowserAuthService implements IAuthService {
   private readonly firebaseAuth = inject(Auth);
   private readonly authApi = inject(AuthApiService);
   private readonly authCookie = inject(AuthCookieService);
+  private readonly http = inject(HttpClient);
   private readonly logger: ILogger = inject(NxtLoggingService).child('BrowserAuthService');
 
   // ============================================
@@ -204,7 +209,7 @@ export class BrowserAuthService implements IAuthService {
         displayName:
           (profile.displayName ?? `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim()) ||
           (firebaseUser.displayName ?? 'User'),
-        profileImg: profile.profileImg ?? firebaseUser.photoURL ?? undefined,
+        profileImg: profile.profileImgs?.[0] ?? firebaseUser.photoURL ?? undefined,
         followingCount,
         followingIds,
         role: (profile.role as UserRole) ?? 'athlete',
@@ -433,6 +438,56 @@ export class BrowserAuthService implements IAuthService {
     const firebaseUser = this.firebaseAuth.currentUser;
     if (firebaseUser) {
       await this.syncUserProfile(firebaseUser);
+    }
+  }
+
+  // ============================================
+  // ACCOUNT DELETION
+  // ============================================
+
+  async reauthenticateWithPassword(password: string): Promise<boolean> {
+    const firebaseUser = this.firebaseAuth.currentUser;
+    if (!firebaseUser?.email) return false;
+
+    try {
+      const credential = EmailAuthProvider.credential(firebaseUser.email, password);
+      await reauthenticateWithCredential(firebaseUser, credential);
+      return true;
+    } catch (err) {
+      this.logger.warn('Re-authentication failed', { error: err });
+      this._error.set(getAuthErrorMessage(err));
+      return false;
+    }
+  }
+
+  async deleteAccount(): Promise<{ success: boolean; error?: string }> {
+    const firebaseUser = this.firebaseAuth.currentUser;
+    if (!firebaseUser) {
+      return { success: false, error: 'Not authenticated' };
+    }
+
+    try {
+      const token = await firebaseUser.getIdToken();
+
+      // Call backend to delete Firestore data + Firebase Auth user via Admin SDK
+      await firstValueFrom(
+        this.http.delete('/api/v1/settings/account', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+      );
+
+      // Sign out locally
+      await signOut(this.firebaseAuth);
+      this._user.set(null);
+      this._firebaseUser.set(null);
+      this.authCookie.clearAuthCookie();
+
+      this.logger.info('Account deleted successfully');
+      return { success: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete account';
+      this.logger.error('Account deletion failed', { error: err });
+      return { success: false, error: message };
     }
   }
 }

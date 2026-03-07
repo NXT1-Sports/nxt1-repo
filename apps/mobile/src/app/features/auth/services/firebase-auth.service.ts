@@ -52,6 +52,9 @@ import {
   OAuthCredential,
   signInWithCredential,
   getRedirectResult,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  deleteUser,
 } from '@angular/fire/auth';
 import { environment } from '../../../../environments/environment';
 import { Subscription } from 'rxjs';
@@ -674,5 +677,42 @@ export class FirebaseAuthService implements OnDestroy {
       default:
         return fbUser.isAnonymous ? 'anonymous' : 'email';
     }
+  }
+
+  // ============================================
+  // ACCOUNT DELETION
+  // ============================================
+
+  /**
+   * Re-authenticate the current user with email + password.
+   * Required before deleteCurrentUser() for email/password accounts.
+   *
+   * @returns true on success, false on wrong password / not authenticated
+   */
+  async reauthenticateWithPassword(email: string, password: string): Promise<boolean> {
+    const user = this.auth.currentUser;
+    if (!user) return false;
+
+    try {
+      const credential = EmailAuthProvider.credential(email, password);
+      await runInInjectionContext(this.injector, () =>
+        reauthenticateWithCredential(user, credential)
+      );
+      return true;
+    } catch (err) {
+      this.logger.warn('Re-authentication failed', { error: err });
+      return false;
+    }
+  }
+
+  /**
+   * Delete the currently signed-in Firebase user.
+   * Call reauthenticateWithPassword() first for email/password users
+   * to satisfy Firebase's recent-login requirement.
+   */
+  async deleteCurrentUser(): Promise<void> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    await runInInjectionContext(this.injector, () => deleteUser(user));
   }
 }

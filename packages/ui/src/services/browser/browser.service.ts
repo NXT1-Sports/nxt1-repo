@@ -601,16 +601,15 @@ export class NxtBrowserService {
     }
 
     try {
-      if (this.isNativePlatform) {
-        // On Capacitor native, window.open with _blank target triggers the
-        // WebView's WKUIDelegate (iOS) / shouldOverrideUrlLoading (Android)
-        // which recognizes mailto: as a non-http scheme and delegates to the
-        // native email app through the OS URL handler
-        window.open(mailto, '_blank');
-      } else {
-        // On web, direct navigation to mailto: opens the default email client
-        window.location.href = mailto;
-      }
+      // Use a programmatic anchor click — most reliable cross-browser/platform method
+      // for mailto: links without causing Angular router interference
+      const anchor = document.createElement('a');
+      anchor.href = mailto;
+      anchor.rel = 'noopener noreferrer';
+      // Don't set target="_blank" for mailto — some browsers ignore it
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
 
       this.logger.debug('Email composer opened', { to: options.to });
       return { success: true, url: mailto };

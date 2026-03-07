@@ -361,7 +361,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       const primarySport = profile.sports?.find((s) => s.order === 0) ?? profile.sports?.[0];
       const position = primarySport?.positions?.[0] ?? '';
       const displayName = `${profile.firstName} ${profile.lastName}`.trim();
-      const profileImg = profile.profileImg || authUser?.profileImg || undefined;
+      const profileImg = profile.profileImgs?.[0] || authUser?.profileImg || undefined;
       return {
         name: displayName || 'User',
         subtitle: position ? `${primarySport?.sport ?? ''} • ${position}` : profile.email,
@@ -390,7 +390,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     return {
       name: authUser.displayName || 'User',
       subtitle: authUser.email,
-      profileImg: authUser.profileImg ?? undefined,
+      profileImg: authUser.profileImg,
       initials: this.getInitials(authUser.displayName || authUser.email || 'U'),
       verified: authUser.emailVerified,
       isPremium: authUser.isPremium,
@@ -714,7 +714,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
       user: user
         ? {
             displayName: `${user.firstName} ${user.lastName}`.trim() || user.email || undefined,
-            profileImg: user.profileImg ?? undefined,
+            profileImg: user.profileImgs?.[0] ?? undefined,
             referralCode: undefined, // TODO: Get from backend
           }
         : undefined,

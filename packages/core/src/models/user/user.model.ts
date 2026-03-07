@@ -82,6 +82,10 @@ export interface NotificationPreferences {
 export interface UserPreferences {
   notifications: NotificationPreferences;
   activityTracking: boolean;
+  analyticsTracking: boolean;
+  /** Biometric login enabled (Face ID / Touch ID) */
+  biometricLogin?: boolean;
+
   /** Dismissed dialogs/tooltips */
   dismissedPrompts: DismissablePrompt[];
   /** Default sport to display (index in sports array) */
@@ -154,14 +158,11 @@ export interface User {
   /** Optional bio/about text */
   aboutMe?: string;
 
-  /** Profile image URL */
-  profileImg?: string | null;
-
   /** Banner/cover image URL */
   bannerImg?: string | null;
 
-  /** Profile images for carousel display (max enforced by backend) */
-  profileImages?: string[];
+  /** Profile images for carousel display (multiple images, max enforced by backend) */
+  profileImgs?: string[];
 
   /**
    * Unique profile identifier used for shareable URLs and QR codes.
@@ -404,7 +405,7 @@ export interface UserSummary {
   firstName: string;
   lastName: string;
   displayName?: string;
-  profileImg?: string | null;
+  profileImgs?: string[];
   role?: UserRole;
   verificationStatus?: VerificationStatus;
   location?: Pick<Location, 'city' | 'state'>;
@@ -516,7 +517,7 @@ export function getDisplayName(user: User): string {
 
 /** Get user's profile image URL */
 export function getProfileImg(user: User): string | null {
-  return user.profileImg ?? null;
+  return user.profileImgs?.[0] ?? null;
 }
 
 /** Get user's banner image URL */
@@ -526,7 +527,7 @@ export function getBannerImg(user: User): string | null {
 
 /** Get all profile images for carousel display */
 export function getProfileImages(user: User): string[] {
-  return user.profileImages ?? [];
+  return user.profileImgs ?? [];
 }
 
 /**

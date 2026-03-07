@@ -81,8 +81,10 @@ const TEAMS_COL = 'Teams';
 const ROSTER_COL = 'RosterEntries';
 const USERS_COL = 'Users';
 const POSTS_COL = 'Posts';
-const TEAM_EVENTS_COL = 'TeamEvents';
+const EVENTS_COL = 'Events'; // All events: games, camps, visits (ownerType: 'user' | 'team')
 const NEWS_COL = 'News';
+const VIDEOS_COL = 'Videos'; // Top-level (ownerType: 'user' | 'team')
+const RECRUITING_COL = 'Recruiting'; // Top-level (ownerType: 'user' | 'team')
 
 // Real user IDs
 const REAL_USER_IDS = ['05naPoH3KWZftqsdZr7IVwxLHqo2', '6kjm7AJieFNWYkmTp2HOmYp4r8E3'];
@@ -249,8 +251,8 @@ async function deleteOrganization(orgId: string): Promise<void> {
       console.log(`  Deleted ${postsSnap.size} posts for team ${teamId}`);
     }
 
-    // Delete TeamEvents
-    const eventsSnap = await db.collection(TEAM_EVENTS_COL).where('teamId', '==', teamId).get();
+    // Delete Events (games, camps, visits)
+    const eventsSnap = await db.collection(EVENTS_COL).where('teamId', '==', teamId).get();
     if (!eventsSnap.empty) {
       const eventsBatch = db.batch();
       eventsSnap.docs.forEach((doc) => eventsBatch.delete(doc.ref));
@@ -479,7 +481,7 @@ async function seedOrganization(org: SeedOrg): Promise<void> {
     // 5. Seed team Posts
     await seedTeamPosts(team.id, team.members[0].userId);
 
-    // 6. Seed team Schedule (TeamEvents)
+    // 6. Seed team events (games, camps, etc.)
     await seedTeamSchedule(team.id);
 
     // 7. Seed team News
@@ -574,7 +576,7 @@ async function seedTeamPosts(teamId: string, authorId: string): Promise<void> {
   console.log(`    ✓ Seeded ${posts.length} posts`);
 }
 
-// ─── Seed Team Schedule (TeamEvents) ──────────────────────────────────────────
+// ─── Seed Team Schedule (games, practices) ───────────────────────────────────
 async function seedTeamSchedule(teamId: string): Promise<void> {
   const now = new Date();
   const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000).toISOString();
@@ -651,7 +653,7 @@ async function seedTeamSchedule(teamId: string): Promise<void> {
   const batch = db.batch();
   events.forEach((event, i) => {
     const docId = `seed_${teamId}_event_${i}`;
-    batch.set(db.collection(TEAM_EVENTS_COL).doc(docId), event);
+    batch.set(db.collection(EVENTS_COL).doc(docId), event);
   });
   await batch.commit();
   console.log(`    ✓ Seeded ${events.length} team events`);

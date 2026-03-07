@@ -64,7 +64,7 @@ export class InviteComponent implements OnInit {
 
     return {
       displayName: user.displayName || 'NXT1 User',
-      profileImg: user.profileImg,
+      profileImg: user.profileImg ?? null,
       referralCode: this.generateReferralCode(user.uid),
     };
   });

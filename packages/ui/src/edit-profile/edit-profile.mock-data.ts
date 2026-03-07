@@ -31,9 +31,8 @@ export const MOCK_EDIT_PROFILE_FORM_DATA: EditProfileFormData = {
     classYear: '2026',
   },
   photos: {
-    profileImg: 'https://i.pravatar.cc/300?img=68',
+    profileImgs: ['https://i.pravatar.cc/300?img=68'],
     bannerImg: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1200&h=400&fit=crop',
-    profileImages: [],
   },
   sportsInfo: {
     primarySport: 'Football',
@@ -691,9 +690,8 @@ export const MOCK_EMPTY_PROFILE_FORM_DATA: EditProfileFormData = {
     classYear: '',
   },
   photos: {
-    profileImg: '',
+    profileImgs: [],
     bannerImg: '',
-    profileImages: [],
   },
   sportsInfo: {
     primarySport: '',

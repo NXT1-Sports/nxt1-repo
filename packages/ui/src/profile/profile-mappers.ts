@@ -73,6 +73,7 @@ function mapTeamHistory(entry: TeamHistoryEntry): ProfileTeamAffiliation {
     wins: entry.record?.wins,
     losses: entry.record?.losses,
     ties: entry.record?.ties,
+    sport: entry.sport,
   };
 }
 
@@ -325,15 +326,11 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     undefined;
 
   // ── Profile images ────────────────────────────────────────────────────────
-  const profileImg = user.profileImg ?? undefined;
   const bannerImg = user.bannerImg ?? undefined;
-  // Carousel: prefer the dedicated array; fall back to single profileImg so
-  // there is always at least one image when a profile photo exists.
-  const profileImages: readonly string[] = user.profileImages?.length
-    ? user.profileImages
-    : profileImg
-      ? [profileImg]
-      : [];
+  // Carousel: use profileImgs array (new)
+  const profileImages: readonly string[] = user.profileImgs?.length ? user.profileImgs : [];
+  // Primary profile image: first from array or undefined
+  const profileImg = profileImages[0] ?? undefined;
 
   // ── Counters (from User._counters) ────────────────────────────────────────
   const counters = user._counters;

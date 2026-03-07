@@ -56,7 +56,7 @@ export function profileUserToFeedAuthor(user: ProfileUser): FeedAuthor {
     displayName: user.displayName ?? `${user.firstName} ${user.lastName}`,
     firstName: user.firstName,
     lastName: user.lastName,
-    avatarUrl: user.profileImg,
+    avatarUrl: user.profileImg ?? undefined,
     role: user.role as FeedAuthor['role'],
     verificationStatus: user.verificationStatus,
     isVerified: user.verificationStatus === 'verified' || user.verificationStatus === 'premium',

@@ -38,7 +38,7 @@ import { logger } from '../utils/logger.js';
 import { generateUnicodeForUser, getUserUnicode } from '../utils/unicode-generator.js';
 
 // Import profile routes
-import profileRoutes from './profile.routes.js';
+import profileRoutes, { invalidateProfileCaches } from './profile.routes.js';
 
 const router: RouterType = Router();
 
@@ -62,7 +62,7 @@ interface UserV2Document {
   email: string;
   firstName?: string;
   lastName?: string;
-  profileImg?: string | null;
+  profileImgs?: string[];
   aboutMe?: string;
   gender?: string;
 
@@ -705,8 +705,8 @@ router.post(
     if (firstName) updateData.firstName = firstName;
     if (lastName) updateData.lastName = lastName;
 
-    // Profile image and bio
-    if (profileData['profileImg']) updateData.profileImg = profileData['profileImg'] as string;
+    // Profile images and bio (only use profileImgs array)
+    if (profileData['profileImgs']) updateData.profileImgs = profileData['profileImgs'] as string[];
     if (profileData['bio']) updateData.aboutMe = (profileData['bio'] as string).trim();
     if (profileData['gender']) updateData.gender = profileData['gender'] as string;
 
@@ -801,6 +801,11 @@ router.post(
       logger.error('[POST /profile/onboarding] Firestore update FAILED:', { error: updateError });
       throw updateError;
     }
+
+    // Invalidate Redis cache so GET /auth/profile/:userId returns fresh data
+    await invalidateProfileCaches(userId).catch((err) =>
+      logger.warn('[POST /profile/onboarding] Cache invalidation failed', { userId, err })
+    );
 
     // Fetch updated user
     let userData: UserV2Document | undefined;
@@ -897,7 +902,8 @@ router.post(
       case 'profile': {
         if (stepData['firstName']) updateData.firstName = (stepData['firstName'] as string).trim();
         if (stepData['lastName']) updateData.lastName = (stepData['lastName'] as string).trim();
-        if (stepData['profileImg']) updateData.profileImg = stepData['profileImg'] as string;
+        // Profile images (only use profileImgs array)
+        if (stepData['profileImgs']) updateData.profileImgs = stepData['profileImgs'] as string[];
         if (stepData['bio']) updateData.aboutMe = (stepData['bio'] as string).trim();
         if (stepData['gender']) updateData.gender = stepData['gender'] as string;
         break;
@@ -1092,6 +1098,11 @@ router.post(
     // Update user document
     await db.collection('Users').doc(userId).update(updateData);
 
+    // Invalidate Redis cache so GET /auth/profile/:userId returns fresh data
+    await invalidateProfileCaches(userId).catch((err) =>
+      logger.warn('[POST /profile/onboarding-step] Cache invalidation failed', { userId, err })
+    );
+
     res.json({
       success: true,
       stepId,
@@ -1134,6 +1145,11 @@ router.post(
       _schemaVersion: USER_SCHEMA_VERSION,
       updatedAt: now,
     });
+
+    // Invalidate Redis cache so GET /auth/profile/:userId returns fresh data
+    await invalidateProfileCaches(userId).catch((err) =>
+      logger.warn('[POST /profile/complete-onboarding] Cache invalidation failed', { userId, err })
+    );
 
     // Fetch updated user data
     const updatedUser = await db.collection('Users').doc(userId).get();

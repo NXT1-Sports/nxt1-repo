@@ -189,10 +189,10 @@ export const EDIT_PROFILE_SECTIONS: readonly EditProfileSection[] = [
     xpReward: 75,
     fields: [
       {
-        id: 'profileImg',
+        id: 'profileImgs',
         type: 'photo-upload',
-        label: 'Profile Photo',
-        hint: 'Professional headshot recommended',
+        label: 'Profile Photos',
+        hint: 'Upload multiple photos for your profile carousel (max 5)',
         xpReward: 50,
         countsTowardCompletion: true,
         order: 1,

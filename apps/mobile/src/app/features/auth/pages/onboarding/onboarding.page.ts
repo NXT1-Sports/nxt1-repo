@@ -845,7 +845,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
         userType,
         firstName: formData.profile?.firstName || '',
         lastName: formData.profile?.lastName || '',
-        profileImg: formData.profile?.profileImg || undefined,
+        profileImg: formData.profile?.profileImgs?.[0] || undefined,
         bio: formData.profile?.bio,
         sport: primarySport?.sport,
         secondarySport: secondarySport?.sport,

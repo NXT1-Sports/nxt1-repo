@@ -382,6 +382,16 @@ export class ServerAuthService implements IAuthService, OnDestroy {
   async refreshUserProfile(): Promise<void> {
     this.logger.warn('refreshUserProfile called on server - noop');
   }
+
+  async reauthenticateWithPassword(_password: string): Promise<boolean> {
+    this.logger.warn('reauthenticateWithPassword called on server - noop');
+    return false;
+  }
+
+  async deleteAccount(): Promise<{ success: boolean; error?: string }> {
+    this.logger.warn('deleteAccount called on server - noop');
+    return { success: false, error: 'Not available on server' };
+  }
 }
 
 // ============================================

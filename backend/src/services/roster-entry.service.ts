@@ -369,7 +369,7 @@ export class RosterEntryService {
     if (userData.lastName) updateData['lastName'] = userData.lastName;
     if (userData.email) updateData['email'] = userData.email;
     if (userData.phoneNumber) updateData['phoneNumber'] = userData.phoneNumber;
-    if (userData.profileImg !== undefined) updateData['profileImg'] = userData.profileImg;
+    if (userData.profileImg !== undefined) updateData['profileImg'] = userData.profileImg ?? null;
     if (userData.classOf) updateData['classOf'] = userData.classOf;
     if (userData.height) updateData['height'] = userData.height;
     if (userData.weight) updateData['weight'] = userData.weight;

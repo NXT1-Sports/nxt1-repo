@@ -2,8 +2,9 @@
  * @fileoverview Event Detail Routes
  * @module @nxt1/backend/routes/events
  *
- * Routes for the TeamEvents top-level Firestore collection.
- * Team-owned events (games, practices, scrimmages, camps, etc.)
+ * Routes for the Events top-level Firestore collection.
+ * All events: games, practices, camps, showcases, visits
+ * Supports both user and team events via ownerType field
  *
  * Caching:
  * - GET /:id: 5 min (FEED TTL) — single event detail
@@ -18,7 +19,7 @@ import { logger } from '../utils/logger.js';
 const router: ExpressRouter = Router();
 
 /**
- * Get a single TeamEvent by document ID.
+ * Get a single Event by document ID.
  * GET /api/v1/events/:id
  */
 router.get(
@@ -27,7 +28,7 @@ router.get(
     const { id } = req.params as { id: string };
 
     const cache = getCacheService();
-    const cacheKey = `team:event:${id}`;
+    const cacheKey = `event:${id}`;
     const hit = await cache.get<unknown>(cacheKey);
     if (hit) {
       markCacheHit(req, 'redis', cacheKey);
@@ -36,7 +37,7 @@ router.get(
     }
 
     const db = req.firebase!.db;
-    const doc = await db.collection('TeamEvents').doc(id).get();
+    const doc = await db.collection('Events').doc(id).get();
 
     if (!doc.exists) {
       res.status(404).json({ success: false, error: 'Event not found' });

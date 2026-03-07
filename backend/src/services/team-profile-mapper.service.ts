@@ -51,8 +51,7 @@ type UserDataRecord = UserData & {
   classOf?: string | number;
   height?: string;
   weight?: string;
-  profileImg?: string;
-  profilePhoto?: string;
+  profileImgs?: string[];
   unicode?: string;
   username?: string;
   isVerify?: boolean;
@@ -112,26 +111,34 @@ async function fetchUsersByIds(
 // ============================================
 
 /**
- * Parse slug to extract unicode
- * Format: "TeamName_with_underscores-sportName-unicode"
- * Example: "Đội_Bóng_Rồng_Lửa_Hà_Nội-Basketball_mens-866839"
+ * Safely convert a date value to ISO string
+ * Handles string, Date, Firestore Timestamp, and invalid values
  */
-export function parseSlugToUnicode(slug: string): string | null {
-  if (!slug) return null;
-
-  // Slug format: TeamName-SportName-Unicode
-  // Unicode is the last segment after the last hyphen
-  const parts = slug.split('-');
-  if (parts.length < 3) return null;
-
-  const unicode = parts[parts.length - 1];
-
-  // Validate unicode (6 digits)
-  if (!/^\d{6}$/.test(unicode)) {
-    return null;
+function toSafeISOString(value: unknown): string {
+  if (!value) {
+    return new Date().toISOString();
   }
 
-  return unicode;
+  // Already a string - return as-is
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  // Try to convert to Date
+  try {
+    const date = new Date(value as string | number | Date);
+
+    // Check if the date is valid
+    if (isNaN(date.getTime())) {
+      logger.warn('[team-profile-mapper] Invalid date value, using current time', { value });
+      return new Date().toISOString();
+    }
+
+    return date.toISOString();
+  } catch (err) {
+    logger.warn('[team-profile-mapper] Failed to convert date, using current time', { value, err });
+    return new Date().toISOString();
+  }
 }
 
 /**
@@ -200,16 +207,8 @@ function mapTeamCodeToTeam(teamCode: TeamCode): TeamProfileTeam {
       : [],
     verificationStatus: 'unverified', // TODO: Add verification logic
     isActive: teamCode.isActive ?? true,
-    createdAt: teamCode.createAt
-      ? typeof teamCode.createAt === 'string'
-        ? teamCode.createAt
-        : teamCode.createAt.toISOString()
-      : new Date().toISOString(),
-    updatedAt: teamCode.lastUpdatedStat
-      ? typeof teamCode.lastUpdatedStat === 'string'
-        ? teamCode.lastUpdatedStat
-        : new Date(teamCode.lastUpdatedStat).toISOString()
-      : new Date().toISOString(),
+    createdAt: toSafeISOString(teamCode.createAt),
+    updatedAt: toSafeISOString(teamCode.lastUpdatedStat),
   };
 }
 
@@ -241,7 +240,7 @@ function mapUserToRoster(user: UserData, index: number): TeamProfileRosterMember
     classYear: userData.classOf?.toString(),
     height: userData.height,
     weight: userData.weight,
-    profileImg: userData.profileImg || userData.profilePhoto || undefined,
+    profileImg: userData.profileImgs?.[0] || undefined,
     profileCode: userData.unicode || userData.username || user.id || '', // Profile link uses unicode > username > uid
     isVerified: userData.isVerify || false,
     views: undefined, // TODO: Add analytics
@@ -271,7 +270,7 @@ function mapUserToStaff(user: UserData): TeamProfileStaffMember {
     title:
       userData.title || staffRole.replace('-', ' ').replace(/^\w/, (c: string) => c.toUpperCase()),
     role: staffRole,
-    profileImg: userData.profileImg || userData.profilePhoto || undefined,
+    profileImg: userData.profileImgs?.[0] || undefined,
     profileCode: userData.unicode || userData.username || user.id || '', // Profile link uses unicode > username > uid
     email: userData.email,
     phone: userData.phone || userData.phoneNumber,
@@ -281,13 +280,17 @@ function mapUserToStaff(user: UserData): TeamProfileStaffMember {
 }
 
 /**
- * Build team slug from team data
+ * Build team slug from team name only (no unicode)
+ * Format: lowercase-team-name-with-dashes
+ * Example: riverside-phoenix
  */
 function buildTeamSlug(teamCode: TeamCode): string {
-  const namePart = teamCode.teamName.replace(/\s+/g, '_');
-  const sportPart = teamCode.sportName || 'sports';
-  const unicode = teamCode.unicode || 'unknown';
-  return `${namePart}-${sportPart}-${unicode}`;
+  // Convert to lowercase, replace spaces and special chars with dashes
+  const slug = teamCode.teamName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, ''); // Remove leading/trailing dashes
+  return slug;
 }
 
 /**
@@ -331,7 +334,7 @@ function generateFollowStats(): TeamProfileFollowStats {
 }
 
 /**
- * Fetch team schedule events from the TeamEvents collection
+ * Fetch team schedule events from the Events collection
  */
 async function fetchTeamSchedule(
   teamId: string,
@@ -341,7 +344,11 @@ async function fetchTeamSchedule(
   if (!teamId) return [];
 
   try {
-    const snapshot = await firestore.collection('TeamEvents').where('teamId', '==', teamId).get();
+    const snapshot = await firestore
+      .collection('Events')
+      .where('teamId', '==', teamId)
+      .where('ownerType', '==', 'team')
+      .get();
 
     if (snapshot.empty) {
       logger.info('[team-profile-mapper] No schedule events found for team', { teamId });
@@ -641,7 +648,7 @@ export async function mapTeamCodeToProfile(
   // News articles — fetch from News collection (type==='team' documents)
   const newsArticles = firestore ? await fetchTeamNews(teamCode.id || '', firestore) : [];
 
-  // Schedule — fetch from TeamEvents collection
+  // Schedule — fetch from Events collection
   const schedule = firestore ? await fetchTeamSchedule(teamCode.id || '', firestore) : [];
 
   // Update quick stats with real post count

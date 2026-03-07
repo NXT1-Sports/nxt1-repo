@@ -72,7 +72,7 @@ export class AnalyticsDashboardComponent implements OnInit {
     if (!user) return null;
 
     return {
-      profileImg: user.profileImg,
+      profileImg: user.profileImg ?? null,
       displayName: user.displayName,
     };
   });

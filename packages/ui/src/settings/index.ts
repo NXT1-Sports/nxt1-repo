@@ -11,6 +11,12 @@
 // Service
 export { SettingsService } from './settings.service';
 
+// Persistence adapter (for platform-specific HTTP injection)
+export {
+  SETTINGS_PERSISTENCE_ADAPTER,
+  type SettingsPersistenceAdapter,
+} from './settings-persistence-adapter';
+
 // Components
 export { SettingsShellComponent, type SettingsUser } from './settings-shell.component';
 export {

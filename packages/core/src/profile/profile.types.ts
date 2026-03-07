@@ -113,6 +113,8 @@ export interface ProfileTeamAffiliation {
   readonly wins?: number | string;
   readonly losses?: number | string;
   readonly ties?: number | string;
+  /** Sport this team affiliation is associated with (for multi-sport filtering) */
+  readonly sport?: string;
 }
 
 /**

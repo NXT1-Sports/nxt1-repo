@@ -273,7 +273,7 @@ export const SETTINGS_LEGAL_ITEMS: readonly SettingsItem[] = [
     type: 'navigation',
     label: 'Privacy Policy',
     icon: 'lock-closed-outline',
-    externalUrl: 'https://nxt1sports.com/privacy',
+    route: '/privacy',
   },
   {
     id: 'termsOfService',
@@ -281,7 +281,7 @@ export const SETTINGS_LEGAL_ITEMS: readonly SettingsItem[] = [
     type: 'navigation',
     label: 'Terms of Service',
     icon: 'document-outline',
-    externalUrl: 'https://nxt1sports.com/terms',
+    route: '/terms',
   },
 ] as const;
 
@@ -355,6 +355,7 @@ export const DEFAULT_SETTINGS_PREFERENCES: SettingsPreferences = {
   activityTracking: true,
   analyticsTracking: true,
   crashReporting: true,
+  biometricLogin: false,
   theme: 'system',
   language: 'en',
   compactMode: false,
