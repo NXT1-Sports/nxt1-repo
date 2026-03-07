@@ -135,7 +135,7 @@ async function fallbackSequentialGeneration(db: Firestore, userId: string): Prom
 
       logger.info(`[Unicode] Sequential fallback: assigned ${unicode} to user ${userId}`);
       return result;
-    } catch (error) {
+    } catch {
       // Continue searching
       continue;
     }

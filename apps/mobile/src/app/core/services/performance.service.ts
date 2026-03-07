@@ -163,23 +163,23 @@ class NativeHttpMetric implements ActiveHttpMetric {
     this.logger.debug('HTTP metrics not supported in native implementation - using no-op');
   }
 
-  async setHttpResponseCode(code: number): Promise<void> {
+  async setHttpResponseCode(_code: number): Promise<void> {
     // No-op: HTTP metrics not supported in v8
   }
 
-  async setRequestPayloadSize(bytes: number): Promise<void> {
+  async setRequestPayloadSize(_bytes: number): Promise<void> {
     // No-op: HTTP metrics not supported in v8
   }
 
-  async setResponsePayloadSize(bytes: number): Promise<void> {
+  async setResponsePayloadSize(_bytes: number): Promise<void> {
     // No-op: HTTP metrics not supported in v8
   }
 
-  async setResponseContentType(contentType: string): Promise<void> {
+  async setResponseContentType(_contentType: string): Promise<void> {
     // No-op: HTTP metrics not supported in v8
   }
 
-  async putAttribute(name: string, value: string): Promise<void> {
+  async putAttribute(_name: string, _value: string): Promise<void> {
     // No-op: HTTP metrics not supported in v8
   }
 

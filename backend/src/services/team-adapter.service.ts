@@ -17,6 +17,8 @@ import {
   TeamCode,
   TeamMember,
   RosterEntry,
+  RosterEntryStatus,
+  RosterRole,
   rosterEntryToTeamMember,
 } from '@nxt1/core/models';
 import { createRosterEntryService } from './roster-entry.service.js';
@@ -48,7 +50,7 @@ export class TeamServiceAdapter {
     const team = teamDoc.data() as Team;
     const rosterEntries = await this.rosterService.getTeamRoster({
       teamId,
-      status: ['active', 'pending'] as any,
+      status: [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING],
     });
 
     // Convert RosterEntries to legacy TeamMember format
@@ -78,7 +80,7 @@ export class TeamServiceAdapter {
     // Query RosterEntries
     const rosterEntries = await this.rosterService.getUserTeams({
       userId,
-      status: ['active'] as any,
+      status: [RosterEntryStatus.ACTIVE],
     });
 
     logger.debug('[TeamAdapter] Found user teams', {
@@ -157,8 +159,8 @@ export class TeamServiceAdapter {
       userId: params.userId,
       teamId: teamDoc.id,
       organizationId: team.organizationId,
-      role: 'athlete' as any,
-      status: 'pending' as any,
+      role: RosterRole.ATHLETE,
+      status: RosterEntryStatus.PENDING,
       firstName: params.userProfile.firstName,
       lastName: params.userProfile.lastName,
       email: params.userProfile.email,
@@ -197,7 +199,7 @@ export class TeamServiceAdapter {
     // Calculate from RosterEntries
     const roster = await this.rosterService.getTeamRoster({
       teamId,
-      status: ['active'] as any,
+      status: [RosterEntryStatus.ACTIVE],
     });
 
     const athletes = roster.filter((e) =>
@@ -234,7 +236,7 @@ export class TeamServiceAdapter {
     // Get roster entries
     const rosterEntries = await this.rosterService.getTeamRoster({
       teamId: teamDoc.id,
-      status: ['active', 'pending'] as any,
+      status: [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING],
     });
 
     // Convert RosterEntries to legacy TeamMember format
@@ -287,10 +289,14 @@ export function createTeamAdapter(db: Firestore): TeamServiceAdapter {
   return new TeamServiceAdapter(db);
 }
 
+type RequestWithDb = {
+  db?: Firestore;
+};
+
 /**
  * Helper: Get team adapter from request (for Express middleware)
  */
-export function getTeamAdapter(req: any): TeamServiceAdapter {
+export function getTeamAdapter(req: RequestWithDb): TeamServiceAdapter {
   if (!req.db) {
     throw new Error('Database not available in request');
   }

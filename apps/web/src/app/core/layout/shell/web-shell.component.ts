@@ -79,7 +79,6 @@ import {
   type FooterTabSelectEvent,
   type FooterScrollToTopEvent,
   type FooterConfig,
-  CENTERED_CREATE_FOOTER_TABS,
   AGENT_X_LEFT_FOOTER_TABS,
   findTabByRoute,
 } from '@nxt1/ui/components/footer';

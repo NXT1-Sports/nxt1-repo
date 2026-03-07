@@ -191,7 +191,7 @@ export class NxtBrowserService {
       this.logger.debug('Browser service initialized', {
         isNative: this.isNativePlatform,
       });
-    } catch (error) {
+    } catch {
       // Expected on web platform without Capacitor
       this.logger.debug('Capacitor Browser not available, using web fallback');
     }

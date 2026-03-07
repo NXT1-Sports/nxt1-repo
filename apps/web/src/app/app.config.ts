@@ -111,7 +111,7 @@ class IdlePreloadStrategy implements PreloadingStrategy {
         setTimeout(callback, 3000);
       }
 
-      return () => {}; // No cleanup needed
+      return undefined; // No cleanup needed
     });
   }
 }
