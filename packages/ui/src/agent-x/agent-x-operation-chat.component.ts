@@ -42,6 +42,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
+import { NxtChatBubbleComponent } from '../components/chat-bubble';
 import { AgentXInputComponent } from './agent-x-input.component';
 
 // ============================================
@@ -53,6 +54,7 @@ export interface OperationQuickAction {
   readonly id: string;
   readonly label: string;
   readonly icon: string;
+  readonly description?: string;
 }
 
 /** Shape of a single chat message inside the operation context. */
@@ -68,7 +70,13 @@ interface OperationMessage {
 @Component({
   selector: 'nxt1-agent-x-operation-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, NxtSheetHeaderComponent, AgentXInputComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    NxtSheetHeaderComponent,
+    NxtChatBubbleComponent,
+    AgentXInputComponent,
+  ],
   template: `
     <!-- ═══ HEADER ═══ -->
     <nxt1-sheet-header
@@ -81,21 +89,24 @@ interface OperationMessage {
       (closeSheet)="dismiss()"
     />
 
-    <!-- ═══ COMMAND HUB (Upper-Middle) ═══ -->
-    @if (showQuickActions()) {
-      <div class="quick-actions-hub">
-        <div class="quick-actions-row quick-actions-row--grid">
-          @for (action of normalizedQuickActions(); track action.id) {
-            <button type="button" class="quick-action-chip" (click)="onQuickAction(action)">
-              <span>{{ shortActionLabel(action.label) }}</span>
-            </button>
-          }
-        </div>
-      </div>
-    }
-
     <!-- ═══ MESSAGES ═══ -->
     <div class="messages-area" #messagesArea>
+      <!-- ═══ COMMAND HUB ═══ -->
+      @if (showQuickActions()) {
+        <div class="quick-actions-hub">
+          <div class="quick-actions-list">
+            @for (action of normalizedQuickActions(); track action.id) {
+              <button type="button" class="quick-action-item" (click)="onQuickAction(action)">
+                <span class="quick-action-title">{{ shortActionLabel(action.label) }}</span>
+                @if (action.description) {
+                  <span class="quick-action-desc">{{ action.description }}</span>
+                }
+              </button>
+            }
+          </div>
+        </div>
+      }
+
       @for (msg of messages(); track msg.id) {
         <div
           class="msg-row"
@@ -104,15 +115,14 @@ interface OperationMessage {
           [class.msg-system]="msg.role === 'system'"
           [class.msg-error]="msg.error"
         >
-          <div class="msg-bubble">
-            @if (msg.isTyping) {
-              <div class="typing-dots"><span></span><span></span><span></span></div>
-            } @else if (msg.role === 'system') {
-              <p class="msg-text msg-text--system">{{ msg.content }}</p>
-            } @else {
-              <p class="msg-text">{{ msg.content }}</p>
-            }
-          </div>
+          <nxt1-chat-bubble
+            variant="agent-operation"
+            [isOwn]="msg.role === 'user'"
+            [content]="msg.content"
+            [isTyping]="!!msg.isTyping"
+            [isError]="!!msg.error"
+            [isSystem]="msg.role === 'system'"
+          />
         </div>
       }
     </div>
@@ -174,13 +184,6 @@ interface OperationMessage {
         -webkit-overflow-scrolling: touch;
       }
 
-      .quick-actions-hub {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        padding: 6vh 20px 8px;
-      }
-
       .msg-row {
         display: flex;
         gap: 8px;
@@ -213,86 +216,6 @@ interface OperationMessage {
         max-width: 100%;
       }
 
-      .msg-bubble {
-        padding: 10px 14px;
-        border-radius: 14px;
-        max-width: 100%;
-      }
-
-      .msg-user .msg-bubble {
-        background: var(--op-primary);
-        color: #0a0a0a;
-        border-bottom-right-radius: 4px;
-      }
-
-      .msg-assistant .msg-bubble {
-        background: transparent;
-        border: none;
-        color: var(--op-text);
-        border-radius: 0;
-        padding: 0;
-      }
-
-      .msg-system .msg-bubble {
-        background: transparent;
-        padding: 6px 12px;
-      }
-
-      .msg-error .msg-bubble {
-        background: rgba(239, 68, 68, 0.1);
-        border-color: rgba(239, 68, 68, 0.3);
-      }
-
-      .msg-text {
-        margin: 0;
-        font-size: 14px;
-        line-height: 1.5;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-
-      .msg-text--system {
-        font-size: 12px;
-        color: var(--op-text-muted);
-        text-align: center;
-        font-style: italic;
-      }
-
-      /* Typing indicator */
-      .typing-dots {
-        display: flex;
-        gap: 4px;
-        padding: 2px 0;
-      }
-
-      .typing-dots span {
-        width: 7px;
-        height: 7px;
-        border-radius: 50%;
-        background: var(--op-text-muted);
-        animation: dotBounce 1.4s ease-in-out infinite;
-      }
-
-      .typing-dots span:nth-child(2) {
-        animation-delay: 0.2s;
-      }
-      .typing-dots span:nth-child(3) {
-        animation-delay: 0.4s;
-      }
-
-      @keyframes dotBounce {
-        0%,
-        60%,
-        100% {
-          transform: translateY(0);
-          opacity: 0.4;
-        }
-        30% {
-          transform: translateY(-5px);
-          opacity: 1;
-        }
-      }
-
       /* ── SHARED INPUT ROW ── */
       .shared-input-row {
         padding: 12px 20px;
@@ -306,46 +229,58 @@ interface OperationMessage {
         display: none;
       }
 
-      /* ── QUICK ACTION CHIPS ── */
-      .quick-actions-row {
+      .quick-actions-hub {
         display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        flex-shrink: 0;
         justify-content: center;
+        align-items: flex-start;
+        padding: 8px 0 16px;
       }
 
-      .quick-actions-row--grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
+      .quick-actions-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
         width: min(560px, 100%);
       }
 
-      .quick-action-chip {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 10px 12px;
+      .quick-action-item {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 3px;
+        padding: 14px 16px;
         border: 1px solid var(--op-border);
         border-radius: var(--nxt1-radius-lg, 12px);
         background: var(--op-surface);
-        color: var(--op-text-secondary);
-        font-size: 13px;
-        font-weight: 600;
-        font-family: inherit;
         cursor: pointer;
-        white-space: nowrap;
         -webkit-tap-highlight-color: transparent;
+        text-align: left;
+        font-family: inherit;
         transition:
           background 0.15s ease,
-          border-color 0.15s ease,
-          color 0.15s ease;
+          border-color 0.15s ease;
       }
 
-      .quick-action-chip:active {
+      .quick-action-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--op-text);
+        line-height: 1.3;
+      }
+
+      .quick-action-desc {
+        font-size: 13px;
+        font-weight: 400;
+        color: var(--op-text-muted);
+        line-height: 1.4;
+      }
+
+      .quick-action-item:active {
         background: var(--op-primary-glow);
         border-color: var(--op-primary);
+      }
+
+      .quick-action-item:active .quick-action-title {
         color: var(--op-primary);
       }
     `,
@@ -398,22 +333,24 @@ export class AgentXOperationChatComponent {
 
   /** Normalized quick actions list (always target 6 options for command hub). */
   protected readonly normalizedQuickActions = computed<OperationQuickAction[]>(() => {
-    const base = this.quickActions.map((a, index) => ({
-      ...a,
-      id: a.id || `cmd-${index + 1}`,
-      label: this.shortActionLabel(a.label),
-    }));
+    const base = this.quickActions
+      .filter((a) => !!a.description)
+      .map((a, index) => ({
+        ...a,
+        id: a.id || `cmd-${index + 1}`,
+        label: this.shortActionLabel(a.label),
+      }));
 
     const seen = new Set(base.map((a) => a.label.toLowerCase()));
-    const fallbackLabels = this.getFallbackActionLabels();
+    const fallbackItems = this.getFallbackActions();
     const filled = [...base];
 
-    for (const label of fallbackLabels) {
+    for (const item of fallbackItems) {
       if (filled.length >= 6) break;
-      const key = label.toLowerCase();
+      const key = item.label.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      filled.push({ id: `fallback-${filled.length + 1}`, label, icon: this.contextIcon });
+      filled.push({ id: `fallback-${filled.length + 1}`, icon: this.contextIcon, ...item });
     }
 
     return filled.slice(0, 6);
@@ -556,29 +493,29 @@ export class AgentXOperationChatComponent {
     return `${compact.slice(0, 22).trimEnd()}...`;
   }
 
-  private getFallbackActionLabels(): string[] {
+  private getFallbackActions(): Pick<OperationQuickAction, 'label' | 'description'>[] {
     if (this.contextType === 'operation') {
       return [
-        'Status',
-        'Progress',
-        'Refine',
-        'Boost Quality',
-        'Set Priority',
-        'Notify Me',
-        'Pause',
-        'Export',
+        { label: 'Status', description: 'Check current progress and updates' },
+        { label: 'Progress', description: 'View detailed completion breakdown' },
+        { label: 'Refine', description: 'Adjust parameters and improve results' },
+        { label: 'Boost Quality', description: 'Enhance output with extra processing' },
+        { label: 'Set Priority', description: 'Change urgency and processing order' },
+        { label: 'Notify Me', description: 'Get alerted when this is done' },
+        { label: 'Pause', description: 'Temporarily hold this operation' },
+        { label: 'Export', description: 'Download or share the results' },
       ];
     }
 
     return [
-      'Create Plan',
-      'Generate Draft',
-      'Refine Output',
-      'Next Steps',
-      'Best Version',
-      'Publish Ready',
-      'Save Draft',
-      'Share',
+      { label: 'Create Plan', description: 'Build a step-by-step action plan' },
+      { label: 'Generate Draft', description: 'Get a first draft ready to review' },
+      { label: 'Refine Output', description: 'Polish and improve existing work' },
+      { label: 'Next Steps', description: 'See recommended follow-up actions' },
+      { label: 'Best Version', description: 'Optimize for the highest quality' },
+      { label: 'Publish Ready', description: 'Finalize and prepare to share' },
+      { label: 'Save Draft', description: 'Store your progress for later' },
+      { label: 'Share', description: 'Send results to your team' },
     ];
   }
 

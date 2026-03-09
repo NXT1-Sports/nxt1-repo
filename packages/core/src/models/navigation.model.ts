@@ -204,7 +204,7 @@ export const DEFAULT_FOOTER_TABS: FooterTabItem[] = [
     label: 'Create',
     icon: 'plusCircle',
     iconActive: 'plusCircleFilled',
-    route: '/create',
+    route: '/post/create',
     ariaLabel: 'Create a new post',
   },
   {
@@ -264,7 +264,7 @@ export const CENTERED_CREATE_FOOTER_TABS: FooterTabItem[] = [
     label: 'Create',
     icon: 'plusCircle',
     iconActive: 'plusCircleFilled',
-    route: '/create',
+    route: '/post/create',
     ariaLabel: 'Create a new post',
   },
   {
@@ -1321,7 +1321,7 @@ export const DEFAULT_SIDENAV_ITEMS: SidenavSection[] = [
         id: 'connections',
         label: 'Connections',
         icon: 'link',
-        route: '/create',
+        route: '/post/create',
       },
       {
         id: 'analytics',

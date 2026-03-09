@@ -1,61 +1,83 @@
 /**
  * @fileoverview Edit Profile Skeleton Component
  * @module @nxt1/ui/edit-profile
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Skeleton loading state for Edit Profile feature.
- * Shows animated placeholders while content is loading.
+ * Skeleton loading state for Edit Profile.
+ * Mirrors the exact layout: media gallery, Connected accounts (1 row button),
+ * About you (4 rows), Sports info (2 rows), Physical (2 rows).
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
- *
- * Features:
- * - Animated shimmer effect
- * - Matches actual layout structure
- * - Theme-aware colors
- *
- * @example
- * ```html
- * <nxt1-edit-profile-skeleton />
- * ```
  */
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
 
 @Component({
   selector: 'nxt1-edit-profile-skeleton',
   standalone: true,
-  imports: [CommonModule],
   template: `
     <div class="skeleton-container">
-      <!-- Progress Ring Skeleton -->
-      <div class="progress-skeleton">
-        <div class="ring-skeleton shimmer"></div>
-        <div class="xp-bar-skeleton shimmer"></div>
-        <div class="tier-skeleton shimmer"></div>
+      <!-- Media Gallery -->
+      <div class="skeleton-media">
+        <div class="skeleton-tile shimmer"></div>
+        <div class="skeleton-tile shimmer"></div>
+        <div class="skeleton-tile shimmer"></div>
+        <div class="skeleton-tile-add shimmer"></div>
       </div>
 
-      <!-- Quick Stats Skeleton -->
-      <div class="stats-skeleton">
-        <div class="stat-skeleton shimmer"></div>
-        <div class="stat-skeleton shimmer"></div>
-        <div class="stat-skeleton shimmer"></div>
+      <!-- Connected accounts -->
+      <div class="skeleton-section">
+        <div class="skeleton-section-header shimmer"></div>
+        <div class="skeleton-list-group">
+          <div class="skeleton-row">
+            <div class="skeleton-label shimmer"></div>
+            <div class="skeleton-value shimmer"></div>
+          </div>
+        </div>
       </div>
 
-      <!-- Section Skeletons -->
-      <div class="sections-skeleton">
-        @for (i of [1, 2, 3, 4, 5]; track i) {
-          <div class="section-skeleton shimmer" [style.animation-delay]="i * 0.1 + 's'"></div>
-        }
+      <!-- About you -->
+      <div class="skeleton-section">
+        <div class="skeleton-section-header shimmer"></div>
+        <div class="skeleton-list-group">
+          @for (i of [1, 2, 3, 4]; track i) {
+            <div class="skeleton-row" [style.animation-delay]="i * 0.08 + 's'">
+              <div class="skeleton-label shimmer"></div>
+              <div class="skeleton-value shimmer"></div>
+            </div>
+          }
+        </div>
+      </div>
+
+      <!-- Sports info -->
+      <div class="skeleton-section">
+        <div class="skeleton-section-header shimmer"></div>
+        <div class="skeleton-list-group">
+          @for (i of [1, 2]; track i) {
+            <div class="skeleton-row" [style.animation-delay]="(i + 4) * 0.08 + 's'">
+              <div class="skeleton-label shimmer"></div>
+              <div class="skeleton-value shimmer"></div>
+            </div>
+          }
+        </div>
+      </div>
+
+      <!-- Physical -->
+      <div class="skeleton-section">
+        <div class="skeleton-section-header shimmer"></div>
+        <div class="skeleton-list-group">
+          @for (i of [1, 2]; track i) {
+            <div class="skeleton-row" [style.animation-delay]="(i + 6) * 0.08 + 's'">
+              <div class="skeleton-label shimmer"></div>
+              <div class="skeleton-value shimmer"></div>
+            </div>
+          }
+        </div>
       </div>
     </div>
   `,
   styles: [
     `
-      /* ============================================
-       EDIT PROFILE SKELETON
-       ============================================ */
-
       :host {
         display: block;
       }
@@ -64,10 +86,10 @@ import { CommonModule } from '@angular/common';
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-5);
-        padding: var(--nxt1-spacing-4);
+        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-4) var(--nxt1-spacing-8);
       }
 
-      /* Shimmer Animation - Uses global design tokens (2026 Theme-Aware) */
+      /* Shimmer animation — theme-aware design tokens */
       .shimmer {
         background: linear-gradient(
           90deg,
@@ -88,7 +110,6 @@ import { CommonModule } from '@angular/common';
         }
       }
 
-      /* Reduced motion support */
       @media (prefers-reduced-motion: reduce) {
         .shimmer {
           animation: none;
@@ -97,66 +118,100 @@ import { CommonModule } from '@angular/common';
       }
 
       /* ============================================
-         PROGRESS SKELETON
+         MEDIA GALLERY SKELETON
          ============================================ */
-
-      .progress-skeleton {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: var(--nxt1-spacing-4);
-        padding: var(--nxt1-spacing-4);
-      }
-
-      .ring-skeleton {
-        width: 140px;
-        height: 140px;
-        border-radius: var(--nxt1-radius-full);
-      }
-
-      .xp-bar-skeleton {
-        width: 100%;
-        height: 32px;
-        border-radius: var(--nxt1-radius-lg);
-      }
-
-      .tier-skeleton {
-        width: 200px;
-        height: 44px;
-        border-radius: var(--nxt1-radius-lg);
-      }
-
-      /* ============================================
-         STATS SKELETON
-         ============================================ */
-
-      .stats-skeleton {
-        display: flex;
-        justify-content: space-around;
-        padding: var(--nxt1-spacing-4);
+      .skeleton-media {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: var(--nxt1-spacing-20);
+        gap: var(--nxt1-spacing-2);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-xl);
         background: var(--nxt1-color-surface-100);
-        border-radius: var(--nxt1-radius-xl);
+        padding: var(--nxt1-spacing-3);
+        overflow: hidden;
       }
 
-      .stat-skeleton {
-        width: 60px;
-        height: 48px;
-        border-radius: var(--nxt1-radius-md);
+      .skeleton-tile {
+        width: var(--nxt1-spacing-20);
+        height: var(--nxt1-spacing-24);
+        border-radius: var(--nxt1-borderRadius-lg);
+      }
+
+      .skeleton-tile-add {
+        width: var(--nxt1-spacing-20);
+        height: var(--nxt1-spacing-24);
+        border-radius: var(--nxt1-borderRadius-lg);
+        opacity: 0.5;
       }
 
       /* ============================================
-         SECTIONS SKELETON
+         LIST SECTION SKELETON
          ============================================ */
-
-      .sections-skeleton {
+      .skeleton-section {
         display: flex;
         flex-direction: column;
+      }
+
+      .skeleton-section-header {
+        width: 80px;
+        height: 14px;
+        border-radius: var(--nxt1-borderRadius-sm);
+        margin: 0 var(--nxt1-spacing-1);
+        margin-bottom: var(--nxt1-spacing-2);
+      }
+
+      .skeleton-list-group {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .skeleton-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-1);
+      }
+
+      .skeleton-row:not(:last-child) {
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
+      }
+
+      .skeleton-source-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-1);
+      }
+
+      .skeleton-source-row:not(:last-child) {
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
+      }
+
+      .skeleton-source-left {
+        display: flex;
+        align-items: center;
         gap: var(--nxt1-spacing-3);
       }
 
-      .section-skeleton {
-        height: 80px;
-        border-radius: var(--nxt1-radius-xl);
+      .skeleton-source-icon {
+        width: var(--nxt1-spacing-8);
+        height: var(--nxt1-spacing-8);
+        border-radius: var(--nxt1-borderRadius-lg);
+        flex-shrink: 0;
+      }
+
+      .skeleton-label {
+        width: 72px;
+        height: 16px;
+        border-radius: var(--nxt1-borderRadius-sm);
+        flex-shrink: 0;
+      }
+
+      .skeleton-value {
+        width: 120px;
+        height: 16px;
+        border-radius: var(--nxt1-borderRadius-sm);
       }
     `,
   ],

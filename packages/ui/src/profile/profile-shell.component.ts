@@ -713,6 +713,7 @@ export class ProfileShellComponent implements OnInit {
   readonly agentXClick = output<void>();
   readonly createPostClick = output<void>();
   readonly retryClick = output<void>();
+  readonly refreshRequest = output<void>();
 
   // ============================================
   // COMPUTED — Tab Options
@@ -1060,9 +1061,9 @@ export class ProfileShellComponent implements OnInit {
 
   protected async handleRefresh(event: RefreshEvent): Promise<void> {
     try {
-      // Don't use internal refresh when parent is handling data loading
       if (this.skipInternalLoad()) {
-        this.logger.warn('Refresh skipped - parent handles data loading');
+        // Parent handles data loading — emit event so it can re-fetch
+        this.refreshRequest.emit();
         return;
       }
       await this.profile.refresh();

@@ -54,7 +54,7 @@ import { CommonModule } from '@angular/common';
       .empty-icon-wrapper {
         width: var(--nxt1-spacing-20);
         height: var(--nxt1-spacing-20);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-surface-100);
         display: flex;
         align-items: center;
@@ -69,14 +69,14 @@ import { CommonModule } from '@angular/common';
       }
 
       .empty-title {
-        font-size: var(--nxt1-font-size-xl);
-        font-weight: var(--nxt1-font-weight-bold);
+        font-size: var(--nxt1-fontSize-xl);
+        font-weight: var(--nxt1-fontWeight-bold);
         color: var(--nxt1-color-text-primary);
         margin: 0 0 var(--nxt1-spacing-3);
       }
 
       .empty-description {
-        font-size: var(--nxt1-font-size-base);
+        font-size: var(--nxt1-fontSize-base);
         line-height: 1.5;
         color: var(--nxt1-color-text-secondary);
         margin: 0;

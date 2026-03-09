@@ -14,6 +14,8 @@
 // ============================================
 export { NxtLogoComponent, type LogoSize, type LogoVariant } from './logo';
 
+export { NxtChatBubbleComponent, type ChatBubbleVariant } from './chat-bubble';
+
 export {
   NxtImageComponent,
   type ImageFit,
@@ -453,3 +455,34 @@ export { StatsDashboardComponent } from './stats-dashboard';
 // NEWS BOARD (Shared between profile & team profile)
 // ============================================
 export { NewsBoardComponent } from './news-board';
+
+// ============================================
+// CONNECTED SOURCES (Shared across entire app)
+// ============================================
+export {
+  NxtConnectedSourcesComponent,
+  ConnectedAccountsSheetComponent,
+  DEFAULT_PLATFORMS,
+  type ConnectedSource,
+  type ConnectedSourceTapEvent,
+} from './connected-sources';
+
+// ============================================
+// VERIFIED PILL (Shared across entire app)
+// ============================================
+export { NxtVerifiedPillComponent } from './verified-pill';
+
+// ============================================
+// LIST ROW (Shared native iOS-style row)
+// ============================================
+export { NxtListRowComponent } from './list-row';
+
+// ============================================
+// LIST SECTION (Shared native iOS-style section)
+// ============================================
+export { NxtListSectionComponent } from './list-section';
+
+// ============================================
+// MEDIA GALLERY (Shared photo gallery)
+// ============================================
+export { NxtMediaGalleryComponent } from './media-gallery';

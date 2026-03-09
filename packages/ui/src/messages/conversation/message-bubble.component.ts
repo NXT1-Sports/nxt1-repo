@@ -22,6 +22,7 @@ import { Component, ChangeDetectionStrategy, input, output, inject, computed } f
 import { CommonModule } from '@angular/common';
 import type { Message, ConversationType } from '@nxt1/core';
 import { NxtAvatarComponent } from '../../components/avatar';
+import { NxtChatBubbleComponent } from '../../components/chat-bubble';
 import { HapticsService } from '../../services/haptics/haptics.service';
 
 /** SVG path constants for status icons */
@@ -43,7 +44,7 @@ const STATUS_ICONS = {
 @Component({
   selector: 'nxt1-message-bubble',
   standalone: true,
-  imports: [CommonModule, NxtAvatarComponent],
+  imports: [CommonModule, NxtAvatarComponent, NxtChatBubbleComponent],
   template: `
     <!-- Reply-to preview -->
     @if (message().replyTo) {
@@ -82,20 +83,17 @@ const STATUS_ICONS = {
         }
 
         <!-- Bubble -->
-        <div
-          class="bubble"
-          [class.bubble--own]="message().isOwn"
-          [class.bubble--other]="!message().isOwn"
-          [class.bubble--failed]="message().status === 'failed'"
-          [class.bubble--first]="isFirstInGroup()"
-          [class.bubble--last]="isLastInGroup()"
+        <nxt1-chat-bubble
+          variant="message"
+          [isOwn]="!!message().isOwn"
+          [content]="message().body"
+          [isError]="message().status === 'failed'"
+          [isFirstInGroup]="isFirstInGroup()"
+          [isLastInGroup]="isLastInGroup()"
           (click)="onBubbleClick()"
           role="article"
           [attr.aria-label]="ariaLabel()"
         >
-          <!-- Message body -->
-          <p class="bubble-text">{{ message().body }}</p>
-
           <!-- Meta row: time + status -->
           <div class="bubble-meta">
             <span class="bubble-time">{{ formatTime(message().timestamp) }}</span>
@@ -155,7 +153,7 @@ const STATUS_ICONS = {
               }
             }
           </div>
-        </div>
+        </nxt1-chat-bubble>
 
         <!-- Failed: retry button -->
         @if (message().status === 'failed') {
@@ -175,10 +173,6 @@ const STATUS_ICONS = {
     `
       :host {
         display: block;
-        --nxt1-message-own-bubble-bg: var(--nxt1-color-info, #3b82f6);
-        --nxt1-message-own-text: var(--nxt1-color-text-inverse, #ffffff);
-        --nxt1-message-other-bubble-bg: var(--nxt1-color-surface-100, #1f2937);
-        --nxt1-message-other-text: var(--nxt1-color-text-primary, #f3f4f6);
       }
 
       /* ============================================
@@ -201,7 +195,7 @@ const STATUS_ICONS = {
 
       .reply-bar {
         width: calc(var(--nxt1-spacing-px) * 3);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-primary);
         flex-shrink: 0;
       }
@@ -215,14 +209,14 @@ const STATUS_ICONS = {
       }
 
       .reply-sender {
-        font-size: var(--nxt1-font-size-xs);
-        font-weight: var(--nxt1-font-weight-semibold);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
         color: var(--nxt1-color-primary);
         line-height: 1.2;
       }
 
       .reply-preview {
-        font-size: var(--nxt1-font-size-xs);
+        font-size: var(--nxt1-fontSize-xs);
         color: var(--nxt1-color-text-tertiary);
         white-space: nowrap;
         overflow: hidden;
@@ -276,8 +270,8 @@ const STATUS_ICONS = {
 
       /* Sender name */
       .sender-name {
-        font-size: var(--nxt1-font-size-xs);
-        font-weight: var(--nxt1-font-weight-semibold);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
         color: var(--nxt1-color-primary);
         margin-left: var(--nxt1-spacing-3);
         margin-bottom: var(--nxt1-spacing-0_5);
@@ -285,64 +279,8 @@ const STATUS_ICONS = {
       }
 
       /* ============================================
-         BUBBLE STYLES
+         META ROW (projected into shared bubble)
          ============================================ */
-
-      .bubble {
-        position: relative;
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
-        border-radius: var(--nxt1-spacing-5);
-        max-width: 100%;
-        word-wrap: break-word;
-        overflow-wrap: break-word;
-      }
-
-      /* Other's bubble: gray, left-aligned */
-      .bubble--other {
-        background: var(--nxt1-message-other-bubble-bg);
-        color: var(--nxt1-message-other-text);
-        border-bottom-left-radius: var(--nxt1-spacing-1);
-      }
-
-      .bubble--other.bubble--first {
-        border-top-left-radius: var(--nxt1-spacing-5);
-      }
-
-      .bubble--other.bubble--last {
-        border-bottom-left-radius: var(--nxt1-spacing-5);
-      }
-
-      /* Own bubble: primary blue, right-aligned */
-      .bubble--own {
-        background: var(--nxt1-message-own-bubble-bg);
-        color: var(--nxt1-message-own-text);
-        border-bottom-right-radius: var(--nxt1-spacing-1);
-      }
-
-      .bubble--own.bubble--first {
-        border-top-right-radius: var(--nxt1-spacing-5);
-      }
-
-      .bubble--own.bubble--last {
-        border-bottom-right-radius: var(--nxt1-spacing-5);
-      }
-
-      /* Failed state */
-      .bubble--failed {
-        opacity: 0.7;
-      }
-
-      .bubble--failed.bubble--own {
-        background: var(--nxt1-color-error);
-      }
-
-      /* Message text */
-      .bubble-text {
-        margin: 0;
-        font-size: var(--nxt1-font-size-base);
-        line-height: 1.45;
-        white-space: pre-wrap;
-      }
 
       /* Meta row */
       .bubble-meta {
@@ -393,17 +331,9 @@ const STATUS_ICONS = {
         opacity: 1;
       }
 
-      .bubble--own .status-icon--read {
-        color: currentColor;
-      }
-
       .status-icon--failed {
-        color: var(--nxt1-color-error);
+        color: currentColor;
         opacity: 1;
-      }
-
-      .bubble--own .status-icon--failed {
-        color: rgba(255, 255, 255, 0.9);
       }
 
       /* Retry button */
@@ -416,8 +346,8 @@ const STATUS_ICONS = {
         background: none;
         border: none;
         color: var(--nxt1-color-error);
-        font-size: var(--nxt1-font-size-xs);
-        font-weight: var(--nxt1-font-weight-medium);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-medium);
         cursor: pointer;
         -webkit-tap-highlight-color: transparent;
       }

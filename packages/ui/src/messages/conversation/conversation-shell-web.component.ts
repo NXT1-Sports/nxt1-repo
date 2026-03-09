@@ -256,7 +256,7 @@ import { AgentXInputComponent } from '../../agent-x/agent-x-input.component';
 
       .skeleton-line {
         height: var(--nxt1-spacing-3);
-        border-radius: var(--nxt1-radius-sm);
+        border-radius: var(--nxt1-borderRadius-sm);
         background: var(--nxt1-skeleton-gradient);
         background-size: 200% 100%;
         animation: shimmer 1.5s ease-in-out infinite;
@@ -297,7 +297,7 @@ import { AgentXInputComponent } from '../../agent-x/agent-x-input.component';
       }
 
       .error-text {
-        font-size: var(--nxt1-font-size-sm);
+        font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-secondary);
         margin: 0;
       }
@@ -305,11 +305,11 @@ import { AgentXInputComponent } from '../../agent-x/agent-x-input.component';
       .error-retry {
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-5);
         border: none;
-        border-radius: var(--nxt1-radius-lg);
+        border-radius: var(--nxt1-borderRadius-lg);
         background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-inverse);
-        font-size: var(--nxt1-font-size-sm);
-        font-weight: var(--nxt1-font-weight-medium);
+        color: var(--nxt1-color-text-onPrimary);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
         cursor: pointer;
         transition: filter var(--nxt1-ui-transition-fast);
       }
@@ -346,14 +346,14 @@ import { AgentXInputComponent } from '../../agent-x/agent-x-input.component';
       }
 
       .empty-title {
-        font-size: var(--nxt1-font-size-lg);
-        font-weight: var(--nxt1-font-weight-semibold);
+        font-size: var(--nxt1-fontSize-lg);
+        font-weight: var(--nxt1-fontWeight-semibold);
         color: var(--nxt1-color-text-primary);
         margin: 0;
       }
 
       .empty-text {
-        font-size: var(--nxt1-font-size-sm);
+        font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-tertiary);
         margin: 0;
       }
@@ -370,10 +370,10 @@ import { AgentXInputComponent } from '../../agent-x/agent-x-input.component';
 
       .date-label {
         padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-surface-100);
         font-size: var(--nxt1-fontSize-2xs);
-        font-weight: var(--nxt1-font-weight-medium);
+        font-weight: var(--nxt1-fontWeight-medium);
         color: var(--nxt1-color-text-tertiary);
         line-height: 1.4;
       }
@@ -402,7 +402,7 @@ import { AgentXInputComponent } from '../../agent-x/agent-x-input.component';
       .dot {
         width: var(--nxt1-spacing-1_5);
         height: var(--nxt1-spacing-1_5);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-text-tertiary);
         animation: typingBounce 1.4s infinite ease-in-out;
       }
@@ -416,7 +416,7 @@ import { AgentXInputComponent } from '../../agent-x/agent-x-input.component';
       }
 
       .typing-text {
-        font-size: var(--nxt1-font-size-xs);
+        font-size: var(--nxt1-fontSize-xs);
         color: var(--nxt1-color-text-tertiary);
         font-style: italic;
       }
@@ -434,11 +434,11 @@ import { AgentXInputComponent } from '../../agent-x/agent-x-input.component';
       .load-more-button {
         padding: var(--nxt1-spacing-1_5) var(--nxt1-spacing-4);
         border: var(--nxt1-spacing-px) solid var(--nxt1-color-border-subtle);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: none;
         color: var(--nxt1-color-primary);
-        font-size: var(--nxt1-font-size-xs);
-        font-weight: var(--nxt1-font-weight-medium);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-medium);
         cursor: pointer;
         transition: all var(--nxt1-ui-transition-fast);
       }

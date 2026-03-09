@@ -35,6 +35,7 @@ import type { BrandCategory } from '@nxt1/core';
       <nxt1-brand-shell
         (avatarClick)="onAvatarClick()"
         (categorySelect)="onCategorySelect($event)"
+        (connectionsUpdate)="onConnectionsUpdate($event)"
       />
     </ion-content>
   `,
@@ -100,5 +101,11 @@ export class BrandComponent implements OnInit {
       backdropDismiss: true,
       cssClass: 'agent-x-operation-sheet',
     });
+  }
+
+  onConnectionsUpdate(
+    updatedLinks: { platform: string; url: string; username?: string; displayOrder: number }[]
+  ): void {
+    this.logger.info('Connected accounts updated from brand page', { count: updatedLinks.length });
   }
 }

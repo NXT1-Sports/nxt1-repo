@@ -143,7 +143,7 @@ import { MessagesSkeletonComponent } from './messages-skeleton.component';
       .empty-icon-wrapper {
         width: calc(var(--nxt1-spacing-16) + var(--nxt1-spacing-2));
         height: calc(var(--nxt1-spacing-16) + var(--nxt1-spacing-2));
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-surface-100);
         display: flex;
         align-items: center;
@@ -158,14 +158,14 @@ import { MessagesSkeletonComponent } from './messages-skeleton.component';
       }
 
       .empty-title {
-        font-size: var(--nxt1-font-size-lg);
-        font-weight: var(--nxt1-font-weight-semibold);
+        font-size: var(--nxt1-fontSize-lg);
+        font-weight: var(--nxt1-fontWeight-semibold);
         color: var(--nxt1-color-text-primary);
         margin: 0 0 var(--nxt1-spacing-2);
       }
 
       .empty-description {
-        font-size: var(--nxt1-font-size-sm);
+        font-size: var(--nxt1-fontSize-sm);
         line-height: 1.5;
         color: var(--nxt1-color-text-tertiary);
         margin: 0 0 var(--nxt1-spacing-6);
@@ -177,11 +177,11 @@ import { MessagesSkeletonComponent } from './messages-skeleton.component';
         align-items: center;
         gap: var(--nxt1-spacing-2);
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-5);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-inverse);
-        font-size: var(--nxt1-font-size-sm);
-        font-weight: var(--nxt1-font-weight-semibold);
+        color: var(--nxt1-color-text-onPrimary);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-semibold);
         border: none;
         cursor: pointer;
         transition: opacity var(--nxt1-ui-transition-fast);
@@ -214,7 +214,7 @@ import { MessagesSkeletonComponent } from './messages-skeleton.component';
       .error-icon-wrapper {
         width: calc(var(--nxt1-spacing-16) + var(--nxt1-spacing-2));
         height: calc(var(--nxt1-spacing-16) + var(--nxt1-spacing-2));
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-error-bg);
         display: flex;
         align-items: center;
@@ -229,7 +229,7 @@ import { MessagesSkeletonComponent } from './messages-skeleton.component';
       }
 
       .error-message {
-        font-size: var(--nxt1-font-size-sm);
+        font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-secondary);
         margin: 0 0 var(--nxt1-spacing-5);
         max-width: var(--nxt1-spacing-72);
@@ -237,11 +237,11 @@ import { MessagesSkeletonComponent } from './messages-skeleton.component';
 
       .retry-btn {
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-5);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: transparent;
         color: var(--nxt1-color-primary);
-        font-size: var(--nxt1-font-size-sm);
-        font-weight: var(--nxt1-font-weight-medium);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
         border: var(--nxt1-spacing-px) solid var(--nxt1-color-primary);
         cursor: pointer;
         transition:
@@ -251,7 +251,7 @@ import { MessagesSkeletonComponent } from './messages-skeleton.component';
 
       .retry-btn:hover {
         background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-inverse);
+        color: var(--nxt1-color-text-onPrimary);
       }
 
       /* Load more */
@@ -262,11 +262,11 @@ import { MessagesSkeletonComponent } from './messages-skeleton.component';
       .load-more-btn {
         width: 100%;
         padding: var(--nxt1-spacing-3);
-        border-radius: var(--nxt1-radius-md);
+        border-radius: var(--nxt1-borderRadius-md);
         background: transparent;
         color: var(--nxt1-color-text-secondary);
-        font-size: var(--nxt1-font-size-sm);
-        font-weight: var(--nxt1-font-weight-medium);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
         border: var(--nxt1-spacing-px) dashed var(--nxt1-color-border-subtle);
         cursor: pointer;
         transition: border-color var(--nxt1-ui-transition-fast);

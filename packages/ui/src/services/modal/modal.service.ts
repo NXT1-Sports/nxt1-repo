@@ -236,6 +236,43 @@ export class NxtModalService {
     this._activeModals.update((modals) => modals.filter((m) => m.id !== id));
   }
 
+  /**
+   * Apply NXT1 design-token theme to an Ionic overlay element.
+   * Sets inline CSS custom properties to override Ionic's scoped styles,
+   * resolving values from the current theme's `--nxt1-ui-bg-elevated` token.
+   *
+   * Public so that callers using AlertController directly (e.g. checkbox alerts)
+   * can apply consistent modal theming.
+   */
+  applyModalTheme(el: HTMLElement): void {
+    const bg = 'var(--nxt1-ui-bg-elevated, var(--nxt1-color-bg-elevated, #121212))';
+    el.style.setProperty('--background', bg);
+    el.style.setProperty('--ion-background-color', bg);
+    el.style.setProperty('--ion-overlay-background-color', bg);
+    el.style.setProperty('--ion-color-step-100', bg);
+    el.style.setProperty('--ion-color-step-150', bg);
+    el.style.setProperty('--ion-color-step-200', bg);
+    el.style.setProperty('--ion-color-step-250', bg);
+    el.style.setProperty('--ion-item-background', bg);
+
+    // Compute RGB from the resolved token for Ionic's rgba() usage (SSR-safe)
+    if (this.isBrowser()) {
+      const resolved = getComputedStyle(document.documentElement)
+        .getPropertyValue('--nxt1-ui-bg-elevated')
+        .trim();
+      const rgb = this.hexToRgb(resolved);
+      if (rgb) {
+        el.style.setProperty('--ion-background-color-rgb', rgb);
+      }
+    }
+  }
+
+  private hexToRgb(hex: string): string | null {
+    const match = hex.match(/^#([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+    if (!match) return null;
+    return `${parseInt(match[1], 16)}, ${parseInt(match[2], 16)}, ${parseInt(match[3], 16)}`;
+  }
+
   // ============================================
   // HAPTIC FEEDBACK
   // ============================================
@@ -315,6 +352,7 @@ export class NxtModalService {
 
     const modalId = this.trackModal('alert', () => alert.dismiss());
 
+    this.applyModalTheme(alert);
     await alert.present();
     await alert.onDidDismiss();
 
@@ -411,6 +449,7 @@ export class NxtModalService {
 
     const modalId = this.trackModal('confirm', () => alert.dismiss());
 
+    this.applyModalTheme(alert);
     await alert.present();
     await alert.onDidDismiss();
 
@@ -450,7 +489,7 @@ export class NxtModalService {
 
     await this.triggerHaptic('open');
 
-    if (this.shouldUseNative()) {
+    if (this.shouldUseNative(config.preferNative)) {
       return this.nativePrompt(config);
     }
 
@@ -491,16 +530,19 @@ export class NxtModalService {
       header: config.title,
       message: config.message,
       mode: this.platform.isIOS() ? 'ios' : 'md',
-      cssClass: 'nxt-modal-prompt',
+      cssClass: config.multiline
+        ? 'nxt-modal-prompt nxt-modal-prompt-textarea'
+        : 'nxt-modal-prompt',
       inputs: [
         {
           name: 'value',
-          type: config.inputType ?? 'text',
+          type: config.multiline ? 'textarea' : (config.inputType ?? 'text'),
           placeholder: config.placeholder,
           value: config.defaultValue ?? '',
           attributes: {
             maxlength: config.maxLength,
             required: config.required,
+            ...(config.multiline ? { rows: config.rows ?? 4 } : {}),
           },
         },
       ],
@@ -536,12 +578,14 @@ export class NxtModalService {
 
     const modalId = this.trackModal('prompt', () => alert.dismiss());
 
+    this.applyModalTheme(alert);
+
     await alert.present();
 
-    // Focus input after present
-    const input = alert.querySelector('input');
-    if (input) {
-      setTimeout(() => input.focus(), 100);
+    // Focus input/textarea after present
+    const inputEl = alert.querySelector(config.multiline ? 'textarea' : 'input');
+    if (inputEl) {
+      setTimeout(() => inputEl.focus(), 100);
     }
 
     await alert.onDidDismiss();
@@ -591,7 +635,7 @@ export class NxtModalService {
 
     await this.triggerHaptic('open');
 
-    if (this.shouldUseNative()) {
+    if (this.shouldUseNative(config.preferNative)) {
       return this.nativeActionSheet(config);
     }
 
@@ -669,6 +713,7 @@ export class NxtModalService {
 
     const modalId = this.trackModal('action-sheet', () => actionSheet.dismiss());
 
+    this.applyModalTheme(actionSheet);
     await actionSheet.present();
     await actionSheet.onDidDismiss();
 

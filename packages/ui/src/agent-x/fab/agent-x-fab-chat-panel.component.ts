@@ -43,6 +43,7 @@ import { FormsModule } from '@angular/forms';
 import type { AgentXQuickTask } from '@nxt1/core';
 import { ATHLETE_QUICK_TASKS, COACH_QUICK_TASKS } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon/icon.component';
+import { NxtChatBubbleComponent } from '../../components/chat-bubble';
 import { AgentXService } from '../agent-x.service';
 import { AgentXFabService } from './agent-x-fab.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constants';
@@ -50,7 +51,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constant
 @Component({
   selector: 'nxt1-agent-x-fab-chat-panel',
   standalone: true,
-  imports: [FormsModule, NxtIconComponent],
+  imports: [FormsModule, NxtIconComponent, NxtChatBubbleComponent],
   template: `
     <div
       class="chat-panel"
@@ -195,13 +196,13 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constant
                     </svg>
                   </div>
                 }
-                <div class="msg-bubble">
-                  @if (message.isTyping) {
-                    <div class="typing-dots"><span></span><span></span><span></span></div>
-                  } @else {
-                    <p class="msg-text">{{ message.content }}</p>
-                  }
-                </div>
+                <nxt1-chat-bubble
+                  variant="agent-fab"
+                  [isOwn]="message.role === 'user'"
+                  [content]="message.content"
+                  [isTyping]="!!message.isTyping"
+                  [isError]="!!message.error"
+                />
               </div>
             }
           </div>
@@ -633,75 +634,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constant
         justify-content: center;
         flex-shrink: 0;
         color: var(--panel-primary);
-      }
-
-      .msg-bubble {
-        padding: 10px 14px;
-        border-radius: var(--nxt1-ui-radius-xl, 16px);
-        max-width: 100%;
-      }
-
-      .msg-user .msg-bubble {
-        background: var(--panel-primary);
-        color: var(--panel-text-inverse);
-        border-bottom-right-radius: var(--nxt1-ui-radius-sm, 4px);
-      }
-
-      .msg-assistant .msg-bubble {
-        background: var(--panel-surface);
-        border: 1px solid var(--panel-border);
-        color: var(--panel-text);
-        border-bottom-left-radius: var(--nxt1-ui-radius-sm, 4px);
-      }
-
-      .msg-error .msg-bubble {
-        background: var(--panel-error-bg);
-        border-color: var(--panel-error-border);
-      }
-
-      .msg-text {
-        margin: 0;
-        font-size: 13px;
-        line-height: 1.55;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-
-      /* ── Typing Indicator ─────────────────────── */
-
-      .typing-dots {
-        display: flex;
-        gap: 4px;
-        padding: 4px 2px;
-      }
-
-      .typing-dots span {
-        width: 7px;
-        height: 7px;
-        border-radius: var(--nxt1-ui-radius-full, 9999px);
-        background: var(--panel-text-muted);
-        animation: dotBounce 1.4s ease-in-out infinite;
-      }
-
-      .typing-dots span:nth-child(2) {
-        animation-delay: 0.2s;
-      }
-
-      .typing-dots span:nth-child(3) {
-        animation-delay: 0.4s;
-      }
-
-      @keyframes dotBounce {
-        0%,
-        60%,
-        100% {
-          transform: translateY(0);
-          opacity: 0.35;
-        }
-        30% {
-          transform: translateY(-5px);
-          opacity: 1;
-        }
       }
 
       /* ── Panel Footer (Input) ─────────────────── */

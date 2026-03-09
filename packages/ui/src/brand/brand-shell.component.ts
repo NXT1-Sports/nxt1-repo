@@ -9,12 +9,23 @@
  * Uses Ionic components for native mobile UX.
  */
 
-import { Component, ChangeDetectionStrategy, inject, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, inject, output } from '@angular/core';
 import { IonContent } from '@ionic/angular/standalone';
 import type { BrandCategory } from '@nxt1/core';
 import { BRAND_PAGE_SUBTITLE } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TEST_IDS } from '@nxt1/core/testing';
 import type { PageHeaderAction } from '../components/page-header/page-header.types';
+import {
+  ConnectedAccountsSheetComponent,
+  DEFAULT_PLATFORMS,
+  type ConnectedSource,
+} from '../components/connected-sources';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+import { ProfileService } from '../profile/profile.service';
+import { NxtLoggingService } from '../services/logging/logging.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { BrandService } from './brand.service';
 import { BrandCategoryCardComponent } from './brand-category-card.component';
 import { NxtPageHeaderComponent } from '../components/page-header/page-header.component';
@@ -143,6 +154,11 @@ import { NxtPageHeaderComponent } from '../components/page-header/page-header.co
 })
 export class BrandShellComponent {
   protected readonly brand = inject(BrandService);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly profileService = inject(ProfileService);
+  private readonly logger = inject(NxtLoggingService).child('BrandShellComponent');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   /** Emitted when a category is selected — parent navigates to Agent X */
   readonly categorySelect = output<BrandCategory>();
@@ -150,11 +166,29 @@ export class BrandShellComponent {
   /** Emitted when hamburger is clicked — parent opens sidenav */
   readonly avatarClick = output<void>();
 
+  /** Emitted when connected accounts are updated from the sheet */
+  readonly connectionsUpdate =
+    output<{ platform: string; url: string; username?: string; displayOrder: number }[]>();
+
   protected readonly testIds = TEST_IDS.BRAND;
   protected readonly subtitle = BRAND_PAGE_SUBTITLE;
   protected readonly connectionsAction: PageHeaderAction[] = [
     { id: 'connections', icon: 'link-outline', label: 'Connections' },
   ];
+
+  /** Build connected sources from the user's social links */
+  private readonly connectedSources = computed<readonly ConnectedSource[]>(() => {
+    const user = this.profileService.user();
+    const links = user?.social ?? [];
+
+    return DEFAULT_PLATFORMS.map((platform) => {
+      const match = links.find((l) => l.platform === platform.platform);
+      if (match?.url) {
+        return { ...platform, connected: true, username: match.username, url: match.url };
+      }
+      return platform;
+    });
+  });
 
   async onCategorySelect(category: BrandCategory): Promise<void> {
     await this.brand.selectCategory(category);
@@ -162,9 +196,28 @@ export class BrandShellComponent {
   }
 
   async onConnectionsClick(): Promise<void> {
-    const featured = this.brand.featuredCategory();
-    if (featured) {
-      await this.onCategorySelect(featured);
+    this.logger.info('Opening connected accounts sheet');
+    this.breadcrumb.trackStateChange('brand:connections-open');
+
+    const result = await this.bottomSheet.openSheet<{
+      updatedLinks: { platform: string; url: string; username?: string; displayOrder: number }[];
+      sources: readonly ConnectedSource[];
+    }>({
+      component: ConnectedAccountsSheetComponent,
+      ...SHEET_PRESETS.FULL,
+      componentProps: { initialSources: this.connectedSources() },
+      showHandle: true,
+    });
+
+    if (result.role === 'save' && result.data?.updatedLinks) {
+      this.logger.info('Connected accounts updated', {
+        count: result.data.updatedLinks.length,
+      });
+      this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, {
+        source: 'brand-connections',
+        action: 'bulk-update',
+      });
+      this.connectionsUpdate.emit(result.data.updatedLinks);
     }
   }
 }

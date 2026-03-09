@@ -147,7 +147,7 @@ const INPUT_ICONS = {
 
       .reply-preview-bar {
         width: calc(var(--nxt1-spacing-px) * 3);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-primary);
         flex-shrink: 0;
         align-self: stretch;
@@ -162,13 +162,13 @@ const INPUT_ICONS = {
       }
 
       .reply-preview-label {
-        font-size: var(--nxt1-font-size-xs);
+        font-size: var(--nxt1-fontSize-xs);
         color: var(--nxt1-color-primary);
         line-height: 1.2;
       }
 
       .reply-preview-text {
-        font-size: var(--nxt1-font-size-xs);
+        font-size: var(--nxt1-fontSize-xs);
         color: var(--nxt1-color-text-tertiary);
         white-space: nowrap;
         overflow: hidden;
@@ -186,7 +186,7 @@ const INPUT_ICONS = {
         background: none;
         color: var(--nxt1-color-text-tertiary);
         cursor: pointer;
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         flex-shrink: 0;
         -webkit-tap-highlight-color: transparent;
         transition: background-color var(--nxt1-ui-transition-fast);
@@ -221,7 +221,7 @@ const INPUT_ICONS = {
         width: var(--nxt1-spacing-9);
         height: var(--nxt1-spacing-9);
         border: none;
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         cursor: pointer;
         flex-shrink: 0;
         -webkit-tap-highlight-color: transparent;
@@ -256,7 +256,7 @@ const INPUT_ICONS = {
 
       .send-button--active {
         background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-inverse);
+        color: var(--nxt1-color-text-onPrimary);
       }
 
       .send-button--active:hover:not(:disabled) {
@@ -285,7 +285,7 @@ const INPUT_ICONS = {
         background: var(--nxt1-color-surface-50);
         color: var(--nxt1-color-text-primary);
         font-family: inherit;
-        font-size: var(--nxt1-font-size-base);
+        font-size: var(--nxt1-fontSize-base);
         line-height: 1.4;
         resize: none;
         overflow-y: auto;
@@ -335,8 +335,8 @@ const INPUT_ICONS = {
         width: var(--nxt1-spacing-5);
         height: var(--nxt1-spacing-5);
         border: calc(var(--nxt1-spacing-px) * 2) solid rgba(255, 255, 255, 0.3);
-        border-top-color: var(--nxt1-color-text-inverse);
-        border-radius: var(--nxt1-radius-full);
+        border-top-color: var(--nxt1-color-text-onPrimary);
+        border-radius: var(--nxt1-borderRadius-full);
         animation: spin 0.8s linear infinite;
       }
 

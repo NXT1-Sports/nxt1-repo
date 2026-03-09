@@ -44,8 +44,10 @@ import {
   NxtSidenavService,
   ProfileService as UiProfileService,
   userToProfilePageData,
+  NxtRefresherComponent,
   type RelatedAthlete,
   type RankingSource,
+  type RefreshEvent,
 } from '@nxt1/ui';
 import { parseApiError, requiresAuth } from '@nxt1/core';
 import type { User, UserSummary, ProfileTabId } from '@nxt1/core';
@@ -73,12 +75,20 @@ import { environment } from '../../../environments/environment';
 @Component({
   selector: 'app-profile',
   standalone: true,
-  imports: [IonHeader, IonContent, IonToolbar, ProfileShellComponent, RelatedAthletesComponent],
+  imports: [
+    IonHeader,
+    IonContent,
+    IonToolbar,
+    ProfileShellComponent,
+    RelatedAthletesComponent,
+    NxtRefresherComponent,
+  ],
   template: `
     <ion-header class="ion-no-border" [translucent]="true">
       <ion-toolbar></ion-toolbar>
     </ion-header>
     <ion-content [fullscreen]="true">
+      <nxt-refresher (onRefresh)="handleRefresh($event)" />
       <nxt1-profile-shell
         [currentUser]="currentUser()"
         [profileUnicode]="profileUnicode()"
@@ -95,6 +105,7 @@ import { environment } from '../../../environments/environment';
         (qrCodeClick)="onQrCode()"
         (aiSummaryClick)="onAiSummary()"
         (createPostClick)="onCreatePost()"
+        (refreshRequest)="onRefreshRequest()"
       />
 
       @if (relatedAthletes().length > 0) {
@@ -129,6 +140,9 @@ import { environment } from '../../../environments/environment';
     }
     ion-content {
       --background: var(--nxt1-color-bg-primary, #0a0a0a);
+    }
+    ion-content::part(scroll) {
+      overflow: visible;
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -560,5 +574,56 @@ export class ProfileComponent {
         },
       }
     );
+  }
+
+  /**
+   * Handle native pull-to-refresh on the outer ion-content.
+   * Delegates to onRefreshRequest for the actual data fetching.
+   */
+  protected async handleRefresh(event: RefreshEvent): Promise<void> {
+    try {
+      await this.onRefreshRequest();
+    } finally {
+      event.complete();
+    }
+  }
+
+  /**
+   * Handle pull-to-refresh from the profile shell.
+   * Re-fetches profile + sub-collections from the real API and
+   * pushes the fresh data into the shared UIProfileService.
+   */
+  protected async onRefreshRequest(): Promise<void> {
+    const profile = this.fetchedProfile();
+    const authUser = this.authService.user();
+    const param = this.routeParam();
+
+    try {
+      let response: { success: boolean; data?: User; error?: string };
+
+      if (!param && authUser?.uid) {
+        response = await this.profileApiService.getProfile(authUser.uid);
+      } else if (profile?.id) {
+        response = await this.profileApiService.getProfile(profile.id);
+      } else {
+        return;
+      }
+
+      if (response.success && response.data) {
+        const freshProfile = response.data;
+        this.fetchedProfile.set(freshProfile);
+        const isOwn = this.isOwnProfile();
+        this.resolvedUnicode.set(freshProfile.unicode ?? freshProfile.id ?? '');
+        const profilePageData = userToProfilePageData(freshProfile, isOwn);
+        this.uiProfileService.loadFromExternalData(profilePageData, freshProfile, isOwn);
+        this.fetchRelatedAthletes(freshProfile);
+        const activeSport =
+          freshProfile.sports?.[freshProfile.activeSportIndex ?? 0] ?? freshProfile.sports?.[0];
+        const sportId = activeSport?.sport?.toLowerCase();
+        void this.fetchSubCollections(freshProfile.id, sportId);
+      }
+    } catch {
+      // Non-critical — profile stays with current data
+    }
   }
 }

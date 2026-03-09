@@ -120,11 +120,25 @@ export interface PromptConfig {
   /** Input type (default: "text") */
   inputType?: 'text' | 'number' | 'email' | 'tel' | 'url' | 'password';
 
+  /** Use a multi-line textarea instead of single-line input */
+  multiline?: boolean;
+
+  /** Number of visible rows for textarea (default: 4) */
+  rows?: number;
+
   /** Maximum input length */
   maxLength?: number;
 
   /** Whether input is required (non-empty) */
   required?: boolean;
+
+  /**
+   * Force a specific implementation:
+   * - 'native': Use OS native dialog (mobile only)
+   * - 'ionic': Use Ionic alert (CSS-themeable)
+   * - 'auto': Smart selection based on platform (default)
+   */
+  preferNative?: 'native' | 'ionic' | 'auto';
 }
 
 /**
@@ -179,6 +193,14 @@ export interface ActionSheetConfig {
 
   /** Header element for card-style (iOS) - web/Ionic only */
   presentingElement?: HTMLElement;
+
+  /**
+   * Force a specific implementation:
+   * - 'native': Use OS native action sheet (mobile only)
+   * - 'ionic': Use Ionic action sheet (CSS-themeable)
+   * - 'auto': Smart selection based on platform (default)
+   */
+  preferNative?: 'native' | 'ionic' | 'auto';
 }
 
 /**

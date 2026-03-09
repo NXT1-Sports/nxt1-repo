@@ -99,9 +99,21 @@ export {
 // CORE UI COMPONENTS
 // ============================================
 export { NxtLogoComponent, type LogoSize, type LogoVariant } from './components/logo';
+export { NxtChatBubbleComponent, type ChatBubbleVariant } from './components/chat-bubble';
 export { ScheduleBoardComponent } from './components/schedule-board';
 export { StatsDashboardComponent } from './components/stats-dashboard';
 export { NewsBoardComponent } from './components/news-board';
+export {
+  NxtConnectedSourcesComponent,
+  ConnectedAccountsSheetComponent,
+  DEFAULT_PLATFORMS,
+  type ConnectedSource,
+  type ConnectedSourceTapEvent,
+} from './components/connected-sources';
+export { NxtVerifiedPillComponent } from './components/verified-pill';
+export { NxtListRowComponent } from './components/list-row';
+export { NxtListSectionComponent } from './components/list-section';
+export { NxtMediaGalleryComponent } from './components/media-gallery';
 export {
   NxtHistoryTimelineComponent,
   type HistoryTimelineEntry,

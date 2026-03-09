@@ -16,14 +16,13 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { IonSpinner } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../components/icon/icon.component';
 import type { AgentXQuickTask } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-agent-x-input',
   standalone: true,
-  imports: [CommonModule, FormsModule, IonSpinner, NxtIconComponent],
+  imports: [CommonModule, FormsModule, NxtIconComponent],
   template: `
     <div class="input-container" [class.has-messages]="hasMessages()">
       <!-- Selected Task Pill -->
@@ -62,20 +61,32 @@ import type { AgentXQuickTask } from '@nxt1/core';
           class="message-input"
         ></textarea>
 
-        <button
-          type="button"
-          class="primary-btn"
-          [class.send]="canSend()"
-          [disabled]="isLoading() || !canSend()"
-          (click)="onPrimaryAction()"
-          aria-label="Send message"
-        >
-          @if (isLoading()) {
-            <ion-spinner name="crescent" class="send-spinner"></ion-spinner>
-          } @else {
+        @if (isLoading()) {
+          <button
+            type="button"
+            class="primary-btn stop"
+            (click)="onStopAction()"
+            aria-label="Stop generation"
+          >
+            <div class="stop-wrapper">
+              <svg class="stop-spinner" viewBox="0 0 36 36">
+                <circle cx="18" cy="18" r="16" />
+              </svg>
+              <span class="stop-square"></span>
+            </div>
+          </button>
+        } @else {
+          <button
+            type="button"
+            class="primary-btn"
+            [class.send]="canSend()"
+            [disabled]="!canSend()"
+            (click)="onPrimaryAction()"
+            aria-label="Send message"
+          >
             <nxt1-icon name="arrowUp" [size]="18" />
-          }
-        </button>
+          </button>
+        }
       </div>
     </div>
   `,
@@ -291,10 +302,53 @@ import type { AgentXQuickTask } from '@nxt1/core';
         transform: scale(0.95);
       }
 
-      .send-spinner {
-        width: 18px;
-        height: 18px;
-        --color: currentColor;
+      .primary-btn.stop {
+        background: transparent;
+        cursor: pointer;
+        opacity: 1;
+      }
+
+      .primary-btn.stop:active {
+        transform: scale(0.92);
+      }
+
+      .stop-wrapper {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+      }
+
+      .stop-spinner {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        animation: stopSpin 1s linear infinite;
+      }
+
+      .stop-spinner circle {
+        fill: none;
+        stroke: var(--agent-text-secondary, rgba(255, 255, 255, 0.7));
+        stroke-width: 2;
+        stroke-dasharray: 80, 100;
+        stroke-linecap: round;
+      }
+
+      .stop-square {
+        display: block;
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        background: var(--agent-text-secondary, rgba(255, 255, 255, 0.7));
+      }
+
+      @keyframes stopSpin {
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       @media (max-width: 767px) {
@@ -331,6 +385,7 @@ export class AgentXInputComponent {
 
   readonly messageChange = output<string>();
   readonly send = output<void>();
+  readonly stop = output<void>();
   readonly removeTask = output<void>();
   readonly toggleTasks = output<void>();
 
@@ -367,6 +422,10 @@ export class AgentXInputComponent {
 
   protected onPrimaryAction(): void {
     this.onSend();
+  }
+
+  protected onStopAction(): void {
+    this.stop.emit();
   }
 
   // ============================================

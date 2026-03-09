@@ -21,13 +21,12 @@ import {
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import {
+  AlertController,
   IonContent,
-  IonInput,
-  IonSelect,
-  IonSelectOption,
   IonSpinner,
   ModalController,
 } from '@ionic/angular/standalone';
+import { NxtModalService } from '../services/modal';
 import {
   BrowserGeolocationAdapter,
   CachedGeocodingAdapter,
@@ -41,8 +40,16 @@ import { EditProfileService } from './edit-profile.service';
 import { EditProfileSkeletonComponent } from './edit-profile-skeleton.component';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtIconComponent } from '../components/icon';
-import { NxtFormFieldComponent } from '../components/form-field';
-import { NxtChipComponent } from '../components/chip';
+import { NxtMediaGalleryComponent } from '../components/media-gallery';
+import { NxtListSectionComponent } from '../components/list-section';
+import { NxtListRowComponent } from '../components/list-row';
+import {
+  ConnectedAccountsSheetComponent,
+  DEFAULT_PLATFORMS,
+  type ConnectedSource,
+} from '../components/connected-sources';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
@@ -70,15 +77,13 @@ const HEIGHT_OPTIONS = buildHeightOptions();
   standalone: true,
   imports: [
     IonContent,
-    IonInput,
-    IonSelect,
-    IonSelectOption,
     IonSpinner,
     EditProfileSkeletonComponent,
     NxtSheetHeaderComponent,
     NxtIconComponent,
-    NxtFormFieldComponent,
-    NxtChipComponent,
+    NxtMediaGalleryComponent,
+    NxtListSectionComponent,
+    NxtListRowComponent,
   ],
   template: `
     <div class="nxt1-edit-shell">
@@ -144,219 +149,119 @@ const HEIGHT_OPTIONS = buildHeightOptions();
         } @else if (profile.formData(); as form) {
           <div class="nxt1-edit-body">
             <!-- Media Gallery -->
-            <section class="nxt1-media-section">
-              <input
-                #imageInput
-                type="file"
-                class="nxt1-hidden"
-                accept="image/*"
-                multiple
-                (change)="onImageFilesSelected($event)"
-              />
+            <input
+              #imageInput
+              type="file"
+              class="nxt1-hidden"
+              accept="image/*"
+              multiple
+              (change)="onImageFilesSelected($event)"
+            />
+            <nxt1-media-gallery
+              [images]="carouselImages()"
+              [maxImages]="maxGalleryImages"
+              (add)="openImagePicker()"
+              (remove)="removeImage($event)"
+            />
 
-              <div class="nxt1-media-row">
-                @for (image of carouselImages(); track image; let i = $index) {
-                  <article class="nxt1-media-tile" [class.nxt1-media-tile--primary]="i === 0">
-                    <img [src]="image" [alt]="'Profile image ' + (i + 1)" class="nxt1-media-img" />
-                    <button
-                      type="button"
-                      class="nxt1-media-remove"
-                      aria-label="Remove image"
-                      (click)="removeImage(i)"
-                    >
-                      <nxt1-icon name="trash" [size]="12" />
-                    </button>
-                  </article>
-                }
+            <!-- Connected Accounts -->
+            <nxt1-list-section header="Connected accounts">
+              <nxt1-list-row label="Accounts" (tap)="openConnectedAccounts()">
+                <span
+                  class="nxt1-list-value"
+                  [class.nxt1-list-placeholder]="connectedCount() === 0"
+                  >{{
+                    connectedCount() > 0 ? connectedCount() + ' connected' : 'Connect accounts'
+                  }}</span
+                >
+              </nxt1-list-row>
+            </nxt1-list-section>
 
-                @if (canAddMoreImages()) {
-                  <button type="button" class="nxt1-media-add" (click)="openImagePicker()">
-                    <nxt1-icon name="image" [size]="16" />
-                    <span>Add</span>
-                  </button>
-                }
-              </div>
-            </section>
-
-            <!-- Form Fields — 2x2 Grid -->
-            <section class="nxt1-form-section">
-              <div class="nxt1-field-grid">
-                <!-- Row 1: First Name / Last Name -->
-                <nxt1-form-field label="First Name" inputId="editFirstName">
-                  <ion-input
-                    id="editFirstName"
-                    type="text"
-                    class="nxt1-input"
-                    fill="outline"
-                    placeholder="First name"
-                    [value]="form.basicInfo.firstName"
-                    (ionInput)="onIonInput('firstName', $event)"
-                    autocomplete="given-name"
-                    autocapitalize="words"
-                  />
-                </nxt1-form-field>
-
-                <nxt1-form-field label="Last Name" inputId="editLastName">
-                  <ion-input
-                    id="editLastName"
-                    type="text"
-                    class="nxt1-input"
-                    fill="outline"
-                    placeholder="Last name"
-                    [value]="form.basicInfo.lastName"
-                    (ionInput)="onIonInput('lastName', $event)"
-                    autocomplete="family-name"
-                    autocapitalize="words"
-                  />
-                </nxt1-form-field>
-
-                <!-- Row 2: Class Year / Jersey -->
-                <nxt1-form-field label="Class" inputId="editClassYear">
-                  <ion-select
-                    id="editClassYear"
-                    class="nxt1-input"
-                    interface="action-sheet"
-                    [interfaceOptions]="selectActionSheetOptions"
-                    placeholder="Select"
-                    [value]="form.basicInfo.classYear ?? null"
-                    (ionChange)="onSelectChange('classYear', $event)"
+            <!-- About you -->
+            <nxt1-list-section header="About you">
+              <nxt1-list-row
+                label="Name"
+                [verified]="verifiedFields().has('name')"
+                (tap)="editName()"
+              >
+                <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!displayName()">{{
+                  displayName() || 'Add your name'
+                }}</span>
+              </nxt1-list-row>
+              <nxt1-list-row
+                label="Class"
+                [verified]="verifiedFields().has('class')"
+                (tap)="editClassYear()"
+              >
+                <span
+                  class="nxt1-list-value"
+                  [class.nxt1-list-placeholder]="!form.basicInfo.classYear"
+                  >{{ form.basicInfo.classYear || 'Select class year' }}</span
+                >
+              </nxt1-list-row>
+              <nxt1-list-row label="Bio" (tap)="editBio()">
+                <span
+                  class="nxt1-list-value nxt1-list-bio"
+                  [class.nxt1-list-placeholder]="!form.basicInfo.bio"
+                  >{{ form.basicInfo.bio || 'Tell coaches about yourself' }}</span
+                >
+              </nxt1-list-row>
+              <nxt1-list-row label="Location" (tap)="editLocation()">
+                @if (isDetectingLocation()) {
+                  <ion-spinner name="crescent" class="nxt1-row-spinner" />
+                } @else {
+                  <span
+                    class="nxt1-list-value"
+                    [class.nxt1-list-placeholder]="!form.basicInfo.location"
+                    >{{ form.basicInfo.location || 'Detect your location' }}</span
                   >
-                    @for (year of classOptions(); track year) {
-                      <ion-select-option [value]="year">{{ year }}</ion-select-option>
-                    }
-                  </ion-select>
-                </nxt1-form-field>
+                }
+              </nxt1-list-row>
+            </nxt1-list-section>
 
-                <nxt1-form-field label="Jersey" inputId="editJersey">
-                  <ion-input
-                    id="editJersey"
-                    type="text"
-                    class="nxt1-input"
-                    fill="outline"
-                    inputmode="numeric"
-                    placeholder="Optional"
-                    [value]="form.sportsInfo.jerseyNumber ?? ''"
-                    (ionInput)="onIonSportsInput('jerseyNumber', $event)"
-                  />
-                </nxt1-form-field>
+            <!-- Sports info -->
+            <nxt1-list-section header="Sports info">
+              <nxt1-list-row
+                label="Position"
+                [verified]="verifiedFields().has('position')"
+                (tap)="editPosition()"
+              >
+                <span
+                  class="nxt1-list-value"
+                  [class.nxt1-list-placeholder]="selectedPositions().length === 0"
+                  >{{ positionDisplay() || 'Select position' }}</span
+                >
+              </nxt1-list-row>
+              <nxt1-list-row label="Jersey" (tap)="editJersey()">
+                <span
+                  class="nxt1-list-value"
+                  [class.nxt1-list-placeholder]="!form.sportsInfo.jerseyNumber"
+                  >{{ form.sportsInfo.jerseyNumber || 'Add jersey number' }}</span
+                >
+              </nxt1-list-row>
+            </nxt1-list-section>
 
-                <!-- Row 3: Height / Weight -->
-                <nxt1-form-field label="Height" inputId="editHeight">
-                  <ion-select
-                    id="editHeight"
-                    class="nxt1-input"
-                    interface="action-sheet"
-                    [interfaceOptions]="selectActionSheetOptions"
-                    placeholder="Select"
-                    [value]="form.physical.height ?? null"
-                    (ionChange)="onSelectChange('height', $event)"
-                  >
-                    @for (h of heightOptions; track h) {
-                      <ion-select-option [value]="h">{{ h }}</ion-select-option>
-                    }
-                  </ion-select>
-                </nxt1-form-field>
-
-                <nxt1-form-field label="Weight" inputId="editWeight">
-                  <ion-input
-                    id="editWeight"
-                    type="text"
-                    class="nxt1-input"
-                    fill="outline"
-                    inputmode="numeric"
-                    placeholder="lbs"
-                    [value]="form.physical.weight ?? ''"
-                    (ionInput)="onIonPhysicalInput('weight', $event)"
-                  />
-                </nxt1-form-field>
-
-                <!-- Full-width: Position chips -->
-                <div class="nxt1-field-full">
-                  <nxt1-form-field label="Position">
-                    <div class="nxt1-position-chips" role="group" aria-label="Select positions">
-                      @for (position of positionOptions; track position) {
-                        <nxt1-chip
-                          [selected]="isPositionSelected(position)"
-                          [showCheck]="true"
-                          size="sm"
-                          (chipClick)="togglePosition(position)"
-                        >
-                          {{ position }}
-                        </nxt1-chip>
-                      }
-                    </div>
-                  </nxt1-form-field>
-                </div>
-
-                <!-- Full-width: Location -->
-                <div class="nxt1-field-full">
-                  <nxt1-form-field label="Location">
-                    <div class="nxt1-location-section">
-                      <button
-                        type="button"
-                        class="nxt1-location-detect"
-                        [class.has-location]="!!form.basicInfo.location"
-                        [disabled]="isDetectingLocation()"
-                        (click)="detectLocation()"
-                      >
-                        @if (isDetectingLocation()) {
-                          <ion-spinner name="crescent" class="nxt1-location-spinner"></ion-spinner>
-                          <span>Detecting location...</span>
-                        } @else if (form.basicInfo.location) {
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                            class="nxt1-location-icon check"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"
-                            />
-                          </svg>
-                          <span class="nxt1-location-text">{{ form.basicInfo.location }}</span>
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                            class="nxt1-location-edit"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
-                            />
-                          </svg>
-                        } @else {
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                            class="nxt1-location-icon"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"
-                            />
-                          </svg>
-                          <span>Detect My Location</span>
-                        }
-                      </button>
-                    </div>
-                  </nxt1-form-field>
-                </div>
-
-                <!-- Full-width: Bio -->
-                <div class="nxt1-field-full">
-                  <nxt1-form-field label="Bio" inputId="editBio">
-                    <textarea
-                      id="editBio"
-                      class="nxt1-native-textarea"
-                      placeholder="Tell coaches about yourself"
-                      [value]="form.basicInfo.bio ?? ''"
-                      (input)="onBioInput($event)"
-                      rows="3"
-                    ></textarea>
-                  </nxt1-form-field>
-                </div>
-              </div>
-            </section>
+            <!-- Physical -->
+            <nxt1-list-section header="Physical">
+              <nxt1-list-row
+                label="Height"
+                [verified]="verifiedFields().has('height')"
+                (tap)="editHeight()"
+              >
+                <span
+                  class="nxt1-list-value"
+                  [class.nxt1-list-placeholder]="!form.physical.height"
+                  >{{ form.physical.height || 'Select height' }}</span
+                >
+              </nxt1-list-row>
+              <nxt1-list-row label="Weight" (tap)="editWeight()">
+                <span
+                  class="nxt1-list-value"
+                  [class.nxt1-list-placeholder]="!form.physical.weight"
+                  >{{ form.physical.weight ? form.physical.weight + ' lbs' : 'Add weight' }}</span
+                >
+              </nxt1-list-row>
+            </nxt1-list-section>
           </div>
         }
       </ion-content>
@@ -467,301 +372,37 @@ const HEIGHT_OPTIONS = buildHeightOptions();
       }
 
       /* ============================================
-         MEDIA GALLERY
+         UTILITIES
          ============================================ */
-      .nxt1-media-section {
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-xl);
-        background: var(--nxt1-color-surface-100);
-        padding: var(--nxt1-spacing-3);
-      }
-
       .nxt1-hidden {
         display: none;
       }
 
-      .nxt1-media-row {
-        display: grid;
-        grid-auto-flow: column;
-        grid-auto-columns: var(--nxt1-spacing-20);
-        gap: var(--nxt1-spacing-2);
-        overflow-x: auto;
-        scrollbar-width: none;
-      }
-
-      .nxt1-media-row::-webkit-scrollbar {
-        display: none;
-      }
-
-      .nxt1-media-tile,
-      .nxt1-media-add {
-        position: relative;
-        width: var(--nxt1-spacing-20);
-        height: var(--nxt1-spacing-24);
-        border-radius: var(--nxt1-borderRadius-lg);
+      /* ============================================
+         LIST ROW VALUES (content-projected into nxt1-list-row)
+         ============================================ */
+      .nxt1-list-value {
+        font-size: var(--nxt1-fontSize-base);
+        font-weight: var(--nxt1-fontWeight-regular);
+        color: var(--nxt1-color-text-secondary);
         overflow: hidden;
-        border: 1px solid var(--nxt1-color-border-default);
-        background: var(--nxt1-color-surface-200);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: right;
       }
 
-      .nxt1-media-tile--primary {
-        border-color: var(--nxt1-color-border-primary);
+      .nxt1-list-bio {
+        max-width: 180px;
       }
 
-      .nxt1-media-img {
-        width: 100%;
-        height: 100%;
-        display: block;
-        object-fit: cover;
-      }
-
-      .nxt1-media-remove {
-        appearance: none;
-        -webkit-appearance: none;
-        border: none;
-        position: absolute;
-        top: var(--nxt1-spacing-1-5);
-        right: var(--nxt1-spacing-1-5);
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: var(--nxt1-spacing-5);
-        height: var(--nxt1-spacing-5);
-        border-radius: var(--nxt1-borderRadius-full);
-        background: var(--nxt1-color-bg-overlay);
-        color: var(--nxt1-color-text-primary);
-        cursor: pointer;
-        padding: 0;
-        -webkit-tap-highlight-color: transparent;
-      }
-
-      .nxt1-media-add {
-        appearance: none;
-        -webkit-appearance: none;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: var(--nxt1-spacing-1-5);
-        color: var(--nxt1-color-text-secondary);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-2xs);
-        font-weight: var(--nxt1-fontWeight-bold);
-        cursor: pointer;
-        border-style: dashed;
-        padding: 0;
-        -webkit-tap-highlight-color: transparent;
-        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
-      }
-
-      .nxt1-media-add:hover {
-        border-color: var(--nxt1-color-border-strong);
-        background: var(--nxt1-color-surface-300);
-      }
-
-      /* ============================================
-         FORM SECTION
-         ============================================ */
-      .nxt1-form-section {
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-5);
-      }
-
-      .nxt1-field-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: var(--nxt1-spacing-3) var(--nxt1-spacing-3);
-      }
-
-      .nxt1-field-full {
-        grid-column: 1 / -1;
-      }
-
-      /* ============================================
-         ION-INPUT STYLING  — Matches onboarding
-         ============================================ */
-      .nxt1-input {
-        --background: var(--nxt1-color-surface-100);
-        --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg);
-        --border-width: 1px;
-        --color: var(--nxt1-color-text-primary);
-        --placeholder-color: var(--nxt1-color-text-tertiary);
-        --placeholder-opacity: 1;
-        --padding-start: var(--nxt1-spacing-4);
-        --padding-end: var(--nxt1-spacing-4);
-        --padding-top: var(--nxt1-spacing-3-5);
-        --padding-bottom: var(--nxt1-spacing-3-5);
-        --highlight-color-focused: var(--nxt1-color-border-strong);
-        --highlight-color-valid: var(--nxt1-color-border-strong);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
-        min-height: var(--nxt1-spacing-12);
-        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
-      }
-
-      .nxt1-input:hover:not(.has-focus) {
-        --background: var(--nxt1-color-surface-200);
-        --border-color: var(--nxt1-color-border-strong);
-      }
-
-      /* ============================================
-         NATIVE TEXTAREA — resizable bio box
-         ============================================ */
-      .nxt1-native-textarea {
-        display: block;
-        width: 100%;
-        min-height: var(--nxt1-spacing-20);
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg);
-        background: var(--nxt1-color-surface-100);
-        color: var(--nxt1-color-text-primary);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
-        line-height: var(--nxt1-lineHeight-normal);
-        resize: vertical;
-        outline: none;
-        transition:
-          border-color var(--nxt1-duration-fast) var(--nxt1-easing-out),
-          background var(--nxt1-duration-fast) var(--nxt1-easing-out);
-        -webkit-appearance: none;
-      }
-
-      .nxt1-native-textarea::placeholder {
-        color: var(--nxt1-color-text-tertiary);
-        opacity: 1;
-      }
-
-      .nxt1-native-textarea:hover {
-        background: var(--nxt1-color-surface-200);
-        border-color: var(--nxt1-color-border-strong);
-      }
-
-      .nxt1-native-textarea:focus {
-        border-color: var(--nxt1-color-border-strong);
-        background: var(--nxt1-color-surface-100);
-      }
-
-      /* ============================================
-         ION-SELECT using nxt1-input class
-         ============================================ */
-      ion-select.nxt1-input {
-        --background: var(--nxt1-color-surface-100);
-        --border-color: var(--nxt1-color-border-default);
-        --border-radius: var(--nxt1-borderRadius-lg);
-        --color: var(--nxt1-color-text-primary);
-        --placeholder-color: var(--nxt1-color-text-tertiary);
-        --placeholder-opacity: 1;
-        --padding-start: var(--nxt1-spacing-4);
-        --padding-end: var(--nxt1-spacing-4);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
-        min-height: var(--nxt1-spacing-12);
-        width: 100%;
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg);
-        background: var(--nxt1-color-surface-100);
-        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
-      }
-
-      ion-select.nxt1-input:hover:not(:disabled) {
-        background: var(--nxt1-color-surface-200);
-        border-color: var(--nxt1-color-border-strong);
-      }
-
-      ion-select.nxt1-input::part(icon) {
+      .nxt1-list-placeholder {
         color: var(--nxt1-color-text-tertiary);
       }
 
-      /* ============================================
-         POSITION CHIPS
-         ============================================ */
-      .nxt1-position-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: var(--nxt1-spacing-2);
-      }
-
-      /* ============================================
-         LOCATION SECTION — Matches onboarding
-         ============================================ */
-      .nxt1-location-section {
-        display: flex;
-        flex-direction: column;
-        gap: var(--nxt1-spacing-2);
-      }
-
-      .nxt1-location-detect {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: var(--nxt1-spacing-3);
-        width: 100%;
-        padding: var(--nxt1-spacing-4);
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: var(--nxt1-borderRadius-lg);
-        background: var(--nxt1-color-surface-100);
-        color: var(--nxt1-color-text-secondary);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-medium);
-        cursor: pointer;
-        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
-        -webkit-tap-highlight-color: transparent;
-      }
-
-      .nxt1-location-detect:hover:not(:disabled):not(.has-location) {
-        border-color: var(--nxt1-color-border-strong);
-        background: var(--nxt1-color-surface-200);
-        color: var(--nxt1-color-text-primary);
-      }
-
-      .nxt1-location-detect:disabled {
-        opacity: 0.4;
-        cursor: default;
-      }
-
-      .nxt1-location-detect.has-location {
-        border-color: var(--nxt1-color-primary);
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-onPrimary);
-        justify-content: flex-start;
-      }
-
-      .nxt1-location-detect.has-location:hover:not(:disabled) {
-        border-color: var(--nxt1-color-primary);
-        background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-onPrimary);
-      }
-
-      .nxt1-location-icon {
-        width: var(--nxt1-spacing-5);
-        height: var(--nxt1-spacing-5);
-        flex-shrink: 0;
-      }
-
-      .nxt1-location-icon.check {
-        color: var(--nxt1-color-text-onPrimary);
-      }
-
-      .nxt1-location-text {
-        flex: 1;
-        text-align: left;
-      }
-
-      .nxt1-location-edit {
+      .nxt1-row-spinner {
         width: var(--nxt1-spacing-4);
         height: var(--nxt1-spacing-4);
-        color: var(--nxt1-color-text-onPrimary);
-        opacity: 0.7;
-      }
-
-      .nxt1-location-spinner {
-        width: var(--nxt1-spacing-5);
-        height: var(--nxt1-spacing-5);
-        --color: var(--nxt1-color-primary);
+        --color: var(--nxt1-color-text-tertiary);
       }
 
       /* ============================================
@@ -841,11 +482,19 @@ export class EditProfileShellComponent implements OnInit {
   protected readonly isModalMode = !!this.modalCtrl;
 
   protected readonly imageInputRef = viewChild<ElementRef<HTMLInputElement>>('imageInput');
+  private readonly nxtModal = inject(NxtModalService);
+  private readonly alertCtrl = inject(AlertController);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
+
   protected readonly isDetectingLocation = signal(false);
   protected readonly maxGalleryImages = MAX_GALLERY_IMAGES;
   protected readonly positionOptions = POSITION_OPTIONS;
+
+  /** Mock verified fields — will be replaced with backend verification status */
+  protected readonly verifiedFields = signal<ReadonlySet<string>>(
+    new Set(['name', 'class', 'position', 'height'])
+  );
   protected readonly heightOptions = HEIGHT_OPTIONS;
-  protected readonly selectActionSheetOptions = { cssClass: 'nxt1-select-action-sheet' };
 
   protected readonly classOptions = computed(() => {
     const startYear = new Date().getFullYear();
@@ -868,8 +517,32 @@ export class EditProfileShellComponent implements OnInit {
     );
   });
 
-  protected readonly canAddMoreImages = computed(
-    () => this.carouselImages().length < MAX_GALLERY_IMAGES
+  protected readonly displayName = computed(() => {
+    const data = this.profile.formData();
+    if (!data) return '';
+    return [data.basicInfo.firstName, data.basicInfo.lastName].filter(Boolean).join(' ');
+  });
+
+  protected readonly positionDisplay = computed(() => {
+    const positions = this.selectedPositions();
+    return positions.length > 0 ? positions.join(', ') : '';
+  });
+
+  protected readonly connectedSources = computed<readonly ConnectedSource[]>(() => {
+    const data = this.profile.formData();
+    const links = data?.socialLinks?.links ?? [];
+
+    return DEFAULT_PLATFORMS.map((platform) => {
+      const match = links.find((l) => l.platform === platform.platform);
+      if (match?.url) {
+        return { ...platform, connected: true, username: match.username, url: match.url };
+      }
+      return platform;
+    });
+  });
+
+  protected readonly connectedCount = computed(
+    () => this.connectedSources().filter((s) => s.connected).length
   );
 
   ngOnInit(): void {
@@ -906,49 +579,174 @@ export class EditProfileShellComponent implements OnInit {
     this.close.emit();
   }
 
-  /** Handle ion-input changes for basic info fields */
-  protected onIonInput(fieldId: 'firstName' | 'lastName', event: CustomEvent): void {
-    this.profile.updateField('basic-info', fieldId, event.detail.value ?? '');
-  }
+  protected async openConnectedAccounts(): Promise<void> {
+    const result = await this.bottomSheet.openSheet<{
+      updatedLinks: { platform: string; url: string; username?: string; displayOrder: number }[];
+      sources: readonly ConnectedSource[];
+    }>({
+      component: ConnectedAccountsSheetComponent,
+      ...SHEET_PRESETS.TALL,
+      componentProps: { initialSources: this.connectedSources() },
+      showHandle: true,
+    });
 
-  /** Handle native textarea input for bio */
-  protected onBioInput(event: Event): void {
-    const value = (event.target as HTMLTextAreaElement)?.value ?? '';
-    this.profile.updateField('basic-info', 'bio', value);
-  }
-
-  /** Handle ion-input changes for sports fields */
-  protected onIonSportsInput(fieldId: 'jerseyNumber', event: CustomEvent): void {
-    this.profile.updateField('sports-info', fieldId, event.detail.value ?? '');
-  }
-
-  /** Handle ion-input changes for physical fields */
-  protected onIonPhysicalInput(fieldId: 'weight', event: CustomEvent): void {
-    this.profile.updateField('physical', fieldId, event.detail.value ?? '');
-  }
-
-  /** Handle ion-select changes */
-  protected onSelectChange(fieldId: 'classYear' | 'height', event: CustomEvent): void {
-    const value = event.detail.value ?? '';
-    if (fieldId === 'height') {
-      this.profile.updateField('physical', 'height', value);
-    } else {
-      this.profile.updateField('basic-info', fieldId, value);
+    if (result.role === 'save' && result.data?.updatedLinks) {
+      this.profile.updateField('social-links', 'links', result.data.updatedLinks);
+      this.logger.info('Connected accounts updated', {
+        count: result.data.updatedLinks.length,
+      });
+      this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, {
+        source: 'connected-accounts-sheet',
+        action: 'bulk-update',
+      });
     }
   }
 
-  protected isPositionSelected(position: string): boolean {
-    return this.selectedPositions().includes(position);
+  protected async editName(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const first = await this.nxtModal.prompt({
+      title: 'First Name',
+      placeholder: 'First name',
+      defaultValue: form.basicInfo.firstName ?? '',
+      submitText: 'Next',
+      preferNative: 'ionic',
+    });
+    if (!first.confirmed) return;
+    this.profile.updateField('basic-info', 'firstName', first.value.trim());
+
+    const last = await this.nxtModal.prompt({
+      title: 'Last Name',
+      placeholder: 'Last name',
+      defaultValue: form.basicInfo.lastName ?? '',
+      submitText: 'Done',
+      preferNative: 'ionic',
+    });
+    if (last.confirmed) {
+      this.profile.updateField('basic-info', 'lastName', last.value.trim());
+    }
   }
 
-  protected togglePosition(position: string): void {
-    const current = [...this.selectedPositions()];
-    const next = current.includes(position)
-      ? current.filter((value) => value !== position)
-      : [...current, position];
+  protected async editBio(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
 
-    this.profile.updateField('sports-info', 'primaryPosition', next[0] ?? '');
-    this.profile.updateField('sports-info', 'secondaryPositions', next.slice(1));
+    const result = await this.nxtModal.prompt({
+      title: 'Bio',
+      placeholder: 'Tell coaches about yourself',
+      defaultValue: form.basicInfo.bio ?? '',
+      submitText: 'Done',
+      multiline: true,
+      rows: 5,
+      maxLength: 300,
+      preferNative: 'ionic',
+    });
+    if (result.confirmed) {
+      this.profile.updateField('basic-info', 'bio', result.value.trim());
+    }
+  }
+
+  protected async editClassYear(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const result = await this.nxtModal.actionSheet({
+      title: 'Class Year',
+      actions: [
+        ...this.classOptions().map((year) => ({ text: year, data: year })),
+        { text: 'Cancel', cancel: true },
+      ],
+      preferNative: 'ionic',
+    });
+    if (result.selected && result.data) {
+      this.profile.updateField('basic-info', 'classYear', result.data as string);
+    }
+  }
+
+  protected async editJersey(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const result = await this.nxtModal.prompt({
+      title: 'Jersey Number',
+      placeholder: 'Jersey number',
+      defaultValue: form.sportsInfo.jerseyNumber ?? '',
+      inputType: 'number',
+      submitText: 'Done',
+      preferNative: 'ionic',
+    });
+    if (result.confirmed) {
+      this.profile.updateField('sports-info', 'jerseyNumber', result.value.trim());
+    }
+  }
+
+  protected async editHeight(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const result = await this.nxtModal.actionSheet({
+      title: 'Height',
+      actions: [
+        ...this.heightOptions.map((h) => ({ text: h, data: h })),
+        { text: 'Cancel', cancel: true },
+      ],
+      preferNative: 'ionic',
+    });
+    if (result.selected && result.data) {
+      this.profile.updateField('physical', 'height', result.data as string);
+    }
+  }
+
+  protected async editWeight(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const result = await this.nxtModal.prompt({
+      title: 'Weight',
+      placeholder: 'Weight (lbs)',
+      defaultValue: form.physical.weight ?? '',
+      inputType: 'number',
+      submitText: 'Done',
+      preferNative: 'ionic',
+    });
+    if (result.confirmed) {
+      this.profile.updateField('physical', 'weight', result.value.trim());
+    }
+  }
+
+  protected async editPosition(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+    const selected = this.selectedPositions();
+    const alert = await this.alertCtrl.create({
+      header: 'Position',
+      cssClass: 'nxt-modal-prompt',
+      inputs: this.positionOptions.map((pos) => ({
+        name: pos,
+        type: 'checkbox' as const,
+        label: pos,
+        value: pos,
+        checked: selected.includes(pos),
+      })),
+      buttons: [
+        { text: 'Cancel', role: 'cancel', cssClass: 'nxt-modal-cancel-btn' },
+        {
+          text: 'Done',
+          cssClass: 'nxt-modal-confirm-btn',
+          handler: (values: string[]) => {
+            this.profile.updateField('sports-info', 'primaryPosition', values[0] ?? '');
+            this.profile.updateField('sports-info', 'secondaryPositions', values.slice(1));
+          },
+        },
+      ],
+    });
+    this.nxtModal.applyModalTheme(alert);
+    await alert.present();
+  }
+
+  protected editLocation(): void {
+    void this.detectLocation();
   }
 
   protected openImagePicker(): void {

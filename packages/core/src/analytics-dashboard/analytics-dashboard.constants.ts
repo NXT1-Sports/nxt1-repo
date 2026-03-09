@@ -373,7 +373,7 @@ export const ANALYTICS_EMPTY_STATES: Record<
     message: 'Upload highlights and create graphics to track their performance.',
     icon: 'videocam-outline',
     ctaLabel: 'Upload Highlight',
-    ctaRoute: '/create',
+    ctaRoute: '/post/create',
   },
   recruiting: {
     title: 'Start your recruiting journey',

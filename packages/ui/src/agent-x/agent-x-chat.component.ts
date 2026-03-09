@@ -17,11 +17,12 @@ import {
 import { CommonModule } from '@angular/common';
 import type { AgentXMessage } from '@nxt1/core';
 import { NxtIconComponent } from '../components/icon/icon.component';
+import { NxtChatBubbleComponent } from '../components/chat-bubble';
 
 @Component({
   selector: 'nxt1-agent-x-chat',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent],
+  imports: [CommonModule, NxtIconComponent, NxtChatBubbleComponent],
   template: `
     <div class="messages-container" #messagesContainer>
       @for (message of messages(); track message.id) {
@@ -36,17 +37,13 @@ import { NxtIconComponent } from '../components/icon/icon.component';
               <nxt1-icon name="bolt" [size]="20" />
             </div>
           }
-          <div class="message-bubble">
-            @if (message.isTyping) {
-              <div class="typing-indicator">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-            } @else {
-              <p class="message-content">{{ message.content }}</p>
-            }
-          </div>
+          <nxt1-chat-bubble
+            variant="agent-chat"
+            [isOwn]="message.role === 'user'"
+            [content]="message.content"
+            [isTyping]="!!message.isTyping"
+            [isError]="!!message.error"
+          />
         </div>
       }
     </div>
@@ -88,74 +85,6 @@ import { NxtIconComponent } from '../components/icon/icon.component';
         justify-content: center;
         flex-shrink: 0;
         color: var(--agent-primary, #ccff00);
-      }
-
-      .message-bubble {
-        padding: 0.875rem 1rem;
-        border-radius: 16px;
-        max-width: 100%;
-      }
-
-      .message-row.user .message-bubble {
-        background: var(--agent-primary, #ccff00);
-        color: #0a0a0a;
-        border-bottom-right-radius: 4px;
-      }
-
-      .message-row.assistant .message-bubble {
-        background: var(--agent-surface, rgba(255, 255, 255, 0.02));
-        border: 1px solid var(--agent-border, rgba(255, 255, 255, 0.08));
-        color: var(--agent-text-primary, #ffffff);
-        border-bottom-left-radius: 4px;
-      }
-
-      .message-row.error .message-bubble {
-        background: rgba(239, 68, 68, 0.1);
-        border-color: rgba(239, 68, 68, 0.3);
-      }
-
-      .message-content {
-        margin: 0;
-        font-size: 0.9375rem;
-        line-height: 1.5;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-
-      /* Typing Indicator */
-      .typing-indicator {
-        display: flex;
-        gap: 4px;
-        padding: 4px 0;
-      }
-
-      .typing-indicator span {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--agent-text-muted, rgba(255, 255, 255, 0.5));
-        animation: typing 1.4s ease-in-out infinite;
-      }
-
-      .typing-indicator span:nth-child(2) {
-        animation-delay: 0.2s;
-      }
-
-      .typing-indicator span:nth-child(3) {
-        animation-delay: 0.4s;
-      }
-
-      @keyframes typing {
-        0%,
-        60%,
-        100% {
-          transform: translateY(0);
-          opacity: 0.4;
-        }
-        30% {
-          transform: translateY(-6px);
-          opacity: 1;
-        }
       }
     `,
   ],

@@ -345,11 +345,11 @@ export const serverRoutes: ServerRoute[] = [
   },
 
   {
-    path: 'create',
+    path: 'post/create',
     renderMode: RenderMode.Server,
   },
   {
-    path: 'create/**',
+    path: 'post/create/**',
     renderMode: RenderMode.Server,
   },
   {

@@ -533,16 +533,23 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
         height: 100%;
       }
 
-      .profile-avatar-wrapper ::ng-deep .avatar {
+      .profile-avatar-wrapper ::ng-deep .nxt1-avatar,
+      .profile-avatar-wrapper ::ng-deep .avatar-container {
         width: 100% !important;
         height: 100% !important;
         min-width: unset !important;
         min-height: unset !important;
       }
 
-      .profile-avatar-wrapper ::ng-deep .avatar__image {
+      .profile-avatar-wrapper ::ng-deep .avatar-inner {
         width: 100% !important;
         height: 100% !important;
+      }
+
+      .profile-avatar-wrapper ::ng-deep .avatar-image {
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover;
       }
 
       .tab-button--active .profile-avatar-wrapper {

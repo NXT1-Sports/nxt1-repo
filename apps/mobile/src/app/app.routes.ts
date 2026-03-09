@@ -58,9 +58,9 @@ export const routes: Routes = [
           import('./features/explore/explore.routes').then((m) => m.EXPLORE_ROUTES),
       },
 
-      // Create - Inside shell for shared footer + navigation consistency
+      // Create Post - Inside shell for shared footer + navigation consistency
       {
-        path: 'create',
+        path: 'post/create',
         loadChildren: () =>
           import('./features/create-post/create-post.routes').then((m) => m.CREATE_POST_ROUTES),
       },
@@ -68,7 +68,7 @@ export const routes: Routes = [
       // Legacy create-post URL redirect
       {
         path: 'create-post',
-        redirectTo: 'create',
+        redirectTo: 'post/create',
         pathMatch: 'full',
       },
 

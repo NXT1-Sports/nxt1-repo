@@ -54,7 +54,7 @@ import { CommonModule } from '@angular/common';
       .skeleton-avatar {
         width: var(--nxt1-spacing-12);
         height: var(--nxt1-spacing-12);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         flex-shrink: 0;
       }
 
@@ -76,20 +76,20 @@ import { CommonModule } from '@angular/common';
       .skeleton-name {
         height: var(--nxt1-spacing-3_5);
         width: 45%;
-        border-radius: var(--nxt1-radius-sm);
+        border-radius: var(--nxt1-borderRadius-sm);
       }
 
       .skeleton-time {
         height: var(--nxt1-spacing-2_5);
         width: var(--nxt1-spacing-12);
-        border-radius: var(--nxt1-radius-sm);
+        border-radius: var(--nxt1-borderRadius-sm);
         flex-shrink: 0;
       }
 
       .skeleton-message {
         height: var(--nxt1-spacing-3);
         width: 75%;
-        border-radius: var(--nxt1-radius-sm);
+        border-radius: var(--nxt1-borderRadius-sm);
       }
 
       /* Shimmer animation using design tokens */

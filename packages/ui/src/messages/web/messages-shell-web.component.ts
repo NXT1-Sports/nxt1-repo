@@ -164,12 +164,12 @@ import type { MessagesUser } from '../messages-shell.component';
         align-items: center;
         gap: var(--nxt1-spacing-1);
         padding: var(--nxt1-spacing-1-5) var(--nxt1-spacing-4);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         border: var(--nxt1-spacing-px) solid var(--nxt1-color-border-subtle);
         background: transparent;
         color: var(--nxt1-color-text-secondary);
-        font-size: var(--nxt1-font-size-sm);
-        font-weight: var(--nxt1-font-weight-medium);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
         white-space: nowrap;
         cursor: pointer;
         transition:
@@ -185,9 +185,9 @@ import type { MessagesUser } from '../messages-shell.component';
 
       .filter-pill--active {
         background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-inverse);
+        color: var(--nxt1-color-text-onPrimary);
         border-color: var(--nxt1-color-primary);
-        font-weight: var(--nxt1-font-weight-semibold);
+        font-weight: var(--nxt1-fontWeight-semibold);
       }
 
       .filter-pill--active:hover {
@@ -200,11 +200,11 @@ import type { MessagesUser } from '../messages-shell.component';
         min-width: calc(var(--nxt1-spacing-4) + var(--nxt1-spacing-0_5));
         height: calc(var(--nxt1-spacing-4) + var(--nxt1-spacing-0_5));
         padding: 0 var(--nxt1-spacing-1);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-error);
         color: var(--nxt1-color-text-primary);
         font-size: var(--nxt1-fontSize-2xs);
-        font-weight: var(--nxt1-font-weight-bold);
+        font-weight: var(--nxt1-fontWeight-bold);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -212,7 +212,7 @@ import type { MessagesUser } from '../messages-shell.component';
       }
 
       .filter-pill--active .filter-badge {
-        background: var(--nxt1-color-text-inverse);
+        background: var(--nxt1-color-text-onPrimary);
         color: var(--nxt1-color-primary);
       }
 
@@ -229,11 +229,11 @@ import type { MessagesUser } from '../messages-shell.component';
         align-items: center;
         gap: var(--nxt1-spacing-2);
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-inverse);
-        font-size: var(--nxt1-font-size-sm);
-        font-weight: var(--nxt1-font-weight-semibold);
+        color: var(--nxt1-color-text-onPrimary);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-semibold);
         border: none;
         cursor: pointer;
         transition: opacity var(--nxt1-ui-transition-fast);

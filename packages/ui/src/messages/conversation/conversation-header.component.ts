@@ -59,7 +59,7 @@ import { HapticsService } from '../../services/haptics/haptics.service';
         width: 56px;
         height: 56px;
         border: none;
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: transparent;
         color: var(--nxt1-color-text-secondary);
         -webkit-tap-highlight-color: transparent;

@@ -64,6 +64,7 @@
 @import '@nxt1/ui/styles/components/ionic-select';
 @import '@nxt1/ui/styles/components/ionic-toast';
 @import '@nxt1/ui/styles/components/ionic-modal';
+@import '@nxt1/ui/styles/components/modal';
 @import '@nxt1/ui/styles/components/biometric-modal';
 @import '@nxt1/ui/styles/components/bottom-sheet';
 @import '@nxt1/ui/styles/components/sheet-modal';

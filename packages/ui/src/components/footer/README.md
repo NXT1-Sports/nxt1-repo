@@ -182,7 +182,7 @@ export const MY_FOOTER_TABS: FooterTabItem[] = [
     label: 'Create',
     icon: 'sparkles',
     iconActive: 'sparklesFilled',
-    route: '/create',
+    route: '/post/create',
     isActionButton: true, // Center floating button
   },
   {

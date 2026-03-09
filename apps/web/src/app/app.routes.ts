@@ -336,15 +336,15 @@ export const routes: Routes = [
   // SPECIAL ROUTES (Outside Shell)
   // ============================================
 
-  // Create (modal-style, outside main shell for focused experience)
+  // Create Post (modal-style, outside main shell for focused experience)
   {
-    path: 'create',
+    path: 'post/create',
     loadChildren: () => import('./features/create-post/create-post.routes'),
   },
   // Legacy create-post URL redirect
   {
     path: 'create-post',
-    redirectTo: 'create',
+    redirectTo: 'post/create',
     pathMatch: 'full',
   },
 

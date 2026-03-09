@@ -175,7 +175,7 @@ const ICON_PATHS = {
         right: var(--nxt1-spacing-px);
         width: var(--nxt1-spacing-3);
         height: var(--nxt1-spacing-3);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-success);
         border: calc(var(--nxt1-spacing-px) * 2) solid var(--nxt1-color-bg-primary);
       }
@@ -205,8 +205,8 @@ const ICON_PATHS = {
       }
 
       .item-name {
-        font-size: var(--nxt1-font-size-base);
-        font-weight: var(--nxt1-font-weight-medium);
+        font-size: var(--nxt1-fontSize-base);
+        font-weight: var(--nxt1-fontWeight-medium);
         color: var(--nxt1-color-text-secondary);
         white-space: nowrap;
         overflow: hidden;
@@ -214,7 +214,7 @@ const ICON_PATHS = {
       }
 
       .item-name--unread {
-        font-weight: var(--nxt1-font-weight-semibold);
+        font-weight: var(--nxt1-fontWeight-semibold);
         color: var(--nxt1-color-text-primary);
       }
 
@@ -233,7 +233,7 @@ const ICON_PATHS = {
       }
 
       .item-time {
-        font-size: var(--nxt1-font-size-xs);
+        font-size: var(--nxt1-fontSize-xs);
         color: var(--nxt1-color-text-tertiary);
         white-space: nowrap;
         flex-shrink: 0;
@@ -241,7 +241,7 @@ const ICON_PATHS = {
 
       .item-time--unread {
         color: var(--nxt1-color-primary);
-        font-weight: var(--nxt1-font-weight-medium);
+        font-weight: var(--nxt1-fontWeight-medium);
       }
 
       /* Preview row */
@@ -253,7 +253,7 @@ const ICON_PATHS = {
       }
 
       .item-preview {
-        font-size: var(--nxt1-font-size-sm);
+        font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-tertiary);
         margin: 0;
         white-space: nowrap;
@@ -290,11 +290,11 @@ const ICON_PATHS = {
         min-width: var(--nxt1-spacing-5);
         height: var(--nxt1-spacing-5);
         padding: 0 var(--nxt1-spacing-1);
-        border-radius: var(--nxt1-radius-full);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-primary);
-        color: var(--nxt1-color-text-inverse);
-        font-size: var(--nxt1-font-size-xs);
-        font-weight: var(--nxt1-font-weight-bold);
+        color: var(--nxt1-color-text-onPrimary);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-bold);
         display: flex;
         align-items: center;
         justify-content: center;
