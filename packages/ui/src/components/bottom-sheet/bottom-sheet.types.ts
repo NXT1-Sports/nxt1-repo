@@ -73,6 +73,13 @@ export interface BottomSheetConfig {
   /** Action buttons displayed at bottom */
   actions?: BottomSheetAction[];
 
+  /**
+   * Action button layout.
+   * - `vertical`: Stacked full-width buttons (default)
+   * - `horizontal`: Side-by-side buttons for compact confirmations
+   */
+  actionsLayout?: 'vertical' | 'horizontal';
+
   /** Additional CSS class(es) for the modal */
   cssClass?: string;
 
@@ -87,6 +94,9 @@ export interface BottomSheetConfig {
 
   /** Initial breakpoint position [0-1] */
   initialBreakpoint?: number;
+
+  /** Breakpoint at which backdrop becomes visible [0-1] */
+  backdropBreakpoint?: number;
 
   /** Whether the modal can be dismissed via gesture/backdrop */
   canDismiss?: boolean;

@@ -30,6 +30,7 @@ import {
   NxtLoggingService,
   NxtBottomSheetService,
   NxtToastService,
+  SHEET_PRESETS,
   type SettingsUser,
   type SettingsNavigateEvent,
   type SettingsActionEvent,
@@ -218,14 +219,16 @@ export class SettingsComponent {
     const result = await this.bottomSheet.show({
       title: 'Sign Out',
       subtitle: 'Are you sure you want to sign out?',
+      ...SHEET_PRESETS.COMPACT,
+      actionsLayout: 'horizontal',
       actions: [
-        {
-          label: 'Sign Out',
-          role: 'destructive',
-        },
         {
           label: 'Cancel',
           role: 'cancel',
+        },
+        {
+          label: 'Sign Out',
+          role: 'destructive',
         },
       ],
     });

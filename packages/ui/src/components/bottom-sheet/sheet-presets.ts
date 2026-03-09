@@ -49,6 +49,7 @@ export interface SheetPreset {
  *
  * | Preset       | Opens at | Snaps to            | Use for                              |
  * |-------------|----------|---------------------|--------------------------------------|
+ * | `LOW`       | 35%      | 0%, 35%             | Confirm dialogs, binary decisions    |
  * | `COMPACT`   | 35%      | 0%, 35%             | Quick action menus, share options    |
  * | `HALF`      | 50%      | 0%, 50%, 75%, 100%  | Pickers, position selector           |
  * | `STANDARD`  | 92%      | 0%, 50%, 92%        | Feature sheets (default for most)    |
@@ -56,6 +57,16 @@ export interface SheetPreset {
  * | `FULL`      | 100%     | 0%, 100%            | Filters, forms that need full screen |
  */
 export const SHEET_PRESETS = {
+  /**
+   * LOW — Compact confirmation (35% of screen)
+   * Use for: sign out confirmation, quick yes/no prompts
+   */
+  LOW: {
+    breakpoints: [0, 0.35],
+    initialBreakpoint: 0.35,
+    backdropBreakpoint: 0,
+  },
+
   /**
    * **Compact** — Small peek sheet (35% of screen).
    * Use for: quick action menus, share options, profile "more" menus.

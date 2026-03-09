@@ -240,24 +240,20 @@ export class NxtBottomSheetService {
         showClose: config.showClose ?? true,
         destructive: config.destructive ?? false,
         actions: config.actions ?? [],
+        actionsLayout: config.actionsLayout ?? 'vertical',
       },
       // Platform-adaptive presentation
       presentingElement: config.presentingElement,
       breakpoints: config.breakpoints ?? SHEET_PRESETS.FULL.breakpoints,
       initialBreakpoint: config.initialBreakpoint ?? SHEET_PRESETS.FULL.initialBreakpoint,
+      backdropBreakpoint: config.backdropBreakpoint ?? 0,
       backdropDismiss: config.backdropDismiss ?? true,
       showBackdrop: true,
+      handle: true,
+      handleBehavior: 'cycle',
       canDismiss: config.canDismiss ?? true,
-      // iOS-specific: sheet presentation
-      ...(this.platform.isIOS() && {
-        mode: 'ios',
-        cssClass: 'nxt1-bottom-sheet-modal nxt1-bottom-sheet-ios',
-      }),
-      // Android-specific: full modal
-      ...(!this.platform.isIOS() && {
-        mode: 'md',
-        cssClass: 'nxt1-bottom-sheet-modal nxt1-bottom-sheet-android',
-      }),
+      // Use the same CSS classes as openSheet() for consistent appearance
+      cssClass: this.buildSheetCssClasses(),
     });
 
     this.activeModal = modal;

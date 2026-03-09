@@ -51,7 +51,9 @@ export type SettingsIconName =
   | 'shield-outline'
   | 'key-outline'
   | 'finger-print-outline'
+  | 'logout'
   | 'log-out-outline'
+  | 'trash'
   | 'trash-outline'
   // Preferences
   | 'moon-outline'

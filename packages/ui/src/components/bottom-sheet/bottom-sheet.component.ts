@@ -39,10 +39,11 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, Input, signal, computed, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, ChangeDetectionStrategy, Input, signal, inject } from '@angular/core';
 import { IonContent, ModalController } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../icon/icon.component';
+import { NxtSheetHeaderComponent } from './sheet-header.component';
+import { HapticButtonDirective } from '../../services/haptics';
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
 import { NxtPlatformService } from '../../services/platform';
 import type { BottomSheetAction, BottomSheetResult } from './bottom-sheet.types';
@@ -50,34 +51,18 @@ import type { BottomSheetAction, BottomSheetResult } from './bottom-sheet.types'
 @Component({
   selector: 'nxt1-bottom-sheet',
   standalone: true,
-  imports: [CommonModule, IonContent, NxtIconComponent],
+  imports: [IonContent, NxtIconComponent, NxtSheetHeaderComponent, HapticButtonDirective],
   template: `
-    <ion-content [fullscreen]="true" class="nxt1-bottom-sheet-content">
-      <div
-        class="nxt1-bottom-sheet"
-        [class.ios]="isIos()"
-        [class.android]="!isIos()"
-        [class.destructive]="destructive"
-      >
-        <!-- Native drag handle -->
-        <div class="sheet-handle" aria-hidden="true"></div>
+    <nxt1-sheet-header
+      [title]="title || ''"
+      closePosition="right"
+      [showClose]="showClose"
+      [showBorder]="true"
+      (closeSheet)="onClose()"
+    />
 
-        <!-- Header with optional close button -->
-        @if (showClose) {
-          <header class="sheet-header has-close">
-            <button
-              type="button"
-              class="close-btn"
-              (click)="onClose()"
-              [disabled]="loading()"
-              aria-label="Close"
-            >
-              <nxt1-icon name="close" [size]="18" aria-hidden="true" />
-            </button>
-          </header>
-        }
-
-        <!-- Icon Section (optional) -->
+    <ion-content [fullscreen]="true" class="nxt1-sheet-content">
+      <div class="nxt1-sheet-body">
         @if (icon) {
           <div class="icon-section">
             <div class="icon-container" [class.destructive]="destructive">
@@ -86,344 +71,175 @@ import type { BottomSheetAction, BottomSheetResult } from './bottom-sheet.types'
           </div>
         }
 
-        <!-- Content Section -->
-        <div class="content-section" [class.content-section--empty]="!title && !subtitle">
-          @if (title) {
-            <h1 class="title">{{ title }}</h1>
-          }
-          @if (subtitle) {
-            <p class="subtitle">{{ subtitle }}</p>
-          }
+        @if (subtitle) {
+          <p class="subtitle">{{ subtitle }}</p>
+        }
 
-          <!-- Custom content slot -->
-          <div class="custom-content">
-            <ng-content></ng-content>
-          </div>
+        <div class="custom-content">
+          <ng-content></ng-content>
         </div>
 
-        <!-- Actions Section -->
         @if (actions.length > 0) {
-          <div class="actions-section">
+          <div
+            class="actions-section"
+            [class.actions-section--horizontal]="actionsLayout === 'horizontal'"
+          >
             @for (action of actions; track action.label) {
-              <div
-                class="action-item"
-                [class.primary]="action.role === 'primary'"
-                [class.secondary]="action.role === 'secondary'"
-                [class.cancel]="action.role === 'cancel'"
-                [class.destructive]="action.role === 'destructive'"
+              <button
+                type="button"
+                class="sheet-btn"
+                [class.sheet-btn--primary]="action.role === 'primary'"
+                [class.sheet-btn--cancel]="action.role === 'secondary' || action.role === 'cancel'"
+                [class.sheet-btn--destructive]="action.role === 'destructive'"
+                [disabled]="action.disabled || action.loading || loading()"
+                (click)="onAction(action)"
+                [nxtHaptic]="
+                  action.role === 'primary' || action.role === 'destructive' ? 'medium' : 'light'
+                "
               >
-                <button
-                  type="button"
-                  class="action-btn"
-                  [class.loading]="action.loading"
-                  [disabled]="action.disabled || action.loading || loading()"
-                  (click)="onAction(action)"
-                >
-                  @if (action.loading) {
-                    <div class="spinner" aria-label="Loading..."></div>
-                  } @else {
-                    @if (action.icon) {
-                      <nxt1-icon [name]="action.icon" [size]="20" aria-hidden="true" />
-                    }
-                    <span>{{ action.label }}</span>
+                @if (action.loading) {
+                  <div class="sheet-spinner" aria-label="Loading..."></div>
+                } @else {
+                  @if (action.icon) {
+                    <nxt1-icon [name]="action.icon" [size]="20" aria-hidden="true" />
                   }
-                </button>
-              </div>
+                  <span>{{ action.label }}</span>
+                }
+              </button>
             }
           </div>
         }
-
-        <!-- Bottom safe area spacer -->
-        <div class="safe-area-bottom"></div>
       </div>
     </ion-content>
   `,
   styles: [
     `
-      /* ============================================
-     * Base Layout
-     * ============================================ */
-      .nxt1-bottom-sheet-content {
+      :host {
+        display: block;
+        height: 100%;
+      }
+
+      .nxt1-sheet-content {
         --background: transparent;
       }
 
-      .nxt1-bottom-sheet {
+      .nxt1-sheet-body {
         display: flex;
         flex-direction: column;
-        min-height: 100%;
-        padding: 0 var(--nxt1-spacing-6);
-
-        /* Theme-aware tokens - adapts to dark/light/sport themes */
-        --sheet-bg: var(--nxt1-color-surface-200);
-        --sheet-text: var(--nxt1-color-text-primary);
-        --sheet-text-secondary: var(--nxt1-color-text-secondary);
-        --sheet-text-tertiary: var(--nxt1-color-text-tertiary);
-        --sheet-border: var(--nxt1-color-border-subtle);
-        --sheet-accent: var(--nxt1-color-primary);
-        --sheet-accent-bg: var(--nxt1-color-alpha-primary10);
-        --sheet-error: var(--nxt1-color-feedback-error);
-        --sheet-error-bg: var(--nxt1-color-feedback-errorBg);
-        --sheet-text-on-primary: var(--nxt1-color-text-onPrimary);
-        --sheet-text-on-error: var(--nxt1-color-text-onError);
-
-        background: var(--sheet-bg);
-        font-family: var(--nxt1-fontFamily-brand);
+        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-5) var(--nxt1-spacing-8);
       }
 
-      /* ============================================
-     * Platform-Specific Styles
-     * ============================================ */
-      .nxt1-bottom-sheet.ios {
-        /* iOS: Slightly tighter letter spacing for native feel */
-        letter-spacing: var(--nxt1-letterSpacing-tight, -0.2px);
-      }
-
-      .nxt1-bottom-sheet.android {
-        /* Android: Standard letter spacing */
-        letter-spacing: normal;
-      }
-
-      /* Destructive variant - Override accent with error color */
-      .nxt1-bottom-sheet.destructive {
-        --sheet-accent: var(--sheet-error);
-        --sheet-accent-bg: var(--sheet-error-bg);
-      }
-
-      /* ============================================
-     * Drag Handle
-     * ============================================ */
-      .sheet-handle {
-        width: var(--nxt1-spacing-9, 36px);
-        height: var(--nxt1-spacing-1, 5px);
-        background: var(--sheet-text-tertiary);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        margin: var(--nxt1-spacing-2) auto 0;
-        opacity: var(--nxt1-opacity-hover);
-      }
-
-      /* ============================================
-     * Header
-     * ============================================ */
-      .sheet-header {
-        display: flex;
-        justify-content: flex-end;
-        align-items: center;
-        min-height: var(--nxt1-touch-target-min, 44px);
-        padding: var(--nxt1-spacing-2) 0;
-      }
-
-      .close-btn {
-        width: var(--nxt1-spacing-8, 32px);
-        height: var(--nxt1-spacing-8, 32px);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        border: none;
-        background: var(--sheet-border);
-        color: var(--sheet-text-secondary);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        transition: var(--nxt1-transition-fast);
-
-        &:active:not(:disabled) {
-          transform: scale(0.95);
-          opacity: var(--nxt1-opacity-hover);
-        }
-
-        &:disabled {
-          opacity: var(--nxt1-opacity-disabled);
-          cursor: not-allowed;
-        }
-      }
-
-      /* ============================================
-     * Icon Section
-     * ============================================ */
       .icon-section {
         display: flex;
         justify-content: center;
-        padding: var(--nxt1-spacing-4) 0;
+        padding-bottom: var(--nxt1-spacing-4);
       }
 
       .icon-container {
-        width: var(--nxt1-spacing-16, 64px);
-        height: var(--nxt1-spacing-16, 64px);
-        border-radius: var(--nxt1-radius-full, 9999px);
+        width: 64px;
+        height: 64px;
+        border-radius: 9999px;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: var(--sheet-accent-bg);
-        color: var(--sheet-accent);
-
-        &.destructive {
-          background: var(--sheet-error-bg);
-          color: var(--sheet-error);
-        }
+        background: var(--nxt1-color-alpha-primary10);
+        color: var(--nxt1-color-primary);
       }
 
-      /* ============================================
-     * Content Section
-     * ============================================ */
-      .content-section {
-        flex: 1;
-        text-align: center;
-        padding: var(--nxt1-spacing-2) 0 var(--nxt1-spacing-6);
-      }
-
-      /* Collapse content-section when no title/subtitle to save space */
-      .content-section--empty {
-        flex: 0;
-        padding: var(--nxt1-spacing-1) 0;
-      }
-
-      .title {
-        font-size: var(--nxt1-fontSize-xl);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--sheet-text);
-        margin: 0 0 var(--nxt1-spacing-2);
-        line-height: 1.3;
-      }
-
-      .ios .title {
-        font-size: var(--nxt1-fontSize-2xl);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        letter-spacing: var(--nxt1-letterSpacing-tight, -0.3px);
-      }
-
-      .android .title {
-        font-size: var(--nxt1-fontSize-xl);
-        font-weight: var(--nxt1-fontWeight-medium);
+      .icon-container.destructive {
+        background: var(--nxt1-color-errorBg, rgba(239, 68, 68, 0.1));
+        color: var(--nxt1-color-error, #ef4444);
       }
 
       .subtitle {
         font-size: var(--nxt1-fontSize-sm);
-        color: var(--sheet-text-secondary);
-        margin: 0;
-        line-height: var(--nxt1-lineHeight-relaxed, 1.5);
-        max-width: var(--nxt1-spacing-70, 280px);
-        margin-left: auto;
-        margin-right: auto;
+        color: var(--nxt1-color-text-secondary);
+        margin: 0 0 var(--nxt1-spacing-6);
+        line-height: 1.5;
+        text-align: center;
       }
 
-      .custom-content {
-        margin-top: var(--nxt1-spacing-4);
-
-        &:empty {
-          display: none;
-        }
+      .custom-content:empty {
+        display: none;
       }
 
-      /* ============================================
-     * Actions Section
-     * ============================================ */
       .actions-section {
         display: flex;
         flex-direction: column;
-        gap: var(--nxt1-spacing-3);
-        padding-bottom: var(--nxt1-spacing-4);
+        gap: 12px;
       }
 
-      .action-item {
-        border-radius: var(--nxt1-radius-full, 9999px);
-        overflow: hidden;
-        border: 1px solid transparent;
+      .actions-section--horizontal {
+        flex-direction: row;
+        gap: 12px;
       }
 
-      .action-item.primary {
-        background: var(--sheet-accent);
-        color: var(--sheet-text-on-primary);
-        border-color: var(--sheet-accent);
+      .actions-section--horizontal .sheet-btn {
+        flex: 1;
+        min-width: 0;
       }
 
-      .action-item.secondary {
-        background: var(--nxt1-color-surface-300);
-        color: var(--sheet-text);
-        border-color: var(--nxt1-color-border-subtle);
-      }
-
-      .action-item.cancel {
-        background: var(--nxt1-color-surface-300);
-        color: var(--sheet-text-secondary);
-        border-color: var(--nxt1-color-border-subtle);
-      }
-
-      .action-item.destructive {
-        background: var(--sheet-error);
-        color: var(--sheet-text-on-error);
-        border-color: var(--sheet-error);
-      }
-
-      .action-btn {
+      /* Base button — matches onboarding/auth button pattern */
+      .sheet-btn {
         width: 100%;
-        height: var(--nxt1-button-height, 48px);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        border: none;
-        background: transparent;
-        color: inherit;
-        font-size: var(--nxt1-fontSize-base);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        cursor: pointer;
+        height: 48px;
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: var(--nxt1-spacing-2);
-        transition: var(--nxt1-transition-fast);
+        gap: 8px;
+        border: none;
+        border-radius: var(--nxt1-borderRadius-xl, 12px);
+        font-family: var(--nxt1-fontFamily-brand, system-ui, sans-serif);
+        font-size: 16px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+        user-select: none;
+      }
 
-        .spinner {
-          width: var(--nxt1-fontSize-lg);
-          height: var(--nxt1-fontSize-lg);
-          border: 2px solid currentColor;
-          border-top-color: transparent;
-          border-radius: var(--nxt1-radius-full, 9999px);
-          animation: spin 0.6s linear infinite;
+      .sheet-btn:active:not(:disabled) {
+        transform: scale(0.98);
+      }
+
+      .sheet-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* Primary — lime green, matches .nxt1-continue-btn */
+      .sheet-btn--primary {
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
+      }
+
+      /* Cancel — outline, matches .nxt1-skip-btn / .nxt1-btn-secondary */
+      .sheet-btn--cancel {
+        background: transparent;
+        border: 1px solid var(--nxt1-color-border-subtle);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      /* Destructive — red background */
+      .sheet-btn--destructive {
+        background: var(--nxt1-color-error, #ef4444);
+        color: #fff;
+      }
+
+      .sheet-spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid transparent;
+        border-top-color: currentColor;
+        border-radius: 9999px;
+        animation: sheet-spin 0.6s linear infinite;
+      }
+
+      @keyframes sheet-spin {
+        to {
+          transform: rotate(360deg);
         }
-
-        @keyframes spin {
-          to {
-            transform: rotate(360deg);
-          }
-        }
-
-        &:active:not(:disabled) {
-          transform: scale(0.98);
-        }
-
-        &:disabled {
-          opacity: var(--nxt1-opacity-disabled);
-          cursor: not-allowed;
-        }
-      }
-
-      .action-item.primary .action-btn:active:not(:disabled) {
-        background: var(--nxt1-color-primaryDark);
-      }
-
-      .action-item.destructive .action-btn:active:not(:disabled) {
-        background: var(--nxt1-color-feedback-errorDark, var(--sheet-error));
-      }
-
-      .action-item.cancel .action-btn {
-        color: var(--sheet-accent);
-      }
-
-      .ios .action-btn {
-        border-radius: var(--nxt1-radius-full, 9999px);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        letter-spacing: var(--nxt1-letterSpacing-tight);
-      }
-
-      .android .action-btn {
-        border-radius: var(--nxt1-radius-full, 9999px);
-        font-weight: var(--nxt1-fontWeight-medium);
-        text-transform: none;
-      }
-
-      /* ============================================
-     * Safe Area
-     * ============================================ */
-      .safe-area-bottom {
-        height: env(safe-area-inset-bottom, var(--nxt1-spacing-5));
-        min-height: var(--nxt1-spacing-5);
       }
     `,
   ],
@@ -443,18 +259,13 @@ export class NxtBottomSheetComponent {
   @Input() showClose = true;
   @Input() destructive = false;
   @Input() actions: BottomSheetAction[] = [];
+  @Input() actionsLayout: 'vertical' | 'horizontal' = 'vertical';
 
   // ============================================
   // STATE
   // ============================================
 
   readonly loading = signal(false);
-
-  // ============================================
-  // COMPUTED
-  // ============================================
-
-  readonly isIos = computed(() => this.platform.isIOS());
 
   // ============================================
   // EVENT HANDLERS

@@ -33,7 +33,7 @@ import {
   SettingsService,
 } from '@nxt1/ui/settings';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import { NxtBottomSheetService } from '@nxt1/ui/components/bottom-sheet';
+import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
 import type { SettingsUserInfo, SettingsSubscription } from '@nxt1/core';
@@ -199,14 +199,16 @@ export class SettingsComponent implements OnInit {
     const result = await this.bottomSheet.show({
       title: 'Sign Out',
       subtitle: 'Are you sure you want to sign out?',
+      ...SHEET_PRESETS.COMPACT,
+      actionsLayout: 'horizontal',
       actions: [
-        {
-          label: 'Sign Out',
-          role: 'destructive',
-        },
         {
           label: 'Cancel',
           role: 'cancel',
+        },
+        {
+          label: 'Sign Out',
+          role: 'destructive',
         },
       ],
     });

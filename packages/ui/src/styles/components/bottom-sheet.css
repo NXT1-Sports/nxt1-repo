@@ -21,12 +21,12 @@
  * Bottom Sheet Modal - Base Styles
  * ============================================ */
 .nxt1-bottom-sheet-modal {
-  --background: transparent;
+  --background: var(--nxt1-color-bg-primary);
   --box-shadow: none;
 }
 
 .nxt1-bottom-sheet-modal::part(content) {
-  --background: transparent;
+  background: var(--nxt1-color-bg-primary);
 }
 
 .nxt1-bottom-sheet-modal::part(backdrop) {

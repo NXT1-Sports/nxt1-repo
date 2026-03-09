@@ -8,7 +8,7 @@ import {
   type SettingsCopyEvent,
 } from '@nxt1/ui/settings';
 import { NxtDesktopPageHeaderComponent } from '@nxt1/ui/components/desktop-page-header';
-import { NxtBottomSheetService } from '@nxt1/ui/components/bottom-sheet';
+import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
@@ -109,7 +109,7 @@ export class AccountInformationComponent implements OnInit {
         type: 'action',
         label: 'Sign Out',
         description: 'Sign out from your current session',
-        icon: 'log-out-outline',
+        icon: 'logout',
         action: 'signOut',
       },
       {
@@ -118,7 +118,7 @@ export class AccountInformationComponent implements OnInit {
         type: 'action',
         label: 'Delete Account',
         description: 'Permanently delete your account and all data',
-        icon: 'trash-outline',
+        icon: 'trash',
         action: 'deleteAccount',
         variant: 'danger',
       },
@@ -163,9 +163,11 @@ export class AccountInformationComponent implements OnInit {
         const confirm = await this.bottomSheet.show({
           title: 'Sign Out',
           subtitle: 'Are you sure you want to sign out?',
+          ...SHEET_PRESETS.COMPACT,
+          actionsLayout: 'horizontal',
           actions: [
-            { label: 'Sign Out', role: 'destructive' },
             { label: 'Cancel', role: 'cancel' },
+            { label: 'Sign Out', role: 'destructive' },
           ],
         });
 
