@@ -62,11 +62,9 @@ import {
   filterScheduleEvents,
   mapProfileEventsToScheduleRows,
   getScheduleSeasons,
-  formatSportDisplayName,
 } from '@nxt1/core';
 import { NxtPageHeaderComponent } from '../components/page-header';
 import { NxtIconComponent } from '../components/icon';
-import { NxtImageComponent } from '../components/image';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import {
   NxtOptionScrollerComponent,
@@ -117,7 +115,6 @@ export interface ProfileShellUser {
     IonContent,
     NxtPageHeaderComponent,
     NxtIconComponent,
-    NxtImageComponent,
     NxtRefresherComponent,
     NxtOptionScrollerComponent,
     NxtSectionNavWebComponent,
@@ -144,34 +141,29 @@ export interface ProfileShellUser {
       (backClick)="backClick.emit()"
       (menuClick)="menuClick.emit()"
     >
+      <div pageHeaderSlot="title" class="header-logo">
+        <span class="header-title-text">Profile</span>
+        <svg
+          class="header-brand-logo"
+          viewBox="0 0 612 792"
+          width="40"
+          height="40"
+          fill="currentColor"
+          stroke="currentColor"
+          stroke-width="10"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path
+            d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+          />
+          <polygon
+            points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
+          />
+        </svg>
+      </div>
+
       <div pageHeaderSlot="end" class="header-actions">
-        @if (profile.isOwnProfile()) {
-          <button
-            type="button"
-            class="header-action-btn"
-            aria-label="Agent X"
-            (click)="agentXClick.emit()"
-          >
-            <svg
-              class="agent-x-icon"
-              viewBox="0 0 612 792"
-              width="40"
-              height="40"
-              fill="currentColor"
-              stroke="currentColor"
-              stroke-width="12"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path
-                d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-              />
-              <polygon
-                points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
-              />
-            </svg>
-          </button>
-        }
         <button
           type="button"
           class="header-action-btn"
@@ -184,10 +176,10 @@ export interface ProfileShellUser {
           <button
             type="button"
             class="header-action-btn"
-            aria-label="Add to profile"
+            aria-label="Edit profile"
             (click)="editProfileClick.emit()"
           >
-            <nxt1-icon name="plus" [size]="22" />
+            <nxt1-icon name="pencil" [size]="22" />
           </button>
         }
       </div>
@@ -246,36 +238,6 @@ export interface ProfileShellUser {
               (selectionChange)="onSectionNavChange($event)"
             />
           </div>
-
-          <!-- Sport Profile Switcher (multiple sports) -->
-          @if (profile.hasMultipleSports()) {
-            <div class="sport-switcher" role="group" aria-label="Sport profiles">
-              @for (sport of profile.allSports(); track sport.name; let i = $index) {
-                <button
-                  type="button"
-                  class="sport-pill"
-                  [class.sport-pill--active]="profile.activeSportIndex() === i"
-                  [attr.aria-selected]="profile.activeSportIndex() === i"
-                  role="tab"
-                  (click)="onSportSwitch(i)"
-                >
-                  @if (profile.user()?.profileImg) {
-                    <nxt1-image
-                      class="sport-pill__avatar"
-                      [src]="profile.user()?.profileImg"
-                      [alt]="sport.name"
-                      [width]="20"
-                      [height]="20"
-                      variant="avatar"
-                      fit="cover"
-                      [showPlaceholder]="false"
-                    />
-                  }
-                  <span>{{ formatSportDisplayName(sport.name) }}</span>
-                </button>
-              }
-            </div>
-          }
 
           <!-- Verification Banner -->
           <nxt1-profile-verification-banner
@@ -456,6 +418,35 @@ export interface ProfileShellUser {
         --background: var(--m-bg);
       }
 
+      .header-logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0;
+        width: 100%;
+        margin-top: -8px;
+        margin-left: -18px;
+      }
+
+      .header-title-text {
+        display: inline-flex;
+        align-items: center;
+        font-family: var(--nxt1-font-family-brand, var(--ion-font-family));
+        font-size: var(--nxt1-font-size-xl, 20px);
+        font-weight: var(--nxt1-font-weight-semibold, 600);
+        letter-spacing: var(--nxt1-letter-spacing-tight, -0.01em);
+        color: var(--nxt1-color-text-primary, #ffffff);
+        line-height: 1;
+        transform: translateY(1px);
+      }
+
+      .header-brand-logo {
+        display: block;
+        flex-shrink: 0;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        transform: translateY(1px);
+      }
+
       /* ─── HEADER ACTION BUTTONS ─── */
 
       .header-actions {
@@ -488,16 +479,12 @@ export interface ProfileShellUser {
         transform: scale(0.92);
       }
 
-      .agent-x-icon {
-        color: var(--m-accent);
-      }
-
       /* ─── MAIN CONTAINER ─── */
 
       .profile-container {
         position: relative;
         min-height: 100%;
-        padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
       }
 
       /* ─── HALFTONE ACCENT BACKGROUND ─── */
@@ -611,7 +598,7 @@ export interface ProfileShellUser {
       .top-tabs {
         position: relative;
         z-index: 1;
-        padding: 0 8px;
+        padding: 8px 8px 0;
         background: transparent;
       }
 
@@ -638,13 +625,14 @@ export interface ProfileShellUser {
         z-index: 1;
         width: calc(100% - 24px);
         margin-inline: 12px;
-        margin-top: 12px;
+        margin-top: 18px;
+        margin-bottom: 8px;
       }
 
       .section-nav-row ::ng-deep .section-nav {
         gap: 4px;
         padding-inline: 2px;
-        padding-bottom: 10px;
+        padding-bottom: 14px;
         border-bottom: none;
         box-sizing: border-box;
       }
@@ -672,68 +660,13 @@ export interface ProfileShellUser {
         display: none;
       }
 
-      /* ─── SPORT PROFILE SWITCHER ─── */
-
-      .sport-switcher {
-        position: relative;
-        z-index: 1;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        padding: 8px 12px;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
-      }
-
-      .sport-switcher::-webkit-scrollbar {
-        display: none;
-      }
-
-      .sport-pill {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 10px 4px 4px;
-        background: transparent;
-        border: 1px solid transparent;
-        border-radius: var(--nxt1-radius-full, 999px);
-        cursor: pointer;
-        color: var(--m-text-2);
-        font-size: 11px;
-        font-weight: 500;
-        white-space: nowrap;
-        transition:
-          color 100ms ease-out,
-          background 100ms ease-out,
-          border-color 100ms ease-out;
-      }
-
-      .sport-pill--active {
-        color: var(--m-text);
-        background: var(--m-surface-2);
-        border-color: var(--m-accent);
-      }
-
-      .sport-pill__avatar {
-        width: 20px;
-        height: 20px;
-        border-radius: 50%;
-        object-fit: cover;
-        flex-shrink: 0;
-      }
-
-      .sport-pill--active .sport-pill__avatar {
-        border: 1.5px solid var(--m-accent);
-      }
-
       /* ─── TAB CONTENT ─── */
 
       .tab-content {
         position: relative;
         z-index: 1;
         min-height: 300px;
-        padding: 0 12px 24px;
+        padding: 12px 12px 48px;
       }
     `,
   ],
@@ -744,8 +677,6 @@ export class ProfileShellComponent implements OnInit {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ProfileShell');
   private readonly bottomSheet = inject(NxtBottomSheetService);
-
-  protected readonly formatSportDisplayName = formatSportDisplayName;
 
   // ============================================
   // INPUTS
@@ -1125,14 +1056,6 @@ export class ProfileShellComponent implements OnInit {
 
   protected onSectionNavChange(event: SectionNavChangeEvent): void {
     this._activeSideTab.set(event.id);
-  }
-
-  protected onSportSwitch(index: number): void {
-    this.profile.setActiveSportIndex(index);
-    this.logger.debug('Sport profile switched', {
-      index,
-      sport: this.profile.activeSport()?.name,
-    });
   }
 
   protected async handleRefresh(event: RefreshEvent): Promise<void> {

@@ -59,6 +59,7 @@
 import { Component, ChangeDetectionStrategy, input, output, inject } from '@angular/core';
 import { NxtIconComponent } from '../icon/icon.component';
 import { HapticsService } from '../../services/haptics/haptics.service';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../../agent-x/fab/agent-x-logo.constants';
 
 /** Supported shapes for the optional header icon container. */
 export type SheetHeaderIconShape = 'circle' | 'rounded';
@@ -74,7 +75,6 @@ export type SheetHeaderClosePosition = 'left' | 'right';
     <header
       class="nxt1-sheet-header"
       [class.nxt1-sheet-header--border]="showBorder()"
-      [class.nxt1-sheet-header--centered]="centerTitle()"
       [attr.data-testid]="testId()"
     >
       <!-- Close button (left position) -->
@@ -90,8 +90,8 @@ export type SheetHeaderClosePosition = 'left' | 'right';
         </button>
       }
 
-      <!-- Icon (optional) -->
-      @if (icon() && !centerTitle()) {
+      <!-- Optional icon before title (opt-in to avoid changing existing headers) -->
+      @if (showIcon() && icon()) {
         <div
           class="nxt1-sheet-header__icon"
           [class.nxt1-sheet-header__icon--circle]="iconShape() === 'circle'"
@@ -101,14 +101,28 @@ export type SheetHeaderClosePosition = 'left' | 'right';
         </div>
       }
 
+      @if (showAgentXIcon()) {
+        <div class="nxt1-sheet-header__agent-x-icon" aria-hidden="true">
+          <svg
+            viewBox="0 0 612 792"
+            width="36"
+            height="36"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="10"
+            stroke-linejoin="round"
+          >
+            <path [attr.d]="agentXLogoPath" />
+            <polygon [attr.points]="agentXLogoPolygon" />
+          </svg>
+        </div>
+      }
+
       <!-- Title block -->
       <div
         class="nxt1-sheet-header__title-block"
-        [class.nxt1-sheet-header__title-block--centered]="centerTitle()"
+        [class.nxt1-sheet-header__title-block--with-agent-x]="showAgentXIcon()"
       >
-        @if (subtitle() && !centerTitle()) {
-          <span class="nxt1-sheet-header__subtitle">{{ subtitle() }}</span>
-        }
         <h2 class="nxt1-sheet-header__title">{{ title() }}</h2>
       </div>
 
@@ -128,11 +142,6 @@ export type SheetHeaderClosePosition = 'left' | 'right';
         >
           <nxt1-icon name="close" [size]="20" aria-hidden="true" />
         </button>
-      }
-
-      <!-- Spacer for centered title when no close on right and no projected action -->
-      @if (centerTitle() && closePosition() === 'left' && !showClose()) {
-        <div class="nxt1-sheet-header__spacer"></div>
       }
     </header>
   `,
@@ -215,28 +224,27 @@ export type SheetHeaderClosePosition = 'left' | 'right';
         border-radius: var(--nxt1-radius-md, 10px);
       }
 
+      .nxt1-sheet-header__agent-x-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--nxt1-color-primary, #ccff00);
+        filter: drop-shadow(0 0 6px var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.2)));
+        flex-shrink: 0;
+      }
+
       /* ============================================
        * Title Block
        * ============================================ */
       .nxt1-sheet-header__title-block {
         display: flex;
         flex-direction: column;
-        gap: 2px;
         min-width: 0;
         flex: 1;
       }
 
-      .nxt1-sheet-header__title-block--centered {
-        text-align: center;
-      }
-
-      .nxt1-sheet-header__subtitle {
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-        color: var(--nxt1-color-primary, #ccff00);
-        line-height: 1;
+      .nxt1-sheet-header__title-block--with-agent-x {
+        margin-left: -4px;
       }
 
       .nxt1-sheet-header__title {
@@ -251,13 +259,6 @@ export type SheetHeaderClosePosition = 'left' | 'right';
         text-overflow: ellipsis;
       }
 
-      /* When subtitle is present, slightly smaller title for hierarchy */
-      .nxt1-sheet-header__subtitle + .nxt1-sheet-header__title {
-        font-size: 15px;
-        font-weight: 600;
-        line-height: 1.3;
-      }
-
       /* ============================================
        * Actions Slot
        * ============================================ */
@@ -269,14 +270,6 @@ export type SheetHeaderClosePosition = 'left' | 'right';
 
       .nxt1-sheet-header__actions:empty {
         display: none;
-      }
-
-      /* ============================================
-       * Spacer (for centered titles without right action)
-       * ============================================ */
-      .nxt1-sheet-header__spacer {
-        width: 36px;
-        flex-shrink: 0;
       }
     `,
   ],
@@ -297,6 +290,15 @@ export class NxtSheetHeaderComponent {
 
   /** Optional icon name displayed before the title block. */
   readonly icon = input<string | undefined>(undefined);
+
+  /** Render icon beside title only when explicitly enabled. */
+  readonly showIcon = input<boolean>(false);
+
+  /** Render the Agent X brand mark beside title only when explicitly enabled. */
+  readonly showAgentXIcon = input<boolean>(false);
+
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
 
   /** Shape of the icon container: 'circle' (default) or 'rounded' (rounded rectangle). */
   readonly iconShape = input<SheetHeaderIconShape>('circle');

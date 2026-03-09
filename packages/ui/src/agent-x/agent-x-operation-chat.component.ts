@@ -41,8 +41,8 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ModalController } from '@ionic/angular/standalone';
-import { NxtIconComponent } from '../components/icon/icon.component';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
+import { AgentXInputComponent } from './agent-x-input.component';
 
 // ============================================
 // INTERFACES
@@ -68,18 +68,31 @@ interface OperationMessage {
 @Component({
   selector: 'nxt1-agent-x-operation-chat',
   standalone: true,
-  imports: [CommonModule, FormsModule, NxtIconComponent, NxtSheetHeaderComponent],
+  imports: [CommonModule, FormsModule, NxtSheetHeaderComponent, AgentXInputComponent],
   template: `
     <!-- ═══ HEADER ═══ -->
     <nxt1-sheet-header
       [title]="contextTitle"
       [subtitle]="contextTypeLabel()"
-      [icon]="contextIcon"
+      [showAgentXIcon]="true"
       iconShape="rounded"
       closePosition="right"
       [showBorder]="true"
       (closeSheet)="dismiss()"
     />
+
+    <!-- ═══ COMMAND HUB (Upper-Middle) ═══ -->
+    @if (showQuickActions()) {
+      <div class="quick-actions-hub">
+        <div class="quick-actions-row quick-actions-row--grid">
+          @for (action of normalizedQuickActions(); track action.id) {
+            <button type="button" class="quick-action-chip" (click)="onQuickAction(action)">
+              <span>{{ shortActionLabel(action.label) }}</span>
+            </button>
+          }
+        </div>
+      </div>
+    }
 
     <!-- ═══ MESSAGES ═══ -->
     <div class="messages-area" #messagesArea>
@@ -91,11 +104,6 @@ interface OperationMessage {
           [class.msg-system]="msg.role === 'system'"
           [class.msg-error]="msg.error"
         >
-          @if (msg.role === 'assistant') {
-            <div class="msg-avatar">
-              <nxt1-icon name="bolt" [size]="16" />
-            </div>
-          }
           <div class="msg-bubble">
             @if (msg.isTyping) {
               <div class="typing-dots"><span></span><span></span><span></span></div>
@@ -110,36 +118,27 @@ interface OperationMessage {
     </div>
 
     <!-- ═══ INPUT ═══ -->
-    @if (showQuickActions()) {
-      <div class="quick-actions-row">
-        @for (action of quickActions; track action.id) {
-          <button type="button" class="quick-action-chip" (click)="onQuickAction(action)">
-            <nxt1-icon [name]="action.icon" [size]="12" />
-            <span>{{ action.label }}</span>
-          </button>
-        }
-      </div>
-    }
-    <div class="input-row">
-      <textarea
-        #inputField
-        class="chat-input"
-        [ngModel]="inputValue()"
-        (ngModelChange)="inputValue.set($event)"
-        (keydown.enter)="onEnter($event)"
-        placeholder="Ask about this operation…"
-        rows="1"
-        maxlength="1000"
-      ></textarea>
-      <button
-        type="button"
-        class="send-btn"
-        [disabled]="!canSend()"
-        (click)="send()"
-        aria-label="Send"
-      >
-        <nxt1-icon name="send" [size]="18" />
-      </button>
+    <div class="shared-input-row">
+      <nxt1-agent-x-input
+        class="embedded"
+        [hasMessages]="messages().length > 0"
+        [selectedTask]="null"
+        [isLoading]="_loading()"
+        [canSend]="canSend()"
+        [userMessage]="inputValue()"
+        [placeholder]="'Start your agent'"
+        (messageChange)="inputValue.set($event)"
+        (send)="send()"
+        (toggleTasks)="onUploadClick()"
+      />
+      <input
+        #fileInput
+        class="file-input-hidden"
+        type="file"
+        accept="image/*,.pdf,.doc,.docx,.txt"
+        multiple
+        (change)="onFileSelected($event)"
+      />
     </div>
   `,
   styles: [
@@ -175,6 +174,13 @@ interface OperationMessage {
         -webkit-overflow-scrolling: touch;
       }
 
+      .quick-actions-hub {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 6vh 20px 8px;
+      }
+
       .msg-row {
         display: flex;
         gap: 8px;
@@ -207,19 +213,6 @@ interface OperationMessage {
         max-width: 100%;
       }
 
-      .msg-avatar {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-        background: var(--op-surface);
-        border: 1px solid var(--op-border);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        flex-shrink: 0;
-        color: var(--op-primary);
-      }
-
       .msg-bubble {
         padding: 10px 14px;
         border-radius: 14px;
@@ -233,10 +226,11 @@ interface OperationMessage {
       }
 
       .msg-assistant .msg-bubble {
-        background: var(--op-surface);
-        border: 1px solid var(--op-border);
+        background: transparent;
+        border: none;
         color: var(--op-text);
-        border-bottom-left-radius: 4px;
+        border-radius: 0;
+        padding: 0;
       }
 
       .msg-system .msg-bubble {
@@ -299,11 +293,8 @@ interface OperationMessage {
         }
       }
 
-      /* ── INPUT ROW ── */
-      .input-row {
-        display: flex;
-        align-items: flex-end;
-        gap: 8px;
+      /* ── SHARED INPUT ROW ── */
+      .shared-input-row {
         padding: 12px 20px;
         padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
         border-top: 1px solid var(--op-border);
@@ -311,78 +302,36 @@ interface OperationMessage {
         flex-shrink: 0;
       }
 
-      .chat-input {
-        flex: 1;
-        min-height: 40px;
-        max-height: 100px;
-        padding: 10px 14px;
-        background: var(--op-surface);
-        border: 1px solid var(--op-border);
-        border-radius: 20px;
-        color: var(--op-text);
-        font-size: 14px;
-        line-height: 1.4;
-        resize: none;
-        outline: none;
-        font-family: inherit;
-        -webkit-appearance: none;
-        transition: border-color 0.15s ease;
-      }
-
-      .chat-input::placeholder {
-        color: var(--op-text-muted);
-      }
-
-      .chat-input:focus {
-        border-color: var(--op-primary);
-      }
-
-      .send-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        border: none;
-        background: var(--op-primary);
-        color: #0a0a0a;
-        cursor: pointer;
-        flex-shrink: 0;
-        transition:
-          opacity 0.15s ease,
-          transform 0.1s ease;
-        -webkit-tap-highlight-color: transparent;
-      }
-
-      .send-btn:disabled {
-        opacity: 0.35;
-        cursor: default;
-      }
-
-      .send-btn:not(:disabled):active {
-        transform: scale(0.93);
+      .file-input-hidden {
+        display: none;
       }
 
       /* ── QUICK ACTION CHIPS ── */
       .quick-actions-row {
         display: flex;
         gap: 8px;
-        padding: 8px 20px 0;
         flex-wrap: wrap;
         flex-shrink: 0;
+        justify-content: center;
+      }
+
+      .quick-actions-row--grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        width: min(560px, 100%);
       }
 
       .quick-action-chip {
         display: inline-flex;
         align-items: center;
-        gap: 5px;
-        padding: 6px 12px;
+        justify-content: center;
+        padding: 10px 12px;
         border: 1px solid var(--op-border);
-        border-radius: var(--nxt1-radius-full, 9999px);
+        border-radius: var(--nxt1-radius-lg, 12px);
         background: var(--op-surface);
         color: var(--op-text-secondary);
-        font-size: 12px;
+        font-size: 13px;
         font-weight: 600;
         font-family: inherit;
         cursor: pointer;
@@ -440,12 +389,35 @@ export class AgentXOperationChatComponent {
   protected readonly inputValue = signal('');
 
   /** Whether an AI response is being generated. */
-  private readonly _loading = signal(false);
+  protected readonly _loading = signal(false);
 
   /** Whether quick action chips are visible (hide after first user message). */
   protected readonly showQuickActions = computed(
-    () => this.quickActions.length > 0 && !this.hasUserSent()
+    () => this.normalizedQuickActions().length > 0 && !this.hasUserSent()
   );
+
+  /** Normalized quick actions list (always target 6 options for command hub). */
+  protected readonly normalizedQuickActions = computed<OperationQuickAction[]>(() => {
+    const base = this.quickActions.map((a, index) => ({
+      ...a,
+      id: a.id || `cmd-${index + 1}`,
+      label: this.shortActionLabel(a.label),
+    }));
+
+    const seen = new Set(base.map((a) => a.label.toLowerCase()));
+    const fallbackLabels = this.getFallbackActionLabels();
+    const filled = [...base];
+
+    for (const label of fallbackLabels) {
+      if (filled.length >= 6) break;
+      const key = label.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      filled.push({ id: `fallback-${filled.length + 1}`, label, icon: this.contextIcon });
+    }
+
+    return filled.slice(0, 6);
+  });
 
   /** Tracks whether the user has sent at least one message. */
   private readonly hasUserSent = signal(false);
@@ -465,6 +437,7 @@ export class AgentXOperationChatComponent {
   // ============================================
 
   private readonly messagesArea = viewChild<ElementRef>('messagesArea');
+  private readonly fileInput = viewChild<ElementRef<HTMLInputElement>>('fileInput');
 
   constructor() {
     // Auto-scroll when messages change
@@ -479,10 +452,6 @@ export class AgentXOperationChatComponent {
   // ============================================
   // LIFECYCLE
   // ============================================
-
-  ngOnInit(): void {
-    this.seedSystemMessage();
-  }
 
   // ============================================
   // PUBLIC METHODS
@@ -540,55 +509,77 @@ export class AgentXOperationChatComponent {
     await this.send();
   }
 
-  /** Handle Enter key — send on plain Enter, newline on Shift+Enter. */
-  onEnter(event: Event): void {
-    const ke = event as KeyboardEvent;
-    if (!ke.shiftKey) {
-      ke.preventDefault();
-      void this.send();
-    }
+  /** Open native file picker from the shared input plus button. */
+  protected onUploadClick(): void {
+    this.fileInput()?.nativeElement.click();
+  }
+
+  /** Handle selected files/images and append upload context into chat. */
+  protected onFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    if (files.length === 0) return;
+
+    this.hasUserSent.set(true);
+
+    const firstThree = files
+      .slice(0, 3)
+      .map((f) => f.name)
+      .join(', ');
+    const suffix = files.length > 3 ? ` +${files.length - 3} more` : '';
+
+    this.pushMessage({
+      id: this.uid(),
+      role: 'user',
+      content: `Uploaded ${files.length} file${files.length > 1 ? 's' : ''}: ${firstThree}${suffix}`,
+      timestamp: new Date(),
+    });
+
+    this.pushMessage({
+      id: this.uid(),
+      role: 'assistant',
+      content: 'Got it. I can use these files in your request. Tell me what you want me to create.',
+      timestamp: new Date(),
+    });
+
+    input.value = '';
   }
 
   // ============================================
   // PRIVATE HELPERS
   // ============================================
 
-  /** Create the initial system context message. */
-  private seedSystemMessage(): void {
-    const label =
-      this.contextType === 'operation'
-        ? `You're chatting about: ${this.contextTitle}`
-        : `Quick command: ${this.contextTitle}`;
-
-    this.pushMessage({
-      id: this.uid(),
-      role: 'system',
-      content: label,
-      timestamp: new Date(),
-    });
-
-    // Add a contextual greeting from Agent X
-    const greeting = this.buildGreeting();
-    this.pushMessage({
-      id: this.uid(),
-      role: 'assistant',
-      content: greeting,
-      timestamp: new Date(),
-    });
+  /** Keep quick action labels compact in the sheet UI. */
+  protected shortActionLabel(label: string): string {
+    const compact = label.trim();
+    if (compact.length <= 22) return compact;
+    return `${compact.slice(0, 22).trimEnd()}...`;
   }
 
-  /** Build a context-aware greeting. */
-  private buildGreeting(): string {
+  private getFallbackActionLabels(): string[] {
     if (this.contextType === 'operation') {
-      return (
-        `I'm working on "${this.contextTitle}" right now. ` +
-        `Ask me anything about its progress, adjust parameters, or tell me what to do next.`
-      );
+      return [
+        'Status',
+        'Progress',
+        'Refine',
+        'Boost Quality',
+        'Set Priority',
+        'Notify Me',
+        'Pause',
+        'Export',
+      ];
     }
-    return (
-      `Ready to help with "${this.contextTitle}". ` +
-      `What specifics would you like me to focus on?`
-    );
+
+    return [
+      'Create Plan',
+      'Generate Draft',
+      'Refine Output',
+      'Next Steps',
+      'Best Version',
+      'Publish Ready',
+      'Save Draft',
+      'Share',
+    ];
   }
 
   /** Simulate an AI response (placeholder until backend wired). */

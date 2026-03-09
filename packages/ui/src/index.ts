@@ -1211,7 +1211,6 @@ export {
   // Services
   EditProfileService,
   EditProfileBottomSheetService,
-  EditProfileModalComponent,
   // Mock Data (Development Only)
   MOCK_EDIT_PROFILE_FORM_DATA,
   MOCK_PROFILE_COMPLETION,

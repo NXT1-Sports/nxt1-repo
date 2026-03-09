@@ -360,6 +360,7 @@ export {
   type FooterTabSelectEvent,
   type FooterScrollToTopEvent,
   // Mobile Footer Constants
+  DEFAULT_NAVIGATION_SURFACE_CONFIG,
   DEFAULT_FOOTER_TABS,
   CENTERED_CREATE_FOOTER_TABS,
   AGENT_X_CENTER_FOOTER_TABS,

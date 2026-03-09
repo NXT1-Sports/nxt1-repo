@@ -59,7 +59,6 @@ export class ExploreFilterModalService {
       },
       ...SHEET_PRESETS.FULL,
       backdropDismiss: true,
-      cssClass: ['nxt1-picker-modal', 'nxt1-picker-modal--sheet'],
     });
 
     return {

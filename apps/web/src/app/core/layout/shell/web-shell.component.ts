@@ -80,6 +80,7 @@ import {
   type FooterScrollToTopEvent,
   type FooterConfig,
   AGENT_X_LEFT_FOOTER_TABS,
+  createFooterConfig,
   findTabByRoute,
 } from '@nxt1/ui/components/footer';
 import {
@@ -968,16 +969,11 @@ export class WebShellComponent {
   readonly footerTabs = MOBILE_FOOTER_TABS;
 
   /** Mobile footer configuration */
-  readonly footerConfig = computed<FooterConfig>(() => ({
-    showLabels: true,
-    enableHaptics: false, // Web doesn't have haptics
-    variant: 'default',
-    hidden: false,
-    translucent: false,
-    glass: false, // Solid opaque background (glass causes see-through)
-    indicatorStyle: 'none',
-    scrollToTopOnSameTap: true,
-  }));
+  readonly footerConfig = computed<FooterConfig>(() =>
+    createFooterConfig({
+      enableHaptics: false, // Web doesn't have haptics
+    })
+  );
 
   // ============================================
   // MOBILE HEADER CONFIGURATION (YouTube-style top bar)

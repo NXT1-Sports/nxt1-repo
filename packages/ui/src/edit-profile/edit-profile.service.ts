@@ -271,6 +271,47 @@ export class EditProfileService {
   }
 
   /**
+   * Update the profile image gallery used by the profile carousel.
+   */
+  updatePhotoGallery(images: readonly string[]): void {
+    this._dirtyFields.update((fields) => {
+      const newFields = new Set(fields);
+      newFields.add('photos.profileImages');
+      newFields.add('photos.profileImg');
+      return newFields;
+    });
+
+    this._formData.update((data) => {
+      if (!data) return data;
+
+      return {
+        ...data,
+        photos: {
+          ...data.photos,
+          profileImages: [...images],
+          profileImg: images[0] ?? '',
+        },
+      };
+    });
+
+    this._sections.update((sections) => {
+      return sections.map((section) => {
+        if (section.id !== 'photos') return section;
+
+        return {
+          ...section,
+          fields: section.fields.map((field) => {
+            if (field.id !== 'profileImg') return field;
+            return { ...field, value: images[0] ?? '' };
+          }),
+        };
+      });
+    });
+
+    this.logger.debug('Photo gallery updated', { count: images.length });
+  }
+
+  /**
    * Save all changes.
    */
   async saveChanges(): Promise<boolean> {

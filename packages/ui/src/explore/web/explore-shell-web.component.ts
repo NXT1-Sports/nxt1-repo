@@ -453,7 +453,7 @@ export class ExploreShellWebComponent implements OnInit {
       activeTab === 'news' ||
       (activeTab === 'following' && this.hasFollowingOption());
     if (!isAllowedTab) {
-      void this.explore.switchTab('for-you');
+      void this.explore.switchTab('feed');
     }
     void this.ensureFeedLoadedForTab(this.explore.activeTab());
   }

@@ -123,3 +123,37 @@ ion-popover.nxt1-select-popover ion-item.item-radio-checked ion-label {
   --nxt1-color-primary: #ccff00;
   --nxt1-color-border-default: rgba(255, 255, 255, 0.12);
 }
+
+/* ============================================
+   ACTION SHEET OVERRIDE
+   Removes Ionic's default blue from action-sheet
+   selects app-wide
+   ============================================ */
+
+ion-action-sheet.nxt1-select-action-sheet {
+  --background: var(--nxt1-color-surface-200, #1a1a1a);
+  --button-background: transparent;
+  --button-color: var(--nxt1-color-text-primary, #ffffff);
+  --button-color-selected: var(--nxt1-color-primary, #ccff00);
+  --color: var(--nxt1-color-text-primary, #ffffff);
+  --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+}
+
+ion-action-sheet.nxt1-select-action-sheet .action-sheet-title {
+  color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
+  font-family: var(--nxt1-fontFamily-brand);
+}
+
+ion-action-sheet.nxt1-select-action-sheet .action-sheet-button {
+  font-family: var(--nxt1-fontFamily-brand);
+  color: var(--nxt1-color-text-primary, #ffffff);
+}
+
+ion-action-sheet.nxt1-select-action-sheet .action-sheet-button.action-sheet-selected {
+  color: var(--nxt1-color-primary, #ccff00);
+  font-weight: 600;
+}
+
+ion-action-sheet.nxt1-select-action-sheet .action-sheet-cancel .action-sheet-button-inner {
+  color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
+}

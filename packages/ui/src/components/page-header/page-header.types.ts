@@ -5,6 +5,8 @@
  * Type definitions for the professional page header component.
  */
 
+import { DEFAULT_NAVIGATION_SURFACE_CONFIG } from '@nxt1/core';
+
 /**
  * Header visual style variants
  */
@@ -67,8 +69,7 @@ export interface PageHeaderConfig {
 export const DEFAULT_PAGE_HEADER_CONFIG: PageHeaderConfig = {
   variant: 'default',
   collapsible: false,
-  translucent: true,
   bordered: true,
-  glass: false, // Solid background by default
+  ...DEFAULT_NAVIGATION_SURFACE_CONFIG,
   safeArea: 'auto',
 };

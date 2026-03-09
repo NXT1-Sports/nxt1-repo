@@ -427,6 +427,26 @@ export const UI_ICONS = {
     paths: [{ d: 'M12 5v14' }, { d: 'M5 12h14' }],
   },
 
+  /** Send icon (filled paper plane) */
+  send: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [{ d: 'M2 21l20-9L2 3v7l14 2-14 2v7z' }],
+  },
+
+  /** Microphone icon (outline) */
+  mic: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 1a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z' },
+      { d: 'M19 10v1a7 7 0 0 1-14 0v-1' },
+      { d: 'M12 18v5' },
+      { d: 'M8 23h8' },
+    ],
+  },
+
   /** Plus circle icon - for action buttons */
   plusCircle: {
     viewBox: '0 0 24 24',

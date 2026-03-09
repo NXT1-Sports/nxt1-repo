@@ -48,17 +48,17 @@ import {
     NxtIconComponent,
   ],
   template: `
-    <nxt1-sheet-header
-      [title]="filterTitle()"
-      closePosition="left"
-      [showBorder]="true"
-      (closeSheet)="onCancel()"
-    >
+    <nxt1-sheet-header [title]="filterTitle()" [showBorder]="true" (closeSheet)="onCancel()">
       <div sheetHeaderAction class="filter-header-actions">
         @if (activeFilterCount() > 0) {
           <span class="filter-count">{{ activeFilterCount() }}</span>
         }
-        <button class="filter-reset-btn" [disabled]="activeFilterCount() === 0" (click)="onReset()">
+        <button
+          type="button"
+          class="filter-reset-btn"
+          [disabled]="activeFilterCount() === 0"
+          (click)="onReset()"
+        >
           <nxt1-icon name="refresh" [size]="16" />
           Reset
         </button>
@@ -185,7 +185,7 @@ import {
     </div>
 
     <div class="filter-footer">
-      <button class="filter-apply-btn" (click)="onApply()">
+      <button type="button" class="filter-apply-btn" (click)="onApply()">
         <nxt1-icon name="checkmark" [size]="18" />
         Apply Filters
       </button>

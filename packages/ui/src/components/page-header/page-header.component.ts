@@ -150,6 +150,7 @@ import type {
   PageHeaderLeftVariant,
 } from './page-header.types';
 import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
+import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-surface.utils';
 
 // Register Ionicons used for back button, menu, and common action buttons
 // This comprehensive list covers most icons consumers might pass to [actions]
@@ -174,8 +175,9 @@ import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
     <ion-header
       [class.header--transparent]="variant() === 'transparent'"
       [class.header--blur]="variant() === 'blur'"
-      [class.header--solid]="!config().glass"
-      [class.header--glass]="config().glass"
+      [class.header--solid]="surfaceState().mode === 'solid'"
+      [class.header--translucent]="surfaceState().mode === 'translucent'"
+      [class.header--glass]="surfaceState().mode === 'glass'"
       [class.header--bordered]="config().bordered !== false"
       [translucent]="isTranslucent()"
     >
@@ -319,53 +321,64 @@ import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
         display: block;
         width: 100%;
 
-        /* Map to glass tokens for consistency with footer */
-        --header-glass-bg: var(--nxt1-glass-bg);
-        --header-glass-bgSolid: var(--nxt1-glass-bgSolid);
-        --header-glass-border: var(--nxt1-glass-border);
-        --header-glass-shadow: var(--nxt1-glass-shadow);
-        --header-glass-backdrop: var(--nxt1-glass-backdrop);
+        /* Shared navigation surface tokens */
+        --nxt1-navigation-surface-glass-bg: var(--nxt1-glass-bg);
+        --nxt1-navigation-surface-translucent-bg: var(--nxt1-glass-bg);
+        --nxt1-navigation-surface-glass-border: var(--nxt1-glass-border);
+        --nxt1-navigation-surface-glass-shadow: var(--nxt1-glass-shadow);
+        --nxt1-navigation-surface-glass-backdrop: var(--nxt1-glass-backdrop);
+        --nxt1-navigation-surface-solid-bg: var(--nxt1-nav-bgSolid);
+        --nxt1-navigation-surface-solid-border: var(--nxt1-nav-borderSolid);
+        --nxt1-navigation-surface-solid-shadow: var(--nxt1-nav-shadowSolid);
+        --nxt1-navigation-surface-shadow: 0 0 0 0 transparent;
 
         /* Optical vertical-center correction for toolbar control lane */
         --nxt1-header-control-lane-offset-y: 4px;
         --nxt1-header-control-size: 40px;
         --nxt1-header-control-padding-x: var(--nxt1-spacing-1, 4px);
         --nxt1-header-edge-inset: var(--nxt1-header-control-padding-x);
-
-        /* Solid navigation tokens (from design tokens) */
-        --header-solid-bg: var(--nxt1-nav-bgSolid);
-        --header-solid-border: var(--nxt1-nav-borderSolid);
-        --header-solid-shadow: var(--nxt1-nav-shadowSolid);
       }
 
       /* Base Header Styles - Solid by default */
       ion-header {
-        --background: var(--header-solid-bg);
+        --background: var(--nxt1-navigation-surface-solid-bg);
         --color: var(--nxt1-color-text-primary, var(--ion-text-color));
       }
 
       /* Solid mode (default) - Opaque background from design tokens */
       ion-header.header--solid {
-        --background: var(--header-solid-bg);
+        --background: var(--nxt1-navigation-surface-solid-bg);
         backdrop-filter: none;
         -webkit-backdrop-filter: none;
       }
 
+      ion-header.header--translucent {
+        --background: var(--nxt1-navigation-surface-translucent-bg);
+        box-shadow: var(--nxt1-navigation-surface-shadow);
+        backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop);
+        -webkit-backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop);
+      }
+
       /* Glass mode (opt-in) - iOS 26 Liquid Glass Effect */
       ion-header.header--glass {
-        --background: var(--header-glass-bg);
-        backdrop-filter: var(--header-glass-backdrop);
-        -webkit-backdrop-filter: var(--header-glass-backdrop);
+        --background: var(--nxt1-navigation-surface-glass-bg);
+        box-shadow: var(--nxt1-navigation-surface-shadow);
+        backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop);
+        -webkit-backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop);
       }
 
       /* Bordered variant */
       .header--bordered ion-toolbar:last-of-type {
         --border-width: 0 0 0.55px 0;
-        --border-color: var(--header-solid-border);
+        --border-color: var(--nxt1-navigation-surface-solid-border);
+      }
+
+      .header--translucent.header--bordered ion-toolbar:last-of-type {
+        --border-color: var(--nxt1-navigation-surface-glass-border);
       }
 
       .header--glass.header--bordered ion-toolbar:last-of-type {
-        --border-color: var(--header-glass-border);
+        --border-color: var(--nxt1-navigation-surface-glass-border);
       }
 
       /* Transparent variant */
@@ -397,11 +410,15 @@ import { DEFAULT_PAGE_HEADER_CONFIG } from './page-header.types';
       }
 
       .header--solid ion-toolbar {
-        --background: var(--header-solid-bg);
+        --background: var(--nxt1-navigation-surface-solid-bg);
+      }
+
+      .header--translucent ion-toolbar {
+        --background: var(--nxt1-navigation-surface-translucent-bg);
       }
 
       .header--glass ion-toolbar {
-        --background: var(--header-glass-bg);
+        --background: var(--nxt1-navigation-surface-glass-bg);
       }
 
       /* ============================================
@@ -1037,11 +1054,14 @@ export class NxtPageHeaderComponent {
   /** Current variant */
   readonly variant = computed<PageHeaderVariant>(() => this.config().variant || 'default');
 
+  /** Shared navigation surface state */
+  readonly surfaceState = computed(() =>
+    resolveNavigationSurfaceState(this.config(), this.platform.os())
+  );
+
   /** Whether to use iOS translucent effect */
   readonly isTranslucent = computed(() => {
-    const cfg = this.config();
-    if (cfg.translucent === false) return false;
-    return this.platform.os() === 'ios' || cfg.translucent === true;
+    return this.surfaceState().translucent;
   });
 
   /**

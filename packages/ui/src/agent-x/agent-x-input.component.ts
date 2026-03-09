@@ -16,15 +16,14 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { IonIcon, IonSpinner } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import { send, closeCircleOutline, add, micOutline } from 'ionicons/icons';
+import { IonSpinner } from '@ionic/angular/standalone';
+import { NxtIconComponent } from '../components/icon/icon.component';
 import type { AgentXQuickTask } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-agent-x-input',
   standalone: true,
-  imports: [CommonModule, FormsModule, IonIcon, IonSpinner],
+  imports: [CommonModule, FormsModule, IonSpinner, NxtIconComponent],
   template: `
     <div class="input-container" [class.has-messages]="hasMessages()">
       <!-- Selected Task Pill -->
@@ -37,19 +36,19 @@ import type { AgentXQuickTask } from '@nxt1/core';
             (click)="removeTask.emit()"
             aria-label="Remove task"
           >
-            <ion-icon name="close-circle-outline"></ion-icon>
+            <nxt1-icon name="close" [size]="16" />
           </button>
         </div>
       }
 
-      <div class="input-wrapper">
+      <div class="input-wrapper nxt1-shared-animated-glass-input">
         <button
           type="button"
           class="plus-btn"
           (click)="toggleTasks.emit()"
           aria-label="Open quick actions"
         >
-          <ion-icon name="add"></ion-icon>
+          <nxt1-icon name="plus" [size]="20" />
         </button>
 
         <textarea
@@ -67,14 +66,14 @@ import type { AgentXQuickTask } from '@nxt1/core';
           type="button"
           class="primary-btn"
           [class.send]="canSend()"
-          [disabled]="isLoading()"
+          [disabled]="isLoading() || !canSend()"
           (click)="onPrimaryAction()"
-          [attr.aria-label]="canSend() ? 'Send message' : 'Voice input'"
+          aria-label="Send message"
         >
           @if (isLoading()) {
             <ion-spinner name="crescent" class="send-spinner"></ion-spinner>
           } @else {
-            <ion-icon [name]="canSend() ? 'send' : 'mic-outline'"></ion-icon>
+            <nxt1-icon name="arrowUp" [size]="18" />
           }
         </button>
       </div>
@@ -97,6 +96,15 @@ import type { AgentXQuickTask } from '@nxt1/core';
         --agent-input-radius: var(--nxt1-ui-radius-2xl, 20px);
         --agent-input-shadow: var(--nxt1-glass-shadow, 0 4px 16px rgba(0, 0, 0, 0.16));
         --agent-input-min-height: 48px;
+      }
+
+      :host(.embedded) {
+        position: static;
+        left: auto;
+        right: auto;
+        bottom: auto;
+        z-index: auto;
+        pointer-events: auto;
       }
 
       /* Desktop: offset left edge past sidebar so pill centers in content area */
@@ -171,10 +179,6 @@ import type { AgentXQuickTask } from '@nxt1/core';
         opacity: 1;
       }
 
-      .task-pill-remove ion-icon {
-        font-size: 1rem;
-      }
-
       .plus-btn {
         display: flex;
         align-items: center;
@@ -189,10 +193,6 @@ import type { AgentXQuickTask } from '@nxt1/core';
         transition:
           background-color 0.2s ease,
           color 0.2s ease;
-      }
-
-      .plus-btn ion-icon {
-        font-size: 1.25rem;
       }
 
       .plus-btn:active {
@@ -291,10 +291,6 @@ import type { AgentXQuickTask } from '@nxt1/core';
         transform: scale(0.95);
       }
 
-      .primary-btn ion-icon {
-        font-size: 1.125rem;
-      }
-
       .send-spinner {
         width: 18px;
         height: 18px;
@@ -344,15 +340,7 @@ export class AgentXInputComponent {
 
   private readonly inputRef = viewChild<ElementRef>('messageInput');
 
-  constructor() {
-    // Register icons
-    addIcons({
-      send,
-      add,
-      micOutline,
-      closeCircleOutline,
-    });
-  }
+  constructor() {}
 
   // ============================================
   // HANDLERS
@@ -378,12 +366,7 @@ export class AgentXInputComponent {
   }
 
   protected onPrimaryAction(): void {
-    if (this.canSend()) {
-      this.onSend();
-      return;
-    }
-
-    this.toggleTasks.emit();
+    this.onSend();
   }
 
   // ============================================

@@ -169,6 +169,16 @@ export interface FooterScrollToTopEvent {
   source: 'same-tab-tap';
 }
 
+/**
+ * Shared navigation surface defaults used by shared header/footer components.
+ * The default matches the current page header presentation: solid surface with
+ * native Ionic translucency enabled where supported.
+ */
+export const DEFAULT_NAVIGATION_SURFACE_CONFIG = {
+  translucent: true,
+  glass: false,
+} as const;
+
 // ============================================
 // DEFAULT CONFIGURATIONS
 // ============================================
@@ -358,8 +368,8 @@ export const AGENT_X_LEFT_FOOTER_TABS: FooterTabItem[] = [
   {
     id: 'brand',
     label: 'Brand',
-    icon: 'brand',
-    iconActive: 'brandFilled',
+    icon: 'plusCircle',
+    iconActive: 'plusCircleFilled',
     route: '/brand',
     ariaLabel: 'Open Brand vault',
   },
@@ -487,8 +497,7 @@ export function createFooterConfig(config: Partial<FooterConfig> = {}): FooterCo
     enableHaptics: true,
     variant: 'default',
     hidden: false,
-    translucent: true,
-    glass: true, // Glass background by default
+    ...DEFAULT_NAVIGATION_SURFACE_CONFIG,
     indicatorStyle: 'none',
     scrollToTopOnSameTap: true, // Enable scroll-to-top on same tab tap by default
     ...config,

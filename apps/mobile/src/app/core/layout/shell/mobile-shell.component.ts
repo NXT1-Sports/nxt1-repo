@@ -91,6 +91,7 @@ import {
   AGENT_X_LEFT_FOOTER_TABS,
   DEFAULT_SIDENAV_ITEMS,
   DEFAULT_SOCIAL_LINKS,
+  createFooterConfig,
   createSidenavConfig,
   findTabByRoute,
   updateTabBadge,
@@ -322,18 +323,11 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   }
 
   /** Footer configuration based on platform */
-  readonly footerConfig = computed<FooterConfig>(() => {
-    return {
-      showLabels: true,
+  readonly footerConfig = computed<FooterConfig>(() =>
+    createFooterConfig({
       enableHaptics: true,
-      variant: 'default',
-      hidden: false,
-      translucent: false,
-      glass: false, // Solid opaque background
-      indicatorStyle: 'none',
-      scrollToTopOnSameTap: true, // Enable Instagram/Twitter-style scroll-to-top
-    };
-  });
+    })
+  );
 
   // ============================================
   // SIDENAV CONFIGURATION

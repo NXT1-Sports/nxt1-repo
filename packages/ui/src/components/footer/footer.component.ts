@@ -64,7 +64,8 @@ import type {
   FooterTabSelectEvent,
   FooterScrollToTopEvent,
 } from './footer.types';
-import { DEFAULT_FOOTER_TABS } from './footer.types';
+import { createFooterConfig, DEFAULT_FOOTER_TABS } from './footer.types';
+import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-surface.utils';
 
 @Component({
   selector: 'nxt1-mobile-footer',
@@ -108,75 +109,84 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
       }
 
       <!-- Floating Pill Tab Bar -->
-      <ion-tab-bar
-        [translucent]="config.glass && config.translucent"
-        [class.footer--hidden]="config.hidden"
-        [class.footer--solid]="!config.glass"
-        [class.footer--glass]="config.glass"
-        [class.footer--centered-create]="isCenteredCreateVariant()"
-        [class.footer--show-labels]="shouldShowLabels()"
-        [class.footer--hide-labels]="!shouldShowLabels()"
-        [selectedTab]="activeTabId ?? _activeTabId()"
-        [style.--ion-tab-bar-background]="config.glass ? null : 'var(--footer-solid-bg)'"
-        [style.--background]="config.glass ? null : 'var(--footer-solid-bg)'"
-        [style.backdrop-filter]="config.glass ? null : 'none'"
+      <div
+        class="footer-pill-surface"
+        [class.footer-pill-surface--hidden]="config.hidden"
+        [class.footer-pill-surface--solid]="surfaceState().mode === 'solid'"
+        [class.footer-pill-surface--glass]="surfaceState().mode === 'glass'"
+        [class.footer-pill-surface--translucent]="surfaceState().mode === 'translucent'"
+        [class.footer-pill-surface--centered-create]="isCenteredCreateVariant()"
       >
-        @for (tab of regularTabs(); track tab.id) {
-          <ion-tab-button
-            [tab]="tab.id"
-            [disabled]="tab.disabled"
-            [class.tab-button--active]="isActiveTab(tab)"
-            [class.tab-button--center-action]="isCenteredCreateTab(tab)"
-            [class.has-badge]="tab.badge && tab.badge > 0"
-            (click)="onTabClick(tab, $event)"
-          >
-            <!-- Custom NXT1 SVG Icon (same icon, color changes on select) -->
-            <div class="tab-icon-wrapper">
-              @if (isAgentXTab(tab)) {
-                <svg
-                  class="agent-tab-logo"
-                  viewBox="0 0 612 792"
-                  width="56"
-                  height="56"
-                  fill="currentColor"
-                  stroke="currentColor"
-                  stroke-width="8"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
-                  />
-                  <polygon
-                    points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
-                  />
-                </svg>
-              } @else if (isProfileTab(tab)) {
-                <!-- Profile avatar (Instagram-style) -->
-                <div
-                  class="profile-avatar-wrapper"
-                  [class.profile-avatar-wrapper--active]="isActiveTab(tab)"
-                >
-                  <nxt1-avatar
-                    [src]="profileAvatarSrc"
-                    [name]="profileAvatarName"
-                    [customSize]="28"
-                    [showSkeleton]="false"
-                    cssClass="footer-profile-avatar"
-                  />
-                </div>
-              } @else {
-                <nxt1-icon [name]="tab.icon" [size]="24" class="tab-icon" />
-              }
+        <ion-tab-bar
+          [translucent]="isTranslucent()"
+          [class.footer--hidden]="config.hidden"
+          [class.footer--solid]="surfaceState().mode === 'solid'"
+          [class.footer--glass]="surfaceState().mode === 'glass'"
+          [class.footer--translucent]="surfaceState().mode === 'translucent'"
+          [class.footer--centered-create]="isCenteredCreateVariant()"
+          [class.footer--show-labels]="shouldShowLabels()"
+          [class.footer--hide-labels]="!shouldShowLabels()"
+          [selectedTab]="activeTabId ?? _activeTabId()"
+          [style.--ion-tab-bar-background]="'transparent'"
+          [style.--background]="'transparent'"
+        >
+          @for (tab of regularTabs(); track tab.id) {
+            <ion-tab-button
+              [tab]="tab.id"
+              [disabled]="tab.disabled"
+              [class.tab-button--active]="isActiveTab(tab)"
+              [class.tab-button--center-action]="isCenteredCreateTab(tab)"
+              [class.has-badge]="tab.badge && tab.badge > 0"
+              (click)="onTabClick(tab, $event)"
+            >
+              <!-- Custom NXT1 SVG Icon (same icon, color changes on select) -->
+              <div class="tab-icon-wrapper">
+                @if (isAgentXTab(tab)) {
+                  <svg
+                    class="agent-tab-logo"
+                    viewBox="0 0 612 792"
+                    width="56"
+                    height="56"
+                    fill="currentColor"
+                    stroke="currentColor"
+                    stroke-width="8"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M505.93,251.93c5.52-5.52,1.61-14.96-6.2-14.96h-94.96c-2.32,0-4.55.92-6.2,2.57l-67.22,67.22c-4.2,4.2-11.28,3.09-13.99-2.2l-32.23-62.85c-1.49-2.91-4.49-4.75-7.76-4.76l-83.93-.34c-6.58-.03-10.84,6.94-7.82,12.78l66.24,128.23c1.75,3.39,1.11,7.52-1.59,10.22l-137.13,137.13c-11.58,11.58-3.36,31.38,13.02,31.35l71.89-.13c2.32,0,4.54-.93,6.18-2.57l82.89-82.89c4.19-4.19,11.26-3.1,13.98,2.17l40.68,78.74c1.5,2.91,4.51,4.74,7.78,4.74h82.61c6.55,0,10.79-6.93,7.8-12.76l-73.61-143.55c-1.74-3.38-1.09-7.5,1.6-10.19l137.98-137.98ZM346.75,396.42l69.48,134.68c1.77,3.43-.72,7.51-4.58,7.51h-51.85c-2.61,0-5.01-1.45-6.23-3.76l-48.11-91.22c-2.21-4.19-7.85-5.05-11.21-1.7l-94.71,94.62c-1.32,1.32-3.11,2.06-4.98,2.06h-62.66c-4.1,0-6.15-4.96-3.25-7.85l137.28-137.14c5.12-5.12,6.31-12.98,2.93-19.38l-61.51-116.63c-1.48-2.8.55-6.17,3.72-6.17h56.6c2.64,0,5.05,1.47,6.26,3.81l39.96,77.46c2.19,4.24,7.86,5.12,11.24,1.75l81.05-80.97c1.32-1.32,3.11-2.06,4.98-2.06h63.61c3.75,0,5.63,4.54,2.97,7.19l-129.7,129.58c-2.17,2.17-2.69,5.49-1.28,8.21Z"
+                    />
+                    <polygon
+                      points="390.96 303.68 268.3 411.05 283.72 409.62 205.66 489.34 336.63 377.83 321.21 379.73 390.96 303.68"
+                    />
+                  </svg>
+                } @else if (isProfileTab(tab)) {
+                  <!-- Profile avatar (Instagram-style) -->
+                  <div
+                    class="profile-avatar-wrapper"
+                    [class.profile-avatar-wrapper--active]="isActiveTab(tab)"
+                  >
+                    <nxt1-avatar
+                      [src]="profileAvatarSrc"
+                      [name]="profileAvatarName"
+                      [customSize]="28"
+                      [showSkeleton]="false"
+                      cssClass="footer-profile-avatar"
+                    />
+                  </div>
+                } @else {
+                  <nxt1-icon [name]="tab.icon" [size]="24" class="tab-icon" />
+                }
 
-              <!-- Professional Red Dot Badge (Instagram/Twitter style) -->
-              @if (tab.badge && tab.badge > 0) {
-                <span class="badge-dot" aria-label="Unread notifications"></span>
-              }
-            </div>
-          </ion-tab-button>
-        }
-      </ion-tab-bar>
+                <!-- Professional Red Dot Badge (Instagram/Twitter style) -->
+                @if (tab.badge && tab.badge > 0) {
+                  <span class="badge-dot" aria-label="Unread notifications"></span>
+                }
+              </div>
+            </ion-tab-button>
+          }
+        </ion-tab-bar>
+      </div>
 
       <!-- FAB Button (right of pill) - Agent X with custom logo -->
       @if (shouldRenderActionFab() && !isActionFabOnLeft() && actionTab(); as actionButton) {
@@ -228,22 +238,33 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         pointer-events: none; /* Allow clicks through transparent areas */
 
         /* iOS 26 Liquid Glass Design Tokens - 100% Theme Aware */
-        --footer-glass-bg: var(--nxt1-glass-bg);
-        --footer-glass-border: var(--nxt1-glass-border);
-        --footer-glass-shadow: var(--nxt1-glass-shadow);
-        --footer-glass-backdrop: var(--nxt1-glass-backdrop);
+        --nxt1-navigation-surface-glass-bg: var(--nxt1-glass-bg);
+        --nxt1-navigation-surface-translucent-bg: var(--nxt1-glass-bg);
+        --nxt1-navigation-surface-glass-border: var(--nxt1-glass-border);
+        --nxt1-navigation-surface-glass-shadow: var(--nxt1-glass-shadow);
+        --nxt1-navigation-surface-glass-backdrop: var(--nxt1-glass-backdrop);
         --footer-icon-active: var(--nxt1-icon-active, #ffffff);
         --footer-icon-inactive: var(--nxt1-icon-inactive, #666666);
-        --footer-tab-active-bg: var(--nxt1-tab-activeBg, rgba(255, 255, 255, 0.12));
+        --footer-tab-active-bg: color-mix(
+          in srgb,
+          var(--nxt1-color-text-primary, #ffffff) 6%,
+          transparent
+        );
         --footer-fab-shadow: var(--nxt1-fab-shadow);
         --footer-fab-shadow-active: var(--nxt1-fab-shadowActive);
         --footer-fab-gradient-active: var(--nxt1-fab-gradientActive);
         --footer-fab-glow-active: var(--nxt1-fab-glowActive);
 
-        /* Solid navigation tokens (from design tokens) */
-        --footer-solid-bg: var(--nxt1-nav-bgSolid, rgb(22, 22, 22));
-        --footer-solid-border: var(--nxt1-nav-borderSolid, rgba(255, 255, 255, 0.12));
-        --footer-solid-shadow: var(--nxt1-nav-shadowSolid, 0 1px 3px rgba(0, 0, 0, 0.12));
+        --nxt1-navigation-surface-solid-bg: var(--nxt1-nav-bgSolid, rgb(22, 22, 22));
+        --nxt1-navigation-surface-solid-border: var(
+          --nxt1-nav-borderSolid,
+          rgba(255, 255, 255, 0.12)
+        );
+        --nxt1-navigation-surface-solid-shadow: var(
+          --nxt1-nav-shadowSolid,
+          0 1px 3px rgba(0, 0, 0, 0.12)
+        );
+        --nxt1-navigation-surface-shadow: 0 0 0 0 transparent;
       }
 
       /* Container for pill + FAB side by side */
@@ -268,41 +289,110 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
         max-width: 344px;
       }
 
+      .footer-pill-surface {
+        position: relative;
+        flex: 1;
+        border-radius: var(--nxt1-pill-radius, 28px);
+        overflow: hidden;
+        border: 0.55px solid var(--nxt1-navigation-surface-solid-border);
+        background: var(--nxt1-navigation-surface-solid-bg);
+        box-shadow: var(--nxt1-navigation-surface-shadow);
+      }
+
+      /* Pseudo-element overlays only for solid mode (subtle depth).
+         Translucent/glass modes use the same clean treatment as the page header:
+         semi-transparent background + backdrop-filter, nothing else. */
+      .footer-pill-surface--solid::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        z-index: 0;
+        background: radial-gradient(
+          140% 120% at 50% 0%,
+          rgba(255, 255, 255, 0.06) 0%,
+          rgba(255, 255, 255, 0.015) 32%,
+          rgba(255, 255, 255, 0) 68%
+        );
+        opacity: 0.7;
+      }
+
+      .footer-pill-surface--hidden {
+        display: none;
+      }
+
+      /* No pseudo-element overrides needed for translucent/glass —
+         they inherit the clean header-matching treatment (no overlays). */
+
+      .footer-pill-surface--centered-create {
+        border-radius: 30px;
+      }
+
+      .footer-pill-surface--translucent {
+        border-color: var(--nxt1-navigation-surface-glass-border);
+        background: var(--nxt1-navigation-surface-translucent-bg);
+        -webkit-backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop);
+        backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop);
+        overflow: visible;
+      }
+
+      .footer-pill-surface--glass {
+        border-color: var(--nxt1-navigation-surface-glass-border);
+        background: var(--nxt1-navigation-surface-glass-bg);
+        -webkit-backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop);
+        backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop);
+        overflow: visible;
+      }
+
+      .footer-pill-surface--centered-create::after {
+        border-radius: 29px;
+      }
+
       /* Floating Pill Tab Bar - Base styles */
       ion-tab-bar {
-        --background: var(--footer-solid-bg) !important;
+        --background: transparent !important;
         --color: var(--footer-icon-inactive);
         --color-selected: var(--footer-icon-active);
         flex: 1;
-        border: 1px solid var(--footer-solid-border) !important;
+        position: relative;
+        z-index: 2;
+        border: none !important;
         border-radius: var(--nxt1-pill-radius, 28px);
         padding: var(--nxt1-pill-padding, 1px);
         height: var(--nxt1-pill-height, 48px);
         min-height: var(--nxt1-pill-height, 48px); /* Ensure height is respected */
-        box-shadow: var(--footer-solid-shadow);
-        background: var(--footer-solid-bg) !important;
+        box-shadow: none;
+        background: transparent !important;
+      }
+
+      /* Solid mode (default) - Surface handled by wrapper */
+      ion-tab-bar.footer--solid {
+        --background: transparent !important;
+        background: transparent !important;
+        box-shadow: none;
+      }
+
+      ion-tab-bar.footer--solid:not(.footer--translucent) {
         -webkit-backdrop-filter: none !important;
         backdrop-filter: none !important;
       }
 
-      /* Solid mode (default) - Opaque background from design tokens */
-      ion-tab-bar.footer--solid {
-        --background: var(--footer-solid-bg) !important;
-        background: var(--footer-solid-bg) !important;
-        border-color: var(--footer-solid-border) !important;
-        box-shadow: var(--footer-solid-shadow);
+      ion-tab-bar.footer--solid.footer--translucent {
+        --background: transparent !important;
+        background: transparent !important;
+        box-shadow: none;
         -webkit-backdrop-filter: none !important;
         backdrop-filter: none !important;
       }
 
       /* Glass mode (opt-in) - iOS 26 Liquid Glass Effect */
       ion-tab-bar.footer--glass {
-        --background: var(--footer-glass-bg) !important;
-        background: var(--footer-glass-bg) !important;
-        border-color: var(--footer-glass-border) !important;
-        box-shadow: var(--footer-glass-shadow), var(--nxt1-glass-shadowInner);
-        -webkit-backdrop-filter: var(--footer-glass-backdrop) !important;
-        backdrop-filter: var(--footer-glass-backdrop) !important;
+        --background: transparent !important;
+        background: transparent !important;
+        box-shadow: none;
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
       }
 
       ion-tab-bar.footer--centered-create {
@@ -632,10 +722,10 @@ import { DEFAULT_FOOTER_TABS } from './footer.types';
 
       /* iOS-specific - Ensure liquid glass effect only when glass mode enabled */
       :host-context(.ios) ion-tab-bar.footer--glass {
-        --background: var(--footer-glass-bg) !important;
-        background: var(--footer-glass-bg) !important;
-        -webkit-backdrop-filter: var(--footer-glass-backdrop) !important;
-        backdrop-filter: var(--footer-glass-backdrop) !important;
+        --background: var(--nxt1-navigation-surface-glass-bg) !important;
+        background: var(--nxt1-navigation-surface-glass-bg) !important;
+        -webkit-backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop) !important;
+        backdrop-filter: var(--nxt1-navigation-surface-glass-backdrop) !important;
       }
 
       /* Android/MD-specific */
@@ -670,16 +760,14 @@ export class NxtMobileFooterComponent {
   @Input() activeTabId?: string | null;
 
   /** Footer configuration */
-  @Input() config: FooterConfig = {
-    showLabels: true,
-    enableHaptics: true,
-    variant: 'default',
-    hidden: false,
-    translucent: false, // Solid background by default — set true only with glass: true
-    glass: false, // Solid background by default
-    indicatorStyle: 'none',
-    scrollToTopOnSameTap: true, // Enable scroll-to-top on same tab tap by default
-  };
+  @Input()
+  set config(value: Partial<FooterConfig> | undefined) {
+    this._config.set(createFooterConfig(value));
+  }
+
+  get config(): FooterConfig {
+    return this._config();
+  }
 
   // ============================================
   // OUTPUTS
@@ -702,6 +790,9 @@ export class NxtMobileFooterComponent {
   /** Internal active tab tracking based on router */
   readonly _activeTabId = signal<string | null>(null);
 
+  /** Normalized footer config with shared navigation-surface defaults applied. */
+  private readonly _config = signal<FooterConfig>(createFooterConfig());
+
   /** Whether component is in browser */
   private readonly isBrowser = isPlatformBrowser(this.platformId);
 
@@ -714,6 +805,16 @@ export class NxtMobileFooterComponent {
 
   /** Platform detection - iOS or Android/Web */
   readonly isIos = computed(() => this.platform.isIOS());
+
+  /** Shared navigation surface state */
+  readonly surfaceState = computed(() =>
+    resolveNavigationSurfaceState(this._config(), this.platform.os())
+  );
+
+  /** Whether to use Ionic's native translucent surface handling. */
+  readonly isTranslucent = computed(() => {
+    return this.surfaceState().translucent;
+  });
 
   /** Whether to show labels based on config and device */
   readonly shouldShowLabels = computed(() => {

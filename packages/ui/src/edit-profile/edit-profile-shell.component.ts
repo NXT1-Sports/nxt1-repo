@@ -1,109 +1,111 @@
 /**
- * @fileoverview Edit Profile Shell Component - Main Container
+ * @fileoverview Edit Profile Shell Component
  * @module @nxt1/ui/edit-profile
- * @version 1.0.0
+ * @version 3.0.0
  *
- * Top-level container component for Edit Profile feature.
- * Orchestrates header, completion progress, and sections.
- *
- * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
- *
- * Features:
- * - Gamified completion progress ring
- * - Collapsible section cards
- * - XP rewards display
- * - Tier progression
- * - Save/discard actions
- * - Pull-to-refresh support
- *
- * @example
- * ```html
- * <nxt1-edit-profile-shell
- *   (close)="onClose()"
- *   (save)="onSave()"
- * />
- * ```
+ * Uses the same shared form components (NxtFormFieldComponent, IonInput,
+ * IonSelect) and design-token styling as the onboarding flow.
  */
 
 import {
-  Component,
   ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  OnInit,
+  PLATFORM_ID,
+  computed,
   inject,
   output,
-  input,
-  computed,
-  OnInit,
+  signal,
+  viewChild,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { IonContent, IonIcon, IonSpinner } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
+import { isPlatformBrowser } from '@angular/common';
 import {
-  closeOutline,
-  checkmarkOutline,
-  chevronDownOutline,
-  chevronUpOutline,
-  sparklesOutline,
-  trophyOutline,
-  starOutline,
-  diamondOutline,
-  flameOutline,
-} from 'ionicons/icons';
+  IonContent,
+  IonInput,
+  IonSelect,
+  IonSelectOption,
+  IonSpinner,
+  ModalController,
+} from '@ionic/angular/standalone';
+import {
+  BrowserGeolocationAdapter,
+  CachedGeocodingAdapter,
+  GEOLOCATION_DEFAULTS,
+  NominatimGeocodingAdapter,
+  createGeolocationService,
+  formatLocationShort,
+  type GeolocationService,
+} from '@nxt1/core/geolocation';
 import { EditProfileService } from './edit-profile.service';
-import { EditProfileProgressComponent } from './edit-profile-progress.component';
-import { EditProfileSectionComponent } from './edit-profile-section.component';
 import { EditProfileSkeletonComponent } from './edit-profile-skeleton.component';
-import type { EditProfileSectionId } from '@nxt1/core';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
+import { NxtIconComponent } from '../components/icon';
+import { NxtFormFieldComponent } from '../components/form-field';
+import { NxtChipComponent } from '../components/chip';
+import { NxtToastService } from '../services/toast/toast.service';
+import { NxtLoggingService } from '../services/logging/logging.service';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 
-// Register icons
+const MAX_GALLERY_IMAGES = 8;
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+const POSITION_OPTIONS = [
+  'Quarterback',
+  'Running Back',
+  'Wide Receiver',
+  'Tight End',
+  'Offensive Line',
+  'Defensive Line',
+  'Linebacker',
+  'Cornerback',
+  'Safety',
+  'Athlete',
+] as const;
+const HEIGHT_OPTIONS = buildHeightOptions();
+
 @Component({
   selector: 'nxt1-edit-profile-shell',
   standalone: true,
   imports: [
-    CommonModule,
     IonContent,
-    IonIcon,
+    IonInput,
+    IonSelect,
+    IonSelectOption,
     IonSpinner,
-    EditProfileProgressComponent,
-    EditProfileSectionComponent,
     EditProfileSkeletonComponent,
     NxtSheetHeaderComponent,
+    NxtIconComponent,
+    NxtFormFieldComponent,
+    NxtChipComponent,
   ],
   template: `
-    <div class="edit-profile-shell">
-      <!-- Header (optional - native sheet has its own handle) -->
-      @if (showHeader()) {
-        <header class="edit-profile-header">
-          <button
-            type="button"
-            class="header-btn header-btn--close"
-            (click)="onClose()"
-            aria-label="Close"
-          >
-            <ion-icon name="close-outline"></ion-icon>
+    <div class="nxt1-edit-shell">
+      @if (!isModalMode) {
+        <header class="nxt1-edit-header">
+          <button type="button" class="nxt1-header-btn" (click)="onClose()" aria-label="Close">
+            <nxt1-icon name="close" [size]="18" />
           </button>
 
-          <h1 class="header-title">Edit Profile</h1>
+          <h1 class="nxt1-header-title">Edit Profile</h1>
 
           <button
             type="button"
-            class="header-btn header-btn--save"
-            [class.header-btn--active]="profile.hasUnsavedChanges()"
-            [disabled]="profile.isSaving() || !profile.hasUnsavedChanges()"
+            class="nxt1-header-btn nxt1-header-save"
+            [class.nxt1-header-save--active]="profile.hasUnsavedChanges()"
+            [disabled]="profile.isSaving()"
             (click)="onSave()"
             aria-label="Save changes"
           >
             @if (profile.isSaving()) {
-              <ion-spinner name="crescent"></ion-spinner>
+              <ion-spinner name="crescent" />
             } @else {
-              <span>Save</span>
+              <span>{{ profile.hasUnsavedChanges() ? 'Save' : 'Done' }}</span>
             }
           </button>
         </header>
-      }
-
-      <!-- Minimal Sheet Header (when showHeader is false - used in native bottom sheet) -->
-      @if (!showHeader()) {
+      } @else {
         <nxt1-sheet-header
           title="Edit Profile"
           [showClose]="false"
@@ -113,14 +115,14 @@ import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header
           <button
             sheetHeaderAction
             type="button"
-            class="sheet-save-btn"
-            [class.sheet-save-btn--active]="profile.hasUnsavedChanges()"
-            [disabled]="profile.isSaving() || !profile.hasUnsavedChanges()"
+            class="nxt1-header-btn nxt1-header-save"
+            [class.nxt1-header-save--active]="profile.hasUnsavedChanges()"
+            [disabled]="profile.isSaving()"
             (click)="onSave()"
             aria-label="Save changes"
           >
             @if (profile.isSaving()) {
-              <ion-spinner name="crescent"></ion-spinner>
+              <ion-spinner name="crescent" />
             } @else {
               <span>{{ profile.hasUnsavedChanges() ? 'Save' : 'Done' }}</span>
             }
@@ -128,606 +130,955 @@ import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header
         </nxt1-sheet-header>
       }
 
-      <ion-content [fullscreen]="true" class="edit-profile-content">
+      <ion-content [fullscreen]="true" class="nxt1-edit-content">
         @if (profile.isLoading()) {
           <nxt1-edit-profile-skeleton />
         } @else if (profile.error()) {
-          <div class="error-state">
-            <ion-icon name="alert-circle-outline"></ion-icon>
-            <p>{{ profile.error() }}</p>
-            <button class="retry-btn" (click)="loadProfile()">Try Again</button>
+          <div class="nxt1-error-state">
+            <div class="nxt1-error-icon">
+              <nxt1-icon name="alertCircle" [size]="20" />
+            </div>
+            <p class="nxt1-error-text">{{ profile.error() }}</p>
+            <button type="button" class="nxt1-retry-btn" (click)="loadProfile()">Try Again</button>
           </div>
-        } @else {
-          <!-- Gamified Progress Section -->
-          <section class="progress-section">
-            <nxt1-edit-profile-progress
-              [percentage]="profile.completionPercent()"
-              [tier]="profile.currentTier()"
-              [tierConfig]="profile.currentTierConfig()"
-              [nextTierConfig]="profile.nextTierConfig()"
-              [progressToNextTier]="profile.progressToNextTier()"
-              [xpEarned]="profile.xpProgress().earned"
-              [xpTotal]="profile.xpProgress().total"
-              [fieldsCompleted]="profile.fieldsProgress().completed"
-              [fieldsTotal]="profile.fieldsProgress().total"
-            />
-          </section>
-
-          <!-- Quick Stats -->
-          <div class="quick-stats">
-            <div class="stat-item">
-              <span class="stat-value">{{ profile.completedSections().length }}</span>
-              <span class="stat-label">Sections Done</span>
-            </div>
-            <div class="stat-divider"></div>
-            <div class="stat-item">
-              <span class="stat-value">{{ profile.fieldsProgress().completed }}</span>
-              <span class="stat-label">Fields Done</span>
-            </div>
-            <div class="stat-divider"></div>
-            <div class="stat-item stat-item--xp">
-              <span class="stat-value">{{ profile.xpProgress().earned }}</span>
-              <span class="stat-label">XP Earned</span>
-            </div>
-          </div>
-
-          <!-- Sections -->
-          <div class="sections-container">
-            @for (section of profile.sections(); track section.id) {
-              <nxt1-edit-profile-section
-                [section]="section"
-                [isExpanded]="profile.expandedSection() === section.id"
-                (toggle)="profile.toggleSection(section.id)"
-                (fieldChange)="onFieldChange($event)"
+        } @else if (profile.formData(); as form) {
+          <div class="nxt1-edit-body">
+            <!-- Media Gallery -->
+            <section class="nxt1-media-section">
+              <input
+                #imageInput
+                type="file"
+                class="nxt1-hidden"
+                accept="image/*"
+                multiple
+                (change)="onImageFilesSelected($event)"
               />
-            }
-          </div>
 
-          <!-- Bottom Safe Area -->
-          <div class="bottom-spacer"></div>
+              <div class="nxt1-media-row">
+                @for (image of carouselImages(); track image; let i = $index) {
+                  <article class="nxt1-media-tile" [class.nxt1-media-tile--primary]="i === 0">
+                    <img [src]="image" [alt]="'Profile image ' + (i + 1)" class="nxt1-media-img" />
+                    <button
+                      type="button"
+                      class="nxt1-media-remove"
+                      aria-label="Remove image"
+                      (click)="removeImage(i)"
+                    >
+                      <nxt1-icon name="trash" [size]="12" />
+                    </button>
+                  </article>
+                }
+
+                @if (canAddMoreImages()) {
+                  <button type="button" class="nxt1-media-add" (click)="openImagePicker()">
+                    <nxt1-icon name="image" [size]="16" />
+                    <span>Add</span>
+                  </button>
+                }
+              </div>
+            </section>
+
+            <!-- Form Fields — 2x2 Grid -->
+            <section class="nxt1-form-section">
+              <div class="nxt1-field-grid">
+                <!-- Row 1: First Name / Last Name -->
+                <nxt1-form-field label="First Name" inputId="editFirstName">
+                  <ion-input
+                    id="editFirstName"
+                    type="text"
+                    class="nxt1-input"
+                    fill="outline"
+                    placeholder="First name"
+                    [value]="form.basicInfo.firstName"
+                    (ionInput)="onIonInput('firstName', $event)"
+                    autocomplete="given-name"
+                    autocapitalize="words"
+                  />
+                </nxt1-form-field>
+
+                <nxt1-form-field label="Last Name" inputId="editLastName">
+                  <ion-input
+                    id="editLastName"
+                    type="text"
+                    class="nxt1-input"
+                    fill="outline"
+                    placeholder="Last name"
+                    [value]="form.basicInfo.lastName"
+                    (ionInput)="onIonInput('lastName', $event)"
+                    autocomplete="family-name"
+                    autocapitalize="words"
+                  />
+                </nxt1-form-field>
+
+                <!-- Row 2: Class Year / Jersey -->
+                <nxt1-form-field label="Class" inputId="editClassYear">
+                  <ion-select
+                    id="editClassYear"
+                    class="nxt1-input"
+                    interface="action-sheet"
+                    [interfaceOptions]="selectActionSheetOptions"
+                    placeholder="Select"
+                    [value]="form.basicInfo.classYear ?? null"
+                    (ionChange)="onSelectChange('classYear', $event)"
+                  >
+                    @for (year of classOptions(); track year) {
+                      <ion-select-option [value]="year">{{ year }}</ion-select-option>
+                    }
+                  </ion-select>
+                </nxt1-form-field>
+
+                <nxt1-form-field label="Jersey" inputId="editJersey">
+                  <ion-input
+                    id="editJersey"
+                    type="text"
+                    class="nxt1-input"
+                    fill="outline"
+                    inputmode="numeric"
+                    placeholder="Optional"
+                    [value]="form.sportsInfo.jerseyNumber ?? ''"
+                    (ionInput)="onIonSportsInput('jerseyNumber', $event)"
+                  />
+                </nxt1-form-field>
+
+                <!-- Row 3: Height / Weight -->
+                <nxt1-form-field label="Height" inputId="editHeight">
+                  <ion-select
+                    id="editHeight"
+                    class="nxt1-input"
+                    interface="action-sheet"
+                    [interfaceOptions]="selectActionSheetOptions"
+                    placeholder="Select"
+                    [value]="form.physical.height ?? null"
+                    (ionChange)="onSelectChange('height', $event)"
+                  >
+                    @for (h of heightOptions; track h) {
+                      <ion-select-option [value]="h">{{ h }}</ion-select-option>
+                    }
+                  </ion-select>
+                </nxt1-form-field>
+
+                <nxt1-form-field label="Weight" inputId="editWeight">
+                  <ion-input
+                    id="editWeight"
+                    type="text"
+                    class="nxt1-input"
+                    fill="outline"
+                    inputmode="numeric"
+                    placeholder="lbs"
+                    [value]="form.physical.weight ?? ''"
+                    (ionInput)="onIonPhysicalInput('weight', $event)"
+                  />
+                </nxt1-form-field>
+
+                <!-- Full-width: Position chips -->
+                <div class="nxt1-field-full">
+                  <nxt1-form-field label="Position">
+                    <div class="nxt1-position-chips" role="group" aria-label="Select positions">
+                      @for (position of positionOptions; track position) {
+                        <nxt1-chip
+                          [selected]="isPositionSelected(position)"
+                          [showCheck]="true"
+                          size="sm"
+                          (chipClick)="togglePosition(position)"
+                        >
+                          {{ position }}
+                        </nxt1-chip>
+                      }
+                    </div>
+                  </nxt1-form-field>
+                </div>
+
+                <!-- Full-width: Location -->
+                <div class="nxt1-field-full">
+                  <nxt1-form-field label="Location">
+                    <div class="nxt1-location-section">
+                      <button
+                        type="button"
+                        class="nxt1-location-detect"
+                        [class.has-location]="!!form.basicInfo.location"
+                        [disabled]="isDetectingLocation()"
+                        (click)="detectLocation()"
+                      >
+                        @if (isDetectingLocation()) {
+                          <ion-spinner name="crescent" class="nxt1-location-spinner"></ion-spinner>
+                          <span>Detecting location...</span>
+                        } @else if (form.basicInfo.location) {
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            class="nxt1-location-icon check"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"
+                            />
+                          </svg>
+                          <span class="nxt1-location-text">{{ form.basicInfo.location }}</span>
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            class="nxt1-location-edit"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+                            />
+                          </svg>
+                        } @else {
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="currentColor"
+                            class="nxt1-location-icon"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"
+                            />
+                          </svg>
+                          <span>Detect My Location</span>
+                        }
+                      </button>
+                    </div>
+                  </nxt1-form-field>
+                </div>
+
+                <!-- Full-width: Bio -->
+                <div class="nxt1-field-full">
+                  <nxt1-form-field label="Bio" inputId="editBio">
+                    <textarea
+                      id="editBio"
+                      class="nxt1-native-textarea"
+                      placeholder="Tell coaches about yourself"
+                      [value]="form.basicInfo.bio ?? ''"
+                      (input)="onBioInput($event)"
+                      rows="3"
+                    ></textarea>
+                  </nxt1-form-field>
+                </div>
+              </div>
+            </section>
+          </div>
         }
       </ion-content>
-
-      <!-- Unsaved Changes Banner -->
-      @if (profile.hasUnsavedChanges() && !profile.isSaving()) {
-        <div class="unsaved-banner">
-          <span class="unsaved-text">You have unsaved changes</span>
-          <div class="unsaved-actions">
-            <button class="unsaved-btn unsaved-btn--discard" (click)="onDiscard()">Discard</button>
-            <button class="unsaved-btn unsaved-btn--save" (click)="onSave()">Save</button>
-          </div>
-        </div>
-      }
-
-      <!-- Tier Celebration Overlay -->
-      @if (profile.showCompletionCelebration()) {
-        <div class="celebration-overlay" (click)="profile.dismissCelebration()">
-          <div class="celebration-content">
-            <div class="celebration-icon">
-              <ion-icon name="trophy-outline"></ion-icon>
-            </div>
-            <h2 class="celebration-title">Level Up!</h2>
-            <p class="celebration-tier">{{ tierLabel() }}</p>
-            <p class="celebration-message">Your profile is looking great!</p>
-            <button class="celebration-btn" (click)="profile.dismissCelebration()">
-              <ion-icon name="sparkles-outline"></ion-icon>
-              <span>Continue</span>
-            </button>
-          </div>
-        </div>
-      }
     </div>
   `,
   styles: [
     `
-      /* ============================================
-       EDIT PROFILE SHELL - iOS 26 Liquid Glass Design
-       100% Theme Aware (Light + Dark Mode)
-       ============================================ */
-
       :host {
         display: block;
         height: 100%;
         width: 100%;
       }
 
-      .edit-profile-shell {
+      /* ============================================
+         SHELL CONTAINER
+         ============================================ */
+      .nxt1-edit-shell {
         display: flex;
         flex-direction: column;
         height: 100%;
         background: var(--nxt1-color-bg-primary);
-        position: relative;
+        color: var(--nxt1-color-text-primary);
       }
 
       /* ============================================
-         HEADER (Full header with X button - for standalone page)
+         HEADER (standalone page mode)
          ============================================ */
-
-      .edit-profile-header {
-        display: flex;
+      .nxt1-edit-header {
+        display: grid;
+        grid-template-columns: var(--nxt1-spacing-10) 1fr auto;
         align-items: center;
-        justify-content: space-between;
+        gap: var(--nxt1-spacing-3);
         padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
-        background: var(--nxt1-color-surface-100);
         border-bottom: 1px solid var(--nxt1-color-border-subtle);
-        min-height: 56px;
-        position: sticky;
-        top: 0;
-        z-index: 100;
+        background: var(--nxt1-color-surface-100);
       }
 
-      .header-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-lg);
-        font-weight: 600;
-        color: var(--nxt1-color-text-primary);
+      .nxt1-header-title {
         margin: 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-md);
+        font-weight: var(--nxt1-fontWeight-bold);
+        letter-spacing: var(--nxt1-letterSpacing-tight);
+        text-align: center;
+        color: var(--nxt1-color-text-primary);
       }
 
-      .header-btn {
-        display: flex;
+      /* ============================================
+         HEADER BUTTONS (shared reset + style)
+         ============================================ */
+      .nxt1-header-btn {
+        appearance: none;
+        -webkit-appearance: none;
+        border: none;
+        background: none;
+        padding: 0;
+        font: inherit;
+        color: var(--nxt1-color-text-secondary);
+        display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-width: 44px;
-        min-height: 44px;
-        border: none;
-        background: transparent;
-        color: var(--nxt1-color-text-secondary);
+        min-height: var(--nxt1-spacing-9);
+        border-radius: var(--nxt1-borderRadius-lg);
         cursor: pointer;
-        border-radius: var(--nxt1-radius-lg);
-        transition: all var(--nxt1-transition-fast);
-
-        ion-icon {
-          font-size: 24px;
-        }
-
-        &:active:not(:disabled) {
-          transform: scale(0.95);
-          background: var(--nxt1-color-surface-200);
-        }
+        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
+        -webkit-tap-highlight-color: transparent;
       }
 
-      .header-btn--save {
-        padding: 0 var(--nxt1-spacing-4);
+      .nxt1-header-btn:active {
+        transform: scale(0.97);
+      }
+
+      .nxt1-header-save {
+        padding: 0 var(--nxt1-spacing-3);
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-sm);
-        font-weight: 600;
-        color: var(--nxt1-color-text-tertiary);
-
-        &.header-btn--active {
-          color: var(--nxt1-color-primary);
-        }
-
-        &:disabled {
-          opacity: 0.5;
-        }
-
-        ion-spinner {
-          width: 20px;
-          height: 20px;
-          --color: var(--nxt1-color-primary);
-        }
+        font-weight: var(--nxt1-fontWeight-bold);
       }
 
-      /* ============================================
-         SHEET HEADER (Save button styling for projected content)
-         ============================================ */
-
-      .sheet-save-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
-        min-height: 36px;
-        border: none;
-        background: transparent;
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
-        font-weight: 600;
-        color: var(--nxt1-color-text-tertiary);
-        cursor: pointer;
-        border-radius: var(--nxt1-radius-lg);
-        transition: all var(--nxt1-transition-fast);
-
-        &.sheet-save-btn--active {
-          color: var(--nxt1-color-primary);
-        }
-
-        &:disabled {
-          opacity: 0.5;
-        }
-
-        &:active:not(:disabled) {
-          transform: scale(0.95);
-        }
-
-        ion-spinner {
-          width: 20px;
-          height: 20px;
-          --color: var(--nxt1-color-primary);
-        }
-      }
-
-      /* ============================================
-         CONTENT
-         ============================================ */
-
-      .edit-profile-content {
-        --background: var(--nxt1-color-bg-primary);
-        flex: 1;
-      }
-
-      /* ============================================
-         PROGRESS SECTION
-         ============================================ */
-
-      .progress-section {
-        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
-        background: linear-gradient(
-          180deg,
-          var(--nxt1-color-surface-100) 0%,
-          var(--nxt1-color-bg-primary) 100%
-        );
-      }
-
-      /* ============================================
-         QUICK STATS
-         ============================================ */
-
-      .quick-stats {
-        display: flex;
-        align-items: center;
-        justify-content: space-around;
-        padding: var(--nxt1-spacing-4);
-        margin: 0 var(--nxt1-spacing-4);
-        background: var(--nxt1-color-surface-100);
-        border-radius: var(--nxt1-radius-xl);
-        border: 1px solid var(--nxt1-color-border-subtle);
-      }
-
-      .stat-item {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: var(--nxt1-spacing-1);
-      }
-
-      .stat-value {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-xl);
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary);
-      }
-
-      .stat-label {
-        font-size: var(--nxt1-fontSize-2xs);
-        color: var(--nxt1-color-text-tertiary);
-        text-transform: uppercase;
-        letter-spacing: var(--nxt1-letterSpacing-wide);
-      }
-
-      .stat-item--xp .stat-value {
+      .nxt1-header-save--active {
         color: var(--nxt1-color-primary);
       }
 
-      .stat-divider {
-        width: 1px;
-        height: 32px;
-        background: var(--nxt1-color-border-subtle);
+      .nxt1-header-save:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+
+      .nxt1-header-save ion-spinner {
+        width: var(--nxt1-spacing-4);
+        height: var(--nxt1-spacing-4);
+        --color: currentColor;
       }
 
       /* ============================================
-         SECTIONS
+         CONTENT AREA
          ============================================ */
+      .nxt1-edit-content {
+        --background: transparent;
+        flex: 1;
+      }
 
-      .sections-container {
+      .nxt1-edit-body {
         display: flex;
         flex-direction: column;
+        gap: var(--nxt1-spacing-5);
+        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-4) var(--nxt1-spacing-8);
+      }
+
+      /* ============================================
+         MEDIA GALLERY
+         ============================================ */
+      .nxt1-media-section {
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-xl);
+        background: var(--nxt1-color-surface-100);
+        padding: var(--nxt1-spacing-3);
+      }
+
+      .nxt1-hidden {
+        display: none;
+      }
+
+      .nxt1-media-row {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: var(--nxt1-spacing-20);
+        gap: var(--nxt1-spacing-2);
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .nxt1-media-row::-webkit-scrollbar {
+        display: none;
+      }
+
+      .nxt1-media-tile,
+      .nxt1-media-add {
+        position: relative;
+        width: var(--nxt1-spacing-20);
+        height: var(--nxt1-spacing-24);
+        border-radius: var(--nxt1-borderRadius-lg);
+        overflow: hidden;
+        border: 1px solid var(--nxt1-color-border-default);
+        background: var(--nxt1-color-surface-200);
+      }
+
+      .nxt1-media-tile--primary {
+        border-color: var(--nxt1-color-border-primary);
+      }
+
+      .nxt1-media-img {
+        width: 100%;
+        height: 100%;
+        display: block;
+        object-fit: cover;
+      }
+
+      .nxt1-media-remove {
+        appearance: none;
+        -webkit-appearance: none;
+        border: none;
+        position: absolute;
+        top: var(--nxt1-spacing-1-5);
+        right: var(--nxt1-spacing-1-5);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: var(--nxt1-spacing-5);
+        height: var(--nxt1-spacing-5);
+        border-radius: var(--nxt1-borderRadius-full);
+        background: var(--nxt1-color-bg-overlay);
+        color: var(--nxt1-color-text-primary);
+        cursor: pointer;
+        padding: 0;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-media-add {
+        appearance: none;
+        -webkit-appearance: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--nxt1-spacing-1-5);
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-bold);
+        cursor: pointer;
+        border-style: dashed;
+        padding: 0;
+        -webkit-tap-highlight-color: transparent;
+        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
+      }
+
+      .nxt1-media-add:hover {
+        border-color: var(--nxt1-color-border-strong);
+        background: var(--nxt1-color-surface-300);
+      }
+
+      /* ============================================
+         FORM SECTION
+         ============================================ */
+      .nxt1-form-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-5);
+      }
+
+      .nxt1-field-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--nxt1-spacing-3) var(--nxt1-spacing-3);
+      }
+
+      .nxt1-field-full {
+        grid-column: 1 / -1;
+      }
+
+      /* ============================================
+         ION-INPUT STYLING  — Matches onboarding
+         ============================================ */
+      .nxt1-input {
+        --background: var(--nxt1-color-surface-100);
+        --border-color: var(--nxt1-color-border-default);
+        --border-radius: var(--nxt1-borderRadius-lg);
+        --border-width: 1px;
+        --color: var(--nxt1-color-text-primary);
+        --placeholder-color: var(--nxt1-color-text-tertiary);
+        --placeholder-opacity: 1;
+        --padding-start: var(--nxt1-spacing-4);
+        --padding-end: var(--nxt1-spacing-4);
+        --padding-top: var(--nxt1-spacing-3-5);
+        --padding-bottom: var(--nxt1-spacing-3-5);
+        --highlight-color-focused: var(--nxt1-color-border-strong);
+        --highlight-color-valid: var(--nxt1-color-border-strong);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
+        min-height: var(--nxt1-spacing-12);
+        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
+      }
+
+      .nxt1-input:hover:not(.has-focus) {
+        --background: var(--nxt1-color-surface-200);
+        --border-color: var(--nxt1-color-border-strong);
+      }
+
+      /* ============================================
+         NATIVE TEXTAREA — resizable bio box
+         ============================================ */
+      .nxt1-native-textarea {
+        display: block;
+        width: 100%;
+        min-height: var(--nxt1-spacing-20);
+        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-lg);
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-primary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
+        line-height: var(--nxt1-lineHeight-normal);
+        resize: vertical;
+        outline: none;
+        transition:
+          border-color var(--nxt1-duration-fast) var(--nxt1-easing-out),
+          background var(--nxt1-duration-fast) var(--nxt1-easing-out);
+        -webkit-appearance: none;
+      }
+
+      .nxt1-native-textarea::placeholder {
+        color: var(--nxt1-color-text-tertiary);
+        opacity: 1;
+      }
+
+      .nxt1-native-textarea:hover {
+        background: var(--nxt1-color-surface-200);
+        border-color: var(--nxt1-color-border-strong);
+      }
+
+      .nxt1-native-textarea:focus {
+        border-color: var(--nxt1-color-border-strong);
+        background: var(--nxt1-color-surface-100);
+      }
+
+      /* ============================================
+         ION-SELECT using nxt1-input class
+         ============================================ */
+      ion-select.nxt1-input {
+        --background: var(--nxt1-color-surface-100);
+        --border-color: var(--nxt1-color-border-default);
+        --border-radius: var(--nxt1-borderRadius-lg);
+        --color: var(--nxt1-color-text-primary);
+        --placeholder-color: var(--nxt1-color-text-tertiary);
+        --placeholder-opacity: 1;
+        --padding-start: var(--nxt1-spacing-4);
+        --padding-end: var(--nxt1-spacing-4);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
+        min-height: var(--nxt1-spacing-12);
+        width: 100%;
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-lg);
+        background: var(--nxt1-color-surface-100);
+        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
+      }
+
+      ion-select.nxt1-input:hover:not(:disabled) {
+        background: var(--nxt1-color-surface-200);
+        border-color: var(--nxt1-color-border-strong);
+      }
+
+      ion-select.nxt1-input::part(icon) {
+        color: var(--nxt1-color-text-tertiary);
+      }
+
+      /* ============================================
+         POSITION CHIPS
+         ============================================ */
+      .nxt1-position-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--nxt1-spacing-2);
+      }
+
+      /* ============================================
+         LOCATION SECTION — Matches onboarding
+         ============================================ */
+      .nxt1-location-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2);
+      }
+
+      .nxt1-location-detect {
+        display: flex;
+        align-items: center;
+        justify-content: center;
         gap: var(--nxt1-spacing-3);
+        width: 100%;
         padding: var(--nxt1-spacing-4);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-lg);
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-location-detect:hover:not(:disabled):not(.has-location) {
+        border-color: var(--nxt1-color-border-strong);
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .nxt1-location-detect:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+
+      .nxt1-location-detect.has-location {
+        border-color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
+        justify-content: flex-start;
+      }
+
+      .nxt1-location-detect.has-location:hover:not(:disabled) {
+        border-color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
+      }
+
+      .nxt1-location-icon {
+        width: var(--nxt1-spacing-5);
+        height: var(--nxt1-spacing-5);
+        flex-shrink: 0;
+      }
+
+      .nxt1-location-icon.check {
+        color: var(--nxt1-color-text-onPrimary);
+      }
+
+      .nxt1-location-text {
+        flex: 1;
+        text-align: left;
+      }
+
+      .nxt1-location-edit {
+        width: var(--nxt1-spacing-4);
+        height: var(--nxt1-spacing-4);
+        color: var(--nxt1-color-text-onPrimary);
+        opacity: 0.7;
+      }
+
+      .nxt1-location-spinner {
+        width: var(--nxt1-spacing-5);
+        height: var(--nxt1-spacing-5);
+        --color: var(--nxt1-color-primary);
       }
 
       /* ============================================
          ERROR STATE
          ============================================ */
-
-      .error-state {
+      .nxt1-error-state {
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        padding: var(--nxt1-spacing-8);
+        gap: var(--nxt1-spacing-3);
+        min-height: var(--nxt1-spacing-60);
+        padding: var(--nxt1-spacing-6);
         text-align: center;
-        min-height: 300px;
-
-        ion-icon {
-          font-size: 48px;
-          color: var(--nxt1-color-feedback-error);
-          margin-bottom: var(--nxt1-spacing-4);
-        }
-
-        p {
-          color: var(--nxt1-color-text-secondary);
-          margin-bottom: var(--nxt1-spacing-4);
-        }
       }
 
-      .retry-btn {
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-6);
-        background: var(--nxt1-color-surface-200);
-        border: 1px solid var(--nxt1-color-border);
-        border-radius: var(--nxt1-radius-lg);
-        color: var(--nxt1-color-text-primary);
-        font-weight: 500;
-        cursor: pointer;
-        transition: all var(--nxt1-transition-fast);
-
-        &:active {
-          transform: scale(0.98);
-        }
-      }
-
-      /* ============================================
-         UNSAVED BANNER
-         ============================================ */
-
-      .unsaved-banner {
-        display: flex;
+      .nxt1-error-icon {
+        display: inline-flex;
         align-items: center;
-        justify-content: space-between;
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
+        justify-content: center;
+        width: var(--nxt1-spacing-10);
+        height: var(--nxt1-spacing-10);
+        border-radius: var(--nxt1-borderRadius-full);
         background: var(--nxt1-color-surface-200);
-        border-top: 1px solid var(--nxt1-color-border);
-        position: sticky;
-        bottom: 0;
-        z-index: 100;
-        padding-bottom: calc(var(--nxt1-spacing-3) + env(safe-area-inset-bottom, 0));
-      }
-
-      .unsaved-text {
-        font-size: var(--nxt1-fontSize-sm);
         color: var(--nxt1-color-text-secondary);
       }
 
-      .unsaved-actions {
-        display: flex;
-        gap: var(--nxt1-spacing-2);
+      .nxt1-error-text {
+        margin: 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-secondary);
+        line-height: var(--nxt1-lineHeight-normal);
       }
 
-      .unsaved-btn {
+      .nxt1-retry-btn {
+        appearance: none;
+        -webkit-appearance: none;
+        border: 1px solid var(--nxt1-color-border-default);
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-secondary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-semibold);
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
-        border-radius: var(--nxt1-radius-lg);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: 600;
+        border-radius: var(--nxt1-borderRadius-full);
         cursor: pointer;
-        transition: all var(--nxt1-transition-fast);
-
-        &:active {
-          transform: scale(0.98);
-        }
+        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
+        -webkit-tap-highlight-color: transparent;
       }
 
-      .unsaved-btn--discard {
-        background: transparent;
-        border: 1px solid var(--nxt1-color-border);
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .unsaved-btn--save {
-        background: var(--nxt1-color-primary);
-        border: none;
-        color: var(--nxt1-color-text-onPrimary);
-      }
-
-      /* ============================================
-         CELEBRATION OVERLAY
-         ============================================ */
-
-      .celebration-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.85);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1000;
-        animation: fadeIn 0.3s ease-out;
-      }
-
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
-        }
-        to {
-          opacity: 1;
-        }
-      }
-
-      .celebration-content {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        text-align: center;
-        padding: var(--nxt1-spacing-8);
-        animation: scaleIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
-      }
-
-      @keyframes scaleIn {
-        from {
-          transform: scale(0.8);
-          opacity: 0;
-        }
-        to {
-          transform: scale(1);
-          opacity: 1;
-        }
-      }
-
-      .celebration-icon {
-        width: 80px;
-        height: 80px;
-        border-radius: var(--nxt1-radius-full);
-        background: linear-gradient(135deg, var(--nxt1-color-primary), #a3cc00);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: var(--nxt1-spacing-4);
-        animation: pulse 1.5s ease-in-out infinite;
-
-        ion-icon {
-          font-size: 40px;
-          color: var(--nxt1-color-text-onPrimary);
-        }
-      }
-
-      @keyframes pulse {
-        0%,
-        100% {
-          box-shadow: 0 0 0 0 rgba(204, 255, 0, 0.4);
-        }
-        50% {
-          box-shadow: 0 0 0 20px rgba(204, 255, 0, 0);
-        }
-      }
-
-      .celebration-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-2xl);
-        font-weight: 700;
+      .nxt1-retry-btn:hover {
+        border-color: var(--nxt1-color-border-strong);
+        background: var(--nxt1-color-surface-200);
         color: var(--nxt1-color-text-primary);
-        margin: 0 0 var(--nxt1-spacing-2);
-      }
-
-      .celebration-tier {
-        font-size: var(--nxt1-fontSize-lg);
-        color: var(--nxt1-color-primary);
-        font-weight: 600;
-        margin: 0 0 var(--nxt1-spacing-2);
-      }
-
-      .celebration-message {
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--nxt1-color-text-secondary);
-        margin: 0 0 var(--nxt1-spacing-6);
-      }
-
-      .celebration-btn {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-6);
-        background: var(--nxt1-color-primary);
-        border: none;
-        border-radius: var(--nxt1-radius-full);
-        color: var(--nxt1-color-text-onPrimary);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
-        font-weight: 600;
-        cursor: pointer;
-        transition: all var(--nxt1-transition-fast);
-
-        &:active {
-          transform: scale(0.98);
-        }
-
-        ion-icon {
-          font-size: 18px;
-        }
-      }
-
-      /* ============================================
-         BOTTOM SPACER
-         ============================================ */
-
-      .bottom-spacer {
-        height: calc(80px + env(safe-area-inset-bottom, 0));
       }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class EditProfileShellComponent implements OnInit {
-  constructor() {
-    addIcons({
-      closeOutline,
-      checkmarkOutline,
-      chevronDownOutline,
-      chevronUpOutline,
-      sparklesOutline,
-      trophyOutline,
-      starOutline,
-      diamondOutline,
-      flameOutline,
-    });
-  }
-
   protected readonly profile = inject(EditProfileService);
+  private readonly toast = inject(NxtToastService);
+  private readonly logger = inject(NxtLoggingService).child('EditProfileShell');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly modalCtrl = inject(ModalController, { optional: true });
 
-  // ============================================
-  // INPUTS
-  // ============================================
+  private readonly geolocationService: GeolocationService = createGeolocationService(
+    new BrowserGeolocationAdapter(),
+    new CachedGeocodingAdapter(new NominatimGeocodingAdapter())
+  );
 
-  /**
-   * Whether to show the full header with X button.
-   * Set to false when used in native bottom sheet (has its own handle).
-   * Default: false (uses minimal sheet header with handle)
-   */
-  readonly showHeader = input<boolean>(false);
-
-  // ============================================
-  // OUTPUTS
-  // ============================================
-
-  /** Emitted when close button is clicked */
   readonly close = output<void>();
-
-  /** Emitted when save is complete */
   readonly save = output<void>();
+  protected readonly isModalMode = !!this.modalCtrl;
 
-  // ============================================
-  // COMPUTED
-  // ============================================
+  protected readonly imageInputRef = viewChild<ElementRef<HTMLInputElement>>('imageInput');
+  protected readonly isDetectingLocation = signal(false);
+  protected readonly maxGalleryImages = MAX_GALLERY_IMAGES;
+  protected readonly positionOptions = POSITION_OPTIONS;
+  protected readonly heightOptions = HEIGHT_OPTIONS;
+  protected readonly selectActionSheetOptions = { cssClass: 'nxt1-select-action-sheet' };
 
-  protected readonly tierLabel = computed(() => {
-    const tier = this.profile.lastUnlockedTier();
-    if (!tier) return '';
-    const config = this.profile.currentTierConfig();
-    return config?.label ?? tier;
+  protected readonly classOptions = computed(() => {
+    const startYear = new Date().getFullYear();
+    return Array.from({ length: 8 }, (_, index) => String(startYear + index));
   });
 
-  // ============================================
-  // LIFECYCLE
-  // ============================================
+  protected readonly carouselImages = computed<readonly string[]>(() => {
+    const data = this.profile.formData();
+    if (!data) return [];
+
+    const gallery = (data.photos.profileImages ?? []).filter((image): image is string => !!image);
+    if (gallery.length > 0) return gallery;
+
+    return data.photos.profileImg ? [data.photos.profileImg] : [];
+  });
+
+  protected readonly selectedPositions = computed<readonly string[]>(() => {
+    const data = this.profile.formData();
+    if (!data) return [];
+
+    return [data.sportsInfo.primaryPosition, ...(data.sportsInfo.secondaryPositions ?? [])].filter(
+      (value): value is string => !!value
+    );
+  });
+
+  protected readonly canAddMoreImages = computed(
+    () => this.carouselImages().length < MAX_GALLERY_IMAGES
+  );
 
   ngOnInit(): void {
-    this.loadProfile();
+    if (!this.profile.formData() && !this.profile.isLoading()) {
+      void this.loadProfile();
+    }
   }
 
-  // ============================================
-  // PUBLIC METHODS
-  // ============================================
-
-  async loadProfile(): Promise<void> {
+  protected async loadProfile(): Promise<void> {
+    this.breadcrumb.trackStateChange('edit-profile:loading');
     await this.profile.loadProfile();
+    this.breadcrumb.trackStateChange('edit-profile:loaded');
   }
 
-  onClose(): void {
-    this.close.emit();
-  }
-
-  async onSave(): Promise<void> {
-    const success = await this.profile.saveChanges();
-    if (success) {
+  protected async onSave(): Promise<void> {
+    this.breadcrumb.trackStateChange('edit-profile:saving');
+    const didSave = await this.profile.saveChanges();
+    if (didSave) {
+      this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, { source: 'edit-profile-shell' });
+      this.breadcrumb.trackStateChange('edit-profile:saved');
+      if (this.isModalMode) {
+        await this.modalCtrl!.dismiss({ saved: true }, 'save');
+        return;
+      }
       this.save.emit();
     }
   }
 
-  async onDiscard(): Promise<void> {
-    await this.profile.discardChanges();
+  protected onClose(): void {
+    if (this.isModalMode) {
+      void this.modalCtrl!.dismiss(null, 'cancel');
+      return;
+    }
+    this.close.emit();
   }
 
-  onFieldChange(event: { sectionId: string; fieldId: string; value: unknown }): void {
-    this.profile.updateField(event.sectionId as EditProfileSectionId, event.fieldId, event.value);
+  /** Handle ion-input changes for basic info fields */
+  protected onIonInput(fieldId: 'firstName' | 'lastName', event: CustomEvent): void {
+    this.profile.updateField('basic-info', fieldId, event.detail.value ?? '');
   }
+
+  /** Handle native textarea input for bio */
+  protected onBioInput(event: Event): void {
+    const value = (event.target as HTMLTextAreaElement)?.value ?? '';
+    this.profile.updateField('basic-info', 'bio', value);
+  }
+
+  /** Handle ion-input changes for sports fields */
+  protected onIonSportsInput(fieldId: 'jerseyNumber', event: CustomEvent): void {
+    this.profile.updateField('sports-info', fieldId, event.detail.value ?? '');
+  }
+
+  /** Handle ion-input changes for physical fields */
+  protected onIonPhysicalInput(fieldId: 'weight', event: CustomEvent): void {
+    this.profile.updateField('physical', fieldId, event.detail.value ?? '');
+  }
+
+  /** Handle ion-select changes */
+  protected onSelectChange(fieldId: 'classYear' | 'height', event: CustomEvent): void {
+    const value = event.detail.value ?? '';
+    if (fieldId === 'height') {
+      this.profile.updateField('physical', 'height', value);
+    } else {
+      this.profile.updateField('basic-info', fieldId, value);
+    }
+  }
+
+  protected isPositionSelected(position: string): boolean {
+    return this.selectedPositions().includes(position);
+  }
+
+  protected togglePosition(position: string): void {
+    const current = [...this.selectedPositions()];
+    const next = current.includes(position)
+      ? current.filter((value) => value !== position)
+      : [...current, position];
+
+    this.profile.updateField('sports-info', 'primaryPosition', next[0] ?? '');
+    this.profile.updateField('sports-info', 'secondaryPositions', next.slice(1));
+  }
+
+  protected openImagePicker(): void {
+    if (!isPlatformBrowser(this.platformId)) {
+      this.toast.warning('Image selection is only available in the app runtime.');
+      return;
+    }
+
+    this.imageInputRef()?.nativeElement.click();
+  }
+
+  protected async onImageFilesSelected(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement | null;
+    const files = Array.from(input?.files ?? []);
+    if (files.length === 0) return;
+
+    const availableSlots = MAX_GALLERY_IMAGES - this.carouselImages().length;
+    if (availableSlots <= 0) {
+      this.toast.warning(`You can add up to ${MAX_GALLERY_IMAGES} profile images.`);
+      if (input) input.value = '';
+      return;
+    }
+
+    const selectedFiles = files.slice(0, availableSlots);
+    const validImages: string[] = [];
+
+    for (const file of selectedFiles) {
+      if (!file.type.startsWith('image/')) {
+        this.toast.warning(`${file.name} is not a supported image file.`);
+        continue;
+      }
+
+      if (file.size > MAX_IMAGE_SIZE) {
+        this.toast.warning(`${file.name} is larger than 5MB.`);
+        continue;
+      }
+
+      try {
+        validImages.push(await this.readFileAsDataUrl(file));
+      } catch (error) {
+        this.logger.error('Failed to read profile image', error, { fileName: file.name });
+        this.toast.error(`Could not load ${file.name}.`);
+      }
+    }
+
+    if (validImages.length > 0) {
+      this.profile.updatePhotoGallery([...this.carouselImages(), ...validImages]);
+    }
+
+    if (files.length > availableSlots) {
+      this.toast.warning(`Only ${MAX_GALLERY_IMAGES} images can be used.`);
+    }
+
+    if (input) {
+      input.value = '';
+    }
+  }
+
+  protected removeImage(index: number): void {
+    const nextImages = this.carouselImages().filter((_, imageIndex) => imageIndex !== index);
+    this.profile.updatePhotoGallery(nextImages);
+  }
+
+  protected async detectLocation(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId) || !this.geolocationService.isSupported()) {
+      this.toast.warning('Location detection is not available on this device.');
+      return;
+    }
+
+    this.isDetectingLocation.set(true);
+
+    try {
+      const result = await this.geolocationService.getCurrentLocation(GEOLOCATION_DEFAULTS.QUICK);
+
+      if (!result.success) {
+        this.toast.warning(result.error.message || 'Unable to detect your location.');
+        return;
+      }
+
+      const address = result.data.address;
+      const location = address ? formatLocationShort(address) : '';
+
+      if (!location) {
+        this.toast.warning('Location detected, but no city/state could be resolved.');
+        return;
+      }
+
+      this.profile.updateField('basic-info', 'location', location);
+      this.breadcrumb.trackStateChange('edit-profile:location-detected');
+      this.toast.success('Location updated.');
+    } catch (error) {
+      this.logger.error('Location detection failed', error);
+      this.toast.error('Failed to detect location.');
+    } finally {
+      this.isDetectingLocation.set(false);
+    }
+  }
+
+  private readFileAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          resolve(reader.result);
+          return;
+        }
+
+        reject(new Error('Image preview could not be created.'));
+      };
+
+      reader.onerror = () => reject(reader.error ?? new Error('File read failed.'));
+      reader.readAsDataURL(file);
+    });
+  }
+}
+
+function buildHeightOptions(): string[] {
+  const options: string[] = [];
+
+  for (let feet = 4; feet <= 7; feet += 1) {
+    for (let inches = 0; inches < 12; inches += 1) {
+      if (feet === 4 && inches < 8) continue;
+      if (feet === 7 && inches > 2) continue;
+      options.push(`${feet}'${inches}"`);
+    }
+  }
+
+  return options;
 }

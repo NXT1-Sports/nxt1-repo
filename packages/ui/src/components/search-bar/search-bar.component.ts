@@ -85,7 +85,10 @@ export interface SearchBarSubmitEvent {
     '[class.mobile--expanded]': "variant() === 'mobile' && expanded()",
   },
   template: `
-    <form class="search-form relative flex items-center" (submit)="onSubmit($event)">
+    <form
+      class="search-form nxt1-shared-animated-glass-input relative flex items-center"
+      (submit)="onSubmit($event)"
+    >
       <!-- Search Icon -->
       @if (showAgentXLogo()) {
         <svg

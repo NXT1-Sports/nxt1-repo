@@ -81,10 +81,9 @@ export const EXPLORE_TABS: readonly ExploreTab[] = [
 
 /**
  * Default selected tab.
- * 'for-you' is the default — a curated multi-category overview showing
- * personalized content from all categories without pre-selecting any tab.
+ * 'feed' is the default so Explore lands on Pulse first.
  */
-export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'for-you';
+export const EXPLORE_DEFAULT_TAB: ExploreTabId = 'feed';
 
 // ============================================
 // SORT OPTIONS

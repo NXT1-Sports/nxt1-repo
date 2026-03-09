@@ -14,6 +14,7 @@ import { IonContent } from '@ionic/angular/standalone';
 import type { BrandCategory } from '@nxt1/core';
 import { BRAND_PAGE_SUBTITLE } from '@nxt1/core';
 import { TEST_IDS } from '@nxt1/core/testing';
+import type { PageHeaderAction } from '../components/page-header/page-header.types';
 import { BrandService } from './brand.service';
 import { BrandCategoryCardComponent } from './brand-category-card.component';
 import { NxtPageHeaderComponent } from '../components/page-header/page-header.component';
@@ -25,7 +26,11 @@ import { NxtPageHeaderComponent } from '../components/page-header/page-header.co
   template: `
     <div class="brand-shell" [attr.data-testid]="testIds.CONTAINER">
       <!-- Page Header — FIXED above scroll area -->
-      <nxt1-page-header (menuClick)="avatarClick.emit()">
+      <nxt1-page-header
+        [actions]="connectionsAction"
+        (menuClick)="avatarClick.emit()"
+        (actionClick)="onConnectionsClick()"
+      >
         <div pageHeaderSlot="title" class="header-logo">
           <span class="header-title-text">Brand</span>
           <svg
@@ -53,17 +58,6 @@ import { NxtPageHeaderComponent } from '../components/page-header/page-header.co
       <ion-content [fullscreen]="true" class="brand-content">
         <!-- Subtitle — centered -->
         <p class="brand-subtitle" [attr.data-testid]="testIds.HEADER">{{ subtitle }}</p>
-
-        <!-- Featured — Connections full-width -->
-        @if (brand.featuredCategory(); as featured) {
-          <div class="brand-featured">
-            <nxt1-brand-category-card
-              [category]="featured"
-              [wide]="true"
-              (cardClick)="onCategorySelect($event)"
-            />
-          </div>
-        }
 
         <!-- Category Grid — 2x2 -->
         <div class="brand-grid" [attr.data-testid]="testIds.GRID">
@@ -135,10 +129,6 @@ import { NxtPageHeaderComponent } from '../components/page-header/page-header.co
         text-align: center;
       }
 
-      .brand-featured {
-        padding: 16px 20px 0;
-      }
-
       .brand-grid {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
@@ -162,9 +152,19 @@ export class BrandShellComponent {
 
   protected readonly testIds = TEST_IDS.BRAND;
   protected readonly subtitle = BRAND_PAGE_SUBTITLE;
+  protected readonly connectionsAction: PageHeaderAction[] = [
+    { id: 'connections', icon: 'link-outline', label: 'Connections' },
+  ];
 
   async onCategorySelect(category: BrandCategory): Promise<void> {
     await this.brand.selectCategory(category);
     this.categorySelect.emit(category);
+  }
+
+  async onConnectionsClick(): Promise<void> {
+    const featured = this.brand.featuredCategory();
+    if (featured) {
+      await this.onCategorySelect(featured);
+    }
   }
 }

@@ -31,10 +31,7 @@ export { EditProfileSkeletonComponent } from './edit-profile-skeleton.component'
 // ============================================
 
 export { EditProfileService } from './edit-profile.service';
-export {
-  EditProfileBottomSheetService,
-  EditProfileModalComponent,
-} from './edit-profile-bottom-sheet.service';
+export { EditProfileBottomSheetService } from './edit-profile-bottom-sheet.service';
 
 // ============================================
 // MOCK DATA (for development)
