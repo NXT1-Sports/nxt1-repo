@@ -314,16 +314,12 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
   // College team name: for recruiters (college coaches) use their institution; for athletes
   // with a college affiliation use the college sport team name.
   const collegeTeamName: string | undefined = isRecruiterRole
-    ? (user.recruiter?.institution ?? user.collegeCoach?.institution ?? undefined)
+    ? (user.recruiter?.institution ?? undefined)
     : (user.sports?.find((s) => s.team?.type === 'college')?.team?.name ?? undefined);
 
   // Title: coaches, recruiters, and directors carry a role-specific title field.
   const title: string | undefined =
-    user.coach?.title ??
-    user.recruiter?.title ??
-    user.collegeCoach?.title ??
-    user.director?.title ??
-    undefined;
+    user.coach?.title ?? user.recruiter?.title ?? user.director?.title ?? undefined;
 
   // ── Profile images ────────────────────────────────────────────────────────
   const bannerImg = user.bannerImg ?? undefined;

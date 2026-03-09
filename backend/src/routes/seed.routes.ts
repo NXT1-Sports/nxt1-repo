@@ -58,9 +58,21 @@ async function bustProfileCache(
 
 // ─── Collection names ─────────────────────────────────────────────────────────
 const USERS_COL = 'Users';
+const PLAYER_STATS_COL = 'PlayerStats'; // top-level: PlayerStats/{userId}_{sportId}_{season}
 const RANKINGS_COL = 'Rankings';
 const NEWS_COL = 'News'; // top-level: News/{articleId}
 const SCOUT_REPORTS_COL = 'ScoutReports'; // top-level: ScoutReports/{reportId}
+
+// ─── Helper: remove undefined values (Firestore rejects them) ────────────────
+function removeUndefined<T extends Record<string, unknown>>(obj: T): T {
+  const clean = {} as T;
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      clean[key as keyof T] = value as T[keyof T];
+    }
+  }
+  return clean;
+}
 
 // ─── Batch helper: auto-split into chunks of 499 ─────────────────────────────
 async function commitBatches(
@@ -150,21 +162,21 @@ router.post(
 
     const mergedFootball: SportProfile = {
       ...footballSport,
-      verifiedStats,
+      // verifiedStats moved to PlayerStats collection (see below)
       verifiedMetrics,
       upcomingEvents: scheduleEvents,
       recruitingActivities,
-      featuredStats,
+      featuredStats, // ← Agent X curated top stats for instant profile load
       featuredMetrics,
     } as SportProfile;
 
     const mergedBasketball: SportProfile = {
       ...basketballSport,
-      verifiedStats: bbStats,
+      // verifiedStats moved to PlayerStats collection (see below)
       verifiedMetrics: bbMetrics,
       upcomingEvents: bbScheduleEvents,
       recruitingActivities: bbRecruitingActivities,
-      featuredStats: bbFeaturedStats,
+      featuredStats: bbFeaturedStats, // ← Agent X curated top stats
       featuredMetrics: bbFeaturedMetrics,
     } as SportProfile;
 
@@ -213,9 +225,68 @@ router.post(
       ops.push((b) => b.set(ref, { ...activity }));
     }
 
-    // NOTE: verifiedStats & verifiedMetrics are embedded directly in User.sports[]
-    // (see footballSportUpdate / basketballSportUpdate above).
-    // No separate sports/{sport}/stats or sports/{sport}/metrics sub-collections needed.
+    // 3. Player stats — top-level PlayerStats/{userId}_{sportId}_{season} collection
+    // One document per season per sport with ALL stats aggregated in stats[] array.
+    // This follows the new aggregated schema (see user-collections.model.ts PlayerStatDoc).
+    const season = '2025-2026';
+
+    // 3a. Football stats
+    const footballStatsDocId = `${userId}_football_${season}`;
+    const footballStatsDoc = {
+      id: footballStatsDocId,
+      userId,
+      sportId: 'football',
+      season,
+      position: 'QB',
+      stats: verifiedStats.map((s) =>
+        removeUndefined({
+          field: s.field,
+          label: s.label,
+          value: s.value,
+          unit: s.unit,
+          category: s.category,
+          verified: s.verified,
+          verifiedBy: s.verifiedBy,
+          dateRecorded: s.dateRecorded,
+        })
+      ),
+      source: 'maxpreps' as const,
+      verified: true,
+      createdAt: now,
+      updatedAt: now,
+    };
+    ops.push((b) =>
+      b.set(db.collection(PLAYER_STATS_COL).doc(footballStatsDocId), footballStatsDoc)
+    );
+
+    // 3b. Basketball stats
+    const basketballStatsDocId = `${userId}_basketball_${season}`;
+    const basketballStatsDoc = {
+      id: basketballStatsDocId,
+      userId,
+      sportId: 'basketball',
+      season,
+      position: 'Point Guard',
+      stats: bbStats.map((s) =>
+        removeUndefined({
+          field: s.field,
+          label: s.label,
+          value: s.value,
+          unit: s.unit,
+          category: s.category,
+          verified: s.verified,
+          verifiedBy: s.verifiedBy,
+          dateRecorded: s.dateRecorded,
+        })
+      ),
+      source: 'manual' as const,
+      verified: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    ops.push((b) =>
+      b.set(db.collection(PLAYER_STATS_COL).doc(basketballStatsDocId), basketballStatsDoc)
+    );
 
     // 5. Timeline posts — top-level Posts/{postId} collection (NOT sub-collection)
     for (let i = 0; i < posts.length; i++) {
@@ -477,6 +548,14 @@ router.delete(
           ops.push((b) => b.delete(doc.ref));
         }
       }
+    }
+
+    // Delete PlayerStats documents (aggregated stats by season)
+    const season = '2025-2026';
+    const playerStatsIds = [`${userId}_football_${season}`, `${userId}_basketball_${season}`];
+    for (const docId of playerStatsIds) {
+      const ref = db.collection(PLAYER_STATS_COL).doc(docId);
+      ops.push((b) => b.delete(ref));
     }
 
     await Promise.all([

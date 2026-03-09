@@ -115,9 +115,6 @@ export {
   type RecruitingActivity,
   type RecruitingCategory,
   // @deprecated — use RecruitingActivity instead
-  type CollegeOffer,
-  type CollegeInteraction,
-  type Commitment,
   type RecruitingSummary,
   type AcademicInfo,
   type SportVerification,
@@ -144,14 +141,9 @@ export {
   // Role-specific data
   type AthleteData,
   type CoachData,
-  type CollegeCoachData,
   type DirectorData,
   type RecruiterData,
-  type ScoutData,
-  type RecruitingServiceData,
-  type MediaData,
   type ParentData,
-  type FanData,
   // Preferences & Settings
   type NotificationPreferences,
   type UserPreferences,
