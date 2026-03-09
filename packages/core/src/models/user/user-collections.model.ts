@@ -142,30 +142,33 @@ export interface VideoDoc extends SportFirestoreDoc {
 /**
  * Top-level Firestore document: playerStats/{statId}
  *
- * One document per stat field per season per player per sport.
- * Extends VerifiedStat with the required top-level sportId / userId fields
- * so the collection can be queried globally.
+ * One document per season per player per sport.
+ * All stat fields for a season are stored in the `stats` array — a single
+ * Firestore read returns the full season stat line. This avoids fan-out
+ * multi-reads and the 1-write-per-second-per-document limit during live
+ * stat updates.
+ *
+ * Document ID convention: `${userId}_${sportId}_${season}`
+ * guarantees one canonical document per player/sport/season and makes
+ * upserts idempotent.
  *
  * ⭐ sportId required — stats always belong to a specific sport ⭐
  *
- * Queryable by:  userId, sportId, season, category, field, createdAt
+ * Queryable by:  userId, sportId, season, position, source, createdAt
  */
 export interface PlayerStatDoc extends SportFirestoreDoc {
   /** Season identifier, e.g. '2025-2026'. */
   season: string;
   /** Position the stats apply to, e.g. 'QB', 'Point Guard'. */
   position?: string;
-  /** Machine key matching VerifiedStat.field, e.g. 'passing_yards'. */
-  field: string;
-  label: string;
-  value: number | string;
-  unit?: string;
-  /** Grouping category, e.g. 'offense', 'defense'. */
-  category?: string;
+  /** All stat entries for this season (self-describing — label + value + unit). */
+  stats: Pick<
+    VerifiedStat,
+    'field' | 'label' | 'value' | 'unit' | 'category' | 'verified' | 'verifiedBy' | 'dateRecorded'
+  >[];
+  /** Primary data source for this stat document. */
   source: DataSource;
   verified: boolean;
-  verifiedBy?: string;
-  dateRecorded?: Date | string;
 }
 
 // ============================================

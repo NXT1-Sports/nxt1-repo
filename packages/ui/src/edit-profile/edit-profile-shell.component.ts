@@ -856,10 +856,7 @@ export class EditProfileShellComponent implements OnInit {
     const data = this.profile.formData();
     if (!data) return [];
 
-    const gallery = (data.photos.profileImages ?? []).filter((image): image is string => !!image);
-    if (gallery.length > 0) return gallery;
-
-    return data.photos.profileImg ? [data.photos.profileImg] : [];
+    return (data.photos.profileImgs ?? []).filter((image): image is string => !!image);
   });
 
   protected readonly selectedPositions = computed<readonly string[]>(() => {
@@ -1027,7 +1024,8 @@ export class EditProfileShellComponent implements OnInit {
       const result = await this.geolocationService.getCurrentLocation(GEOLOCATION_DEFAULTS.QUICK);
 
       if (!result.success) {
-        this.toast.warning(result.error.message || 'Unable to detect your location.');
+        const errorMessage = 'error' in result ? result.error.message : '';
+        this.toast.warning(errorMessage || 'Unable to detect your location.');
         return;
       }
 
