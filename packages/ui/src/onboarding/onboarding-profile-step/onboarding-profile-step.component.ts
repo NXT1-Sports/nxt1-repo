@@ -64,6 +64,9 @@ import { NxtLoggingService } from '../../services/logging';
 import { NxtToastService } from '../../services/toast';
 import { NxtChipComponent } from '../../components/chip';
 import { NxtFormFieldComponent } from '../../components/form-field';
+import { NxtListRowComponent } from '../../components/list-row';
+import { NxtListSectionComponent } from '../../components/list-section';
+import { NxtModalService } from '../../services/modal';
 
 // ============================================
 // CONSTANTS
@@ -90,145 +93,182 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
     HapticButtonDirective,
     NxtChipComponent,
     NxtFormFieldComponent,
+    NxtListRowComponent,
+    NxtListSectionComponent,
   ],
   template: `
-    <div class="nxt1-profile-form" data-testid="onboarding-profile-step">
-      <!-- Name Fields -->
-      <div class="nxt1-name-fields">
-        <!-- First Name -->
-        <nxt1-form-field
-          label="First Name"
-          inputId="firstName"
-          [error]="
-            firstNameTouched() && firstName() && !isFirstNameValid() ? '2-50 letters only' : null
-          "
-          testId="onboarding-firstname-field"
-        >
-          <ion-input
-            id="firstName"
-            type="text"
-            class="nxt1-input"
-            [class.nxt1-input-error]="firstNameTouched() && firstName() && !isFirstNameValid()"
-            fill="outline"
-            placeholder="Enter first name"
-            [value]="firstName()"
-            (ionInput)="onFirstNameInput($event)"
-            (ionBlur)="firstNameTouched.set(true)"
-            [disabled]="disabled()"
-            autocomplete="given-name"
-            autocapitalize="words"
-            data-testid="onboarding-input-first-name"
-          />
-        </nxt1-form-field>
-
-        <!-- Last Name -->
-        <nxt1-form-field
-          label="Last Name"
-          inputId="lastName"
-          [error]="
-            lastNameTouched() && lastName() && !isLastNameValid() ? '2-50 letters only' : null
-          "
-          testId="onboarding-lastname-field"
-        >
-          <ion-input
-            id="lastName"
-            type="text"
-            class="nxt1-input"
-            [class.nxt1-input-error]="lastNameTouched() && lastName() && !isLastNameValid()"
-            fill="outline"
-            placeholder="Enter last name"
-            [value]="lastName()"
-            (ionInput)="onLastNameInput($event)"
-            (ionBlur)="lastNameTouched.set(true)"
-            [disabled]="disabled()"
-            autocomplete="family-name"
-            autocapitalize="words"
-            data-testid="onboarding-input-last-name"
-          />
-        </nxt1-form-field>
+    @if (variant() === 'list-row') {
+      <div class="nxt1-profile-form" data-testid="onboarding-profile-step">
+        <nxt1-list-section>
+          <nxt1-list-row label="First Name" (tap)="openFirstNamePrompt()">
+            <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!firstName()">
+              {{ firstName() || 'Enter first name' }}
+            </span>
+          </nxt1-list-row>
+          <nxt1-list-row label="Last Name" (tap)="openLastNamePrompt()">
+            <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!lastName()">
+              {{ lastName() || 'Enter last name' }}
+            </span>
+          </nxt1-list-row>
+          @if (showGender()) {
+            <nxt1-list-row label="Gender" (tap)="openGenderPicker()">
+              <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!gender()">
+                {{ genderDisplayLabel() || 'Select gender' }}
+              </span>
+            </nxt1-list-row>
+          }
+          @if (showLocation()) {
+            <nxt1-list-row label="Location" (tap)="onDetectLocation()">
+              <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!hasLocation()">
+                @if (isLoadingLocation()) {
+                  Detecting...
+                } @else {
+                  {{ locationDisplay() || 'Detect location' }}
+                }
+              </span>
+            </nxt1-list-row>
+          }
+        </nxt1-list-section>
       </div>
+    } @else {
+      <div class="nxt1-profile-form" data-testid="onboarding-profile-step">
+        <!-- Name Fields -->
+        <div class="nxt1-name-fields">
+          <!-- First Name -->
+          <nxt1-form-field
+            label="First Name"
+            inputId="firstName"
+            [error]="
+              firstNameTouched() && firstName() && !isFirstNameValid() ? '2-50 letters only' : null
+            "
+            testId="onboarding-firstname-field"
+          >
+            <ion-input
+              id="firstName"
+              type="text"
+              class="nxt1-input"
+              [class.nxt1-input-error]="firstNameTouched() && firstName() && !isFirstNameValid()"
+              fill="outline"
+              placeholder="Enter first name"
+              [value]="firstName()"
+              (ionInput)="onFirstNameInput($event)"
+              (ionBlur)="firstNameTouched.set(true)"
+              [disabled]="disabled()"
+              autocomplete="given-name"
+              autocapitalize="words"
+              data-testid="onboarding-input-first-name"
+            />
+          </nxt1-form-field>
 
-      <!-- Gender Selection (Progressive disclosure - optional) -->
-      @if (showGender()) {
-        <nxt1-form-field label="Gender" testId="onboarding-gender-field">
-          <div class="nxt1-gender-chips" role="radiogroup" aria-label="Select gender">
-            @for (option of genderOptions; track option.value) {
-              <nxt1-chip
-                [selected]="gender() === option.value"
-                [disabled]="disabled()"
-                [testId]="'onboarding-gender-' + option.value"
-                ariaRole="radio"
-                (chipClick)="onGenderSelect(option.value)"
-              >
-                {{ option.label }}
-              </nxt1-chip>
-            }
-          </div>
-        </nxt1-form-field>
-      }
+          <!-- Last Name -->
+          <nxt1-form-field
+            label="Last Name"
+            inputId="lastName"
+            [error]="
+              lastNameTouched() && lastName() && !isLastNameValid() ? '2-50 letters only' : null
+            "
+            testId="onboarding-lastname-field"
+          >
+            <ion-input
+              id="lastName"
+              type="text"
+              class="nxt1-input"
+              [class.nxt1-input-error]="lastNameTouched() && lastName() && !isLastNameValid()"
+              fill="outline"
+              placeholder="Enter last name"
+              [value]="lastName()"
+              (ionInput)="onLastNameInput($event)"
+              (ionBlur)="lastNameTouched.set(true)"
+              [disabled]="disabled()"
+              autocomplete="family-name"
+              autocapitalize="words"
+              data-testid="onboarding-input-last-name"
+            />
+          </nxt1-form-field>
+        </div>
 
-      <!-- Location Selection (with auto-detect) -->
-      @if (showLocation()) {
-        <nxt1-form-field label="Location" testId="onboarding-location-field">
-          <div class="nxt1-location-section">
-            <!-- Auto-detect button -->
-            <button
-              type="button"
-              class="nxt1-location-detect"
-              [class.has-location]="hasLocation()"
-              [disabled]="disabled() || isLoadingLocation()"
-              (click)="onDetectLocation()"
-              data-testid="onboarding-location-detect"
-              nxtHaptic="selection"
-            >
-              @if (isLoadingLocation()) {
-                <ion-spinner name="crescent" class="nxt1-location-spinner"></ion-spinner>
-                <span>Detecting location...</span>
-              } @else if (hasLocation()) {
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  class="nxt1-location-icon check"
-                  aria-hidden="true"
+        <!-- Gender Selection (Progressive disclosure - optional) -->
+        @if (showGender()) {
+          <nxt1-form-field label="Gender" testId="onboarding-gender-field">
+            <div class="nxt1-gender-chips" role="radiogroup" aria-label="Select gender">
+              @for (option of genderOptions; track option.value) {
+                <nxt1-chip
+                  [selected]="gender() === option.value"
+                  [disabled]="disabled()"
+                  [testId]="'onboarding-gender-' + option.value"
+                  ariaRole="radio"
+                  (chipClick)="onGenderSelect(option.value)"
                 >
-                  <path
-                    d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"
-                  />
-                </svg>
-                <span class="nxt1-location-text">{{ locationDisplay() }}</span>
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  class="nxt1-location-edit"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
-                  />
-                </svg>
-              } @else {
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  class="nxt1-location-icon"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"
-                  />
-                </svg>
-                <span>Detect My Location</span>
+                  {{ option.label }}
+                </nxt1-chip>
               }
-            </button>
+            </div>
+          </nxt1-form-field>
+        }
 
-            <!-- Location error -->
-            @if (locationError()) {
-              <p class="nxt1-location-error">{{ locationError() }}</p>
-            }
-          </div>
-        </nxt1-form-field>
-      }
-    </div>
+        <!-- Location Selection (with auto-detect) -->
+        @if (showLocation()) {
+          <nxt1-form-field label="Location" testId="onboarding-location-field">
+            <div class="nxt1-location-section">
+              <!-- Auto-detect button -->
+              <button
+                type="button"
+                class="nxt1-location-detect"
+                [class.has-location]="hasLocation()"
+                [disabled]="disabled() || isLoadingLocation()"
+                (click)="onDetectLocation()"
+                data-testid="onboarding-location-detect"
+                nxtHaptic="selection"
+              >
+                @if (isLoadingLocation()) {
+                  <ion-spinner name="crescent" class="nxt1-location-spinner"></ion-spinner>
+                  <span>Detecting location...</span>
+                } @else if (hasLocation()) {
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    class="nxt1-location-icon check"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"
+                    />
+                  </svg>
+                  <span class="nxt1-location-text">{{ locationDisplay() }}</span>
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    class="nxt1-location-edit"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+                    />
+                  </svg>
+                } @else {
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    class="nxt1-location-icon"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3c-.46-4.17-3.77-7.48-7.94-7.94V1h-2v2.06C6.83 3.52 3.52 6.83 3.06 11H1v2h2.06c.46 4.17 3.77 7.48 7.94 7.94V23h2v-2.06c4.17-.46 7.48-3.77 7.94-7.94H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"
+                    />
+                  </svg>
+                  <span>Detect My Location</span>
+                }
+              </button>
+
+              <!-- Location error -->
+              @if (locationError()) {
+                <p class="nxt1-location-error">{{ locationError() }}</p>
+              }
+            </div>
+          </nxt1-form-field>
+        }
+      </div>
+    }
   `,
   styles: [
     `
@@ -499,6 +539,17 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
         color: var(--nxt1-color-error);
         margin: 0;
       }
+
+      /* List-row variant styles */
+      .nxt1-list-value {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .nxt1-list-placeholder {
+        color: var(--nxt1-color-text-tertiary);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -507,6 +558,7 @@ export class OnboardingProfileStepComponent {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly loggingService = inject(NxtLoggingService);
   private readonly toast = inject(NxtToastService);
+  private readonly modal = inject(NxtModalService);
 
   /** Namespaced logger for this component */
   private readonly logger: ILogger = this.loggingService.child('OnboardingProfileStep');
@@ -520,6 +572,9 @@ export class OnboardingProfileStepComponent {
 
   /** Current profile data from parent */
   readonly profileData = input<ProfileFormData | null>(null);
+
+  /** Display variant: 'form' for desktop, 'list-row' for mobile */
+  readonly variant = input<'form' | 'list-row'>('form');
 
   /** Whether interaction is disabled */
   readonly disabled = input<boolean>(false);
@@ -621,6 +676,14 @@ export class OnboardingProfileStepComponent {
     if (loc.state) parts.push(loc.state);
 
     return parts.join(', ') || loc.formatted || '';
+  });
+
+  /** Gender display label for list-row variant */
+  readonly genderDisplayLabel = computed(() => {
+    const g = this.gender();
+    if (!g) return '';
+    const option = GENDER_OPTIONS.find((o) => o.value === g);
+    return option?.label ?? '';
   });
 
   /** Check if first name is valid using shared helper */
@@ -815,5 +878,73 @@ export class OnboardingProfileStepComponent {
       location: this.location(),
       // classYear intentionally omitted - collected in sport step for athletes
     });
+  }
+
+  // ============================================
+  // LIST-ROW VARIANT METHODS
+  // ============================================
+
+  /**
+   * Open prompt dialog for first name input
+   */
+  async openFirstNamePrompt(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'First Name',
+      placeholder: 'Enter your first name',
+      defaultValue: this.firstName(),
+      submitText: 'Done',
+      cancelText: 'Cancel',
+      inputType: 'text',
+      required: true,
+      preferNative: 'native',
+    });
+
+    if (result.confirmed && result.value.trim()) {
+      this.firstName.set(result.value.trim());
+      this.firstNameTouched.set(true);
+      this.emitProfileChange();
+    }
+  }
+
+  /**
+   * Open prompt dialog for last name input
+   */
+  async openLastNamePrompt(): Promise<void> {
+    const result = await this.modal.prompt({
+      title: 'Last Name',
+      placeholder: 'Enter your last name',
+      defaultValue: this.lastName(),
+      submitText: 'Done',
+      cancelText: 'Cancel',
+      inputType: 'text',
+      required: true,
+      preferNative: 'native',
+    });
+
+    if (result.confirmed && result.value.trim()) {
+      this.lastName.set(result.value.trim());
+      this.lastNameTouched.set(true);
+      this.emitProfileChange();
+    }
+  }
+
+  /**
+   * Open action sheet for gender selection
+   */
+  async openGenderPicker(): Promise<void> {
+    const result = await this.modal.actionSheet({
+      title: 'Select Gender',
+      actions: GENDER_OPTIONS.map((option) => ({
+        text: option.label,
+        data: option.value,
+      })),
+      preferNative: 'native',
+    });
+
+    if (result?.selected && result.data) {
+      this.gender.set(result.data as GenderOption);
+      this.logger.debug('Gender selected via picker', { gender: result.data });
+      this.emitProfileChange();
+    }
   }
 }

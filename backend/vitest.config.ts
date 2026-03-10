@@ -7,8 +7,16 @@
  */
 
 import { defineConfig } from 'vitest/config';
+import { fileURLToPath, URL } from 'url';
+
+const resolve = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@nxt1/core': resolve('../packages/core/src/index.ts'),
+    },
+  },
   test: {
     globals: true,
     environment: 'node',

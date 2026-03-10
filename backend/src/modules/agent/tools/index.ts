@@ -6,7 +6,8 @@
 export { BaseTool, type ToolResult } from './base.tool.js';
 export { ToolRegistry } from './tool-registry.js';
 
-// Category re-exports (tools will be added as they are implemented)
-// export { ... } from './database/index.js';
-// export { ... } from './media/index.js';
-// export { ... } from './comms/index.js';
+// Scraping tools
+export { ScrapeWebpageTool, ScraperService } from './scraping/index.js';
+
+// Integration tools
+export { SendGmailTool } from './integrations/send-gmail.tool.js';

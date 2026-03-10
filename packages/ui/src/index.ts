@@ -1002,6 +1002,8 @@ export { OnboardingPositionStepComponent } from './onboarding/onboarding-positio
 
 export { OnboardingContactStepComponent } from './onboarding/onboarding-contact-step';
 
+export { OnboardingLinkDropStepComponent } from './onboarding/onboarding-link-drop-step';
+
 export {
   OnboardingReferralStepComponent,
   REFERRAL_OPTIONS,

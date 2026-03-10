@@ -22,22 +22,52 @@ export class SendGmailTool extends BaseTool {
   readonly isMutation = true;
   readonly category = 'communication' as const;
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
-    const toEmail = input['toEmail'] as string;
+  /** Maximum lengths to prevent abuse. */
+  private static readonly MAX_SUBJECT_LENGTH = 500;
+  private static readonly MAX_BODY_LENGTH = 50_000;
 
-    // TODO: Connect to your existing /controllers/gmail logic here!
+  /** Basic email format validation. */
+  private static readonly EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    // ── Input validation ──────────────────────────────────────────────────
+    const toEmail = input['toEmail'];
+    const subject = input['subject'];
+    const bodyHtml = input['bodyHtml'];
+
+    if (typeof toEmail !== 'string' || !SendGmailTool.EMAIL_REGEX.test(toEmail)) {
+      return {
+        success: false,
+        error: 'Invalid or missing "toEmail": must be a valid email address.',
+      };
+    }
+    if (typeof subject !== 'string' || subject.trim().length === 0) {
+      return { success: false, error: 'Invalid or missing "subject": must be a non-empty string.' };
+    }
+    if (subject.length > SendGmailTool.MAX_SUBJECT_LENGTH) {
+      return {
+        success: false,
+        error: `"subject" exceeds maximum length of ${SendGmailTool.MAX_SUBJECT_LENGTH} characters.`,
+      };
+    }
+    if (typeof bodyHtml !== 'string' || bodyHtml.trim().length === 0) {
+      return {
+        success: false,
+        error: 'Invalid or missing "bodyHtml": must be a non-empty string.',
+      };
+    }
+    if (bodyHtml.length > SendGmailTool.MAX_BODY_LENGTH) {
+      return {
+        success: false,
+        error: `"bodyHtml" exceeds maximum length of ${SendGmailTool.MAX_BODY_LENGTH} characters.`,
+      };
+    }
+
+    // TODO: Connect to existing /controllers/gmail logic:
     // 1. Fetch user's Gmail OAuth tokens from database
     // 2. Refresh token if expired
     // 3. Initialize Google API Client
     // 4. Send Email
-
-    return {
-      success: true,
-      data: {
-        recipient: toEmail,
-        messageId: 'mock_gmail_id_12345',
-        timestamp: new Date().toISOString(),
-      },
-    };
+    throw new Error('SendGmailTool is not yet connected to the Gmail API. Implementation pending.');
   }
 }

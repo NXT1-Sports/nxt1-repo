@@ -53,6 +53,8 @@ import usersRoutes from './routes/users.routes.js';
 import locationsRoutes from './routes/locations.routes.js';
 import agentXRoutes from './routes/agent-x.routes.js';
 import followRoutes from './routes/follow.routes.js';
+
+import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
 import ssrRoutes from './routes/ssr.routes.js';
 // Detail routes for explore
 import collegesRoutes from './routes/colleges.routes.js';
@@ -334,6 +336,11 @@ async function initializeServices() {
     // 3. Setup application routes and middleware (requires Redis for rate limiting)
     await setupApplication();
 
+    // 4. Start Agent X Background Queue and Workers
+    logger.info('Starting Agent Engine...');
+    shutdownAgentFn = await bootstrapAgentQueue();
+    logger.info('✅ Agent Engine started and listening to queue');
+
     logger.info('✅ All services initialized successfully');
   } catch (error) {
     logger.error('❌ Failed to initialize services:', { error });
@@ -346,6 +353,7 @@ async function initializeServices() {
 // Start Server
 // ============================================================================
 let server: ReturnType<typeof app.listen> | null = null;
+let shutdownAgentFn: (() => Promise<void>) | null = null;
 
 initializeServices().then(() => {
   server = app.listen(PORT, () => {
@@ -378,6 +386,16 @@ function gracefulShutdown(signal: string): void {
   if (server) {
     server.close(async () => {
       logger.info('HTTP server closed');
+
+      try {
+        if (shutdownAgentFn) {
+          logger.info('Shutting down Agent Engine...');
+          await shutdownAgentFn();
+          logger.info('Agent Engine shut down');
+        }
+      } catch (err) {
+        logger.error('Error shutting down Agent Engine:', { error: err });
+      }
 
       try {
         await disconnectFromMongoDB();

@@ -67,7 +67,7 @@ export class ApprovalGateService {
     const policy = this.getApprovalPolicy(params.toolName);
 
     const request: AgentApprovalRequest = {
-      id: `approval_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      id: `approval_${crypto.randomUUID()}`,
       operationId: params.operationId,
       taskId: params.taskId,
       userId: params.userId,

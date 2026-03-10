@@ -41,12 +41,15 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { trigger, transition, style, animate } from '@angular/animations';
-import { IonInput } from '@ionic/angular/standalone';
+import { AlertController, IonInput } from '@ionic/angular/standalone';
 import type { ReferralSourceData } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtValidationSummaryComponent } from '../../components/validation-summary';
 import { HapticButtonDirective } from '../../services/haptics';
+import { NxtListRowComponent } from '../../components/list-row';
+import { NxtListSectionComponent } from '../../components/list-section';
+import { NxtModalService } from '../../services/modal';
 
 // ============================================
 // TYPES
@@ -142,181 +145,216 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
     IonInput,
     NxtValidationSummaryComponent,
     HapticButtonDirective,
+    NxtListRowComponent,
+    NxtListSectionComponent,
   ],
   template: `
-    <div class="nxt1-referral-form" data-testid="onboarding-referral-step">
-      <!-- Referral Options Grid -->
-      <div
-        class="nxt1-referral-options"
-        role="radiogroup"
-        aria-label="How did you hear about NXT1?"
-      >
-        @for (option of referralOptions; track option.type; let idx = $index) {
-          <button
-            type="button"
-            class="nxt1-referral-card"
-            role="radio"
-            [class.nxt1-referral-card-selected]="selectedSource() === option.type"
-            [attr.aria-checked]="selectedSource() === option.type"
-            [attr.aria-describedby]="'referral-desc-' + option.type"
-            [attr.tabindex]="
-              selectedSource() === option.type || (!selectedSource() && idx === 0) ? 0 : -1
-            "
-            [disabled]="disabled()"
-            (click)="onSourceSelect(option.type)"
-            (keydown)="onKeyDown($event, idx)"
-            nxtHaptic="selection"
-            [attr.data-testid]="'onboarding-referral-option-' + option.type"
-          >
-            <!-- Radio Indicator -->
-            <div class="nxt1-card-radio" aria-hidden="true">
-              <div class="nxt1-radio-inner"></div>
-            </div>
+    @if (variant() === 'list-row') {
+      <div class="nxt1-referral-form" data-testid="onboarding-referral-step">
+        <nxt1-list-section>
+          <nxt1-list-row label="Referral" (tap)="openReferralPicker()">
+            <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!selectedSource()">
+              {{ referralDisplayValue() || 'How did you hear about us?' }}
+            </span>
+          </nxt1-list-row>
+        </nxt1-list-section>
 
-            <!-- Card Content -->
-            <div class="nxt1-card-content">
-              <!-- Icon -->
-              <div class="nxt1-card-icon">
-                @switch (option.icon) {
-                  @case ('club') {
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                      <circle cx="9" cy="7" r="4" />
-                      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                    </svg>
-                  }
-                  @case ('social') {
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" />
-                    </svg>
-                  }
-                  @case ('search') {
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <circle cx="11" cy="11" r="8" />
-                      <path d="m21 21-4.35-4.35" />
-                    </svg>
-                  }
-                  @case ('friend') {
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                      <circle cx="9" cy="7" r="4" />
-                      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-                    </svg>
-                  }
-                  @case ('ad') {
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <rect x="2" y="3" width="20" height="14" rx="2" />
-                      <path d="M8 21h8" />
-                      <path d="M12 17v4" />
-                    </svg>
-                  }
-                  @case ('team-code') {
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <rect x="3" y="11" width="18" height="11" rx="2" />
-                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                    </svg>
-                  }
-                  @case ('other') {
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="M12 16v-4" />
-                      <path d="M12 8h.01" />
-                    </svg>
-                  }
-                }
-              </div>
-
-              <!-- Text -->
-              <div class="nxt1-card-text">
-                <span class="nxt1-card-label">{{ option.label }}</span>
-                <span class="nxt1-card-description" [id]="'referral-desc-' + option.type">{{
-                  option.description
-                }}</span>
-              </div>
-            </div>
-
-            <!-- Conditional Input -->
-            @if (option.hasInput && selectedSource() === option.type) {
-              <div class="nxt1-card-input" (click)="$event.stopPropagation()">
-                <ion-input
-                  type="text"
-                  class="nxt1-input"
-                  fill="outline"
-                  [placeholder]="option.inputPlaceholder || 'Please specify...'"
-                  [value]="option.type === 'club' ? clubName() : otherSpecify()"
-                  (ionInput)="
-                    option.type === 'club' ? onClubNameInput($event) : onOtherSpecifyInput($event)
-                  "
-                  [disabled]="disabled()"
-                  [attr.aria-label]="option.inputPlaceholder"
-                  [attr.data-testid]="'onboarding-referral-input-' + option.type"
-                />
-              </div>
-            }
-          </button>
+        <!-- Conditional text input for club/other -->
+        @if (selectedSource() === 'club' || selectedSource() === 'other') {
+          <div class="nxt1-conditional-input">
+            <ion-input
+              type="text"
+              class="nxt1-input"
+              fill="outline"
+              [placeholder]="
+                selectedSource() === 'club' ? 'Enter team name...' : 'Please specify...'
+              "
+              [value]="selectedSource() === 'club' ? clubName() : otherSpecify()"
+              (ionInput)="
+                selectedSource() === 'club' ? onClubNameInput($event) : onOtherSpecifyInput($event)
+              "
+              [disabled]="disabled()"
+            />
+          </div>
         }
       </div>
+    } @else {
+      <div class="nxt1-referral-form" data-testid="onboarding-referral-step">
+        <!-- Referral Options Grid -->
+        <div
+          class="nxt1-referral-options"
+          role="radiogroup"
+          aria-label="How did you hear about NXT1?"
+        >
+          @for (option of referralOptions; track option.type; let idx = $index) {
+            <button
+              type="button"
+              class="nxt1-referral-card"
+              role="radio"
+              [class.nxt1-referral-card-selected]="selectedSource() === option.type"
+              [attr.aria-checked]="selectedSource() === option.type"
+              [attr.aria-describedby]="'referral-desc-' + option.type"
+              [attr.tabindex]="
+                selectedSource() === option.type || (!selectedSource() && idx === 0) ? 0 : -1
+              "
+              [disabled]="disabled()"
+              (click)="onSourceSelect(option.type)"
+              (keydown)="onKeyDown($event, idx)"
+              nxtHaptic="selection"
+              [attr.data-testid]="'onboarding-referral-option-' + option.type"
+            >
+              <!-- Radio Indicator -->
+              <div class="nxt1-card-radio" aria-hidden="true">
+                <div class="nxt1-radio-inner"></div>
+              </div>
 
-      <!-- Validation Summary -->
-      @if (showValidationSummary()) {
-        <div class="nxt1-validation-container" @fadeSlideIn>
-          <nxt1-validation-summary testId="onboarding-referral-validation">
-            Thanks for sharing how you found us!
-          </nxt1-validation-summary>
+              <!-- Card Content -->
+              <div class="nxt1-card-content">
+                <!-- Icon -->
+                <div class="nxt1-card-icon">
+                  @switch (option.icon) {
+                    @case ('club') {
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                    }
+                    @case ('social') {
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path
+                          d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"
+                        />
+                      </svg>
+                    }
+                    @case ('search') {
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="m21 21-4.35-4.35" />
+                      </svg>
+                    }
+                    @case ('friend') {
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                        <circle cx="9" cy="7" r="4" />
+                        <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                      </svg>
+                    }
+                    @case ('ad') {
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <rect x="2" y="3" width="20" height="14" rx="2" />
+                        <path d="M8 21h8" />
+                        <path d="M12 17v4" />
+                      </svg>
+                    }
+                    @case ('team-code') {
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <rect x="3" y="11" width="18" height="11" rx="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </svg>
+                    }
+                    @case ('other') {
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      >
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M12 16v-4" />
+                        <path d="M12 8h.01" />
+                      </svg>
+                    }
+                  }
+                </div>
+
+                <!-- Text -->
+                <div class="nxt1-card-text">
+                  <span class="nxt1-card-label">{{ option.label }}</span>
+                  <span class="nxt1-card-description" [id]="'referral-desc-' + option.type">{{
+                    option.description
+                  }}</span>
+                </div>
+              </div>
+
+              <!-- Conditional Input -->
+              @if (option.hasInput && selectedSource() === option.type) {
+                <div class="nxt1-card-input" (click)="$event.stopPropagation()">
+                  <ion-input
+                    type="text"
+                    class="nxt1-input"
+                    fill="outline"
+                    [placeholder]="option.inputPlaceholder || 'Please specify...'"
+                    [value]="option.type === 'club' ? clubName() : otherSpecify()"
+                    (ionInput)="
+                      option.type === 'club' ? onClubNameInput($event) : onOtherSpecifyInput($event)
+                    "
+                    [disabled]="disabled()"
+                    [attr.aria-label]="option.inputPlaceholder"
+                    [attr.data-testid]="'onboarding-referral-input-' + option.type"
+                  />
+                </div>
+              }
+            </button>
+          }
         </div>
-      }
-    </div>
+
+        <!-- Validation Summary -->
+        @if (showValidationSummary()) {
+          <div class="nxt1-validation-container" @fadeSlideIn>
+            <nxt1-validation-summary testId="onboarding-referral-validation">
+              Thanks for sharing how you found us!
+            </nxt1-validation-summary>
+          </div>
+        }
+      </div>
+    }
   `,
   animations: [
     trigger('fadeSlideIn', [
@@ -551,6 +589,38 @@ export const REFERRAL_OPTIONS: readonly ReferralOption[] = [
       .nxt1-validation-container {
         margin-top: var(--nxt1-spacing-1, 4px);
       }
+
+      /* List-row variant styles */
+      .nxt1-list-value {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .nxt1-list-placeholder {
+        color: var(--nxt1-color-text-tertiary);
+      }
+
+      .nxt1-conditional-input {
+        padding: 0 var(--nxt1-spacing-2, 8px);
+      }
+
+      .nxt1-conditional-input .nxt1-input {
+        --background: var(--nxt1-color-surface-100);
+        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
+        --border-width: 1px;
+        --color: var(--nxt1-color-text-primary, #ffffff);
+        --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        --placeholder-opacity: 1;
+        --padding-start: 16px;
+        --padding-end: 16px;
+        --padding-top: 14px;
+        --padding-bottom: 14px;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base, 1rem);
+        min-height: 52px;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -561,6 +631,8 @@ export class OnboardingReferralStepComponent {
   // ============================================
 
   private readonly loggingService = inject(NxtLoggingService);
+  private readonly alertCtrl = inject(AlertController);
+  private readonly nxtModal = inject(NxtModalService);
 
   /** Namespaced logger for this component */
   private readonly logger: ILogger = this.loggingService.child('OnboardingReferralStep');
@@ -571,6 +643,9 @@ export class OnboardingReferralStepComponent {
 
   /** Current referral form data */
   readonly referralData = input<ReferralSourceData | null>(null);
+
+  /** Display variant: 'cards' for desktop grid, 'list-row' for mobile */
+  readonly variant = input<'cards' | 'list-row'>('cards');
 
   /** Whether user came via team code (auto-selects team-code option) */
   readonly teamCodeUsed = input<boolean>(false);
@@ -620,6 +695,14 @@ export class OnboardingReferralStepComponent {
 
     // Other sources just need selection
     return true;
+  });
+
+  /** Display value for list-row variant */
+  readonly referralDisplayValue = computed((): string => {
+    const source = this.selectedSource();
+    if (!source) return '';
+    const option = REFERRAL_OPTIONS.find((o) => o.type === source);
+    return option?.label ?? '';
   });
 
   // ============================================
@@ -745,6 +828,45 @@ export class OnboardingReferralStepComponent {
         buttons[newIndex]?.focus();
       }
     }
+  }
+
+  // ============================================
+  // LIST-ROW VARIANT METHODS
+  // ============================================
+
+  /**
+   * Open radio alert for referral source selection (same pattern as sport picker)
+   */
+  async openReferralPicker(): Promise<void> {
+    const current = this.selectedSource();
+
+    const alert = await this.alertCtrl.create({
+      header: 'How did you hear about us?',
+      cssClass: 'nxt-modal-prompt',
+      inputs: REFERRAL_OPTIONS.map((option) => ({
+        name: option.type,
+        type: 'checkbox' as const,
+        label: option.label,
+        value: option.type,
+        checked: current === option.type,
+      })),
+      buttons: [
+        { text: 'Cancel', role: 'cancel', cssClass: 'nxt-modal-cancel-btn' },
+        {
+          text: 'Done',
+          cssClass: 'nxt-modal-confirm-btn',
+          handler: (values: ReferralSourceType[]) => {
+            const selected = values.length > 0 ? values[values.length - 1] : null;
+            if (selected) {
+              this.onSourceSelect(selected);
+              this.logger.debug('Referral selected via picker', { source: selected });
+            }
+          },
+        },
+      ],
+    });
+    this.nxtModal.applyModalTheme(alert);
+    await alert.present();
   }
 
   // ============================================

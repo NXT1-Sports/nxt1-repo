@@ -45,6 +45,7 @@ export type OnboardingUserType = 'athlete' | 'coach' | 'director' | 'recruiter' 
 export type OnboardingStepId =
   | 'role'
   | 'profile'
+  | 'link-sources'
   | 'school'
   | 'organization'
   | 'sport'
@@ -344,6 +345,294 @@ export interface ContactFormData {
   sportsAccountLink?: string;
 }
 
+/** Link sources (connected accounts) form data */
+export interface LinkSourcesFormData {
+  /** Social media / athletic profile links */
+  links: LinkSourceEntry[];
+}
+
+/** Single connected source entry */
+export interface LinkSourceEntry {
+  /** Platform identifier (e.g., 'twitter', 'instagram', 'hudl') */
+  platform: string;
+  /** Whether the platform is connected */
+  connected: boolean;
+  /** Username/handle */
+  username?: string;
+  /** Profile URL */
+  url?: string;
+}
+
+// ============================================
+// PLATFORM REGISTRY — Sport-aware link sources
+// ============================================
+
+/** Connection method: 'link' = paste URL/username, 'signin' = OAuth sign-in */
+export type PlatformConnectionType = 'link' | 'signin';
+
+/** Platform category for grouping in the UI */
+export type PlatformCategory = 'social' | 'film' | 'recruiting' | 'stats';
+
+/** Platform definition for connected accounts */
+export interface PlatformDefinition {
+  /** Unique platform identifier */
+  readonly platform: string;
+  /** Display label */
+  readonly label: string;
+  /** Icon name from icon registry */
+  readonly icon: string;
+  /** How the user connects: paste link/username or sign in */
+  readonly connectionType: PlatformConnectionType;
+  /** Category for section grouping */
+  readonly category: PlatformCategory;
+  /** Sports this platform is relevant for (empty = all sports) */
+  readonly sports: readonly string[];
+  /** Input placeholder text */
+  readonly placeholder: string;
+}
+
+/**
+ * All available platforms, categorized and sport-aware.
+ * Sports use base names (e.g. 'football' not 'Football').
+ * Empty sports array = available for all sports.
+ *
+ * ⭐ PURE DATA - No dependencies
+ */
+export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
+  // ---- Social ----
+  {
+    platform: 'instagram',
+    label: 'Instagram',
+    icon: 'instagram',
+    connectionType: 'link',
+    category: 'social',
+    sports: [],
+    placeholder: '@username',
+  },
+  {
+    platform: 'twitter',
+    label: 'Twitter / X',
+    icon: 'twitter',
+    connectionType: 'link',
+    category: 'social',
+    sports: [],
+    placeholder: '@username',
+  },
+  {
+    platform: 'tiktok',
+    label: 'TikTok',
+    icon: 'tiktok',
+    connectionType: 'link',
+    category: 'social',
+    sports: [],
+    placeholder: '@username',
+  },
+  {
+    platform: 'youtube',
+    label: 'YouTube',
+    icon: 'youtube',
+    connectionType: 'link',
+    category: 'social',
+    sports: [],
+    placeholder: 'Channel URL',
+  },
+
+  // ---- Film & Highlights ----
+  {
+    platform: 'hudl',
+    label: 'Hudl',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'film',
+    sports: [
+      'football',
+      'basketball',
+      'soccer',
+      'lacrosse',
+      'volleyball',
+      'field_hockey',
+      'baseball',
+      'softball',
+      'wrestling',
+      'ice_hockey',
+    ],
+    placeholder: 'Hudl profile URL',
+  },
+
+  // ---- Recruiting ----
+  {
+    platform: 'ncsa',
+    label: 'NCSA',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'recruiting',
+    sports: [],
+    placeholder: 'NCSA profile URL',
+  },
+  {
+    platform: 'ncsasports',
+    label: 'NCSASports',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'recruiting',
+    sports: [],
+    placeholder: 'NCSASports profile URL',
+  },
+
+  // ---- Stats ----
+  {
+    platform: 'maxpreps',
+    label: 'MaxPreps',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    sports: [
+      'football',
+      'basketball',
+      'baseball',
+      'softball',
+      'soccer',
+      'volleyball',
+      'lacrosse',
+      'wrestling',
+      'track_field',
+      'cross_country',
+      'tennis',
+      'golf',
+      'swimming_diving',
+      'field_hockey',
+      'water_polo',
+    ],
+    placeholder: 'MaxPreps profile URL',
+  },
+  {
+    platform: 'perfectgame',
+    label: 'Perfect Game',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    sports: ['baseball', 'softball'],
+    placeholder: 'Perfect Game profile URL',
+  },
+  {
+    platform: 'prepbaseballreport',
+    label: 'Prep Baseball Report',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    sports: ['baseball'],
+    placeholder: 'PBR profile URL',
+  },
+] as const;
+
+/** Category display info */
+export const PLATFORM_CATEGORIES: readonly {
+  readonly category: PlatformCategory;
+  readonly label: string;
+}[] = [
+  { category: 'social', label: 'Social' },
+  { category: 'film', label: 'Film & Highlights' },
+  { category: 'recruiting', label: 'Recruiting' },
+  { category: 'stats', label: 'Stats' },
+] as const;
+
+/**
+ * Recommended platform identifiers per onboarding role.
+ * These platforms are surfaced in a "Recommended" section at the top
+ * of the connected accounts step.
+ *
+ * ⭐ PURE DATA - No dependencies
+ */
+export const RECOMMENDED_PLATFORMS_BY_ROLE: Readonly<
+  Record<OnboardingUserType, readonly string[]>
+> = {
+  athlete: ['instagram', 'hudl', 'maxpreps'],
+  coach: ['hudl', 'maxpreps'],
+  director: ['hudl', 'maxpreps'],
+  recruiter: ['hudl', 'maxpreps', 'ncsa'],
+  parent: ['instagram', 'maxpreps'],
+} as const;
+
+/**
+ * Returns the recommended PlatformDefinitions for a given role,
+ * filtered to only platforms available for the user's selected sports.
+ *
+ * @param role - The user's onboarding role
+ * @param selectedSports - Sport display names (e.g. ["Football"])
+ * @returns Array of recommended PlatformDefinitions
+ *
+ * ⭐ PURE FUNCTION - No dependencies
+ */
+export function getRecommendedPlatforms(
+  role: OnboardingUserType,
+  selectedSports: readonly string[]
+): PlatformDefinition[] {
+  const recommendedIds = RECOMMENDED_PLATFORMS_BY_ROLE[role] ?? [];
+  const sportKeys = selectedSports.map(sportNameToBaseKey);
+
+  return recommendedIds
+    .map((id) => PLATFORM_REGISTRY.find((p) => p.platform === id))
+    .filter((p): p is PlatformDefinition => {
+      if (!p) return false;
+      // Keep if platform is sport-agnostic
+      if (p.sports.length === 0) return true;
+      // Keep if no sports selected (show all)
+      if (sportKeys.length === 0) return true;
+      // Keep if any selected sport matches
+      return p.sports.some((ps) => sportKeys.some((sk) => sk.startsWith(ps) || ps.startsWith(sk)));
+    });
+}
+
+/**
+ * Normalize a sport display name to a base key for platform matching.
+ * e.g. "Basketball Mens" → "basketball", "Track & Field Womens" → "track_field"
+ *
+ * ⭐ PURE FUNCTION - No dependencies
+ */
+function sportNameToBaseKey(sportName: string): string {
+  return sportName
+    .toLowerCase()
+    .replace(/\s*(mens|womens)$/i, '')
+    .trim()
+    .replace(/\s*&\s*/g, '_')
+    .replace(/\s+/g, '_');
+}
+
+/**
+ * Returns platforms filtered by the user's selected sports, grouped by category.
+ * If no sports are selected, returns all platforms.
+ * Always includes all social platforms (they're sport-agnostic).
+ *
+ * @param selectedSports - Sport display names (e.g. ["Football", "Basketball Mens"])
+ * @returns Platforms grouped by category with a recommended section
+ *
+ * ⭐ PURE FUNCTION - No dependencies
+ */
+export function getPlatformsForSports(
+  selectedSports: readonly string[],
+  excludePlatformIds: readonly string[] = []
+): { category: PlatformCategory; label: string; platforms: PlatformDefinition[] }[] {
+  const sportKeys = selectedSports.map(sportNameToBaseKey);
+  const excludeSet = new Set(excludePlatformIds);
+
+  const filtered = PLATFORM_REGISTRY.filter((p) => {
+    // Exclude platforms already shown in recommended section
+    if (excludeSet.has(p.platform)) return false;
+    // Platforms with empty sports array are available for all sports
+    if (p.sports.length === 0) return true;
+    // If no sports selected, show all
+    if (sportKeys.length === 0) return true;
+    // Show if any selected sport matches
+    return p.sports.some((ps) => sportKeys.some((sk) => sk.startsWith(ps) || ps.startsWith(sk)));
+  });
+
+  return PLATFORM_CATEGORIES.map((cat) => ({
+    category: cat.category,
+    label: cat.label,
+    platforms: filtered.filter((p) => p.category === cat.category),
+  })).filter((group) => group.platforms.length > 0);
+}
+
 /** Referral source data */
 export interface ReferralSourceData {
   source: string;
@@ -375,6 +664,7 @@ export interface OnboardingFormData {
    */
   positions?: PositionsFormData;
   contact?: ContactFormData;
+  linkSources?: LinkSourcesFormData;
   referralSource?: ReferralSourceData;
 }
 
@@ -426,13 +716,22 @@ const ROLE_STEP: OnboardingStep = {
   order: 1,
 };
 
+/** Shared link sources step config (DRY) */
+const LINK_SOURCES_STEP: OnboardingStep = {
+  id: 'link-sources',
+  title: 'Link Data Sources',
+  subtitle: 'Connect your accounts',
+  required: false,
+  order: 4,
+};
+
 /** Shared referral step config (DRY) */
 const REFERRAL_STEP: OnboardingStep = {
   id: 'referral-source',
   title: 'Before We Begin',
   subtitle: 'How did you hear about us?',
   required: false,
-  order: 4,
+  order: 5,
 };
 
 /** Step configuration per user type */
@@ -453,6 +752,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
+    LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
   coach: [
@@ -471,6 +771,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
+    LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
   parent: [
@@ -489,6 +790,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
+    LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
   recruiter: [
@@ -507,6 +809,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
+    LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
   director: [
@@ -525,6 +828,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
+    LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
 };
@@ -537,18 +841,65 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
  * Agent X typewriter messages shown below the logo during each onboarding step.
  * These create a guided, AI-host feel without requiring free-text chat.
  *
+ * Default messages are used when no role is selected yet, or as fallbacks.
+ *
  * ⭐ PURE DATA - No dependencies
  */
 export const AGENT_X_ONBOARDING_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
-  role: "Welcome to NXT1. I'm Agent X — tell me who you are so I can set up your experience.",
-  profile: "Great choice. Now let's build your identity — just the basics.",
-  sport: "Now pick your sports. I'll personalize everything from here.",
-  'referral-source': 'Almost there — one last question before I set everything up.',
-  school: 'Tell me about your school and team.',
+  role: "Hey — I'm Agent X, your AI coordinator. I'm built to help you get things done. Let's start by picking your role.",
+  profile: "Let's build your profile.",
+  'link-sources': 'Connect your profiles so I can pull in your highlights.',
+  sport: 'Pick your sports.',
+  'referral-source': 'Last one — how did you find us?',
+  school: 'Tell me about your school.',
   organization: 'Tell me about your organization.',
   positions: 'What positions do you play?',
   contact: 'How can teams reach you?',
-  complete: "You're all set. Let's get to work.",
+  complete: "You're all set. Let's go.",
+});
+
+/**
+ * Role-specific Agent X messages per step.
+ * Only entries that differ from the default need to be listed.
+ */
+const ROLE_MESSAGES: Readonly<
+  Partial<Record<OnboardingUserType, Readonly<Record<string, string>>>>
+> = Object.freeze({
+  athlete: Object.freeze({
+    profile: "Let's get to know you — just the basics.",
+    'link-sources': 'Link your socials so coaches can find your highlights.',
+    sport: 'What do you play?',
+    'referral-source': 'Last one — how did you hear about NXT1?',
+    complete: "You're set. Time to get recruited.",
+  }),
+  coach: Object.freeze({
+    profile: "Let's get to know you — just the basics.",
+    'link-sources': 'Link your accounts — high school, club, JUCO, travel, whatever you coach.',
+    sport: 'What sports do you coach?',
+    'referral-source': 'Last one — how did you discover NXT1?',
+    complete: "You're in. Let's find your next prospect.",
+  }),
+  director: Object.freeze({
+    profile: "Let's get to know you — just the basics.",
+    'link-sources': 'Link your program accounts.',
+    sport: 'What sports does your program cover?',
+    'referral-source': 'Last one — how did you find NXT1?',
+    complete: "All set. Let's manage your program.",
+  }),
+  recruiter: Object.freeze({
+    profile: "Let's get to know you — just the basics.",
+    'link-sources': 'Link your accounts so you can start scouting.',
+    sport: 'What sports do you scout?',
+    'referral-source': 'Last one — how did you hear about us?',
+    complete: "You're ready. Let's scout some talent.",
+  }),
+  parent: Object.freeze({
+    profile: "Let's get to know you — just the basics.",
+    'link-sources': 'Link your accounts to stay connected.',
+    sport: 'What sport does your athlete play?',
+    'referral-source': 'Last one — how did you find NXT1?',
+    complete: "You're all set. Let's support your athlete.",
+  }),
 });
 
 /**
@@ -559,7 +910,10 @@ export const AGENT_X_ONBOARDING_MESSAGES: Readonly<Record<string, string>> = Obj
  * ⭐ PURE FUNCTION - No dependencies
  */
 export function getAgentXMessage(stepId: string, userType?: OnboardingUserType | null): string {
-  void userType;
+  if (userType) {
+    const roleMsg = ROLE_MESSAGES[userType]?.[stepId];
+    if (roleMsg) return roleMsg;
+  }
   return AGENT_X_ONBOARDING_MESSAGES[stepId] ?? '';
 }
 
@@ -695,6 +1049,7 @@ export function validateStep(
       return validatePositions(formData.positions);
     case 'contact':
       return validateContact(formData.contact);
+    case 'link-sources':
     case 'referral-source':
     case 'social':
     case 'complete':

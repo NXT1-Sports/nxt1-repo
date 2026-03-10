@@ -39,7 +39,6 @@ import type {
   AgentTriggerType,
   AgentTriggerPreferences,
   AgentJobPayload,
-  AgentJobOrigin,
 } from '@nxt1/core';
 
 import { AGENT_TRIGGER_RULES } from '@nxt1/core';
@@ -214,6 +213,6 @@ export class AgentTriggerService {
    * Generate a unique operation ID.
    */
   private generateOperationId(): string {
-    return `op_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    return `op_${crypto.randomUUID()}`;
   }
 }

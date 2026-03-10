@@ -61,7 +61,12 @@ import {
 import type { ILogger } from '@nxt1/core/logging';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
+import { NxtToastService } from '../../services/toast';
 import { NxtValidationSummaryComponent } from '../../components/validation-summary';
+import { NxtListRowComponent } from '../../components/list-row';
+import { NxtListSectionComponent } from '../../components/list-section';
+import { NxtModalService } from '../../services/modal';
+import { AlertController } from '@ionic/angular/standalone';
 
 // ============================================
 // CONSTANTS
@@ -80,55 +85,76 @@ const ALL_SPORTS_OPTION = 'All Sports';
 @Component({
   selector: 'nxt1-onboarding-sport-step',
   standalone: true,
-  imports: [CommonModule, HapticButtonDirective, NxtValidationSummaryComponent],
+  imports: [
+    CommonModule,
+    HapticButtonDirective,
+    NxtValidationSummaryComponent,
+    NxtListRowComponent,
+    NxtListSectionComponent,
+  ],
   template: `
-    <div class="nxt1-sport-step" data-testid="onboarding-sport-step">
-      <!-- Description -->
-      <p class="nxt1-step-description">
-        {{ stepPrompt() }}
-        @if (maxSports() > 1) {
-          <span class="nxt1-max-hint">Choose up to {{ maxSports() }}.</span>
-        }
-      </p>
+    @if (variant() === 'list-row') {
+      <div class="nxt1-sport-step" data-testid="onboarding-sport-step">
+        <nxt1-list-section>
+          <nxt1-list-row label="Sport" (tap)="openSportPicker()">
+            <span
+              class="nxt1-list-value"
+              [class.nxt1-list-placeholder]="selectedSports().length === 0"
+            >
+              {{ sportDisplayValue() || 'Select sport' }}
+            </span>
+          </nxt1-list-row>
+        </nxt1-list-section>
+      </div>
+    } @else {
+      <div class="nxt1-sport-step" data-testid="onboarding-sport-step">
+        <!-- Description -->
+        <p class="nxt1-step-description">
+          {{ stepPrompt() }}
+          @if (maxSports() > 1) {
+            <span class="nxt1-max-hint">Choose up to {{ maxSports() }}.</span>
+          }
+        </p>
 
-      <!-- Sport Chips Grid -->
-      <div class="nxt1-sport-grid" role="group" aria-label="Select sports">
-        @for (sport of availableSports(); track sport.name) {
-          <button
-            type="button"
-            class="nxt1-sport-chip"
-            [class.nxt1-sport-chip--selected]="isSelected(sport.name)"
-            [class.nxt1-sport-chip--primary]="isPrimary(sport.name)"
-            [disabled]="disabled() || (!isSelected(sport.name) && isMaxReached())"
-            (click)="toggleSport(sport.name)"
-            nxtHaptic="selection"
-            [attr.aria-pressed]="isSelected(sport.name)"
-            [attr.data-testid]="'sport-chip-' + sanitizeTestId(sport.name)"
-          >
-            <span class="nxt1-sport-emoji" aria-hidden="true">{{ getEmoji(sport.name) }}</span>
-            <span class="nxt1-sport-name">{{ formatDisplayName(sport.name) }}</span>
-            @if (isPrimary(sport.name)) {
-              <span class="nxt1-primary-badge">Primary</span>
+        <!-- Sport Chips Grid -->
+        <div class="nxt1-sport-grid" role="group" aria-label="Select sports">
+          @for (sport of availableSports(); track sport.name) {
+            <button
+              type="button"
+              class="nxt1-sport-chip"
+              [class.nxt1-sport-chip--selected]="isSelected(sport.name)"
+              [class.nxt1-sport-chip--primary]="isPrimary(sport.name)"
+              [disabled]="disabled() || (!isSelected(sport.name) && isMaxReached())"
+              (click)="toggleSport(sport.name)"
+              nxtHaptic="selection"
+              [attr.aria-pressed]="isSelected(sport.name)"
+              [attr.data-testid]="'sport-chip-' + sanitizeTestId(sport.name)"
+            >
+              <span class="nxt1-sport-emoji" aria-hidden="true">{{ getEmoji(sport.name) }}</span>
+              <span class="nxt1-sport-name">{{ formatDisplayName(sport.name) }}</span>
+              @if (isPrimary(sport.name)) {
+                <span class="nxt1-primary-badge">Primary</span>
+              }
+            </button>
+          }
+        </div>
+
+        <!-- Selection Summary -->
+        @if (selectedSports().length > 0) {
+          <nxt1-validation-summary testId="onboarding-sport-validation" variant="success">
+            {{ selectedSports().length }}
+            {{ selectedSports().length === 1 ? 'sport' : 'sports' }} selected
+            @if (selectedSports().length > 1) {
+              · {{ formatDisplayName(selectedSports()[0]) }} is primary
             }
-          </button>
+          </nxt1-validation-summary>
+        } @else {
+          <nxt1-validation-summary testId="onboarding-sport-hint" variant="info">
+            Select at least one sport to continue
+          </nxt1-validation-summary>
         }
       </div>
-
-      <!-- Selection Summary -->
-      @if (selectedSports().length > 0) {
-        <nxt1-validation-summary testId="onboarding-sport-validation" variant="success">
-          {{ selectedSports().length }}
-          {{ selectedSports().length === 1 ? 'sport' : 'sports' }} selected
-          @if (selectedSports().length > 1) {
-            · {{ formatDisplayName(selectedSports()[0]) }} is primary
-          }
-        </nxt1-validation-summary>
-      } @else {
-        <nxt1-validation-summary testId="onboarding-sport-hint" variant="info">
-          Select at least one sport to continue
-        </nxt1-validation-summary>
-      }
-    </div>
+    }
   `,
   styles: [
     `
@@ -266,6 +292,17 @@ const ALL_SPORTS_OPTION = 'All Sports';
           grid-template-columns: repeat(2, 1fr);
         }
       }
+
+      /* List-row variant styles */
+      .nxt1-list-value {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .nxt1-list-placeholder {
+        color: var(--nxt1-color-text-tertiary);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -276,6 +313,9 @@ export class OnboardingSportStepComponent {
   // ============================================
 
   private readonly loggingService = inject(NxtLoggingService);
+  private readonly toast = inject(NxtToastService);
+  private readonly alertCtrl = inject(AlertController);
+  private readonly nxtModal = inject(NxtModalService);
 
   /** Namespaced logger for this component */
   private readonly logger: ILogger = this.loggingService.child('OnboardingSportStep');
@@ -286,6 +326,9 @@ export class OnboardingSportStepComponent {
 
   /** Current sport data from parent */
   readonly sportData = input<SportFormData | null>(null);
+
+  /** Display variant: 'chips' for desktop grid, 'list-row' for mobile */
+  readonly variant = input<'chips' | 'list-row'>('chips');
 
   /** Whether interaction is disabled */
   readonly disabled = input<boolean>(false);
@@ -341,6 +384,13 @@ export class OnboardingSportStepComponent {
   /** Check if max sports reached */
   readonly isMaxReached = computed((): boolean => {
     return this.selectedSports().length >= this.maxSports();
+  });
+
+  /** Display value for list-row variant */
+  readonly sportDisplayValue = computed((): string => {
+    const selected = this.selectedSports();
+    if (selected.length === 0) return '';
+    return selected.map((s) => formatSportDisplayName(s)).join(', ');
   });
 
   // ============================================
@@ -462,5 +512,49 @@ export class OnboardingSportStepComponent {
       sports: entries,
     };
     this.sportChange.emit(data);
+  }
+
+  // ============================================
+  // LIST-ROW VARIANT METHODS
+  // ============================================
+
+  /**
+   * Open checkbox alert for sport selection (same pattern as edit profile position picker)
+   */
+  async openSportPicker(): Promise<void> {
+    const selected = this.selectedSports();
+    const sports = this.availableSports();
+
+    const alert = await this.alertCtrl.create({
+      header: 'Select Sports',
+      subHeader: 'Choose up to 3',
+      cssClass: 'nxt-modal-prompt',
+      inputs: sports.map((sport) => ({
+        name: sport.name,
+        type: 'checkbox' as const,
+        label: `${sport.icon} ${formatSportDisplayName(sport.name)}`,
+        value: sport.name,
+        checked: selected.includes(sport.name),
+      })),
+      buttons: [
+        { text: 'Cancel', role: 'cancel', cssClass: 'nxt-modal-cancel-btn' },
+        {
+          text: 'Done',
+          cssClass: 'nxt-modal-confirm-btn',
+          handler: (values: string[]): boolean => {
+            if (values.length > 3) {
+              this.toast.warning('You can select up to 3 sports');
+              return false;
+            }
+            this.selectedSports.set(values);
+            this.emitChange(values);
+            this.logger.debug('Sports selected via picker', { sports: values });
+            return true;
+          },
+        },
+      ],
+    });
+    this.nxtModal.applyModalTheme(alert);
+    await alert.present();
   }
 }

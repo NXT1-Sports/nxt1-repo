@@ -42,6 +42,7 @@ export type OnboardingUserType = 'athlete' | 'coach' | 'director' | 'recruiter' 
 export type OnboardingStepId =
   | 'role'
   | 'profile'
+  | 'link-sources'
   | 'school'
   | 'organization'
   | 'sport'

@@ -31,6 +31,6 @@ export class ComplianceAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS.reasoning;
+    return MODEL_ROUTING_DEFAULTS['reasoning'];
   }
 }

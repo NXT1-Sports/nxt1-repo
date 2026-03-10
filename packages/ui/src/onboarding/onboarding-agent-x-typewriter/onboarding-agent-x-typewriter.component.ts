@@ -28,6 +28,7 @@ import {
   OnDestroy,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../../agent-x/fab/agent-x-logo.constants';
 
 /** Typing speed in milliseconds per character */
 const TYPING_SPEED_MS = 28;
@@ -42,11 +43,28 @@ const SEEN_TYPED_MESSAGES = new Set<string>();
   template: `
     <div
       class="nxt1-agent-x-typewriter"
+      [class.nxt1-agent-x-typewriter--left]="alignment() === 'left'"
       data-testid="agent-x-typewriter"
       role="status"
       aria-live="polite"
     >
-      <span class="nxt1-agent-x-label">Agent X</span>
+      <div class="nxt1-agent-x-label-row">
+        @if (showLogo()) {
+          <svg
+            class="nxt1-agent-x-logo-icon"
+            viewBox="0 0 612 792"
+            fill="currentColor"
+            stroke="currentColor"
+            stroke-width="10"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path [attr.d]="agentLogoPath" />
+            <polygon [attr.points]="agentLogoPolygon" />
+          </svg>
+        }
+        <span class="nxt1-agent-x-label">Agent X</span>
+      </div>
       <span class="nxt1-agent-x-text">{{ displayedText() }}</span>
       <span class="nxt1-agent-x-cursor" [class.typing]="isTyping()">|</span>
     </div>
@@ -71,6 +89,35 @@ const SEEN_TYPED_MESSAGES = new Set<string>();
         overflow: hidden;
       }
 
+      .nxt1-agent-x-typewriter--left {
+        align-items: flex-start;
+        text-align: left;
+        max-height: none;
+      }
+
+      .nxt1-agent-x-label-row {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .nxt1-agent-x-logo-icon {
+        width: 20px;
+        height: 20px;
+        flex-shrink: 0;
+        color: var(--nxt1-color-primary, #ccff00);
+      }
+
+      .nxt1-agent-x-typewriter--left .nxt1-agent-x-logo-icon {
+        width: 28px;
+        height: 28px;
+        color: var(--nxt1-color-text-primary, #000);
+      }
+
+      .nxt1-agent-x-typewriter--left .nxt1-agent-x-label {
+        color: var(--nxt1-color-text-primary, #000);
+      }
+
       .nxt1-agent-x-label {
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
@@ -92,6 +139,15 @@ const SEEN_TYPED_MESSAGES = new Set<string>();
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
+      }
+
+      .nxt1-agent-x-typewriter--left .nxt1-agent-x-text {
+        max-width: none;
+        min-height: auto;
+        display: block;
+        -webkit-line-clamp: unset;
+        -webkit-box-orient: unset;
+        overflow: visible;
       }
 
       .nxt1-agent-x-cursor {
@@ -124,6 +180,16 @@ export class OnboardingAgentXTypewriterComponent implements OnDestroy {
 
   /** The full message to type out */
   readonly message = input.required<string>();
+
+  /** Layout alignment — 'center' (default) or 'left' */
+  readonly alignment = input<'center' | 'left'>('center');
+
+  /** Whether to show the Agent X logo icon next to the label */
+  readonly showLogo = input(false);
+
+  /** Agent X logo SVG data */
+  protected readonly agentLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentLogoPolygon = AGENT_X_LOGO_POLYGON;
 
   /** Currently displayed (partially typed) text */
   readonly displayedText = signal('');

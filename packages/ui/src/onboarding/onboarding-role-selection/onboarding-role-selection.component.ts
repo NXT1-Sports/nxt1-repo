@@ -24,9 +24,19 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, Input, Output, EventEmitter, ChangeDetectionStrategy } from '@angular/core';
+import {
+  Component,
+  Input,
+  Output,
+  EventEmitter,
+  ChangeDetectionStrategy,
+  inject,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtIconComponent } from '../../components/icon';
+import { NxtListRowComponent } from '../../components/list-row';
+import { NxtListSectionComponent } from '../../components/list-section';
+import { NxtModalService } from '../../services/modal';
 import { HapticButtonDirective } from '../../services/haptics';
 import type { OnboardingUserType } from '@nxt1/core/api';
 import type { IconName } from '@nxt1/design-tokens/assets/icons';
@@ -99,43 +109,60 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
 @Component({
   selector: 'nxt1-onboarding-role-selection',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, HapticButtonDirective],
+  imports: [
+    CommonModule,
+    NxtIconComponent,
+    NxtListRowComponent,
+    NxtListSectionComponent,
+    HapticButtonDirective,
+  ],
   template: `
-    <div class="nxt1-role-options" role="radiogroup" aria-label="Select your role">
-      @for (role of roles; track role.type) {
-        <button
-          type="button"
-          class="nxt1-role-card"
-          [class.selected]="selectedRole === role.type"
-          [disabled]="disabled"
-          (click)="onRoleClick(role.type)"
-          [attr.data-testid]="'onboarding-role-' + role.type"
-          [attr.aria-pressed]="selectedRole === role.type"
-          [attr.aria-label]="role.label + ': ' + role.description"
-          role="radio"
-          [attr.aria-checked]="selectedRole === role.type"
-          nxtHaptic="selection"
-        >
-          <!-- Role Icon -->
-          <div class="nxt1-role-icon">
-            <nxt1-icon [name]="role.icon" [size]="24" />
-          </div>
-
-          <!-- Role Content -->
-          <div class="nxt1-role-content">
-            <span class="nxt1-role-label">{{ role.label }}</span>
-            <span class="nxt1-role-description">{{ role.description }}</span>
-          </div>
-
-          <!-- Check Indicator -->
-          @if (selectedRole === role.type) {
-            <div class="nxt1-role-check">
-              <nxt1-icon name="checkmark" [size]="14" />
+    @if (variant === 'list-row') {
+      <!-- Mobile: Edit-profile style list row with action sheet picker -->
+      <nxt1-list-section header="Choose your role">
+        <nxt1-list-row label="Role" (tap)="openRolePicker()">
+          <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!selectedRole">{{
+            selectedRoleLabel || 'Select role'
+          }}</span>
+        </nxt1-list-row>
+      </nxt1-list-section>
+    } @else {
+      <div class="nxt1-role-options" role="radiogroup" aria-label="Select your role">
+        @for (role of roles; track role.type) {
+          <button
+            type="button"
+            class="nxt1-role-card"
+            [class.selected]="selectedRole === role.type"
+            [disabled]="disabled"
+            (click)="onRoleClick(role.type)"
+            [attr.data-testid]="'onboarding-role-' + role.type"
+            [attr.aria-pressed]="selectedRole === role.type"
+            [attr.aria-label]="role.label + ': ' + role.description"
+            role="radio"
+            [attr.aria-checked]="selectedRole === role.type"
+            nxtHaptic="selection"
+          >
+            <!-- Role Icon -->
+            <div class="nxt1-role-icon">
+              <nxt1-icon [name]="role.icon" [size]="24" />
             </div>
-          }
-        </button>
-      }
-    </div>
+
+            <!-- Role Content -->
+            <div class="nxt1-role-content">
+              <span class="nxt1-role-label">{{ role.label }}</span>
+              <span class="nxt1-role-description">{{ role.description }}</span>
+            </div>
+
+            <!-- Check Indicator -->
+            @if (selectedRole === role.type) {
+              <div class="nxt1-role-check">
+                <nxt1-icon name="checkmark" [size]="14" />
+              </div>
+            }
+          </button>
+        }
+      </div>
+    }
   `,
   styles: [
     `
@@ -261,16 +288,34 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
         flex-shrink: 0;
         color: var(--nxt1-color-text-onPrimary, #1a1a2e);
       }
+
+      /* ============================================
+       LIST-ROW VARIANT (mobile edit-profile style)
+       ============================================ */
+      .nxt1-list-value {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base);
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .nxt1-list-placeholder {
+        color: var(--nxt1-color-text-tertiary);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class OnboardingRoleSelectionComponent {
+  private readonly nxtModal = inject(NxtModalService);
+
   /** Currently selected role */
   @Input() selectedRole: OnboardingUserType | null = null;
 
   /** Whether interaction is disabled */
   @Input() disabled = false;
+
+  /** Display variant: 'cards' (desktop) or 'list-row' (mobile, edit-profile style) */
+  @Input() variant: 'cards' | 'list-row' = 'cards';
 
   /** Emits when a role is selected */
   @Output() roleSelected = new EventEmitter<OnboardingUserType>();
@@ -278,12 +323,39 @@ export class OnboardingRoleSelectionComponent {
   /** Available role options */
   protected readonly roles = ONBOARDING_ROLE_OPTIONS;
 
+  /** Display label for the currently selected role */
+  protected get selectedRoleLabel(): string {
+    if (!this.selectedRole) return '';
+    const found = ONBOARDING_ROLE_OPTIONS.find((r) => r.type === this.selectedRole);
+    return found?.label ?? '';
+  }
+
   /**
-   * Handle role card click
+   * Handle role card click (cards variant)
    */
   protected onRoleClick(type: OnboardingUserType): void {
     if (!this.disabled) {
       this.roleSelected.emit(type);
+    }
+  }
+
+  /**
+   * Open action sheet role picker (list-row variant)
+   */
+  protected async openRolePicker(): Promise<void> {
+    if (this.disabled) return;
+
+    const result = await this.nxtModal.actionSheet({
+      title: 'Select Role',
+      actions: [
+        ...ONBOARDING_ROLE_OPTIONS.map((r) => ({ text: r.label, data: r.type })),
+        { text: 'Cancel', cancel: true },
+      ],
+      preferNative: 'ionic',
+    });
+
+    if (result.selected && result.data) {
+      this.roleSelected.emit(result.data as OnboardingUserType);
     }
   }
 }

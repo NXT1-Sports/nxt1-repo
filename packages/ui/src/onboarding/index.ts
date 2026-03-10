@@ -107,6 +107,11 @@ export { OnboardingPositionStepComponent } from './onboarding-position-step';
 export { OnboardingContactStepComponent } from './onboarding-contact-step';
 
 // ============================================
+// LINK DROP STEP (Link Data Sources - Connected Accounts)
+// ============================================
+export { OnboardingLinkDropStepComponent } from './onboarding-link-drop-step';
+
+// ============================================
 // REFERRAL STEP (Step 7 - Final)
 // ============================================
 export {

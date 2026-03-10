@@ -33,6 +33,8 @@ export interface ConnectedSource {
   readonly username?: string;
   /** Profile URL if connected */
   readonly url?: string;
+  /** Connection method display hint: 'link' = paste URL, 'signin' = sign in */
+  readonly connectionType?: 'link' | 'signin';
 }
 
 /**
@@ -88,7 +90,9 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
                 <span class="nxt1-source-username">{{ source.username || 'Connected' }}</span>
                 <nxt1-icon name="checkmarkCircle" [size]="16" class="nxt1-source-check" />
               } @else {
-                <span class="nxt1-source-connect">Connect</span>
+                <span class="nxt1-source-connect">{{
+                  source.connectionType === 'signin' ? 'Sign in' : 'Link'
+                }}</span>
                 <nxt1-icon name="chevronForward" [size]="14" class="nxt1-source-chevron" />
               }
             </div>

@@ -57,6 +57,7 @@ import { OnboardingSportStepComponent } from '@nxt1/ui/onboarding/onboarding-spo
 import { OnboardingPositionStepComponent } from '@nxt1/ui/onboarding/onboarding-position-step';
 import { OnboardingContactStepComponent } from '@nxt1/ui/onboarding/onboarding-contact-step';
 import { OnboardingReferralStepComponent } from '@nxt1/ui/onboarding/onboarding-referral-step';
+import { OnboardingLinkDropStepComponent } from '@nxt1/ui/onboarding/onboarding-link-drop-step';
 import { OnboardingProgressBarComponent } from '@nxt1/ui/onboarding/onboarding-progress-bar';
 import { OnboardingNavigationButtonsComponent } from '@nxt1/ui/onboarding/onboarding-navigation-buttons';
 import { OnboardingButtonMobileComponent } from '@nxt1/ui/onboarding/onboarding-button-mobile';
@@ -82,6 +83,7 @@ import {
   type PositionsFormData,
   type ContactFormData,
   type ReferralSourceData,
+  type LinkSourcesFormData,
   ONBOARDING_STEPS,
   AGENT_X_ONBOARDING_MESSAGES as _AGENT_X_ONBOARDING_MESSAGES,
   getAgentXMessage,
@@ -158,6 +160,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     OnboardingPositionStepComponent,
     OnboardingContactStepComponent,
     OnboardingReferralStepComponent,
+    OnboardingLinkDropStepComponent,
     OnboardingProgressBarComponent,
     OnboardingNavigationButtonsComponent,
     OnboardingButtonMobileComponent,
@@ -212,6 +215,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               <nxt1-onboarding-role-selection
                 [selectedRole]="selectedRole()"
                 [disabled]="isLoading()"
+                [variant]="isMobile() ? 'list-row' : 'cards'"
                 (roleSelected)="onRoleSelect($event)"
               />
             }
@@ -229,6 +233,17 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 (photoSelect)="onPhotoSelect()"
                 (fileSelected)="onFileSelected($event)"
                 (locationRequest)="onLocationRequest()"
+              />
+            }
+
+            <!-- Step 3: Link Data Sources (Connected Accounts) -->
+            @if (currentStep().id === 'link-sources') {
+              <nxt1-onboarding-link-drop-step
+                [linkSourcesData]="linkSourcesFormData()"
+                [selectedSports]="selectedSportNames()"
+                [role]="selectedRole()"
+                [disabled]="isLoading()"
+                (linkSourcesChange)="onLinkSourcesChange($event)"
               />
             }
 
@@ -284,6 +299,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             @if (
               currentStep().id !== 'role' &&
               currentStep().id !== 'profile' &&
+              currentStep().id !== 'link-sources' &&
               currentStep().id !== 'school' &&
               currentStep().id !== 'sport' &&
               currentStep().id !== 'positions' &&
@@ -324,6 +340,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             (continueClick)="onContinue()"
           />
         }
+        <!-- TODO: Re-enable sign out link when ready
         <button
           type="button"
           (click)="onSignOut()"
@@ -331,6 +348,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         >
           Sign out and start over
         </button>
+        -->
       </div>
     </nxt1-auth-shell>
 
@@ -476,8 +494,17 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   /** Team form data computed from _formData */
   readonly teamFormData = computed(() => this._formData().team ?? null);
 
+  /** Link sources form data computed from _formData */
+  readonly linkSourcesFormData = computed(() => this._formData().linkSources ?? null);
+
   /** Sport form data computed from _formData */
   readonly sportFormData = computed(() => this._formData().sport ?? null);
+
+  /** Selected sport display names (e.g. ["Football", "Basketball Mens"]) */
+  readonly selectedSportNames = computed(() => {
+    const sport = this.sportFormData();
+    return sport?.sports?.map((s) => s.sport) ?? [];
+  });
 
   /** Position form data computed from _formData */
   readonly positionFormData = computed(() => this._formData().positions ?? null);
@@ -866,6 +893,13 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Handle link sources data change (Link Data Sources step)
+   */
+  onLinkSourcesChange(linkSourcesData: LinkSourcesFormData): void {
+    this.machine.updateLinkSources(linkSourcesData);
+  }
+
+  /**
    * Handle referral source data change (Step 7 - Final)
    */
   onReferralChange(referralData: ReferralSourceData): void {
@@ -1011,6 +1045,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         club: formData.school?.club,
         organization: formData.organization?.organizationName,
         coachTitle: formData.organization?.title,
+        linkSources: formData.linkSources,
       };
 
       await this.authApi.saveOnboardingProfile(user.uid, profileData);

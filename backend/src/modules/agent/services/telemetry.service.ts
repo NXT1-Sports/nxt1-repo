@@ -119,7 +119,7 @@ export class TelemetryService {
     const costUsd = this.calculateCost(params.model, params.inputTokens, params.outputTokens);
 
     const record: AgentLLMCallRecord = {
-      id: `llm_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      id: `llm_${crypto.randomUUID()}`,
       operationId: params.operationId,
       userId: params.userId,
       agentId: params.agentId,

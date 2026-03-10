@@ -793,6 +793,45 @@ router.post(
     if (profileData['organization'])
       updateData.organization = profileData['organization'] as string;
 
+    // V2: Build social array from link sources (connected accounts)
+    const linkSources = profileData['linkSources'] as
+      | {
+          links?: Array<{
+            platform?: string;
+            connected?: boolean;
+            username?: string;
+            url?: string;
+          }>;
+        }
+      | undefined;
+    if (linkSources?.links && Array.isArray(linkSources.links)) {
+      const existingSocial: UserSocialLink[] = Array.isArray(currentUser?.social)
+        ? (currentUser.social as UserSocialLink[])
+        : [];
+      const socialMap = new Map<string, UserSocialLink>();
+      for (const link of existingSocial) {
+        socialMap.set(link.platform.toLowerCase(), link);
+      }
+      let socialOrder = socialMap.size;
+      for (const link of linkSources.links) {
+        if (link.connected && link.platform) {
+          const platform = link.platform.toLowerCase();
+          const value = link.url ?? link.username ?? '';
+          const existing = socialMap.get(platform);
+          socialMap.set(platform, {
+            platform,
+            url: value.startsWith('http') ? value : `https://${platform}.com/${value}`,
+            username: link.username,
+            displayOrder: existing?.displayOrder ?? socialOrder++,
+            verified: false,
+          });
+        }
+      }
+      if (socialMap.size > 0) {
+        updateData.social = Array.from(socialMap.values());
+      }
+    }
+
     // Update user document
     try {
       await db.collection('Users').doc(userId).update(updateData);
@@ -1086,6 +1125,46 @@ router.post(
 
       case 'referral-source': {
         updateData['showedHearAbout'] = true;
+        break;
+      }
+
+      case 'link-sources': {
+        // V2: Build social array from connected link sources
+        const existingSocial: UserSocialLink[] = Array.isArray(currentUser?.social)
+          ? (currentUser.social as UserSocialLink[])
+          : [];
+
+        const links = Array.isArray(stepData['links'])
+          ? (stepData['links'] as Array<{
+              platform?: string;
+              connected?: boolean;
+              username?: string;
+              url?: string;
+            }>)
+          : [];
+
+        const socialMap = new Map<string, UserSocialLink>();
+        for (const link of existingSocial) {
+          socialMap.set(link.platform.toLowerCase(), link);
+        }
+        let linkOrder = socialMap.size;
+        for (const link of links) {
+          if (link.connected && link.platform) {
+            const platform = link.platform.toLowerCase();
+            const value = link.url ?? link.username ?? '';
+            const existing = socialMap.get(platform);
+            socialMap.set(platform, {
+              platform,
+              url: value.startsWith('http') ? value : `https://${platform}.com/${value}`,
+              username: link.username,
+              displayOrder: existing?.displayOrder ?? linkOrder++,
+              verified: false,
+            });
+          }
+        }
+        if (socialMap.size > 0) {
+          updateData.social = Array.from(socialMap.values());
+        }
         break;
       }
 

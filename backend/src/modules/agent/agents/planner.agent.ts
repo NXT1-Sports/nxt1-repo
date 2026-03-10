@@ -37,10 +37,19 @@ import type {
   ModelRoutingConfig,
 } from '@nxt1/core';
 import { MODEL_ROUTING_DEFAULTS, AGENT_DESCRIPTORS } from '@nxt1/core';
+import type { OpenRouterService } from '../llm/openrouter.service.js';
 
 export class PlannerAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'router';
   readonly name = 'Task Planner';
+
+  /** Default LLM instance (used when execute() is called without an llm parameter). */
+  private readonly defaultLlm: OpenRouterService;
+
+  constructor(llm: OpenRouterService) {
+    super();
+    this.defaultLlm = llm;
+  }
 
   /**
    * Builds the system prompt that instructs the LLM to act as a task decomposer.
@@ -110,7 +119,6 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
   /**
    * Execute the planning phase.
    *
-   * In the full implementation, this will:
    * 1. Call the LLM with the system prompt + user intent.
    * 2. Parse the JSON response into an AgentExecutionPlan.
    * 3. Validate task IDs and dependency references.
@@ -119,34 +127,44 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
    * The Worker Queue reads .result.data.plan to get the task list.
    */
   override async execute(
-    _intent: string,
-    _context: AgentSessionContext,
-    _tools: readonly AgentToolDefinition[]
+    intent: string,
+    context: AgentSessionContext,
+    _tools: readonly AgentToolDefinition[],
+    llm?: OpenRouterService
   ): Promise<AgentOperationResult> {
-    // ── Phase 1: Call LLM ─────────────────────────────────────────────────
-    // TODO: Wire up OpenRouter call with getSystemPrompt() + intent
-    // const llmResponse = await this.callLLM(intent, context);
+    const activeLlm = llm ?? this.defaultLlm;
+    const routing = this.getModelRouting();
+
+    // ── Phase 1: Call LLM ─────────────────────────────────────────────
+    const result = await activeLlm.prompt(this.getSystemPrompt(context), intent, {
+      tier: routing.tier,
+      maxTokens: routing.maxTokens,
+      temperature: routing.temperature,
+      jsonMode: true,
+    });
+
+    if (!result.content) {
+      throw new Error('Planner LLM returned empty response.');
+    }
 
     // ── Phase 2: Parse JSON response ──────────────────────────────────────
-    // TODO: JSON.parse(llmResponse) with zod/joi validation
-    // const parsed = this.parsePlanResponse(llmResponse);
+    const parsed = this.parsePlanResponse(result.content);
 
     // ── Phase 3: Build the execution plan ─────────────────────────────────
     const now = new Date().toISOString();
 
-    // Placeholder: Single-task plan (replaced by LLM output during implementation)
+    const tasks: AgentTask[] = parsed.tasks.map((t) => ({
+      id: t.id,
+      assignedAgent: t.assignedAgent as AgentIdentifier,
+      description: t.description,
+      status: 'pending' as AgentTaskStatus,
+      dependsOn: t.dependsOn,
+      createdAt: now,
+    }));
+
     const plan: AgentExecutionPlan = {
-      operationId: _context.sessionId,
-      tasks: [
-        {
-          id: '1',
-          assignedAgent: 'general',
-          description: _intent,
-          status: 'pending' as AgentTaskStatus,
-          dependsOn: [],
-          createdAt: now,
-        },
-      ],
+      operationId: context.sessionId,
+      tasks,
       createdAt: now,
     };
 
@@ -155,14 +173,60 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
 
     const output: AgentPlannerOutput = {
       plan,
-      summary: `Created execution plan with ${plan.tasks.length} task(s).`,
-      estimatedSteps: plan.tasks.length,
+      summary: parsed.summary ?? `Created execution plan with ${plan.tasks.length} task(s).`,
+      estimatedSteps: parsed.estimatedSteps ?? plan.tasks.length,
     };
 
     return {
       summary: output.summary,
       data: { plan: output.plan, estimatedSteps: output.estimatedSteps },
       suggestions: [],
+    };
+  }
+
+  // ─── LLM Response Parser ───────────────────────────────────────────────
+
+  /**
+   * Parse the raw LLM JSON string into a validated plan structure.
+   * Gracefully handles malformed responses with actionable error messages.
+   */
+  private parsePlanResponse(raw: string): PlannerLLMResponse {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(`Planner LLM returned invalid JSON. Raw output:\n${raw.slice(0, 500)}`);
+    }
+
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Planner LLM response is not an object.');
+    }
+
+    const obj = parsed as Record<string, unknown>;
+
+    if (!Array.isArray(obj['tasks'])) {
+      throw new Error('Planner LLM response missing "tasks" array.');
+    }
+
+    const tasks: PlannerLLMTask[] = (obj['tasks'] as unknown[]).map((t, idx) => {
+      if (!t || typeof t !== 'object') {
+        throw new Error(`Task at index ${idx} is not an object.`);
+      }
+      const task = t as Record<string, unknown>;
+      return {
+        id: String(task['id'] ?? idx + 1),
+        assignedAgent: String(task['assignedAgent'] ?? 'general'),
+        description: String(task['description'] ?? ''),
+        dependsOn: Array.isArray(task['dependsOn'])
+          ? (task['dependsOn'] as unknown[]).map(String)
+          : [],
+      };
+    });
+
+    return {
+      summary: typeof obj['summary'] === 'string' ? obj['summary'] : undefined,
+      estimatedSteps: typeof obj['estimatedSteps'] === 'number' ? obj['estimatedSteps'] : undefined,
+      tasks,
     };
   }
 
@@ -228,4 +292,20 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
       dfs(task.id);
     }
   }
+}
+
+// ─── Internal Types ───────────────────────────────────────────────────────
+
+/** Shape returned by the LLM after parsing. */
+interface PlannerLLMResponse {
+  readonly summary?: string;
+  readonly estimatedSteps?: number;
+  readonly tasks: readonly PlannerLLMTask[];
+}
+
+interface PlannerLLMTask {
+  readonly id: string;
+  readonly assignedAgent: string;
+  readonly description: string;
+  readonly dependsOn: readonly string[];
 }

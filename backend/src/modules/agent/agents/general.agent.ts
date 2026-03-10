@@ -30,6 +30,6 @@ export class GeneralAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS.balanced;
+    return MODEL_ROUTING_DEFAULTS['balanced'];
   }
 }

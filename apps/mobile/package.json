@@ -72,7 +72,7 @@
     "@nxt1/ui": "*",
     "@recognizebv/capacitor-plugin-msauth": "^4.1.0",
     "capacitor-native-biometric": "^4.2.2",
-    "firebase": "^12.7.0",
+    "firebase": "^12.9.0",
     "ionicons": "^8.0.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",

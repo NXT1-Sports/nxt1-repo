@@ -72,6 +72,7 @@ import type {
   PositionsFormData,
   ContactFormData,
   ReferralSourceData,
+  LinkSourcesFormData,
 } from './onboarding-navigation.api';
 import { validateStep, ONBOARDING_STEPS, ROLE_SELECTION_STEP } from './onboarding-navigation.api';
 
@@ -85,6 +86,7 @@ import { validateStep, ONBOARDING_STEPS, ROLE_SELECTION_STEP } from './onboardin
 export type OnboardingMachineState =
   | 'idle'
   | 'profile'
+  | 'link-sources'
   | 'school'
   | 'organization'
   | 'sport'
@@ -260,6 +262,9 @@ export interface OnboardingStateMachine {
 
   /** Update contact data */
   updateContact(data: ContactFormData): void;
+
+  /** Update link sources (connected accounts) data */
+  updateLinkSources(data: LinkSourcesFormData): void;
 
   /** Update referral source data */
   updateReferral(data: ReferralSourceData): void;
@@ -601,6 +606,11 @@ export function createOnboardingStateMachine(
 
     updateContact(data: ContactFormData): void {
       formData = { ...formData, contact: data };
+      notifyStateChange();
+    },
+
+    updateLinkSources(data: LinkSourcesFormData): void {
+      formData = { ...formData, linkSources: data };
       notifyStateChange();
     },
 

@@ -37,9 +37,11 @@ import {
   inject,
   signal,
   computed,
+  effect,
   OnInit,
   OnDestroy,
   ViewChild,
+  viewChild,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
@@ -50,12 +52,14 @@ import { AuthShellComponent } from '@nxt1/ui';
 import {
   OnboardingRoleSelectionComponent,
   OnboardingProfileStepComponent,
+  OnboardingLinkDropStepComponent,
   OnboardingTeamStepComponent,
   OnboardingSportStepComponent,
   OnboardingReferralStepComponent,
   OnboardingButtonMobileComponent,
   OnboardingStepCardComponent,
   OnboardingAgentXTypewriterComponent,
+  NxtLogoComponent,
   type AnimationDirection,
 } from '@nxt1/ui';
 
@@ -70,6 +74,7 @@ import {
   type TeamFormData,
   type SportFormData,
   type ReferralSourceData,
+  type LinkSourcesFormData,
   ONBOARDING_STEPS,
   AGENT_X_ONBOARDING_MESSAGES as _AGENT_X_ONBOARDING_MESSAGES,
   getAgentXMessage,
@@ -137,133 +142,149 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     AuthShellComponent,
     OnboardingRoleSelectionComponent,
     OnboardingProfileStepComponent,
+    OnboardingLinkDropStepComponent,
     OnboardingTeamStepComponent,
     OnboardingSportStepComponent,
     OnboardingReferralStepComponent,
     OnboardingButtonMobileComponent,
     OnboardingStepCardComponent,
     OnboardingAgentXTypewriterComponent,
+    NxtLogoComponent,
   ],
   template: `
     <nxt1-auth-shell
-      variant="card-glass"
-      [showLogo]="true"
+      variant="minimal"
+      [showLogo]="false"
       [showBackButton]="canGoBack()"
       [maxWidth]="'560px'"
       [mobileFooterPadding]="true"
       (backClick)="onBack()"
     >
-      <!-- Agent X text above glass container -->
-      <div authPreContent class="nxt1-onboarding-mobile-header" data-testid="onboarding-title">
-        <nxt1-onboarding-agent-x-typewriter [message]="agentXMessage()" />
-      </div>
-
-      <!-- Main Content -->
-      <div authContent>
-        <!-- Step title inside glass container -->
-        <div class="nxt1-onboarding-step-header">
-          <h2 class="nxt1-onboarding-step-title">{{ currentStep().title }}</h2>
+      <div authContent class="nxt1-onboarding-flow">
+        <!-- NXT1 logo, left-aligned under back button -->
+        <div class="nxt1-onboarding-logo">
+          <nxt1-logo size="sm" variant="auth" />
         </div>
-        <!-- Step Card Container with Animations -->
-        <nxt1-onboarding-step-card
-          variant="seamless"
-          [error]="error()"
-          [animationDirection]="animationDirection()"
-          [animationKey]="currentStep().id"
-        >
-          <!-- Step 1: Role Selection -->
-          @if (currentStep().id === 'role') {
-            <nxt1-onboarding-role-selection
-              [selectedRole]="selectedRole()"
-              [disabled]="isLoading()"
-              (roleSelected)="onRoleSelect($event)"
-            />
-          }
 
-          <!-- Step 2: Profile -->
-          @if (currentStep().id === 'profile') {
-            <nxt1-onboarding-profile-step
-              #profileStep
-              [profileData]="profileFormData()"
-              [disabled]="isLoading()"
-              [showGender]="true"
-              [showLocation]="true"
-              [showClassYear]="false"
-              (profileChange)="onProfileChange($event)"
-              (photoSelect)="onPhotoSelect()"
-              (fileSelected)="onFileSelected($event)"
-              (locationRequest)="onLocationRequest()"
-            />
-          }
+        <!-- Agent X typewriter — left-aligned with logo icon -->
+        <nxt1-onboarding-agent-x-typewriter
+          [message]="agentXMessage()"
+          alignment="left"
+          [showLogo]="true"
+        />
 
-          <!-- Step 2: Team (School) -->
-          @if (currentStep().id === 'school') {
-            <nxt1-onboarding-team-step
-              [teamData]="teamFormData()"
-              [disabled]="isLoading()"
-              (teamChange)="onTeamChange($event)"
-            />
-          }
+        <!-- Step content appears after Agent X finishes typing -->
+        @if (contentReady()) {
+          <nxt1-onboarding-step-card
+            variant="seamless"
+            [error]="error()"
+            [animationDirection]="animationDirection()"
+            [animationKey]="currentStep().id"
+          >
+            <!-- Step 1: Role Selection -->
+            @if (currentStep().id === 'role') {
+              <nxt1-onboarding-role-selection
+                [selectedRole]="selectedRole()"
+                [disabled]="isLoading()"
+                variant="list-row"
+                (roleSelected)="onRoleSelect($event)"
+              />
+            }
 
-          <!-- Step 3: Sport Selection (uses DEFAULT_SPORTS from @nxt1/core/constants) -->
-          @if (currentStep().id === 'sport') {
-            <nxt1-onboarding-sport-step
-              [sportData]="sportFormData()"
-              [role]="selectedRole()"
-              [disabled]="isLoading()"
-              (sportChange)="onSportChange($event)"
-            />
-          }
+            <!-- Step 2: Profile -->
+            @if (currentStep().id === 'profile') {
+              <nxt1-onboarding-profile-step
+                #profileStep
+                [profileData]="profileFormData()"
+                [disabled]="isLoading()"
+                [showGender]="true"
+                [showLocation]="true"
+                [showClassYear]="false"
+                variant="list-row"
+                (profileChange)="onProfileChange($event)"
+                (photoSelect)="onPhotoSelect()"
+                (fileSelected)="onFileSelected($event)"
+                (locationRequest)="onLocationRequest()"
+              />
+            }
 
-          <!-- Step 4: Referral Source - "How did you hear about us?" -->
-          @if (currentStep().id === 'referral-source') {
-            <nxt1-onboarding-referral-step
-              [referralData]="referralFormData()"
-              [disabled]="isLoading()"
-              (referralChange)="onReferralChange($event)"
-            />
-          }
+            <!-- Step 3: Link Data Sources (Connected Accounts) -->
+            @if (currentStep().id === 'link-sources') {
+              <nxt1-onboarding-link-drop-step
+                [linkSourcesData]="linkSourcesFormData()"
+                [selectedSports]="selectedSportNames()"
+                [role]="selectedRole()"
+                [disabled]="isLoading()"
+                (linkSourcesChange)="onLinkSourcesChange($event)"
+              />
+            }
 
-          <!-- Future Steps: Organization, Positions, Contact, etc. -->
-          @if (
-            currentStep().id !== 'role' &&
-            currentStep().id !== 'profile' &&
-            currentStep().id !== 'school' &&
-            currentStep().id !== 'sport' &&
-            currentStep().id !== 'referral-source'
-          ) {
-            <div class="py-12 text-center">
-              <div
-                class="bg-surface-200 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
-              >
-                <svg viewBox="0 0 24 24" fill="none" class="text-text-tertiary h-8 w-8">
-                  <path
-                    d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"
-                    fill="currentColor"
-                  />
-                </svg>
+            <!-- Step 2: Team (School) -->
+            @if (currentStep().id === 'school') {
+              <nxt1-onboarding-team-step
+                [teamData]="teamFormData()"
+                [disabled]="isLoading()"
+                (teamChange)="onTeamChange($event)"
+              />
+            }
+
+            <!-- Step 3: Sport Selection -->
+            @if (currentStep().id === 'sport') {
+              <nxt1-onboarding-sport-step
+                [sportData]="sportFormData()"
+                [role]="selectedRole()"
+                [disabled]="isLoading()"
+                variant="list-row"
+                (sportChange)="onSportChange($event)"
+              />
+            }
+
+            <!-- Step 4: Referral Source -->
+            @if (currentStep().id === 'referral-source') {
+              <nxt1-onboarding-referral-step
+                [referralData]="referralFormData()"
+                [disabled]="isLoading()"
+                variant="list-row"
+                (referralChange)="onReferralChange($event)"
+              />
+            }
+
+            <!-- Future Steps -->
+            @if (
+              currentStep().id !== 'role' &&
+              currentStep().id !== 'profile' &&
+              currentStep().id !== 'link-sources' &&
+              currentStep().id !== 'school' &&
+              currentStep().id !== 'sport' &&
+              currentStep().id !== 'referral-source'
+            ) {
+              <div class="py-12 text-center">
+                <p class="text-text-secondary">
+                  {{ currentStep().title || 'Step' }} coming soon...
+                </p>
               </div>
-              <p class="text-text-secondary">{{ currentStep().title || 'Step' }} coming soon...</p>
-            </div>
-          }
-        </nxt1-onboarding-step-card>
+            }
+          </nxt1-onboarding-step-card>
+        }
       </div>
     </nxt1-auth-shell>
 
-    <!-- Mobile: Professional Sticky Footer with Compact Progress Indicator -->
-    <nxt1-onboarding-button-mobile
-      [totalSteps]="totalSteps()"
-      [currentStepIndex]="currentStepIndex()"
-      [completedStepIndices]="completedStepIndices()"
-      [showSkip]="isCurrentStepOptional()"
-      [isLastStep]="isLastStep()"
-      [loading]="isLoading()"
-      [disabled]="!isCurrentStepValid()"
-      [showSignOut]="true"
-      (skipClick)="onSkip()"
-      (continueClick)="onContinue()"
-      (signOutClick)="onSignOut()"
-    />
+    <!-- Mobile: Sticky Footer — fades in when content is ready -->
+    <div class="nxt1-onboarding-footer" [class.nxt1-onboarding-footer--visible]="footerVisible()">
+      <nxt1-onboarding-button-mobile
+        [totalSteps]="totalSteps()"
+        [currentStepIndex]="currentStepIndex()"
+        [completedStepIndices]="completedStepIndices()"
+        [showSkip]="isCurrentStepOptional()"
+        [isLastStep]="isLastStep()"
+        [loading]="isLoading()"
+        [disabled]="!isCurrentStepValid() || !contentReady()"
+        [showSignOut]="true"
+        (skipClick)="onSkip()"
+        (continueClick)="onContinue()"
+        (signOutClick)="onSignOut()"
+      />
+    </div>
   `,
   styles: [
     `
@@ -271,23 +292,27 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         --background: var(--nxt1-color-bg-primary);
       }
 
-      .nxt1-onboarding-mobile-header {
-        text-align: center;
-        margin-bottom: var(--nxt1-spacing-3, 12px);
+      .nxt1-onboarding-flow {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        width: 100%;
       }
 
-      .nxt1-onboarding-step-header {
-        text-align: center;
-        margin-bottom: var(--nxt1-spacing-3, 12px);
-        min-height: 2.5rem;
+      .nxt1-onboarding-logo {
+        margin-top: var(--nxt1-spacing-4, 16px);
+        margin-bottom: var(--nxt1-spacing-5, 20px);
       }
 
-      .nxt1-onboarding-step-title {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-2xl, 1.5rem);
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary);
-        margin: var(--nxt1-spacing-2, 8px) 0 0 0;
+      .nxt1-onboarding-footer {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+      }
+
+      .nxt1-onboarding-footer--visible {
+        opacity: 1;
+        pointer-events: auto;
       }
     `,
   ],
@@ -318,6 +343,20 @@ export class OnboardingPage implements OnInit, OnDestroy {
   /** Reference to profile step for location callbacks */
   @ViewChild('profileStep') profileStepRef?: OnboardingProfileStepComponent;
 
+  /** Reference to Agent X typewriter for content timing */
+  private readonly typewriterRef = viewChild(OnboardingAgentXTypewriterComponent);
+
+  /** Latching signal — once footer is shown it stays shown */
+  private readonly _footerVisible = signal(false);
+  readonly footerVisible = computed(() => this._footerVisible());
+
+  /** Content becomes visible after Agent X finishes typing */
+  readonly contentReady = computed(() => {
+    const tw = this.typewriterRef();
+    if (!tw) return false;
+    return !tw.isTyping();
+  });
+
   // ============================================
   // SESSION PERSISTENCE (Platform-specific: Capacitor Preferences)
   // ============================================
@@ -345,6 +384,13 @@ export class OnboardingPage implements OnInit, OnDestroy {
     // Dark theme transition happens on completion for a celebratory reveal
     this.themeService.setTemporaryOverride('light');
     this.logger.debug('Set temporary light theme override for onboarding');
+
+    // Latch footer visible once content is first ready (never hides again)
+    effect(() => {
+      if (this.contentReady()) {
+        this._footerVisible.set(true);
+      }
+    });
 
     // Initialization moved to ngOnInit to avoid circular dependency NG0203
   }
@@ -429,6 +475,15 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
   /** Sport form data computed from _formData */
   readonly sportFormData = computed(() => this._formData().sport ?? null);
+
+  /** Selected sport display names (e.g. ["Football", "Basketball Mens"]) */
+  readonly selectedSportNames = computed(() => {
+    const sport = this.sportFormData();
+    return sport?.sports?.map((s) => s.sport) ?? [];
+  });
+
+  /** Link sources data computed from _formData */
+  readonly linkSourcesFormData = computed(() => this._formData().linkSources ?? null);
 
   /** Referral source form data computed from _formData */
   readonly referralFormData = computed(() => this._formData().referralSource ?? null);
@@ -752,6 +807,13 @@ export class OnboardingPage implements OnInit, OnDestroy {
   }
 
   /**
+   * Handle link sources data change (Step 3)
+   */
+  onLinkSourcesChange(linkSourcesData: LinkSourcesFormData): void {
+    this.machine.updateLinkSources(linkSourcesData);
+  }
+
+  /**
    * Handle referral source data change (Step 4)
    */
   onReferralChange(referralData: ReferralSourceData): void {
@@ -841,7 +903,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
           ? 'recruiting-service'
           : (formData.userType as OnboardingProfileData['userType']);
 
-      const profileData: OnboardingProfileData = {
+      const profileData = {
         userType,
         firstName: formData.profile?.firstName || '',
         lastName: formData.profile?.lastName || '',
@@ -860,6 +922,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
         coachTitle: formData.organization?.title,
         teamLogo: formData.school?.teamLogo || primarySport?.team?.logo,
         teamColors: formData.school?.teamColors || primarySport?.team?.colors,
+        linkSources: formData.linkSources,
       };
 
       await this.authApi.saveOnboardingProfile(user.uid, profileData);

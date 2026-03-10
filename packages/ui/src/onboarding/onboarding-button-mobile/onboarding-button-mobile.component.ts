@@ -80,7 +80,7 @@ import { OnboardingProgressPillsComponent } from '../onboarding-progress-pills';
             <button
               type="button"
               class="nxt1-skip-btn min-w-[80px] flex-none px-5 py-4"
-              [disabled]="loading"
+              [disabled]="disabled || loading"
               (click)="skipClick.emit()"
               data-testid="onboarding-skip"
               nxtHaptic="light"
@@ -109,7 +109,7 @@ import { OnboardingProgressPillsComponent } from '../onboarding-progress-pills';
           </button>
         </div>
 
-        <!-- Sign Out Link -->
+        <!-- TODO: Re-enable sign out link when ready
         @if (showSignOut) {
           <button
             type="button"
@@ -120,6 +120,7 @@ import { OnboardingProgressPillsComponent } from '../onboarding-progress-pills';
             Sign out and start over
           </button>
         }
+        -->
       </div>
     </div>
   `,

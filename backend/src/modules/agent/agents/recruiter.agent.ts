@@ -31,6 +31,6 @@ export class RecruiterAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS.creative;
+    return MODEL_ROUTING_DEFAULTS['creative'];
   }
 }
