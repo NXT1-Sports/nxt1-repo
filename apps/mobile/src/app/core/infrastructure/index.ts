@@ -27,3 +27,6 @@ export {
   httpErrorInterceptor,
   type HttpErrorInterceptorOptions,
 } from './interceptors/error.interceptor';
+
+// Auth (mobile-specific — adds Firebase token to HttpClient requests)
+export { mobileAuthInterceptor } from './interceptors/auth.interceptor';

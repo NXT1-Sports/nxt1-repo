@@ -533,6 +533,16 @@ export const APP_EVENTS = {
   AGENT_ONBOARDING_SKIPPED: 'agent_onboarding_skipped',
 
   // ============================================
+  // AGENT X JOB EVENTS
+  // ============================================
+  /** Agent X background job enqueued */
+  AGENT_X_JOB_ENQUEUED: 'agent_x_job_enqueued',
+  /** Agent X background job completed */
+  AGENT_X_JOB_COMPLETED: 'agent_x_job_completed',
+  /** Agent X background job failed */
+  AGENT_X_JOB_FAILED: 'agent_x_job_failed',
+
+  // ============================================
   // NAVIGATION EVENTS
   // ============================================
   /** Screen viewed (for custom tracking) */

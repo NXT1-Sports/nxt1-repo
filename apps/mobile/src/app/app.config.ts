@@ -31,7 +31,9 @@ import {
   GLOBAL_CRASHLYTICS,
   ANALYTICS_ADAPTER,
   httpErrorInterceptor,
+  AGENT_X_API_BASE_URL,
 } from '@nxt1/ui';
+import { mobileAuthInterceptor } from './core/infrastructure/interceptors/auth.interceptor';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 // Settings persistence adapter (connects SettingsService → backend API)
@@ -75,10 +77,15 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(
       withFetch(),
       withInterceptors([
+        // Auth interceptor — adds Firebase ID token to HttpClient requests
+        // Required for shared @nxt1/ui services (e.g. AgentXJobService)
+        mobileAuthInterceptor,
         // Global HTTP error handling (shared with web)
         httpErrorInterceptor({
           redirectOnUnauthorized: true,
           unauthorizedRedirectPath: '/auth',
+          // Skip 401 redirect for fire-and-forget background requests
+          skipPatterns: [/\/agent-x\//],
         }),
       ])
     ),
@@ -127,6 +134,9 @@ export const appConfig: ApplicationConfig = {
 
     // Analytics adapter (used by @nxt1/ui shared services like FeedService)
     { provide: ANALYTICS_ADAPTER, useExisting: AnalyticsService },
+
+    // Agent X API base URL
+    { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiUrl },
 
     // Settings persistence adapter (connects SettingsService → backend API)
     { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },

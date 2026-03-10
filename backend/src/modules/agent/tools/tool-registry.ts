@@ -20,7 +20,7 @@
  * registry.register(new SendEmailTool(emailService));
  *
  * // Get OpenRouter-compatible schemas for a specific agent:
- * const schemas = registry.getSchemasForAgent('scout');
+ * const schemas = registry.getSchemasForAgent('performance_coordinator');
  *
  * // Execute a tool call from the LLM:
  * const result = await registry.execute('fetch_player_stats', { userId: '123' });

@@ -2,7 +2,7 @@
  * @fileoverview Outreach Copywriting Skill
  * @module @nxt1/backend/modules/agent/skills/copywriting
  *
- * Teaches the Recruiter Agent how to write high-converting emails
+ * Teaches the Recruiting Coordinator how to write high-converting emails
  * to college coaches, avoiding spammy tones and focusing on verified data.
  */
 

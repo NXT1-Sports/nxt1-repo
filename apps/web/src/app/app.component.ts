@@ -19,7 +19,6 @@ import {
   NxtAppDownloadBarComponent,
   NxtAppDownloadBarService,
 } from '@nxt1/ui/components/app-download-bar';
-import { AgentXFabComponent } from '@nxt1/ui/agent-x';
 import type { ILogger } from '@nxt1/core/logging';
 import { filter } from 'rxjs/operators';
 import { AnalyticsService } from './core/services/analytics.service';
@@ -43,7 +42,7 @@ import { WebVitalsService } from './core/services/web-vitals.service';
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, RouterOutlet, NxtAppDownloadBarComponent, AgentXFabComponent],
+  imports: [CommonModule, RouterOutlet, NxtAppDownloadBarComponent],
   templateUrl: './app.component.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })

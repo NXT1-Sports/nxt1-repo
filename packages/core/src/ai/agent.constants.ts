@@ -21,67 +21,75 @@ import type {
 export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
   router: {
     id: 'router',
-    name: 'Router',
+    name: 'Chief of Staff',
     description:
-      'Master orchestrator that classifies user intent and delegates to the best sub-agent.',
+      'Master orchestrator that classifies user intent and delegates tasks to the correct AI coordinator.',
     capabilities: ['intent_classification', 'delegation'],
   },
-  scout: {
-    id: 'scout',
-    name: 'Scout Agent',
+  recruiting_coordinator: {
+    id: 'recruiting_coordinator',
+    name: 'Recruiting Coordinator',
     description:
-      'Evaluates players, analyzes film, generates scouting reports, and compares prospects.',
-    capabilities: [
-      'scouting_report',
-      'film_analysis',
-      'stat_comparison',
-      'prospect_ranking',
-      'biometric_analysis',
-    ],
-  },
-  recruiter: {
-    id: 'recruiter',
-    name: 'Recruiter Agent',
-    description:
-      'Manages recruiting outreach, drafts emails, builds target lists, and tracks responses.',
+      'Manages recruiting outreach, drafts emails to college coaches, builds target lists, tracks responses, and runs outreach campaigns.',
     capabilities: [
       'email_drafting',
       'coach_outreach',
       'college_search',
       'outreach_planning',
       'response_tracking',
+      'prospect_management',
+      'transfer_portal_search',
     ],
   },
-  creative_director: {
-    id: 'creative_director',
-    name: 'Creative Director Agent',
+  brand_media_coordinator: {
+    id: 'brand_media_coordinator',
+    name: 'Brand & Media Coordinator',
     description:
-      'Generates graphics, cuts highlight reels, designs promo materials, and manages brand assets.',
+      'Generates graphics, cuts highlight reels, designs promo materials, manages brand assets, creates social media content, and handles NIL branding.',
     capabilities: [
       'graphic_generation',
       'highlight_reel',
       'promo_design',
       'brand_asset',
       'social_media_content',
+      'video_editing',
+      'nil_branding',
     ],
   },
-  compliance: {
-    id: 'compliance',
-    name: 'Compliance Agent',
+  performance_coordinator: {
+    id: 'performance_coordinator',
+    name: 'Performance Coordinator',
     description:
-      'Enforces NCAA/NAIA/NJCAA recruiting rules, validates contact windows, and flags violations.',
+      'Evaluates players, analyzes film, generates scouting reports, compares prospects, tracks athletic progression, and provides biometric analysis.',
+    capabilities: [
+      'scouting_report',
+      'film_analysis',
+      'stat_comparison',
+      'prospect_ranking',
+      'biometric_analysis',
+      'progression_tracking',
+      'opponent_scouting',
+    ],
+  },
+  compliance_coordinator: {
+    id: 'compliance_coordinator',
+    name: 'Compliance Coordinator',
+    description:
+      'Enforces NCAA/NAIA/NJCAA recruiting rules, validates contact windows, flags violations, tracks academic eligibility, and manages official visit schedules.',
     capabilities: [
       'ncaa_rules',
       'contact_period_check',
       'eligibility_verification',
       'dead_period_enforcement',
+      'academic_tracking',
+      'visit_scheduling',
     ],
   },
   general: {
     id: 'general',
-    name: 'General Agent',
+    name: 'General Assistant',
     description:
-      'Handles general questions, platform help, and tasks that do not fit a specialized agent.',
+      'Handles general questions, platform help, and tasks that do not fit a specialized coordinator.',
     capabilities: ['general_qa', 'platform_help', 'small_talk'],
   },
 } as const;

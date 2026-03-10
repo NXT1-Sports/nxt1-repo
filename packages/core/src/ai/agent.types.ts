@@ -66,13 +66,13 @@ export interface AgentOperationResult {
 
 // ─── Sub-Agent Identifiers ──────────────────────────────────────────────────
 
-/** Identifies which specialized sub-agent handles a task. */
+/** Identifies which specialized coordinator handles a task. */
 export type AgentIdentifier =
   | 'router'
-  | 'scout'
-  | 'recruiter'
-  | 'creative_director'
-  | 'compliance'
+  | 'recruiting_coordinator'
+  | 'brand_media_coordinator'
+  | 'performance_coordinator'
+  | 'compliance_coordinator'
   | 'general';
 
 /** Metadata about a registered sub-agent. */

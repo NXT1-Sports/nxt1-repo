@@ -2,7 +2,7 @@
  * @fileoverview Base Agent — Abstract Sub-Agent with ReAct Loop
  * @module @nxt1/backend/modules/agent/agents
  *
- * Every specialized sub-agent (Scout, Recruiter, Creative Director, etc.)
+ * Every specialized coordinator (Performance, Recruiting, Brand & Media, etc.)
  * extends this base class. It provides the standard ReAct execution loop:
  *
  *   System prompt → LLM call → Tool call (if requested) → Observation → Loop

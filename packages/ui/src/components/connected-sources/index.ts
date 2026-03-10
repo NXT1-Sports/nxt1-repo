@@ -6,6 +6,7 @@
 export {
   NxtConnectedSourcesComponent,
   DEFAULT_PLATFORMS,
+  type ConnectionMode,
   type ConnectedSource,
   type ConnectedSourceTapEvent,
 } from './connected-sources.component';

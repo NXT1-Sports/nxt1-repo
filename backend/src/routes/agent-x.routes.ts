@@ -92,8 +92,10 @@ router.post('/ask', appGuard, async (req: Request, res: Response) => {
       context,
     };
 
-    // Write to Firestore first so the frontend can listen immediately
-    await jobRepository.create(payload);
+    // Write to Firestore first so the frontend can listen immediately.
+    // Use req.firebase.db to target the correct environment (staging vs production).
+    const { db } = req.firebase!;
+    await jobRepository.withDb(db).create(payload);
 
     // Enqueue the job in Redis/BullMQ
     const jobId = await queueService.enqueue(payload);
@@ -193,7 +195,8 @@ router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
     const cancelled = await queueService.cancel(id);
 
     if (cancelled) {
-      await jobRepository.markCancelled(id);
+      const { db } = req.firebase!;
+      await jobRepository.withDb(db).markCancelled(id);
       logger.info('Agent job cancelled', { operationId: id, userId: user.uid });
     }
 
@@ -222,7 +225,8 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
 
     const limitParam = req.query['limit'];
     const limit = Math.min(parseInt(typeof limitParam === 'string' ? limitParam : '20') || 20, 50);
-    const jobs = await jobRepository.getByUser(user.uid, limit);
+    const { db } = req.firebase!;
+    const jobs = await jobRepository.withDb(db).getByUser(user.uid, limit);
 
     res.json({ success: true, data: jobs });
   } catch (err) {

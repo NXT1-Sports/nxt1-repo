@@ -56,15 +56,15 @@ describe('ScrapeWebpageTool', () => {
       expect(params['required']).toContain('url');
     });
 
-    it('should allow scout, recruiter, general, and creative_director agents', () => {
-      expect(tool.allowedAgents).toContain('scout');
-      expect(tool.allowedAgents).toContain('recruiter');
+    it('should allow performance_coordinator, recruiting_coordinator, general, and brand_media_coordinator agents', () => {
+      expect(tool.allowedAgents).toContain('performance_coordinator');
+      expect(tool.allowedAgents).toContain('recruiting_coordinator');
       expect(tool.allowedAgents).toContain('general');
-      expect(tool.allowedAgents).toContain('creative_director');
+      expect(tool.allowedAgents).toContain('brand_media_coordinator');
     });
 
-    it('should not allow the compliance agent', () => {
-      expect(tool.allowedAgents).not.toContain('compliance');
+    it('should not allow the compliance_coordinator agent', () => {
+      expect(tool.allowedAgents).not.toContain('compliance_coordinator');
     });
   });
 

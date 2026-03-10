@@ -357,6 +357,8 @@ export interface LinkSourceEntry {
   platform: string;
   /** Whether the platform is connected */
   connected: boolean;
+  /** How this connection was made: 'link' = pasted URL/username, 'signin' = OAuth */
+  connectionType?: PlatformConnectionType;
   /** Username/handle */
   username?: string;
   /** Profile URL */
@@ -523,6 +525,35 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     sports: ['baseball'],
     placeholder: 'PBR profile URL',
   },
+
+  // ---- Sign-In (OAuth-connected accounts) ----
+  {
+    platform: 'google',
+    label: 'Google',
+    icon: 'google',
+    connectionType: 'signin',
+    category: 'social',
+    sports: [],
+    placeholder: 'Sign in with Google',
+  },
+  {
+    platform: 'microsoft',
+    label: 'Microsoft',
+    icon: 'microsoft',
+    connectionType: 'signin',
+    category: 'social',
+    sports: [],
+    placeholder: 'Sign in with Microsoft',
+  },
+  {
+    platform: 'yahoo',
+    label: 'Yahoo',
+    icon: 'yahoo',
+    connectionType: 'signin',
+    category: 'social',
+    sports: [],
+    placeholder: 'Sign in with Yahoo',
+  },
 ] as const;
 
 /** Category display info */
@@ -559,13 +590,15 @@ export const RECOMMENDED_PLATFORMS_BY_ROLE: Readonly<
  *
  * @param role - The user's onboarding role
  * @param selectedSports - Sport display names (e.g. ["Football"])
+ * @param connectionType - Optional filter: only return 'link' or 'signin' platforms
  * @returns Array of recommended PlatformDefinitions
  *
  * ⭐ PURE FUNCTION - No dependencies
  */
 export function getRecommendedPlatforms(
   role: OnboardingUserType,
-  selectedSports: readonly string[]
+  selectedSports: readonly string[],
+  connectionType?: PlatformConnectionType
 ): PlatformDefinition[] {
   const recommendedIds = RECOMMENDED_PLATFORMS_BY_ROLE[role] ?? [];
   const sportKeys = selectedSports.map(sportNameToBaseKey);
@@ -574,6 +607,8 @@ export function getRecommendedPlatforms(
     .map((id) => PLATFORM_REGISTRY.find((p) => p.platform === id))
     .filter((p): p is PlatformDefinition => {
       if (!p) return false;
+      // Filter by connection type if specified
+      if (connectionType && p.connectionType !== connectionType) return false;
       // Keep if platform is sport-agnostic
       if (p.sports.length === 0) return true;
       // Keep if no sports selected (show all)
@@ -604,13 +639,16 @@ function sportNameToBaseKey(sportName: string): string {
  * Always includes all social platforms (they're sport-agnostic).
  *
  * @param selectedSports - Sport display names (e.g. ["Football", "Basketball Mens"])
+ * @param excludePlatformIds - Platform IDs to exclude (e.g. recommended section)
+ * @param connectionType - Optional filter: only return 'link' or 'signin' platforms
  * @returns Platforms grouped by category with a recommended section
  *
  * ⭐ PURE FUNCTION - No dependencies
  */
 export function getPlatformsForSports(
   selectedSports: readonly string[],
-  excludePlatformIds: readonly string[] = []
+  excludePlatformIds: readonly string[] = [],
+  connectionType?: PlatformConnectionType
 ): { category: PlatformCategory; label: string; platforms: PlatformDefinition[] }[] {
   const sportKeys = selectedSports.map(sportNameToBaseKey);
   const excludeSet = new Set(excludePlatformIds);
@@ -618,6 +656,8 @@ export function getPlatformsForSports(
   const filtered = PLATFORM_REGISTRY.filter((p) => {
     // Exclude platforms already shown in recommended section
     if (excludeSet.has(p.platform)) return false;
+    // Filter by connection type if specified
+    if (connectionType && p.connectionType !== connectionType) return false;
     // Platforms with empty sports array are available for all sports
     if (p.sports.length === 0) return true;
     // If no sports selected, show all

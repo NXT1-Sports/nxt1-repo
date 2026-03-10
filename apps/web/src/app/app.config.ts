@@ -70,7 +70,7 @@ import { AnalyticsService } from './core/services/analytics.service';
 import { provideBadgeBridge } from './core/services';
 
 // News API base URL (uses environment.apiURL — same origin + /api/v1/staging in dev)
-import { NEWS_API_BASE_URL, TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui';
+import { NEWS_API_BASE_URL, TEAM_PROFILE_API_BASE_URL, AGENT_X_API_BASE_URL } from '@nxt1/ui';
 
 // Firebase
 // IMPORTANT: Only import what's actually used in browser bundle
@@ -166,6 +166,8 @@ export const appConfig: ApplicationConfig = {
         httpErrorInterceptor({
           redirectOnUnauthorized: true,
           unauthorizedRedirectPath: '/auth',
+          // Skip 401 redirect for fire-and-forget background requests
+          skipPatterns: [/\/agent-x\//],
         }),
         // HTTP response caching (LRU, TTL-based)
         httpCacheInterceptor({
@@ -246,6 +248,9 @@ export const appConfig: ApplicationConfig = {
 
     // Team Profile API base URL
     { provide: TEAM_PROFILE_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Agent X API base URL
+    { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiURL },
 
     // ============================================
     // LOGGING & ERROR HANDLING

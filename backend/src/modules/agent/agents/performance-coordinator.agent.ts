@@ -1,13 +1,14 @@
 /**
- * @fileoverview Scout Agent
+ * @fileoverview Performance Coordinator Agent
  * @module @nxt1/backend/modules/agent/agents
  *
- * Specialized sub-agent for player evaluation and scouting:
+ * Specialized coordinator for player evaluation, scouting, and performance tracking:
  * - Analyzing film and game footage
  * - Generating AI scout reports (Physical/Technical/Mental/Potential)
  * - Comparing prospects and ranking players
  * - Biometric analysis and progression curves
  * - Position-specific stat breakdowns
+ * - Opponent scouting and roster analysis
  *
  * Uses the "reasoning" model tier for complex analysis tasks.
  */
@@ -16,12 +17,12 @@ import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@
 import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
 
-export class ScoutAgent extends BaseAgent {
-  readonly id: AgentIdentifier = 'scout';
-  readonly name = 'Scout Agent';
+export class PerformanceCoordinatorAgent extends BaseAgent {
+  readonly id: AgentIdentifier = 'performance_coordinator';
+  readonly name = 'Performance Coordinator';
 
   getSystemPrompt(_context: AgentSessionContext): string {
-    // TODO: Build the full scout persona prompt with sport/position context
+    // TODO: Build the full performance coordinator persona with sport/position context
     return '';
   }
 

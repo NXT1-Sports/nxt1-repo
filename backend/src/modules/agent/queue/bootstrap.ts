@@ -39,10 +39,10 @@ import {
   ToneEnforcementGuardrail,
 } from '../guardrails/index.js';
 import {
-  ScoutAgent,
-  RecruiterAgent,
-  CreativeDirectorAgent,
-  ComplianceAgent,
+  PerformanceCoordinatorAgent,
+  RecruitingCoordinatorAgent,
+  BrandMediaCoordinatorAgent,
+  ComplianceCoordinatorAgent,
   GeneralAgent,
 } from '../agents/index.js';
 import { setAgentDependencies } from '../../../routes/agent-x.routes.js';
@@ -83,10 +83,10 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   // ── 2. Wire the AgentRouter with all sub-agents ───────────────────
   const router = new AgentRouter(llm, toolRegistry, contextBuilder, guardrailRunner);
-  router.registerAgent(new ScoutAgent());
-  router.registerAgent(new RecruiterAgent());
-  router.registerAgent(new CreativeDirectorAgent());
-  router.registerAgent(new ComplianceAgent());
+  router.registerAgent(new PerformanceCoordinatorAgent());
+  router.registerAgent(new RecruitingCoordinatorAgent());
+  router.registerAgent(new BrandMediaCoordinatorAgent());
+  router.registerAgent(new ComplianceCoordinatorAgent());
   router.registerAgent(new GeneralAgent());
 
   // ── 3. Queue infrastructure ───────────────────────────────────────────

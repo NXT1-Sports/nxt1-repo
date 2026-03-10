@@ -47,7 +47,12 @@ export class ScrapeWebpageTool extends BaseTool {
     required: ['url'],
   } as const;
 
-  override readonly allowedAgents = ['scout', 'recruiter', 'general', 'creative_director'] as const;
+  override readonly allowedAgents = [
+    'performance_coordinator',
+    'recruiting_coordinator',
+    'general',
+    'brand_media_coordinator',
+  ] as const;
 
   readonly isMutation = false;
   readonly category = 'analytics' as const;

@@ -9,19 +9,19 @@
  *   2. Use an LLM (fast tier) to decompose the intent into a structured
  *      To-Do List (AgentExecutionPlan / DAG).
  *   3. Return the plan to the Worker, which then dispatches each task
- *      to the correct sub-agent in dependency order.
+ *      to the correct coordinator in dependency order.
  *
  * Example:
  *   User: "Grade my new highlight tape and email D3 coaches in Ohio."
  *
  *   PlannerAgent output:
  *   [
- *     { id: "1", agent: "scout",     description: "Analyze and grade highlight tape", dependsOn: [] },
- *     { id: "2", agent: "recruiter", description: "Draft and send emails to D3 Ohio coaches", dependsOn: ["1"] }
+ *     { id: "1", agent: "performance_coordinator", description: "Analyze and grade highlight tape", dependsOn: [] },
+ *     { id: "2", agent: "recruiting_coordinator",  description: "Draft and send emails to D3 Ohio coaches", dependsOn: ["1"] }
  *   ]
  *
- * The Worker then runs task 1 (ScoutAgent), waits for completion,
- * pipes the result into task 2 (RecruiterAgent), and marks the operation complete.
+ * The Worker then runs task 1 (Performance Coordinator), waits for completion,
+ * pipes the result into task 2 (Recruiting Coordinator), and marks the operation complete.
  */
 
 import { BaseAgent } from './base.agent.js';
@@ -41,7 +41,7 @@ import type { OpenRouterService } from '../llm/openrouter.service.js';
 
 export class PlannerAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'router';
-  readonly name = 'Task Planner';
+  readonly name = 'Chief of Staff';
 
   /** Default LLM instance (used when execute() is called without an llm parameter). */
   private readonly defaultLlm: OpenRouterService;
@@ -65,17 +65,17 @@ export class PlannerAgent extends BaseAgent {
       )
       .join('\n');
 
-    return `You are the Task Planner for Agent X, the AI engine of NXT1 Sports.
+    return `You are the Chief of Staff for Agent X, the AI engine of NXT1 Sports.
 
 Your ONLY job is to decompose the user's request into a structured execution plan (a To-Do list).
-You do NOT execute any actions. You ONLY plan.
+You do NOT execute any actions. You ONLY plan and assign tasks to coordinators.
 
-## Available Specialists
+## Available Coordinators
 ${agentCatalogue}
 
 ## Rules
 1. Break the user's intent into the SMALLEST independent tasks possible.
-2. Assign each task to exactly ONE specialist agent by its "id".
+2. Assign each task to exactly ONE coordinator by its "id".
 3. Set "dependsOn" to an array of task IDs that MUST complete before this task can start.
    - If a task has no dependencies, use an empty array [].
    - Tasks with no dependencies CAN run in parallel.

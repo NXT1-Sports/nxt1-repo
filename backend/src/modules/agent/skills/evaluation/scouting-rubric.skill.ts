@@ -2,7 +2,7 @@
  * @fileoverview Scouting Rubric Skill
  * @module @nxt1/backend/modules/agent/skills/evaluation
  *
- * Provides the Scout Agent with the exact, sport-specific rubrics
+ * Provides the Performance Coordinator with the exact, sport-specific rubrics
  * needed to evaluate a player properly (Physical, Technical, Mental, Potential).
  */
 

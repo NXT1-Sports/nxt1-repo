@@ -1,13 +1,14 @@
 /**
- * @fileoverview Recruiter Agent
+ * @fileoverview Recruiting Coordinator Agent
  * @module @nxt1/backend/modules/agent/agents
  *
- * Specialized sub-agent for recruiting outreach and communication:
+ * Specialized coordinator for recruiting outreach and communication:
  * - Drafting personalized emails to college coaches
  * - Building targeted college/program lists by division, conference, state
  * - Managing outreach campaigns and tracking responses
  * - Scheduling follow-ups and reminders
  * - Optimizing email subject lines and messaging
+ * - Transfer portal search and prospect pipeline management
  *
  * Uses the "creative" model tier for email copy generation.
  */
@@ -16,12 +17,12 @@ import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@
 import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
 
-export class RecruiterAgent extends BaseAgent {
-  readonly id: AgentIdentifier = 'recruiter';
-  readonly name = 'Recruiter Agent';
+export class RecruitingCoordinatorAgent extends BaseAgent {
+  readonly id: AgentIdentifier = 'recruiting_coordinator';
+  readonly name = 'Recruiting Coordinator';
 
   getSystemPrompt(_context: AgentSessionContext): string {
-    // TODO: Build the recruiter persona prompt with user role context
+    // TODO: Build the recruiting coordinator persona prompt with user role context
     return '';
   }
 

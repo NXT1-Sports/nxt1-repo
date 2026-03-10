@@ -8,8 +8,9 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-// Service
+// Services
 export { AgentXService } from './agent-x.service';
+export { AgentXJobService, AGENT_X_API_BASE_URL } from './agent-x-job.service';
 
 // Components
 export {

@@ -40,6 +40,8 @@ export { CrashlyticsService } from './crashlytics.service';
 // Share Service for centralized web sharing + analytics
 export { ShareService } from './share.service';
 
+// Agent X Background Job Service (enqueue AI jobs via BullMQ)
+
 // ============================================
 // PERFORMANCE MONITORING
 // ============================================

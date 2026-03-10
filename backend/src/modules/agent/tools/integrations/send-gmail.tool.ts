@@ -18,7 +18,7 @@ export class SendGmailTool extends BaseTool {
     },
     required: ['toEmail', 'subject', 'bodyHtml'],
   } as const;
-  override readonly allowedAgents = ['recruiter'] as const;
+  override readonly allowedAgents = ['recruiting_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'communication' as const;
 

@@ -44,12 +44,12 @@ import { AgentRouter } from '../modules/agent/agent.router.js';
 import { ToolRegistry } from '../modules/agent/tools/tool-registry.js';
 import { ContextBuilder } from '../modules/agent/memory/context-builder.js';
 
-// Import sub-agents
+// Import coordinators
 import { GeneralAgent } from '../modules/agent/agents/general.agent.js';
-import { ScoutAgent } from '../modules/agent/agents/scout.agent.js';
-import { RecruiterAgent } from '../modules/agent/agents/recruiter.agent.js';
-import { CreativeDirectorAgent } from '../modules/agent/agents/creative-director.agent.js';
-import { ComplianceAgent } from '../modules/agent/agents/compliance.agent.js';
+import { PerformanceCoordinatorAgent } from '../modules/agent/agents/performance-coordinator.agent.js';
+import { RecruitingCoordinatorAgent } from '../modules/agent/agents/recruiting-coordinator.agent.js';
+import { BrandMediaCoordinatorAgent } from '../modules/agent/agents/brand-media-coordinator.agent.js';
+import { ComplianceCoordinatorAgent } from '../modules/agent/agents/compliance-coordinator.agent.js';
 
 // ─── Shared Instances (initialized once, reused across jobs) ────────────────
 
@@ -68,12 +68,12 @@ function getRouter(): AgentRouter {
 
   router = new AgentRouter(llm, toolRegistry, contextBuilder);
 
-  // Register all sub-agents
+  // Register all coordinators
   router.registerAgent(new GeneralAgent());
-  router.registerAgent(new ScoutAgent());
-  router.registerAgent(new RecruiterAgent());
-  router.registerAgent(new CreativeDirectorAgent());
-  router.registerAgent(new ComplianceAgent());
+  router.registerAgent(new PerformanceCoordinatorAgent());
+  router.registerAgent(new RecruitingCoordinatorAgent());
+  router.registerAgent(new BrandMediaCoordinatorAgent());
+  router.registerAgent(new ComplianceCoordinatorAgent());
 
   // Future: Register tools here as they're implemented
   // toolRegistry.register(new FetchPlayerStatsTool(db));

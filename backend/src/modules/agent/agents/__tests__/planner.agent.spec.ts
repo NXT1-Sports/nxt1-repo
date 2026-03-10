@@ -56,7 +56,7 @@ describe('PlannerAgent', () => {
       tasks: [
         {
           id: '1',
-          assignedAgent: 'scout',
+          assignedAgent: 'performance_coordinator',
           description: 'Analyze and grade the uploaded highlight tape.',
           dependsOn: [],
         },
@@ -82,13 +82,13 @@ describe('PlannerAgent', () => {
       tasks: [
         {
           id: '1',
-          assignedAgent: 'scout',
+          assignedAgent: 'performance_coordinator',
           description: 'Analyze and grade the highlight tape.',
           dependsOn: [],
         },
         {
           id: '2',
-          assignedAgent: 'recruiter',
+          assignedAgent: 'recruiting_coordinator',
           description: 'Draft emails to D3 coaches in Ohio using the grade report.',
           dependsOn: ['1'],
         },
@@ -115,13 +115,13 @@ describe('PlannerAgent', () => {
       tasks: [
         {
           id: '1',
-          assignedAgent: 'creative_director',
+          assignedAgent: 'brand_media_coordinator',
           description: 'Generate promo graphic',
           dependsOn: [],
         },
         {
           id: '2',
-          assignedAgent: 'recruiter',
+          assignedAgent: 'recruiting_coordinator',
           description: 'Draft email to coaches',
           dependsOn: [],
         },
@@ -157,8 +157,8 @@ describe('PlannerAgent', () => {
     expect(llm.prompt).toHaveBeenCalledTimes(1);
     const callArgs = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
 
-    // System prompt should mention "Task Planner"
-    expect(callArgs[0]).toContain('Task Planner');
+    // System prompt should mention "Chief of Staff"
+    expect(callArgs[0]).toContain('Chief of Staff');
 
     // User message should be the intent
     expect(callArgs[1]).toBe('Do something');
@@ -221,7 +221,14 @@ describe('PlannerAgent', () => {
 
   it('should throw when a task depends on an unknown task ID', async () => {
     const llmResponse = JSON.stringify({
-      tasks: [{ id: '1', assignedAgent: 'scout', description: 'Analyze tape', dependsOn: ['99'] }],
+      tasks: [
+        {
+          id: '1',
+          assignedAgent: 'performance_coordinator',
+          description: 'Analyze tape',
+          dependsOn: ['99'],
+        },
+      ],
     });
 
     const llm = createMockLLM(llmResponse);
@@ -234,7 +241,14 @@ describe('PlannerAgent', () => {
 
   it('should throw when a task depends on itself', async () => {
     const llmResponse = JSON.stringify({
-      tasks: [{ id: '1', assignedAgent: 'scout', description: 'Self loop', dependsOn: ['1'] }],
+      tasks: [
+        {
+          id: '1',
+          assignedAgent: 'performance_coordinator',
+          description: 'Self loop',
+          dependsOn: ['1'],
+        },
+      ],
     });
 
     const llm = createMockLLM(llmResponse);
@@ -246,8 +260,18 @@ describe('PlannerAgent', () => {
   it('should throw on circular dependency (A→B→A)', async () => {
     const llmResponse = JSON.stringify({
       tasks: [
-        { id: '1', assignedAgent: 'scout', description: 'Task A', dependsOn: ['2'] },
-        { id: '2', assignedAgent: 'recruiter', description: 'Task B', dependsOn: ['1'] },
+        {
+          id: '1',
+          assignedAgent: 'performance_coordinator',
+          description: 'Task A',
+          dependsOn: ['2'],
+        },
+        {
+          id: '2',
+          assignedAgent: 'recruiting_coordinator',
+          description: 'Task B',
+          dependsOn: ['1'],
+        },
       ],
     });
 
@@ -262,8 +286,18 @@ describe('PlannerAgent', () => {
   it('should throw on 3-node circular dependency (A→B→C→A)', async () => {
     const llmResponse = JSON.stringify({
       tasks: [
-        { id: '1', assignedAgent: 'scout', description: 'Task A', dependsOn: ['3'] },
-        { id: '2', assignedAgent: 'recruiter', description: 'Task B', dependsOn: ['1'] },
+        {
+          id: '1',
+          assignedAgent: 'performance_coordinator',
+          description: 'Task A',
+          dependsOn: ['3'],
+        },
+        {
+          id: '2',
+          assignedAgent: 'recruiting_coordinator',
+          description: 'Task B',
+          dependsOn: ['1'],
+        },
         { id: '3', assignedAgent: 'general', description: 'Task C', dependsOn: ['2'] },
       ],
     });
@@ -280,7 +314,14 @@ describe('PlannerAgent', () => {
 
   it('should coerce task ID to string if LLM returns a number', async () => {
     const llmResponse = JSON.stringify({
-      tasks: [{ id: 1, assignedAgent: 'scout', description: 'Numeric ID', dependsOn: [] }],
+      tasks: [
+        {
+          id: 1,
+          assignedAgent: 'performance_coordinator',
+          description: 'Numeric ID',
+          dependsOn: [],
+        },
+      ],
     });
 
     const llm = createMockLLM(llmResponse);
@@ -325,8 +366,8 @@ describe('PlannerAgent', () => {
 
     const prompt = planner.getSystemPrompt(context);
 
-    // Should list available specialists
-    expect(prompt).toContain('Available Specialists');
+    // Should list available coordinators
+    expect(prompt).toContain('Available Coordinators');
     // Should NOT include router itself
     expect(prompt).not.toMatch(/\(id: "router"\)/);
     // Should include JSON output format instructions

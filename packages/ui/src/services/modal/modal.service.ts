@@ -246,9 +246,12 @@ export class NxtModalService {
    */
   applyModalTheme(el: HTMLElement): void {
     const bg = 'var(--nxt1-ui-bg-elevated, var(--nxt1-color-bg-elevated, #121212))';
+    const primary = 'var(--nxt1-ui-primary, var(--nxt1-color-primary, #ccff00))';
     el.style.setProperty('--background', bg);
     el.style.setProperty('--ion-background-color', bg);
     el.style.setProperty('--ion-overlay-background-color', bg);
+    el.style.setProperty('--ion-color-primary', primary);
+    el.style.setProperty('--ion-color-primary-contrast', 'var(--nxt1-color-black, #000)');
     el.style.setProperty('--ion-color-step-100', bg);
     el.style.setProperty('--ion-color-step-150', bg);
     el.style.setProperty('--ion-color-step-200', bg);

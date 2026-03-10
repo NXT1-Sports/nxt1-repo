@@ -23,13 +23,20 @@
  * ```
  */
 
-import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import type { AgentJobPayload, AgentOperationStatus, AgentOperationResult } from '@nxt1/core';
 import type { AgentJobProgress } from './queue.types.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const COLLECTION = 'agentJobs' as const;
+const ACTIVE_JOB_RETENTION_DAYS = 14;
+const TERMINAL_JOB_RETENTION_DAYS = 30;
+
+function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
+  const expiresAtMs = Date.now() + days * 24 * 60 * 60 * 1000;
+  return Timestamp.fromMillis(expiresAtMs);
+}
 
 // ─── Document Shape ─────────────────────────────────────────────────────────
 
@@ -45,6 +52,8 @@ export interface AgentJobDocument {
   readonly createdAt: FirebaseFirestore.Timestamp;
   readonly updatedAt: FirebaseFirestore.Timestamp;
   readonly completedAt: FirebaseFirestore.Timestamp | null;
+  /** TTL field for Firestore automatic expiration. */
+  readonly expiresAt: FirebaseFirestore.Timestamp;
 }
 
 // ─── Repository ─────────────────────────────────────────────────────────────
@@ -52,8 +61,16 @@ export interface AgentJobDocument {
 export class AgentJobRepository {
   private readonly db: Firestore;
 
-  constructor() {
-    this.db = getFirestore();
+  constructor(db?: Firestore) {
+    this.db = db ?? getFirestore();
+  }
+
+  /**
+   * Create a request-scoped repository that writes to a specific Firestore.
+   * Used by route handlers to target staging vs production Firestore.
+   */
+  withDb(db: Firestore): AgentJobRepository {
+    return new AgentJobRepository(db);
   }
 
   /**
@@ -76,6 +93,7 @@ export class AgentJobRepository {
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
         completedAt: null,
+        expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
       });
   }
 
@@ -103,6 +121,7 @@ export class AgentJobRepository {
         result,
         updatedAt: FieldValue.serverTimestamp(),
         completedAt: FieldValue.serverTimestamp(),
+        expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
       });
   }
 
@@ -118,6 +137,7 @@ export class AgentJobRepository {
         error,
         updatedAt: FieldValue.serverTimestamp(),
         completedAt: FieldValue.serverTimestamp(),
+        expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
       });
   }
 
@@ -132,6 +152,7 @@ export class AgentJobRepository {
         status: 'cancelled' satisfies AgentOperationStatus,
         updatedAt: FieldValue.serverTimestamp(),
         completedAt: FieldValue.serverTimestamp(),
+        expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
       });
   }
 

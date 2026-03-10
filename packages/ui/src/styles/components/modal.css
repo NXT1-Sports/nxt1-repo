@@ -32,6 +32,10 @@ ion-alert.nxt-modal-prompt {
   --max-width: 320px;
   --ion-text-color: var(--nxt1-ui-text-primary, #fff);
 
+  /* Override Ionic's default blue primary with NXT1 brand color */
+  --ion-color-primary: var(--nxt1-ui-primary, var(--nxt1-color-primary, #ccff00));
+  --ion-color-primary-contrast: var(--nxt1-color-black, #000);
+
   /* Override the translucent overlay background (iOS uses rgba of this) */
   --ion-overlay-background-color: var(--nxt1-ui-bg-elevated, #121212);
   --ion-background-color: var(--nxt1-ui-bg-elevated, #121212);

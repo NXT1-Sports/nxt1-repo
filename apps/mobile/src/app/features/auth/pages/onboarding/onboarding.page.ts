@@ -112,6 +112,7 @@ import {
   AuthApiService,
   OnboardingAnalyticsService,
 } from '../../services';
+import { AgentXJobService } from '@nxt1/ui';
 import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { NxtThemeService } from '@nxt1/ui';
 import { HapticsService, NxtToastService, NxtLoggingService } from '@nxt1/ui';
@@ -322,6 +323,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly navController = inject(NavController);
   private readonly authFlow = inject(AuthFlowService);
+  private readonly agentXJobService = inject(AgentXJobService);
   private readonly authApi = inject(AuthApiService);
   private readonly errorHandler = inject(AuthErrorHandler);
   private readonly haptics = inject(HapticsService);
@@ -614,6 +616,9 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
       case 'STEP_COMPLETED':
         this.trackStepCompleted(event.stepId, event.stepIndex);
+        if (event.stepId === 'link-sources') {
+          this.triggerLinkSourcesScrape();
+        }
         break;
 
       case 'STEP_SKIPPED':
@@ -1147,6 +1152,57 @@ export class OnboardingPage implements OnInit, OnDestroy {
       userId: user.uid,
       userType: this.selectedRole(),
       totalSteps: this._steps().length,
+    });
+  }
+
+  /**
+   * Fire-and-forget: enqueue an Agent X background job to scrape
+   * the user's newly linked accounts. Called on link-sources STEP_COMPLETED.
+   */
+  private triggerLinkSourcesScrape(): void {
+    const formData = this._formData();
+    const linkSources = formData.linkSources;
+
+    const connectedSources = linkSources?.links?.filter((l) => l.connected) ?? [];
+    if (connectedSources.length === 0) {
+      this.logger.info('No linked accounts, skipping Agent X scrape');
+      return;
+    }
+
+    const user = this.authFlow.user();
+    if (!user?.uid) {
+      this.logger.warn('No authenticated user, skipping Agent X scrape');
+      return;
+    }
+
+    const platformNames = connectedSources.map((s) => s.platform).join(', ');
+    const intent = `Scrape and analyze linked accounts for new athlete profile: ${platformNames}`;
+
+    const context: Record<string, unknown> = {
+      origin: 'onboarding',
+      step: 'link-sources',
+      role: formData.userType,
+      sport: formData.sport?.sports?.[0]?.sport,
+      linkedAccounts: connectedSources.map((s) => ({
+        platform: s.platform,
+        username: s.username,
+        url: s.url,
+      })),
+    };
+
+    this.logger.info('Triggering Agent X link-sources scrape', {
+      userId: user.uid,
+      platforms: platformNames,
+      count: connectedSources.length,
+    });
+
+    void this.agentXJobService.enqueue(intent, context).then((result) => {
+      if (result) {
+        this.logger.info('Agent X scrape job enqueued', {
+          jobId: result.jobId,
+          operationId: result.operationId,
+        });
+      }
     });
   }
 

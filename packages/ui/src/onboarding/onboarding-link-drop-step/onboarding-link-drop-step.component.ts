@@ -1,14 +1,15 @@
 /**
  * @fileoverview OnboardingLinkDropStepComponent - Connected Accounts Step
  * @module @nxt1/ui/onboarding
- * @version 2.0.0
+ * @version 3.0.0
  *
- * Onboarding step that lets users connect their social media, film,
- * recruiting, and stats platform links. Platforms are categorized by
- * type and filtered by the user's selected sports.
+ * Onboarding step that lets users connect their accounts via two modes:
+ *   - **Linked** — Paste a URL or username (MaxPreps, Hudl, Instagram, etc.)
+ *   - **Signed In** — OAuth sign-in (Google, Microsoft, Yahoo)
  *
- * Includes a role-specific "Recommended" section at the top showing
- * the most relevant platforms for the user's role.
+ * A segmented toggle at the top switches between the two modes.
+ * Platforms are categorized by type and filtered by the user's selected sports.
+ * Each mode shows a role-specific "Recommended" section at the top.
  *
  * Uses the shared NxtConnectedSourcesComponent for display and
  * NxtModalService for input prompts.
@@ -32,6 +33,7 @@ import type {
   OnboardingUserType,
   PlatformDefinition,
   PlatformCategory,
+  PlatformConnectionType,
 } from '@nxt1/core/api';
 import { getPlatformsForSports, getRecommendedPlatforms } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
@@ -39,6 +41,7 @@ import { NxtLoggingService } from '../../services/logging';
 import { NxtModalService } from '../../services/modal';
 import {
   NxtConnectedSourcesComponent,
+  type ConnectionMode,
   type ConnectedSource,
   type ConnectedSourceTapEvent,
 } from '../../components/connected-sources';
@@ -64,12 +67,45 @@ interface PlatformGroup {
   imports: [NxtConnectedSourcesComponent],
   template: `
     <div class="nxt1-link-drop-step">
+      <!-- Mode toggle: Linked / Signed In -->
+      <div class="nxt1-mode-toggle">
+        <button
+          type="button"
+          class="nxt1-mode-btn"
+          [class.nxt1-mode-btn--active]="activeMode() === 'link'"
+          (click)="setMode('link')"
+        >
+          Linked
+        </button>
+        <button
+          type="button"
+          class="nxt1-mode-btn"
+          [class.nxt1-mode-btn--active]="activeMode() === 'signin'"
+          (click)="setMode('signin')"
+        >
+          Signed In
+        </button>
+      </div>
+
+      <!-- Platform groups for active mode -->
       @for (group of platformGroups(); track group.key) {
         <nxt1-connected-sources
           [title]="group.label"
           [sources]="group.sources"
           (sourceTap)="onSourceTap($event)"
         />
+      }
+
+      @if (platformGroups().length === 0) {
+        <div class="nxt1-empty-mode">
+          <p class="nxt1-empty-mode-text">
+            @if (activeMode() === 'signin') {
+              No sign-in accounts available yet.
+            } @else {
+              No link accounts available for your sports.
+            }
+          </p>
+        </div>
       }
     </div>
   `,
@@ -83,6 +119,58 @@ interface PlatformGroup {
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-6, 24px);
+      }
+
+      /* ============================================
+         MODE TOGGLE (segmented control)
+         ============================================ */
+      .nxt1-mode-toggle {
+        display: flex;
+        border-radius: var(--nxt1-borderRadius-lg);
+        background: var(--nxt1-color-surface-200);
+        padding: var(--nxt1-spacing-0-5);
+      }
+
+      .nxt1-mode-btn {
+        appearance: none;
+        -webkit-appearance: none;
+        border: none;
+        background: transparent;
+        flex: 1;
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+        color: var(--nxt1-color-text-tertiary);
+        border-radius: var(--nxt1-borderRadius-md);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
+      }
+
+      .nxt1-mode-btn--active {
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-primary);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+
+      /* ============================================
+         EMPTY MODE STATE
+         ============================================ */
+      .nxt1-empty-mode {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--nxt1-spacing-8) var(--nxt1-spacing-4);
+      }
+
+      .nxt1-empty-mode-text {
+        margin: 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-tertiary);
+        text-align: center;
       }
     `,
   ],
@@ -107,9 +195,20 @@ export class OnboardingLinkDropStepComponent {
   /** Emitted when the user connects/disconnects a source */
   readonly linkSourcesChange = output<LinkSourcesFormData>();
 
+  /** Current active toggle mode: 'link' (Linked) or 'signin' (Signed In) */
+  readonly activeMode = signal<ConnectionMode>('link');
+
   /** Internal state — tracks connected status per platform */
   private readonly _connectedMap = signal<
-    Record<string, { connected: boolean; username?: string; url?: string }>
+    Record<
+      string,
+      {
+        connected: boolean;
+        connectionType?: PlatformConnectionType;
+        username?: string;
+        url?: string;
+      }
+    >
   >({});
 
   /** All platform definitions (for placeholder lookup) */
@@ -126,16 +225,17 @@ export class OnboardingLinkDropStepComponent {
     return map;
   });
 
-  /** Recommended + categorized platform groups filtered by sport */
+  /** Recommended + categorized platform groups filtered by sport AND active mode */
   readonly platformGroups = computed((): PlatformGroup[] => {
     const sports = this.selectedSports();
     const role = this.role();
     const connMap = this._connectedMap();
+    const mode = this.activeMode();
     const result: PlatformGroup[] = [];
 
-    // 1. Recommended section (role-specific)
+    // 1. Recommended section (role-specific, filtered by mode)
     if (role) {
-      const recommended = getRecommendedPlatforms(role, sports);
+      const recommended = getRecommendedPlatforms(role, sports, mode);
       if (recommended.length > 0) {
         result.push({
           key: 'recommended',
@@ -145,9 +245,11 @@ export class OnboardingLinkDropStepComponent {
       }
     }
 
-    // 2. Category sections (excluding recommended platforms to avoid duplicates)
-    const recommendedIds = role ? getRecommendedPlatforms(role, sports).map((p) => p.platform) : [];
-    const groups = getPlatformsForSports(sports, recommendedIds);
+    // 2. Category sections (excluding recommended platforms, filtered by mode)
+    const recommendedIds = role
+      ? getRecommendedPlatforms(role, sports, mode).map((p) => p.platform)
+      : [];
+    const groups = getPlatformsForSports(sports, recommendedIds, mode);
 
     for (const g of groups) {
       result.push({
@@ -166,11 +268,20 @@ export class OnboardingLinkDropStepComponent {
       const data = this.linkSourcesData();
       if (!data?.links?.length) return;
 
-      const map: Record<string, { connected: boolean; username?: string; url?: string }> = {};
+      const map: Record<
+        string,
+        {
+          connected: boolean;
+          connectionType?: PlatformConnectionType;
+          username?: string;
+          url?: string;
+        }
+      > = {};
       for (const link of data.links) {
         if (link.connected) {
           map[link.platform] = {
             connected: true,
+            connectionType: link.connectionType,
             username: link.username,
             url: link.url,
           };
@@ -178,6 +289,11 @@ export class OnboardingLinkDropStepComponent {
       }
       this._connectedMap.set(map);
     });
+  }
+
+  setMode(mode: ConnectionMode): void {
+    this.activeMode.set(mode);
+    this.logger.info('Connection mode switched', { mode });
   }
 
   async onSourceTap(event: ConnectedSourceTapEvent): Promise<void> {
@@ -209,23 +325,34 @@ export class OnboardingLinkDropStepComponent {
     if (!result.confirmed) return;
 
     const value = result.value.trim();
+    const mode = this.activeMode();
 
     this._connectedMap.update((map) => ({
       ...map,
       [source.platform]: {
         connected: !!value,
+        connectionType: mode,
         username: value && !value.startsWith('http') ? value : undefined,
         url: value || undefined,
       },
     }));
 
-    this.logger.info('Link source updated', { platform: source.platform, connected: !!value });
+    this.logger.info('Link source updated', {
+      platform: source.platform,
+      connected: !!value,
+      mode,
+    });
     this.emitChange();
   }
 
   private toConnectedSource(
     platform: PlatformDefinition,
-    conn?: { connected: boolean; username?: string; url?: string }
+    conn?: {
+      connected: boolean;
+      connectionType?: PlatformConnectionType;
+      username?: string;
+      url?: string;
+    }
   ): ConnectedSource {
     return {
       platform: platform.platform,
@@ -243,6 +370,7 @@ export class OnboardingLinkDropStepComponent {
     const links: LinkSourceEntry[] = Object.entries(connMap).map(([platform, data]) => ({
       platform,
       connected: data.connected,
+      connectionType: data.connectionType,
       username: data.username,
       url: data.url,
     }));

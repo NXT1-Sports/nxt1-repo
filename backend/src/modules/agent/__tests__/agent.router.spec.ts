@@ -108,20 +108,37 @@ describe('AgentRouter', () => {
     it('should return the agent ID for a single-task plan', async () => {
       llm = createMockLLM({
         summary: 'Single task',
-        tasks: [{ id: '1', assignedAgent: 'scout', description: 'Analyze tape', dependsOn: [] }],
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'performance_coordinator',
+            description: 'Analyze tape',
+            dependsOn: [],
+          },
+        ],
       });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       const agentId = await router.classify('Grade my tape', 'user-123');
 
-      expect(agentId).toBe('scout');
+      expect(agentId).toBe('performance_coordinator');
     });
 
     it('should return "router" for multi-task plans', async () => {
       llm = createMockLLM({
         tasks: [
-          { id: '1', assignedAgent: 'scout', description: 'Analyze tape', dependsOn: [] },
-          { id: '2', assignedAgent: 'recruiter', description: 'Email coaches', dependsOn: ['1'] },
+          {
+            id: '1',
+            assignedAgent: 'performance_coordinator',
+            description: 'Analyze tape',
+            dependsOn: [],
+          },
+          {
+            id: '2',
+            assignedAgent: 'recruiting_coordinator',
+            description: 'Email coaches',
+            dependsOn: ['1'],
+          },
         ],
       });
 
@@ -160,18 +177,23 @@ describe('AgentRouter', () => {
       llm = createMockLLM({
         summary: 'Analyze the tape.',
         tasks: [
-          { id: '1', assignedAgent: 'scout', description: 'Analyze highlight tape', dependsOn: [] },
+          {
+            id: '1',
+            assignedAgent: 'performance_coordinator',
+            description: 'Analyze highlight tape',
+            dependsOn: [],
+          },
         ],
       });
 
-      const scoutAgent = createMockAgent('scout', {
+      const performanceAgent = createMockAgent('performance_coordinator', {
         summary: 'Tape graded: B+ overall.',
         data: { grade: 'B+' },
         suggestions: ['Upload more recent footage.'],
       });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      router.registerAgent(scoutAgent);
+      router.registerAgent(performanceAgent);
 
       const payload: AgentJobPayload = {
         operationId: 'op-001',
@@ -186,7 +208,7 @@ describe('AgentRouter', () => {
       const result = await router.run(payload, (u) => updates.push(u));
 
       // Agent should have been called
-      expect(scoutAgent.execute).toHaveBeenCalledTimes(1);
+      expect(performanceAgent.execute).toHaveBeenCalledTimes(1);
 
       // Result should contain the agent's summary
       expect(result.summary).toContain('Tape graded: B+ overall.');
@@ -203,28 +225,38 @@ describe('AgentRouter', () => {
       llm = createMockLLM({
         summary: 'Grade then email.',
         tasks: [
-          { id: '1', assignedAgent: 'scout', description: 'Grade tape', dependsOn: [] },
-          { id: '2', assignedAgent: 'recruiter', description: 'Email coaches', dependsOn: ['1'] },
+          {
+            id: '1',
+            assignedAgent: 'performance_coordinator',
+            description: 'Grade tape',
+            dependsOn: [],
+          },
+          {
+            id: '2',
+            assignedAgent: 'recruiting_coordinator',
+            description: 'Email coaches',
+            dependsOn: ['1'],
+          },
         ],
       });
 
       const executionOrder: string[] = [];
 
-      const scoutAgent = createMockAgent('scout');
-      (scoutAgent.execute as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-        executionOrder.push('scout');
+      const performanceAgent = createMockAgent('performance_coordinator');
+      (performanceAgent.execute as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        executionOrder.push('performance_coordinator');
         return { summary: 'Tape graded.', data: {}, suggestions: [] };
       });
 
-      const recruiterAgent = createMockAgent('recruiter');
-      (recruiterAgent.execute as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-        executionOrder.push('recruiter');
+      const recruitingAgent = createMockAgent('recruiting_coordinator');
+      (recruitingAgent.execute as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+        executionOrder.push('recruiting_coordinator');
         return { summary: 'Emails sent.', data: {}, suggestions: [] };
       });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      router.registerAgent(scoutAgent);
-      router.registerAgent(recruiterAgent);
+      router.registerAgent(performanceAgent);
+      router.registerAgent(recruitingAgent);
 
       const payload: AgentJobPayload = {
         operationId: 'op-002',
@@ -237,33 +269,38 @@ describe('AgentRouter', () => {
 
       await router.run(payload);
 
-      // Scout must run before recruiter
-      expect(executionOrder).toEqual(['scout', 'recruiter']);
+      // Performance coordinator must run before recruiting coordinator
+      expect(executionOrder).toEqual(['performance_coordinator', 'recruiting_coordinator']);
     });
 
     it('should inject upstream results into downstream task intents', async () => {
       llm = createMockLLM({
         tasks: [
-          { id: '1', assignedAgent: 'scout', description: 'Grade tape', dependsOn: [] },
+          {
+            id: '1',
+            assignedAgent: 'performance_coordinator',
+            description: 'Grade tape',
+            dependsOn: [],
+          },
           {
             id: '2',
-            assignedAgent: 'recruiter',
+            assignedAgent: 'recruiting_coordinator',
             description: 'Email coaches with grade',
             dependsOn: ['1'],
           },
         ],
       });
 
-      const scoutAgent = createMockAgent('scout', {
+      const performanceAgent = createMockAgent('performance_coordinator', {
         summary: 'Grade: A-',
         data: { grade: 'A-' },
         suggestions: [],
       });
 
-      const recruiterAgent = createMockAgent('recruiter');
+      const recruitingAgent = createMockAgent('recruiting_coordinator');
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      router.registerAgent(scoutAgent);
-      router.registerAgent(recruiterAgent);
+      router.registerAgent(performanceAgent);
+      router.registerAgent(recruitingAgent);
 
       const payload: AgentJobPayload = {
         operationId: 'op-003',
@@ -276,23 +313,32 @@ describe('AgentRouter', () => {
 
       await router.run(payload);
 
-      // The recruiter should receive enriched intent with upstream results
-      const recruiterCall = (recruiterAgent.execute as ReturnType<typeof vi.fn>).mock.calls[0];
-      const taskIntent = recruiterCall[0] as string;
+      // The recruiting coordinator should receive enriched intent with upstream results
+      const recruitingCall = (recruitingAgent.execute as ReturnType<typeof vi.fn>).mock.calls[0];
+      const taskIntent = recruitingCall[0] as string;
       expect(taskIntent).toContain('[Result from task 1]');
       expect(taskIntent).toContain('Grade: A-');
     });
 
     it('should handle agent execution failure gracefully', async () => {
       llm = createMockLLM({
-        tasks: [{ id: '1', assignedAgent: 'scout', description: 'Grade tape', dependsOn: [] }],
+        tasks: [
+          {
+            id: '1',
+            assignedAgent: 'performance_coordinator',
+            description: 'Grade tape',
+            dependsOn: [],
+          },
+        ],
       });
 
-      const scoutAgent = createMockAgent('scout');
-      (scoutAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('LLM timeout'));
+      const performanceAgent = createMockAgent('performance_coordinator');
+      (performanceAgent.execute as ReturnType<typeof vi.fn>).mockRejectedValue(
+        new Error('LLM timeout')
+      );
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      router.registerAgent(scoutAgent);
+      router.registerAgent(performanceAgent);
 
       const payload: AgentJobPayload = {
         operationId: 'op-004',
@@ -459,16 +505,18 @@ describe('AgentRouter', () => {
   describe('registerAgent()', () => {
     it('should register and use agents by ID', async () => {
       llm = createMockLLM({
-        tasks: [{ id: '1', assignedAgent: 'scout', description: 'test', dependsOn: [] }],
+        tasks: [
+          { id: '1', assignedAgent: 'performance_coordinator', description: 'test', dependsOn: [] },
+        ],
       });
 
-      const scoutAgent = createMockAgent('scout', {
-        summary: 'Scout done.',
+      const performanceAgent = createMockAgent('performance_coordinator', {
+        summary: 'Performance review done.',
         suggestions: [],
       });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
-      router.registerAgent(scoutAgent);
+      router.registerAgent(performanceAgent);
 
       const payload: AgentJobPayload = {
         operationId: 'op-010',
@@ -480,8 +528,8 @@ describe('AgentRouter', () => {
       };
 
       const result = await router.run(payload);
-      expect(result.summary).toContain('Scout done.');
-      expect(scoutAgent.execute).toHaveBeenCalledTimes(1);
+      expect(result.summary).toContain('Performance review done.');
+      expect(performanceAgent.execute).toHaveBeenCalledTimes(1);
     });
   });
 });

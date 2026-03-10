@@ -125,6 +125,7 @@ import {
 } from '../../services';
 import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { SeoService } from '../../../../core/services';
+import { AgentXJobService } from '@nxt1/ui/agent-x';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
 
@@ -330,12 +331,11 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       <div authFooter class="desktop-footer">
         @if (!isMobile()) {
           <nxt1-onboarding-navigation-buttons
-            [showSkip]="isCurrentStepOptional()"
+            [showSkip]="false"
             [showBack]="canGoBack()"
             [isLastStep]="isLastStep()"
             [loading]="isLoading()"
             [disabled]="!isCurrentStepValid()"
-            (skipClick)="onSkip()"
             (backClick)="onBack()"
             (continueClick)="onContinue()"
           />
@@ -413,6 +413,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private readonly platform = inject(NxtPlatformService);
   private readonly themeService = inject(NxtThemeService);
   private readonly onboardingAnalytics = inject(OnboardingAnalyticsService);
+  private readonly agentXJobService = inject(AgentXJobService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('Onboarding');
 
   /** Check if running on mobile (native or mobile web) */
@@ -692,6 +693,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
       case 'STEP_COMPLETED':
         this.trackStepCompleted();
+        if (event.stepId === 'link-sources') {
+          this.triggerLinkSourcesScrape();
+        }
         break;
 
       case 'STEP_SKIPPED':
@@ -986,6 +990,64 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       this.logger.error('Sign out failed', err);
       this.toast.error('Failed to sign out');
     }
+  }
+
+  // ============================================
+  // AGENT X: Link Sources Scrape (Fire-and-forget)
+  // ============================================
+
+  /**
+   * Trigger an Agent X background job to scrape the user's linked accounts.
+   * Called after the link-sources step is completed during onboarding.
+   * Fire-and-forget — does not block navigation to the next step.
+   */
+  private triggerLinkSourcesScrape(): void {
+    const formData = this._formData();
+    const linkSources = formData.linkSources;
+
+    // Only fire if the user actually linked at least one account
+    const connectedSources = linkSources?.links?.filter((l) => l.connected) ?? [];
+    if (connectedSources.length === 0) {
+      this.logger.info('No linked accounts, skipping Agent X scrape');
+      return;
+    }
+
+    const user = this.authFlow.user();
+    if (!user?.uid) {
+      this.logger.warn('No authenticated user, skipping Agent X scrape');
+      return;
+    }
+
+    const platformNames = connectedSources.map((s) => s.platform).join(', ');
+    const intent = `Scrape and analyze linked accounts for new athlete profile: ${platformNames}`;
+
+    const context: Record<string, unknown> = {
+      origin: 'onboarding',
+      step: 'link-sources',
+      role: formData.userType,
+      sport: formData.sport?.sports?.[0]?.sport,
+      linkedAccounts: connectedSources.map((s) => ({
+        platform: s.platform,
+        username: s.username,
+        url: s.url,
+      })),
+    };
+
+    this.logger.info('Triggering Agent X link-sources scrape', {
+      userId: user.uid,
+      platforms: platformNames,
+      count: connectedSources.length,
+    });
+
+    // Fire-and-forget — don't await, don't block the UI
+    void this.agentXJobService.enqueue(intent, context).then((result) => {
+      if (result) {
+        this.logger.info('Agent X scrape job enqueued', {
+          jobId: result.jobId,
+          operationId: result.operationId,
+        });
+      }
+    });
   }
 
   // ============================================

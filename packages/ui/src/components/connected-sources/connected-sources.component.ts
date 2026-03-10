@@ -1,20 +1,25 @@
 /**
  * @fileoverview Connected Data Sources Component
  * @module @nxt1/ui/components/connected-sources
- * @version 1.0.0
+ * @version 2.0.0
  *
  * Shared component that displays which platforms/data sources
- * are connected to a user's profile. Reusable across the entire app.
+ * are connected to a user's profile. Supports a segmented toggle
+ * to switch between "Linked" (paste URL/username) and "Signed In"
+ * (OAuth) connection modes.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output, signal, computed } from '@angular/core';
 import { NxtIconComponent, type IconName } from '../icon';
 
 // ============================================
 // TYPES
 // ============================================
+
+/** Connection mode for the segmented toggle */
+export type ConnectionMode = 'link' | 'signin';
 
 /**
  * A connected data source entry for display.
@@ -69,11 +74,32 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
   imports: [NxtIconComponent],
   template: `
     <section class="nxt1-list-section">
+      @if (showModeToggle()) {
+        <div class="nxt1-mode-toggle">
+          <button
+            type="button"
+            class="nxt1-mode-btn"
+            [class.nxt1-mode-btn--active]="activeMode() === 'link'"
+            (click)="setMode('link')"
+          >
+            Linked
+          </button>
+          <button
+            type="button"
+            class="nxt1-mode-btn"
+            [class.nxt1-mode-btn--active]="activeMode() === 'signin'"
+            (click)="setMode('signin')"
+          >
+            Signed In
+          </button>
+        </div>
+      }
+
       @if (title()) {
         <h2 class="nxt1-list-header">{{ title() }}</h2>
       }
       <div class="nxt1-list-group">
-        @for (source of sources(); track source.platform; let i = $index) {
+        @for (source of filteredSources(); track source.platform; let i = $index) {
           <button
             type="button"
             class="nxt1-source-row"
@@ -105,6 +131,41 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
     `
       :host {
         display: block;
+      }
+
+      /* ============================================
+         MODE TOGGLE (segmented control)
+         ============================================ */
+      .nxt1-mode-toggle {
+        display: flex;
+        border-radius: var(--nxt1-borderRadius-lg);
+        background: var(--nxt1-color-surface-200);
+        padding: var(--nxt1-spacing-0-5);
+        margin-bottom: var(--nxt1-spacing-5);
+      }
+
+      .nxt1-mode-btn {
+        appearance: none;
+        -webkit-appearance: none;
+        border: none;
+        background: transparent;
+        flex: 1;
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+        color: var(--nxt1-color-text-tertiary);
+        border-radius: var(--nxt1-borderRadius-md);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
+      }
+
+      .nxt1-mode-btn--active {
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-primary);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
       }
 
       /* ============================================
@@ -203,7 +264,7 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
       .nxt1-source-right {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-1-5);
+        gap: var(--nxt1-spacing-2);
         min-width: 0;
         justify-content: flex-end;
         flex: 1;
@@ -247,6 +308,31 @@ export class NxtConnectedSourcesComponent {
   /** Array of data sources to display. */
   readonly sources = input.required<readonly ConnectedSource[]>();
 
+  /** Whether to show the mode toggle (Linked / Signed In). */
+  readonly showModeToggle = input(false);
+
+  /** Initial active mode. Defaults to 'link'. */
+  readonly initialMode = input<ConnectionMode>('link');
+
   /** Emitted when a source row is tapped. */
   readonly sourceTap = output<ConnectedSourceTapEvent>();
+
+  /** Emitted when the user switches the mode toggle. */
+  readonly modeChange = output<ConnectionMode>();
+
+  /** Current active toggle mode */
+  readonly activeMode = signal<ConnectionMode>('link');
+
+  /** Sources filtered by the active mode (only when toggle is shown). */
+  readonly filteredSources = computed(() => {
+    const all = this.sources();
+    if (!this.showModeToggle()) return all;
+    const mode = this.activeMode();
+    return all.filter((s) => (s.connectionType ?? 'link') === mode);
+  });
+
+  setMode(mode: ConnectionMode): void {
+    this.activeMode.set(mode);
+    this.modeChange.emit(mode);
+  }
 }

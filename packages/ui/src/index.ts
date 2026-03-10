@@ -477,6 +477,9 @@ export {
   AgentXFabChatPanelComponent,
   AgentXFabService,
   type FabPanelState,
+  // Background Job Service
+  AgentXJobService,
+  AGENT_X_API_BASE_URL,
 } from './agent-x';
 
 // ============================================
