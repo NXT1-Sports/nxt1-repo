@@ -377,6 +377,7 @@ router.delete(
 
     logger.info('[Settings] Account deletion requested', { userId });
 
+    /*
     // Delete Firestore sub-collections in parallel
     const userRef = db.collection(USERS_COLLECTION).doc(userId);
     const subCollections = ['followers', 'following', 'sports', 'timeline', 'notifications'];
@@ -390,6 +391,8 @@ router.delete(
         await batch.commit();
       })
     );
+    */
+    const userRef = db.collection(USERS_COLLECTION).doc(userId);
 
     // Delete the user document itself
     await userRef.delete();

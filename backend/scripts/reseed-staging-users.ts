@@ -89,18 +89,21 @@ async function reseedUser(userId: string): Promise<void> {
     console.log(`  ✅ Updated ${Object.keys(updates).length} fields`);
   }
 
+  /*
   // ─── Tag existing posts, videos, schedule with sport ────────────────────────
   await tagSubcollectionWithSport(userRef, 'timeline', userData);
   await tagSubcollectionWithSport(userRef, 'videos', userData);
   await tagSubcollectionWithSport(userRef, 'schedule', userData);
   await tagSubcollectionWithSport(userRef, 'recruiting', userData);
+  */
 
   console.log(`  ✅ Completed reseeding for user ${userId}`);
 }
 
+/*
 /**
  * Tag subcollection documents with sport field if missing
- */
+ * /
 async function tagSubcollectionWithSport(
   userRef: FirebaseFirestore.DocumentReference,
   collectionName: string,
@@ -141,6 +144,7 @@ async function tagSubcollectionWithSport(
     console.log(`  ⊘ All ${collectionName} documents already tagged`);
   }
 }
+*/
 
 // ─── Main execution ───────────────────────────────────────────────────────────
 (async () => {
