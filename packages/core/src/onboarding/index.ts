@@ -121,6 +121,7 @@ export {
   type LinkSourcesFormData,
   type LinkSourceEntry,
   type PlatformConnectionType,
+  type PlatformScope,
   type PlatformCategory,
   type PlatformDefinition,
   PLATFORM_REGISTRY,

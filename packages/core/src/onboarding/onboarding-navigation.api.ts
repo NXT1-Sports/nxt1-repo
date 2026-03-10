@@ -363,6 +363,16 @@ export interface LinkSourceEntry {
   username?: string;
   /** Profile URL */
   url?: string;
+  /**
+   * Scope of this entry:
+   * - 'global' — applies to all sports/teams (e.g., Instagram, Twitter)
+   * - 'sport'  — specific to one sport (e.g., Hudl Football profile)
+   * - 'team'   — specific to one team (coach's program-specific profile)
+   * Omitted = 'global' (backward compatible)
+   */
+  scopeType?: 'global' | 'sport' | 'team';
+  /** Sport key or team ID when scoped */
+  scopeId?: string;
 }
 
 // ============================================
@@ -371,6 +381,16 @@ export interface LinkSourceEntry {
 
 /** Connection method: 'link' = paste URL/username, 'signin' = OAuth sign-in */
 export type PlatformConnectionType = 'link' | 'signin';
+
+/**
+ * Platform scope — determines whether a platform's links are global
+ * or scoped to a specific sport/team.
+ *
+ * - 'global' — One link applies everywhere (Instagram, Twitter, YouTube)
+ * - 'sport'  — Per-sport profiles (Hudl, MaxPreps, Perfect Game)
+ * - 'team'   — Per-team profiles (mostly for coaches managing multiple programs)
+ */
+export type PlatformScope = 'global' | 'sport' | 'team';
 
 /** Platform category for grouping in the UI */
 export type PlatformCategory = 'social' | 'film' | 'recruiting' | 'stats';
@@ -387,6 +407,13 @@ export interface PlatformDefinition {
   readonly connectionType: PlatformConnectionType;
   /** Category for section grouping */
   readonly category: PlatformCategory;
+  /**
+   * Whether this platform's links are global or per-sport/team.
+   * - 'global' — One link across all sports (social media)
+   * - 'sport'  — User links separately per sport (film, stats, recruiting)
+   * - 'team'   — User links separately per team (coach programs)
+   */
+  readonly scope: PlatformScope;
   /** Sports this platform is relevant for (empty = all sports) */
   readonly sports: readonly string[];
   /** Input placeholder text */
@@ -401,13 +428,14 @@ export interface PlatformDefinition {
  * ⭐ PURE DATA - No dependencies
  */
 export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
-  // ---- Social ----
+  // ---- Social (global — one link across all sports) ----
   {
     platform: 'instagram',
     label: 'Instagram',
     icon: 'instagram',
     connectionType: 'link',
     category: 'social',
+    scope: 'global',
     sports: [],
     placeholder: '@username',
   },
@@ -417,6 +445,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     icon: 'twitter',
     connectionType: 'link',
     category: 'social',
+    scope: 'global',
     sports: [],
     placeholder: '@username',
   },
@@ -426,6 +455,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     icon: 'tiktok',
     connectionType: 'link',
     category: 'social',
+    scope: 'global',
     sports: [],
     placeholder: '@username',
   },
@@ -435,17 +465,59 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     icon: 'youtube',
     connectionType: 'link',
     category: 'social',
+    scope: 'global',
     sports: [],
     placeholder: 'Channel URL',
   },
+  {
+    platform: 'snapchat',
+    label: 'Snapchat',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'social',
+    scope: 'global',
+    sports: [],
+    placeholder: '@username',
+  },
+  {
+    platform: 'facebook',
+    label: 'Facebook',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'social',
+    scope: 'global',
+    sports: [],
+    placeholder: 'Profile URL',
+  },
+  {
+    platform: 'linkedin',
+    label: 'LinkedIn',
+    icon: 'linkedin',
+    connectionType: 'link',
+    category: 'social',
+    scope: 'global',
+    sports: [],
+    placeholder: 'Profile URL',
+  },
+  {
+    platform: 'threads',
+    label: 'Threads',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'social',
+    scope: 'global',
+    sports: [],
+    placeholder: '@username',
+  },
 
-  // ---- Film & Highlights ----
+  // ---- Film & Highlights (sport-scoped — different per sport) ----
   {
     platform: 'hudl',
     label: 'Hudl',
     icon: 'link',
     connectionType: 'link',
     category: 'film',
+    scope: 'sport',
     sports: [
       'football',
       'basketball',
@@ -460,34 +532,127 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     ],
     placeholder: 'Hudl profile URL',
   },
+  {
+    platform: 'gamefilm',
+    label: 'Game Film',
+    icon: 'videocam',
+    connectionType: 'link',
+    category: 'film',
+    scope: 'sport',
+    sports: [],
+    placeholder: 'Game Film profile URL',
+  },
+  {
+    platform: 'krossover',
+    label: 'Krossover',
+    icon: 'videocam',
+    connectionType: 'link',
+    category: 'film',
+    scope: 'sport',
+    sports: ['basketball', 'soccer', 'volleyball', 'lacrosse', 'ice_hockey', 'field_hockey'],
+    placeholder: 'Krossover profile URL',
+  },
+  {
+    platform: 'veo',
+    label: 'Veo',
+    icon: 'videocam',
+    connectionType: 'link',
+    category: 'film',
+    scope: 'sport',
+    sports: ['soccer', 'lacrosse', 'field_hockey', 'basketball', 'volleyball'],
+    placeholder: 'Veo profile URL',
+  },
 
-  // ---- Recruiting ----
+  // ---- Recruiting (sport-scoped) ----
   {
     platform: 'ncsa',
     label: 'NCSA',
-    icon: 'link',
+    icon: 'recruiting-service',
     connectionType: 'link',
     category: 'recruiting',
+    scope: 'sport',
     sports: [],
     placeholder: 'NCSA profile URL',
   },
   {
     platform: 'ncsasports',
     label: 'NCSASports',
-    icon: 'link',
+    icon: 'recruiting-service',
     connectionType: 'link',
     category: 'recruiting',
+    scope: 'sport',
     sports: [],
     placeholder: 'NCSASports profile URL',
   },
+  {
+    platform: 'fieldlevel',
+    label: 'FieldLevel',
+    icon: 'recruiting-service',
+    connectionType: 'link',
+    category: 'recruiting',
+    scope: 'sport',
+    sports: [],
+    placeholder: 'FieldLevel profile URL',
+  },
+  {
+    platform: 'captainu',
+    label: 'CaptainU',
+    icon: 'recruiting-service',
+    connectionType: 'link',
+    category: 'recruiting',
+    scope: 'sport',
+    sports: [],
+    placeholder: 'CaptainU profile URL',
+  },
+  {
+    platform: 'sportsrecruits',
+    label: 'SportsRecruits',
+    icon: 'recruiting-service',
+    connectionType: 'link',
+    category: 'recruiting',
+    scope: 'sport',
+    sports: [],
+    placeholder: 'SportsRecruits profile URL',
+  },
+  {
+    platform: 'collegeathtrack',
+    label: 'College Ath Track',
+    icon: 'recruiting-service',
+    connectionType: 'link',
+    category: 'recruiting',
+    scope: 'sport',
+    sports: ['track_field', 'cross_country'],
+    placeholder: 'College Athletic Track profile URL',
+  },
+  {
+    platform: 'connectlax',
+    label: 'ConnectLAX',
+    icon: 'recruiting-service',
+    connectionType: 'link',
+    category: 'recruiting',
+    scope: 'sport',
+    sports: ['lacrosse'],
+    placeholder: 'ConnectLAX profile URL',
+  },
+  {
+    platform: 'berecruited',
+    label: 'BeRecruited',
+    icon: 'recruiting-service',
+    connectionType: 'link',
+    category: 'recruiting',
+    scope: 'sport',
+    sports: [],
+    placeholder: 'BeRecruited profile URL',
+  },
 
-  // ---- Stats ----
+  // ---- Stats (sport-scoped — different profiles per sport) ----
   {
     platform: 'maxpreps',
     label: 'MaxPreps',
     icon: 'link',
     connectionType: 'link',
     category: 'stats',
+    scope: 'sport',
     sports: [
       'football',
       'basketball',
@@ -513,6 +678,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     icon: 'link',
     connectionType: 'link',
     category: 'stats',
+    scope: 'sport',
     sports: ['baseball', 'softball'],
     placeholder: 'Perfect Game profile URL',
   },
@@ -522,17 +688,149 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     icon: 'link',
     connectionType: 'link',
     category: 'stats',
+    scope: 'sport',
     sports: ['baseball'],
     placeholder: 'PBR profile URL',
   },
+  {
+    platform: '247sports',
+    label: '247Sports',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['football', 'basketball'],
+    placeholder: '247Sports profile URL',
+  },
+  {
+    platform: 'rivals',
+    label: 'Rivals',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['football', 'basketball'],
+    placeholder: 'Rivals profile URL',
+  },
+  {
+    platform: 'athletic',
+    label: 'Athletic.net',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['track_field', 'cross_country'],
+    placeholder: 'Athletic.net profile URL',
+  },
+  {
+    platform: 'milesplit',
+    label: 'MileSplit',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['track_field', 'cross_country'],
+    placeholder: 'MileSplit profile URL',
+  },
+  {
+    platform: 'swimcloud',
+    label: 'SwimCloud',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['swimming_diving'],
+    placeholder: 'SwimCloud profile URL',
+  },
+  {
+    platform: 'trackwrestling',
+    label: 'TrackWrestling',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['wrestling'],
+    placeholder: 'TrackWrestling profile URL',
+  },
+  {
+    platform: 'tennisrecruiting',
+    label: 'TennisRecruiting.net',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['tennis'],
+    placeholder: 'TennisRecruiting profile URL',
+  },
+  {
+    platform: 'usta',
+    label: 'USTA',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['tennis'],
+    placeholder: 'USTA profile URL',
+  },
+  {
+    platform: 'juniortennis',
+    label: 'Junior Tennis',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['tennis'],
+    placeholder: 'Junior Tennis profile URL',
+  },
+  {
+    platform: 'prepsoccer',
+    label: 'PrepSoccer',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['soccer'],
+    placeholder: 'PrepSoccer profile URL',
+  },
+  {
+    platform: 'usyouthsoccer',
+    label: 'US Youth Soccer',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['soccer'],
+    placeholder: 'US Youth Soccer profile URL',
+  },
+  {
+    platform: 'golfstat',
+    label: 'Golfstat',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['golf'],
+    placeholder: 'Golfstat profile URL',
+  },
+  {
+    platform: 'juniorgolf',
+    label: 'Junior Golf Scoreboard',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['golf'],
+    placeholder: 'Junior Golf profile URL',
+  },
 
-  // ---- Sign-In (OAuth-connected accounts) ----
+  // ---- Sign-In (global — OAuth-connected accounts) ----
   {
     platform: 'google',
     label: 'Google',
     icon: 'google',
     connectionType: 'signin',
     category: 'social',
+    scope: 'global',
     sports: [],
     placeholder: 'Sign in with Google',
   },
@@ -542,6 +840,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     icon: 'microsoft',
     connectionType: 'signin',
     category: 'social',
+    scope: 'global',
     sports: [],
     placeholder: 'Sign in with Microsoft',
   },
@@ -551,6 +850,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     icon: 'yahoo',
     connectionType: 'signin',
     category: 'social',
+    scope: 'global',
     sports: [],
     placeholder: 'Sign in with Yahoo',
   },

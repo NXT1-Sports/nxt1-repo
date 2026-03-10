@@ -794,13 +794,17 @@ router.post(
       updateData.organization = profileData['organization'] as string;
 
     // V2: Build social array from link sources (connected accounts)
+    // Supports scoped links: scopeType = 'global' | 'sport' | 'team', scopeId = sport key or team ID
     const linkSources = profileData['linkSources'] as
       | {
           links?: Array<{
             platform?: string;
             connected?: boolean;
+            connectionType?: string;
             username?: string;
             url?: string;
+            scopeType?: string;
+            scopeId?: string;
           }>;
         }
       | undefined;
@@ -808,23 +812,32 @@ router.post(
       const existingSocial: UserSocialLink[] = Array.isArray(currentUser?.social)
         ? (currentUser.social as UserSocialLink[])
         : [];
+      // Key social links by "platform" or "platform::scopeId" to support scoped entries
       const socialMap = new Map<string, UserSocialLink>();
       for (const link of existingSocial) {
-        socialMap.set(link.platform.toLowerCase(), link);
+        const key = (link as UserSocialLink & { scopeType?: string; scopeId?: string }).scopeId
+          ? `${link.platform.toLowerCase()}::${(link as UserSocialLink & { scopeId?: string }).scopeId}`
+          : link.platform.toLowerCase();
+        socialMap.set(key, link);
       }
       let socialOrder = socialMap.size;
       for (const link of linkSources.links) {
         if (link.connected && link.platform) {
           const platform = link.platform.toLowerCase();
+          const scope = link.scopeType ?? 'global';
+          const scopeId = link.scopeId;
+          const key = scopeId ? `${platform}::${scopeId}` : platform;
           const value = link.url ?? link.username ?? '';
-          const existing = socialMap.get(platform);
-          socialMap.set(platform, {
+          const existing = socialMap.get(key);
+          socialMap.set(key, {
             platform,
             url: value.startsWith('http') ? value : `https://${platform}.com/${value}`,
             username: link.username,
             displayOrder: existing?.displayOrder ?? socialOrder++,
             verified: false,
-          });
+            ...(scope !== 'global' && { scopeType: scope }),
+            ...(scopeId && { scopeId }),
+          } as UserSocialLink);
         }
       }
       if (socialMap.size > 0) {
@@ -1140,26 +1153,37 @@ router.post(
               connected?: boolean;
               username?: string;
               url?: string;
+              connectionType?: string;
+              scopeType?: string;
+              scopeId?: string;
             }>)
           : [];
 
+        // Key by "platform" or "platform::scopeId" to support scoped entries
         const socialMap = new Map<string, UserSocialLink>();
         for (const link of existingSocial) {
-          socialMap.set(link.platform.toLowerCase(), link);
+          const k = (link as UserSocialLink & { scopeId?: string }).scopeId
+            ? `${link.platform.toLowerCase()}::${(link as UserSocialLink & { scopeId?: string }).scopeId}`
+            : link.platform.toLowerCase();
+          socialMap.set(k, link);
         }
         let linkOrder = socialMap.size;
         for (const link of links) {
           if (link.connected && link.platform) {
             const platform = link.platform.toLowerCase();
+            const key = link.scopeId ? `${platform}::${link.scopeId}` : platform;
             const value = link.url ?? link.username ?? '';
-            const existing = socialMap.get(platform);
-            socialMap.set(platform, {
+            const existing = socialMap.get(key);
+            socialMap.set(key, {
               platform,
               url: value.startsWith('http') ? value : `https://${platform}.com/${value}`,
               username: link.username,
               displayOrder: existing?.displayOrder ?? linkOrder++,
               verified: false,
-            });
+              ...(link.scopeType && link.scopeType !== 'global'
+                ? { scopeType: link.scopeType, scopeId: link.scopeId }
+                : {}),
+            } as UserSocialLink);
           }
         }
         if (socialMap.size > 0) {

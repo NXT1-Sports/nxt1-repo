@@ -11,7 +11,15 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { ChangeDetectionStrategy, Component, input, output, signal, computed } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  effect,
+  input,
+  output,
+  signal,
+  computed,
+} from '@angular/core';
 import { NxtIconComponent, type IconName } from '../icon';
 
 // ============================================
@@ -40,6 +48,10 @@ export interface ConnectedSource {
   readonly url?: string;
   /** Connection method display hint: 'link' = paste URL, 'signin' = sign in */
   readonly connectionType?: 'link' | 'signin';
+  /** Scope: 'global' | 'sport' | 'team' */
+  readonly scopeType?: 'global' | 'sport' | 'team';
+  /** Sport key or team ID when scoped */
+  readonly scopeId?: string;
 }
 
 /**
@@ -96,35 +108,55 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
       }
 
       @if (title()) {
-        <h2 class="nxt1-list-header">{{ title() }}</h2>
+        <button
+          type="button"
+          class="nxt1-list-header"
+          [class.nxt1-list-header--collapsible]="collapsible()"
+          (click)="toggleExpanded()"
+        >
+          <span class="nxt1-list-header-text">{{ title() }}</span>
+          @if (collapsible()) {
+            <nxt1-icon
+              [name]="expanded() ? 'chevronUp' : 'chevronDown'"
+              [size]="14"
+              class="nxt1-list-header-chevron"
+            />
+          }
+        </button>
       }
-      <div class="nxt1-list-group">
-        @for (source of filteredSources(); track source.platform; let i = $index) {
-          <button
-            type="button"
-            class="nxt1-source-row"
-            (click)="sourceTap.emit({ source, index: i })"
-          >
-            <div class="nxt1-source-left">
-              <div class="nxt1-source-icon" [class.nxt1-source-icon--connected]="source.connected">
-                <nxt1-icon [name]="source.icon" [size]="18" />
+      @if (expanded()) {
+        <div class="nxt1-list-group">
+          @for (source of filteredSources(); track source.platform; let i = $index) {
+            <button
+              type="button"
+              class="nxt1-source-row"
+              [attr.data-testid]="'link-sources-source-row-' + source.platform"
+              (click)="sourceTap.emit({ source, index: i })"
+            >
+              <div class="nxt1-source-left">
+                <div
+                  class="nxt1-source-icon"
+                  [class.nxt1-source-icon--connected]="source.connected"
+                >
+                  <nxt1-icon [name]="source.icon" [size]="18" />
+                </div>
+                <span class="nxt1-source-label">{{ source.label }}</span>
               </div>
-              <span class="nxt1-source-label">{{ source.label }}</span>
-            </div>
-            <div class="nxt1-source-right">
-              @if (source.connected) {
-                <span class="nxt1-source-username">{{ source.username || 'Connected' }}</span>
-                <nxt1-icon name="checkmarkCircle" [size]="16" class="nxt1-source-check" />
-              } @else {
-                <span class="nxt1-source-connect">{{
-                  source.connectionType === 'signin' ? 'Sign in' : 'Link'
-                }}</span>
-                <nxt1-icon name="chevronForward" [size]="14" class="nxt1-source-chevron" />
-              }
-            </div>
-          </button>
-        }
-      </div>
+              <div class="nxt1-source-right">
+                @if (source.connected) {
+                  <span class="nxt1-source-username">{{ source.username || 'Connected' }}</span>
+                  <nxt1-icon name="checkmarkCircle" [size]="16" class="nxt1-source-check" />
+                } @else {
+                  <span class="nxt1-source-connect">{{
+                    source.connectionType === 'signin' ? 'Sign in' : 'Link'
+                  }}</span>
+                  <nxt1-icon name="chevronForward" [size]="14" class="nxt1-source-chevron" />
+                }
+              </div>
+            </button>
+          }
+        </div>
+      }
     </section>
   `,
   styles: [
@@ -177,15 +209,45 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
       }
 
       .nxt1-list-header {
+        appearance: none;
+        -webkit-appearance: none;
+        border: none;
+        background: transparent;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
         margin: 0;
-        padding: 0 var(--nxt1-spacing-1);
-        padding-bottom: var(--nxt1-spacing-2);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-1);
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-xs);
         font-weight: var(--nxt1-fontWeight-medium);
         color: var(--nxt1-color-text-tertiary);
         text-transform: none;
         letter-spacing: normal;
+        text-align: left;
+        cursor: default;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-list-header--collapsible {
+        cursor: pointer;
+        border-radius: var(--nxt1-borderRadius-md);
+        transition: background var(--nxt1-duration-fast) var(--nxt1-easing-out);
+      }
+
+      .nxt1-list-header--collapsible:active {
+        background: var(--nxt1-color-surface-200);
+      }
+
+      .nxt1-list-header-text {
+        flex: 1;
+      }
+
+      .nxt1-list-header-chevron {
+        flex-shrink: 0;
+        color: var(--nxt1-color-text-tertiary);
+        transition: transform var(--nxt1-duration-fast) var(--nxt1-easing-out);
       }
 
       .nxt1-list-group {
@@ -311,6 +373,12 @@ export class NxtConnectedSourcesComponent {
   /** Whether to show the mode toggle (Linked / Signed In). */
   readonly showModeToggle = input(false);
 
+  /** Whether the section is collapsible (accordion). */
+  readonly collapsible = input(false);
+
+  /** Whether the section starts expanded. Defaults to true. */
+  readonly initialExpanded = input(true);
+
   /** Initial active mode. Defaults to 'link'. */
   readonly initialMode = input<ConnectionMode>('link');
 
@@ -323,6 +391,9 @@ export class NxtConnectedSourcesComponent {
   /** Current active toggle mode */
   readonly activeMode = signal<ConnectionMode>('link');
 
+  /** Expanded/collapsed state */
+  readonly expanded = signal(true);
+
   /** Sources filtered by the active mode (only when toggle is shown). */
   readonly filteredSources = computed(() => {
     const all = this.sources();
@@ -330,6 +401,17 @@ export class NxtConnectedSourcesComponent {
     const mode = this.activeMode();
     return all.filter((s) => (s.connectionType ?? 'link') === mode);
   });
+
+  constructor() {
+    effect(() => {
+      this.expanded.set(this.initialExpanded());
+    });
+  }
+
+  toggleExpanded(): void {
+    if (!this.collapsible()) return;
+    this.expanded.update((v) => !v);
+  }
 
   setMode(mode: ConnectionMode): void {
     this.activeMode.set(mode);

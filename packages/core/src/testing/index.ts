@@ -442,6 +442,38 @@ export const SETTINGS_TEST_IDS = {
   DELETE_ACCOUNT_ITEM: 'accountDelete',
 } as const;
 
+// ============================================
+// LINK SOURCES / CONNECTED ACCOUNTS TEST IDS
+// Defined in packages/ui/src/onboarding/onboarding-link-drop-step/
+// and packages/ui/src/components/connected-sources/
+// ============================================
+
+/**
+ * Test IDs for the Link Sources onboarding step and connected sources UI.
+ */
+export const LINK_SOURCES_TEST_IDS = {
+  /** Step container */
+  CONTAINER: 'link-sources-container',
+  /** Mode toggle wrapper */
+  MODE_TOGGLE: 'link-sources-mode-toggle',
+  /** Linked mode button */
+  MODE_LINK_BTN: 'link-sources-mode-link',
+  /** Signed In mode button */
+  MODE_SIGNIN_BTN: 'link-sources-mode-signin',
+  /** Sport filter bar */
+  SPORT_FILTER: 'link-sources-sport-filter',
+  /** Individual sport pill */
+  SPORT_PILL: 'link-sources-sport-pill',
+  /** Platform group wrapper */
+  GROUP: 'link-sources-group',
+  /** Group header / accordion title */
+  GROUP_HEADER: 'link-sources-group-header',
+  /** Individual source row */
+  SOURCE_ROW: 'link-sources-source-row',
+  /** Empty state */
+  EMPTY_STATE: 'link-sources-empty-state',
+} as const;
+
 /**
  * Brand Vault test IDs
  */
@@ -470,6 +502,7 @@ export const TEST_IDS = {
   ONBOARDING_PAGE: ONBOARDING_PAGE_TEST_IDS,
   COMMON: COMMON_TEST_IDS,
   AGENT_ONBOARDING: AGENT_ONBOARDING_TEST_IDS,
+  LINK_SOURCES: LINK_SOURCES_TEST_IDS,
   BRAND: BRAND_TEST_IDS,
   SETTINGS: SETTINGS_TEST_IDS,
 } as const;
@@ -481,6 +514,7 @@ export type OnboardingTestId = (typeof ONBOARDING_TEST_IDS)[keyof typeof ONBOARD
 export type OnboardingPageTestId =
   (typeof ONBOARDING_PAGE_TEST_IDS)[keyof typeof ONBOARDING_PAGE_TEST_IDS];
 export type CommonTestId = (typeof COMMON_TEST_IDS)[keyof typeof COMMON_TEST_IDS];
+export type LinkSourcesTestId = (typeof LINK_SOURCES_TEST_IDS)[keyof typeof LINK_SOURCES_TEST_IDS];
 export type BrandTestId = (typeof BRAND_TEST_IDS)[keyof typeof BRAND_TEST_IDS];
 
 // ============================================

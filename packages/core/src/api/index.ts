@@ -163,6 +163,7 @@ export {
   type LinkSourceEntry,
   // Platform registry (sport-categorized link platforms)
   type PlatformConnectionType,
+  type PlatformScope,
   type PlatformCategory,
   type PlatformDefinition,
   PLATFORM_REGISTRY,

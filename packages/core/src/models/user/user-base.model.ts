@@ -78,6 +78,21 @@ export interface SocialLink {
   displayOrder?: number;
   /** Whether this link has been verified by the platform or Agent X */
   verified?: boolean;
+  /**
+   * Scope of this link:
+   * - 'global' — applies across all sports/teams (social media, personal brand)
+   * - 'sport'  — specific to one sport (e.g., Hudl for Football vs Basketball)
+   * - 'team'   — specific to one team (coaches managing multiple programs)
+   * Omitted or undefined = 'global' (backward compatible)
+   */
+  scopeType?: 'global' | 'sport' | 'team';
+  /**
+   * Context key when scoped:
+   * - When scopeType='sport': sport key (e.g., 'football', 'basketball')
+   * - When scopeType='team': team identifier
+   * Omitted when scopeType='global' or undefined
+   */
+  scopeId?: string;
 }
 
 // ============================================
@@ -102,6 +117,10 @@ export interface ConnectedSource {
   syncedFields?: string[];
   /** Error message if sync failed */
   lastError?: string;
+  /** Scope: 'global' | 'sport' | 'team' (default: 'global') */
+  scopeType?: 'global' | 'sport' | 'team';
+  /** Sport key or team ID when scoped */
+  scopeId?: string;
 }
 
 // ============================================

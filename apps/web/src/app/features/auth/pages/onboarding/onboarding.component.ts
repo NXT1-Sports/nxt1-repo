@@ -1030,6 +1030,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         platform: s.platform,
         username: s.username,
         url: s.url,
+        ...(s.scopeType && s.scopeType !== 'global'
+          ? { scopeType: s.scopeType, scopeId: s.scopeId }
+          : {}),
       })),
     };
 

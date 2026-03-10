@@ -605,6 +605,18 @@ export const APP_EVENTS = {
   BRAND_CATEGORY_SELECTED: 'brand_category_selected',
   /** Agent X chat opened from brand category */
   BRAND_AGENT_CHAT_OPENED: 'brand_agent_chat_opened',
+
+  // ============================================
+  // LINK SOURCES / CONNECTED ACCOUNTS EVENTS
+  // ============================================
+  /** User switched between Linked and Signed In modes */
+  LINK_SOURCES_MODE_SWITCHED: 'link_sources_mode_switched',
+  /** User changed the sport filter */
+  LINK_SOURCES_SPORT_FILTERED: 'link_sources_sport_filtered',
+  /** User connected or updated a link source */
+  LINK_SOURCE_CONNECTED: 'link_source_connected',
+  /** User expanded/collapsed a category accordion */
+  LINK_SOURCES_CATEGORY_TOGGLED: 'link_sources_category_toggled',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];
