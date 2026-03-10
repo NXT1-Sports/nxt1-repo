@@ -264,19 +264,6 @@ export interface RecruitingActivity {
   updatedAt?: Date | string;
 }
 
-// ── Deprecated type aliases (backward compatibility) ──
-
-/** @deprecated Use RecruitingActivity with category: 'offer' instead. */
-export type CollegeOffer = RecruitingActivity;
-/** @deprecated Use RecruitingActivity with category: 'interest' | 'visit' | 'camp' | 'contact' instead. */
-export type CollegeInteraction = RecruitingActivity;
-/** @deprecated Use RecruitingActivity with category: 'commitment' instead. */
-export type Commitment = RecruitingActivity;
-
-// ============================================
-// RECRUITING SUMMARY (denormalized on SportProfile)
-// ============================================
-
 /**
  * Lean recruiting summary stored on SportProfile.
  * Full activity data lives in users/{uid}/recruiting/{activityId} sub-collection.

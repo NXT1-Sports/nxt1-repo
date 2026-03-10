@@ -83,17 +83,11 @@ export {
   // Agent X & Scouting (source-of-truth domain types)
   type PlayerArchetype,
   type AgentXTrait,
-  // @deprecated — use VerifiedMetric[] / VerifiedStat[] instead
-  type AthleticMetrics,
   type SeasonStats,
   type SeasonRecord,
   // Recruiting (2026 unified architecture)
   type RecruitingActivity,
   type RecruitingCategory,
-  // @deprecated — use RecruitingActivity instead
-  type CollegeOffer,
-  type CollegeInteraction,
-  type Commitment,
   type RecruitingSummary,
   type SportProfile,
   type SportVerification,
@@ -110,13 +104,9 @@ export {
   type UserCounters,
   type AthleteData,
   type CoachData,
-  type CollegeCoachData,
   type DirectorData,
-  type ScoutData,
-  type RecruitingServiceData,
-  type MediaData,
+  type RecruiterData,
   type ParentData,
-  type FanData,
   type Post,
   type User,
   type UserSummary,

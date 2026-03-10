@@ -49,7 +49,7 @@
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean && rm -rf node_modules .turbo",
     "clean:cache": "turbo daemon clean",
-    "prepare": "husky",
+    "prepare": "husky || true",
     "twitter:unfollow": "tsx scripts/twitter-unfollow.ts",
     "deploy:staging": "turbo run deploy:staging",
     "deploy:prod": "turbo run deploy:prod",
@@ -89,7 +89,7 @@
     "lint-staged": "^16.1.0",
     "prettier": "^3.5.0",
     "prettier-plugin-tailwindcss": "^0.7.2",
-    "tailwindcss": "^4.1.18",
+    "tailwindcss": "^3.4.19",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.52.0"

@@ -25,7 +25,6 @@ import {
   type SportProfile,
   type AthleteData,
   type CoachData,
-  type CollegeCoachData,
   type RecruiterData,
 } from './user.model';
 
@@ -107,10 +106,14 @@ describe('User Model Type Guards', () => {
   });
 
   describe('isCollegeCoach (deprecated — wraps isRecruiter)', () => {
-    it('should return true for recruiter role with collegeCoach data', () => {
+    it('should return true for recruiter role with recruiter data', () => {
       const user = createMockUser({
         role: 'recruiter',
-        collegeCoach: { title: 'Assistant Coach', institution: 'State U' } as CollegeCoachData,
+        recruiter: {
+          recruiterType: 'college_coach',
+          title: 'Assistant Coach',
+          institution: 'State U',
+        } as RecruiterData,
       });
       expect(isCollegeCoach(user)).toBe(true);
     });
@@ -126,14 +129,6 @@ describe('User Model Type Guards', () => {
       const user = createMockUser({
         role: 'recruiter',
         recruiter: { recruiterType: 'college_coach', institution: 'State U' } as RecruiterData,
-      });
-      expect(isRecruiter(user)).toBe(true);
-    });
-
-    it('should return true for recruiter role with legacy collegeCoach data', () => {
-      const user = createMockUser({
-        role: 'recruiter',
-        collegeCoach: { title: 'Head Coach', institution: 'State U' } as CollegeCoachData,
       });
       expect(isRecruiter(user)).toBe(true);
     });

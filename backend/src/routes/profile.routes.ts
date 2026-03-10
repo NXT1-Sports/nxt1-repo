@@ -90,13 +90,9 @@ type UserFirestoreDoc = DocumentData & {
   // Role-specific data
   athlete?: Record<string, unknown>;
   coach?: Record<string, unknown>;
-  collegeCoach?: Record<string, unknown>;
   director?: Record<string, unknown>;
-  scout?: Record<string, unknown>;
-  recruitingService?: Record<string, unknown>;
-  media?: Record<string, unknown>;
+  recruiter?: Record<string, unknown>;
   parent?: Record<string, unknown>;
-  fan?: Record<string, unknown>;
 
   // Verification & AI
   verificationStatus?: string;
@@ -1094,11 +1090,6 @@ router.put(
       'director',
       'recruiter',
       'parent',
-      // Legacy role data (backward compat for existing docs)
-      'collegeCoach',
-      'scout',
-      'recruitingService',
-      'media',
       // Preferences
       'preferences',
     ];

@@ -86,11 +86,27 @@ import type { SportProfile } from '@nxt1/core';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const USERS_COL = 'Users';
+const PLAYER_STATS_COL = 'PlayerStats'; // top-level: PlayerStats/{userId}_{sportId}_{season}
 const POSTS_COL = 'Posts'; // top-level: Posts/{postId}
 const NEWS_COL = 'News'; // top-level: News/{articleId}
 const SCOUT_COL = 'ScoutReports'; // top-level: ScoutReports/{reportId}
 const RANKINGS_COL = 'Rankings'; // top-level: Rankings/{rankingId}
+const VIDEOS_COL = 'Videos'; // top-level: Videos/{videoId}
+const OFFERS_COL = 'Offers'; // top-level: Offers/{offerId}
+const INTERACTIONS_COL = 'Interactions'; // top-level: Interactions/{interactionId}
+const FOLLOWS_COL = 'Follows'; // top-level: Follows/{followerId}_{followingId}
 type BatchOp = (batch: FirebaseFirestore.WriteBatch) => void;
+
+// Helper to remove undefined values (Firestore rejects them)
+function removeUndefined<T extends Record<string, unknown>>(obj: T): T {
+  const clean = {} as T;
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      clean[key as keyof T] = value as T[keyof T];
+    }
+  }
+  return clean;
+}
 
 async function commitBatches(ops: BatchOp[]): Promise<void> {
   const CHUNK = 499;
@@ -199,11 +215,11 @@ async function runSeed(userId: string): Promise<void> {
 
   const mergedFootball: SportProfile = {
     ...footballSport,
-    verifiedStats,
+    // verifiedStats moved to PlayerStats collection
     verifiedMetrics,
-    upcomingEvents: scheduleEvents,
-    recruitingActivities,
-    featuredStats,
+    upcomingEvents: scheduleEvents, // ← denormalized for fast profile load
+    // recruitingActivities moved to Offers/Interactions collections
+    featuredStats, // ← Agent X curated top stats for instant profile load
     featuredMetrics,
     coach: profileFields.coachContact,
     verifiedGameLog: buildFootballGameLog(userId),
@@ -211,11 +227,11 @@ async function runSeed(userId: string): Promise<void> {
 
   const mergedBasketball: SportProfile = {
     ...basketballSport,
-    verifiedStats: bbStats,
+    // verifiedStats moved to PlayerStats collection
     verifiedMetrics: bbMetrics,
-    upcomingEvents: bbScheduleEvents,
-    recruitingActivities: bbRecruitingActivities,
-    featuredStats: bbFeaturedStats,
+    upcomingEvents: bbScheduleEvents, // ← denormalized for fast profile load
+    // recruitingActivities moved to Offers/Interactions collections
+    featuredStats: bbFeaturedStats, // ← Agent X curated top stats
     featuredMetrics: bbFeaturedMetrics,
     verifiedGameLog: buildBasketballGameLog(userId),
   } as SportProfile;
@@ -236,20 +252,93 @@ async function runSeed(userId: string): Promise<void> {
   // ── Collect batch ops ────────────────────────────────────────────────────
   const ops: BatchOp[] = [];
 
-  const scheduleCol = userRef.collection('schedule');
-  const recruitingCol = userRef.collection('recruiting');
-  const videosCol = userRef.collection('videos');
+  // Schedule events — denormalized only (no collection writes)
+  // upcomingEvents already embedded in SportProfile above
 
-  // Schedule
-  [...scheduleEvents, ...bbScheduleEvents].forEach((e) =>
-    ops.push((b) => b.set(scheduleCol.doc(e.id), { ...e, updatedAt: now }))
+  // Recruiting — top-level Offers and Interactions collections
+  [...recruitingActivities, ...bbRecruitingActivities].forEach((activity) => {
+    const sportId = activity.sport === 'football' ? 'football' : 'basketball';
+    // Determine if it's an offer or interaction based on category
+    if (activity.category === 'offer') {
+      const offerDoc = {
+        ...activity,
+        userId,
+        sportId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      ops.push((b) => b.set(db.collection(OFFERS_COL).doc(activity.id), offerDoc));
+    } else {
+      const interactionDoc = {
+        ...activity,
+        userId,
+        sportId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      ops.push((b) => b.set(db.collection(INTERACTIONS_COL).doc(activity.id), interactionDoc));
+    }
+  });
+
+  // Player stats — top-level PlayerStats/{userId}_{sportId}_{season} collection
+  // One document per season per sport with ALL stats aggregated in stats[] array.
+  const season = '2025-2026';
+
+  // Football stats
+  const footballStatsDocId = `${userId}_football_${season}`;
+  const footballStatsDoc = {
+    id: footballStatsDocId,
+    userId,
+    sportId: 'football',
+    season,
+    position: 'QB',
+    stats: verifiedStats.map((s) =>
+      removeUndefined({
+        field: s.field,
+        label: s.label,
+        value: s.value,
+        unit: s.unit,
+        category: s.category,
+        verified: s.verified,
+        verifiedBy: s.verifiedBy,
+        dateRecorded: s.dateRecorded,
+      })
+    ),
+    source: 'maxpreps' as const,
+    verified: true,
+    createdAt: now,
+    updatedAt: now,
+  };
+  ops.push((b) => b.set(db.collection(PLAYER_STATS_COL).doc(footballStatsDocId), footballStatsDoc));
+
+  // Basketball stats
+  const basketballStatsDocId = `${userId}_basketball_${season}`;
+  const basketballStatsDoc = {
+    id: basketballStatsDocId,
+    userId,
+    sportId: 'basketball',
+    season,
+    position: 'Point Guard',
+    stats: bbStats.map((s) =>
+      removeUndefined({
+        field: s.field,
+        label: s.label,
+        value: s.value,
+        unit: s.unit,
+        category: s.category,
+        verified: s.verified,
+        verifiedBy: s.verifiedBy,
+        dateRecorded: s.dateRecorded,
+      })
+    ),
+    source: 'manual' as const,
+    verified: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+  ops.push((b) =>
+    b.set(db.collection(PLAYER_STATS_COL).doc(basketballStatsDocId), basketballStatsDoc)
   );
-  // Recruiting
-  [...recruitingActivities, ...bbRecruitingActivities].forEach((a) =>
-    ops.push((b) => b.set(recruitingCol.doc(a.id), a))
-  );
-  // NOTE: verifiedStats & verifiedMetrics are embedded directly in User.sports[]
-  // — no separate sub-collections needed. See mergedFootball / mergedBasketball above.
 
   // Timeline posts — top-level Posts/{postId}
   posts.forEach((post, i) => {
@@ -281,24 +370,17 @@ async function runSeed(userId: string): Promise<void> {
     ops.push((b) => b.set(db.collection(NEWS_COL).doc((a as { id: string }).id), a))
   );
 
-  // Follows
+  // Follows — top-level Follows/{followerId}_{followingId}
   follows.forEach((follow) => {
-    if (follow.followingId === userId) {
-      ops.push((b) =>
-        b.set(userRef.collection('followers').doc(follow.followerId), {
-          userId: follow.followerId,
-          followedAt: follow.createdAt,
-        })
-      );
-    }
-    if (follow.followerId === userId) {
-      ops.push((b) =>
-        b.set(userRef.collection('following').doc(follow.followingId), {
-          userId: follow.followingId,
-          followedAt: follow.createdAt,
-        })
-      );
-    }
+    const followDocId = `${follow.followerId}_${follow.followingId}`;
+    const followDoc = {
+      id: followDocId,
+      followerId: follow.followerId,
+      followingId: follow.followingId,
+      createdAt: follow.createdAt,
+      updatedAt: now,
+    };
+    ops.push((b) => b.set(db.collection(FOLLOWS_COL).doc(followDocId), followDoc));
   });
 
   // Rankings — top-level Rankings/{rankingId}
@@ -307,8 +389,17 @@ async function runSeed(userId: string): Promise<void> {
   scoutReports.forEach((r) =>
     ops.push((b) => b.set(db.collection(SCOUT_COL).doc((r as { id: string }).id), r))
   );
-  // Videos
-  videos.forEach((v) => ops.push((b) => b.set(videosCol.doc((v as { id: string }).id), v)));
+
+  // Videos — top-level Videos/{videoId}
+  videos.forEach((video) => {
+    const videoDoc = {
+      ...(video as Record<string, unknown>),
+      userId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    ops.push((b) => b.set(db.collection(VIDEOS_COL).doc((video as { id: string }).id), videoDoc));
+  });
 
   // User doc update
   const followersCount = follows.filter((f) => f.followingId === userId).length;
@@ -354,13 +445,13 @@ async function runSeed(userId: string): Promise<void> {
   console.log(`\n✅ Seed complete for userId="${userId}" on project="${projectId}"`);
   console.log('   Seeded:');
   console.log(
-    `     Football  — schedule:${scheduleEvents.length}  recruiting:${recruitingActivities.length}  stats:${verifiedStats.length}  metrics:${verifiedMetrics.length}`
+    `     Football  — stats:${verifiedStats.length}  metrics:${verifiedMetrics.length}  schedule:${scheduleEvents.length}  recruiting:${recruitingActivities.length}`
   );
   console.log(
-    `     Basketball— schedule:${bbScheduleEvents.length}  recruiting:${bbRecruitingActivities.length}  stats:${bbStats.length}  metrics:${bbMetrics.length}`
+    `     Basketball— stats:${bbStats.length}  metrics:${bbMetrics.length}  schedule:${bbScheduleEvents.length}  recruiting:${bbRecruitingActivities.length}`
   );
   console.log(
-    `     posts:${posts.length}  news:${newsArticles.length}  follows:${follows.length}  rankings:${rankings.length}  scoutReports:${scoutReports.length}  videos:${videos.length}`
+    `     posts:${posts.length}  news:${newsArticles.length}  videos:${videos.length}  follows:${follows.length}  rankings:${rankings.length}  scoutReports:${scoutReports.length}`
   );
   console.log(
     `     teamHistory:${profileFields.teamHistory.length}  awards:${profileFields.awards.length}  contact:✓  academics:✓  coach:✓`
@@ -386,45 +477,43 @@ async function runDelete(userId: string): Promise<void> {
     snap.docs.forEach((d) => ops.push((b) => b.delete(d.ref)));
     return snap.size;
   }
-  async function collectAll(col: FirebaseFirestore.CollectionReference) {
-    const snap = await col.limit(500).get();
-    snap.docs.forEach((d) => ops.push((b) => b.delete(d.ref)));
-    return snap.size;
-  }
 
   const prefix = `seed_${userId}`;
-  const counts = await Promise.all([
-    collectByPrefix(userRef.collection('schedule'), prefix),
-    collectByPrefix(userRef.collection('recruiting'), prefix),
-    collectByPrefix(userRef.collection('videos'), prefix),
-    // Legacy cleanup — sub-collections from prior seed versions
-    collectByPrefix(userRef.collection('timeline'), prefix),
-    collectByPrefix(userRef.collection('news'), prefix),
-    collectByPrefix(userRef.collection('rankings'), prefix),
-    collectByPrefix(userRef.collection('scoutReports'), prefix),
-    collectByPrefix(userRef.collection('sports').doc('football').collection('stats'), prefix),
-    collectByPrefix(userRef.collection('sports').doc('basketball').collection('stats'), prefix),
-    collectByPrefix(userRef.collection('sports').doc('football').collection('metrics'), prefix),
-    collectByPrefix(userRef.collection('sports').doc('basketball').collection('metrics'), prefix),
-    collectAll(userRef.collection('followers')),
-    collectAll(userRef.collection('following')),
-  ]);
 
-  // Top-level collections — Posts, News, ScoutReports, Rankings
+  // Delete PlayerStats documents (aggregated stats by season)
+  const season = '2025-2026';
+  const playerStatsIds = [`${userId}_football_${season}`, `${userId}_basketball_${season}`];
+  for (const docId of playerStatsIds) {
+    const ref = db.collection(PLAYER_STATS_COL).doc(docId);
+    ops.push((b) => b.delete(ref));
+  }
+
+  // Top-level collections — query by userId and seed prefix
   async function collectTopLevel(colName: string): Promise<number> {
     const snap = await db.collection(colName).where('userId', '==', userId).get();
     const seedDocs = snap.docs.filter((d) => d.id.startsWith(prefix));
     seedDocs.forEach((d) => ops.push((b) => b.delete(d.ref)));
     return seedDocs.length;
   }
+
   const topLevelCounts = await Promise.all([
     collectTopLevel(POSTS_COL),
     collectTopLevel(NEWS_COL),
     collectTopLevel(SCOUT_COL),
     collectTopLevel(RANKINGS_COL),
+    collectTopLevel(VIDEOS_COL),
+    collectTopLevel(OFFERS_COL),
+    collectTopLevel(INTERACTIONS_COL),
   ]);
-  const totalDeleted =
-    counts.reduce((a, b) => a + b, 0) + topLevelCounts.reduce((a, b) => a + b, 0);
+
+  // Follows — delete where followerId or followingId matches userId
+  const followerSnap = await db.collection(FOLLOWS_COL).where('followerId', '==', userId).get();
+  followerSnap.docs.forEach((d) => ops.push((b) => b.delete(d.ref)));
+  const followingSnap = await db.collection(FOLLOWS_COL).where('followingId', '==', userId).get();
+  followingSnap.docs.forEach((d) => ops.push((b) => b.delete(d.ref)));
+  const followsCount = followerSnap.size + followingSnap.size;
+
+  const totalDeleted = topLevelCounts.reduce((a, b) => a + b, 0) + 2 + followsCount; // +2 for PlayerStats
 
   // Strip embedded fields from User doc sports array + clean profile fields
   const userDoc = await userRef.get();

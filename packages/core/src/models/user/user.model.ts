@@ -42,14 +42,9 @@ import type { SportProfile } from './user-sport.model';
 import type {
   AthleteData,
   CoachData,
-  CollegeCoachData,
   RecruiterData,
   DirectorData,
   ParentData,
-  ScoutData,
-  RecruitingServiceData,
-  MediaData,
-  FanData,
 } from './user-role-data.model';
 
 // Re-export for convenience
@@ -256,20 +251,6 @@ export interface User {
   connectedEmails?: ConnectedEmail[];
 
   // ============================================
-  // LEGACY: Connected email tokens (flat fields)
-  // Written by old backend controllers + beforeUserCreate function.
-  // Migration path: move to users/{uid}/emailTokens/{provider}
-  // ============================================
-  /** @deprecated Legacy — currently connected email address */
-  connectedEmail?: string;
-  /** @deprecated Legacy — Gmail OAuth refresh token */
-  connectedGmailToken?: string;
-  /** @deprecated Legacy — Microsoft OAuth refresh token */
-  connectedMicrosoftToken?: string;
-  /** @deprecated Legacy — Yahoo OAuth refresh token */
-  connectedYahooToken?: string;
-
-  // ============================================
   // PROFILE CODE (shareable link / QR)
   // ============================================
   /** Unique shareable profile code */
@@ -290,18 +271,6 @@ export interface User {
   recruiter?: RecruiterData;
   /** Parent-specific data - role: 'parent' */
   parent?: ParentData;
-
-  // --- Legacy role data (backward compat for existing Firestore docs) ---
-  /** @deprecated Use recruiter instead */
-  collegeCoach?: CollegeCoachData;
-  /** @deprecated Use recruiter instead */
-  recruitingService?: RecruitingServiceData;
-  /** @deprecated Use recruiter instead */
-  scout?: ScoutData;
-  /** @deprecated Removed role */
-  media?: MediaData;
-  /** @deprecated Removed role */
-  fan?: FanData;
 
   // ============================================
   // ONBOARDING
@@ -356,7 +325,7 @@ export interface User {
   // TEAM CODE (non-deprecated, used by coaches)
   // ============================================
   /** Team code reference */
-  teamCode?: TeamCode | string | null;
+  teamCode?: TeamCode | null;
   /** Team code trial info */
   teamCodeTrial?: {
     id: string;
@@ -433,15 +402,12 @@ export function isCoach(user: User): boolean {
 /** Check if user is a college coach with college coach data populated */
 /** @deprecated Use isRecruiter() instead */
 export function isCollegeCoach(user: User): boolean {
-  return user.role === USER_ROLES.RECRUITER && !!(user.recruiter || user.collegeCoach);
+  return user.role === USER_ROLES.RECRUITER && !!user.recruiter;
 }
 
 /** Check if user is a recruiter (college coach, scout, or recruiting service) */
 export function isRecruiter(user: User): boolean {
-  return (
-    user.role === USER_ROLES.RECRUITER &&
-    !!(user.recruiter || user.collegeCoach || user.recruitingService || user.scout)
-  );
+  return user.role === USER_ROLES.RECRUITER && !!user.recruiter;
 }
 
 /** Check if user is a director with director data populated */
