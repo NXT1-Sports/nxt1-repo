@@ -199,6 +199,7 @@ router.post(
     type BatchOp = (batch: WriteBatch) => void;
     const ops: BatchOp[] = [];
 
+    /*
     // 1. Schedule events: also kept in sub-collection for future querying (football)
     const scheduleCol = userRef.collection('schedule');
     for (const event of scheduleEvents) {
@@ -224,6 +225,7 @@ router.post(
       const ref = recruitingCol.doc(activity.id);
       ops.push((b) => b.set(ref, { ...activity }));
     }
+    */
 
     // 3. Player stats — top-level PlayerStats/{userId}_{sportId}_{season} collection
     // One document per season per sport with ALL stats aggregated in stats[] array.
@@ -322,6 +324,7 @@ router.post(
       ops.push((b) => b.set(db.collection(NEWS_COL).doc(a.id), article));
     }
 
+    /*
     // 6. Follows — sub-collections only (no top-level Follows collection needed)
     for (const follow of follows) {
       // users/{uid}/followers/{followerId} — who follows this user
@@ -346,6 +349,7 @@ router.post(
         );
       }
     }
+    */
 
     // 7. Rankings — top-level Rankings/{rankingId} collection
     for (const ranking of rankings) {
@@ -358,12 +362,14 @@ router.post(
       ops.push((b) => b.set(db.collection(SCOUT_REPORTS_COL).doc(r.id), report));
     }
 
+    /*
     // 9. Videos — users/{uid}/videos/{videoId} sub-collection
     const videosCol = userRef.collection('videos');
     for (const video of videos) {
       const v = video as { id: string };
       ops.push((b) => b.set(videosCol.doc(v.id), video));
     }
+    */
 
     // 8. Update User doc: denormalized sports summary + counters only
     // recentPosts is NO LONGER embedded — timeline data lives in the
@@ -467,6 +473,7 @@ router.delete(
       }
     }
 
+    /*
     await Promise.all([
       collectDeletions(userRef.collection('schedule'), `seed_${userId}`),
       collectDeletions(userRef.collection('recruiting'), `seed_${userId}`),
@@ -505,6 +512,7 @@ router.delete(
       deleteAllDocs(userRef.collection('followers')),
       deleteAllDocs(userRef.collection('following')),
     ]);
+    */
 
     // Clear the embedded fields on sports[0] (football) and sports[1] (basketball)
     const userDocForDelete = await userRef.get();
