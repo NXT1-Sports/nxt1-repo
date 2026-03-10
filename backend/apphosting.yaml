@@ -1,0 +1,17 @@
+# Firebase App Hosting Configuration - Backend (Express.js API)
+# rootDirectory is set to backend/ in the Firebase console
+
+scripts:
+  buildCommand: npm run build
+  runCommand: node dist/index.js
+
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  concurrency: 80
+  minInstances: 0
+  maxInstances: 10
+
+env:
+  - variable: NODE_ENV
+    value: 'production'
