@@ -13,7 +13,7 @@ export const environment = {
   appVersion: '2.0.0-staging',
 
   // Staging API - accessible from anywhere via domain
-  apiUrl: 'https://backend.nxt1sports.com/api/v1/staging',
+  apiUrl: 'https://api.nxt1sports.com/api/v1/staging',
 
   // Firebase Staging Configuration (nxt-1-staging-v2)
   firebase: {

@@ -27,9 +27,21 @@
  * │  → NO write here. Backend /create-user handles doc creation.        │
  * └─────────────────────────────────────────────────────────────────────┘
  *
+ * TOKEN SECURITY MODEL (OWASP A01 / A02):
+ * ─────────────────────────────────────────────────────────────────────
+ * OAuth refresh tokens are NEVER stored on the User document.
+ * Storing them there would expose them via profile API responses and
+ * Redis cache — a direct Broken Access Control + Cryptographic Failure.
+ *
+ * Instead, a two-document pattern is used:
+ *   Users/{uid}                        ← connectedEmails[] metadata only
+ *   Users/{uid}/emailTokens/{provider} ← refresh token (server-only)
+ *
+ * Firestore security rules lock emailTokens to backend/Functions only.
+ *
  * V2 document schema (mirrors UserV2Document in backend/src/routes/auth.routes.ts):
  *   email, onboardingCompleted, createdAt, updatedAt, _schemaVersion
- *   + OAuth-specific: connectedEmail, connectedGmailToken | connectedMicrosoftToken
+ *   + OAuth-specific: connectedEmails[] (ConnectedEmail metadata, NO tokens)
  */
 
 import { beforeUserCreated, HttpsError } from 'firebase-functions/v2/identity';
@@ -116,13 +128,31 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
         const hasSendEmailPermission = grantedScopes.includes('gmail.send');
 
         if (hasSendEmailPermission && refreshToken) {
-          // Write V2 doc with Gmail token – this is the ONLY opportunity to store it.
-          const newUser = buildV2User(email);
-          newUser['connectedEmail'] = email;
-          newUser['connectedGmailToken'] = refreshToken;
+          const now = new Date().toISOString();
 
-          await db.collection('Users').doc(uid).set(newUser);
-          logger.info('[beforeUserCreate] Google – V2 doc created with Gmail refresh token', {
+          // ✅ SECURITY: Only metadata goes on the user document.
+          // Token is written to the emailTokens subcollection, which Firestore
+          // security rules restrict to server-only access (Cloud Functions / backend).
+          const connectedEmailMeta = {
+            email,
+            provider: 'gmail',
+            isActive: true,
+            connectedAt: now,
+          };
+          const newUser = buildV2User(email);
+          newUser['connectedEmails'] = [connectedEmailMeta];
+
+          // Use a batch so both writes succeed or both fail atomically.
+          const batch = db.batch();
+          batch.set(db.collection('Users').doc(uid), newUser);
+          batch.set(db.collection('Users').doc(uid).collection('emailTokens').doc('gmail'), {
+            provider: 'gmail',
+            refreshToken,
+            lastRefreshedAt: now,
+          });
+          await batch.commit();
+
+          logger.info('[beforeUserCreate] Google – V2 doc + Gmail token written to subcollection', {
             uid,
           });
         } else {
@@ -143,13 +173,31 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
         const refreshToken = credential.refreshToken;
 
         if (refreshToken) {
-          // Write V2 doc with Microsoft token – one-time opportunity.
-          const newUser = buildV2User(email);
-          newUser['connectedEmail'] = email;
-          newUser['connectedMicrosoftToken'] = refreshToken;
+          const now = new Date().toISOString();
 
-          await db.collection('Users').doc(uid).set(newUser);
-          logger.info('[beforeUserCreate] Microsoft – V2 doc created with refresh token', { uid });
+          // ✅ SECURITY: Metadata on user doc, token in emailTokens subcollection.
+          const connectedEmailMeta = {
+            email,
+            provider: 'microsoft',
+            isActive: true,
+            connectedAt: now,
+          };
+          const newUser = buildV2User(email);
+          newUser['connectedEmails'] = [connectedEmailMeta];
+
+          // Atomic batch: user doc + token subcollection
+          const batch = db.batch();
+          batch.set(db.collection('Users').doc(uid), newUser);
+          batch.set(db.collection('Users').doc(uid).collection('emailTokens').doc('microsoft'), {
+            provider: 'microsoft',
+            refreshToken,
+            lastRefreshedAt: now,
+          });
+          await batch.commit();
+
+          logger.info('[beforeUserCreate] Microsoft – V2 doc + token written to subcollection', {
+            uid,
+          });
         } else {
           // No token – backend /create-user handles doc creation.
           logger.info(

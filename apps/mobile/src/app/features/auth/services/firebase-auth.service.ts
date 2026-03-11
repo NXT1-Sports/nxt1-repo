@@ -644,11 +644,21 @@ export class FirebaseAuthService implements OnDestroy {
   /**
    * Get current ID token
    *
+   * Waits for Firebase Auth to finish restoring the session (authStateReady)
+   * before reading currentUser. This prevents a race condition where
+   * getIdToken() is called before Firebase has rehydrated the session from
+   * IndexedDB/native storage, causing currentUser to be null even though
+   * the user is authenticated.
+   *
    * Uses runInInjectionContext to ensure Firebase APIs
    * are called within Angular's injection context.
    */
   async getIdToken(forceRefresh = false): Promise<string | null> {
     return runInInjectionContext(this.injector, async () => {
+      // Wait for Firebase to restore session from persistence before reading currentUser.
+      // Without this, currentUser is null during app startup even if user was previously
+      // logged in — because Firebase loads the session asynchronously from IndexedDB.
+      await this.auth.authStateReady();
       const user = this.auth.currentUser;
       if (!user) return null;
       return user.getIdToken(forceRefresh);

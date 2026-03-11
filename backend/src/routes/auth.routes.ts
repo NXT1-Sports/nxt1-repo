@@ -24,6 +24,7 @@ import type {
   Location,
   ContactInfo,
   UserSocialLink,
+  ConnectedEmail,
 } from '@nxt1/core';
 import { isValidEmail, isValidTeamCode, USER_SCHEMA_VERSION } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
@@ -106,6 +107,12 @@ interface UserV2Document {
   referralId?: string;
   referralSource?: string;
   referralDetails?: string | null;
+
+  // Connected email accounts for campaigns/outreach.
+  // SECURITY: Only metadata (ConnectedEmail) is stored here.
+  // OAuth tokens live in: Users/{uid}/emailTokens/{provider} (subcollection).
+  // Firestore rules restrict that subcollection to backend/Functions only.
+  connectedEmails?: ConnectedEmail[];
 
   // Timestamps
   createdAt: string;

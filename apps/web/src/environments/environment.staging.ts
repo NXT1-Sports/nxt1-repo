@@ -9,8 +9,8 @@ export const environment = {
   version: '2.0.0-staging',
 
   // Backend API URLs (Staging)
-  apiURL: 'https://backend.nxt1sports.com/api/v1/staging',
-  loggingEndpoint: 'https://backend.nxt1sports.com/api/v1/staging/logs', // Remote logging endpoint
+  apiURL: 'https://api.nxt1sports.com/api/v1/staging',
+  loggingEndpoint: 'https://api.nxt1sports.com/api/v1/staging', // Remote logging endpoint
 
   // Firebase Configuration (Staging)
   firebase: {
