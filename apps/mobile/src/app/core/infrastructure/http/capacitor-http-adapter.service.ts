@@ -121,7 +121,7 @@ export class CapacitorHttpAdapter implements HttpAdapter {
     this.logger.debug('GET request', {
       url: fullUrl,
       isNative: this.isNative,
-      hasToken: !!headers['Authorization'],
+      isAuthed: !!headers['Authorization'],
     });
 
     try {
@@ -177,7 +177,7 @@ export class CapacitorHttpAdapter implements HttpAdapter {
     this.logger.debug('POST request', {
       url: this.buildUrl(url, config?.params),
       isNative: this.isNative,
-      hasToken: !!headers['Authorization'],
+      isAuthed: !!headers['Authorization'],
       bodyPreview: JSON.stringify(body).substring(0, 100),
     });
 
@@ -323,9 +323,11 @@ export class CapacitorHttpAdapter implements HttpAdapter {
         const token = await this.tokenProvider();
         if (token) {
           headers['Authorization'] = `Bearer ${token}`;
+        } else {
+          this.logger.warn('Token provider returned null — request will proceed without auth');
         }
       } catch (err) {
-        this.logger.warn('Token provider failed, proceeding without auth', {
+        this.logger.warn('Token provider threw an exception, proceeding without auth', {
           error: err instanceof Error ? err.message : String(err),
         });
       }

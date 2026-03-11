@@ -14,6 +14,8 @@
     "build": "npm run auto:firebase production && ng build --configuration production",
     "build:dev": "npm run detect:ip && npm run auto:firebase development && ng build --configuration development",
     "build:staging": "npm run auto:firebase staging && ng build --configuration staging",
+    "build:staging-debug": "npm run auto:firebase staging && ng build --configuration staging-debug",
+    "ios:staging-debug": "npm run build:staging-debug && npx cap sync ios && npx cap run ios",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

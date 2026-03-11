@@ -51,18 +51,11 @@
 	<string>UIStatusBarStyleLightContent</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
+		<!-- NSAllowsArbitraryLoads intentionally removed: staging/production use HTTPS only.
+		     NSAllowsLocalNetworking allows HTTP to local IPs (192.168.x.x) for dev live-reload. -->
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
-	<!-- Local Network Access (Required for development with local backend) -->
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>NXT1 needs to access your local network to connect to the development server.</string>
-	<key>NSBonjourServices</key>
-	<array>
-		<string>_http._tcp</string>
-	</array>
 	<!-- Geolocation Permissions (Required for @capacitor/geolocation) -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>NXT1 uses your location to automatically detect your city and state for your athlete profile, and to help you discover nearby teams and events.</string>

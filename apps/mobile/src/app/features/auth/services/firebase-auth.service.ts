@@ -642,27 +642,54 @@ export class FirebaseAuthService implements OnDestroy {
   // ============================================
 
   /**
-   * Get current ID token
+   * Get current ID token.
    *
-   * Waits for Firebase Auth to finish restoring the session (authStateReady)
-   * before reading currentUser. This prevents a race condition where
-   * getIdToken() is called before Firebase has rehydrated the session from
-   * IndexedDB/native storage, causing currentUser to be null even though
-   * the user is authenticated.
-   *
-   * Uses runInInjectionContext to ensure Firebase APIs
-   * are called within Angular's injection context.
+   * Strategy (in order):
+   * 1. JS SDK (`auth.currentUser`) — accurate after any sign-in because
+   *    `authStateReady()` was already awaited by `checkAuth()` before the
+   *    `firebaseReadyPromise` resolves (i.e. before this can be called).
+   * 2. Native Keychain fallback — `@capacitor-firebase/authentication` reads
+   *    from the iOS Keychain, which survives WKWebView IndexedDB clears.
+   *    Used when JS SDK has no user (e.g. app restart after storage clear).
    */
   async getIdToken(forceRefresh = false): Promise<string | null> {
-    return runInInjectionContext(this.injector, async () => {
-      // Wait for Firebase to restore session from persistence before reading currentUser.
-      // Without this, currentUser is null during app startup even if user was previously
-      // logged in — because Firebase loads the session asynchronously from IndexedDB.
-      await this.auth.authStateReady();
-      const user = this.auth.currentUser;
-      if (!user) return null;
-      return user.getIdToken(forceRefresh);
-    });
+    // ⭐ Strategy:
+    // 1. JS SDK first — after any sign-in (email, Google via signInWithCredential, etc.)
+    //    auth.currentUser is immediately available. By the time this method is called,
+    //    firebaseReadyPromise has resolved, meaning authStateReady() was already awaited
+    //    in checkAuth(). So auth.currentUser is accurate — no need to await it again.
+    // 2. Native Keychain fallback — handles app restart where WKWebView IndexedDB was
+    //    cleared but the native iOS Firebase SDK still has a session in Keychain.
+    const jsUser = this.auth.currentUser;
+    if (jsUser) {
+      try {
+        const token = await jsUser.getIdToken(forceRefresh);
+        console.warn('[NXT1:getIdToken] JS SDK path succeeded');
+        return token;
+      } catch (jsErr) {
+        console.warn('[NXT1:getIdToken] JS SDK path failed, trying native', jsErr);
+      }
+    } else {
+      console.warn('[NXT1:getIdToken] JS SDK auth.currentUser is null');
+    }
+
+    // Native Keychain fallback: survives WKWebView IndexedDB clears between sessions.
+    if (this.platform.isNative()) {
+      try {
+        const { FirebaseAuthentication } = await import('@capacitor-firebase/authentication');
+        const result = await FirebaseAuthentication.getIdToken({ forceRefresh });
+        if (result.token) {
+          console.warn('[NXT1:getIdToken] native Keychain path succeeded');
+          return result.token;
+        }
+        console.warn('[NXT1:getIdToken] native path returned empty token');
+      } catch (nativeErr) {
+        console.warn('[NXT1:getIdToken] native path failed', nativeErr);
+      }
+    }
+
+    console.warn('[NXT1:getIdToken] both paths failed — returning null (not authenticated)');
+    return null;
   }
 
   /**

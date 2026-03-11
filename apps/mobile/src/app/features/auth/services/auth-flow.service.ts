@@ -301,6 +301,14 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   }
 
   /**
+   * Ensure token provider is wired to HTTP adapter.
+   * Called after successful login to fix logout → login flow.
+   */
+  private ensureTokenProvider(): void {
+    this.httpAdapter.setTokenProvider(() => this.firebaseAuth.getIdToken());
+  }
+
+  /**
    * Sync Firebase auth state with our state manager
    *
    * ⭐ 2026 Token Pattern: Wires up a tokenProvider function on the HTTP adapter
@@ -315,19 +323,30 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       return;
     }
 
-    // ⭐ Wire up fresh token provider ONCE — every HTTP request gets a fresh/valid token
-    this.httpAdapter.setTokenProvider(() => this.firebaseAuth.getIdToken());
+    // ⭐ Create a promise that resolves ONLY after Firebase has restored the session
+    // (authStateReady). The token provider awaits this — not the full checkAuth() —
+    // to avoid a deadlock where syncUserProfile() makes an HTTP request that itself
+    // needs a token, which would wait on checkAuth(), which is waiting on syncUserProfile().
+    let resolveFirebaseReady!: () => void;
+    const firebaseReadyPromise = new Promise<void>((resolve) => {
+      resolveFirebaseReady = resolve;
+    });
 
-    // Listen for Firebase user changes via FirebaseAuthService's signal
-    // This is called whenever Firebase auth state changes
+    this.httpAdapter.setTokenProvider(async () => {
+      await firebaseReadyPromise;
+      return this.firebaseAuth.getIdToken();
+    });
+
     const checkAuth = async () => {
       this.authManager.setLoading(true);
 
       try {
-        // ⭐ CRITICAL: Wait for Firebase to finish restoring session from IndexedDB.
-        // Without this, getCurrentUser() returns null on reload because Firebase
-        // hasn't loaded the persisted session yet — causing a false "not logged in" state.
+        // Wait for Firebase to finish restoring session from IndexedDB/native storage.
         await this.firebaseAuth.waitForAuthReady();
+
+        // ⭐ Resolve here — BEFORE syncUserProfile() — so that any HTTP requests
+        // made inside syncUserProfile() can get a valid token without deadlocking.
+        resolveFirebaseReady();
 
         const firebaseUser = this.firebaseAuth.getCurrentUser();
 
@@ -347,15 +366,18 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             return;
           }
 
-          // Sync profile
+          // Sync profile (may make authenticated HTTP requests — safe now that
+          // firebaseReadyPromise is resolved and tokenProvider can return a token)
           await this.syncUserProfile(firebaseUser.uid);
         } else {
           // No Firebase user AFTER authStateReady() — session genuinely doesn't exist.
-          // Any persisted AuthUser is stale (e.g., token expired, user signed out elsewhere).
           this.logger.debug('No Firebase user after auth ready, resetting state');
           await this.authManager.reset();
         }
       } catch (err) {
+        // Resolve on error too — unblock any pending HTTP requests so they can
+        // proceed (they will get null token and receive 401, which is correct).
+        resolveFirebaseReady();
         this.logger.error('Auth state sync failed', err);
         this.authManager.setError(err instanceof Error ? err.message : 'Authentication error');
       } finally {
@@ -364,7 +386,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       }
     };
 
-    // Initial check - await to ensure auth is fully initialized before app routes
     void checkAuth();
   }
 
@@ -503,7 +524,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: AUTH_METHODS.EMAIL });
       this.analytics.setUserId(result.user.uid);
 
-      // Token is handled automatically by tokenProvider on every request
+      // Re-wire token provider (fixes logout → login flow)
+      this.ensureTokenProvider();
 
       // Sync profile
       await this.syncUserProfile(result.user.uid);
@@ -632,6 +654,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       });
       this.analytics.setUserId(result.user.uid);
 
+      // Re-wire token provider (fixes logout → login flow)
+      this.ensureTokenProvider();
+
       if (isNewUser) {
         this.logger.info(`${method} new user — creating backend profile`, { uid: result.user.uid });
         await this.authApi.createUser({ uid: result.user.uid, email: userEmail! });
@@ -736,7 +761,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           await this.firebaseAuth.updateUserProfile(displayName);
         }
 
-        // Token is handled automatically by tokenProvider on every request
+        // Re-wire token provider (fixes logout → signup flow)
+        this.ensureTokenProvider();
 
         // Create user in backend
         const createResult = await this.authApi.createUser({

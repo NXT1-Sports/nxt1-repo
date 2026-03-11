@@ -119,6 +119,18 @@
               "namedChunks": false,
               "extractLicenses": true
             },
+            "staging-debug": {
+              "fileReplacements": [
+                {
+                  "replace": "src/environments/environment.ts",
+                  "with": "src/environments/environment.staging.ts"
+                }
+              ],
+              "optimization": false,
+              "sourceMap": true,
+              "extractLicenses": false,
+              "namedChunks": true
+            },
             "development": {
               "optimization": false,
               "extractLicenses": false,
