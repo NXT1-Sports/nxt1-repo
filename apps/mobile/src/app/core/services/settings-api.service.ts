@@ -20,6 +20,7 @@ import { CapacitorHttpAdapter } from '../infrastructure';
 import { environment } from '../../../environments/environment';
 import { BiometricService } from '../../features/auth/services/biometric.service';
 import { AuthFlowService } from '../../features/auth/services/auth-flow.service';
+import { FcmRegistrationService } from './fcm-registration.service';
 
 /** Shape of all settings API responses */
 interface ApiResponse<T> {
@@ -41,6 +42,7 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   private readonly biometricService = inject(BiometricService);
   private readonly authService = inject(AuthFlowService);
   private readonly alertController = inject(AlertController);
+  private readonly fcmRegistration = inject(FcmRegistrationService);
 
   // ============================================================
   // SettingsPersistenceAdapter implementation
@@ -77,6 +79,18 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
         await this.disableBiometricLogin();
       }
       return;
+    }
+
+    // Handle push notifications toggle
+    if (key === 'pushNotifications') {
+      if (value === true) {
+        // Register FCM token when user enables push notifications
+        void this.fcmRegistration.registerToken();
+      } else {
+        // Unregister FCM token when user disables push notifications
+        void this.fcmRegistration.unregisterToken();
+      }
+      // Continue to persist preference to backend
     }
 
     const { backendKey, backendValue } = this.mapToBackendPreference(key, value);

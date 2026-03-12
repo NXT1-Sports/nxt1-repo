@@ -14,30 +14,36 @@ const db = admin.firestore();
 /**
  * Register FCM token for a user
  */
-export const registerFcmToken = onCall(async (request) => {
-  if (!request.auth) {
-    throw new HttpsError('unauthenticated', 'Authentication required');
+export const registerFcmToken = onCall(
+  {
+    cors: true, // Allow CORS for web clients
+    enforceAppCheck: false, // Enable in production if using App Check
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Authentication required');
+    }
+
+    const { token, platform } = request.data;
+    const userId = request.auth.uid;
+
+    if (!token) {
+      throw new HttpsError('invalid-argument', 'FCM token is required');
+    }
+
+    await db
+      .collection('FcmTokens')
+      .doc(userId)
+      .set(
+        {
+          tokens: admin.firestore.FieldValue.arrayUnion(token),
+          platform: platform || 'unknown',
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+    logger.info('FCM token registered', { userId, platform });
+    return { success: true };
   }
-
-  const { token, platform } = request.data;
-  const userId = request.auth.uid;
-
-  if (!token) {
-    throw new HttpsError('invalid-argument', 'FCM token is required');
-  }
-
-  await db
-    .collection('fcm_tokens')
-    .doc(userId)
-    .set(
-      {
-        tokens: admin.firestore.FieldValue.arrayUnion(token),
-        platform: platform || 'unknown',
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-
-  logger.info('FCM token registered', { userId, platform });
-  return { success: true };
-});
+);

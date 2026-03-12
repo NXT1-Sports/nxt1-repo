@@ -47,7 +47,7 @@ export const weeklyCleanup = onSchedule(
       ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
       const expiredTokens = await db
-        .collection('fcm_tokens')
+        .collection('FcmTokens')
         .where('updatedAt', '<', ninetyDaysAgo)
         .limit(500)
         .get();

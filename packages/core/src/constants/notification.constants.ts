@@ -241,7 +241,7 @@ export const NOTIFICATION_COLLECTIONS = {
   /** Per-user activity feed */
   USER_ACTIVITY: 'activity',
   /** Device FCM token registry */
-  FCM_TOKENS: 'fcm_tokens',
+  FCM_TOKENS: 'FcmTokens',
   /** Per-user notification category preferences */
   NOTIFICATION_PREFERENCES: 'notification_preferences',
 } as const;

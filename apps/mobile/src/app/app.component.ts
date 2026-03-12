@@ -22,6 +22,7 @@ import {
   NetworkService,
   DeepLinkService,
   PushHandlerService,
+  FcmRegistrationService,
 } from './core/services';
 import { BiometricService, AuthFlowService } from './features/auth/services';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
@@ -46,6 +47,7 @@ export class AppComponent {
   private readonly network = inject(NetworkService);
   private readonly deepLink = inject(DeepLinkService);
   private readonly pushHandler = inject(PushHandlerService);
+  private readonly fcmRegistration = inject(FcmRegistrationService);
   private readonly biometric = inject(BiometricService);
   private readonly platform = inject(NxtPlatformService);
   private readonly theme = inject(NxtThemeService);
@@ -158,6 +160,10 @@ export class AppComponent {
           this.logger.debug('Resumed');
           // Refresh network status when app resumes
           this.network.checkStatus();
+          // Re-register FCM token if user is authenticated
+          if (this.authFlow.isAuthenticated()) {
+            void this.fcmRegistration.registerToken();
+          }
         },
         onBackButton: () => {
           // Custom back button behavior if needed

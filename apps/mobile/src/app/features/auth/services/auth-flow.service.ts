@@ -62,7 +62,7 @@ import {
 import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
 import { GLOBAL_CRASHLYTICS } from '@nxt1/ui';
 import { CapacitorHttpAdapter } from '../../../core/infrastructure';
-import { ProfileService } from '../../../core/services/profile.service';
+import { ProfileService, FcmRegistrationService } from '../../../core/services';
 import { AuthApiService } from './auth-api.service';
 import { FirebaseAuthService } from './firebase-auth.service';
 import { environment } from '../../../../environments/environment';
@@ -103,6 +103,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly httpAdapter = inject(CapacitorHttpAdapter);
   private readonly authApi = inject(AuthApiService);
   private readonly firebaseAuth = inject(FirebaseAuthService);
+  private readonly fcmRegistration = inject(FcmRegistrationService);
 
   /**
    * ⭐ ProfileService - Manages User data (Single Source of Truth) ⭐
@@ -542,6 +543,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         await this.navigatePostAuth();
       }
 
+      // Register FCM token for push notifications (non-blocking)
+      void this.fcmRegistration.registerToken();
+
       return true;
     } catch (err) {
       // Track sign-in error
@@ -675,6 +679,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
         await this.navigatePostAuth();
       }
+
+      // Register FCM token for push notifications (non-blocking)
+      void this.fcmRegistration.registerToken();
 
       this.logger.info(`${method} sign-in complete`);
       return true;
@@ -853,6 +860,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       // Clear crashlytics user context
       await this.crashlytics.clearUser();
+
+      // Unregister FCM token (non-blocking)
+      void this.fcmRegistration.unregisterToken();
 
       // ⭐ Clear profile via ProfileService (single source of truth)
       await this.profileService.clear();

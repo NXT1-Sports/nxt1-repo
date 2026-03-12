@@ -311,12 +311,6 @@ export interface User {
   createdAt?: Date | string;
   updatedAt?: Date | string;
   lastLoginAt?: Date | string;
-
-  // ============================================
-  // PUSH NOTIFICATIONS
-  // ============================================
-  fcmToken?: string | null;
-
   // ============================================
   // SCHEMA VERSION
   // ============================================

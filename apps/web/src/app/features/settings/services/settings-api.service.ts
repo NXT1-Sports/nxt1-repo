@@ -21,6 +21,7 @@ import { DEFAULT_SETTINGS_PREFERENCES } from '@nxt1/core';
 import type { SettingsPersistenceAdapter } from '@nxt1/ui/settings';
 import { environment } from '../../../../environments/environment';
 import { PerformanceService } from '../../../core/services/performance.service';
+import { WebPushService } from '../../../core/services/web-push.service';
 import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 
 /** Shape of all settings API responses */
@@ -40,6 +41,7 @@ interface ApiResponse<T> {
 export class SettingsApiService implements SettingsPersistenceAdapter {
   private readonly http = inject(HttpClient);
   private readonly performance = inject(PerformanceService);
+  private readonly webPush = inject(WebPushService);
   private readonly baseUrl = environment.apiURL;
 
   /**
@@ -92,6 +94,15 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
    * Uses PATCH /settings/preferences/:key with merging for nested fields.
    */
   async updatePreference(key: string, value: unknown): Promise<void> {
+    // Handle push notifications toggle - request permission and register FCM token
+    if (key === 'pushNotifications') {
+      if (value === true) {
+        // Request permission and register token
+        await this.webPush.requestPermission();
+      }
+      // Continue to persist preference to backend
+    }
+
     const { backendKey, backendValue } = this.mapToBackendPreference(key, value);
 
     if (!backendKey) {

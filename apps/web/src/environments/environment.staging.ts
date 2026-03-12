@@ -24,7 +24,8 @@ export const environment = {
   },
 
   // Firebase Cloud Messaging VAPID key (staging)
-  vapidKey: 'REPLACE_WITH_STAGING_VAPID_KEY',
+  vapidKey:
+    'BC5fKEF639Tg0ndkwK5VxuL8_hTfRYP19WIJVU6WV8rXDcAKzD5KOpl7M8hGaRruWniUqi2DsaFB6WASUZ03TYQ',
 
   // Third-party API Keys
   removeBgKey: 'sCyRfLKyXDS5ySnuXmEiqXpK',

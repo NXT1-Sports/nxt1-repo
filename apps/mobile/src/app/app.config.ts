@@ -27,6 +27,7 @@ import {
   indexedDBLocalPersistence,
   initializeAuth,
 } from '@angular/fire/auth';
+import { provideFunctions, getFunctions, connectFunctionsEmulator } from '@angular/fire/functions';
 import { Capacitor } from '@capacitor/core';
 
 // Shared Angular infrastructure from @nxt1/ui
@@ -141,6 +142,14 @@ export const appConfig: ApplicationConfig = {
     // Firebase - use custom auth initialization for native platforms
     provideFirebaseApp(() => initializeApp(environment.firebase)),
     provideAuth(() => getAuthWithPersistence()),
+    provideFunctions(() => {
+      const functions = getFunctions();
+      // Connect to emulator in development if needed
+      // if (!environment.production) {
+      //   connectFunctionsEmulator(functions, 'localhost', 5001);
+      // }
+      return functions;
+    }),
 
     // ============================================
     // LOGGING & ERROR HANDLING (same as web)

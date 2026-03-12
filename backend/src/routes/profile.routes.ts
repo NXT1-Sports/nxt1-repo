@@ -127,9 +127,6 @@ type UserFirestoreDoc = DocumentData & {
   createdAt?: string;
   lastLoginAt?: string;
 
-  // Push notifications
-  fcmToken?: string | null;
-
   // Schema version
   _schemaVersion?: number;
 
@@ -1064,7 +1061,8 @@ router.put(
 
     // Whitelist of all writable User fields — system/read-only fields
     // (id, email, planTier, _counters, _schemaVersion, unicode, profileCode,
-    //  fcmToken, onboardingCompleted, role, status, teamCode) are excluded.
+    //  onboardingCompleted, role, status, teamCode) are excluded.
+    // Note: FCM tokens are stored separately in FcmTokens/{userId} collection
     const allowedFields: string[] = [
       // Core identity
       'firstName',

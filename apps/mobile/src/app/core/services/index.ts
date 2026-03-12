@@ -50,3 +50,6 @@ export { KeyboardService } from './keyboard.service';
 
 // Push notification handling (foreground + background interception)
 export { PushHandlerService } from './push-handler.service';
+
+// FCM token registration (call after login to enable push notifications)
+export { FcmRegistrationService } from './fcm-registration.service';

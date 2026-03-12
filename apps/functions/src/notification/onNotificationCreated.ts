@@ -8,7 +8,7 @@
  *
  * Processing pipeline:
  *  1. Read notification payload (userId, type, category, title, body, data)
- *  2. Fetch user's FCM tokens from `fcm_tokens/{userId}`
+ *  2. Fetch user's FCM tokens from `FcmTokens/{userId}`
  *  3. Check user preferences: global kill-switch + per-category opt-out
  *  4. Build platform-specific FCM message (APNS badge/sound, Android channel)
  *  5. Send via `sendEachForMulticast`
@@ -60,7 +60,7 @@ export const onNotificationCreatedV2 = onDocumentCreated(
 
     try {
       // ─── 1. Fetch FCM tokens ──────────────────────────────────────
-      const tokensDoc = await db.collection('fcm_tokens').doc(userId).get();
+      const tokensDoc = await db.collection('FcmTokens').doc(userId).get();
       if (!tokensDoc.exists) {
         logger.info('No FCM tokens registered', { userId });
         await updateStatus(notificationId, 'skipped', 'No FCM tokens');
@@ -157,7 +157,7 @@ export const onNotificationCreatedV2 = onDocumentCreated(
 
         if (invalidTokens.length > 0) {
           await db
-            .collection('fcm_tokens')
+            .collection('FcmTokens')
             .doc(userId)
             .update({
               tokens: admin.firestore.FieldValue.arrayRemove(...invalidTokens),

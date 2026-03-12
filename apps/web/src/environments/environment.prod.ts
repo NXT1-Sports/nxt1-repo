@@ -26,7 +26,9 @@ export const environment = {
   },
 
   // Firebase Cloud Messaging VAPID key (production)
-  vapidKey: 'REPLACE_WITH_PRODUCTION_VAPID_KEY',
+  // TODO: Replace with production VAPID key from nxt-1-v2 project
+  vapidKey:
+    'BC5fKEF639Tg0ndkwK5VxuL8_hTfRYP19WIJVU6WV8rXDcAKzD5KOpl7M8hGaRruWniUqi2DsaFB6WASUZ03TYQ',
 
   // Third-party API Keys
   removeBgKey: 'sCyRfLKyXDS5ySnuXmEiqXpK',
