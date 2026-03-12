@@ -257,7 +257,7 @@ export class ManageTeamService {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load team';
       this._error.set(message);
-      this.logger.error('Failed to load team', { teamId, error: err });
+      this.logger.error('Failed to load team', err, { teamId });
     } finally {
       this._isLoading.set(false);
     }
@@ -377,7 +377,7 @@ export class ManageTeamService {
       this._error.set(message);
       this.toast.error(message);
       this.haptics.notification('error');
-      this.logger.error('Failed to save team', { error: err });
+      this.logger.error('Failed to save team', err);
       return false;
     } finally {
       this._isSaving.set(false);

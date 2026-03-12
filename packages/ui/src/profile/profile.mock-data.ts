@@ -38,7 +38,7 @@ export const MOCK_PROFILE_USER: ProfileUser = {
   displayName: 'Marcus Johnson',
   profileImg: 'https://i.pravatar.cc/300?img=68',
   bannerImg: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1200&h=400&fit=crop',
-  profileImages: [
+  profileImgs: [
     'https://images.unsplash.com/photo-1551958219-acbc608c6377?w=600&h=800&fit=crop',
     'https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=600&h=800&fit=crop',
     'https://images.unsplash.com/photo-1508098682722-e99c643e0edc?w=600&h=800&fit=crop',

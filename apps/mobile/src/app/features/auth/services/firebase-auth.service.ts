@@ -664,7 +664,6 @@ export class FirebaseAuthService implements OnDestroy {
     if (jsUser) {
       try {
         const token = await jsUser.getIdToken(forceRefresh);
-        console.warn('[NXT1:getIdToken] JS SDK path succeeded');
         return token;
       } catch (jsErr) {
         console.warn('[NXT1:getIdToken] JS SDK path failed, trying native', jsErr);

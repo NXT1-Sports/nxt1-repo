@@ -73,6 +73,7 @@ import type { ApiResponse } from '@nxt1/core/profile';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { AuthFlowService } from '../auth/services';
 import { SeoService, AnalyticsService, ShareService } from '../../core/services';
+import { EditProfileApiService } from '../../core/services/edit-profile-api.service';
 import { ProfileService as ApiProfileService } from './services/profile.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
@@ -190,6 +191,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * @see apps/web/src/app/features/profile/services/profile.service.ts
    */
   private readonly apiProfileService = inject(ApiProfileService);
+  private readonly editProfileApiService = inject(EditProfileApiService);
   private readonly http = inject(HttpClient);
 
   /**
@@ -367,6 +369,35 @@ export class ProfileComponent implements OnInit, OnDestroy {
     // shows from the first render instead of flashing a leftover error
     // (ProfileService is providedIn:'root' — it persists across navigations).
     this.profileService.startLoading();
+    this.profileService.setApiService({
+      updateActiveSportIndex: (userId: string, activeSportIndex: number) =>
+        this.editProfileApiService.updateActiveSportIndex(userId, activeSportIndex),
+    });
+
+    // Auto-invalidate profile cache when user returns to tab/window.
+    // This ensures fresh data after editing profile in another tab or coming back from edit page.
+    if (isPlatformBrowser(this.platformId)) {
+      const handleVisibilityChange = () => {
+        if (!document.hidden && this.isOwnProfile()) {
+          // User returned to tab viewing their own profile - invalidate cache
+          const user = this.authService.user();
+          if (user) {
+            this.apiProfileService.invalidateCache(
+              user.uid,
+              user.username ?? undefined,
+              user.unicode ?? undefined
+            );
+            this.logger.debug('Profile cache invalidated on tab focus');
+          }
+        }
+      };
+
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      // Clean up on component destroy
+      this.destroyRef.onDestroy(() => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      });
+    }
 
     // CRITICAL: Clear old profile data immediately when route params change
     // This effect runs synchronously when fetchSource changes, BEFORE the

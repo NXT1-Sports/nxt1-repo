@@ -35,7 +35,7 @@ export const MOCK_EDIT_PROFILE_FORM_DATA: EditProfileFormData = {
     bannerImg: 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?w=1200&h=400&fit=crop',
   },
   sportsInfo: {
-    primarySport: 'Football',
+    sport: 'Football',
     primaryPosition: 'Quarterback',
     secondaryPositions: ['Wide Receiver'],
     jerseyNumber: '12',
@@ -309,10 +309,10 @@ export const MOCK_EDIT_PROFILE_SECTIONS: EditProfileSection[] = [
     isExpanded: false,
     fields: [
       {
-        id: 'primarySport',
+        id: 'sport',
         type: 'select',
-        label: 'Primary Sport',
-        placeholder: 'Select your main sport',
+        label: 'Sport',
+        placeholder: 'Your sport',
         required: true,
         value: 'Football',
         xpReward: 20,
@@ -694,7 +694,7 @@ export const MOCK_EMPTY_PROFILE_FORM_DATA: EditProfileFormData = {
     bannerImg: '',
   },
   sportsInfo: {
-    primarySport: '',
+    sport: '',
     primaryPosition: '',
     secondaryPositions: [],
     jerseyNumber: '',

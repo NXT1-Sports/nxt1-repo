@@ -217,10 +217,10 @@ export const EDIT_PROFILE_SECTIONS: readonly EditProfileSection[] = [
     xpReward: 100,
     fields: [
       {
-        id: 'primarySport',
+        id: 'sport',
         type: 'select',
-        label: 'Primary Sport',
-        placeholder: 'Select your main sport',
+        label: 'Sport',
+        placeholder: 'Your sport',
         required: true,
         xpReward: 20,
         countsTowardCompletion: true,

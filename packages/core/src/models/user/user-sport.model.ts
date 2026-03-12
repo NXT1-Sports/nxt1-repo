@@ -383,6 +383,7 @@ export interface SportProfile {
 
   /** Jersey number */
   jerseyNumber?: string;
+  yearsExperience?: number;
 
   /** Side preference (e.g., 'left', 'right', 'both') */
   side?: string[];

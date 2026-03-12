@@ -647,7 +647,8 @@ router.get('/search', async (req: Request, res: Response) => {
     res.set('X-Cache-Status', 'MISS');
     return res.json({ ...response, cached: false });
   } catch (error) {
-    logger.error('Search error', { error: error instanceof Error ? error.message : String(error) });
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error('Search error', { error: err.message, stack: err.stack });
     return res.status(500).json({
       success: false,
       error: 'Failed to perform search',
@@ -864,7 +865,8 @@ router.get('/counts', async (req: Request, res: Response) => {
       cached: false,
     });
   } catch (error) {
-    logger.error('Counts error', { error: error instanceof Error ? error.message : String(error) });
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error('Counts error', { error: err.message, stack: err.stack });
     return res.status(500).json({
       success: false,
       error: 'Failed to get counts',

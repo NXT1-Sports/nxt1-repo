@@ -11,6 +11,7 @@
 // ============================================
 export { ProfileService, type IProfileService, type ProfileLoadingState } from './profile.service';
 export { ProfileApiService } from './profile-api.service';
+export { EditProfileApiService } from './edit-profile-api.service';
 
 // ============================================
 // NATIVE SERVICES

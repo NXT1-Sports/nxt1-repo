@@ -46,9 +46,15 @@ export function createEditProfileApi(http: HttpAdapter, baseUrl: string) {
   return {
     /**
      * Get profile data for editing.
+     * @param userId - User ID
+     * @param sportIndex - Optional sport index to load (defaults to activeSportIndex)
      */
-    async getProfile(userId: string): Promise<EditProfileData> {
-      const response = await http.get<ApiResponse<EditProfileData>>(`${endpoint}/${userId}/edit`);
+    async getProfile(userId: string, sportIndex?: number): Promise<EditProfileData> {
+      const url =
+        sportIndex !== undefined
+          ? `${endpoint}/${userId}/edit?sportIndex=${sportIndex}`
+          : `${endpoint}/${userId}/edit`;
+      const response = await http.get<ApiResponse<EditProfileData>>(url);
       if (!response.success || !response.data) {
         throw new Error(response.error ?? 'Failed to load profile');
       }
@@ -78,12 +84,15 @@ export function createEditProfileApi(http: HttpAdapter, baseUrl: string) {
     async updateSection(
       userId: string,
       sectionId: string,
-      data: Record<string, unknown>
+      data: Record<string, unknown>,
+      sportIndex?: number
     ): Promise<EditProfileUpdateResponse> {
-      const response = await http.put<ApiResponse<EditProfileUpdateResponse>>(
-        `${endpoint}/${userId}/section/${sectionId}`,
-        data
-      );
+      const url =
+        sportIndex !== undefined
+          ? `${endpoint}/${userId}/section/${sectionId}?sportIndex=${sportIndex}`
+          : `${endpoint}/${userId}/section/${sectionId}`;
+
+      const response = await http.put<ApiResponse<EditProfileUpdateResponse>>(url, data);
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to update section');
       }
@@ -112,7 +121,10 @@ export function createEditProfileApi(http: HttpAdapter, baseUrl: string) {
       file: File | Blob
     ): Promise<{ url: string; xpAwarded?: number }> {
       const formData = new FormData();
-      formData.append('file', file);
+
+      // Append file with explicit filename (important for multer detection)
+      const filename = file instanceof File ? file.name : `${type}_photo.jpg`;
+      formData.append('file', file, filename);
       formData.append('type', type);
 
       const response = await http.post<ApiResponse<{ url: string; xpAwarded?: number }>>(
@@ -134,6 +146,24 @@ export function createEditProfileApi(http: HttpAdapter, baseUrl: string) {
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to delete photo');
       }
+    },
+
+    /**
+     * Update active sport index.
+     */
+    async updateActiveSportIndex(
+      userId: string,
+      activeSportIndex: number
+    ): Promise<{ activeSportIndex: number; sportName: string }> {
+      const response = await http.put<ApiResponse<{ activeSportIndex: number; sportName: string }>>(
+        `${endpoint}/${userId}/active-sport-index`,
+        { activeSportIndex }
+      );
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to update active sport index');
+      }
+      return response.data;
     },
   } as const;
 }

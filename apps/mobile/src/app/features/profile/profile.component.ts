@@ -60,6 +60,7 @@ import { MobileAuthService } from '../auth/services/mobile-auth.service';
 import { AuthFlowService } from '../auth/services';
 import { ShareService } from '../../core/services/share.service';
 import { ProfileApiService } from '../../core/services/profile-api.service';
+import { EditProfileApiService } from '../../core/services/edit-profile-api.service';
 import { CapacitorHttpAdapter } from '../../core/infrastructure';
 import { environment } from '../../../environments/environment';
 
@@ -168,6 +169,7 @@ export class ProfileComponent {
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly uiProfileService = inject(UiProfileService);
   private readonly profileApiService = inject(ProfileApiService);
+  private readonly editProfileApiService = inject(EditProfileApiService);
   private readonly shareService = inject(ShareService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly http = inject(CapacitorHttpAdapter);
@@ -234,6 +236,11 @@ export class ProfileComponent {
 
   constructor() {
     this.destroyRef.onDestroy(() => this.uiProfileService.startLoading());
+
+    this.uiProfileService.setApiService({
+      updateActiveSportIndex: (userId: string, activeSportIndex: number) =>
+        this.editProfileApiService.updateActiveSportIndex(userId, activeSportIndex),
+    });
 
     // CRITICAL: Clear old profile data immediately when route params change
     // This effect runs synchronously when routeParam changes, BEFORE the
@@ -503,11 +510,25 @@ export class ProfileComponent {
    * Called when user taps 'Edit Profile' button.
    */
   protected async onEditProfile(): Promise<void> {
-    const result = await this.editProfileSheet.open();
+    const userId = this.fetchedProfile()?.id ?? this.authService.user()?.uid;
+    if (!userId) {
+      console.warn('[Profile] Cannot edit profile: No user ID available');
+      return;
+    }
+
+    const sportIndex = this.uiProfileService.activeSportIndex();
+    const result = await this.editProfileSheet.open(userId, sportIndex);
 
     if (result?.saved) {
-      // Profile was saved - could trigger refresh here if needed
-      // The ProfileService should handle data refresh internally
+      const param = this.routeParam();
+      if (!param && userId) {
+        const response = await this.profileApiService.getProfile(userId);
+        if (response.success && response.data) {
+          this.fetchedProfile.set(response.data);
+          const profilePageData = userToProfilePageData(response.data, true);
+          this.uiProfileService.loadFromExternalData(profilePageData, response.data, true);
+        }
+      }
     }
   }
 

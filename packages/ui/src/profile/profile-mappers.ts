@@ -324,9 +324,9 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
   // ── Profile images ────────────────────────────────────────────────────────
   const bannerImg = user.bannerImg ?? undefined;
   // Carousel: use profileImgs array (new)
-  const profileImages: readonly string[] = user.profileImgs?.length ? user.profileImgs : [];
+  const profileImgs: readonly string[] = user.profileImgs?.length ? user.profileImgs : [];
   // Primary profile image: first from array or undefined
-  const profileImg = profileImages[0] ?? undefined;
+  const profileImg = profileImgs[0] ?? undefined;
 
   // ── Counters (from User._counters) ────────────────────────────────────────
   const counters = user._counters;
@@ -342,7 +342,7 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     // Images
     profileImg,
     bannerImg,
-    profileImages,
+    profileImgs,
 
     // Role
     role: (user.role ?? 'athlete') as unknown as ProfileUserRole,

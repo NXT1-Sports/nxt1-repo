@@ -107,8 +107,8 @@ router.post('/ask', appGuard, async (req: Request, res: Response) => {
       data: { jobId, operationId },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    logger.error('Failed to enqueue agent job', { error: message });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to enqueue agent job', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       error: 'Failed to process request',
@@ -153,8 +153,8 @@ router.get('/status/:id', appGuard, async (req: Request, res: Response) => {
 
     res.json({ success: true, data: status });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    logger.error('Failed to get job status', { error: message });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to get job status', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to get status' });
   }
 });
@@ -202,8 +202,8 @@ router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
 
     res.json({ success: true, data: { cancelled } });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    logger.error('Failed to cancel job', { error: message });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to cancel job', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to cancel job' });
   }
 });
@@ -230,8 +230,8 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
 
     res.json({ success: true, data: jobs });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    logger.error('Failed to get job history', { error: message });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to get job history', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to get history' });
   }
 });
@@ -249,8 +249,8 @@ router.post('/pause', adminGuard, async (_req: Request, res: Response) => {
     logger.info('Agent queue paused by admin');
     res.json({ success: true, data: { paused: true } });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    logger.error('Failed to pause queue', { error: message });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to pause queue', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to pause queue' });
   }
 });
@@ -268,8 +268,8 @@ router.post('/resume', adminGuard, async (_req: Request, res: Response) => {
     logger.info('Agent queue resumed by admin');
     res.json({ success: true, data: { paused: false } });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    logger.error('Failed to resume queue', { error: message });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to resume queue', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to resume queue' });
   }
 });
@@ -287,8 +287,8 @@ router.get('/queue-stats', adminGuard, async (_req: Request, res: Response) => {
     const paused = await queueService.isPaused();
     res.json({ success: true, data: { counts, paused } });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    logger.error('Failed to get queue stats', { error: message });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to get queue stats', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to get stats' });
   }
 });

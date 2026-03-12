@@ -11,9 +11,11 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  Input,
   OnInit,
   PLATFORM_ID,
   computed,
+  effect,
   inject,
   output,
   signal,
@@ -55,21 +57,10 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { getPositionGroupsForSport } from '@nxt1/core';
 
 const MAX_GALLERY_IMAGES = 8;
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
-const POSITION_OPTIONS = [
-  'Quarterback',
-  'Running Back',
-  'Wide Receiver',
-  'Tight End',
-  'Offensive Line',
-  'Defensive Line',
-  'Linebacker',
-  'Cornerback',
-  'Safety',
-  'Athlete',
-] as const;
 const HEIGHT_OPTIONS = buildHeightOptions();
 
 @Component({
@@ -227,7 +218,7 @@ const HEIGHT_OPTIONS = buildHeightOptions();
                 (tap)="editPosition()"
               >
                 <span
-                  class="nxt1-list-value"
+                  class="nxt1-list-value capitalize"
                   [class.nxt1-list-placeholder]="selectedPositions().length === 0"
                   >{{ positionDisplay() || 'Select position' }}</span
                 >
@@ -481,6 +472,12 @@ export class EditProfileShellComponent implements OnInit {
   readonly save = output<void>();
   protected readonly isModalMode = !!this.modalCtrl;
 
+  /** User ID to load/edit - passed from parent component via Ionic componentProps */
+  @Input() userId?: string;
+
+  /** Sport index to load - defaults to activeSportIndex if not provided */
+  @Input() sportIndex?: number;
+
   protected readonly imageInputRef = viewChild<ElementRef<HTMLInputElement>>('imageInput');
   private readonly nxtModal = inject(NxtModalService);
   private readonly alertCtrl = inject(AlertController);
@@ -488,7 +485,98 @@ export class EditProfileShellComponent implements OnInit {
 
   protected readonly isDetectingLocation = signal(false);
   protected readonly maxGalleryImages = MAX_GALLERY_IMAGES;
-  protected readonly positionOptions = POSITION_OPTIONS;
+
+  constructor() {
+    // Track formData changes for debugging
+    effect(() => {
+      const data = this.profile.formData();
+      const activeSportIndex = this.profile.activeSportIndex();
+      const allSports = this.profile.allSports();
+
+      this.logger.info('📊 [Edit Profile] FormData changed', {
+        hasData: !!data,
+        sport: data?.sportsInfo?.sport,
+        jerseyNumber: data?.sportsInfo?.jerseyNumber,
+        primaryPosition: data?.sportsInfo?.primaryPosition,
+        secondaryPositions: data?.sportsInfo?.secondaryPositions,
+        activeSportIndex,
+        allSportsCount: allSports?.length,
+        allSportsData: allSports?.map((s: any, i: number) => ({
+          index: i,
+          sport: s.sport,
+          jerseyNumber: s.jerseyNumber,
+          positions: s.positions,
+        })),
+      });
+    });
+  }
+
+  /**
+   * Position options for the selected sport.
+   * Dynamically computed based on the primary sport in the form data.
+   */
+  protected readonly positionOptions = computed<readonly string[]>(() => {
+    const data = this.profile.formData();
+    const activeSportIndex = this.profile.activeSportIndex();
+    const allSports = this.profile.allSports();
+
+    // Try to get sport from formData first (when loaded)
+    let sport = data?.sportsInfo?.sport;
+
+    // Fallback: Get sport from rawUserData if formData not ready yet
+    if (!sport && allSports && allSports[activeSportIndex]) {
+      sport = allSports[activeSportIndex].sport;
+    }
+
+    this.logger.info('🔍 Computing position options', {
+      hasData: !!data,
+      rawSport: sport,
+      activeSportIndex,
+      totalSports: allSports?.length,
+      allSportsNames: allSports?.map((s: any) => s.sport),
+      jerseyNumber: data?.sportsInfo?.jerseyNumber,
+      primaryPosition: data?.sportsInfo?.primaryPosition,
+      sportsInfoFull: data?.sportsInfo,
+      fallbackSport: !data ? allSports?.[activeSportIndex]?.sport : null,
+    });
+
+    // Fallback to Football if no sport is set (temporary for debugging)
+    const sportToUse = sport || 'Football';
+
+    if (!sport) {
+      this.logger.warn('⚠️ No sport found - defaulting to Football', {
+        hasFormData: !!data,
+        hasRawUser: !!allSports?.length,
+        activeSportIndex,
+      });
+    }
+
+    const positionGroups = getPositionGroupsForSport(sportToUse);
+    const positions = positionGroups.flatMap((group) => group.positions);
+
+    this.logger.info('✅ Position groups loaded', {
+      rawSport: sport,
+      sportToUse,
+      normalizedSport: sportToUse.toLowerCase().replace(/\s+/g, '_'),
+      groupCount: positionGroups.length,
+      totalPositions: positions.length,
+      firstFewPositions: positions.slice(0, 5),
+      allGroups: positionGroups.map((g) => ({
+        category: g.category,
+        count: g.positions.length,
+      })),
+    });
+
+    if (positions.length === 0) {
+      this.logger.error('❌ No positions found for sport', {
+        sport,
+        sportToUse,
+        positionGroups,
+      });
+    }
+
+    return positions;
+  });
 
   /** Mock verified fields — will be replaced with backend verification status */
   protected readonly verifiedFields = signal<ReadonlySet<string>>(
@@ -546,14 +634,36 @@ export class EditProfileShellComponent implements OnInit {
   );
 
   ngOnInit(): void {
-    if (!this.profile.formData() && !this.profile.isLoading()) {
+    const currentSportIndex = this.profile.activeSportIndex();
+    const requestedSportIndex = this.sportIndex ?? 0;
+
+    // Always reload if sportIndex has changed, or if no data exists
+    if (
+      !this.profile.formData() ||
+      (!this.profile.isLoading() && currentSportIndex !== requestedSportIndex)
+    ) {
+      this.logger.info('🔄 [Edit Profile Shell] Triggering profile reload', {
+        reason: !this.profile.formData() ? 'no-data' : 'sport-index-changed',
+        currentSportIndex,
+        requestedSportIndex,
+      });
       void this.loadProfile();
+    } else {
+      this.logger.info('🔄 [Edit Profile Shell] Skipping reload', {
+        hasData: !!this.profile.formData(),
+        isLoading: this.profile.isLoading(),
+        currentSportIndex,
+        requestedSportIndex,
+      });
     }
   }
 
   protected async loadProfile(): Promise<void> {
     this.breadcrumb.trackStateChange('edit-profile:loading');
-    await this.profile.loadProfile();
+    const uid = this.userId; // Get userId from @Input property
+    const sportIdx = this.sportIndex; // Get sportIndex from @Input property
+    this.logger.debug('Loading profile', { userId: uid, sportIndex: sportIdx });
+    await this.profile.loadProfile(uid, sportIdx); // Pass uid and sportIndex
     this.breadcrumb.trackStateChange('edit-profile:loaded');
   }
 
@@ -719,10 +829,25 @@ export class EditProfileShellComponent implements OnInit {
     const form = this.profile.formData();
     if (!form) return;
     const selected = this.selectedPositions();
+    const positions = this.positionOptions();
+    const activeSportIndex = this.profile.activeSportIndex();
+    const allSports = this.profile.allSports();
+
+    this.logger.info('🎯 Opening position picker', {
+      sport: form.sportsInfo.sport,
+      activeSportIndex,
+      allSportsCount: allSports?.length,
+      currentSport: allSports?.[activeSportIndex]?.sport,
+      currentPositions: selected,
+      availablePositionsCount: positions.length,
+      firstFewPositions: positions.slice(0, 5),
+      allFormDataSportsInfo: form.sportsInfo,
+    });
+
     const alert = await this.alertCtrl.create({
       header: 'Position',
       cssClass: 'nxt-modal-prompt',
-      inputs: this.positionOptions.map((pos) => ({
+      inputs: positions.map((pos) => ({
         name: pos,
         type: 'checkbox' as const,
         label: pos,
@@ -771,9 +896,34 @@ export class EditProfileShellComponent implements OnInit {
     }
 
     const selectedFiles = files.slice(0, availableSlots);
-    const validImages: string[] = [];
+    const uploadedUrls: string[] = [];
+    const previewUrls: string[] = [];
+    const userId = this.userId;
 
+    if (!userId) {
+      this.toast.error('User ID not found');
+      return;
+    }
+
+    // Create instant preview URLs using Object URL
     for (const file of selectedFiles) {
+      if (file.type.startsWith('image/')) {
+        const previewUrl = URL.createObjectURL(file);
+        previewUrls.push(previewUrl);
+      }
+    }
+
+    // Show preview images immediately
+    if (previewUrls.length > 0) {
+      this.profile.updatePhotoGallery([...this.carouselImages(), ...previewUrls]);
+    }
+
+    // Show loading toast
+    this.toast.info(`Uploading ${selectedFiles.length} image(s)...`);
+
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
+
       if (!file.type.startsWith('image/')) {
         this.toast.warning(`${file.name} is not a supported image file.`);
         continue;
@@ -781,19 +931,44 @@ export class EditProfileShellComponent implements OnInit {
 
       if (file.size > MAX_IMAGE_SIZE) {
         this.toast.warning(`${file.name} is larger than 5MB.`);
+        // Remove preview for failed upload
+        if (previewUrls[i]) {
+          URL.revokeObjectURL(previewUrls[i]);
+        }
         continue;
       }
 
       try {
-        validImages.push(await this.readFileAsDataUrl(file));
+        // Upload to Firebase Storage and get permanent URL
+        const result = await this.profile.uploadPhoto(userId, 'profile', file);
+        uploadedUrls.push(result.url);
+
+        // Clean up preview URL after successful upload
+        if (previewUrls[i]) {
+          URL.revokeObjectURL(previewUrls[i]);
+        }
       } catch (error) {
-        this.logger.error('Failed to read profile image', error, { fileName: file.name });
-        this.toast.error(`Could not load ${file.name}.`);
+        this.logger.error('Failed to upload profile image', error, { fileName: file.name });
+        this.toast.error(`Could not upload ${file.name}.`);
+
+        // Clean up preview URL for failed upload
+        if (previewUrls[i]) {
+          URL.revokeObjectURL(previewUrls[i]);
+        }
       }
     }
 
-    if (validImages.length > 0) {
-      this.profile.updatePhotoGallery([...this.carouselImages(), ...validImages]);
+    if (uploadedUrls.length > 0) {
+      // Replace preview URLs with permanent Firebase Storage URLs
+      const currentImages = this.carouselImages();
+      const permanentImages = currentImages.slice(0, -previewUrls.length).concat(uploadedUrls);
+      this.profile.updatePhotoGallery(permanentImages);
+      this.toast.success(`Uploaded ${uploadedUrls.length} image(s)`);
+    } else if (previewUrls.length > 0) {
+      // All uploads failed - remove preview URLs
+      const currentImages = this.carouselImages();
+      const cleanImages = currentImages.slice(0, -previewUrls.length);
+      this.profile.updatePhotoGallery(cleanImages);
     }
 
     if (files.length > availableSlots) {
@@ -844,24 +1019,6 @@ export class EditProfileShellComponent implements OnInit {
     } finally {
       this.isDetectingLocation.set(false);
     }
-  }
-
-  private readFileAsDataUrl(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          resolve(reader.result);
-          return;
-        }
-
-        reject(new Error('Image preview could not be created.'));
-      };
-
-      reader.onerror = () => reject(reader.error ?? new Error('File read failed.'));
-      reader.readAsDataURL(file);
-    });
   }
 }
 

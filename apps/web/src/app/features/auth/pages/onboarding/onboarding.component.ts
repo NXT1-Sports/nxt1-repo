@@ -192,7 +192,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       <!-- Mobile: Title & Subtitle shown in form panel (top) -->
       <div authTitleMobile class="nxt1-mobile-titles">
         <nxt1-onboarding-agent-x-typewriter [message]="agentXMessage()" />
-        <h1 class="text-text-primary mt-2 mb-2 text-2xl font-bold">
+        <h1 class="mb-2 mt-2 text-2xl font-bold text-text-primary">
           {{ currentStep().title || 'Loading...' }}
         </h1>
       </div>
@@ -329,9 +329,9 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             ) {
               <div class="py-12 text-center">
                 <div
-                  class="bg-surface-200 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
+                  class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-200"
                 >
-                  <svg viewBox="0 0 24 24" fill="none" class="text-text-tertiary h-8 w-8">
+                  <svg viewBox="0 0 24 24" fill="none" class="h-8 w-8 text-text-tertiary">
                     <path
                       d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"
                       fill="currentColor"
@@ -1129,12 +1129,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
     // Save all onboarding data to backend
     try {
-      // Flatten nested form data to match OnboardingProfileData structure
+      // Map sports array from form data
       const sportEntries = formData.sport?.sports || [];
-      const primarySport = sportEntries.find((e) => e.isPrimary) || sportEntries[0];
-      const nonPrimarySports = sportEntries.filter((e) => !e.isPrimary);
-      const secondarySport = nonPrimarySports[0];
-      const tertiarySport = nonPrimarySports[1];
 
       // Map 'recruiter' to 'recruiting-service' for backend API compatibility
       const userType: OnboardingProfileData['userType'] =
@@ -1142,28 +1138,44 @@ export class OnboardingComponent implements OnInit, OnDestroy {
           ? 'recruiting-service'
           : (formData.userType as OnboardingProfileData['userType']);
 
-      const profileData = {
+      const profileData: OnboardingProfileData = {
         userType,
         firstName: formData.profile?.firstName || '',
         lastName: formData.profile?.lastName || '',
         profileImgs: formData.profile?.profileImgs || undefined,
         bio: formData.profile?.bio,
         gender: formData.profile?.gender ?? undefined,
-        sport: primarySport?.sport,
-        secondarySport: secondarySport?.sport,
-        tertiarySport: tertiarySport?.sport,
-        positions: primarySport?.positions,
-        highSchool: primarySport?.team?.name || formData.school?.schoolName,
-        highSchoolSuffix: primarySport?.team?.type || formData.school?.schoolType,
+        // V2: Send sports array directly
+        sports: sportEntries.map((entry) => ({
+          sport: entry.sport,
+          isPrimary: entry.isPrimary,
+          positions: entry.positions,
+          team: entry.team
+            ? {
+                name: entry.team.name,
+                type: entry.team.type,
+                city: entry.team.city,
+                state: entry.team.state,
+                logo: entry.team.logo ?? undefined,
+                colors: entry.team.colors,
+              }
+            : undefined,
+        })),
+        // Legacy fallback data for potential API compatibility
+        highSchool: sportEntries[0]?.team?.name || formData.school?.schoolName,
+        highSchoolSuffix: sportEntries[0]?.team?.type || formData.school?.schoolType,
         classOf: formData.profile?.classYear ?? formData.school?.classYear ?? undefined,
         state:
-          primarySport?.team?.state || formData.school?.state || formData.profile?.location?.state,
-        city: primarySport?.team?.city || formData.school?.city || formData.profile?.location?.city,
+          sportEntries[0]?.team?.state ||
+          formData.school?.state ||
+          formData.profile?.location?.state,
+        city:
+          sportEntries[0]?.team?.city || formData.school?.city || formData.profile?.location?.city,
         zipCode: formData.profile?.location?.zipCode,
         address: formData.profile?.location?.address,
         country: formData.profile?.location?.country,
-        teamLogo: formData.school?.teamLogo || primarySport?.team?.logo,
-        teamColors: formData.school?.teamColors || primarySport?.team?.colors,
+        teamLogo: formData.school?.teamLogo || sportEntries[0]?.team?.logo,
+        teamColors: formData.school?.teamColors || sportEntries[0]?.team?.colors,
         club: formData.school?.club,
         organization: formData.organization?.organizationName,
         coachTitle: formData.organization?.title,

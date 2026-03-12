@@ -467,10 +467,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         role: authUser.role,
       });
     } catch (err) {
-      this.logger.error('❌ Failed to sync user profile', {
-        error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined,
-      });
+      this.logger.error('❌ Failed to sync user profile', err);
 
       // Don't throw - allow auth to continue with existing persisted state
       // ProfileService will remain empty, but AuthUser will be available
@@ -968,7 +965,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       return { success: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to delete account';
-      this.logger.error('Account deletion failed', { error: err });
+      this.logger.error('Account deletion failed', err);
       return { success: false, error: message };
     }
   }

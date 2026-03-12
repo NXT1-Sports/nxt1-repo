@@ -283,7 +283,7 @@ export class ProfileService implements OnDestroy, IProfileService {
       const message = err instanceof Error ? err.message : 'Failed to update profile';
       this._error.set(message);
       this._state.set('error');
-      this.logger.error('Profile update failed', { uid, error: err });
+      this.logger.error('Profile update failed', err, { uid });
       throw err;
     }
   }
@@ -364,10 +364,8 @@ export class ProfileService implements OnDestroy, IProfileService {
       const message = err instanceof Error ? err.message : 'Failed to load profile';
       this._error.set(message);
       this._state.set('error');
-      this.logger.error('❌ Profile load failed', {
+      this.logger.error('❌ Profile load failed', err, {
         uid,
-        error: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined,
       });
       throw err;
     }

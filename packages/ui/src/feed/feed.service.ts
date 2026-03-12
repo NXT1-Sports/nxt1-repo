@@ -157,7 +157,7 @@ export class FeedService {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load feed';
       this._error.set(message);
-      this.logger.error('Failed to load feed', { error: err });
+      this.logger.error('Failed to load feed', err);
     } finally {
       this._isLoading.set(false);
     }
@@ -199,7 +199,7 @@ export class FeedService {
       this.logger.info('More posts loaded', { count: posts.length, page: nextPage });
     } catch (err) {
       this.toast.error('Failed to load more posts');
-      this.logger.error('Failed to load more', { error: err });
+      this.logger.error('Failed to load more', err);
     } finally {
       this._isLoadingMore.set(false);
     }
@@ -235,7 +235,7 @@ export class FeedService {
       this.logger.info('Feed refreshed');
     } catch (err) {
       this.toast.error('Failed to refresh feed');
-      this.logger.error('Failed to refresh', { error: err });
+      this.logger.error('Failed to refresh', err);
     } finally {
       this._isRefreshing.set(false);
     }
@@ -277,7 +277,7 @@ export class FeedService {
       // Rollback on error
       this._posts.update((posts) => posts.map((p) => (p.id === post.id ? post : p)));
       this.toast.error('Failed to update like');
-      this.logger.error('Failed to toggle like', { error: err });
+      this.logger.error('Failed to toggle like', err);
     }
   }
 
@@ -305,7 +305,7 @@ export class FeedService {
       // Rollback on error
       this._posts.update((posts) => posts.map((p) => (p.id === post.id ? post : p)));
       this.toast.error('Failed to save post');
-      this.logger.error('Failed to toggle bookmark', { error: err });
+      this.logger.error('Failed to toggle bookmark', err);
     }
   }
 

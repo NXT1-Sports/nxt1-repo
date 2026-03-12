@@ -21,13 +21,13 @@ import { getVerification } from '@nxt1/core';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="madden-mobile-hero md:hidden" aria-label="Profile summary">
-      @if (profile.profileImages().length > 0) {
+      @if (profile.profileImgs().length > 0) {
         <div class="madden-mobile-hero__carousel">
           <div class="carousel-glow-wrap">
             <div class="carousel-glow-border" aria-hidden="true"></div>
             <div class="carousel-glow-ambient" aria-hidden="true"></div>
             <nxt1-image-carousel
-              [images]="profile.profileImages()"
+              [images]="profile.profileImgs()"
               [alt]="desktopTitle()"
               [autoPlay]="true"
               [autoPlayInterval]="4200"
@@ -435,7 +435,7 @@ export class ProfileMobileHeroComponent {
   });
 
   protected readonly carouselOverlayTitles = computed<readonly string[]>(() => {
-    const images = this.profile.profileImages();
+    const images = this.profile.profileImgs();
     const base = this.desktopTitle();
     const titles: string[] = [];
     for (let index = 0; index < images.length; index += 1) {
@@ -445,7 +445,7 @@ export class ProfileMobileHeroComponent {
   });
 
   protected readonly carouselOverlaySubtitles = computed<readonly string[]>(() => {
-    const images = this.profile.profileImages();
+    const images = this.profile.profileImgs();
     const baseSubtitle = this.carouselOverlaySubtitle();
     const total = images.length;
     return images.map((_, index) => {

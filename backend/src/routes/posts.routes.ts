@@ -905,12 +905,12 @@ router.delete(
         message: 'Comment deleted successfully',
       });
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('[Posts] Failed to delete comment', { error: errorMessage });
+      const err = error instanceof Error ? error : new Error(String(error));
+      logger.error('[Posts] Failed to delete comment', { error: err.message, stack: err.stack });
 
       if (error instanceof Error && error.message === 'Comment not found') {
-        const err = notFoundError('comment');
-        res.status(err.statusCode).json(err.toResponse());
+        const notFoundErr = notFoundError('comment');
+        res.status(notFoundErr.statusCode).json(notFoundErr.toResponse());
         return;
       }
 

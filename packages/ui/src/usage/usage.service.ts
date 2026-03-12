@@ -278,7 +278,7 @@ export class UsageService {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load usage data';
       this._error.set(message);
-      this.logger.error('Failed to load usage dashboard', { error: err });
+      this.logger.error('Failed to load usage dashboard', err);
     } finally {
       this._isLoading.set(false);
     }
@@ -298,7 +298,7 @@ export class UsageService {
       await this.simulateDelay(300);
       this._historyHasMore.set(false);
     } catch (err) {
-      this.logger.error('Failed to load more history', { error: err });
+      this.logger.error('Failed to load more history', err);
     } finally {
       this._isLoadingMore.set(false);
     }

@@ -764,7 +764,34 @@ router.post(
     // V2: Build sports array
     const sports: SportProfile[] = [];
 
-    if (profileData['sport']) {
+    if (Array.isArray(profileData['sports']) && profileData['sports'].length > 0) {
+      const sportsData = profileData['sports'] as Array<{
+        sport: string;
+        isPrimary?: boolean;
+        positions?: string[];
+        team?: {
+          name?: string;
+          type?: string;
+          city?: string;
+          state?: string;
+          logo?: string;
+          colors?: string[];
+        };
+      }>;
+
+      sportsData.forEach((sportData, index) => {
+        const sportProfile = createSportProfile(sportData.sport, index, {
+          positions: sportData.positions,
+          teamName: sportData.team?.name,
+          teamType: sportData.team?.type,
+          city: sportData.team?.city,
+          state: sportData.team?.state,
+          teamLogo: sportData.team?.logo,
+          teamColors: sportData.team?.colors,
+        });
+        sports.push(sportProfile);
+      });
+    } else if (profileData['sport']) {
       const primarySport = createSportProfile(profileData['sport'] as string, 0, {
         positions: profileData['positions'] as string[] | undefined,
         teamName: profileData['highSchool'] as string | undefined,
@@ -775,16 +802,16 @@ router.post(
         teamColors: profileData['teamColors'] as string[] | undefined,
       });
       sports.push(primarySport);
-    }
 
-    if (profileData['secondarySport']) {
-      const secondarySport = createSportProfile(profileData['secondarySport'] as string, 1);
-      sports.push(secondarySport);
-    }
+      if (profileData['secondarySport']) {
+        const secondarySport = createSportProfile(profileData['secondarySport'] as string, 1);
+        sports.push(secondarySport);
+      }
 
-    if (profileData['tertiarySport']) {
-      const tertiarySport = createSportProfile(profileData['tertiarySport'] as string, 2);
-      sports.push(tertiarySport);
+      if (profileData['tertiarySport']) {
+        const tertiarySport = createSportProfile(profileData['tertiarySport'] as string, 2);
+        sports.push(tertiarySport);
+      }
     }
 
     if (sports.length > 0) {
@@ -935,7 +962,11 @@ router.post(
       await db.collection('Users').doc(userId).update(updateData);
       logger.debug('[POST /profile/onboarding] Firestore update successful');
     } catch (updateError) {
-      logger.error('[POST /profile/onboarding] Firestore update FAILED:', { error: updateError });
+      const err = updateError instanceof Error ? updateError : new Error(String(updateError));
+      logger.error('[POST /profile/onboarding] Firestore update FAILED:', {
+        error: err.message,
+        stack: err.stack,
+      });
       throw updateError;
     }
 
@@ -954,7 +985,11 @@ router.post(
         role: userData?.role,
       });
     } catch (fetchError) {
-      logger.error('[POST /profile/onboarding] Fetch user FAILED:', { error: fetchError });
+      const err = fetchError instanceof Error ? fetchError : new Error(String(fetchError));
+      logger.error('[POST /profile/onboarding] Fetch user FAILED:', {
+        error: err.message,
+        stack: err.stack,
+      });
       throw fetchError;
     }
 
@@ -1107,42 +1142,77 @@ router.post(
       }
 
       case 'sport': {
-        const primarySportName = (stepData['primarySport'] as string)?.trim();
-        const secondarySportName = (stepData['secondarySport'] as string)?.trim();
-
-        // V2: Build sports array
         const sports: SportProfile[] = [];
+        if (Array.isArray(stepData['sports']) && stepData['sports'].length > 0) {
+          const sportsData = stepData['sports'] as Array<{
+            sport: string;
+            isPrimary?: boolean;
+            positions?: string[];
+            team?: {
+              name?: string;
+              type?: string;
+              city?: string;
+              state?: string;
+              logo?: string;
+              colors?: string[];
+            };
+          }>;
 
-        if (primarySportName) {
-          // Preserve existing positions and team data if available
-          const existingPrimary = currentUser?.sports?.find((s) => s.order === 0);
-          sports.push(
-            createSportProfile(primarySportName, 0, {
-              positions: existingPrimary?.positions,
-              teamName: existingPrimary?.team?.name ?? currentUser?.highSchool,
-              teamType: existingPrimary?.team?.type,
-              city: currentUser?.location?.city ?? currentUser?.city,
-              state: currentUser?.location?.state ?? currentUser?.state,
-            })
-          );
-        }
+          sportsData.forEach((sportData, index) => {
+            const existingSport = currentUser?.sports?.find((s) => s.order === index);
+            sports.push(
+              createSportProfile(sportData.sport, index, {
+                positions: sportData.positions ?? existingSport?.positions,
+                teamName:
+                  sportData.team?.name ?? existingSport?.team?.name ?? currentUser?.highSchool,
+                teamType: sportData.team?.type ?? existingSport?.team?.type,
+                city: sportData.team?.city ?? currentUser?.location?.city ?? currentUser?.city,
+                state: sportData.team?.state ?? currentUser?.location?.state ?? currentUser?.state,
+                teamLogo: sportData.team?.logo ?? existingSport?.team?.logo ?? '',
+                teamColors: sportData.team?.colors ?? existingSport?.team?.colors,
+              })
+            );
+          });
 
-        if (secondarySportName) {
-          const existingSecondary = currentUser?.sports?.find((s) => s.order === 1);
-          sports.push(
-            createSportProfile(secondarySportName, 1, {
-              positions: existingSecondary?.positions,
-            })
-          );
+          logger.debug('[POST /profile/onboarding-step] Processing sports array', {
+            count: sportsData.length,
+            sports: sportsData.map((s) => s.sport),
+          });
+        } else {
+          const primarySportName = (stepData['primarySport'] as string)?.trim();
+          const secondarySportName = (stepData['secondarySport'] as string)?.trim();
+
+          if (primarySportName) {
+            // Preserve existing positions and team data if available
+            const existingPrimary = currentUser?.sports?.find((s) => s.order === 0);
+            sports.push(
+              createSportProfile(primarySportName, 0, {
+                positions: existingPrimary?.positions,
+                teamName: existingPrimary?.team?.name ?? currentUser?.highSchool,
+                teamType: existingPrimary?.team?.type,
+                city: currentUser?.location?.city ?? currentUser?.city,
+                state: currentUser?.location?.state ?? currentUser?.state,
+              })
+            );
+          }
+
+          if (secondarySportName) {
+            const existingSecondary = currentUser?.sports?.find((s) => s.order === 1);
+            sports.push(
+              createSportProfile(secondarySportName, 1, {
+                positions: existingSecondary?.positions,
+              })
+            );
+          }
         }
 
         if (sports.length > 0) {
           updateData.sports = sports;
           updateData.activeSportIndex = 0;
 
-          // Minimal legacy: Keep primarySport for backward compat
-          if (primarySportName) {
-            updateData.primarySport = primarySportName;
+          const primarySport = sports.find((s) => s.order === 0);
+          if (primarySport) {
+            updateData.primarySport = primarySport.sport;
           }
         }
         break;

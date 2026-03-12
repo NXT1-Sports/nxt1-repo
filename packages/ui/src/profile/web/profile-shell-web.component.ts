@@ -434,12 +434,12 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                   </button>
                 </div>
 
-                @if (profile.profileImages().length > 0) {
+                @if (profile.profileImgs().length > 0) {
                   <div class="carousel-glow-wrap">
                     <div class="carousel-glow-border" aria-hidden="true"></div>
                     <div class="carousel-glow-ambient" aria-hidden="true"></div>
                     <nxt1-image-carousel
-                      [images]="profile.profileImages()"
+                      [images]="profile.profileImgs()"
                       [alt]="desktopTitle()"
                       [autoPlay]="true"
                       [autoPlayInterval]="4200"
@@ -1521,7 +1521,7 @@ export class ProfileShellWebComponent implements OnInit {
 
   /** Carousel per-image titles (first image = profile photo, rest = gallery shots) */
   protected readonly carouselOverlayTitles = computed<readonly string[]>(() => {
-    const images = this.profile.profileImages();
+    const images = this.profile.profileImgs();
     const base = this.desktopTitle();
     const titles: string[] = [];
 
@@ -1538,7 +1538,7 @@ export class ProfileShellWebComponent implements OnInit {
 
   /** Carousel per-image subtitles (add image position for each slide) */
   protected readonly carouselOverlaySubtitles = computed<readonly string[]>(() => {
-    const images = this.profile.profileImages();
+    const images = this.profile.profileImgs();
     const baseSubtitle = this.carouselOverlaySubtitle();
     const total = images.length;
 

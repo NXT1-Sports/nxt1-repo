@@ -247,7 +247,7 @@ export interface ProfileUser {
   /** Banner/cover image URL */
   readonly bannerImg?: string;
   /** Profile images for carousel display */
-  readonly profileImages?: readonly string[];
+  readonly profileImgs?: readonly string[];
   /** User role */
   readonly role: ProfileUserRole;
   /** Whether this is a recruit/athlete */

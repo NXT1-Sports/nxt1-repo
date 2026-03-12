@@ -172,14 +172,32 @@ export class CapacitorHttpAdapter implements HttpAdapter {
    * Perform POST request
    */
   async post<T>(url: string, body: unknown, config?: HttpRequestConfig): Promise<T> {
-    const headers = await this.buildHeaders(config);
+    const isFormData = body instanceof FormData;
+    const headers = await this.buildHeaders(config, isFormData);
 
     this.logger.debug('POST request', {
       url: this.buildUrl(url, config?.params),
       isNative: this.isNative,
       isAuthed: !!headers['Authorization'],
-      bodyPreview: JSON.stringify(body).substring(0, 100),
+      isFormData,
+      bodyPreview: isFormData ? '[FormData]' : JSON.stringify(body).substring(0, 100),
     });
+
+    // Use fetch for FormData uploads (even on native) because Capacitor HTTP doesn't support FormData
+    if (isFormData) {
+      this.logger.debug('Using fetch for FormData upload');
+      const response = await this.fetchWithTimeout(
+        this.buildUrl(url, config?.params),
+        {
+          method: 'POST',
+          headers,
+          body: body as FormData,
+          credentials: config?.withCredentials ? 'include' : 'same-origin',
+        },
+        config?.timeout ?? DEFAULT_TIMEOUT
+      );
+      return this.handleFetchResponse<T>(response);
+    }
 
     if (this.isNative) {
       const response = await CapacitorHttp.post({
@@ -309,13 +327,23 @@ export class CapacitorHttpAdapter implements HttpAdapter {
    * Firebase SDK caches tokens internally — getIdToken() only makes a
    * network call when the cached token is expired (~60 min), making this
    * pattern both safe and efficient.
+   *
+   * @param config - Optional HTTP request configuration
+   * @param isFormData - If true, skip Content-Type header (let browser set multipart/form-data with boundary)
    */
-  private async buildHeaders(config?: HttpRequestConfig): Promise<Record<string, string>> {
+  private async buildHeaders(
+    config?: HttpRequestConfig,
+    isFormData = false
+  ): Promise<Record<string, string>> {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
       Accept: 'application/json',
       ...config?.headers,
     };
+
+    // Only set Content-Type for JSON requests (not FormData)
+    if (!isFormData) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     // Get fresh token from provider (Firebase handles caching internally)
     if (this.tokenProvider) {

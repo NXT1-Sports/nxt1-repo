@@ -216,9 +216,10 @@ export interface EditProfilePhotos {
 
 /**
  * Sports info form data.
+ * Sport is determined by activeSportIndex, not a separate "primary" concept.
  */
 export interface EditProfileSportsInfo {
-  readonly primarySport?: string;
+  readonly sport?: string;
   readonly primaryPosition?: string;
   readonly secondaryPositions?: readonly string[];
   readonly jerseyNumber?: string;
@@ -330,6 +331,8 @@ export interface EditProfileData {
   readonly formData: EditProfileFormData;
   readonly completion: ProfileCompletionData;
   readonly lastUpdated: string;
+  readonly rawUser?: any; // User type from @nxt1/core
+  readonly activeSportIndex?: number;
 }
 
 // ============================================

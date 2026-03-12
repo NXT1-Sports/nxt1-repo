@@ -254,7 +254,7 @@ export class NewsService {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load news';
       this._error.set(message);
-      this.logger.error('Failed to load feed', { error: message });
+      this.logger.error('Failed to load feed', err);
     } finally {
       this._isLoading.set(false);
     }
@@ -290,7 +290,7 @@ export class NewsService {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load more';
       this.toast.error(message);
-      this.logger.error('Failed to load more', { error: message });
+      this.logger.error('Failed to load more', err);
     } finally {
       this._isLoadingMore.set(false);
     }
@@ -412,7 +412,7 @@ export class NewsService {
         this._selectedArticle.set(selected);
       }
       this.toast.error('Failed to update bookmark');
-      this.logger.error('Bookmark toggle failed', { articleId, error: err });
+      this.logger.error('Bookmark toggle failed', err, { articleId });
     }
   }
 

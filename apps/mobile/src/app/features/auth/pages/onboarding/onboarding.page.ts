@@ -950,8 +950,6 @@ export class OnboardingPage implements OnInit, OnDestroy {
     // Save all onboarding data to backend
     try {
       const sportEntries = formData.sport?.sports || [];
-      const primarySport = sportEntries.find((e) => e.isPrimary) || sportEntries[0];
-      const secondarySport = sportEntries.find((e) => !e.isPrimary);
 
       // Map 'recruiter' to 'recruiting-service' for backend API compatibility
       const userType: OnboardingProfileData['userType'] =
@@ -959,25 +957,40 @@ export class OnboardingPage implements OnInit, OnDestroy {
           ? 'recruiting-service'
           : (formData.userType as OnboardingProfileData['userType']);
 
-      const profileData = {
+      const profileData: OnboardingProfileData = {
         userType,
         firstName: formData.profile?.firstName || '',
         lastName: formData.profile?.lastName || '',
         profileImg: formData.profile?.profileImgs?.[0] || undefined,
+        profileImgs: formData.profile?.profileImgs || undefined,
         bio: formData.profile?.bio,
-        sport: primarySport?.sport,
-        secondarySport: secondarySport?.sport,
-        positions: primarySport?.positions,
-        highSchool: primarySport?.team?.name || formData.school?.schoolName,
-        highSchoolSuffix: primarySport?.team?.type || formData.school?.schoolType,
+        // V2: Send sports array directly
+        sports: sportEntries.map((entry) => ({
+          sport: entry.sport,
+          isPrimary: entry.isPrimary,
+          positions: entry.positions,
+          team: entry.team
+            ? {
+                name: entry.team.name,
+                type: entry.team.type,
+                city: entry.team.city,
+                state: entry.team.state,
+                logo: entry.team.logo ?? undefined,
+                colors: entry.team.colors,
+              }
+            : undefined,
+        })),
+        // Legacy fallback data for potential API compatibility
+        highSchool: sportEntries[0]?.team?.name || formData.school?.schoolName,
+        highSchoolSuffix: sportEntries[0]?.team?.type || formData.school?.schoolType,
         classOf: formData.profile?.classYear ?? formData.school?.classYear ?? undefined,
-        state: primarySport?.team?.state || formData.school?.state,
-        city: primarySport?.team?.city || formData.school?.city,
+        state: sportEntries[0]?.team?.state || formData.school?.state,
+        city: sportEntries[0]?.team?.city || formData.school?.city,
         club: formData.school?.club,
         organization: formData.organization?.organizationName,
         coachTitle: formData.organization?.title,
-        teamLogo: formData.school?.teamLogo || primarySport?.team?.logo,
-        teamColors: formData.school?.teamColors || primarySport?.team?.colors,
+        teamLogo: formData.school?.teamLogo || sportEntries[0]?.team?.logo,
+        teamColors: formData.school?.teamColors || sportEntries[0]?.team?.colors,
         linkSources: formData.linkSources,
       };
 
@@ -1272,7 +1285,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
   private trackError(errorMessage: string): void {
     const step = this.currentStep();
     this.analytics.trackError(errorMessage, step.id);
-    this.logger.error('Onboarding error', { error: errorMessage, step: step.id });
+    this.logger.error('Onboarding error', new Error(errorMessage), { step: step.id });
   }
 
   /**

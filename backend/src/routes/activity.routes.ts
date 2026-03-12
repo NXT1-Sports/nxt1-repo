@@ -145,7 +145,8 @@ router.get('/feed', appGuard, async (req: Request, res: Response) => {
       badges,
     });
   } catch (err) {
-    logger.error('Failed to fetch activity feed', { error: err });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to fetch activity feed', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch activity feed' });
   }
 });
@@ -172,7 +173,8 @@ router.get('/badges', appGuard, async (req: Request, res: Response) => {
 
     res.json({ success: true, badges });
   } catch (err) {
-    logger.error('Failed to fetch badge counts', { error: err });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to fetch badge counts', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch badge counts' });
   }
 });
@@ -213,7 +215,8 @@ router.get('/summary', appGuard, async (req: Request, res: Response) => {
       data: { totalUnread: unread.length, badges, lastActivity },
     });
   } catch (err) {
-    logger.error('Failed to fetch activity summary', { error: err });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to fetch activity summary', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch activity summary' });
   }
 });
@@ -255,7 +258,8 @@ router.get('/:id', appGuard, async (req: Request, res: Response) => {
       },
     });
   } catch (err) {
-    logger.error('Failed to fetch activity item', { error: err });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to fetch activity item', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch activity item' });
   }
 });
@@ -300,7 +304,8 @@ router.post('/read', appGuard, async (req: Request, res: Response) => {
 
     res.json({ success: true, count: ids.length, badges });
   } catch (err) {
-    logger.error('Failed to mark items as read', { error: err });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to mark items as read', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to mark items as read' });
   }
 });
@@ -369,7 +374,8 @@ router.post('/read-all', appGuard, async (req: Request, res: Response) => {
 
     res.json({ success: true, count, badges });
   } catch (err) {
-    logger.error('Failed to mark all as read', { error: err });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to mark all as read', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to mark all as read' });
   }
 });
@@ -403,7 +409,8 @@ router.post('/archive', appGuard, async (req: Request, res: Response) => {
 
     res.json({ success: true, count: ids.length });
   } catch (err) {
-    logger.error('Failed to archive items', { error: err });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to archive items', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to archive items' });
   }
 });
@@ -443,7 +450,8 @@ router.get('/archived', appGuard, async (req: Request, res: Response) => {
       pagination: { page, limit, total, totalPages, hasMore: page < totalPages },
     });
   } catch (err) {
-    logger.error('Failed to fetch archived items', { error: err });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to fetch archived items', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to fetch archived items' });
   }
 });
@@ -477,7 +485,8 @@ router.post('/archived/restore', appGuard, async (req: Request, res: Response) =
 
     res.json({ success: true, count: ids.length });
   } catch (err) {
-    logger.error('Failed to restore items', { error: err });
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to restore items', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to restore items' });
   }
 });

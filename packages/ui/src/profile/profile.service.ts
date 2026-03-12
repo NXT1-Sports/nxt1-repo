@@ -30,7 +30,6 @@ import {
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
-import { userToProfilePageData } from './profile-mappers';
 import {
   MOCK_PROFILE_PAGE_DATA,
   getMockOwnProfileData,
@@ -48,6 +47,18 @@ export class ProfileService {
   private readonly logger = inject(NxtLoggingService).child('ProfileService');
   private readonly toast = inject(NxtToastService);
 
+  // Optional API service for persisting active sport index
+  private api?: {
+    updateActiveSportIndex: (
+      userId: string,
+      activeSportIndex: number
+    ) => Promise<{
+      success: boolean;
+      data?: any;
+      error?: string;
+    }>;
+  };
+
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
   // ============================================
@@ -60,8 +71,6 @@ export class ProfileService {
 
   /** Raw User from the API response — stored so sport switching can re-map tab data. */
   private readonly _rawUser = signal<User | null>(null);
-  /** Whether the loaded profile is the current user's own profile. */
-  private _profileIsOwn = false;
   private readonly _error = signal<string | null>(null);
   private readonly _activeTab = signal<ProfileTabId>(PROFILE_DEFAULT_TAB);
   private readonly _profileData = signal<ProfilePageData | null>(null);
@@ -418,10 +427,10 @@ export class ProfileService {
   /**
    * All profile images for carousel display.
    */
-  readonly profileImages = computed<readonly string[]>(() => {
+  readonly profileImgs = computed<readonly string[]>(() => {
     const user = this._profileData()?.user;
     if (!user) return [];
-    return user.profileImages ?? [];
+    return user.profileImgs ?? [];
   });
 
   /** Whether viewing own profile */
@@ -739,7 +748,24 @@ export class ProfileService {
    * });
    * ```
    */
-  loadFromExternalData(data: ProfilePageData, rawUser?: User, isOwn?: boolean): void {
+  /**
+   * Set the API service for persisting active sport index.
+   * Platform-specific code should call this during initialization.
+   */
+  setApiService(api: {
+    updateActiveSportIndex: (
+      userId: string,
+      activeSportIndex: number
+    ) => Promise<{
+      success: boolean;
+      data?: any;
+      error?: string;
+    }>;
+  }): void {
+    this.api = api;
+  }
+
+  loadFromExternalData(data: ProfilePageData, rawUser?: User, _isOwn?: boolean): void {
     this.logger.info('Profile loaded from external data source', {
       profileCode: data.user?.profileCode,
       isOwnProfile: data.isOwnProfile,
@@ -747,7 +773,6 @@ export class ProfileService {
     // Store raw User so sport switching can re-map tab content reactively.
     if (rawUser !== undefined) {
       this._rawUser.set(rawUser);
-      this._profileIsOwn = isOwn ?? data.isOwnProfile ?? false;
     }
     this._profileData.set(data);
     this._isLoading.set(false);
@@ -782,7 +807,7 @@ export class ProfileService {
       this.logger.info('Profile loaded successfully', { profileCode });
     } catch (err) {
       const message = parseApiError(err).message;
-      this.logger.error('Failed to load profile', { profileCode, error: err });
+      this.logger.error('Failed to load profile', err, { profileCode });
       this.setError(message);
     } finally {
       this._isLoading.set(false);
@@ -821,7 +846,7 @@ export class ProfileService {
       await this.simulateDelay(500);
       // Would append more posts here
     } catch (err) {
-      this.logger.error('Failed to load more posts', { error: err });
+      this.logger.error('Failed to load more posts', err);
     } finally {
       this._isLoadingMore.set(false);
     }
@@ -863,54 +888,62 @@ export class ProfileService {
     } catch (err) {
       // Rollback on error
       this._profileData.set(data);
-      this.logger.error('Failed to toggle follow', { error: err });
+      this.logger.error('Failed to toggle follow', err);
     }
   }
 
   /**
    * Switch to a different sport profile by index.
    * Automatically updates sport filter so all tabs show content for the selected sport.
+   * Persists the selection to the database if API service is configured.
+   *
+   * Note: This does NOT remap the sports array - it preserves the original order.
+   * The activeSportIndex simply points to the selected sport in the array.
    */
-  setActiveSportIndex(index: number): void {
+  async setActiveSportIndex(index: number): Promise<void> {
     const sports = this.allSports();
     if (index >= 0 && index < sports.length) {
       const selectedSport = sports[index];
 
-      // The UI's allSports order may differ from rawUser.sports[] after a previous
-      // remap (the chosen sport is always promoted to primarySport = index 0).
-      // We must resolve the real index inside rawUser.sports[] by matching sport
-      // name, otherwise subsequent switches will look up the wrong sport entry.
-      const rawUser = this._rawUser();
-      let rawSportIndex = index; // safe fallback (e.g. first load, no prior remap)
-      if (rawUser?.sports && selectedSport) {
-        const found = rawUser.sports.findIndex((s) => s.sport === selectedSport.name);
-        if (found !== -1) rawSportIndex = found;
-      }
-
       this.logger.info('Sport profile switched', {
         from: this._activeSportIndex(),
-        uiIndex: index,
-        rawIndex: rawSportIndex,
+        to: index,
         sport: selectedSport?.name,
       });
 
       // Update sport filter to match selected sport (for cross-tab filtering)
       this._activeSportFilter.set(selectedSport?.name?.toLowerCase() ?? null);
 
-      // Re-map full profile data so tab content (stats, metrics, events, recruiting)
-      // reflects the newly selected sport rather than the original load.
-      if (rawUser) {
-        const remapped = userToProfilePageData(
-          { ...rawUser, activeSportIndex: rawSportIndex } as User,
-          this._profileIsOwn
-        );
-        this._profileData.set(remapped);
-      }
+      // Set the active sport index directly - NO remapping
+      // This preserves the original sports array order
+      this._activeSportIndex.set(index);
 
-      // After remapping, userToProfilePageData always promotes the selected sport
-      // to primarySport → it lands at index 0 in the recomputed allSports.
-      // Reset the signal to 0 so activeSportIndex() highlights the correct tab.
-      this._activeSportIndex.set(0);
+      // Persist to database if API service is configured and we have a user ID
+      const userId = this.user()?.uid;
+      if (this.api?.updateActiveSportIndex && userId) {
+        try {
+          const result = await this.api.updateActiveSportIndex(userId, index);
+          if (result.success) {
+            this.logger.info('Active sport index persisted to database', {
+              userId,
+              activeSportIndex: index,
+              sportName: result.data?.sportName,
+            });
+          } else {
+            this.logger.warn('Failed to persist active sport index', {
+              userId,
+              activeSportIndex: index,
+              error: result.error,
+            });
+          }
+        } catch (err) {
+          this.logger.error('Error persisting active sport index', {
+            userId,
+            activeSportIndex: index,
+            error: err,
+          });
+        }
+      }
     }
   }
 
@@ -942,7 +975,6 @@ export class ProfileService {
     this._activeTab.set(PROFILE_DEFAULT_TAB);
     this._profileData.set(null);
     this._rawUser.set(null);
-    this._profileIsOwn = false;
     this._activityFeedItems.set([]);
     this._isEditMode.set(false);
     this._editSection.set(null);

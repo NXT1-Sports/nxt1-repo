@@ -214,6 +214,7 @@ export interface User {
   // ============================================
   location?: Location;
   contact?: ContactInfo;
+  preferredContactMethod?: 'email' | 'phone' | 'app';
 
   /**
    * Social links (agnostic, array-based).

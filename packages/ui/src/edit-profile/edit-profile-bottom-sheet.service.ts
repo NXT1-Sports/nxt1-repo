@@ -52,12 +52,15 @@ export class EditProfileBottomSheetService {
    * - Native drag handle
    * - Unsaved changes confirmation on swipe-dismiss
    *
+   * @param userId - User ID to edit (current user)
+   * @param sportIndex - Optional sport index to load (defaults to activeSportIndex)
    * @returns Promise resolving when the sheet is dismissed
    */
-  async open(): Promise<{ saved: boolean }> {
+  async open(userId?: string, sportIndex?: number): Promise<{ saved: boolean }> {
     const result = await this.bottomSheet.openSheet<{ saved?: boolean }>({
       // The component to inject
       component: EditProfileShellComponent,
+      componentProps: { userId, sportIndex },
 
       // Standardized sheet preset
       ...SHEET_PRESETS.FULL,

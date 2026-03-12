@@ -6,7 +6,12 @@
  * Uses shared infrastructure from @nxt1/ui for consistency with web.
  */
 
-import { ApplicationConfig, provideZoneChangeDetection, ErrorHandler } from '@angular/core';
+import {
+  ApplicationConfig,
+  provideZoneChangeDetection,
+  ErrorHandler,
+  APP_INITIALIZER,
+} from '@angular/core';
 import { APP_BASE_HREF } from '@angular/common';
 import { provideRouter, withComponentInputBinding, RouteReuseStrategy } from '@angular/router';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
@@ -43,6 +48,10 @@ import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 import { SETTINGS_PERSISTENCE_ADAPTER } from '@nxt1/ui/settings';
 import { SettingsApiService } from './core/services/settings-api.service';
 
+// Edit Profile API configuration
+import { EditProfileService } from '@nxt1/ui/edit-profile';
+import { EditProfileApiService } from './core/services/edit-profile-api.service';
+
 // Local services
 import { CrashlyticsService } from './core/services/crashlytics.service';
 import { AnalyticsService } from './core/services/analytics.service';
@@ -51,8 +60,28 @@ import { routes } from './app.routes';
 import { environment } from '../environments/environment';
 
 /**
+ * Configure Edit Profile API for mobile platform
+ */
+function configureEditProfileApi(
+  editProfileService: EditProfileService,
+  apiService: EditProfileApiService
+): () => void {
+  return () => {
+    editProfileService.setApiService({
+      getProfile: (userId, sportIndex) => apiService.getProfile(userId, sportIndex),
+      updateSection: (userId, sectionId, data, sportIndex) =>
+        apiService.updateSection(userId, sectionId, data, sportIndex),
+      updateActiveSportIndex: (userId, activeSportIndex) =>
+        apiService.updateActiveSportIndex(userId, activeSportIndex),
+      uploadPhoto: (userId: string, type: 'profile' | 'banner', file: File | Blob) =>
+        apiService.uploadPhoto(userId, type, file),
+    });
+  };
+}
+
+/**
  * Get Firebase Auth with proper persistence for the platform.
- * iOS WebView has issues with IndexedDB, so we use browserLocalPersistence.
+ * iOS WebView has issues with IndexedDB use browserLocalPersistence.
  */
 function getAuthWithPersistence() {
   const app = initializeApp(environment.firebase);
@@ -152,5 +181,17 @@ export const appConfig: ApplicationConfig = {
 
     // Settings persistence adapter (connects SettingsService → backend API)
     { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },
+
+    // ============================================
+    // EDIT PROFILE API CONFIGURATION
+    // ============================================
+
+    // Configure Edit Profile API on app initialization
+    {
+      provide: APP_INITIALIZER,
+      useFactory: configureEditProfileApi,
+      deps: [EditProfileService, EditProfileApiService],
+      multi: true,
+    },
   ],
 };

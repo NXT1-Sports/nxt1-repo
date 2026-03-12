@@ -101,6 +101,7 @@ export interface OnboardingProfileData {
   firstName: string;
   lastName: string;
   profileImg?: string;
+  profileImgs?: string[];
   bio?: string;
   /** User role - matches UserRole type from constants */
   userType:
@@ -114,10 +115,19 @@ export interface OnboardingProfileData {
     | 'media'
     | 'fan';
   gender?: string;
-  sport?: string;
-  secondarySport?: string;
-  tertiarySport?: string;
-  positions?: string[];
+  sports?: Array<{
+    sport: string;
+    isPrimary?: boolean;
+    positions?: string[];
+    team?: {
+      name?: string;
+      type?: string;
+      city?: string;
+      state?: string;
+      logo?: string;
+      colors?: string[];
+    };
+  }>;
   highSchool?: string;
   highSchoolSuffix?: string;
   classOf?: number;
@@ -134,6 +144,17 @@ export interface OnboardingProfileData {
   referralDetails?: string;
   teamLogo?: string | null;
   teamColors?: string[];
+  linkSources?: {
+    links?: Array<{
+      platform?: string;
+      connected?: boolean;
+      connectionType?: string;
+      username?: string;
+      url?: string;
+      scopeType?: string;
+      scopeId?: string;
+    }>;
+  };
 }
 
 /**
