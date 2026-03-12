@@ -45,6 +45,8 @@ import {
   ProfileService as UiProfileService,
   userToProfilePageData,
   NxtRefresherComponent,
+  ProfileGenerationOverlayComponent,
+  ProfileGenerationStateService,
   type RelatedAthlete,
   type RankingSource,
   type RefreshEvent,
@@ -55,6 +57,7 @@ import type { ProfileEvent } from '@nxt1/core/profile';
 
 // Mobile-specific services
 import { MobileAuthService } from '../auth/services/mobile-auth.service';
+import { AuthFlowService } from '../auth/services';
 import { ShareService } from '../../core/services/share.service';
 import { ProfileApiService } from '../../core/services/profile-api.service';
 import { CapacitorHttpAdapter } from '../../core/infrastructure';
@@ -82,6 +85,7 @@ import { environment } from '../../../environments/environment';
     ProfileShellComponent,
     RelatedAthletesComponent,
     NxtRefresherComponent,
+    ProfileGenerationOverlayComponent,
   ],
   template: `
     <ion-header class="ion-no-border" [translucent]="true">
@@ -118,6 +122,10 @@ import { environment } from '../../../environments/environment';
         />
       }
     </ion-content>
+
+    @if (generation.isGenerating()) {
+      <nxt1-profile-generation-overlay (dismissed)="onGenerationDismissed($event)" />
+    }
   `,
   styles: `
     :host {
@@ -163,6 +171,8 @@ export class ProfileComponent {
   private readonly shareService = inject(ShareService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly http = inject(CapacitorHttpAdapter);
+  private readonly authFlow = inject(AuthFlowService);
+  protected readonly generation = inject(ProfileGenerationStateService);
 
   // ============================================
   // STATE
@@ -624,6 +634,22 @@ export class ProfileComponent {
       }
     } catch {
       // Non-critical — profile stays with current data
+    }
+  }
+
+  /**
+   * Handle profile generation overlay dismiss.
+   * Refreshes auth state so the profile page re-fetches fresh data
+   * written by Agent X during the scrape/build process.
+   */
+  protected async onGenerationDismissed(reason: 'completed' | 'skipped'): Promise<void> {
+    if (reason === 'completed') {
+      try {
+        await this.authFlow.refreshUserProfile();
+      } catch {
+        // Non-critical — profile data will be stale until next refresh
+      }
+      await this.onRefreshRequest();
     }
   }
 }

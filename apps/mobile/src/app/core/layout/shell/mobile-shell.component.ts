@@ -709,7 +709,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         ? {
             displayName: `${user.firstName} ${user.lastName}`.trim() || user.email || undefined,
             profileImg: user.profileImgs?.[0] ?? undefined,
-            referralCode: undefined, // TODO: Get from backend
+            role: user.role,
           }
         : undefined,
     });

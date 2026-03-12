@@ -127,27 +127,27 @@ export const MESSAGES_EMPTY_STATES: Record<
 
 export const MESSAGES_API_ENDPOINTS = {
   /** List conversations */
-  conversations: '/api/v1/messages/conversations',
+  conversations: '/messages/conversations',
   /** Single conversation thread */
-  thread: '/api/v1/messages/thread',
+  thread: '/messages/thread',
   /** Send a message */
-  send: '/api/v1/messages/send',
+  send: '/messages/send',
   /** Create new conversation */
-  create: '/api/v1/messages/create',
+  create: '/messages/create',
   /** Mark conversation as read */
-  markRead: '/api/v1/messages/read',
+  markRead: '/messages/read',
   /** Archive conversation */
-  archive: '/api/v1/messages/archive',
+  archive: '/messages/archive',
   /** Mute conversation */
-  mute: '/api/v1/messages/mute',
+  mute: '/messages/mute',
   /** Pin conversation */
-  pin: '/api/v1/messages/pin',
+  pin: '/messages/pin',
   /** Delete conversation */
-  delete: '/api/v1/messages/delete',
+  delete: '/messages/delete',
   /** Search conversations */
-  search: '/api/v1/messages/search',
+  search: '/messages/search',
   /** Unread count summary */
-  unreadCount: '/api/v1/messages/unread-count',
+  unreadCount: '/messages/unread-count',
 } as const;
 
 // ============================================

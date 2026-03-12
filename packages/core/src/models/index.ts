@@ -336,6 +336,7 @@ export {
   type MarkNotificationsReadRequest,
   type RegisterPushTokenRequest,
   type UpdateNotificationSettingsRequest,
+  type DispatchNotificationInput,
 } from './notification.model';
 
 // NOTE: App analytics (event tracking) moved to @nxt1/core/analytics

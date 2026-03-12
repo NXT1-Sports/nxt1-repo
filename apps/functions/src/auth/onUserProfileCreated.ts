@@ -39,16 +39,29 @@ export const onUserProfileCreatedV2 = onDocumentCreated('users/{userId}', async 
       lastActive: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Initialize notification preferences
-    await db.collection('notification_preferences').doc(userId).set({
-      userId,
-      email: true,
-      push: true,
-      sms: false,
-      marketing: false,
-      weeklyDigest: true,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    // Initialize notification preferences (global + per-category)
+    await db
+      .collection('notification_preferences')
+      .doc(userId)
+      .set({
+        userId,
+        push: true,
+        email: true,
+        sms: false,
+        marketing: false,
+        weeklyDigest: true,
+        // Per-category granular preferences (used by onNotificationCreated)
+        categories: {
+          social: { push: true, email: false, sms: false },
+          recruiting: { push: true, email: true, sms: false },
+          team: { push: true, email: true, sms: false },
+          content: { push: true, email: false, sms: false },
+          system: { push: true, email: true, sms: false },
+          billing: { push: true, email: true, sms: false },
+          marketing: { push: false, email: false, sms: false },
+        },
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
     logger.info('User initialization complete', { userId });
   } catch (error) {

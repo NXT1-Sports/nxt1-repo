@@ -25,6 +25,9 @@ export const environment = {
     measurementId: 'G-7C1JQW72JX',
   },
 
+  // Firebase Cloud Messaging VAPID key (staging)
+  vapidKey: 'REPLACE_WITH_STAGING_VAPID_KEY',
+
   // Third-party API Keys
   removeBgKey: 'sCyRfLKyXDS5ySnuXmEiqXpK',
   googleClientId: '1099429444442-v8mlmoiu6kc27nhdl661d12te7cg2j4h.apps.googleusercontent.com',

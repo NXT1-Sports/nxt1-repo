@@ -150,6 +150,7 @@ export {
   type MarkNotificationsReadRequest,
   type RegisterPushTokenRequest,
   type UpdateNotificationSettingsRequest,
+  type DispatchNotificationInput,
   // Navigation model - Mobile Footer
   type NavIconName,
   type FooterTabItem,
@@ -649,6 +650,7 @@ export {
   type ActivityMarkReadResponse,
   type ActivitySummary,
   type ActivityState,
+  type AgentTaskActivityMetadata,
   // Constants
   ACTIVITY_TABS,
   ACTIVITY_DEFAULT_TAB,
@@ -661,6 +663,8 @@ export {
   ACTIVITY_EMPTY_STATES,
   ACTIVITY_API_ENDPOINTS,
   ACTIVITY_UI_CONFIG,
+  INBOX_EMAIL_PROVIDERS,
+  type InboxEmailProvider,
   // API Factory
   createActivityApi,
   type ActivityApi,

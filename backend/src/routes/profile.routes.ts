@@ -18,6 +18,8 @@ import { appGuard, optionalAuth } from '../middleware/auth.middleware.js';
 import { logger } from '../utils/logger.js';
 import { getCacheService, CACHE_TTL } from '../services/cache.service.js';
 import { markCacheHit } from '../middleware/cache-status.middleware.js';
+import { CACHE_KEYS as USER_CACHE_KEYS } from '../services/users.service.js';
+import { AGENT_CONTEXT_PREFIX } from '../modules/agent/memory/context-builder.js';
 
 // Shared types and constants from @nxt1/core
 import type { User, UserSummary, SportProfile } from '@nxt1/core';
@@ -190,7 +192,13 @@ export async function invalidateProfileCaches(
 ): Promise<void> {
   const cache = getCacheService();
 
-  const keysToDelete: string[] = [buildProfileByIdCacheKey(userId)];
+  const keysToDelete: string[] = [
+    buildProfileByIdCacheKey(userId),
+    // Also invalidate the users service cache (getUserById) and the
+    // assembled agent context so Agent X always sees fresh profile data.
+    USER_CACHE_KEYS.USER_BY_ID(userId),
+    `${AGENT_CONTEXT_PREFIX}${userId}`,
+  ];
   if (username) {
     keysToDelete.push(buildProfileByUsernameCacheKey(username));
   }

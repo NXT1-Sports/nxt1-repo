@@ -54,6 +54,8 @@ import { OnboardingRoleSelectionComponent } from '@nxt1/ui/onboarding/onboarding
 import { OnboardingProfileStepComponent } from '@nxt1/ui/onboarding/onboarding-profile-step';
 import { OnboardingTeamStepComponent } from '@nxt1/ui/onboarding/onboarding-team-step';
 import { OnboardingSportStepComponent } from '@nxt1/ui/onboarding/onboarding-sport-step';
+import { OnboardingTeamSelectionStepComponent } from '@nxt1/ui/onboarding/onboarding-team-selection-step';
+import type { TeamSearchResult } from '@nxt1/ui/onboarding/onboarding-team-selection-step';
 import { OnboardingPositionStepComponent } from '@nxt1/ui/onboarding/onboarding-position-step';
 import { OnboardingContactStepComponent } from '@nxt1/ui/onboarding/onboarding-contact-step';
 import { OnboardingReferralStepComponent } from '@nxt1/ui/onboarding/onboarding-referral-step';
@@ -84,6 +86,7 @@ import {
   type ContactFormData,
   type ReferralSourceData,
   type LinkSourcesFormData,
+  type TeamSelectionFormData,
   ONBOARDING_STEPS,
   AGENT_X_ONBOARDING_MESSAGES as _AGENT_X_ONBOARDING_MESSAGES,
   getAgentXMessage,
@@ -126,6 +129,7 @@ import {
 import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { SeoService } from '../../../../core/services';
 import { AgentXJobService } from '@nxt1/ui/agent-x';
+import { ProfileGenerationStateService } from '@nxt1/ui/profile';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
 
@@ -158,6 +162,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     OnboardingProfileStepComponent,
     OnboardingTeamStepComponent,
     OnboardingSportStepComponent,
+    OnboardingTeamSelectionStepComponent,
     OnboardingPositionStepComponent,
     OnboardingContactStepComponent,
     OnboardingReferralStepComponent,
@@ -226,6 +231,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               <nxt1-onboarding-profile-step
                 #profileStep
                 [profileData]="profileFormData()"
+                [userType]="selectedRole()"
                 [disabled]="isLoading()"
                 [showGender]="true"
                 [showLocation]="true"
@@ -267,6 +273,19 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               />
             }
 
+            <!-- Step 4: Select Teams -->
+            @if (currentStep().id === 'select-teams') {
+              <nxt1-onboarding-team-selection-step
+                [teamSelectionData]="teamSelectionFormData()"
+                [sportData]="sportFormData()"
+                [disabled]="isLoading()"
+                [searchTeams]="searchTeamsFn"
+                (teamSelectionChange)="onTeamSelectionChange($event)"
+                (createProgram)="onCreateProgram()"
+                (joinProgram)="onJoinProgram()"
+              />
+            }
+
             <!-- Step 4: Position Selection -->
             @if (currentStep().id === 'positions') {
               <nxt1-onboarding-position-step
@@ -303,6 +322,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               currentStep().id !== 'link-sources' &&
               currentStep().id !== 'school' &&
               currentStep().id !== 'sport' &&
+              currentStep().id !== 'select-teams' &&
               currentStep().id !== 'positions' &&
               currentStep().id !== 'contact' &&
               currentStep().id !== 'referral-source'
@@ -414,6 +434,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private readonly themeService = inject(NxtThemeService);
   private readonly onboardingAnalytics = inject(OnboardingAnalyticsService);
   private readonly agentXJobService = inject(AgentXJobService);
+  private readonly profileGenerationState = inject(ProfileGenerationStateService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('Onboarding');
 
   /** Check if running on mobile (native or mobile web) */
@@ -500,6 +521,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   /** Sport form data computed from _formData */
   readonly sportFormData = computed(() => this._formData().sport ?? null);
+
+  /** Team selection form data computed from _formData */
+  readonly teamSelectionFormData = computed(() => this._formData().teamSelection ?? null);
 
   /** Selected sport display names (e.g. ["Football", "Basketball Mens"]) */
   readonly selectedSportNames = computed(() => {
@@ -693,9 +717,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
       case 'STEP_COMPLETED':
         this.trackStepCompleted();
-        if (event.stepId === 'link-sources') {
-          this.triggerLinkSourcesScrape();
-        }
         break;
 
       case 'STEP_SKIPPED':
@@ -883,6 +904,40 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Handle team selection data change (Select Teams step)
+   */
+  onTeamSelectionChange(data: TeamSelectionFormData): void {
+    this.machine.updateTeamSelection(data);
+  }
+
+  /**
+   * Handle "Create Program" from team selection step
+   */
+  onCreateProgram(): void {
+    this.logger.info('Create program requested from onboarding');
+    this.toast.info('Create Program is coming soon!');
+  }
+
+  /**
+   * Handle "Join Program" from team selection step
+   */
+  onJoinProgram(): void {
+    this.logger.info('Join program requested from onboarding');
+    this.toast.info('Join Program is coming soon!');
+  }
+
+  /**
+   * Team search function — passed to the team selection component.
+   * Uses the explore API to search teams by query.
+   */
+  readonly searchTeamsFn = async (query: string): Promise<TeamSearchResult[]> => {
+    // TODO: Wire to real explore API once available
+    // For now, return empty results — the backend endpoint will be connected
+    this.logger.debug('Team search requested', { query });
+    return [];
+  };
+
+  /**
    * Handle position data change (Step 5)
    */
   onPositionChange(positionData: PositionsFormData): void {
@@ -1049,6 +1104,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
           jobId: result.jobId,
           operationId: result.operationId,
         });
+        // Store jobId so the profile page can show generation overlay
+        this.profileGenerationState.startGeneration(result.jobId, platformNames);
       }
     });
   }
@@ -1115,6 +1172,10 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
       await this.authApi.saveOnboardingProfile(user.uid, profileData);
       this.logger.info('Profile data saved successfully');
+
+      // ⭐ RACE CONDITION FIX: Trigger Agent X scrape AFTER profile is persisted
+      // so the scraper enriches on top of saved data, not before it exists.
+      this.triggerLinkSourcesScrape();
     } catch (saveError) {
       this.logger.warn('Failed to save profile data, continuing', { error: saveError });
     }
@@ -1143,9 +1204,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     }
 
     // Mark onboarding complete
-    console.log('📝 [Onboarding] Calling completeOnboarding API', { uid: user.uid });
+    this.logger.info('Calling completeOnboarding API', { userId: user.uid });
     const result = await this.authApi.completeOnboarding(user.uid);
-    console.log('✅ [Onboarding] API Response', { result });
+    this.logger.info('completeOnboarding API responded', { result });
 
     // CRITICAL: Wait a bit for backend to persist
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -1153,15 +1214,15 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     // Force clear ALL cache to ensure fresh fetch
     const { globalAuthUserCache } = await import('@nxt1/core/auth');
     await globalAuthUserCache.clear();
-    console.log('🧹 [Onboarding] Cleared all auth cache');
+    this.logger.debug('Cleared all auth cache');
 
     // Refresh user profile
     await this.authFlow.refreshUserProfile();
 
     // Verify onboarding status
     const updatedUser = this.authFlow.user();
-    console.log('✅ [Onboarding] Complete, user state:', {
-      uid: user.uid,
+    this.logger.info('Onboarding complete, user state verified', {
+      userId: user.uid,
       hasCompletedOnboarding: updatedUser?.hasCompletedOnboarding,
       displayName: updatedUser?.displayName,
     });

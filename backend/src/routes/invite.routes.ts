@@ -2,111 +2,736 @@
  * @fileoverview Invite Routes
  * @module @nxt1/backend/routes/invite
  *
- * Document-based invite feature routes.
+ * Production invite system with Firestore persistence.
+ * Handles referral link generation and invite tracking.
+ *
  * Matches INVITE_API_ENDPOINTS from @nxt1/core/invite/constants.
  */
 
-import { Router, type Router as ExpressRouter, Request, Response } from 'express';
+import { Router, type Request, type Response } from 'express';
+import { appGuard } from '../middleware/auth.middleware.js';
+import { logger } from '../utils/logger.js';
+import { INVITE_UI_CONFIG } from '@nxt1/core';
+import type { InviteType, InviteChannel, InviteStatus } from '@nxt1/core';
 
-const router: ExpressRouter = Router();
+const router = Router();
+
+// ============================================
+// FIRESTORE DOCUMENT TYPES
+// ============================================
+
+interface InviteStatsDoc {
+  userId: string;
+  totalSent: number;
+  accepted: number;
+  pending: number;
+  streakDays: number;
+  bestStreak: number;
+  weeklyCount: number;
+  monthlyCount: number;
+  channelsUsed: string[];
+  qrAccepted: number;
+  lastInviteAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface UserDoc {
+  referralCode?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  profileImgs?: string[];
+  role?: string;
+}
+
+interface TeamDoc {
+  name?: string;
+  createdBy?: string;
+  admins?: string[];
+  coaches?: string[];
+  members?: string[];
+}
+
+interface InviteDoc {
+  teamName?: string;
+}
+
+// ============================================
+// CONSTANTS
+// ============================================
+
+const INVITES_COLLECTION = 'Invites';
+const INVITE_STATS_COLLECTION = 'InviteStats';
+const USERS_COLLECTION = 'Users';
+const TEAMS_COLLECTION = 'Teams';
+
+const VALID_INVITE_TYPES: InviteType[] = [
+  'general',
+  'team',
+  'profile',
+  'event',
+  'recruit',
+  'referral',
+];
+const VALID_CHANNELS: InviteChannel[] = [
+  'sms',
+  'email',
+  'whatsapp',
+  'messenger',
+  'instagram',
+  'twitter',
+  'copy_link',
+  'qr_code',
+  'contacts',
+  'airdrop',
+];
+
+/** App base URL for invite links (resolved per environment) */
+function getAppBaseUrl(isStaging: boolean): string {
+  return isStaging ? 'https://staging.nxt1sports.com' : 'https://nxt1sports.com';
+}
+
+// ============================================
+// HELPERS
+// ============================================
 
 /**
- * Generate invite link
+ * Generate a unique referral code: NXT-XXXXXX
+ * Uses crypto.randomUUID() and takes first 6 chars uppercased.
+ */
+function generateReferralCode(): string {
+  const raw = crypto.randomUUID().replace(/-/g, '').substring(0, 6).toUpperCase();
+  return `NXT-${raw}`;
+}
+
+/**
+ * Get or create the user's referral code. Persists to Firestore.
+ */
+async function getOrCreateReferralCode(
+  db: FirebaseFirestore.Firestore,
+  userId: string
+): Promise<string> {
+  const userDoc = await db.collection(USERS_COLLECTION).doc(userId).get();
+  const userData = userDoc.data() as UserDoc | undefined;
+
+  if (userData?.referralCode) return userData.referralCode;
+
+  // Generate and persist
+  const referralCode = generateReferralCode();
+  await db.collection(USERS_COLLECTION).doc(userId).set({ referralCode }, { merge: true });
+  return referralCode;
+}
+
+/**
+ * Get or initialize invite stats document.
+ */
+async function getOrCreateStats(
+  db: FirebaseFirestore.Firestore,
+  userId: string
+): Promise<FirebaseFirestore.DocumentReference> {
+  const ref = db.collection(INVITE_STATS_COLLECTION).doc(userId);
+  const doc = await ref.get();
+
+  if (!doc.exists) {
+    await ref.set({
+      userId,
+      totalSent: 0,
+      accepted: 0,
+      pending: 0,
+      streakDays: 0,
+      bestStreak: 0,
+      weeklyCount: 0,
+      monthlyCount: 0,
+      channelsUsed: [],
+      qrAccepted: 0,
+      lastInviteAt: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  return ref;
+}
+
+// ============================================
+// ROUTES
+// ============================================
+
+/**
  * POST /api/v1/invite/link
+ * Generate a personalized invite link for the authenticated user.
+ *
+ * Body: { type?: InviteType, teamId?: string }
+ * Returns: { success: true, data: InviteLink }
  */
-router.post('/link', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
+router.post('/link', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase.db;
+    const isStaging = req.isStaging;
+    const { type = 'general', teamId } = req.body as { type?: InviteType; teamId?: string };
+
+    if (type && !VALID_INVITE_TYPES.includes(type)) {
+      return res.status(400).json({ success: false, error: 'Invalid invite type' });
+    }
+
+    // Get or create persistent referral code
+    const referralCode = await getOrCreateReferralCode(db, userId);
+    const baseUrl = getAppBaseUrl(isStaging);
+
+    // Build the invite URL with attribution parameters
+    const params = new URLSearchParams({
+      ref: userId,
+      code: referralCode,
+      type,
+    });
+    if (teamId) params.set('team', teamId);
+
+    const url = `${baseUrl}/join/${referralCode}?${params.toString()}`;
+    const shortUrl = `${baseUrl.replace('https://', '')}/join/${referralCode}`;
+
+    // Calculate expiration
+    const expiresAt = new Date(
+      Date.now() + INVITE_UI_CONFIG.linkExpirationDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    logger.info('[POST /invite/link] Generated invite link', { userId, referralCode, type });
+
+    return res.json({
+      success: true,
+      data: { url, shortUrl, referralCode, expiresAt },
+    });
+  } catch (error) {
+    logger.error('[POST /invite/link] Failed', { error });
+    return res.status(500).json({ success: false, error: 'Failed to generate invite link' });
+  }
 });
 
 /**
- * Send single invite
  * POST /api/v1/invite/send
+ * Record a sent invite.
+ *
+ * Body: { type, channel, recipients[], teamId?, message? }
+ * Returns: { success, invites[] }
  */
-router.post('/send', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
+router.post('/send', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase.db;
+    const { type, channel, recipients, teamId, message } = req.body as {
+      type: InviteType;
+      channel: InviteChannel;
+      recipients: Array<{ id: string; name?: string; phone?: string; email?: string }>;
+      teamId?: string;
+      message?: string;
+    };
+
+    // Validate required fields
+    if (!type || !channel || !recipients?.length) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'Missing required fields: type, channel, recipients' });
+    }
+    if (!VALID_INVITE_TYPES.includes(type)) {
+      return res.status(400).json({ success: false, error: 'Invalid invite type' });
+    }
+    if (!VALID_CHANNELS.includes(channel)) {
+      return res.status(400).json({ success: false, error: 'Invalid channel' });
+    }
+    if (recipients.length > INVITE_UI_CONFIG.maxBulkRecipients) {
+      return res.status(400).json({
+        success: false,
+        error: `Maximum ${INVITE_UI_CONFIG.maxBulkRecipients} recipients`,
+      });
+    }
+    if (message && message.length > INVITE_UI_CONFIG.maxMessageLength) {
+      return res.status(400).json({
+        success: false,
+        error: `Message exceeds ${INVITE_UI_CONFIG.maxMessageLength} characters`,
+      });
+    }
+
+    const referralCode = await getOrCreateReferralCode(db, userId);
+    const statsRef = await getOrCreateStats(db, userId);
+    const statsDoc = await statsRef.get();
+    const statsData = statsDoc.data() as InviteStatsDoc;
+
+    const now = new Date().toISOString();
+    const batch = db.batch();
+    const invites: Array<Record<string, unknown>> = [];
+
+    for (const recipient of recipients) {
+      const inviteId = crypto.randomUUID();
+
+      const inviteDoc = {
+        id: inviteId,
+        type,
+        channel,
+        status: 'pending' as InviteStatus,
+        recipient: {
+          id: recipient.id,
+          name: recipient.name ?? null,
+          phone: recipient.phone ?? null,
+          email: recipient.email ?? null,
+        },
+        senderId: userId,
+        teamId: teamId ?? null,
+        message: message ?? null,
+        referralCode,
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: new Date(
+          Date.now() + INVITE_UI_CONFIG.linkExpirationDays * 24 * 60 * 60 * 1000
+        ).toISOString(),
+      };
+
+      batch.set(db.collection(INVITES_COLLECTION).doc(inviteId), inviteDoc);
+      invites.push(inviteDoc);
+    }
+
+    // Update stats atomically
+    const channelsUsed: string[] = [...(statsData.channelsUsed ?? [])];
+    if (!channelsUsed.includes(channel)) channelsUsed.push(channel);
+
+    // Calculate streak
+    const lastInviteAt = statsData.lastInviteAt ? new Date(statsData.lastInviteAt).getTime() : 0;
+    const hoursSinceLast = (Date.now() - lastInviteAt) / (1000 * 60 * 60);
+    let streakDays = statsData.streakDays ?? 0;
+    if (hoursSinceLast > 48) {
+      streakDays = 1; // Reset streak
+    } else if (hoursSinceLast > 20) {
+      streakDays += 1; // Continue streak
+    }
+    const bestStreak = Math.max(statsData.bestStreak ?? 0, streakDays);
+
+    const newTotalSent = (statsData.totalSent ?? 0) + recipients.length;
+    const newPending = (statsData.pending ?? 0) + recipients.length;
+
+    batch.update(statsRef, {
+      totalSent: newTotalSent,
+      pending: newPending,
+      weeklyCount: (statsData.weeklyCount ?? 0) + recipients.length,
+      monthlyCount: (statsData.monthlyCount ?? 0) + recipients.length,
+      channelsUsed,
+      streakDays,
+      bestStreak,
+      lastInviteAt: now,
+      updatedAt: now,
+    });
+
+    await batch.commit();
+
+    logger.info('[POST /invite/send] Invites sent', {
+      userId,
+      count: recipients.length,
+      channel,
+    });
+
+    return res.json({
+      success: true,
+      invites,
+    });
+  } catch (error) {
+    logger.error('[POST /invite/send] Failed', { error });
+    return res.status(500).json({ success: false, error: 'Failed to send invites' });
+  }
 });
 
 /**
- * Send bulk invites
  * POST /api/v1/invite/send-bulk
+ * Send bulk team invites.
  */
-router.post('/send-bulk', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
+router.post('/send-bulk', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase.db;
+    const { teamId, recipients, channel, message } = req.body as {
+      teamId: string;
+      recipients: Array<{ id: string; name?: string; phone?: string; email?: string }>;
+      channel: InviteChannel;
+      message?: string;
+    };
+
+    if (!teamId || !recipients?.length || !channel) {
+      return res
+        .status(400)
+        .json({ success: false, error: 'Missing required fields: teamId, recipients, channel' });
+    }
+    if (!VALID_CHANNELS.includes(channel)) {
+      return res.status(400).json({ success: false, error: 'Invalid channel' });
+    }
+    if (recipients.length > INVITE_UI_CONFIG.maxBulkRecipients) {
+      return res.status(400).json({
+        success: false,
+        error: `Maximum ${INVITE_UI_CONFIG.maxBulkRecipients} recipients`,
+      });
+    }
+
+    // Verify team exists and user has access
+    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
+    if (!teamDoc.exists) {
+      return res.status(404).json({ success: false, error: 'Team not found' });
+    }
+    const teamData = teamDoc.data() as TeamDoc | undefined;
+    const isTeamAdmin =
+      teamData?.createdBy === userId ||
+      teamData?.admins?.includes(userId) ||
+      teamData?.coaches?.includes(userId);
+    if (!isTeamAdmin) {
+      return res
+        .status(403)
+        .json({ success: false, error: 'Not authorized to invite for this team' });
+    }
+
+    // Re-use the /send handler logic inline
+    const referralCode = await getOrCreateReferralCode(db, userId);
+    const statsRef = await getOrCreateStats(db, userId);
+    const statsDoc = await statsRef.get();
+    const statsData = statsDoc.data() as InviteStatsDoc;
+
+    const now = new Date().toISOString();
+    const batch = db.batch();
+    const invites: Array<Record<string, unknown>> = [];
+
+    for (const recipient of recipients) {
+      const inviteId = crypto.randomUUID();
+
+      const inviteDoc = {
+        id: inviteId,
+        type: 'team' as InviteType,
+        channel,
+        status: 'pending' as InviteStatus,
+        recipient: {
+          id: recipient.id,
+          name: recipient.name ?? null,
+          phone: recipient.phone ?? null,
+          email: recipient.email ?? null,
+        },
+        senderId: userId,
+        teamId,
+        teamName: teamData?.name ?? null,
+        message: message ?? null,
+        referralCode,
+        createdAt: now,
+        updatedAt: now,
+      };
+      batch.set(db.collection(INVITES_COLLECTION).doc(inviteId), inviteDoc);
+      invites.push(inviteDoc);
+    }
+
+    const channelsUsed: string[] = [...(statsData.channelsUsed ?? [])];
+    if (!channelsUsed.includes(channel)) channelsUsed.push(channel);
+
+    batch.update(statsRef, {
+      totalSent: (statsData.totalSent ?? 0) + recipients.length,
+      pending: (statsData.pending ?? 0) + recipients.length,
+      channelsUsed,
+      lastInviteAt: now,
+      updatedAt: now,
+    });
+
+    await batch.commit();
+
+    logger.info('[POST /invite/send-bulk] Bulk invites sent', {
+      userId,
+      teamId,
+      count: recipients.length,
+    });
+
+    return res.json({
+      success: true,
+      invites,
+    });
+  } catch (error) {
+    logger.error('[POST /invite/send-bulk] Failed', { error });
+    return res.status(500).json({ success: false, error: 'Failed to send bulk invites' });
+  }
 });
 
 /**
- * Get invite history
  * GET /api/v1/invite/history
+ * Get paginated invite history for the authenticated user.
+ *
+ * Query: type?, channel?, status?, teamId?, since?, until?, page?, limit?
  */
-router.get('/history', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
+router.get('/history', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase.db;
+
+    const page = Math.max(1, Number(req.query['page']) || 1);
+    const limit = Math.min(50, Math.max(1, Number(req.query['limit']) || 20));
+    const type = req.query['type'] as InviteType | undefined;
+    const channel = req.query['channel'] as InviteChannel | undefined;
+    const status = req.query['status'] as InviteStatus | undefined;
+
+    let query: FirebaseFirestore.Query = db
+      .collection(INVITES_COLLECTION)
+      .where('senderId', '==', userId)
+      .orderBy('createdAt', 'desc');
+
+    if (type) query = query.where('type', '==', type);
+    if (channel) query = query.where('channel', '==', channel);
+    if (status) query = query.where('status', '==', status);
+
+    // Count total (for pagination metadata)
+    const countSnapshot = await query.count().get();
+    const total = countSnapshot.data().count;
+
+    // Paginate
+    const offset = (page - 1) * limit;
+    const snapshot = await query.offset(offset).limit(limit).get();
+
+    const items = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return { id: doc.id, ...data };
+    });
+
+    return res.json({
+      success: true,
+      items,
+      pagination: {
+        page,
+        limit,
+        total,
+        hasMore: offset + items.length < total,
+      },
+    });
+  } catch (error) {
+    logger.error('[GET /invite/history] Failed', { error });
+    return res.status(500).json({ success: false, error: 'Failed to fetch invite history' });
+  }
 });
 
 /**
- * Get invite stats
  * GET /api/v1/invite/stats
+ * Get the authenticated user's invite statistics.
  */
-router.get('/stats', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
+router.get('/stats', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase.db;
+
+    const statsRef = await getOrCreateStats(db, userId);
+    const statsDoc = await statsRef.get();
+    const data = statsDoc.data() as InviteStatsDoc;
+
+    const totalSent = data.totalSent ?? 0;
+    const accepted = data.accepted ?? 0;
+    const conversionRate = totalSent > 0 ? Math.round((accepted / totalSent) * 100) : 0;
+
+    return res.json({
+      success: true,
+      data: {
+        totalSent,
+        accepted,
+        pending: data.pending ?? 0,
+        streakDays: data.streakDays ?? 0,
+        bestStreak: data.bestStreak ?? 0,
+        weeklyCount: data.weeklyCount ?? 0,
+        monthlyCount: data.monthlyCount ?? 0,
+        conversionRate,
+      },
+    });
+  } catch (error) {
+    logger.error('[GET /invite/stats] Failed', { error });
+    return res.status(500).json({ success: false, error: 'Failed to fetch invite stats' });
+  }
 });
 
 /**
- * Get invite achievements
- * GET /api/v1/invite/achievements
- */
-router.get('/achievements', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
- * Validate referral code
  * POST /api/v1/invite/validate
+ * Validate a referral code and return inviter info.
+ *
+ * Body: { code: string }
  */
-router.post('/validate', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
+router.post('/validate', async (req: Request, res: Response) => {
+  try {
+    const db = req.firebase.db;
+    const { code } = req.body as { code?: string };
+
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ success: false, error: 'Missing referral code' });
+    }
+
+    // Find user with this referral code
+    const usersSnapshot = await db
+      .collection(USERS_COLLECTION)
+      .where('referralCode', '==', code.toUpperCase())
+      .limit(1)
+      .get();
+
+    if (usersSnapshot.empty) {
+      return res.json({ success: true, data: { valid: false } });
+    }
+
+    const inviterDoc = usersSnapshot.docs[0];
+    const inviterData = inviterDoc.data() as UserDoc;
+
+    return res.json({
+      success: true,
+      data: {
+        valid: true,
+        inviterName:
+          `${inviterData.firstName ?? ''} ${inviterData.lastName ?? ''}`.trim() || 'NXT1 User',
+        inviterAvatar: inviterData.profileImgs?.[0] ?? null,
+      },
+    });
+  } catch (error) {
+    logger.error('[POST /invite/validate] Failed', { error });
+    return res.json({ success: true, data: { valid: false } });
+  }
 });
 
 /**
- * Accept invite
  * POST /api/v1/invite/accept
+ * Accept an invite — links the new user to the inviter, awards XP to both.
+ *
+ * Body: { code: string }
  */
-router.post('/accept', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
+router.post('/accept', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase.db;
+    const { code } = req.body as { code?: string };
+
+    if (!code || typeof code !== 'string') {
+      return res.status(400).json({ success: false, error: 'Missing referral code' });
+    }
+
+    // Find inviter by referral code
+    const usersSnapshot = await db
+      .collection(USERS_COLLECTION)
+      .where('referralCode', '==', code.toUpperCase())
+      .limit(1)
+      .get();
+
+    if (usersSnapshot.empty) {
+      return res.status(404).json({ success: false, error: 'Invalid referral code' });
+    }
+
+    const inviterId = usersSnapshot.docs[0].id;
+
+    // Prevent self-referral
+    if (inviterId === userId) {
+      return res.status(400).json({ success: false, error: 'Cannot accept your own invite' });
+    }
+
+    // Check if already accepted
+    const existingAccept = await db
+      .collection(INVITES_COLLECTION)
+      .where('referralCode', '==', code.toUpperCase())
+      .where('recipient.id', '==', userId)
+      .where('status', '==', 'accepted')
+      .limit(1)
+      .get();
+
+    if (!existingAccept.empty) {
+      return res.status(409).json({ success: false, error: 'Invite already accepted' });
+    }
+
+    const batch = db.batch();
+    const now = new Date().toISOString();
+
+    // Update any pending invite for this recipient to accepted
+    const pendingInvites = await db
+      .collection(INVITES_COLLECTION)
+      .where('referralCode', '==', code.toUpperCase())
+      .where('status', '==', 'pending')
+      .limit(1)
+      .get();
+
+    let teamJoined: string | undefined;
+
+    if (!pendingInvites.empty) {
+      const inviteRef = pendingInvites.docs[0].ref;
+      const inviteData = pendingInvites.docs[0].data() as InviteDoc;
+      batch.update(inviteRef, { status: 'accepted', updatedAt: now });
+      teamJoined = inviteData.teamName ?? undefined;
+    }
+
+    // Record the referral on the new user
+    batch.set(
+      db.collection(USERS_COLLECTION).doc(userId),
+      { referralId: inviterId, referralSource: 'invite_link', referralDetails: code },
+      { merge: true }
+    );
+
+    // Award XP to inviter
+    const inviterStatsRef = db.collection(INVITE_STATS_COLLECTION).doc(inviterId);
+    const inviterStats = await inviterStatsRef.get();
+    if (inviterStats.exists) {
+      const data = inviterStats.data() as InviteStatsDoc;
+      batch.update(inviterStatsRef, {
+        accepted: (data.accepted ?? 0) + 1,
+        pending: Math.max(0, (data.pending ?? 0) - 1),
+        updatedAt: now,
+      });
+    }
+
+    await batch.commit();
+
+    logger.info('[POST /invite/accept] Invite accepted', { userId, inviterId, code });
+
+    return res.json({
+      success: true,
+      teamJoined,
+    });
+  } catch (error) {
+    logger.error('[POST /invite/accept] Failed', { error });
+    return res.status(500).json({ success: false, error: 'Failed to accept invite' });
+  }
 });
 
 /**
- * Get team members to invite
  * GET /api/v1/invite/team/:teamId/members
+ * Get team members available to invite.
  */
-router.get('/team/:teamId/members', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
+router.get('/team/:teamId/members', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase.db;
+    const teamId = req.params['teamId'] as string;
+
+    if (!teamId) {
+      return res.status(400).json({ success: false, error: 'Missing teamId' });
+    }
+
+    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
+    if (!teamDoc.exists) {
+      return res.status(404).json({ success: false, error: 'Team not found' });
+    }
+
+    const teamData = teamDoc.data() as TeamDoc | undefined;
+    const memberIds: string[] = teamData?.members ?? [];
+
+    // Exclude current user from the list
+    const eligibleIds = memberIds.filter((id: string) => id !== userId);
+
+    // Fetch member details
+    const members = await Promise.all(
+      eligibleIds.slice(0, 50).map(async (memberId: string) => {
+        const memberDoc = await db.collection(USERS_COLLECTION).doc(memberId).get();
+        if (!memberDoc.exists) return null;
+        const data = memberDoc.data() as UserDoc;
+        return {
+          id: memberId,
+          name: `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim(),
+          avatarUrl: data.profileImgs?.[0] ?? null,
+          email: data.email ?? null,
+        };
+      })
+    );
+
+    return res.json({
+      success: true,
+      data: members.filter(Boolean),
+    });
+  } catch (error) {
+    logger.error('[GET /invite/team/:teamId/members] Failed', { error });
+    return res.status(500).json({ success: false, error: 'Failed to fetch team members' });
+  }
 });
 
 export default router;

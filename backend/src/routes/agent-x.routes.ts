@@ -98,7 +98,7 @@ router.post('/ask', appGuard, async (req: Request, res: Response) => {
     await jobRepository.withDb(db).create(payload);
 
     // Enqueue the job in Redis/BullMQ
-    const jobId = await queueService.enqueue(payload);
+    const jobId = await queueService.enqueue(payload, req.isStaging ? 'staging' : 'production');
 
     logger.info('Agent job enqueued', { operationId, userId: user.uid });
 

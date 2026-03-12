@@ -651,7 +651,14 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
         position: absolute;
         inset: -3px;
         border-radius: 50%;
-        background: var(--nxt1-glow-md, 0 0 16px rgba(204, 255, 0, 0.3));
+        background: var(
+          --nxt1-glow-md,
+          radial-gradient(
+            circle at center,
+            color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 35%, transparent) 0%,
+            transparent 72%
+          )
+        );
         opacity: 0;
         transition: opacity 0.3s ease;
         z-index: -1;
@@ -662,38 +669,39 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
         transform: scale(0.92);
       }
 
-      /* FAB Active State - Gemini AI-style gradient (theme-aware) */
+      /* FAB Active State - theme-token based (no hardcoded multicolor glow) */
       .fab-button.fab-button--active {
-        background: var(
-          --footer-fab-gradient-active,
-          linear-gradient(135deg, #00ff88 0%, #00ccff 25%, #8855ff 50%, #ff0088 75%, #ff6600 100%)
+        background: linear-gradient(
+          120deg,
+          color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 35%, white) 0%,
+          color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 78%, white) 22%,
+          var(--nxt1-color-primary, #ccff00) 45%,
+          color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 70%, black) 72%,
+          color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 40%, black) 100%
         );
-        background-size: 200% 200%;
-        animation: gemini-gradient 3s ease infinite;
+        background-size: 320% 320%;
+        animation: footer-theme-flow 2.8s ease-in-out infinite;
         box-shadow: var(
           --footer-fab-shadow-active,
-          0 0 30px rgba(0, 255, 136, 0.5),
-          0 0 60px rgba(0, 204, 255, 0.3),
+          0 0 24px color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 45%, transparent),
+          0 0 48px color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 25%, transparent),
           0 4px 20px rgba(0, 0, 0, 0.4)
         );
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-onPrimary, #000000);
       }
 
       .fab-button.fab-button--active::before {
         opacity: 1;
-        background: var(
-          --footer-fab-glow-active,
-          linear-gradient(
-            135deg,
-            rgba(0, 255, 136, 0.4) 0%,
-            rgba(0, 204, 255, 0.3) 50%,
-            rgba(136, 85, 255, 0.4) 100%
-          )
+        background: radial-gradient(
+          circle at center,
+          color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 70%, transparent) 0%,
+          color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 35%, transparent) 42%,
+          transparent 78%
         );
-        filter: blur(12px);
+        filter: blur(14px);
         inset: -8px;
-        animation: gemini-gradient 3s ease infinite;
-        background-size: 200% 200%;
+        background-size: 220% 220%;
+        animation: footer-theme-flow 2.8s ease-in-out infinite;
       }
 
       /* FAB Icon styling */
@@ -717,7 +725,7 @@ import { resolveNavigationSurfaceState } from '../navigation-surface/navigation-
           fill 0.2s ease;
       }
 
-      @keyframes gemini-gradient {
+      @keyframes footer-theme-flow {
         0%,
         100% {
           background-position: 0% 50%;

@@ -35,7 +35,13 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { IonContent } from '@ionic/angular/standalone';
-import { type ActivityTabId, type ActivityItem, ACTIVITY_TABS } from '@nxt1/core';
+import {
+  type ActivityTabId,
+  type ActivityItem,
+  type ConnectedEmail,
+  type InboxEmailProvider,
+  ACTIVITY_TABS,
+} from '@nxt1/core';
 import { NxtPageHeaderComponent, type PageHeaderAction } from '../components/page-header';
 import { NxtRefresherComponent, type RefreshEvent } from '../components/refresh-container';
 import {
@@ -55,6 +61,7 @@ import { ActivityListComponent } from './activity-list.component';
 export interface ActivityUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
+  readonly connectedEmails?: readonly ConnectedEmail[];
 }
 
 @Component({
@@ -102,7 +109,7 @@ export interface ActivityUser {
     <nxt1-option-scroller
       [options]="tabOptions()"
       [selectedId]="activity.activeTab()"
-      [config]="{ scrollable: false, stretchToFill: false, centered: true, showDivider: true }"
+      [config]="{ scrollable: false, stretchToFill: true, centered: true, showDivider: true }"
       (selectionChange)="onTabChange($event)"
     />
 
@@ -120,6 +127,7 @@ export interface ActivityUser {
           [error]="activity.error()"
           [hasMore]="activity.hasMore()"
           [activeTab]="activity.activeTab()"
+          [connectedEmails]="connectedEmails()"
           (loadMore)="onLoadMore()"
           (retry)="onRetry()"
           (emptyCta)="onEmptyCta()"
@@ -127,6 +135,7 @@ export interface ActivityUser {
           (actionClick)="onActionClick($event)"
           (markRead)="onMarkRead($event)"
           (archive)="onArchive($event)"
+          (connectProvider)="onConnectProvider($event)"
         />
       </div>
     </ion-content>
@@ -216,6 +225,9 @@ export class ActivityShellComponent implements OnInit {
   /** Emitted when a tab changes */
   readonly tabChange = output<ActivityTabId>();
 
+  /** Emitted when a user wants to connect an email provider */
+  readonly connectProviderRequest = output<InboxEmailProvider>();
+
   /** Emitted when an activity item is clicked (for platform-specific navigation) */
   readonly itemNavigate = output<ActivityItem>();
 
@@ -227,6 +239,11 @@ export class ActivityShellComponent implements OnInit {
   protected readonly displayName = computed(() => {
     const user = this.user();
     return user?.displayName ?? 'User';
+  });
+
+  /** Connected email accounts from user data */
+  protected readonly connectedEmails = computed(() => {
+    return this.user()?.connectedEmails ?? [];
   });
 
   /** Header actions */
@@ -376,5 +393,14 @@ export class ActivityShellComponent implements OnInit {
    */
   protected async onArchive(id: string): Promise<void> {
     await this.activity.archive(id);
+  }
+
+  /**
+   * Handle connect email provider request.
+   * Emits to parent for platform-specific OAuth flow.
+   */
+  protected onConnectProvider(provider: InboxEmailProvider): void {
+    this.logger.info('Connect provider requested', { provider: provider.id });
+    this.connectProviderRequest.emit(provider);
   }
 }

@@ -46,3 +46,6 @@ export { ShareService, type ShareResultData, type ShareContentOptions } from './
 
 // Keyboard management for iOS/Android
 export { KeyboardService } from './keyboard.service';
+
+// Push notification handling (foreground + background interception)
+export { PushHandlerService } from './push-handler.service';

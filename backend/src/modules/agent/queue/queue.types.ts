@@ -48,6 +48,8 @@ export interface AgentQueueJobData {
   readonly payload: AgentJobPayload;
   /** ISO timestamp of when the job was enqueued. */
   readonly enqueuedAt: string;
+  /** Which Firestore the job document lives in — used by the worker to write back to the correct DB. */
+  readonly environment: 'staging' | 'production';
 }
 
 /**

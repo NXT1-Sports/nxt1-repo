@@ -109,11 +109,12 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
   }
 
   /**
-   * Uses the "fast" model tier because planning is a structured JSON
-   * extraction task — it doesn't need creative or reasoning-heavy models.
+   * Uses the "balanced" model tier for planning — structured JSON extraction
+   * must be reliable. Claude Haiku at 512 tokens produces garbled JSON on
+   * multi-task plans; Sonnet at 1024 tokens is accurate and still fast.
    */
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS['fast'];
+    return { ...MODEL_ROUTING_DEFAULTS['balanced'], maxTokens: 1024 };
   }
 
   /**
@@ -193,7 +194,12 @@ Respond with ONLY a JSON object matching this schema — no markdown, no explana
   private parsePlanResponse(raw: string): PlannerLLMResponse {
     let parsed: unknown;
     try {
-      parsed = JSON.parse(raw);
+      // Strip markdown code fences (```json ... ```) in case the model wraps the output
+      const cleaned = raw
+        .replace(/^```(?:json)?\s*/i, '')
+        .replace(/\s*```\s*$/, '')
+        .trim();
+      parsed = JSON.parse(cleaned);
     } catch {
       throw new Error(`Planner LLM returned invalid JSON. Raw output:\n${raw.slice(0, 500)}`);
     }

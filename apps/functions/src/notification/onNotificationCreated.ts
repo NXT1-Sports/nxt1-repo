@@ -1,10 +1,19 @@
 /**
- * @fileoverview On Notification Created - Send push notification
+ * @fileoverview On Notification Created — Unified Push Processor
  * @module @nxt1/functions/notification/onNotificationCreated
  *
- * Firestore trigger when notification document is created.
- * - Sends FCM push notification
- * - Cleans up invalid tokens
+ * The SINGLE Cloud Function responsible for all push delivery on the platform.
+ * Triggered when ANY feature writes a document to the `notifications` collection
+ * via the backend's unified `NotificationService.dispatch()`.
+ *
+ * Processing pipeline:
+ *  1. Read notification payload (userId, type, category, title, body, data)
+ *  2. Fetch user's FCM tokens from `fcm_tokens/{userId}`
+ *  3. Check user preferences: global kill-switch + per-category opt-out
+ *  4. Build platform-specific FCM message (APNS badge/sound, Android channel)
+ *  5. Send via `sendEachForMulticast`
+ *  6. Clean up invalid tokens automatically
+ *  7. Update notification doc with delivery status
  */
 
 import * as admin from 'firebase-admin';
@@ -15,7 +24,21 @@ const db = admin.firestore();
 const messaging = admin.messaging();
 
 /**
- * On notification created - send push notification
+ * Category-aware notification preferences stored in `notification_preferences/{userId}`.
+ * The schema supports both the legacy flat format and the new category-level format.
+ */
+interface NotificationPreferences {
+  /** Global push kill-switch (legacy + current) */
+  push?: boolean;
+  /** Per-category granular preferences (2026 schema) */
+  categories?: Record<string, { push?: boolean; email?: boolean; sms?: boolean }>;
+}
+
+/**
+ * On notification created — unified push processor.
+ *
+ * Every push notification on the entire NXT1 platform flows through this
+ * single function. Features never call FCM directly.
  */
 export const onNotificationCreatedV2 = onDocumentCreated(
   'notifications/{notificationId}',
@@ -24,19 +47,23 @@ export const onNotificationCreatedV2 = onDocumentCreated(
     if (!snapshot) return;
 
     const notification = snapshot.data();
+    const notificationId = event.params.notificationId;
     const userId = notification['userId'] as string;
     const type = notification['type'] as string;
+    const category = notification['category'] as string | undefined;
+    const priority = notification['priority'] as string | undefined;
     const title = notification['title'] as string;
     const body = notification['body'] as string;
     const data = notification['data'] as Record<string, string> | undefined;
 
-    logger.info('Notification created', { userId, type, title });
+    logger.info('Processing notification', { notificationId, userId, type, category });
 
     try {
-      // Get user's FCM tokens
+      // ─── 1. Fetch FCM tokens ──────────────────────────────────────
       const tokensDoc = await db.collection('fcm_tokens').doc(userId).get();
       if (!tokensDoc.exists) {
-        logger.info('No FCM tokens for user', { userId });
+        logger.info('No FCM tokens registered', { userId });
+        await updateStatus(notificationId, 'skipped', 'No FCM tokens');
         return;
       }
 
@@ -45,46 +72,75 @@ export const onNotificationCreatedV2 = onDocumentCreated(
 
       if (!tokens || tokens.length === 0) {
         logger.info('Empty FCM tokens array', { userId });
+        await updateStatus(notificationId, 'skipped', 'Empty token array');
         return;
       }
 
-      // Check notification preferences
+      // ─── 2. Check notification preferences ────────────────────────
       const prefsDoc = await db.collection('notification_preferences').doc(userId).get();
       if (prefsDoc.exists) {
-        const prefs = prefsDoc.data();
-        if (!prefs?.['push']) {
-          logger.info('Push notifications disabled for user', { userId });
+        const prefs = prefsDoc.data() as NotificationPreferences;
+
+        // Global kill-switch
+        if (prefs.push === false) {
+          logger.info('Push disabled globally for user', { userId });
+          await updateStatus(notificationId, 'skipped', 'Push disabled globally');
           return;
+        }
+
+        // Per-category opt-out (if categories are configured)
+        if (category && prefs.categories) {
+          const categoryPref = prefs.categories[category];
+          if (categoryPref && categoryPref.push === false) {
+            logger.info('Push disabled for category', { userId, category });
+            await updateStatus(notificationId, 'skipped', `Category "${category}" disabled`);
+            return;
+          }
         }
       }
 
-      // Build FCM message
+      // ─── 3. Build FCM message ─────────────────────────────────────
+      const isHighPriority = priority === 'high' || priority === 'urgent';
+
       const message: admin.messaging.MulticastMessage = {
         tokens,
         notification: { title, body },
         data: {
-          notificationId: snapshot.id,
+          notificationId,
           type: type || 'general',
-          ...data,
+          ...(data ?? {}),
         },
         apns: {
-          payload: { aps: { badge: 1, sound: 'default' } },
+          payload: {
+            aps: {
+              badge: 1,
+              sound: isHighPriority ? 'default' : 'default',
+              'thread-id': category || 'general',
+            },
+          },
         },
         android: {
-          priority: 'high',
-          notification: { sound: 'default', channelId: 'default' },
+          priority: isHighPriority ? 'high' : 'normal',
+          notification: {
+            sound: 'default',
+            channelId: isHighPriority ? 'high_priority' : 'default',
+          },
         },
       };
 
+      // ─── 4. Send push ─────────────────────────────────────────────
       const response = await messaging.sendEachForMulticast(message);
 
-      logger.info('Push notification sent', {
+      logger.info('Push notification delivered', {
+        notificationId,
         userId,
+        type,
+        category,
         successCount: response.successCount,
         failureCount: response.failureCount,
       });
 
-      // Clean up invalid tokens
+      // ─── 5. Clean up invalid tokens ───────────────────────────────
       if (response.failureCount > 0) {
         const invalidTokens: string[] = [];
         response.responses.forEach((resp, idx) => {
@@ -106,11 +162,52 @@ export const onNotificationCreatedV2 = onDocumentCreated(
             .update({
               tokens: admin.firestore.FieldValue.arrayRemove(...invalidTokens),
             });
-          logger.info('Removed invalid FCM tokens', { userId, count: invalidTokens.length });
+          logger.info('Removed invalid FCM tokens', {
+            userId,
+            count: invalidTokens.length,
+          });
         }
       }
+
+      // ─── 6. Update delivery status ────────────────────────────────
+      await updateStatus(
+        notificationId,
+        response.successCount > 0 ? 'sent' : 'failed',
+        response.failureCount > 0
+          ? `${response.failureCount}/${tokens.length} devices failed`
+          : undefined
+      );
     } catch (error) {
-      logger.error('Error sending push notification', { userId, error });
+      logger.error('Error processing push notification', {
+        notificationId,
+        userId,
+        error,
+      });
+      await updateStatus(notificationId, 'failed', String(error));
     }
   }
 );
+
+/**
+ * Update the notification document with delivery status.
+ * Never throws — logging only. Status tracking is best-effort.
+ */
+async function updateStatus(
+  notificationId: string,
+  status: string,
+  statusDetail?: string
+): Promise<void> {
+  try {
+    await db
+      .collection('notifications')
+      .doc(notificationId)
+      .update({
+        status,
+        ...(statusDetail ? { statusDetail } : {}),
+        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+  } catch {
+    // Status update is non-critical — just log
+    logger.warn('Failed to update notification status', { notificationId, status });
+  }
+}

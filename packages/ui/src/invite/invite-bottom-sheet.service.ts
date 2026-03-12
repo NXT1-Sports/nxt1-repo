@@ -153,8 +153,8 @@ export class InviteBottomSheetService {
         user: config.user ?? null,
       },
 
-      // Standardized sheet preset
-      ...SHEET_PRESETS.STANDARD,
+      // Standardized sheet preset — FULL so footer is never cut off
+      ...SHEET_PRESETS.FULL,
 
       // Show native drag handle bar
       showHandle: true,

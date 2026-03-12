@@ -69,6 +69,7 @@ export interface AgentOperationResult {
 /** Identifies which specialized coordinator handles a task. */
 export type AgentIdentifier =
   | 'router'
+  | 'data_coordinator'
   | 'recruiting_coordinator'
   | 'brand_media_coordinator'
   | 'performance_coordinator'
@@ -454,6 +455,7 @@ export interface AgentUserContext {
 export interface AgentConnectedAccount {
   readonly provider: string;
   readonly email?: string;
+  readonly profileUrl?: string;
   readonly isTokenValid: boolean;
   readonly lastSyncAt?: string;
 }

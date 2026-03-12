@@ -29,10 +29,9 @@ export const weeklyCleanup = onSchedule(
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     try {
-      // Delete old read notifications
+      // Delete processed notifications older than 30 days
       const oldNotifications = await db
         .collection('notifications')
-        .where('read', '==', true)
         .where('createdAt', '<', thirtyDaysAgo)
         .limit(500)
         .get();
@@ -41,7 +40,7 @@ export const weeklyCleanup = onSchedule(
       oldNotifications.docs.forEach((doc) => batch.delete(doc.ref));
       await batch.commit();
 
-      logger.info('Deleted old notifications', { count: oldNotifications.size });
+      logger.info('Deleted processed notifications', { count: oldNotifications.size });
 
       // Clean up expired sessions/tokens (90 days)
       const ninetyDaysAgo = new Date();

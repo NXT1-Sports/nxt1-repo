@@ -19,11 +19,8 @@
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { InviteShellComponent, InviteService, type InviteUser } from '@nxt1/ui/invite';
-import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
-import { NxtBottomSheetService } from '@nxt1/ui/components/bottom-sheet';
-import { NxtPlatformService } from '@nxt1/ui/services/platform';
-import type { InviteChannel, InviteType } from '@nxt1/core';
+import type { InviteType } from '@nxt1/core';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 
 @Component({
@@ -31,22 +28,13 @@ import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface
   standalone: true,
   imports: [InviteShellComponent],
   template: `
-    <nxt1-invite-shell
-      [user]="userInfo()"
-      [inviteType]="inviteType()"
-      (close)="onClose()"
-      (channelSelected)="onChannelSelected($event)"
-      (viewAchievements)="onViewAchievements()"
-    />
+    <nxt1-invite-shell [user]="userInfo()" [inviteType]="inviteType()" (close)="onClose()" />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InviteComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly inviteService = inject(InviteService);
-  private readonly sidenavService = inject(NxtSidenavService);
-  private readonly bottomSheetService = inject(NxtBottomSheetService);
-  private readonly platformService = inject(NxtPlatformService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('InviteComponent');
 
@@ -87,26 +75,6 @@ export class InviteComponent implements OnInit {
     // If opened as a bottom sheet, this won't be called
     // But for direct navigation, go back to previous page
     this.router.navigate(['/']);
-  }
-
-  /**
-   * Handle channel selection for analytics/logging.
-   */
-  protected onChannelSelected(channel: InviteChannel): void {
-    this.logger.debug('Invite channel selected', { channel });
-    // In production: track analytics event
-    // this.analytics.track('invite_channel_selected', { channel });
-  }
-
-  /**
-   * Handle view achievements navigation.
-   */
-  protected onViewAchievements(): void {
-    this.logger.debug('View achievements clicked');
-
-    // Navigate to full achievements page or open modal
-    // For now, just log - could open bottom sheet with full achievements
-    this.router.navigate(['/profile'], { fragment: 'achievements' });
   }
 
   /**

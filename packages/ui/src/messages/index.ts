@@ -27,6 +27,7 @@ export { MessagesListComponent } from './messages-list.component';
 export { MessagesItemComponent } from './messages-item.component';
 export { MessagesSkeletonComponent } from './messages-skeleton.component';
 export { MessagesService } from './messages.service';
+export { MessagesApiService, MESSAGES_API_BASE_URL } from './messages-api.service';
 
 // ============================================
 // CONVERSATION — Thread/chat view

@@ -283,7 +283,6 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
       ion-list-header ion-label {
         font-size: var(--nxt1-font-size-xs, 13px);
         font-weight: 600;
-        text-transform: uppercase;
         letter-spacing: 0.5px;
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
       }

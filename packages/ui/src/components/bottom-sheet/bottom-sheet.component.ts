@@ -53,63 +53,103 @@ import type { BottomSheetAction, BottomSheetResult } from './bottom-sheet.types'
   standalone: true,
   imports: [IonContent, NxtIconComponent, NxtSheetHeaderComponent, HapticButtonDirective],
   template: `
-    <nxt1-sheet-header
-      [title]="title || ''"
-      closePosition="right"
-      [showClose]="showClose"
-      [showBorder]="true"
-      (closeSheet)="onClose()"
-    />
+    @if (actionsLayout !== 'row') {
+      <nxt1-sheet-header
+        [title]="title || ''"
+        closePosition="right"
+        [showClose]="showClose"
+        [showBorder]="true"
+        (closeSheet)="onClose()"
+      />
+    }
 
     <ion-content [fullscreen]="true" class="nxt1-sheet-content">
-      <div class="nxt1-sheet-body">
-        @if (icon) {
-          <div class="icon-section">
-            <div class="icon-container" [class.destructive]="destructive">
-              <nxt1-icon [name]="icon" [size]="32" aria-hidden="true" />
+      @if (actionsLayout === 'row') {
+        <!-- Row layout: status text left, compact buttons right -->
+        <div class="nxt1-sheet-body nxt1-sheet-body--row">
+          <div class="row-status">
+            @if (icon) {
+              <nxt1-icon [name]="icon" [size]="22" aria-hidden="true" class="row-status__icon" />
+            }
+            <div class="row-status__text">
+              <span class="row-status__title">{{ title }}</span>
+              @if (subtitle) {
+                <span class="row-status__sub">{{ subtitle }}</span>
+              }
             </div>
           </div>
-        }
-
-        @if (subtitle) {
-          <p class="subtitle">{{ subtitle }}</p>
-        }
-
-        <div class="custom-content">
-          <ng-content></ng-content>
-        </div>
-
-        @if (actions.length > 0) {
-          <div
-            class="actions-section"
-            [class.actions-section--horizontal]="actionsLayout === 'horizontal'"
-          >
-            @for (action of actions; track action.label) {
-              <button
-                type="button"
-                class="sheet-btn"
-                [class.sheet-btn--primary]="action.role === 'primary'"
-                [class.sheet-btn--cancel]="action.role === 'secondary' || action.role === 'cancel'"
-                [class.sheet-btn--destructive]="action.role === 'destructive'"
-                [disabled]="action.disabled || action.loading || loading()"
-                (click)="onAction(action)"
-                [nxtHaptic]="
-                  action.role === 'primary' || action.role === 'destructive' ? 'medium' : 'light'
-                "
-              >
-                @if (action.loading) {
-                  <div class="sheet-spinner" aria-label="Loading..."></div>
-                } @else {
-                  @if (action.icon) {
-                    <nxt1-icon [name]="action.icon" [size]="20" aria-hidden="true" />
-                  }
+          @if (actions.length > 0) {
+            <div class="row-actions">
+              @for (action of actions; track action.label) {
+                <button
+                  type="button"
+                  class="sheet-btn sheet-btn--compact"
+                  [class.sheet-btn--primary]="action.role === 'primary'"
+                  [class.sheet-btn--cancel]="
+                    action.role === 'secondary' || action.role === 'cancel'
+                  "
+                  [class.sheet-btn--destructive]="action.role === 'destructive'"
+                  [disabled]="action.disabled || loading()"
+                  (click)="onAction(action)"
+                >
                   <span>{{ action.label }}</span>
-                }
-              </button>
-            }
+                </button>
+              }
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="nxt1-sheet-body">
+          @if (icon) {
+            <div class="icon-section">
+              <div class="icon-container" [class.destructive]="destructive">
+                <nxt1-icon [name]="icon" [size]="32" aria-hidden="true" />
+              </div>
+            </div>
+          }
+
+          @if (subtitle) {
+            <p class="subtitle">{{ subtitle }}</p>
+          }
+
+          <div class="custom-content">
+            <ng-content></ng-content>
           </div>
-        }
-      </div>
+
+          @if (actions.length > 0) {
+            <div
+              class="actions-section"
+              [class.actions-section--horizontal]="actionsLayout === 'horizontal'"
+            >
+              @for (action of actions; track action.label) {
+                <button
+                  type="button"
+                  class="sheet-btn"
+                  [class.sheet-btn--primary]="action.role === 'primary'"
+                  [class.sheet-btn--cancel]="
+                    action.role === 'secondary' || action.role === 'cancel'
+                  "
+                  [class.sheet-btn--destructive]="action.role === 'destructive'"
+                  [disabled]="action.disabled || action.loading || loading()"
+                  (click)="onAction(action)"
+                  [nxtHaptic]="
+                    action.role === 'primary' || action.role === 'destructive' ? 'medium' : 'light'
+                  "
+                >
+                  @if (action.loading) {
+                    <div class="sheet-spinner" aria-label="Loading..."></div>
+                  } @else {
+                    @if (action.icon) {
+                      <nxt1-icon [name]="action.icon" [size]="20" aria-hidden="true" />
+                    }
+                    <span>{{ action.label }}</span>
+                  }
+                </button>
+              }
+            </div>
+          }
+        </div>
+      }
     </ion-content>
   `,
   styles: [
@@ -127,6 +167,63 @@ import type { BottomSheetAction, BottomSheetResult } from './bottom-sheet.types'
         display: flex;
         flex-direction: column;
         padding: var(--nxt1-spacing-4) var(--nxt1-spacing-5) var(--nxt1-spacing-8);
+      }
+
+      /* ── Row layout (text left, buttons right) ── */
+      .nxt1-sheet-body--row {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        padding: var(--nxt1-spacing-5) var(--nxt1-spacing-5) var(--nxt1-spacing-6);
+        gap: var(--nxt1-spacing-4);
+        min-height: 80px;
+      }
+
+      .row-status {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3);
+        flex: 1;
+        min-width: 0;
+      }
+
+      .row-status__icon {
+        color: var(--nxt1-color-primary);
+        flex-shrink: 0;
+      }
+
+      .row-status__text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .row-status__title {
+        font-size: var(--nxt1-fontSize-base, 16px);
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .row-status__sub {
+        font-size: var(--nxt1-fontSize-xs, 12px);
+        color: var(--nxt1-color-text-tertiary);
+      }
+
+      .row-actions {
+        display: flex;
+        flex-direction: row;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+
+      .sheet-btn--compact {
+        width: auto;
+        height: 34px;
+        padding: 0 14px;
+        font-size: 13px;
+        font-weight: 600;
+        border-radius: var(--nxt1-borderRadius-lg, 8px);
       }
 
       .icon-section {
@@ -259,7 +356,7 @@ export class NxtBottomSheetComponent {
   @Input() showClose = true;
   @Input() destructive = false;
   @Input() actions: BottomSheetAction[] = [];
-  @Input() actionsLayout: 'vertical' | 'horizontal' = 'vertical';
+  @Input() actionsLayout: 'vertical' | 'horizontal' | 'row' = 'vertical';
 
   // ============================================
   // STATE

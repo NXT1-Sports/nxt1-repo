@@ -108,7 +108,7 @@ export class AgentXComponent implements OnInit {
     const user = this.authFlow.user();
     const role = user?.role ?? 'athlete';
     // TODO: Check backend for onboarding completion status
-    const needsOnboarding = true;
+    const needsOnboarding = false; // Skip onboarding by default until backend flag is wired
     this.onboarding.initialize(role, needsOnboarding);
     this.logger.info('Agent X initialized (mobile)', { role, needsOnboarding });
   }

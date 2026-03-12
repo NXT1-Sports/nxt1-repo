@@ -19,6 +19,7 @@ export type {
   ActivityMarkReadResponse,
   ActivitySummary,
   ActivityState,
+  AgentTaskActivityMetadata,
 } from './activity.types';
 
 // Constants
@@ -34,6 +35,8 @@ export {
   ACTIVITY_EMPTY_STATES,
   ACTIVITY_API_ENDPOINTS,
   ACTIVITY_UI_CONFIG,
+  INBOX_EMAIL_PROVIDERS,
+  type InboxEmailProvider,
 } from './activity.constants';
 
 // Mapper (Conversation → ActivityItem)

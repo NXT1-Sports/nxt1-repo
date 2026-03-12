@@ -36,7 +36,6 @@ import {
   type SettingsConnectedProvider,
   type SettingsSection,
   type SettingsToggleItem,
-  type SettingsSelectItem,
   DEFAULT_SETTINGS_SECTIONS,
   DEFAULT_SETTINGS_PREFERENCES,
   DEFAULT_CONNECTED_PROVIDERS,
@@ -54,6 +53,19 @@ import {
   SETTINGS_PERSISTENCE_ADAPTER,
   type SettingsPersistenceAdapter,
 } from './settings-persistence-adapter';
+
+/**
+ * Thrown by a SettingsPersistenceAdapter when the user explicitly cancels an
+ * interactive operation (e.g. biometric enrollment prompt).  The service will
+ * rollback the optimistic update silently — no error toast is shown.
+ */
+export class UserCancelledError extends Error {
+  readonly userCancelled = true;
+  constructor(message = 'User cancelled') {
+    super(message);
+    this.name = 'UserCancelledError';
+  }
+}
 
 /**
  * Default subscription for users without active billing data.
@@ -278,46 +290,15 @@ export class SettingsService {
       this._preferences.set(previous);
       this.updateSectionsWithPreferences();
 
+      // User explicitly cancelled (e.g. biometric enrollment prompt) — rollback silently
+      if (err instanceof UserCancelledError) {
+        this.logger.debug('Preference update cancelled by user', { key });
+        return;
+      }
+
       const message = err instanceof Error ? err.message : 'Failed to update preference';
       this.toast.error(message);
       this.logger.error('Failed to update preference', err, { key, value });
-    } finally {
-      this._isSaving.set(false);
-    }
-  }
-
-  /**
-   * Update a select preference.
-   */
-  async updateSelectPreference(key: string, value: string): Promise<void> {
-    this._isSaving.set(true);
-    const previous = this._preferences();
-
-    try {
-      this.logger.debug('Updating select preference', { key, value });
-
-      // Optimistic update
-      this._preferences.update((prefs) => ({
-        ...prefs,
-        [key]: value,
-      }));
-
-      // Update section items
-      this.updateSectionsWithPreferences();
-
-      // TODO: Persist to backend when preferences API is available
-      // await this.api.updateSelectPreference(key, value);
-
-      await this.haptics.notification('success');
-      this.logger.info('Select preference updated', { key, value });
-    } catch (err) {
-      // Rollback with previous state
-      this._preferences.set(previous);
-      this.updateSectionsWithPreferences();
-
-      const message = err instanceof Error ? err.message : 'Failed to update preference';
-      this.toast.error(message);
-      this.logger.error('Failed to update select preference', err, { key, value });
     } finally {
       this._isSaving.set(false);
     }
@@ -401,26 +382,25 @@ export class SettingsService {
     try {
       await this.haptics.impact('light');
 
+      // Replace with a real version API call when available
+      const updateAvailable = false;
+      const currentVersion = '2.0.0';
+
       const result = await this.bottomSheet.show({
+        title: updateAvailable ? 'Update available' : 'App is up to date',
+        subtitle: `Version ${currentVersion}`,
+        icon: updateAvailable ? 'cloud-download-outline' : 'checkmark-circle-outline',
         showClose: false,
-        actions: [
-          {
-            label: 'App is up to date',
-            role: 'secondary',
-            icon: 'checkmark-circle-outline',
-            disabled: true,
-          },
-          {
-            label: 'Update',
-            role: 'primary',
-            icon: 'download-outline',
-          },
-          {
-            label: 'Later',
-            role: 'cancel',
-          },
-        ],
-        ...SHEET_PRESETS.COMPACT,
+        actionsLayout: 'row',
+        actions: updateAvailable
+          ? [
+              { label: 'Update', role: 'primary' as const },
+              { label: 'Later', role: 'cancel' as const },
+            ]
+          : [{ label: 'Got it', role: 'cancel' as const }],
+        breakpoints: [0, 0.18],
+        initialBreakpoint: 0.18,
+        backdropBreakpoint: 0,
       });
 
       if (!result.confirmed) return;
@@ -430,7 +410,7 @@ export class SettingsService {
         return;
       }
 
-      this.toast.info('Please update from your app store if an update is available.');
+      this.toast.info('Update available in the App Store.');
     } catch (err) {
       this.toast.error('Failed to check for updates');
       this.logger.error('Failed to check for updates', err);
@@ -512,14 +492,6 @@ export class SettingsService {
             const value = (prefs as unknown as Record<string, unknown>)[toggleItem.settingKey];
             if (typeof value === 'boolean') {
               return { ...toggleItem, value };
-            }
-          }
-
-          if (item.type === 'select') {
-            const selectItem = item as SettingsSelectItem;
-            const value = (prefs as unknown as Record<string, unknown>)[selectItem.settingKey];
-            if (typeof value === 'string') {
-              return { ...selectItem, value };
             }
           }
 

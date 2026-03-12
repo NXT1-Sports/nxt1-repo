@@ -33,7 +33,6 @@ export type SettingsItemType =
   | 'navigation' // Navigates to a sub-page or external link
   | 'action' // Triggers an action (button-like)
   | 'info' // Display-only information
-  | 'select' // Dropdown/picker selection
   | 'button'; // Primary/secondary action button
 
 /**
@@ -59,6 +58,7 @@ export type SettingsIconName =
   | 'moon-outline'
   | 'sunny-outline'
   | 'notifications-outline'
+  | 'options-outline'
   | 'globe-outline'
   | 'color-palette-outline'
   | 'eye-outline'
@@ -169,19 +169,6 @@ export interface SettingsInfoItem extends SettingsItemBase {
 }
 
 /**
- * Select setting item (dropdown/picker).
- */
-export interface SettingsSelectItem extends SettingsItemBase {
-  readonly type: 'select';
-  /** Currently selected value */
-  readonly value: string;
-  /** Available options */
-  readonly options: readonly SettingsSelectOption[];
-  /** Key for persisting this setting */
-  readonly settingKey: string;
-}
-
-/**
  * Button setting item (primary/secondary action).
  */
 export interface SettingsButtonItem extends SettingsItemBase {
@@ -195,16 +182,6 @@ export interface SettingsButtonItem extends SettingsItemBase {
 }
 
 /**
- * Select option for dropdown/picker items.
- */
-export interface SettingsSelectOption {
-  readonly id: string;
-  readonly label: string;
-  readonly icon?: SettingsIconName;
-  readonly disabled?: boolean;
-}
-
-/**
  * Union type of all settings items.
  */
 export type SettingsItem =
@@ -212,7 +189,6 @@ export type SettingsItem =
   | SettingsNavigationItem
   | SettingsActionItem
   | SettingsInfoItem
-  | SettingsSelectItem
   | SettingsButtonItem;
 
 // ============================================
@@ -301,31 +277,20 @@ export interface SettingsConnectedProvider {
 
 /**
  * User preferences that can be toggled.
+ * Only fields that are wired to the UI and persisted to the backend.
  */
 export interface SettingsPreferences {
   // Notifications
   readonly emailNotifications: boolean;
   readonly pushNotifications: boolean;
   readonly marketingEmails: boolean;
-  readonly weeklyDigest: boolean;
-
-  // Privacy
-  readonly profileVisibility: 'public' | 'private' | 'connections';
-  readonly showActivityStatus: boolean;
-  readonly allowTagging: boolean;
 
   // Activity Tracking
   readonly activityTracking: boolean;
   readonly analyticsTracking: boolean;
-  readonly crashReporting: boolean;
 
   // Security
   readonly biometricLogin: boolean;
-
-  // Display
-  readonly theme: 'light' | 'dark' | 'system';
-  readonly language: string;
-  readonly compactMode: boolean;
 }
 
 // ============================================

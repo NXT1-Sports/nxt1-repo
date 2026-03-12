@@ -327,6 +327,10 @@ export const TRACE_NAMES = {
   // Settings traces
   SETTINGS_LOAD: 'settings_load',
   SETTINGS_PREFERENCE_UPDATE: 'settings_preference_update',
+
+  // Push notification traces
+  PUSH_NOTIFICATION_HANDLE: 'push_notification_handle',
+  PUSH_DEEP_LINK_ROUTE: 'push_deep_link_route',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

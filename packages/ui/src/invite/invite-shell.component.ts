@@ -1,36 +1,19 @@
 /**
  * @fileoverview Invite Shell Component - Main Container
  * @module @nxt1/ui/invite
- * @version 1.0.0
+ * @version 2.0.0
  *
- * Top-level container component for Invite feature.
- * Orchestrates all child components and handles layout.
+ * Redesigned bottom sheet for NXT1 invites.
+ *
+ * Layout:
+ * 1. NxtSheetHeaderComponent — title, close on right, no XP badge
+ * 2. Scrollable content:
+ *    - Real QR code (canvas) linked to personalized invite URL
+ *    - Invite-type toggle: Athlete | Coach
+ *    - Value proposition card (free AI graphic on signup)
+ * 3. Fixed bottom CTA: "Invite" → native OS share sheet
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
- *
- * Features:
- * - Responsive layout (mobile-first)
- * - Theme-aware styling (light/dark mode)
- * - iOS 26 liquid glass aesthetic
- * - Gamified XP display
- * - Multi-channel share grid
- * - Achievement badges
- * - QR code display
- *
- * Usage Modes:
- * - Standalone page
- * - Modal/Bottom sheet content
- * - Embedded component
- *
- * @example
- * ```html
- * <nxt1-invite-shell
- *   [user]="currentUser()"
- *   [inviteType]="'team'"
- *   [team]="selectedTeam()"
- *   (close)="dismiss()"
- * />
- * ```
  */
 
 import {
@@ -42,249 +25,193 @@ import {
   computed,
   signal,
   OnInit,
+  afterNextRender,
+  viewChild,
+  ElementRef,
+  PLATFORM_ID,
 } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { IonContent, IonIcon, IonRippleEffect } from '@ionic/angular/standalone';
-import { addIcons } from 'ionicons';
-import {
-  close,
-  closeOutline,
-  link,
-  linkOutline,
-  qrCode,
-  qrCodeOutline,
-  shareSocial,
-  shareSocialOutline,
-  copy,
-  copyOutline,
-  checkmarkCircle,
-  checkmarkCircleOutline,
-  people,
-  peopleOutline,
-  trophy,
-  trophyOutline,
-  flame,
-  flameOutline,
-  star,
-  starOutline,
-  starHalf,
-  diamond,
-  diamondOutline,
-  ribbon,
-  ribbonOutline,
-  rocket,
-  rocketOutline,
-  megaphone,
-  megaphoneOutline,
-  trendingUp,
-  trendingUpOutline,
-  sparkles,
-  sparklesOutline,
-  gift,
-  giftOutline,
-  chatbubble,
-  chatbubbleOutline,
-  mail,
-  mailOutline,
-  logoWhatsapp,
-  logoInstagram,
-  logoTwitter,
-  logoFacebook,
-  share,
-  shareOutline,
-  personAdd,
-  personAddOutline,
-} from 'ionicons/icons';
-import {
-  formatSportDisplayName,
-  type InviteType,
-  type InviteTeam,
-  type InviteChannel,
-  type InviteChannelConfig,
-} from '@nxt1/core';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
+import { IonRippleEffect, IonSpinner } from '@ionic/angular/standalone';
+import { type InviteType, type InviteTeam, type UserRole, USER_ROLES } from '@nxt1/core';
 import { InviteService } from './invite.service';
-import { InviteStatsCardComponent } from './invite-stats-card.component';
-import { InviteChannelGridComponent } from './invite-channel-grid.component';
-import { InviteQrCodeComponent } from './invite-qr-code.component';
-import { InviteAchievementsComponent } from './invite-achievements.component';
-import { InviteCelebrationComponent } from './invite-celebration.component';
-import { InviteSkeletonComponent } from './invite-skeleton.component';
 import { HapticsService } from '../services/haptics/haptics.service';
+import { NxtToastService } from '../services/toast/toast.service';
+import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
+import { NxtSheetFooterComponent } from '../components/bottom-sheet/sheet-footer.component';
+import { NxtLogoComponent } from '../components/logo/logo.component';
+import { NxtIconComponent } from '../components/icon/icon.component';
 
-// Register all icons
+/** Invite recipient type selection. */
+export type InviteRecipientType = 'athlete' | 'coach';
+
 /**
  * User info for personalization.
+ * `role` drives which invite design variant is shown:
+ *   - athlete / parent  → toggle (Athlete | Coach/Scout), default 'athlete'
+ *   - coach / director / recruiter → staff view: athlete-only (no toggle)
  */
 export interface InviteUser {
   readonly displayName?: string | null;
   readonly profileImg?: string | null;
   readonly referralCode?: string;
+  /** The sender's platform role — controls which design variant is shown. */
+  readonly role?: UserRole;
 }
+
+/**
+ * Copy keyed by RECIPIENT type — what the invitee receives when they join.
+ * Used in the athlete/parent view (toggle visible).
+ */
+const INVITE_COPY: Record<InviteRecipientType, { title: string; shareText: string }> = {
+  athlete: {
+    title: 'Free AI Highlight Graphic',
+    shareText:
+      'Join me on NXT1 — the AI sports platform built for athletes. Sign up with my link and get a free AI highlight graphic from Agent X:',
+  },
+  coach: {
+    title: 'Free AI Scouting Report',
+    shareText:
+      "I'm using NXT1 to manage recruiting and evaluate prospects with AI. Join with my link and get a free AI scouting report on your first athlete:",
+  },
+};
+
+/**
+ * Copy for the staff (coach/director/recruiter) view — always inviting athletes.
+ */
+const STAFF_INVITE_COPY = {
+  title: 'Free AI Highlight Graphic',
+  subtitle: 'Athletes you invite get a free AI graphic when they sign up.',
+  shareText:
+    'Discover and manage top talent on NXT1. Join with my link and get a free AI highlight graphic for your first athlete:',
+} as const;
 
 @Component({
   selector: 'nxt1-invite-shell',
   standalone: true,
   imports: [
     CommonModule,
-    IonContent,
-    IonIcon,
     IonRippleEffect,
-    InviteStatsCardComponent,
-    InviteChannelGridComponent,
-    InviteQrCodeComponent,
-    InviteAchievementsComponent,
-    InviteCelebrationComponent,
-    InviteSkeletonComponent,
+    IonSpinner,
     NxtSheetHeaderComponent,
+    NxtSheetFooterComponent,
+    NxtLogoComponent,
+    NxtIconComponent,
   ],
   template: `
     <div class="invite-shell" [class.invite-shell--modal]="isModal()">
-      <!-- Header -->
+      <!-- ── HEADER ── -->
       <nxt1-sheet-header
-        [title]="inviteTitle()"
-        subtitle="Earn XP for every friend who joins!"
+        [title]="headerTitle()"
         [showClose]="showClose()"
-        closePosition="left"
+        closePosition="right"
         [showBorder]="true"
         (closeSheet)="onClose()"
-      >
-        @if (invite.stats()) {
-          <div sheetHeaderAction class="invite-header__xp-badge">
-            <ion-icon name="sparkles"></ion-icon>
-            <span>{{ invite.stats()!.totalXp }} XP</span>
-          </div>
-        }
-      </nxt1-sheet-header>
+      />
 
-      <ion-content [fullscreen]="true" class="invite-content">
-        @if (invite.isLoading()) {
-          <nxt1-invite-skeleton />
-        } @else {
-          <div class="invite-container">
-            <!-- Team Badge (if team invite) -->
-            @if (team()) {
-              <div class="invite-team-badge">
-                @if (team()!.logoUrl) {
-                  <img
-                    [src]="team()!.logoUrl"
-                    [alt]="team()!.name"
-                    class="invite-team-badge__logo"
-                  />
-                }
-                <div class="invite-team-badge__info">
-                  <span class="invite-team-badge__name">{{ team()!.name }}</span>
-                  <span class="invite-team-badge__sport"
-                    >{{ formatSportDisplayName(team()!.sport) }} • {{ team()!.level }}</span
-                  >
+      <!-- ── SCROLLABLE CONTENT ── -->
+      <div class="invite-content">
+        <div class="invite-body">
+          <!-- QR CODE: shared across both variants -->
+          <div class="invite-qr-section">
+            <div class="invite-qr-card">
+              @if (qrLoading()) {
+                <div class="invite-qr-skeleton">
+                  <ion-spinner name="crescent" class="invite-qr-spinner" />
                 </div>
+              } @else if (qrError()) {
+                <div class="invite-qr-error">
+                  <nxt1-icon name="alertCircle" [size]="24" />
+                  <span>Could not generate QR code</span>
+                </div>
+              } @else {
+                <canvas
+                  #qrCanvas
+                  class="invite-qr-canvas"
+                  aria-label="NXT1 invite QR code"
+                  role="img"
+                ></canvas>
+              }
+              <div class="invite-qr-logo" aria-hidden="true">
+                <nxt1-logo variant="default" size="xs" />
               </div>
-            }
+            </div>
+            <p class="invite-qr-label">Scan to join NXT1</p>
+          </div>
 
-            <!-- Stats Card (Gamification) -->
-            <nxt1-invite-stats-card
-              [stats]="invite.stats()"
-              [streakDays]="invite.streakDays()"
-              [earnedCount]="invite.earnedAchievements().length"
-            />
-
-            <!-- Invite Link Display -->
-            <section class="invite-link-section">
-              <div class="invite-link-card">
-                <div class="invite-link-card__content">
-                  <span class="invite-link-card__label">Your invite link</span>
-                  <span class="invite-link-card__url">{{ shortUrl() }}</span>
-                </div>
+          @if (isStaffRole()) {
+            <!-- ══════════════════════════════════════════════
+                 STAFF VARIANT: Coach / Director / Recruiter
+                 Always inviting athletes — no toggle needed.
+                 ══════════════════════════════════════════════ -->
+            <div class="invite-value-card">
+              <div class="invite-value-card__icon" aria-hidden="true">
+                <nxt1-icon name="gift" [size]="24" />
+              </div>
+              <div class="invite-value-card__text">
+                <p class="invite-value-card__title">{{ staffCopy.title }}</p>
+                <p class="invite-value-card__subtitle">{{ staffCopy.subtitle }}</p>
+              </div>
+            </div>
+          } @else {
+            <!-- ══════════════════════════════════════════════
+                 ATHLETE / PARENT VARIANT
+                 Can invite teammates OR coaches — toggle visible.
+                 ══════════════════════════════════════════════ -->
+            <div class="invite-type-section">
+              <p class="invite-type-label">Who are you inviting?</p>
+              <div class="invite-type-pills" role="group" aria-label="Select invite type">
                 <button
                   type="button"
-                  class="invite-link-card__copy"
-                  [class.invite-link-card__copy--copied]="copied()"
-                  (click)="onCopyLink()"
+                  class="invite-type-pill"
+                  [class.invite-type-pill--active]="recipientType() === 'athlete'"
+                  (click)="setRecipientType('athlete')"
+                  [attr.aria-pressed]="recipientType() === 'athlete'"
                 >
-                  <ion-ripple-effect></ion-ripple-effect>
-                  <ion-icon [name]="copied() ? 'checkmark-circle' : 'copy-outline'"></ion-icon>
-                  <span>{{ copied() ? 'Copied!' : 'Copy' }}</span>
+                  <ion-ripple-effect />
+                  <nxt1-icon name="person" [size]="18" aria-hidden="true" />
+                  <span>Athlete</span>
+                </button>
+                <button
+                  type="button"
+                  class="invite-type-pill"
+                  [class.invite-type-pill--active]="recipientType() === 'coach'"
+                  (click)="setRecipientType('coach')"
+                  [attr.aria-pressed]="recipientType() === 'coach'"
+                >
+                  <ion-ripple-effect />
+                  <nxt1-icon name="school" [size]="18" aria-hidden="true" />
+                  <span>Coach / Scout</span>
                 </button>
               </div>
-            </section>
+            </div>
 
-            <!-- Quick Share Channels -->
-            <section class="invite-share-section">
-              <h2 class="invite-section-title">Share via</h2>
-              <nxt1-invite-channel-grid
-                [channels]="invite.quickShareChannels()"
-                variant="primary"
-                (channelSelect)="onChannelSelect($event)"
-              />
-            </section>
+            <div class="invite-value-card">
+              <div class="invite-value-card__icon" aria-hidden="true">
+                <nxt1-icon name="gift" [size]="24" />
+              </div>
+              <p class="invite-value-card__title">{{ currentCopy().title }}</p>
+            </div>
+          }
+        </div>
+      </div>
 
-            <!-- Social Channels Grid -->
-            <section class="invite-social-section">
-              <h2 class="invite-section-title">Social</h2>
-              <nxt1-invite-channel-grid
-                [channels]="invite.socialChannels()"
-                variant="social"
-                (channelSelect)="onChannelSelect($event)"
-              />
-            </section>
-
-            <!-- QR Code Section -->
-            <section class="invite-qr-section">
-              <h2 class="invite-section-title">
-                <ion-icon name="qr-code-outline"></ion-icon>
-                QR Code
-              </h2>
-              <nxt1-invite-qr-code
-                [qrDataUrl]="invite.inviteLink()?.qrCodeDataUrl"
-                [referralCode]="invite.inviteLink()?.referralCode"
-              />
-            </section>
-
-            <!-- Achievements Preview -->
-            @if (invite.achievements().length > 0) {
-              <section class="invite-achievements-section">
-                <div class="invite-section-header">
-                  <h2 class="invite-section-title">
-                    <ion-icon name="trophy-outline"></ion-icon>
-                    Achievements
-                  </h2>
-                  <button
-                    type="button"
-                    class="invite-section-link"
-                    (click)="onViewAllAchievements()"
-                  >
-                    View all
-                  </button>
-                </div>
-                <nxt1-invite-achievements
-                  [achievements]="invite.achievements()"
-                  [showAll]="false"
-                />
-              </section>
-            }
-
-            <!-- Bottom Spacer -->
-            <div class="invite-bottom-spacer"></div>
-          </div>
-        }
-      </ion-content>
-
-      <!-- Celebration Overlay -->
-      @if (invite.showCelebration()) {
-        <nxt1-invite-celebration
-          [xpEarned]="invite.celebrationXp()"
-          [achievement]="invite.newAchievement()"
-          (dismiss)="invite.dismissCelebration()"
-        />
-      }
+      <!-- ── SHARED STICKY FOOTER CTA ── -->
+      <nxt1-sheet-footer
+        label="Invite"
+        icon="share"
+        [loading]="isSharing() || isLinkLoading()"
+        [loadingLabel]="isLinkLoading() ? 'Preparing...' : 'Opening...'"
+        (action)="onInvite()"
+      />
     </div>
   `,
   styles: [
     `
-      /* ============================================
-       INVITE SHELL - iOS 26 LIQUID GLASS DESIGN
-       100% Theme Aware (Light + Dark Mode)
-       ============================================ */
+      /* ================================================================
+         INVITE SHELL v2 — Simplified, professional, theme-aware
+         100% design tokens — zero hardcoded values
+         ================================================================ */
 
       :host {
         display: block;
@@ -297,250 +224,268 @@ export interface InviteUser {
         flex-direction: column;
         height: 100%;
         background: var(--nxt1-color-bg-primary);
-
-        /* Theme Variables */
-        --invite-bg: var(--nxt1-color-bg-primary);
-        --invite-surface: var(--nxt1-color-surface-100);
-        --invite-surface-elevated: var(--nxt1-color-surface-200);
-        --invite-border: var(--nxt1-color-border-subtle);
-        --invite-text-primary: var(--nxt1-color-text-primary);
-        --invite-text-secondary: var(--nxt1-color-text-secondary);
-        --invite-text-tertiary: var(--nxt1-color-text-tertiary);
-        --invite-accent: var(--nxt1-color-primary);
-        --invite-accent-bg: var(--nxt1-color-alpha-primary10);
-        --invite-success: var(--nxt1-color-feedback-success);
-        --invite-xp-glow: var(--nxt1-color-primary);
       }
 
       .invite-shell--modal {
-        border-radius: var(--nxt1-radius-xl) var(--nxt1-radius-xl) 0 0;
+        border-radius: var(--nxt1-radius-xl, 16px) var(--nxt1-radius-xl, 16px) 0 0;
         overflow: hidden;
       }
 
-      /* ============================================
-       HEADER (XP Badge styling for projected content)
-       ============================================ */
-
-      .invite-header__xp-badge {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-1);
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
-        background: var(--invite-accent-bg);
-        border-radius: var(--nxt1-radius-full);
-        color: var(--invite-accent);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-semibold);
-      }
-
-      .invite-header__xp-badge ion-icon {
-        font-size: 16px;
-        animation: sparkle 2s ease-in-out infinite;
-      }
-
-      @keyframes sparkle {
-        0%,
-        100% {
-          opacity: 1;
-          transform: scale(1);
-        }
-        50% {
-          opacity: 0.8;
-          transform: scale(1.1);
-        }
-      }
-
-      /* ============================================
-       CONTENT
-       ============================================ */
+      /* ── CONTENT ──
+         Plain div replaces ion-content for reliable flex behavior.
+         ion-content Shadow DOM doesn't participate correctly in flex
+         layouts — using a plain overflow:auto div is the correct pattern
+         for bottom sheet modals (same as auth-modal.component.ts).
+      */
 
       .invite-content {
-        --background: var(--invite-bg);
-      }
-
-      .invite-container {
-        padding: var(--nxt1-spacing-4) var(--nxt1-spacing-4);
-        padding-bottom: calc(var(--nxt1-spacing-8) + env(safe-area-inset-bottom, 0px));
-      }
-
-      /* ============================================
-       TEAM BADGE
-       ============================================ */
-
-      .invite-team-badge {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-3);
-        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
-        background: var(--invite-surface);
-        border-radius: var(--nxt1-radius-lg);
-        border: 1px solid var(--invite-border);
-        margin-bottom: var(--nxt1-spacing-4);
-      }
-
-      .invite-team-badge__logo {
-        width: 48px;
-        height: 48px;
-        border-radius: var(--nxt1-radius-md);
-        object-fit: cover;
-      }
-
-      .invite-team-badge__info {
-        display: flex;
-        flex-direction: column;
-      }
-
-      .invite-team-badge__name {
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--invite-text-primary);
-      }
-
-      .invite-team-badge__sport {
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--invite-text-secondary);
-      }
-
-      /* ============================================
-       INVITE LINK CARD
-       ============================================ */
-
-      .invite-link-section {
-        margin-bottom: var(--nxt1-spacing-5);
-      }
-
-      .invite-link-card {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-3);
-        padding: var(--nxt1-spacing-4);
-        background: var(--invite-surface);
-        border-radius: var(--nxt1-radius-lg);
-        border: 1px solid var(--invite-border);
-      }
-
-      .invite-link-card__content {
         flex: 1;
-        min-width: 0;
+        min-height: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+      }
+
+      .invite-body {
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        align-items: center;
+        gap: var(--nxt1-spacing-5, 20px);
+        padding: var(--nxt1-spacing-5, 20px) var(--nxt1-spacing-5, 20px);
+        /* Extra bottom padding so last card doesn't sit flush at scroll end */
+        padding-bottom: var(--nxt1-spacing-6, 24px);
+        max-width: 420px;
+        margin: 0 auto;
+        width: 100%;
       }
 
-      .invite-link-card__label {
-        font-size: var(--nxt1-fontSize-xs);
-        color: var(--invite-text-tertiary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+      /* ── QR CODE ── */
+
+      .invite-qr-section {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        width: 100%;
       }
 
-      .invite-link-card__url {
-        font-family: var(--nxt1-fontFamily-mono, monospace);
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--invite-accent);
-        font-weight: var(--nxt1-fontWeight-medium);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .invite-link-card__copy {
+      /* Reduced from 196 → 148 px */
+      .invite-qr-card {
+        position: relative;
+        width: 148px;
+        height: 148px;
+        padding: var(--nxt1-spacing-3, 12px);
+        background: #ffffff;
+        border-radius: var(--nxt1-radius-2xl, 24px);
+        box-shadow:
+          0 2px 8px var(--nxt1-color-alpha-black10, rgba(0, 0, 0, 0.08)),
+          0 0 0 1px var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-2);
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
-        background: var(--invite-accent);
-        color: var(--nxt1-color-text-onPrimary);
-        border: none;
-        border-radius: var(--nxt1-radius-full);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        cursor: pointer;
+        justify-content: center;
+      }
+
+      .invite-qr-canvas {
+        width: 100%;
+        height: 100%;
+        border-radius: var(--nxt1-radius-lg, 12px);
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+        display: block;
+      }
+
+      .invite-qr-skeleton,
+      .invite-qr-error {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        color: var(--nxt1-color-text-tertiary);
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        text-align: center;
+      }
+
+      .invite-qr-spinner {
+        --color: var(--nxt1-color-text-tertiary);
+      }
+
+      /* Center NXT1 logo over QR code */
+      .invite-qr-logo {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 28px;
+        height: 28px;
+        background: #ffffff;
+        border-radius: var(--nxt1-radius-md, 8px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 1px 4px var(--nxt1-color-alpha-black10, rgba(0, 0, 0, 0.08));
+        pointer-events: none;
+      }
+
+      .invite-qr-label {
+        margin: var(--nxt1-spacing-1, 4px) 0 0;
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-medium, 500);
+        color: var(--nxt1-color-text-secondary);
+        text-align: center;
+      }
+
+      .invite-qr-url {
+        margin: 0;
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        color: var(--nxt1-color-text-tertiary);
+        font-family: var(--nxt1-fontFamily-mono, ui-monospace, monospace);
+        letter-spacing: 0.01em;
+        text-align: center;
+      }
+
+      /* ── INVITE TYPE TOGGLE ── */
+
+      .invite-type-section {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--nxt1-spacing-3, 12px);
+        width: 100%;
+      }
+
+      .invite-type-label {
+        margin: 0;
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .invite-type-pills {
+        display: flex;
+        gap: var(--nxt1-spacing-3, 12px);
+        width: 100%;
+      }
+
+      .invite-type-pill {
+        flex: 1;
         position: relative;
         overflow: hidden;
-        transition: all 0.2s ease;
-      }
-
-      .invite-link-card__copy:hover {
-        transform: scale(1.02);
-      }
-
-      .invite-link-card__copy:active {
-        transform: scale(0.98);
-      }
-
-      .invite-link-card__copy--copied {
-        background: var(--invite-success);
-      }
-
-      .invite-link-card__copy ion-icon {
-        font-size: 18px;
-      }
-
-      /* ============================================
-       SECTIONS
-       ============================================ */
-
-      .invite-section-title {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-2);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-base);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--invite-text-primary);
-        margin: 0 0 var(--nxt1-spacing-3);
-      }
-
-      .invite-section-title ion-icon {
-        font-size: 18px;
-        color: var(--invite-text-secondary);
-      }
-
-      .invite-section-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: var(--nxt1-spacing-3);
-      }
-
-      .invite-section-header .invite-section-title {
-        margin: 0;
-      }
-
-      .invite-section-link {
-        font-size: var(--nxt1-fontSize-sm);
-        color: var(--invite-accent);
-        background: none;
-        border: none;
-        padding: 0;
+        justify-content: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        height: 52px;
+        border-radius: var(--nxt1-radius-xl, 16px);
+        border: 1.5px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-secondary);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
         cursor: pointer;
-        font-weight: var(--nxt1-fontWeight-medium);
+        -webkit-tap-highlight-color: transparent;
+        transition:
+          border-color var(--nxt1-motion-duration-fast, 150ms)
+            var(--nxt1-motion-easing-standard, ease),
+          background var(--nxt1-motion-duration-fast, 150ms)
+            var(--nxt1-motion-easing-standard, ease),
+          color var(--nxt1-motion-duration-fast, 150ms) var(--nxt1-motion-easing-standard, ease);
       }
 
-      .invite-share-section,
-      .invite-social-section,
-      .invite-qr-section,
-      .invite-achievements-section {
-        margin-bottom: var(--nxt1-spacing-6);
+      .invite-type-pill:active {
+        transform: scale(0.97);
       }
 
-      .invite-bottom-spacer {
-        height: var(--nxt1-spacing-8);
+      .invite-type-pill--active {
+        border-color: var(--nxt1-color-primary);
+        background: var(
+          --nxt1-color-alpha-primary10,
+          rgba(var(--nxt1-color-primary-rgb, 99, 102, 241), 0.1)
+        );
+        color: var(--nxt1-color-primary);
       }
 
-      /* ============================================
-       RESPONSIVE
-       ============================================ */
+      /* ── VALUE PROPOSITION CARD ── */
+
+      .invite-value-card {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-5, 20px);
+        background: var(
+          --nxt1-color-alpha-primary10,
+          rgba(var(--nxt1-color-primary-rgb, 99, 102, 241), 0.08)
+        );
+        border-radius: var(--nxt1-radius-xl, 16px);
+        border: 1px solid
+          var(--nxt1-color-alpha-primary20, rgba(var(--nxt1-color-primary-rgb, 99, 102, 241), 0.2));
+        width: 100%;
+      }
+
+      .invite-value-card__icon {
+        flex-shrink: 0;
+        width: 44px;
+        height: 44px;
+        border-radius: var(--nxt1-radius-lg, 12px);
+        background: var(
+          --nxt1-color-alpha-primary15,
+          rgba(var(--nxt1-color-primary-rgb, 99, 102, 241), 0.15)
+        );
+        color: var(--nxt1-color-primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+      }
+
+      /* Athlete/parent variant — single-line title only */
+      .invite-value-card__title {
+        margin: 0;
+        flex: 1;
+        min-width: 0;
+        font-size: var(--nxt1-fontSize-base, 1rem);
+        font-weight: var(--nxt1-fontWeight-bold, 700);
+        color: var(--nxt1-color-primary);
+        line-height: 1.3;
+      }
+
+      /* Staff variant — title + subtitle stacked */
+      .invite-value-card__text {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-1, 4px);
+        flex: 1;
+        min-width: 0;
+      }
+
+      .invite-value-card__subtitle {
+        margin: 0;
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-color-text-secondary);
+        line-height: 1.45;
+      }
+
+      /* ── RESPONSIVE ── */
 
       @media (min-width: 640px) {
-        .invite-container {
-          max-width: 480px;
-          margin: 0 auto;
-          padding: var(--nxt1-spacing-6);
+        .invite-body {
+          padding: var(--nxt1-spacing-6, 24px);
+          padding-bottom: var(--nxt1-spacing-8, 32px);
+        }
+      }
+
+      /* ── ACCESSIBILITY ── */
+
+      @media (prefers-reduced-motion: reduce) {
+        .invite-type-pill {
+          transition: none;
         }
 
-        .invite-header {
-          padding: var(--nxt1-spacing-5) var(--nxt1-spacing-6);
+        .invite-type-pill:active {
+          transform: none;
         }
       }
     `,
@@ -548,68 +493,25 @@ export interface InviteUser {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class InviteShellComponent implements OnInit {
-  protected readonly formatSportDisplayName = formatSportDisplayName;
+  private readonly invite = inject(InviteService);
+  private readonly haptics = inject(HapticsService);
+  private readonly toast = inject(NxtToastService);
+  private readonly logger = inject(NxtLoggingService).child('InviteShellComponent');
+  private readonly platformId = inject(PLATFORM_ID);
+
+  private readonly qrCanvas = viewChild<ElementRef<HTMLCanvasElement>>('qrCanvas');
 
   constructor() {
-    addIcons({
-      close,
-      closeOutline,
-      link,
-      linkOutline,
-      qrCode,
-      qrCodeOutline,
-      shareSocial,
-      shareSocialOutline,
-      copy,
-      copyOutline,
-      checkmarkCircle,
-      checkmarkCircleOutline,
-      people,
-      peopleOutline,
-      trophy,
-      trophyOutline,
-      flame,
-      flameOutline,
-      star,
-      starOutline,
-      starHalf,
-      diamond,
-      diamondOutline,
-      ribbon,
-      ribbonOutline,
-      rocket,
-      rocketOutline,
-      megaphone,
-      megaphoneOutline,
-      trendingUp,
-      trendingUpOutline,
-      sparkles,
-      sparklesOutline,
-      gift,
-      giftOutline,
-      chatbubble,
-      chatbubbleOutline,
-      mail,
-      mailOutline,
-      logoWhatsapp,
-      logoInstagram,
-      logoTwitter,
-      logoFacebook,
-      share,
-      shareOutline,
-      personAdd,
-      personAddOutline,
+    afterNextRender(() => {
+      this.generateQrCode();
     });
   }
-
-  protected readonly invite = inject(InviteService);
-  private readonly haptics = inject(HapticsService);
 
   // ============================================
   // INPUTS
   // ============================================
 
-  /** Current user info */
+  /** Current user info (optional — for personalization) */
   readonly user = input<InviteUser | null>(null);
 
   /** Invite type context */
@@ -621,7 +523,7 @@ export class InviteShellComponent implements OnInit {
   /** Whether shown in modal/bottom sheet */
   readonly isModal = input<boolean>(true);
 
-  /** Whether to show close button */
+  /** Whether to show the close button */
   readonly showClose = input<boolean>(true);
 
   // ============================================
@@ -631,79 +533,192 @@ export class InviteShellComponent implements OnInit {
   /** Emitted when close button clicked */
   readonly close = output<void>();
 
-  /** Emitted when channel selected */
-  readonly channelSelected = output<InviteChannel>();
-
-  /** Emitted when view all achievements clicked */
-  readonly viewAchievements = output<void>();
-
   // ============================================
   // LOCAL STATE
   // ============================================
 
-  protected copied = signal(false);
+  protected readonly recipientType = signal<InviteRecipientType>('athlete');
+  protected readonly qrLoading = signal(true);
+  protected readonly qrError = signal(false);
+  protected readonly isSharing = signal(false);
 
   // ============================================
   // COMPUTED
   // ============================================
 
-  protected readonly inviteTitle = computed(() => {
-    const type = this.inviteType();
-    if (type === 'team') return 'Invite Teammates';
-    if (type === 'profile') return 'Share Profile';
-    return 'Invite Friends';
+  /**
+   * True when the signed-in user is a staff role (coach, director, recruiter).
+   * Drives which invite design variant is shown:
+   *   - false (athlete/parent) → toggle visible, can invite athlete or coach
+   *   - true  (staff)          → no toggle, always inviting athletes
+   */
+  protected readonly isStaffRole = computed(() => {
+    const role = this.user()?.role;
+    return (
+      role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR || role === USER_ROLES.RECRUITER
+    );
   });
 
-  protected readonly shortUrl = computed(() => {
-    const link = this.invite.inviteLink();
-    return link?.shortUrl ?? 'Loading...';
+  /** True while the invite link is being fetched from the backend. */
+  protected readonly isLinkLoading = computed(() => this.invite.isLoading());
+
+  /** Staff-variant copy (constant — staff always invites athletes). */
+  protected readonly staffCopy = STAFF_INVITE_COPY;
+
+  protected readonly headerTitle = computed(() => {
+    if (this.isStaffRole()) return 'Invite Athletes';
+    const type = this.inviteType();
+    if (type === 'team') return 'Invite Team';
+    return 'Invite';
   });
+
+  protected readonly inviteUrl = computed(() => this.invite.inviteLink()?.url ?? null);
+
+  protected readonly displayUrl = computed(() => {
+    const link = this.invite.inviteLink();
+    const url = link?.shortUrl ?? link?.url ?? 'nxt1sports.com';
+    // Strip protocol for display
+    return url.replace(/^https?:\/\//, '');
+  });
+
+  protected readonly currentCopy = computed(() => INVITE_COPY[this.recipientType()]);
 
   // ============================================
   // LIFECYCLE
   // ============================================
 
   ngOnInit(): void {
-    // Set invite type from input
     const type = this.inviteType();
-    if (type) {
-      this.invite.setInviteType(type);
-    }
+    if (type) this.invite.setInviteType(type);
 
-    // Set team if provided
     const team = this.team();
-    if (team) {
-      this.invite.selectTeam(team);
-    }
+    if (team) this.invite.selectTeam(team);
 
-    // Initialize service
-    this.invite.initialize();
+    this.invite.loadInviteLink();
+
+    // Staff roles always invite athletes — lock the recipient type.
+    // Athlete/parent default is already 'athlete' from signal initializer.
+    if (this.isStaffRole()) {
+      this.recipientType.set('athlete');
+    }
+  }
+
+  // ============================================
+  // QR CODE GENERATION
+  // ============================================
+
+  async generateQrCode(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    this.qrLoading.set(true);
+    this.qrError.set(false);
+
+    try {
+      const QRCode = await import('qrcode');
+      const url = this.inviteUrl();
+
+      if (!url) {
+        this.qrError.set(true);
+        this.qrLoading.set(false);
+        return;
+      }
+
+      // Wait for canvas to render after loading clears
+      this.qrLoading.set(false);
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+
+      const canvasRef = this.qrCanvas();
+      if (!canvasRef?.nativeElement) {
+        this.qrError.set(true);
+        return;
+      }
+
+      await QRCode.toCanvas(canvasRef.nativeElement, url, {
+        width: 130,
+        margin: 1,
+        color: { dark: '#000000', light: '#ffffff' },
+        errorCorrectionLevel: 'H',
+      });
+
+      this.logger.info('Invite QR code generated', { url });
+    } catch (err) {
+      this.logger.error('Failed to generate invite QR code', err);
+      this.qrError.set(true);
+      this.qrLoading.set(false);
+    }
   }
 
   // ============================================
   // EVENT HANDLERS
   // ============================================
 
+  protected setRecipientType(type: InviteRecipientType): void {
+    this.haptics.impact('light');
+    this.recipientType.set(type);
+  }
+
   protected onClose(): void {
     this.haptics.impact('light');
     this.close.emit();
   }
 
-  protected async onCopyLink(): Promise<void> {
-    await this.invite.copyLink();
-    this.copied.set(true);
+  protected async onInvite(): Promise<void> {
+    if (this.isSharing() || this.isLinkLoading()) return;
 
-    // Reset after 2 seconds
-    setTimeout(() => this.copied.set(false), 2000);
-  }
+    const url = this.inviteUrl();
+    if (!url) {
+      this.logger.warn('onInvite called before invite link was ready');
+      this.toast.error('Invite link is still loading — try again in a moment');
+      return;
+    }
 
-  protected async onChannelSelect(channel: InviteChannelConfig): Promise<void> {
-    this.channelSelected.emit(channel.id);
-    await this.invite.shareViaChannel(channel.id);
-  }
+    this.isSharing.set(true);
+    await this.haptics.impact('medium');
+    // Staff role always uses the staff share text; athlete/parent uses toggle-driven copy.
+    const shareText = this.isStaffRole()
+      ? STAFF_INVITE_COPY.shareText
+      : this.currentCopy().shareText;
+    const shareData: ShareData = {
+      title: 'Join me on NXT1',
+      text: shareText,
+      url,
+    };
 
-  protected onViewAllAchievements(): void {
-    this.haptics.impact('light');
-    this.viewAchievements.emit();
+    try {
+      if (
+        isPlatformBrowser(this.platformId) &&
+        typeof navigator !== 'undefined' &&
+        navigator.share &&
+        navigator.canShare?.(shareData)
+      ) {
+        await navigator.share(shareData);
+        this.logger.info('Invite shared via native share sheet', {
+          recipientType: this.recipientType(),
+        });
+      } else {
+        // Fallback: copy invite link to clipboard
+        await navigator.clipboard.writeText(`${shareData.text} ${url}`);
+        await this.haptics.notification('success');
+        this.toast.success('Invite link copied to clipboard');
+        this.logger.info('Invite link copied (share fallback)', {
+          recipientType: this.recipientType(),
+        });
+      }
+    } catch (err) {
+      // User cancelled — not an error
+      if ((err as DOMException)?.name !== 'AbortError') {
+        this.logger.warn('Invite share failed', { error: String(err) });
+        // Clipboard fallback on unexpected error
+        try {
+          await navigator.clipboard.writeText(`${shareData.text} ${url}`);
+          this.toast.success('Invite link copied to clipboard');
+        } catch {
+          this.toast.error('Could not open share sheet');
+        }
+      }
+    } finally {
+      this.isSharing.set(false);
+    }
   }
 }

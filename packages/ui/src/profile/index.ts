@@ -94,3 +94,15 @@ export {
 // ============================================
 // Mock data is preserved in profile.mock-data.ts for development/testing
 // but no longer exported from the public API — production code uses real API data.
+
+// ============================================
+// PROFILE GENERATION (Agent X Onboarding Scrape)
+// ============================================
+
+export {
+  ProfileGenerationStateService,
+  type GenerationPhase,
+  type GenerationSnapshot,
+} from './profile-generation-state.service';
+
+export { ProfileGenerationOverlayComponent } from './profile-generation-overlay.component';

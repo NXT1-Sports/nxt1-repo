@@ -374,6 +374,17 @@ export class ActivityService {
   }
 
   /**
+   * Increment badge count for a specific tab.
+   * Used by PushHandlerService when a foreground push arrives.
+   */
+  incrementBadge(tab: ActivityTabId = 'agent'): void {
+    this._badges.update((badges) => ({
+      ...badges,
+      [tab]: (badges[tab] ?? 0) + 1,
+    }));
+  }
+
+  /**
    * Clear error state.
    */
   clearError(): void {

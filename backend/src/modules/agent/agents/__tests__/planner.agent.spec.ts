@@ -144,7 +144,7 @@ describe('PlannerAgent', () => {
 
   // ─── LLM Call Verification ──────────────────────────────────────────────
 
-  it('should call LLM with jsonMode and fast tier', async () => {
+  it('should call LLM with jsonMode and balanced tier', async () => {
     const llmResponse = JSON.stringify({
       tasks: [{ id: '1', assignedAgent: 'general', description: 'test', dependsOn: [] }],
     });
@@ -166,7 +166,7 @@ describe('PlannerAgent', () => {
     // Options should include jsonMode
     expect(callArgs[2]).toMatchObject({
       jsonMode: true,
-      tier: 'fast',
+      tier: 'balanced',
     });
   });
 
@@ -382,11 +382,12 @@ describe('PlannerAgent', () => {
     expect(planner.getAvailableTools()).toEqual([]);
   });
 
-  it('should use fast model tier', () => {
+  it('should use balanced model tier with 1024 maxTokens', () => {
     const llm = createMockLLM('{}');
     const planner = new PlannerAgent(llm);
 
     const routing = planner.getModelRouting();
-    expect(routing.tier).toBe('fast');
+    expect(routing.tier).toBe('balanced');
+    expect(routing.maxTokens).toBe(1024);
   });
 });

@@ -30,6 +30,7 @@ import { AgentRouter } from '../agent.router.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 import { ToolRegistry } from '../tools/tool-registry.js';
 import { ScrapeWebpageTool } from '../tools/scraping/index.js';
+import { UpdateAthleteProfileTool } from '../tools/database/index.js';
 import { ContextBuilder } from '../memory/context-builder.js';
 import { TelemetryService } from '../services/telemetry.service.js';
 import { GuardrailRunner } from '../guardrails/guardrail-runner.js';
@@ -39,6 +40,7 @@ import {
   ToneEnforcementGuardrail,
 } from '../guardrails/index.js';
 import {
+  DataCoordinatorAgent,
   PerformanceCoordinatorAgent,
   RecruitingCoordinatorAgent,
   BrandMediaCoordinatorAgent,
@@ -46,6 +48,7 @@ import {
   GeneralAgent,
 } from '../agents/index.js';
 import { setAgentDependencies } from '../../../routes/agent-x.routes.js';
+import { stagingDb } from '../../../utils/firebase-staging.js';
 import { logger } from '../../../utils/logger.js';
 
 /**
@@ -72,6 +75,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   });
   const toolRegistry = new ToolRegistry();
   toolRegistry.register(new ScrapeWebpageTool());
+  toolRegistry.register(new UpdateAthleteProfileTool(stagingDb));
   const contextBuilder = new ContextBuilder();
 
   // ── 1b. Guardrails (safety layer) ───────────────────────────────────
@@ -83,20 +87,22 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   // ── 2. Wire the AgentRouter with all sub-agents ───────────────────
   const router = new AgentRouter(llm, toolRegistry, contextBuilder, guardrailRunner);
+  router.registerAgent(new DataCoordinatorAgent());
   router.registerAgent(new PerformanceCoordinatorAgent());
   router.registerAgent(new RecruitingCoordinatorAgent());
   router.registerAgent(new BrandMediaCoordinatorAgent());
   router.registerAgent(new ComplianceCoordinatorAgent());
   router.registerAgent(new GeneralAgent());
 
-  // ── 3. Queue infrastructure ───────────────────────────────────────────
+  // ── 3. Queue infrastructure ──────────────────────────────────────────────────
   const queueService = new AgentQueueService();
-  const jobRepository = new AgentJobRepository();
+  const jobRepository = new AgentJobRepository(); // production Firestore
+  const stagingJobRepository = new AgentJobRepository(stagingDb); // staging Firestore
 
   // ── 4. Start the background worker ────────────────────────────────────
   // The worker wraps the AgentRouter and additionally persists
   // progress events to Firestore for real-time frontend updates.
-  const baseWorker = new AgentWorker(router);
+  const baseWorker = new AgentWorker(router, jobRepository, stagingJobRepository, stagingDb);
 
   // ── 5. Inject dependencies into the REST routes ───────────────────────
   setAgentDependencies({ queueService, jobRepository });

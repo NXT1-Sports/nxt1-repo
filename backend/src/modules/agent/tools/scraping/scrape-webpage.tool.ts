@@ -48,6 +48,7 @@ export class ScrapeWebpageTool extends BaseTool {
   } as const;
 
   override readonly allowedAgents = [
+    'data_coordinator',
     'performance_coordinator',
     'recruiting_coordinator',
     'general',

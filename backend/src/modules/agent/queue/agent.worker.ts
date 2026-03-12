@@ -34,6 +34,7 @@ import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
 import { AGENT_QUEUE_NAME, AGENT_QUEUE_PREFIX, WORKER_CONCURRENCY } from './queue.types.js';
 import { AgentQueueService } from './queue.service.js';
+import { AgentJobRepository } from './job.repository.js';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Worker ─────────────────────────────────────────────────────────────────
@@ -43,6 +44,9 @@ export class AgentWorker {
 
   constructor(
     private readonly router: AgentRouter,
+    private readonly productionJobRepo: AgentJobRepository,
+    private readonly stagingJobRepo: AgentJobRepository,
+    private readonly stagingFirestore?: FirebaseFirestore.Firestore,
     redisUrl?: string
   ) {
     const url = redisUrl ?? process.env['REDIS_URL'] ?? 'redis://localhost:6379';
@@ -61,6 +65,20 @@ export class AgentWorker {
     this.attachEventListeners();
   }
 
+  // ─── Repository Selector ────────────────────────────────────────────────
+
+  /** Return the correct Firestore repo based on which environment the job belongs to. */
+  private getJobRepo(job: Job<AgentQueueJobData, AgentQueueJobResult>): AgentJobRepository {
+    return job.data.environment === 'staging' ? this.stagingJobRepo : this.productionJobRepo;
+  }
+
+  /** Return the correct Firestore instance for user lookups based on job environment. */
+  private getUserFirestore(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>
+  ): FirebaseFirestore.Firestore | undefined {
+    return job.data.environment === 'staging' ? this.stagingFirestore : undefined;
+  }
+
   // ─── Job Processor ──────────────────────────────────────────────────────
 
   /**
@@ -75,11 +93,12 @@ export class AgentWorker {
   ): Promise<AgentQueueJobResult> {
     const { payload } = job.data;
     const startMs = Date.now();
+    const repo = this.getJobRepo(job);
 
     let stepIndex = 0;
     let totalSteps = 1; // Updated once the plan is created
 
-    // Build the onUpdate callback that feeds progress into BullMQ
+    // Build the onUpdate callback that feeds progress into BullMQ and Firestore
     const onUpdate = async (update: AgentJobUpdate): Promise<void> => {
       // Use structured payload data for reliable progress tracking
       const eventPayload = update.step.payload as Record<string, unknown> | undefined;
@@ -103,20 +122,50 @@ export class AgentWorker {
       };
 
       await job.updateProgress(progress);
+      // Mirror progress to Firestore (fire-and-forget — don't block/fail the job)
+      repo.updateProgress(payload.operationId, progress).catch((err: unknown) => {
+        logger.warn('Failed to write progress to Firestore', {
+          operationId: payload.operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
     };
 
     // Execute the full agent pipeline
-    const result = await this.router.run(payload, onUpdate);
+    let result;
+    try {
+      const userFirestore = this.getUserFirestore(job);
+      result = await this.router.run(payload, onUpdate, userFirestore);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Agent pipeline error';
+      // Write failure to Firestore before re-throwing so BullMQ records the error
+      await repo.markFailed(payload.operationId, message).catch((fsErr: unknown) => {
+        logger.warn('Failed to write failure to Firestore', {
+          operationId: payload.operationId,
+          error: fsErr instanceof Error ? fsErr.message : String(fsErr),
+        });
+      });
+      throw err;
+    }
 
-    // Mark 100% before returning
-    await job.updateProgress({
+    // Mark 100% in BullMQ
+    const completedProgress: AgentJobProgress = {
       status: 'completed',
       message: 'All tasks finished.',
       percent: 100,
       currentStep: totalSteps,
       totalSteps,
       updatedAt: new Date().toISOString(),
-    } satisfies AgentJobProgress);
+    };
+    await job.updateProgress(completedProgress);
+
+    // Persist final result to Firestore
+    await repo.markCompleted(payload.operationId, result).catch((err: unknown) => {
+      logger.warn('Failed to write completion to Firestore', {
+        operationId: payload.operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
 
     return {
       result,

@@ -129,11 +129,20 @@ export const SETTINGS_PREFERENCES_ITEMS: readonly SettingsItem[] = [
     id: 'marketingEmails',
     section: 'preferences',
     type: 'toggle',
-    label: 'Marketing Emails',
+    label: 'Marketing & Promotions',
     description: 'Receive news and promotional content',
-    icon: 'mail-outline',
+    icon: 'gift-outline',
     value: false,
     settingKey: 'marketingEmails',
+  },
+  {
+    id: 'notificationPreferences',
+    section: 'preferences',
+    type: 'navigation',
+    label: 'Notification Preferences',
+    description: 'Manage per-category notification settings',
+    icon: 'options-outline',
+    route: '/settings/notification-preferences',
   },
 ] as const;
 
@@ -194,8 +203,6 @@ export const SETTINGS_TOOLS_ITEMS: readonly SettingsItem[] = [
     description: 'Link social and streaming accounts',
     icon: 'link-outline',
     action: 'connectedAccounts',
-    badge: 'SOON',
-    badgeVariant: 'secondary',
   },
   {
     id: 'activityTracking',
@@ -348,17 +355,9 @@ export const DEFAULT_SETTINGS_PREFERENCES: SettingsPreferences = {
   emailNotifications: true,
   pushNotifications: true,
   marketingEmails: false,
-  weeklyDigest: true,
-  profileVisibility: 'public',
-  showActivityStatus: true,
-  allowTagging: true,
   activityTracking: true,
   analyticsTracking: true,
-  crashReporting: true,
   biometricLogin: false,
-  theme: 'system',
-  language: 'en',
-  compactMode: false,
 } as const;
 
 // ============================================

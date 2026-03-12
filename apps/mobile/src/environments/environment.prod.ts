@@ -6,7 +6,7 @@
 export const environment = {
   production: true,
   appVersion: '2.0.0',
-  apiUrl: 'https://backend.nxt1sports.com/api/v1',
+  apiUrl: 'http://34.72.3.113:8080/api/v1',
   firebase: {
     apiKey: 'AIzaSyAg0ln9P4HxZkqRsOi8ceVDNz1YEXhmN9I',
     authDomain: 'nxt-1-v2.firebaseapp.com',

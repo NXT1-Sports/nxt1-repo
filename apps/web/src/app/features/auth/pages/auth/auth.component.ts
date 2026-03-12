@@ -23,7 +23,9 @@ import {
   signal,
   computed,
   OnInit,
+  PLATFORM_ID,
 } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { CommonModule } from '@angular/common';
 import { Router, RouterModule, ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
@@ -46,6 +48,7 @@ import { SeoService } from '../../../../core/services';
 import { NxtToastService } from '@nxt1/ui/services';
 import { isValidTeamCode } from '@nxt1/core';
 import type { ValidatedTeamInfo } from '@nxt1/core';
+import { PENDING_REFERRAL_KEY, type PendingReferral } from '../../../join/join.component';
 
 @Component({
   selector: 'app-auth',
@@ -189,6 +192,10 @@ export class AuthComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly seo = inject(SeoService);
   private readonly toast = inject(NxtToastService);
+  private readonly platformId = inject(PLATFORM_ID);
+
+  /** Pending referral from an invite link (/join/:code) */
+  private pendingReferral: PendingReferral | null = null;
 
   // ============================================
   // AUTH STATE
@@ -286,6 +293,25 @@ export class AuthComponent implements OnInit {
       this.teamCodeInput = codeParam.toUpperCase();
       // Auto-validate the team code from URL
       this.onValidateTeamCode();
+    }
+
+    // Read pending referral from sessionStorage (set by /join/:code route)
+    if (isPlatformBrowser(this.platformId)) {
+      try {
+        const raw = sessionStorage.getItem(PENDING_REFERRAL_KEY);
+        if (raw) {
+          const referral = JSON.parse(raw) as PendingReferral;
+          // Only use if less than 24 hours old
+          const maxAge = 24 * 60 * 60 * 1000;
+          if (Date.now() - referral.timestamp < maxAge && referral.code) {
+            this.pendingReferral = referral;
+          } else {
+            sessionStorage.removeItem(PENDING_REFERRAL_KEY);
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
     }
   }
 
@@ -459,11 +485,12 @@ export class AuthComponent implements OnInit {
         password: data.password,
       });
     } else {
-      // Pass team code if validated
+      // Pass team code if validated, and referral code if present
       await this.authFlow.signUpWithEmail({
         email: data.email,
         password: data.password,
         teamCode: this.validatedTeam()?.code,
+        referralId: this.pendingReferral?.code,
       });
     }
   }
@@ -474,7 +501,10 @@ export class AuthComponent implements OnInit {
   async onGoogleAuth(): Promise<void> {
     try {
       const teamCode = this.validatedTeam()?.code;
-      await this.authFlow.signInWithGoogle(teamCode ? { teamCode } : undefined);
+      const referralId = this.pendingReferral?.code;
+      await this.authFlow.signInWithGoogle(
+        teamCode || referralId ? { teamCode, referralId } : undefined
+      );
     } catch {
       // Error handled by service
     }
@@ -487,7 +517,10 @@ export class AuthComponent implements OnInit {
     this.authFlow.clearError();
 
     const teamCode = this.validatedTeam()?.code;
-    await this.authFlow.signInWithApple(teamCode ? { teamCode } : undefined);
+    const referralId = this.pendingReferral?.code;
+    await this.authFlow.signInWithApple(
+      teamCode || referralId ? { teamCode, referralId } : undefined
+    );
 
     // Success/error handling and navigation managed by AuthFlowService
     // Analytics tracking is handled within AuthFlowService
@@ -499,7 +532,10 @@ export class AuthComponent implements OnInit {
   async onMicrosoftAuth(): Promise<void> {
     try {
       const teamCode = this.validatedTeam()?.code;
-      await this.authFlow.signInWithMicrosoft(teamCode ? { teamCode } : undefined);
+      const referralId = this.pendingReferral?.code;
+      await this.authFlow.signInWithMicrosoft(
+        teamCode || referralId ? { teamCode, referralId } : undefined
+      );
     } catch {
       // Error handled by service
     }

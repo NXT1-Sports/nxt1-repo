@@ -492,6 +492,63 @@ export const BRAND_TEST_IDS = {
   EMPTY_STATE: 'brand-empty-state',
 } as const;
 
+// ============================================
+// PROFILE GENERATION TEST IDS
+// Used by: ProfileGenerationOverlayComponent
+// ============================================
+
+export const PROFILE_GENERATION_TEST_IDS = {
+  /** Root overlay container */
+  OVERLAY: 'profile-generation-overlay',
+  /** Progress bar container */
+  PROGRESS: 'profile-generation-progress',
+  /** Phase message text */
+  PHASE_MESSAGE: 'profile-generation-phase-message',
+  /** Platform badge list */
+  PLATFORM_BADGES: 'profile-generation-platform-badges',
+  /** Skip/continue button */
+  SKIP_BUTTON: 'profile-generation-skip-btn',
+} as const;
+
+// ============================================
+// ACTIVITY TEST IDS
+// ============================================
+
+/**
+ * Test IDs for the Activity / Notifications feature (web and mobile)
+ */
+export const ACTIVITY_TEST_IDS = {
+  // Shell
+  SHELL: 'activity-shell',
+  TABS: 'activity-tabs',
+  TAB_ITEM: 'activity-tab', // suffixed with -{tabId}
+
+  // List
+  LIST_CONTAINER: 'activity-list-container',
+  LIST_ITEM: 'activity-list-item', // suffixed with -{id}
+
+  // States
+  LOADING_SKELETON: 'activity-loading-skeleton',
+  EMPTY_STATE: 'activity-empty-state',
+  ERROR_STATE: 'activity-error-state',
+
+  // Actions
+  MARK_ALL_READ_BUTTON: 'activity-mark-all-read',
+  REFRESH_BUTTON: 'activity-refresh',
+  LOAD_MORE_BUTTON: 'activity-load-more',
+
+  // Item details
+  ITEM_TITLE: 'activity-item-title',
+  ITEM_BODY: 'activity-item-body',
+  ITEM_AVATAR: 'activity-item-avatar',
+  ITEM_TIMESTAMP: 'activity-item-timestamp',
+  ITEM_ACTION: 'activity-item-action',
+  ITEM_UNREAD_DOT: 'activity-item-unread-dot',
+
+  // Badge
+  BADGE_COUNT: 'activity-badge-count',
+} as const;
+
 /**
  * All test IDs combined for easy import
  */
@@ -505,6 +562,8 @@ export const TEST_IDS = {
   LINK_SOURCES: LINK_SOURCES_TEST_IDS,
   BRAND: BRAND_TEST_IDS,
   SETTINGS: SETTINGS_TEST_IDS,
+  PROFILE_GENERATION: PROFILE_GENERATION_TEST_IDS,
+  ACTIVITY: ACTIVITY_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

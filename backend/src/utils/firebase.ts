@@ -30,6 +30,7 @@ if (!admin.apps.length) {
 }
 
 export const db: Firestore = admin.firestore();
+db.settings({ ignoreUndefinedProperties: true });
 export const auth: Auth = admin.auth();
 export const storage: Storage = admin.storage();
 

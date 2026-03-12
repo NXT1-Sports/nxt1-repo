@@ -199,14 +199,6 @@ export const serverRoutes: ServerRoute[] = [
     path: 'nil/**',
     renderMode: RenderMode.Server,
   },
-  {
-    path: 'brand',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'brand/**',
-    renderMode: RenderMode.Server,
-  },
   /**
    * Team profile routes - Use Client rendering to avoid SSR hydration mismatch
    * Data is loaded async on client for better performance
@@ -359,6 +351,12 @@ export const serverRoutes: ServerRoute[] = [
   {
     path: 'create-post/**',
     renderMode: RenderMode.Server,
+  },
+
+  // Invite link landing — client-side only (immediate redirect, no SSR content)
+  {
+    path: 'join/:code',
+    renderMode: RenderMode.Client,
   },
 
   // Catch-all

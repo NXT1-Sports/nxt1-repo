@@ -67,6 +67,7 @@ export const ACTIVITY_TYPE_ICONS: Record<ActivityType, string> = {
   reminder: 'alarm-outline',
   system: 'information-circle-outline',
   update: 'sparkles-outline',
+  agent_task: 'sparkles-outline',
 } as const;
 
 /**
@@ -86,6 +87,7 @@ export const ACTIVITY_TYPE_COLORS: Record<ActivityType, string> = {
   reminder: 'var(--nxt1-color-warning)',
   system: 'var(--nxt1-color-text-secondary)',
   update: 'var(--nxt1-color-primary)',
+  agent_task: 'var(--nxt1-color-success)',
 } as const;
 
 /**
@@ -202,6 +204,42 @@ export const ACTIVITY_API_ENDPOINTS = {
   /** Archive items */
   ARCHIVE: '/activity/archive',
 } as const;
+
+// ============================================
+// INBOX EMAIL PROVIDERS
+// ============================================
+
+/**
+ * Email provider options shown in the Inbox tab empty state.
+ * Users can connect these accounts to sync emails into the inbox.
+ */
+export interface InboxEmailProvider {
+  readonly id: string;
+  readonly name: string;
+  readonly icon: string;
+  readonly description: string;
+}
+
+export const INBOX_EMAIL_PROVIDERS: readonly InboxEmailProvider[] = [
+  {
+    id: 'gmail',
+    name: 'Gmail',
+    icon: 'google',
+    description: 'Connect your Google account',
+  },
+  {
+    id: 'microsoft',
+    name: 'Outlook',
+    icon: 'microsoft',
+    description: 'Connect your Microsoft account',
+  },
+  {
+    id: 'yahoo',
+    name: 'Yahoo',
+    icon: 'mail',
+    description: 'Connect your Yahoo account',
+  },
+] as const;
 
 // ============================================
 // UI CONFIGURATION

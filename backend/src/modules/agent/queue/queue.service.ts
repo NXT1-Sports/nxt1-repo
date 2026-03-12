@@ -65,12 +65,17 @@ export class AgentQueueService {
   /**
    * Add a new agent job to the queue.
    * @param payload - The validated AgentJobPayload from the API layer.
+   * @param environment - Which Firestore the job document lives in (staging vs production).
    * @returns The BullMQ job ID (same as operationId for easy lookup).
    */
-  async enqueue(payload: AgentJobPayload): Promise<string> {
+  async enqueue(
+    payload: AgentJobPayload,
+    environment: 'staging' | 'production' = 'production'
+  ): Promise<string> {
     const jobData: AgentQueueJobData = {
       payload,
       enqueuedAt: new Date().toISOString(),
+      environment,
     };
 
     const job = await this.queue.add(payload.operationId, jobData, {

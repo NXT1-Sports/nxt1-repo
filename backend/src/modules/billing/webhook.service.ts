@@ -219,8 +219,23 @@ export async function handleInvoicePaymentFailed(
       });
     }
 
-    // TODO: Send notification to user about failed payment
-    // TODO: Implement retry logic or suspend service if needed
+    // Notify user about failed payment via unified NotificationService
+    const { dispatch } = await import('../../services/notification.service.js');
+    await dispatch(db, {
+      userId: invoice.customer as string,
+      type: 'payment_failed' as const,
+      title: 'Payment Failed',
+      body: 'We were unable to process your payment. Please update your payment method.',
+      deepLink: '/settings/billing',
+      priority: 'high',
+      source: { userName: 'NXT1 Billing' },
+    }).catch((notifyErr: unknown) => {
+      // Payment failure logging already handled above — push is best-effort
+      logger.error('[handleInvoicePaymentFailed] Failed to dispatch notification', {
+        error: notifyErr,
+        invoiceId: invoice.id,
+      });
+    });
   } catch (error) {
     logger.error('[handleInvoicePaymentFailed] Failed to handle payment failure', {
       error,

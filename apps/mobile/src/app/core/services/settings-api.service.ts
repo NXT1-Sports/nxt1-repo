@@ -14,8 +14,12 @@ import { Injectable, inject } from '@angular/core';
 import type { SettingsPreferences, SettingsUsage, UserPreferences } from '@nxt1/core';
 import { DEFAULT_SETTINGS_PREFERENCES } from '@nxt1/core';
 import type { SettingsPersistenceAdapter } from '@nxt1/ui/settings';
+import { UserCancelledError } from '@nxt1/ui/settings';
+import { AlertController } from '@ionic/angular/standalone';
 import { CapacitorHttpAdapter } from '../infrastructure';
 import { environment } from '../../../environments/environment';
+import { BiometricService } from '../../features/auth/services/biometric.service';
+import { AuthFlowService } from '../../features/auth/services/auth-flow.service';
 
 /** Shape of all settings API responses */
 interface ApiResponse<T> {
@@ -34,6 +38,9 @@ interface ApiResponse<T> {
 export class SettingsApiService implements SettingsPersistenceAdapter {
   private readonly http = inject(CapacitorHttpAdapter);
   private readonly baseUrl = environment.apiUrl;
+  private readonly biometricService = inject(BiometricService);
+  private readonly authService = inject(AuthFlowService);
+  private readonly alertController = inject(AlertController);
 
   // ============================================================
   // SettingsPersistenceAdapter implementation
@@ -57,9 +64,21 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
 
   /**
    * Persist a single preference change to the backend.
-   * Uses PATCH /settings/preferences/:key.
+   *
+   * For the `biometricLogin` key this method intercepts the normal flow and
+   * runs the full native enrollment / un-enrollment flow before (and only if
+   * successful) persisting the new value to the backend.
    */
   async updatePreference(key: string, value: unknown): Promise<void> {
+    if (key === 'biometricLogin') {
+      if (value === true) {
+        await this.enableBiometricLogin();
+      } else {
+        await this.disableBiometricLogin();
+      }
+      return;
+    }
+
     const { backendKey, backendValue } = this.mapToBackendPreference(key, value);
 
     if (!backendKey) {
@@ -92,6 +111,107 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   }
 
   // ============================================================
+  // Biometric enrollment helpers
+  // ============================================================
+
+  /**
+   * Enable biometric login:
+   * 1. Verify the device has biometric hardware.
+   * 2. Ask the user to confirm their current password (needed to store credentials).
+   * 3. Trigger the native Face ID / Touch ID prompt via BiometricService.
+   * 4. Only if enrollment succeeds, persist `biometricLogin: true` to the backend.
+   *
+   * Throws `UserCancelledError` if the user dismisses any prompt so the caller
+   * (SettingsService) rolls back the optimistic toggle silently.
+   */
+  private async enableBiometricLogin(): Promise<void> {
+    // 1. Ensure biometric hardware is available
+    const availability = await this.biometricService.initialize();
+    if (!availability.available) {
+      throw new Error(`${this.biometricService.biometryName()} is not available on this device`);
+    }
+
+    // 2. Retrieve authenticated user's email
+    const email = this.authService.user()?.email;
+    if (!email) {
+      throw new Error('No authenticated user email found');
+    }
+
+    // 3. Ask user for their password (needed for secure credential storage)
+    const password = await this.promptForPassword();
+    if (!password) {
+      throw new UserCancelledError();
+    }
+
+    // 4. Run the native enrollment flow (triggers Face ID / Touch ID prompt)
+    const result = await this.biometricService.promptNativeEnrollment(email, password);
+    if (!result.enrolled) {
+      if (result.reason === 'cancelled') {
+        throw new UserCancelledError();
+      }
+      throw new Error(
+        `Could not enable ${this.biometricService.biometryName()}. Please try again.`
+      );
+    }
+
+    // 5. Persist to backend only after successful enrollment
+    await this.http.patch<ApiResponse<UserPreferences>>(
+      `${this.baseUrl}/settings/preferences/biometricLogin`,
+      { value: true }
+    );
+  }
+
+  /**
+   * Disable biometric login:
+   * 1. Delete stored credentials and enrollment flag from the device.
+   * 2. Persist `biometricLogin: false` to the backend.
+   */
+  private async disableBiometricLogin(): Promise<void> {
+    await this.biometricService.clearEnrollment();
+
+    await this.http.patch<ApiResponse<UserPreferences>>(
+      `${this.baseUrl}/settings/preferences/biometricLogin`,
+      { value: false }
+    );
+  }
+
+  /**
+   * Show an Ionic alert prompting the user for their current password.
+   * Returns the password string or `null` if cancelled.
+   */
+  private promptForPassword(): Promise<string | null> {
+    return new Promise((resolve) => {
+      this.alertController
+        .create({
+          header: `Enable ${this.biometricService.biometryName()}`,
+          message: `Enter your password to save it securely for ${this.biometricService.biometryName()} sign-in.`,
+          inputs: [
+            {
+              name: 'password',
+              type: 'password',
+              placeholder: 'Current password',
+              attributes: { autocomplete: 'current-password' },
+            },
+          ],
+          buttons: [
+            {
+              text: 'Cancel',
+              role: 'cancel',
+              handler: () => resolve(null),
+            },
+            {
+              text: 'Enable',
+              handler: (data: { password: string }) => {
+                resolve(data.password?.trim() || null);
+              },
+            },
+          ],
+        })
+        .then((alert) => alert.present());
+    });
+  }
+
+  // ============================================================
   // Private mapping helpers
   // ============================================================
 
@@ -99,8 +219,6 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
    * Map backend UserPreferences → frontend SettingsPreferences.
    */
   private mapToSettingsPreferences(prefs: UserPreferences): SettingsPreferences {
-    const theme = prefs.theme as 'light' | 'dark' | 'system' | undefined;
-
     return {
       ...DEFAULT_SETTINGS_PREFERENCES,
       pushNotifications:
@@ -112,8 +230,6 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
       activityTracking: prefs.activityTracking ?? DEFAULT_SETTINGS_PREFERENCES.activityTracking,
       analyticsTracking: prefs.analyticsTracking ?? DEFAULT_SETTINGS_PREFERENCES.analyticsTracking,
       biometricLogin: prefs.biometricLogin ?? DEFAULT_SETTINGS_PREFERENCES.biometricLogin,
-      theme: theme ?? DEFAULT_SETTINGS_PREFERENCES.theme,
-      language: prefs.language ?? DEFAULT_SETTINGS_PREFERENCES.language,
     };
   }
 
@@ -138,10 +254,6 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
         return { backendKey: 'analyticsTracking', backendValue: value };
       case 'biometricLogin':
         return { backendKey: 'biometricLogin', backendValue: value };
-      case 'theme':
-        return { backendKey: 'theme', backendValue: value };
-      case 'language':
-        return { backendKey: 'language', backendValue: value };
       default:
         return { backendKey: null, backendValue: null };
     }

@@ -543,6 +543,42 @@ export const APP_EVENTS = {
   AGENT_X_JOB_FAILED: 'agent_x_job_failed',
 
   // ============================================
+  // PUSH NOTIFICATION EVENTS
+  // ============================================
+  /** Push notification received while app is in foreground */
+  PUSH_FOREGROUND_RECEIVED: 'push_foreground_received',
+  /** Push notification tapped from OS tray (background/killed) */
+  PUSH_BACKGROUND_OPENED: 'push_background_opened',
+  /** In-app toast "View" action tapped after foreground push */
+  PUSH_FOREGROUND_ACTION: 'push_foreground_action',
+  /** Web push permission granted by user */
+  PUSH_PERMISSION_GRANTED: 'push_permission_granted',
+  /** Web push permission denied by user */
+  PUSH_PERMISSION_DENIED: 'push_permission_denied',
+  /** FCM token successfully registered on web */
+  PUSH_TOKEN_REGISTERED: 'push_token_registered',
+  /** FCM token registration failed on web */
+  PUSH_TOKEN_FAILED: 'push_token_failed',
+
+  // ============================================
+  // AGENT ACTIVITY EVENTS
+  // ============================================
+  /** Agent task activity item viewed in /activity feed */
+  AGENT_ACTIVITY_VIEWED: 'agent_activity_viewed',
+  /** Agent task activity deep-linked to Agent X chat */
+  AGENT_ACTIVITY_OPENED: 'agent_activity_opened',
+
+  // ============================================
+  // PROFILE GENERATION EVENTS
+  // ============================================
+  /** Profile generation overlay started (post-onboarding scrape) */
+  PROFILE_GENERATION_STARTED: 'profile_generation_started',
+  /** Profile generation overlay completed successfully */
+  PROFILE_GENERATION_COMPLETED: 'profile_generation_completed',
+  /** Profile generation overlay failed or timed out */
+  PROFILE_GENERATION_FAILED: 'profile_generation_failed',
+
+  // ============================================
   // NAVIGATION EVENTS
   // ============================================
   /** Screen viewed (for custom tracking) */

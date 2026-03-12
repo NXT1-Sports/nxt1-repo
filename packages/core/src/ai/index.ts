@@ -98,6 +98,19 @@ export {
   AGENT_ONBOARDING_ENDPOINTS,
 } from './agent-onboarding.constants';
 
+// ─── Chat Persistence (Threads & Messages) ─────────────────────────────────
+
+export type {
+  AgentThread,
+  AgentThreadCategory,
+  AgentMessageRole,
+  AgentMessage,
+  AgentMessageTokenUsage,
+  AgentThreadQuery,
+  AgentMessageQuery,
+  PaginatedResult,
+} from './chat.types';
+
 // ─── Agentic Engine (Orchestration, Tools, Memory, Guardrails) ──────────────
 
 // Agentic types

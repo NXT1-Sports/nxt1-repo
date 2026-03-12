@@ -58,6 +58,8 @@ import type { Auth as FirebaseAuthType, User as FirebaseUser } from '@angular/fi
 import { AuthApiService } from './auth-api.service';
 import { AuthErrorHandler } from '@nxt1/ui/services/auth-error';
 import { FileUploadService } from '../../../core/services';
+import { InviteApiService } from '@nxt1/ui/invite';
+import { PENDING_REFERRAL_KEY } from '../../join/join.component';
 import {
   type UserRole,
   type AuthState as CoreAuthState,
@@ -136,6 +138,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly injector = inject(Injector);
   private readonly authApi = inject(AuthApiService);
   private readonly authErrorHandler = inject(AuthErrorHandler);
+  private readonly inviteApi = inject(InviteApiService);
 
   /** Structured logger for auth operations */
   private readonly logger: ILogger = inject(NxtLoggingService).child('AuthFlowService');
@@ -706,7 +709,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       user: FirebaseUser;
       _tokenResponse?: { isNewUser?: boolean };
     },
-    teamCode?: string
+    teamCode?: string,
+    referralId?: string
   ): Promise<boolean> {
     // Check if this is a new user (Firebase detection can be unreliable)
     const isNewUser = result._tokenResponse?.isNewUser ?? false;
@@ -752,19 +756,23 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           uid: result.user.uid,
           email: result.user.email!,
           teamCode: teamCode || 'none',
+          referralId: referralId || 'none',
         });
 
         const createResult = await this.authApi.createUser({
           uid: result.user.uid,
           email: result.user.email!,
           teamCode: teamCode || undefined,
-          // Don't pass referralId for OAuth (same as email signup when no referral)
+          referralId: referralId || undefined,
         });
 
         this.logger.info('✅ New user created successfully (Microsoft)', { createResult });
 
         // Sync the newly created user to local state
         await this.syncUserProfile(result.user);
+
+        // Accept pending invite (non-blocking)
+        await this.acceptPendingInvite();
 
         // Navigate to onboarding for new users
         this.logger.info('🚀 Navigating to onboarding (new user) (Microsoft)');
@@ -806,6 +814,40 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
   }
 
+  /**
+   * Accept a pending invite after successful signup.
+   *
+   * Reads the referral code stored in sessionStorage by the /join/:code route,
+   * calls POST /invite/accept, and clears storage regardless of outcome.
+   * Failures are logged but do not block the signup flow.
+   */
+  private async acceptPendingInvite(): Promise<void> {
+    if (!this.platform.isBrowser) return;
+
+    try {
+      const raw = sessionStorage.getItem(PENDING_REFERRAL_KEY);
+      if (!raw) return;
+
+      const referral = JSON.parse(raw) as { code?: string };
+      if (!referral.code) return;
+
+      this.logger.info('Accepting pending invite', { code: referral.code });
+      await this.inviteApi.acceptInvite(referral.code);
+      this.logger.info('Invite accepted successfully', { code: referral.code });
+    } catch (err) {
+      // Non-blocking — invite acceptance failure should not break signup
+      this.logger.warn('Failed to accept pending invite', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      try {
+        sessionStorage.removeItem(PENDING_REFERRAL_KEY);
+      } catch {
+        // Ignore
+      }
+    }
+  }
+
   // ============================================
   // OAUTH AUTHENTICATION
   // ============================================
@@ -816,6 +858,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   async signInWithGoogle(options?: OAuthOptions): Promise<boolean> {
     const teamCode = options?.teamCode;
+    const referralId = options?.referralId;
     if (!this.firebaseAuth) {
       this.authManager.setError('Authentication not available');
       return false;
@@ -890,19 +933,23 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             uid: result.user.uid,
             email: result.user.email!,
             teamCode: teamCode || 'none',
+            referralId: referralId || 'none',
           });
 
           const createResult = await this.authApi.createUser({
             uid: result.user.uid,
             email: result.user.email!,
             teamCode: teamCode || undefined,
-            // Don't pass referralId for OAuth (same as email signup when no referral)
+            referralId: referralId || undefined,
           });
 
           this.logger.info('✅ New user created successfully (OAuth)', { createResult });
 
           // Sync the newly created user to local state
           await this.syncUserProfile(result.user);
+
+          // Accept pending invite (non-blocking)
+          await this.acceptPendingInvite();
 
           // Navigate to onboarding for new users
           this.logger.info('🚀 Navigating to onboarding (new user)');
@@ -966,6 +1013,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   async signInWithMicrosoft(options?: OAuthOptions): Promise<boolean> {
     const teamCode = options?.teamCode;
+    const referralId = options?.referralId;
     if (!this.firebaseAuth) {
       this.authManager.setError('Authentication not available');
       return false;
@@ -1001,7 +1049,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       });
 
       // Process result using helper method
-      return await this.processMicrosoftAuthResult(result, teamCode);
+      return await this.processMicrosoftAuthResult(result, teamCode, referralId);
     } catch (err: unknown) {
       const authErr = err as { code?: string; message?: string; customData?: unknown };
       this.logger.error('Microsoft sign in failed', err, {
@@ -1031,6 +1079,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   async signInWithApple(options?: OAuthOptions): Promise<boolean> {
     const teamCode = options?.teamCode;
+    const referralId = options?.referralId;
     if (!this.firebaseAuth) {
       this.authManager.setError('Authentication not available');
       return false;
@@ -1098,19 +1147,23 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             uid: result.user.uid,
             email: result.user.email!,
             teamCode: teamCode || 'none',
+            referralId: referralId || 'none',
           });
 
           const createResult = await this.authApi.createUser({
             uid: result.user.uid,
             email: result.user.email!,
             teamCode: teamCode || undefined,
-            // Don't pass referralId for OAuth (same as email signup when no referral)
+            referralId: referralId || undefined,
           });
 
           this.logger.info('✅ New user created successfully (Apple)', { createResult });
 
           // Sync the newly created user to local state
           await this.syncUserProfile(result.user);
+
+          // Accept pending invite (non-blocking)
+          await this.acceptPendingInvite();
 
           // Navigate to onboarding for new users
           this.logger.info('🚀 Navigating to onboarding (new user) (Apple)');
@@ -1212,6 +1265,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
         // Sync user state BEFORE navigating (required for onboarding page)
         await this.syncUserProfile(result.user);
+
+        // Accept pending invite (non-blocking)
+        await this.acceptPendingInvite();
 
         // Send verification email for email/password signups
         // OAuth users (Google/Apple/Microsoft) are pre-verified

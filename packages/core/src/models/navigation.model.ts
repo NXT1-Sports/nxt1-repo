@@ -366,14 +366,6 @@ export const AGENT_X_LEFT_FOOTER_TABS: FooterTabItem[] = [
     ariaLabel: 'Explore athletes and teams',
   },
   {
-    id: 'brand',
-    label: 'Brand',
-    icon: 'plusCircle',
-    iconActive: 'plusCircleFilled',
-    route: '/brand',
-    ariaLabel: 'Open Brand vault',
-  },
-  {
     id: 'activity',
     label: 'Activity',
     icon: 'bell',

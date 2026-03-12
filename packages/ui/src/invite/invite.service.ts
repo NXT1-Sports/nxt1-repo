@@ -8,9 +8,7 @@
  *
  * Features:
  * - Reactive state with Angular signals
- * - XP tracking and gamification
  * - Multi-channel invite support
- * - Achievement tracking
  * - Native share integration ready
  *
  * @example
@@ -20,8 +18,6 @@
  *   private readonly invite = inject(InviteService);
  *
  *   readonly stats = this.invite.stats;
- *   readonly achievements = this.invite.achievements;
- *
  *   async shareVia(channel: InviteChannel): Promise<void> {
  *     await this.invite.shareViaChannel(channel);
  *   }
@@ -32,7 +28,6 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import {
   type InviteStats,
-  type InviteAchievement,
   type InviteItem,
   type InviteLink,
   type InviteTeam,
@@ -47,15 +42,7 @@ import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtPlatformService } from '../services/platform';
-
-// ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
-import {
-  getMockInviteStats,
-  getMockAchievements,
-  getMockInviteHistory,
-  getMockInviteLink,
-  getMockTeams,
-} from './invite.mock-data';
+import { InviteApiService } from './invite-api.service';
 
 /**
  * Invite state management service.
@@ -63,6 +50,7 @@ import {
  */
 @Injectable({ providedIn: 'root' })
 export class InviteService {
+  private readonly api = inject(InviteApiService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('InviteService');
@@ -73,7 +61,6 @@ export class InviteService {
   // ============================================
 
   private readonly _stats = signal<InviteStats | null>(null);
-  private readonly _achievements = signal<InviteAchievement[]>([]);
   private readonly _history = signal<InviteItem[]>([]);
   private readonly _inviteLink = signal<InviteLink | null>(null);
   private readonly _teams = signal<InviteTeam[]>([]);
@@ -91,10 +78,8 @@ export class InviteService {
   // Error state
   private readonly _error = signal<string | null>(null);
 
-  // Celebration state (for XP/achievement animations)
+  // Celebration state
   private readonly _showCelebration = signal(false);
-  private readonly _celebrationXp = signal(0);
-  private readonly _newAchievement = signal<InviteAchievement | null>(null);
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -102,17 +87,6 @@ export class InviteService {
 
   /** User's invite statistics */
   readonly stats = computed(() => this._stats());
-
-  /** User's achievements */
-  readonly achievements = computed(() => this._achievements());
-
-  /** Earned achievements only */
-  readonly earnedAchievements = computed(() => this._achievements().filter((a) => a.isEarned));
-
-  /** In-progress achievements */
-  readonly inProgressAchievements = computed(() =>
-    this._achievements().filter((a) => !a.isEarned && (a.progress ?? 0) > 0)
-  );
 
   /** Invite history */
   readonly history = computed(() => this._history());
@@ -143,10 +117,8 @@ export class InviteService {
   /** Error message */
   readonly error = computed(() => this._error());
 
-  /** Celebration state for XP animations */
+  /** Celebration state */
   readonly showCelebration = computed(() => this._showCelebration());
-  readonly celebrationXp = computed(() => this._celebrationXp());
-  readonly newAchievement = computed(() => this._newAchievement());
 
   /** Available channels for current platform */
   readonly availableChannels = computed(() => {
@@ -186,12 +158,6 @@ export class InviteService {
     );
   });
 
-  /** Current tier info from stats */
-  readonly currentTier = computed(() => this._stats()?.tier ?? null);
-
-  /** Tier progress percentage */
-  readonly tierProgress = computed(() => this._stats()?.tierProgress ?? 0);
-
   /** Streak days */
   readonly streakDays = computed(() => this._stats()?.streakDays ?? 0);
 
@@ -216,12 +182,7 @@ export class InviteService {
 
     try {
       // Load all data in parallel
-      await Promise.all([
-        this.loadStats(),
-        this.loadAchievements(),
-        this.loadInviteLink(),
-        this.loadTeams(),
-      ]);
+      await Promise.all([this.loadStats(), this.loadInviteLink(), this.loadTeams()]);
 
       await this.haptics.impact('light');
     } catch (err) {
@@ -240,28 +201,12 @@ export class InviteService {
     this._isLoadingStats.set(true);
 
     try {
-      // ⚠️ TEMPORARY: Using mock data
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      const stats = getMockInviteStats();
+      const stats = await this.api.getStats();
       this._stats.set(stats);
     } catch (err) {
       this.logger.error('Failed to load invite stats', err);
     } finally {
       this._isLoadingStats.set(false);
-    }
-  }
-
-  /**
-   * Load user's achievements.
-   */
-  async loadAchievements(): Promise<void> {
-    try {
-      // ⚠️ TEMPORARY: Using mock data
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      const achievements = getMockAchievements();
-      this._achievements.set(achievements);
-    } catch (err) {
-      this.logger.error('Failed to load achievements', err);
     }
   }
 
@@ -272,10 +217,8 @@ export class InviteService {
     this._isLoadingHistory.set(true);
 
     try {
-      // ⚠️ TEMPORARY: Using mock data
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      const { items } = getMockInviteHistory();
-      this._history.set(items);
+      const response = await this.api.getHistory();
+      this._history.set(response.items as InviteItem[]);
     } catch (err) {
       this.logger.error('Failed to load invite history', err);
     } finally {
@@ -288,9 +231,9 @@ export class InviteService {
    */
   async loadInviteLink(): Promise<void> {
     try {
-      // ⚠️ TEMPORARY: Using mock data
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const link = getMockInviteLink();
+      const type = this._inviteType();
+      const teamId = this._selectedTeam()?.id;
+      const link = await this.api.generateLink(type, teamId);
       this._inviteLink.set(link);
     } catch (err) {
       this.logger.error('Failed to load invite link', err);
@@ -299,16 +242,12 @@ export class InviteService {
 
   /**
    * Load available teams for team invite.
+   * Teams are loaded from the profile/team context — no dedicated endpoint needed here.
    */
   async loadTeams(): Promise<void> {
-    try {
-      // ⚠️ TEMPORARY: Using mock data
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      const teams = getMockTeams();
-      this._teams.set(teams);
-    } catch (err) {
-      this.logger.error('Failed to load teams', err);
-    }
+    // Teams are provided externally (via user's team data)
+    // This method is kept for interface compatibility
+    this.logger.debug('Teams loaded from external source');
   }
 
   /**
@@ -369,7 +308,7 @@ export class InviteService {
 
   /**
    * Share via a specific channel.
-   * This is the main action - will trigger native share on mobile.
+   * Records the invite on the backend and triggers native share on mobile.
    */
   async shareViaChannel(channel: InviteChannel): Promise<void> {
     const link = this._inviteLink();
@@ -384,24 +323,29 @@ export class InviteService {
     this.logger.debug('Sharing via channel', { channel });
 
     try {
-      // ⚠️ TEMPORARY: Simulate send
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      const recipients = this._selectedRecipients();
+      const type = this._inviteType();
+      const teamId = this._selectedTeam()?.id;
+      const message = this._customMessage() || undefined;
 
-      // Calculate XP reward
-      const channelConfig = INVITE_CHANNELS.find((c: InviteChannelConfig) => c.id === channel);
-      const xpEarned = channelConfig?.xpReward ?? 10;
+      // Record the invite on the backend
+      const response = await this.api.sendInvite({
+        type,
+        channel,
+        recipients: recipients.length > 0 ? recipients : [{ id: `share_${Date.now()}` }],
+        teamId,
+        message,
+      });
 
       // Show celebration
-      this._celebrationXp.set(xpEarned);
       this._showCelebration.set(true);
 
       await this.haptics.notification('success');
-      this.toast.success(`Invite shared! +${xpEarned} XP`);
+      this.toast.success('Invite shared!');
 
       // Hide celebration after animation
       setTimeout(() => {
         this._showCelebration.set(false);
-        this._celebrationXp.set(0);
       }, 2500);
 
       // Refresh stats
@@ -443,8 +387,6 @@ export class InviteService {
    */
   dismissCelebration(): void {
     this._showCelebration.set(false);
-    this._celebrationXp.set(0);
-    this._newAchievement.set(null);
   }
 
   /**

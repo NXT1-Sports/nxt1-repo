@@ -9,8 +9,7 @@
  * - FetchPlayerProfileTool   — Get full athlete profile
  * - SearchRosterTool         — Search team rosters
  * - QueryCollegeProgramsTool — Find colleges by division, conference, state
- * - UpdateProfileFieldTool   — Update a specific profile field
  * - GetRecruitingActivityTool — Get recent recruiting pings/activity
  */
 
-// Tools will be implemented and exported here
+export { UpdateAthleteProfileTool } from './update-athlete-profile.tool.js';

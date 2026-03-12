@@ -56,7 +56,12 @@ import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonInput, IonSpinner } from '@ionic/angular/standalone';
 import { isValidName } from '@nxt1/core/helpers';
-import type { ProfileFormData, GenderOption, ProfileLocationData } from '@nxt1/core/api';
+import type {
+  ProfileFormData,
+  GenderOption,
+  ProfileLocationData,
+  OnboardingUserType,
+} from '@nxt1/core/api';
 import { GENDER_OPTIONS } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
 import { HapticButtonDirective } from '../../services/haptics';
@@ -77,6 +82,14 @@ const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gi
 
 /** Maximum file size in bytes (5MB) */
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+/** Coach title selection options */
+const COACH_TITLE_OPTIONS = [
+  { value: 'head-coach' as const, label: 'Head Coach' },
+  { value: 'assistant-coach' as const, label: 'Assistant Coach' },
+] as const;
+
+export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
 
 // ============================================
 // COMPONENT
@@ -110,6 +123,13 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
               {{ lastName() || 'Enter last name' }}
             </span>
           </nxt1-list-row>
+          @if (showCoachTitle()) {
+            <nxt1-list-row label="Title" (tap)="openCoachTitlePicker()">
+              <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!coachTitle()">
+                {{ coachTitleDisplayLabel() || 'Select title' }}
+              </span>
+            </nxt1-list-row>
+          }
           @if (showGender()) {
             <nxt1-list-row label="Gender" (tap)="openGenderPicker()">
               <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!gender()">
@@ -186,6 +206,25 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
             />
           </nxt1-form-field>
         </div>
+
+        <!-- Coach Title Selection (only shown for coach role) -->
+        @if (showCoachTitle()) {
+          <nxt1-form-field label="Title" testId="onboarding-coach-title-field">
+            <div class="nxt1-gender-chips" role="radiogroup" aria-label="Select your title">
+              @for (option of coachTitleOptions; track option.value) {
+                <nxt1-chip
+                  [selected]="coachTitle() === option.value"
+                  [disabled]="disabled()"
+                  [testId]="'onboarding-coach-title-' + option.value"
+                  ariaRole="radio"
+                  (chipClick)="onCoachTitleSelect(option.value)"
+                >
+                  {{ option.label }}
+                </nxt1-chip>
+              }
+            </div>
+          </nxt1-form-field>
+        }
 
         <!-- Gender Selection (Progressive disclosure - optional) -->
         @if (showGender()) {
@@ -596,6 +635,9 @@ export class OnboardingProfileStepComponent {
    */
   readonly showClassYear = input<boolean>(false);
 
+  /** User role — shows role-specific fields (e.g. coach title for 'coach') */
+  readonly userType = input<OnboardingUserType | null>(null);
+
   // ============================================
   // SIGNAL OUTPUTS (Angular 19+ pattern)
   // ============================================
@@ -622,6 +664,9 @@ export class OnboardingProfileStepComponent {
   /** Gender options from core */
   readonly genderOptions = GENDER_OPTIONS;
 
+  /** Coach title options */
+  readonly coachTitleOptions = COACH_TITLE_OPTIONS;
+
   // ============================================
   // INTERNAL STATE (signals for reactivity)
   // ============================================
@@ -637,6 +682,9 @@ export class OnboardingProfileStepComponent {
 
   /** Selected gender */
   readonly gender = signal<GenderOption | null>(null);
+
+  /** Selected coach title */
+  readonly coachTitle = signal<CoachTitleOption | null>(null);
 
   /** Location data */
   readonly location = signal<ProfileLocationData | null>(null);
@@ -692,6 +740,16 @@ export class OnboardingProfileStepComponent {
   /** Check if last name is valid using shared helper */
   readonly isLastNameValid = computed(() => isValidName(this.lastName()));
 
+  /** Whether to show coach title selection */
+  readonly showCoachTitle = computed(() => this.userType() === 'coach');
+
+  /** Display label for coach title in list-row variant */
+  readonly coachTitleDisplayLabel = computed(() => {
+    const t = this.coachTitle();
+    if (!t) return '';
+    return COACH_TITLE_OPTIONS.find((o) => o.value === t)?.label ?? '';
+  });
+
   /** Whether running in browser (SSR safety) */
   private get isBrowser(): boolean {
     return isPlatformBrowser(this.platformId);
@@ -711,6 +769,7 @@ export class OnboardingProfileStepComponent {
         this.profileImg.set(data.profileImgs?.[0] || null);
         this.gender.set(data.gender ?? null);
         this.location.set(data.location ?? null);
+        this.coachTitle.set((data.coachTitle as CoachTitleOption) ?? null);
       }
     });
   }
@@ -743,6 +802,15 @@ export class OnboardingProfileStepComponent {
   onGenderSelect(value: GenderOption): void {
     this.gender.set(value);
     this.logger.debug('Gender selected', { gender: value });
+    this.emitProfileChange();
+  }
+
+  /**
+   * Handle coach title selection
+   */
+  onCoachTitleSelect(value: CoachTitleOption): void {
+    this.coachTitle.set(value);
+    this.logger.debug('Coach title selected', { coachTitle: value });
     this.emitProfileChange();
   }
 
@@ -876,6 +944,7 @@ export class OnboardingProfileStepComponent {
       profileImgs: this.profileImg() ? [this.profileImg()!] : null,
       gender: this.gender(),
       location: this.location(),
+      coachTitle: this.showCoachTitle() ? this.coachTitle() : null,
       // classYear intentionally omitted - collected in sport step for athletes
     });
   }
@@ -944,6 +1013,26 @@ export class OnboardingProfileStepComponent {
     if (result?.selected && result.data) {
       this.gender.set(result.data as GenderOption);
       this.logger.debug('Gender selected via picker', { gender: result.data });
+      this.emitProfileChange();
+    }
+  }
+
+  /**
+   * Open action sheet for coach title selection (list-row variant)
+   */
+  async openCoachTitlePicker(): Promise<void> {
+    const result = await this.modal.actionSheet({
+      title: 'Select Title',
+      actions: COACH_TITLE_OPTIONS.map((option) => ({
+        text: option.label,
+        data: option.value,
+      })),
+      preferNative: 'native',
+    });
+
+    if (result?.selected && result.data) {
+      this.coachTitle.set(result.data as CoachTitleOption);
+      this.logger.debug('Coach title selected via picker', { coachTitle: result.data });
       this.emitProfileChange();
     }
   }

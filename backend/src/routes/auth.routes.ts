@@ -80,6 +80,9 @@ interface UserV2Document {
   contact?: ContactInfo;
   social?: UserSocialLink[];
 
+  // Connected sources (film, stats, recruiting platforms synced by Agent X)
+  connectedSources?: ConnectedSourceRecord[];
+
   // Athlete-specific
   athlete?: {
     classOf?: number;
@@ -134,6 +137,42 @@ interface UserV2Document {
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
+
+/**
+ * Platforms that belong in the `social[]` array (true social media).
+ * Everything else (film, stats, recruiting) goes to `connectedSources[]`.
+ * Must stay in sync with PLATFORM_REGISTRY categories in @nxt1/core/onboarding.
+ */
+const SOCIAL_PLATFORMS = new Set([
+  'instagram',
+  'twitter',
+  'tiktok',
+  'youtube',
+  'snapchat',
+  'facebook',
+  'linkedin',
+  'threads',
+  // OAuth sign-in providers are also "social" scope
+  'google',
+  'microsoft',
+  'yahoo',
+  'apple',
+]);
+
+/**
+ * Determine whether a platform slug belongs in `social[]` or `connectedSources[]`.
+ */
+function isSocialPlatform(platform: string): boolean {
+  return SOCIAL_PLATFORMS.has(platform.toLowerCase());
+}
+
+interface ConnectedSourceRecord {
+  platform: string;
+  profileUrl: string;
+  syncStatus: 'idle';
+  scopeType?: string;
+  scopeId?: string;
+}
 
 /**
  * Map frontend userType to V2 role (5 core roles).
@@ -207,8 +246,8 @@ function createSportProfile(
     profile.team = {
       type: teamType,
       name: options?.teamName || '',
-      logo: options?.teamLogo,
-      colors: options?.teamColors,
+      ...(options?.teamLogo != null && { logo: options.teamLogo }),
+      ...(options?.teamColors != null && { colors: options.teamColors }),
     };
   }
   return profile;
@@ -785,8 +824,10 @@ router.post(
     if (isCoachRole && (profileData['coachTitle'] || profileData['organization'])) {
       updateData.coach = {
         ...currentUser?.coach,
-        title: profileData['coachTitle'] as string | undefined,
-        organization: profileData['organization'] as string | undefined,
+        ...(profileData['coachTitle'] != null && { title: profileData['coachTitle'] as string }),
+        ...(profileData['organization'] != null && {
+          organization: profileData['organization'] as string,
+        }),
       };
     }
 
@@ -800,8 +841,9 @@ router.post(
     if (profileData['organization'])
       updateData.organization = profileData['organization'] as string;
 
-    // V2: Build social array from link sources (connected accounts)
-    // Supports scoped links: scopeType = 'global' | 'sport' | 'team', scopeId = sport key or team ID
+    // V2: Build social[] and connectedSources[] from link sources
+    // Social platforms (instagram, twitter, etc.) → social[]
+    // Data platforms (hudl, maxpreps, 247sports, etc.) → connectedSources[]
     const linkSources = profileData['linkSources'] as
       | {
           links?: Array<{
@@ -816,17 +858,30 @@ router.post(
         }
       | undefined;
     if (linkSources?.links && Array.isArray(linkSources.links)) {
+      // --- Social links ---
       const existingSocial: UserSocialLink[] = Array.isArray(currentUser?.social)
         ? (currentUser.social as UserSocialLink[])
         : [];
-      // Key social links by "platform" or "platform::scopeId" to support scoped entries
       const socialMap = new Map<string, UserSocialLink>();
       for (const link of existingSocial) {
-        const key = (link as UserSocialLink & { scopeType?: string; scopeId?: string }).scopeId
+        const key = (link as UserSocialLink & { scopeId?: string }).scopeId
           ? `${link.platform.toLowerCase()}::${(link as UserSocialLink & { scopeId?: string }).scopeId}`
           : link.platform.toLowerCase();
         socialMap.set(key, link);
       }
+
+      // --- Connected sources (film, stats, recruiting) ---
+      const existingConnected: ConnectedSourceRecord[] = Array.isArray(
+        currentUser?.connectedSources
+      )
+        ? currentUser.connectedSources
+        : [];
+      const connectedMap = new Map<string, ConnectedSourceRecord>();
+      for (const cs of existingConnected) {
+        const key = cs.scopeId ? `${cs.platform}::${cs.scopeId}` : cs.platform;
+        connectedMap.set(key, cs);
+      }
+
       let socialOrder = socialMap.size;
       for (const link of linkSources.links) {
         if (link.connected && link.platform) {
@@ -835,20 +890,43 @@ router.post(
           const scopeId = link.scopeId;
           const key = scopeId ? `${platform}::${scopeId}` : platform;
           const value = link.url ?? link.username ?? '';
-          const existing = socialMap.get(key);
-          socialMap.set(key, {
-            platform,
-            url: value.startsWith('http') ? value : `https://${platform}.com/${value}`,
-            username: link.username,
-            displayOrder: existing?.displayOrder ?? socialOrder++,
-            verified: false,
-            ...(scope !== 'global' && { scopeType: scope }),
-            ...(scopeId && { scopeId }),
-          } as UserSocialLink);
+          const url = value.startsWith('http')
+            ? value
+            : value
+              ? `https://${platform}.com/${value}`
+              : '';
+
+          if (isSocialPlatform(platform)) {
+            // Social platform → social[]
+            const existing = socialMap.get(key);
+            socialMap.set(key, {
+              platform,
+              url,
+              username: link.username,
+              displayOrder: existing?.displayOrder ?? socialOrder++,
+              verified: false,
+              ...(scope !== 'global' && { scopeType: scope }),
+              ...(scopeId && { scopeId }),
+            } as UserSocialLink);
+          } else {
+            // Data platform (film/stats/recruiting) → connectedSources[]
+            connectedMap.set(key, {
+              platform,
+              profileUrl: url,
+              syncStatus: 'idle',
+              ...(scope !== 'global' && { scopeType: scope }),
+              ...(scopeId && { scopeId }),
+            });
+          }
         }
       }
       if (socialMap.size > 0) {
         updateData.social = Array.from(socialMap.values());
+      }
+      if (connectedMap.size > 0) {
+        (updateData as Record<string, unknown>)['connectedSources'] = Array.from(
+          connectedMap.values()
+        );
       }
     }
 
@@ -1105,9 +1183,14 @@ router.post(
         };
         updateData.contact = contact;
 
-        // V2: Build social array (agnostic — supports any platform)
+        // V2: Build social[] and connectedSources[] from contact step platforms
         const existingSocial: UserSocialLink[] = Array.isArray(currentUser?.social)
           ? (currentUser.social as UserSocialLink[])
+          : [];
+        const existingConnected: ConnectedSourceRecord[] = Array.isArray(
+          currentUser?.connectedSources
+        )
+          ? currentUser.connectedSources
           : [];
 
         // Map onboarding step fields → platform entries
@@ -1119,26 +1202,44 @@ router.post(
           { platform: 'youtube', value: (stepData['youtubeAccountLink'] as string)?.trim() },
         ];
 
-        // Merge: new values override existing entries for the same platform
+        // Merge social links: only social-category platforms
         const socialMap = new Map<string, UserSocialLink>();
         for (const link of existingSocial) {
           socialMap.set(link.platform.toLowerCase(), link);
         }
+        const connectedMap = new Map<string, ConnectedSourceRecord>();
+        for (const cs of existingConnected) {
+          connectedMap.set(cs.platform, cs);
+        }
+
         let order = socialMap.size;
         for (const { platform, value } of onboardingLinks) {
           if (value) {
-            const existing = socialMap.get(platform);
-            socialMap.set(platform, {
-              platform,
-              url: value.startsWith('http') ? value : `https://${platform}.com/${value}`,
-              username: value.startsWith('http') ? undefined : value,
-              displayOrder: existing?.displayOrder ?? order++,
-              verified: false,
-            });
+            const url = value.startsWith('http') ? value : `https://${platform}.com/${value}`;
+            if (isSocialPlatform(platform)) {
+              const existing = socialMap.get(platform);
+              socialMap.set(platform, {
+                platform,
+                url,
+                username: value.startsWith('http') ? undefined : value,
+                displayOrder: existing?.displayOrder ?? order++,
+                verified: false,
+              });
+            } else {
+              connectedMap.set(platform, {
+                platform,
+                profileUrl: url,
+                syncStatus: 'idle',
+              });
+            }
           }
         }
-        const social: UserSocialLink[] = Array.from(socialMap.values());
-        updateData.social = social;
+        updateData.social = Array.from(socialMap.values());
+        if (connectedMap.size > 0) {
+          (updateData as Record<string, unknown>)['connectedSources'] = Array.from(
+            connectedMap.values()
+          );
+        }
         // Note: No legacy flat fields - use contact{} and social{} objects
         break;
       }
@@ -1149,9 +1250,14 @@ router.post(
       }
 
       case 'link-sources': {
-        // V2: Build social array from connected link sources
+        // V2: Build social[] and connectedSources[] from link-sources step
         const existingSocial: UserSocialLink[] = Array.isArray(currentUser?.social)
           ? (currentUser.social as UserSocialLink[])
+          : [];
+        const existingConnected: ConnectedSourceRecord[] = Array.isArray(
+          currentUser?.connectedSources
+        )
+          ? currentUser.connectedSources
           : [];
 
         const links = Array.isArray(stepData['links'])
@@ -1166,7 +1272,7 @@ router.post(
             }>)
           : [];
 
-        // Key by "platform" or "platform::scopeId" to support scoped entries
+        // Social links keyed by "platform" or "platform::scopeId"
         const socialMap = new Map<string, UserSocialLink>();
         for (const link of existingSocial) {
           const k = (link as UserSocialLink & { scopeId?: string }).scopeId
@@ -1174,27 +1280,56 @@ router.post(
             : link.platform.toLowerCase();
           socialMap.set(k, link);
         }
+        // Connected sources keyed by "platform" or "platform::scopeId"
+        const connectedMap = new Map<string, ConnectedSourceRecord>();
+        for (const cs of existingConnected) {
+          const k = cs.scopeId ? `${cs.platform}::${cs.scopeId}` : cs.platform;
+          connectedMap.set(k, cs);
+        }
+
         let linkOrder = socialMap.size;
         for (const link of links) {
           if (link.connected && link.platform) {
             const platform = link.platform.toLowerCase();
             const key = link.scopeId ? `${platform}::${link.scopeId}` : platform;
             const value = link.url ?? link.username ?? '';
-            const existing = socialMap.get(key);
-            socialMap.set(key, {
-              platform,
-              url: value.startsWith('http') ? value : `https://${platform}.com/${value}`,
-              username: link.username,
-              displayOrder: existing?.displayOrder ?? linkOrder++,
-              verified: false,
-              ...(link.scopeType && link.scopeType !== 'global'
-                ? { scopeType: link.scopeType, scopeId: link.scopeId }
-                : {}),
-            } as UserSocialLink);
+            const url = value.startsWith('http')
+              ? value
+              : value
+                ? `https://${platform}.com/${value}`
+                : '';
+
+            if (isSocialPlatform(platform)) {
+              const existing = socialMap.get(key);
+              socialMap.set(key, {
+                platform,
+                url,
+                username: link.username,
+                displayOrder: existing?.displayOrder ?? linkOrder++,
+                verified: false,
+                ...(link.scopeType && link.scopeType !== 'global'
+                  ? { scopeType: link.scopeType, scopeId: link.scopeId }
+                  : {}),
+              } as UserSocialLink);
+            } else {
+              connectedMap.set(key, {
+                platform,
+                profileUrl: url,
+                syncStatus: 'idle',
+                ...(link.scopeType && link.scopeType !== 'global'
+                  ? { scopeType: link.scopeType, scopeId: link.scopeId }
+                  : {}),
+              });
+            }
           }
         }
         if (socialMap.size > 0) {
           updateData.social = Array.from(socialMap.values());
+        }
+        if (connectedMap.size > 0) {
+          (updateData as Record<string, unknown>)['connectedSources'] = Array.from(
+            connectedMap.values()
+          );
         }
         break;
       }

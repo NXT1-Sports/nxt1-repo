@@ -49,6 +49,7 @@ export type OnboardingStepId =
   | 'school'
   | 'organization'
   | 'sport'
+  | 'select-teams'
   | 'positions'
   | 'contact'
   | 'social'
@@ -162,6 +163,11 @@ export interface ProfileFormData {
   location?: ProfileLocationData | null;
   /** Graduation year (Class of) - collected later for athletes, not in initial profile step */
   classYear?: number | null;
+  /**
+   * Coach title - only set when userType is 'coach'.
+   * Stored as CoachData.title on the user profile.
+   */
+  coachTitle?: 'head-coach' | 'assistant-coach' | null;
 }
 
 /**
@@ -256,6 +262,50 @@ export function createEmptySportEntry(sport: string, isPrimary = false): SportEn
 export interface SportFormData {
   /** Array of sport entries (1-3 sports supported) */
   sports: SportEntry[];
+}
+
+// ============================================
+// TEAM SELECTION DATA MODEL (v4.1)
+// After sport selection, user searches/selects up to 2 teams
+// ============================================
+
+/**
+ * A team selected during onboarding team selection step.
+ * Contains the display-friendly fields needed for the onboarding UI.
+ */
+export interface TeamSelectionEntry {
+  /** Firestore document ID of the team */
+  readonly id: string;
+  /** Team display name */
+  readonly name: string;
+  /** Sport this team plays */
+  readonly sport: string;
+  /** Team type: school, club, travel, etc. */
+  readonly teamType?: string;
+  /** Location string (e.g. "Austin, TX") */
+  readonly location?: string;
+  /** Team logo URL */
+  readonly logoUrl?: string;
+  /** Team colors (hex values) */
+  readonly colors?: readonly string[];
+  /** Member count */
+  readonly memberCount?: number;
+  /** Whether this team is tagged as a school (High School / Middle School) */
+  readonly isSchool: boolean;
+}
+
+/**
+ * Team selection form data — collected in the 'select-teams' onboarding step.
+ * Users can select up to 2 teams across all their sports, or create/join a program.
+ *
+ * Auto-population logic:
+ * - If user has multiple sports and a team is tagged as a school,
+ *   that school is auto-applied to all school-eligible sports.
+ * - Club teams are NOT auto-populated across sports.
+ */
+export interface TeamSelectionFormData {
+  /** Selected teams (max 2) */
+  readonly teams: readonly TeamSelectionEntry[];
 }
 
 // ============================================
@@ -991,6 +1041,11 @@ export interface OnboardingFormData {
    */
   sport?: SportFormData;
   /**
+   * Team selection data (v4.1)
+   * Users search and select up to 2 teams after choosing sports
+   */
+  teamSelection?: TeamSelectionFormData;
+  /**
    * @deprecated Use sport.sports[].team instead (v3.0)
    */
   team?: TeamFormData;
@@ -1062,7 +1117,7 @@ const LINK_SOURCES_STEP: OnboardingStep = {
   title: 'Link Data Sources',
   subtitle: 'Connect your accounts',
   required: false,
-  order: 4,
+  order: 5,
 };
 
 /** Shared referral step config (DRY) */
@@ -1071,7 +1126,16 @@ const REFERRAL_STEP: OnboardingStep = {
   title: 'Before We Begin',
   subtitle: 'How did you hear about us?',
   required: false,
-  order: 5,
+  order: 6,
+};
+
+/** Shared team selection step config (DRY) */
+const SELECT_TEAMS_STEP: OnboardingStep = {
+  id: 'select-teams',
+  title: 'Select Teams',
+  subtitle: 'Find your team or create a program',
+  required: false,
+  order: 4,
 };
 
 /** Step configuration per user type */
@@ -1092,6 +1156,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
+    SELECT_TEAMS_STEP,
     LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
@@ -1111,6 +1176,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
+    SELECT_TEAMS_STEP,
     LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
@@ -1130,6 +1196,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
+    SELECT_TEAMS_STEP,
     LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
@@ -1149,6 +1216,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
+    SELECT_TEAMS_STEP,
     LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
@@ -1168,6 +1236,7 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
+    SELECT_TEAMS_STEP,
     LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
@@ -1188,8 +1257,10 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
 export const AGENT_X_ONBOARDING_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   role: "Hey — I'm Agent X, your AI coordinator. I'm built to help you get things done. Let's start by picking your role.",
   profile: "Let's build your profile.",
-  'link-sources': 'Connect your profiles so I can pull in your highlights.',
+  'link-sources':
+    'These links are how I get work done for you — I use them to build your profile, sync your data, and execute tasks automatically on your behalf.',
   sport: 'Pick your sports.',
+  'select-teams': 'Find your team or create a new program.',
   'referral-source': 'Last one — how did you find us?',
   school: 'Tell me about your school.',
   organization: 'Tell me about your organization.',
@@ -1207,36 +1278,46 @@ const ROLE_MESSAGES: Readonly<
 > = Object.freeze({
   athlete: Object.freeze({
     profile: "Let's get to know you — just the basics.",
-    'link-sources': 'Link your socials so coaches can find your highlights.',
+    'link-sources':
+      'These links are how I get work done for you — building and updating your profile, pulling in your stats and film, and executing tasks across your connected accounts automatically.',
     sport: 'What do you play?',
+    'select-teams': 'Search for your team or create a new one.',
     'referral-source': 'Last one — how did you hear about NXT1?',
     complete: "You're set. Time to get recruited.",
   }),
   coach: Object.freeze({
     profile: "Let's get to know you — just the basics.",
-    'link-sources': 'Link your accounts — high school, club, JUCO, travel, whatever you coach.',
+    'link-sources':
+      'Connect your accounts so I can manage your profile, act on your behalf, and get real work done for you — across every program you coach.',
     sport: 'What sports do you coach?',
+    'select-teams': 'Find your program or create a new one.',
     'referral-source': 'Last one — how did you discover NXT1?',
     complete: "You're in. Let's find your next prospect.",
   }),
   director: Object.freeze({
     profile: "Let's get to know you — just the basics.",
-    'link-sources': 'Link your program accounts.',
+    'link-sources':
+      'Link your program accounts so I can keep everything current and take action on your behalf — your profile, your data, your tasks, all handled automatically.',
     sport: 'What sports does your program cover?',
+    'select-teams': 'Find your organization or create a new program.',
     'referral-source': 'Last one — how did you find NXT1?',
     complete: "All set. Let's manage your program.",
   }),
   recruiter: Object.freeze({
     profile: "Let's get to know you — just the basics.",
-    'link-sources': 'Link your accounts so you can start scouting.',
+    'link-sources':
+      'Connect your accounts so I can pull data, run tasks, and act on opportunities for you — no manual work required.',
     sport: 'What sports do you scout?',
+    'select-teams': "Find a program you're scouting for, or skip this step.",
     'referral-source': 'Last one — how did you hear about us?',
     complete: "You're ready. Let's scout some talent.",
   }),
   parent: Object.freeze({
     profile: "Let's get to know you — just the basics.",
-    'link-sources': 'Link your accounts to stay connected.',
+    'link-sources':
+      'These links let me get work done for your athlete automatically — keeping their profile current, tracking progress, and acting on what matters without you having to manage it.',
     sport: 'What sport does your athlete play?',
+    'select-teams': "Find your athlete's team.",
     'referral-source': 'Last one — how did you find NXT1?',
     complete: "You're all set. Let's support your athlete.",
   }),
@@ -1364,6 +1445,15 @@ export function validateContact(_data?: ContactFormData): boolean {
 }
 
 /**
+ * Validate team selection step data (always valid - optional step)
+ * Users can skip this step entirely — selecting teams is not required.
+ * ⭐ PURE FUNCTION - No dependencies
+ */
+export function validateTeamSelection(_data?: TeamSelectionFormData): boolean {
+  return true;
+}
+
+/**
  * Validate a specific step
  * ⭐ PURE FUNCTION - No dependencies
  */
@@ -1389,6 +1479,8 @@ export function validateStep(
       return validatePositions(formData.positions);
     case 'contact':
       return validateContact(formData.contact);
+    case 'select-teams':
+      return validateTeamSelection(formData.teamSelection);
     case 'link-sources':
     case 'referral-source':
     case 'social':

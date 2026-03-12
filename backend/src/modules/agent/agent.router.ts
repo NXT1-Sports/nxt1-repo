@@ -88,7 +88,8 @@ export class AgentRouter {
    */
   async run(
     payload: AgentJobPayload,
-    onUpdate?: (update: AgentJobUpdate) => void
+    onUpdate?: (update: AgentJobUpdate) => void,
+    firestore?: FirebaseFirestore.Firestore
   ): Promise<AgentOperationResult> {
     const { operationId, userId, intent } = payload;
 
@@ -97,7 +98,7 @@ export class AgentRouter {
 
     let userContext: AgentUserContext;
     try {
-      userContext = await this.contextBuilder.buildContext(userId);
+      userContext = await this.contextBuilder.buildContext(userId, firestore);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Context building failed';
       this.emitUpdate(onUpdate, operationId, 'failed', `Context error: ${message}`);
@@ -108,7 +109,7 @@ export class AgentRouter {
     }
 
     const context = this.buildSessionContext(userId, payload.sessionId);
-    const enrichedIntent = this.enrichIntentWithContext(intent, userContext);
+    const enrichedIntent = this.enrichIntentWithContext(intent, userContext, payload.context);
 
     // ── Step 2: Plan ──────────────────────────────────────────────────────
     this.emitUpdate(onUpdate, operationId, 'thinking', 'Decomposing your request into tasks...');
@@ -231,14 +232,26 @@ export class AgentRouter {
   // ─── Helpers ────────────────────────────────────────────────────────────
 
   /**
-   * Enrich the raw user intent with compressed profile context.
+   * Enrich the raw user intent with compressed profile context
+   * and any structured job context (e.g. linked account URLs from onboarding).
    * This ensures the planner and sub-agents know who the user is
-   * (sport, position, school, subscription tier, etc.) without
-   * the user having to re-state it every time.
+   * and have all the data needed to execute the request.
    */
-  private enrichIntentWithContext(intent: string, userContext: AgentUserContext): string {
+  private enrichIntentWithContext(
+    intent: string,
+    userContext: AgentUserContext,
+    jobContext?: Record<string, unknown>
+  ): string {
     const contextStr = this.contextBuilder.compressToPrompt(userContext);
-    return `[User Profile]\n${contextStr}\n\n[Request]\n${intent}`;
+    let enriched = `[User Profile]\n${contextStr}`;
+
+    // Inject structured job context so the LLM has URLs, platform names, etc.
+    if (jobContext && Object.keys(jobContext).length > 0) {
+      enriched += `\n\n[Job Context]\n${JSON.stringify(jobContext, null, 2)}`;
+    }
+
+    enriched += `\n\n[Request]\n${intent}`;
+    return enriched;
   }
 
   private hasPendingTasks(tasks: readonly (AgentTask & { status: AgentTaskStatus })[]): boolean {

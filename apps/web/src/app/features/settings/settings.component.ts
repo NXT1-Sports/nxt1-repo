@@ -33,6 +33,7 @@ import {
   SettingsService,
 } from '@nxt1/ui/settings';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { AUTH_SERVICE, type IAuthService } from '../auth/services/auth.interface';
 import { SeoService } from '../../core/services';
@@ -62,6 +63,7 @@ export class SettingsComponent implements OnInit {
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly settingsService = inject(SettingsService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly toast = inject(NxtToastService);
   private readonly router = inject(Router);
   private readonly logger = inject(NxtLoggingService).child('SettingsComponent');
   private readonly seo = inject(SeoService);
@@ -243,33 +245,7 @@ export class SettingsComponent implements OnInit {
 
     if (!confirm.confirmed) return;
 
-    // Step 2: If the user has an email/password account, ask for password re-auth
-    const firebaseUser = this.authService.firebaseUser();
-    const hasEmailProvider = firebaseUser?.email && !firebaseUser?.photoURL;
-    // Re-auth only needed for email/password users (Google users are already session-validated)
-    const currentUser = this.authService.user();
-
-    if (currentUser?.email) {
-      // Use window.prompt as a lightweight password input — replace with custom dialog if desired
-      const password = window.prompt(
-        `Enter your password for ${currentUser.email} to confirm account deletion:`
-      );
-
-      if (password === null) return; // user cancelled
-
-      if (!password.trim()) {
-        alert('Password is required to delete your account.');
-        return;
-      }
-
-      const reauthed = await this.authService.reauthenticateWithPassword(password.trim());
-      if (!reauthed) {
-        alert('Incorrect password. Please try again.');
-        return;
-      }
-    }
-
-    // Step 3: Delete the account
+    // Delete directly
     const result = await this.authService.deleteAccount();
 
     if (result.success) {
@@ -277,7 +253,7 @@ export class SettingsComponent implements OnInit {
       this.router.navigate(['/auth']);
     } else {
       this.logger.error('Account deletion failed', result.error);
-      alert(`Failed to delete account: ${result.error ?? 'Unknown error'}`);
+      this.toast.error(`Failed to delete account: ${result.error ?? 'Unknown error'}`);
     }
   }
 }

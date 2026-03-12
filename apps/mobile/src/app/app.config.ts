@@ -32,6 +32,9 @@ import {
   ANALYTICS_ADAPTER,
   httpErrorInterceptor,
   AGENT_X_API_BASE_URL,
+  ACTIVITY_API_BASE_URL,
+  INVITE_API_BASE_URL,
+  MESSAGES_API_BASE_URL,
 } from '@nxt1/ui';
 import { mobileAuthInterceptor } from './core/infrastructure/interceptors/auth.interceptor';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
@@ -137,6 +140,15 @@ export const appConfig: ApplicationConfig = {
 
     // Agent X API base URL
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiUrl },
+
+    // Activity API base URL
+    { provide: ACTIVITY_API_BASE_URL, useFactory: () => environment.apiUrl },
+
+    // Invite API base URL
+    { provide: INVITE_API_BASE_URL, useFactory: () => environment.apiUrl },
+
+    // Messages API base URL
+    { provide: MESSAGES_API_BASE_URL, useFactory: () => environment.apiUrl },
 
     // Settings persistence adapter (connects SettingsService → backend API)
     { provide: SETTINGS_PERSISTENCE_ADAPTER, useExisting: SettingsApiService },

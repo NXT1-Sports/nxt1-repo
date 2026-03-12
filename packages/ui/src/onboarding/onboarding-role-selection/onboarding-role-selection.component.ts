@@ -89,12 +89,6 @@ export const ONBOARDING_ROLE_OPTIONS: readonly RoleOption[] = [
     icon: 'athlete',
   },
   {
-    type: 'recruiter',
-    label: 'Recruiter',
-    description: 'College coach, scout, or recruiting service',
-    icon: 'college-coach',
-  },
-  {
     type: 'parent',
     label: 'Parent / Guardian',
     description: 'Supporting an athlete',

@@ -127,8 +127,8 @@ export interface InviteItem {
   readonly message?: string;
   /** Referral code */
   readonly referralCode: string;
-  /** XP earned for this invite */
-  readonly xpEarned: number;
+  /** XP earned for this invite (reserved for future use) */
+  readonly xpEarned?: number;
   /** Creation timestamp */
   readonly createdAt: string;
   /** Last update timestamp */
@@ -167,14 +167,6 @@ export interface InviteStats {
   readonly accepted: number;
   /** Invites pending */
   readonly pending: number;
-  /** Total XP earned from invites */
-  readonly totalXp: number;
-  /** Current tier */
-  readonly tier: InviteXpTier;
-  /** Progress to next tier (0-100) */
-  readonly tierProgress: number;
-  /** Invites needed for next tier */
-  readonly invitesToNextTier: number;
   /** Current streak days */
   readonly streakDays: number;
   /** Best streak ever */
@@ -277,8 +269,8 @@ export interface SendInviteResponse {
   readonly success: boolean;
   /** Created invites */
   readonly invites: readonly InviteItem[];
-  /** Total XP earned */
-  readonly xpEarned: number;
+  /** Total XP earned (reserved for future use) */
+  readonly xpEarned?: number;
   /** New achievements unlocked */
   readonly newAchievements?: readonly InviteAchievement[];
   /** Error message (if failed) */

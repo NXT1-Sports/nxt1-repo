@@ -228,6 +228,193 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: Record<
 };
 
 // ============================================
+// FIRESTORE COLLECTION NAMES
+// ============================================
+
+/**
+ * Centralized Firestore collection names for the notification subsystem.
+ * Every backend service and cloud function references these — never hardcode.
+ */
+export const NOTIFICATION_COLLECTIONS = {
+  /** Global push queue — triggers onNotificationCreated Cloud Function */
+  NOTIFICATIONS: 'notifications',
+  /** Per-user activity feed */
+  USER_ACTIVITY: 'activity',
+  /** Device FCM token registry */
+  FCM_TOKENS: 'fcm_tokens',
+  /** Per-user notification category preferences */
+  NOTIFICATION_PREFERENCES: 'notification_preferences',
+} as const;
+
+// ============================================
+// NOTIFICATION TYPE → ACTIVITY TAB MAPPING
+// ============================================
+
+import type { ActivityTabId } from '../activity/activity.types';
+
+/**
+ * Maps a notification type to the activity tab it should appear under.
+ * Used by the backend NotificationService when writing the activity doc.
+ */
+export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
+  // Social → alerts
+  new_follower: 'alerts',
+  post_like: 'alerts',
+  post_comment: 'alerts',
+  post_mention: 'alerts',
+  post_share: 'alerts',
+  profile_view: 'alerts',
+  video_view: 'alerts',
+
+  // Recruiting → inbox
+  college_view: 'inbox',
+  coach_view: 'inbox',
+  new_offer: 'inbox',
+  offer_update: 'inbox',
+  camp_reminder: 'inbox',
+  visit_reminder: 'inbox',
+  recruiting_update: 'inbox',
+  message_from_coach: 'inbox',
+
+  // Team → inbox
+  team_invite: 'inbox',
+  team_join_request: 'inbox',
+  team_member_joined: 'alerts',
+  team_member_left: 'alerts',
+  team_announcement: 'inbox',
+  team_event: 'inbox',
+
+  // Content → agent
+  video_processed: 'agent',
+  video_failed: 'agent',
+  card_ready: 'agent',
+  ai_task_complete: 'agent',
+
+  // System → inbox
+  account_created: 'inbox',
+  email_verified: 'inbox',
+  password_changed: 'inbox',
+  security_alert: 'inbox',
+  profile_incomplete: 'inbox',
+
+  // Billing → inbox
+  subscription_started: 'inbox',
+  subscription_renewed: 'inbox',
+  subscription_cancelled: 'inbox',
+  subscription_expiring: 'inbox',
+  payment_received: 'inbox',
+  payment_failed: 'inbox',
+  credits_low: 'inbox',
+  credits_added: 'inbox',
+
+  // Marketing → alerts
+  feature_announcement: 'alerts',
+  weekly_digest: 'alerts',
+  special_offer: 'alerts',
+};
+
+// ============================================
+// DEFAULT DEEP LINK TEMPLATES
+// ============================================
+
+/**
+ * Default deep link templates by notification type.
+ *
+ * These are used by `NotificationService.dispatch()` when the caller does not
+ * supply a `deepLink`. Placeholders (`{userId}`, `{teamId}`, etc.) are replaced
+ * at dispatch time from the `source` / `data` / `metadata` fields.
+ *
+ * Any notification type not listed here falls back to `/activity`.
+ */
+export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> = {
+  // Social
+  new_follower: '/profile/{sourceUserId}',
+  post_like: '/post/{entityId}',
+  post_comment: '/post/{entityId}',
+  post_mention: '/post/{entityId}',
+  post_share: '/post/{entityId}',
+  profile_view: '/analytics',
+  video_view: '/analytics',
+
+  // Recruiting
+  college_view: '/analytics',
+  coach_view: '/analytics',
+  new_offer: '/activity?tab=inbox',
+  offer_update: '/activity?tab=inbox',
+  camp_reminder: '/activity?tab=inbox',
+  visit_reminder: '/activity?tab=inbox',
+  recruiting_update: '/activity?tab=inbox',
+  message_from_coach: '/messages/{entityId}',
+
+  // Team
+  team_invite: '/activity?tab=inbox',
+  team_join_request: '/manage-team',
+  team_member_joined: '/manage-team',
+  team_member_left: '/manage-team',
+  team_announcement: '/team/{teamId}',
+  team_event: '/team/{teamId}',
+
+  // Content / Agent
+  video_processed: '/agent-x/chat/{sessionId}',
+  video_failed: '/agent-x/chat/{sessionId}',
+  card_ready: '/agent-x/chat/{sessionId}',
+  ai_task_complete: '/agent-x/chat/{sessionId}',
+
+  // System
+  account_created: '/activity?tab=inbox',
+  email_verified: '/activity?tab=inbox',
+  password_changed: '/settings/account-information',
+  security_alert: '/settings/account-information',
+  profile_incomplete: '/edit-profile',
+
+  // Billing
+  subscription_started: '/usage?section=overview',
+  subscription_renewed: '/usage?section=overview',
+  subscription_cancelled: '/usage?section=overview',
+  subscription_expiring: '/usage?section=overview',
+  payment_received: '/usage?section=payment-history',
+  payment_failed: '/usage?section=payment-info',
+  credits_low: '/usage?section=overview',
+  credits_added: '/usage?section=overview',
+
+  // Marketing
+  feature_announcement: '/activity?tab=alerts',
+  weekly_digest: '/activity?tab=alerts',
+  special_offer: '/activity?tab=alerts',
+} as const;
+
+/**
+ * Resolve a deep link template by replacing placeholders with actual values.
+ *
+ * @param type - Notification type
+ * @param context - Values to substitute into the template
+ * @returns Resolved deep link path, or `/activity` as fallback
+ */
+export function resolveDeepLink(
+  type: NotificationType,
+  context?: {
+    sourceUserId?: string;
+    entityId?: string;
+    teamId?: string;
+    sessionId?: string;
+  }
+): string {
+  const template = NOTIFICATION_DEEP_LINKS[type];
+  if (!template) return '/activity';
+
+  let resolved = template;
+  if (context?.sourceUserId) resolved = resolved.replace('{sourceUserId}', context.sourceUserId);
+  if (context?.entityId) resolved = resolved.replace('{entityId}', context.entityId);
+  if (context?.teamId) resolved = resolved.replace('{teamId}', context.teamId);
+  if (context?.sessionId) resolved = resolved.replace('{sessionId}', context.sessionId);
+
+  // If any placeholder remains unresolved, fall back to /activity
+  if (resolved.includes('{')) return '/activity';
+
+  return resolved;
+}
+
+// ============================================
 // PUSH NOTIFICATION CONFIG
 // ============================================
 

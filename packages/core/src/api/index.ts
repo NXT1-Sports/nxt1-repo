@@ -148,6 +148,10 @@ export {
   type SportFormData,
   createEmptySportEntry,
   validateSportEntry,
+  // Team selection types (v4.1)
+  type TeamSelectionEntry,
+  type TeamSelectionFormData,
+  validateTeamSelection,
   // Legacy types (deprecated)
   type TeamFormData,
   type SchoolFormData, // @deprecated - use SportFormData

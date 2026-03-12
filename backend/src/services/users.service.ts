@@ -28,7 +28,7 @@ const getCache = () => getCacheService();
 const CACHE_TTL_MS = CACHE_CONFIG.MEDIUM_TTL; // 15 minutes
 const CACHE_TTL = Math.floor(CACHE_TTL_MS / 1000); // Convert to seconds for Redis
 
-const CACHE_KEYS = {
+export const CACHE_KEYS = {
   USER_BY_ID: (userId: string) => `users:${userId}`,
   USERS_BATCH: (userIds: string[]) => `users:batch:${userIds.sort().join(',')}`,
 };
@@ -118,10 +118,17 @@ export async function getUsersByIds(
  * Fetch a single user by ID (with Redis caching)
  *
  * @param userId - User ID to fetch
+ * @param firestore - Optional Firestore instance (for staging vs production)
  * @returns User data or null if not found
  */
-export async function getUserById(userId: string): Promise<UserData | null> {
+export async function getUserById(
+  userId: string,
+  firestore?: FirebaseFirestore.Firestore
+): Promise<UserData | null> {
   if (!userId) return null;
+
+  // Use provided Firestore instance or default to production
+  const firestoreDb = firestore || db;
 
   const cacheKey = CACHE_KEYS.USER_BY_ID(userId);
 
@@ -136,7 +143,7 @@ export async function getUserById(userId: string): Promise<UserData | null> {
   logger.info('[getUserById] ❌ Cache MISS - fetching from Firestore', { userId });
 
   // Fetch from Firestore
-  const userDoc = await db.collection(USERS_COLLECTION).doc(userId).get();
+  const userDoc = await firestoreDb.collection(USERS_COLLECTION).doc(userId).get();
 
   if (!userDoc.exists) {
     logger.warn('[getUserById] User not found', { userId });

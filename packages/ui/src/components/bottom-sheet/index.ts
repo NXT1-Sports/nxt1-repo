@@ -37,6 +37,7 @@ export {
   type SheetHeaderIconShape,
   type SheetHeaderClosePosition,
 } from './sheet-header.component';
+export { NxtSheetFooterComponent } from './sheet-footer.component';
 
 // Services
 export { NxtBottomSheetService } from './bottom-sheet.service';

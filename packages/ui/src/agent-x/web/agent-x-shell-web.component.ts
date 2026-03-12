@@ -11,10 +11,10 @@
  *
  * Layout (top → bottom):
  * 1. Desktop Page Header — Agent X title + subtitle
- * 2. Active Operations — Horizontal WIP task cards (conditional)
- * 3. Daily Briefing — Proactive AI insights card
- * 4. Weekly Playbook — Collapsible weekly timeline
- * 5. Quick Commands — Utility action pills
+ * 2. Daily Briefing — Proactive AI insights card
+ * 3. Coordinators — 2×2 grid of virtual staff cards (Recruiting, Media, Scout, Academics)
+ * 4. Weekly Playbook — Always visible (with "Need a Game Plan" state if no goals)
+ * 5. Daily Operations — Active background task cards (conditional)
  * 6. Chat Messages — Conversation history
  * 7. Input Bar — Fixed above footer (already exists)
  *
@@ -48,7 +48,7 @@ import { AgentXOperationsLogComponent } from '../agent-x-operations-log.componen
 import { NxtToastService } from '../../services/toast/toast.service';
 import type {
   ActiveOperation,
-  ActionChip,
+  CommandCategory,
   BriefingInsight,
   WeeklyPlaybookItem,
 } from '../agent-x-shell.component';
@@ -124,19 +124,22 @@ export interface AgentXUser {
               }
             </div>
 
-            <!-- ═══ 2. QUICK COMMANDS ═══ -->
-            <div class="chips-section" aria-label="Quick commands">
-              <h3 class="section-title">Quick Commands</h3>
-              <div class="chips-scroll">
-                @for (chip of actionChips(); track chip.id) {
-                  <button type="button" class="action-chip" (click)="onChipTap(chip)">
-                    {{ chip.label }}
+            <!-- ═══ 2. COORDINATORS (2×2 Grid) ═══ -->
+            <section class="coordinators-section" aria-label="Coordinators">
+              <h3 class="section-title">Coordinators</h3>
+              <div class="coordinators-grid">
+                @for (coord of commandCategories(); track coord.id) {
+                  <button type="button" class="coordinator-card" (click)="onCoordinatorTap(coord)">
+                    <div class="coordinator-card-icon">
+                      <nxt1-icon [name]="coord.icon" [size]="18" />
+                    </div>
+                    <span class="coordinator-card-label">{{ coord.label }}</span>
                   </button>
                 }
               </div>
-            </div>
+            </section>
 
-            <!-- ═══ 3. DAILY OPERATIONS ═══ -->
+            <!-- ═══ 3. DAILY OPERATIONS (Conditional) ═══ -->
             @if (activeOperations().length > 0) {
               <section class="operations-section" aria-label="Daily operations">
                 <h3 class="section-title">Daily Operations</h3>
@@ -164,72 +167,61 @@ export interface AgentXUser {
               </section>
             }
 
-            <!-- ═══ 4. WEEKLY PLAYBOOK ═══ -->
-            @if (weeklyPlaybook().length > 0) {
-              <section class="playbook-section" aria-label="Weekly playbook">
-                <div class="playbook-section-header">
-                  <div class="playbook-title-row">
-                    <h3 class="section-title">Weekly Playbook</h3>
-                    <span class="playbook-counter"
-                      >{{ playbookCompletedCount() }}/{{ playbookTotalCount() }}</span
-                    >
-                  </div>
-                  <button
-                    type="button"
-                    class="playbook-goal-pill"
-                    (click)="onGoalTap()"
-                    aria-label="Goals"
+            <!-- ═══ 4. WEEKLY PLAYBOOK (Always Visible) ═══ -->
+            <section class="playbook-section" aria-label="Weekly playbook">
+              <div class="playbook-section-header">
+                <div class="playbook-title-row">
+                  <h3 class="section-title">Weekly Playbook</h3>
+                  <span class="playbook-counter"
+                    >{{ playbookCompletedCount() }}/{{ playbookTotalCount() }}</span
                   >
-                    <nxt1-icon name="flag" [size]="12" />
-                    <span class="playbook-goal-pill-text">Goals</span>
-                  </button>
                 </div>
+              </div>
 
-                <ol class="weekly-timeline">
-                  @for (item of weeklyPlaybook(); track item.id; let isLast = $last) {
-                    <li class="timeline-item">
-                      <div class="timeline-rail" aria-hidden="true">
-                        <span
-                          class="timeline-marker"
-                          [class.timeline-marker--pending]="item.status === 'pending'"
-                          [class.timeline-marker--in-progress]="item.status === 'in-progress'"
-                          [class.timeline-marker--complete]="item.status === 'complete'"
-                          [class.timeline-marker--problem]="item.status === 'problem'"
-                        >
-                          @if (item.status === 'in-progress') {
-                            <nxt1-icon name="play" [size]="10" />
-                          } @else if (item.status === 'complete') {
-                            <nxt1-icon name="checkmark" [size]="12" />
-                          } @else if (item.status === 'problem') {
-                            <nxt1-icon name="pause" [size]="10" />
-                          } @else {
-                            <span class="timeline-marker-dot"></span>
-                          }
-                        </span>
-                        @if (!isLast) {
-                          <span class="timeline-line"></span>
+              <ol class="weekly-timeline">
+                @for (item of weeklyPlaybook(); track item.id; let isLast = $last) {
+                  <li class="timeline-item">
+                    <div class="timeline-rail" aria-hidden="true">
+                      <span
+                        class="timeline-marker"
+                        [class.timeline-marker--pending]="item.status === 'pending'"
+                        [class.timeline-marker--in-progress]="item.status === 'in-progress'"
+                        [class.timeline-marker--complete]="item.status === 'complete'"
+                        [class.timeline-marker--problem]="item.status === 'problem'"
+                      >
+                        @if (item.status === 'in-progress') {
+                          <nxt1-icon name="play" [size]="10" />
+                        } @else if (item.status === 'complete') {
+                          <nxt1-icon name="checkmark" [size]="12" />
+                        } @else if (item.status === 'problem') {
+                          <nxt1-icon name="pause" [size]="10" />
+                        } @else {
+                          <span class="timeline-marker-dot"></span>
                         }
-                      </div>
+                      </span>
+                      @if (!isLast) {
+                        <span class="timeline-line"></span>
+                      }
+                    </div>
 
-                      <article class="timeline-card">
-                        <button
-                          type="button"
-                          class="timeline-toggle"
-                          (click)="onPlaybookAction(item)"
-                        >
-                          <div class="timeline-toggle-top">
-                            <h4 class="timeline-title">{{ item.title }}</h4>
-                            @if (item.goal) {
-                              <span class="timeline-goal-tag">{{ item.goal.label }}</span>
-                            }
-                          </div>
-                        </button>
-                      </article>
-                    </li>
-                  }
-                </ol>
-              </section>
-            }
+                    <article class="timeline-card">
+                      <button
+                        type="button"
+                        class="timeline-toggle"
+                        (click)="onPlaybookAction(item)"
+                      >
+                        <div class="timeline-toggle-top">
+                          <h4 class="timeline-title">{{ item.title }}</h4>
+                          @if (item.goal) {
+                            <span class="timeline-goal-tag">{{ item.goal.label }}</span>
+                          }
+                        </div>
+                      </button>
+                    </article>
+                  </li>
+                }
+              </ol>
+            </section>
           </section>
         }
 
@@ -575,41 +567,6 @@ export interface AgentXUser {
         flex-shrink: 0;
       }
 
-      .playbook-goal-pill {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        padding: 8px 16px;
-        border: 1px solid color-mix(in srgb, var(--agent-primary) 45%, transparent);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        background: color-mix(in srgb, var(--agent-primary) 12%, transparent);
-        color: var(--agent-primary);
-        font-size: 13px;
-        font-weight: 600;
-        line-height: 1;
-        white-space: nowrap;
-        cursor: pointer;
-        flex-shrink: 0;
-        -webkit-tap-highlight-color: transparent;
-        transition:
-          background 0.2s ease,
-          border-color 0.2s ease,
-          opacity 0.15s ease;
-      }
-
-      .playbook-goal-pill:hover {
-        background: color-mix(in srgb, var(--agent-primary) 18%, transparent);
-      }
-
-      .playbook-goal-pill:active {
-        opacity: 0.9;
-      }
-
-      .playbook-goal-pill-text {
-        line-height: 1;
-      }
-
       .playbook-section-toggle {
         border: 1px solid var(--agent-border);
         background: var(--agent-surface);
@@ -815,60 +772,120 @@ export interface AgentXUser {
         opacity: 0.9;
       }
 
+      /* Playbook Empty State ("Need a Game Plan") */
+      .playbook-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-4, 16px);
+        background: var(--agent-surface);
+        border: 1px dashed color-mix(in srgb, var(--agent-primary) 35%, var(--agent-border));
+        border-radius: var(--nxt1-radius-lg, 12px);
+      }
+
+      .playbook-empty-icon {
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: var(--agent-primary-glow);
+        color: var(--agent-primary);
+        margin-bottom: var(--nxt1-spacing-3, 12px);
+      }
+
+      .playbook-empty-title {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--agent-text-primary);
+        margin: 0 0 var(--nxt1-spacing-1, 4px);
+      }
+
+      .playbook-empty-description {
+        font-size: 13px;
+        line-height: 1.45;
+        color: var(--agent-text-secondary);
+        margin: 0 0 var(--nxt1-spacing-4, 16px);
+        max-width: 300px;
+      }
+
+      .playbook-setup-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 20px;
+        background: var(--agent-primary);
+        color: #000;
+        border: none;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        font-size: 14px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: opacity 0.15s ease;
+      }
+
+      .playbook-setup-btn:hover {
+        opacity: 0.9;
+      }
+
       /* ──────────────────────────────────
-         4. QUICK COMMANDS
+         2. COORDINATORS (2×2 Grid)
          ────────────────────────────────── */
-      .chips-section {
+      .coordinators-section {
         width: 100%;
         max-width: 480px;
         margin-bottom: var(--nxt1-spacing-5, 20px);
       }
 
-      .chips-label {
-        font-size: 13px;
-        font-weight: 600;
-        letter-spacing: 0.02em;
-        color: var(--agent-text-muted);
-        margin: 0 0 var(--nxt1-spacing-3, 12px);
+      .coordinators-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--nxt1-spacing-3, 12px);
+        margin-top: var(--nxt1-spacing-3, 12px);
       }
 
-      .chips-scroll {
+      .coordinator-card {
         display: flex;
-        gap: var(--nxt1-spacing-2, 8px);
-        overflow-x: auto;
-        scrollbar-width: none;
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: 2px;
-        margin-top: var(--nxt1-spacing-1, 4px);
-      }
-
-      .chips-scroll::-webkit-scrollbar {
-        display: none;
-      }
-
-      .action-chip {
-        display: inline-flex;
+        flex-direction: column;
         align-items: center;
-        flex-shrink: 0;
-        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-4, 16px);
+        justify-content: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-3, 12px);
         background: var(--agent-surface);
         border: 1px solid var(--agent-border);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        color: var(--agent-text-secondary);
-        font-size: 13px;
-        font-weight: 500;
-        white-space: nowrap;
+        border-radius: var(--nxt1-radius-lg, 12px);
         cursor: pointer;
         transition:
           background 0.15s ease,
           border-color 0.15s ease,
-          color 0.15s ease;
+          transform 0.1s ease;
       }
 
-      .action-chip:hover {
+      .coordinator-card:hover {
         background: var(--agent-surface-hover);
         border-color: var(--agent-primary);
+        transform: translateY(-1px);
+      }
+
+      .coordinator-card-icon {
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--nxt1-radius-md, 8px);
+        background: var(--agent-primary-glow);
         color: var(--agent-primary);
+      }
+
+      .coordinator-card-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--agent-text-primary);
+        text-align: center;
+        line-height: 1.3;
       }
 
       /* ==============================
@@ -987,8 +1004,8 @@ export class AgentXShellWebComponent {
   // OUTPUTS
   // ============================================
 
-  /** Emitted when an action chip is tapped. */
-  readonly chipTap = output<ActionChip>();
+  /** Emitted when a coordinator card is tapped. */
+  readonly coordinatorTap = output<CommandCategory>();
 
   // ============================================
   // COMPUTED
@@ -1069,17 +1086,6 @@ export class AgentXShellWebComponent {
     },
     {
       id: 'wp-2',
-      weekLabel: 'Tue',
-      title: 'Ship Recruiter Outreach Batch',
-      summary: 'Send personalized messages to your top priority programs.',
-      details:
-        'Your draft set is ready with coach-specific personalization. Approve and send to trigger tracking for opens and replies in Activity.',
-      actionLabel: 'Send Batch',
-      status: 'pending',
-      goal: { id: 'goal-1', label: 'D1 Recruitment' },
-    },
-    {
-      id: 'wp-3',
       weekLabel: 'Wed',
       title: 'Publish Midweek Performance Post',
       summary: 'Share your latest clip + stat proof point to keep momentum.',
@@ -1090,23 +1096,13 @@ export class AgentXShellWebComponent {
       goal: { id: 'goal-2', label: 'Grow Brand' },
     },
     {
-      id: 'wp-4',
-      weekLabel: 'Thu',
-      title: 'Refresh Compliance & Academics',
-      summary: 'Keep GPA and transcript context current for eligibility confidence.',
+      id: 'goal-setup',
+      weekLabel: '',
+      title: 'Set Up Goals',
+      summary: 'Tell Agent X your season goals so your weekly playbook stays on target.',
       details:
-        'Sync your academic portal and verify profile fields used in eligibility summaries. This reduces recruiter friction during evaluation.',
-      actionLabel: 'Sync Academics',
-      status: 'pending',
-    },
-    {
-      id: 'wp-5',
-      weekLabel: 'Fri',
-      title: 'Weekly Review and Next-Week Setup',
-      summary: "Close this week and auto-generate next week's top priorities.",
-      details:
-        'Agent X will summarize completed tasks, update progress signals, and propose next-week objectives tailored to engagement and recruiter activity.',
-      actionLabel: 'Run Weekly Review',
+        'Agent X will personalize your weekly priorities based on your goals — recruiting targets, visibility milestones, and academic timelines.',
+      actionLabel: 'Set Up Goals',
       status: 'pending',
     },
   ]);
@@ -1120,15 +1116,52 @@ export class AgentXShellWebComponent {
   protected readonly playbookTotalCount = computed(() => this.weeklyPlaybook().length);
 
   // ============================================
-  // QUICK COMMANDS (Utility Pills)
+  // COORDINATORS (2×2 Grid)
   // ============================================
 
-  /** Generic quick-access action pills. */
-  protected readonly actionChips = signal<ActionChip[]>([
-    { id: 'chip-scout', label: 'Review Scout Report', icon: 'clipboard' },
-    { id: 'chip-email', label: 'Draft Recruiter Email', icon: 'mail' },
-    { id: 'chip-camps', label: 'Find Camps Near Me', icon: 'search' },
-    { id: 'chip-compare', label: 'Compare My Stats', icon: 'stats' },
+  /** Coordinator cards — 4 virtual staff in a 2×2 grid. */
+  protected readonly commandCategories = signal<CommandCategory[]>([
+    {
+      id: 'coord-recruiting',
+      label: 'Recruiting Coordinator',
+      icon: 'graduationCap',
+      commands: [
+        { id: 'cmd-colleges', label: 'Find Programs', icon: 'search' },
+        { id: 'cmd-email', label: 'Draft Coach Email', icon: 'mail' },
+        { id: 'cmd-timeline', label: 'My Timeline', icon: 'calendar' },
+        { id: 'cmd-eligibility', label: 'Eligibility Check', icon: 'shieldCheck' },
+      ],
+    },
+    {
+      id: 'coord-media',
+      label: 'Media Coordinator',
+      icon: 'sparkles',
+      commands: [
+        { id: 'cmd-post', label: 'Create Post', icon: 'plus' },
+        { id: 'cmd-highlight', label: 'Highlight Reel', icon: 'videocam' },
+        { id: 'cmd-brand', label: 'Brand Strategy', icon: 'rocket' },
+      ],
+    },
+    {
+      id: 'coord-scout',
+      label: 'Scout Coordinator',
+      icon: 'barChart',
+      commands: [
+        { id: 'cmd-scout', label: 'Scout Report', icon: 'clipboard' },
+        { id: 'cmd-analyze', label: 'Analyze Film', icon: 'play' },
+        { id: 'cmd-trends', label: 'Stat Trends', icon: 'trendingUp' },
+      ],
+    },
+    {
+      id: 'coord-academics',
+      label: 'Academics Coordinator',
+      icon: 'book',
+      commands: [
+        { id: 'cmd-gpa', label: 'GPA Tracker', icon: 'clipboard' },
+        { id: 'cmd-eligibility-check', label: 'Eligibility', icon: 'shieldCheck' },
+        { id: 'cmd-test-prep', label: 'Test Prep', icon: 'document' },
+      ],
+    },
   ]);
 
   constructor() {
@@ -1156,10 +1189,10 @@ export class AgentXShellWebComponent {
   }
 
   /**
-   * Handle goal pill tap.
+   * Handle "Set Your Goals" tap — opens Agent X goal-setup flow.
    */
-  protected async onGoalTap(): Promise<void> {
-    this.agentX.setUserMessage('Edit Goals');
+  protected async onSetupGoals(): Promise<void> {
+    this.agentX.setUserMessage('Help me set my season goals');
     await this.agentX.sendMessage();
   }
 
@@ -1167,16 +1200,20 @@ export class AgentXShellWebComponent {
    * Handle weekly playbook action tap.
    */
   protected async onPlaybookAction(task: WeeklyPlaybookItem): Promise<void> {
+    if (task.id === 'goal-setup') {
+      await this.onSetupGoals();
+      return;
+    }
     this.agentX.setUserMessage(`${task.actionLabel}: ${task.title}`);
     await this.agentX.sendMessage();
   }
 
   /**
-   * Handle action chip tap — fill the input or trigger a workflow.
+   * Handle coordinator card tap — open coordinator context.
    */
-  protected onChipTap(chip: ActionChip): void {
-    this.agentX.setUserMessage(chip.label);
-    this.chipTap.emit(chip);
+  protected onCoordinatorTap(coord: CommandCategory): void {
+    this.agentX.setUserMessage(coord.label);
+    this.coordinatorTap.emit(coord);
   }
 
   protected async onSendMessage(): Promise<void> {

@@ -4,6 +4,7 @@
  */
 
 export { BaseAgent } from './base.agent.js';
+export { DataCoordinatorAgent } from './data-coordinator.agent.js';
 export { PerformanceCoordinatorAgent } from './performance-coordinator.agent.js';
 export { RecruitingCoordinatorAgent } from './recruiting-coordinator.agent.js';
 export { BrandMediaCoordinatorAgent } from './brand-media-coordinator.agent.js';

@@ -69,8 +69,18 @@ import { AnalyticsService } from './core/services/analytics.service';
 // Badge bridge: connects ActivityService (from @nxt1/ui) → BadgeCountService
 import { provideBadgeBridge } from './core/services';
 
+// Web push notifications: FCM token management + foreground message handling
+import { provideWebPush } from './core/services/web-push.service';
+
 // News API base URL (uses environment.apiURL — same origin + /api/v1/staging in dev)
-import { NEWS_API_BASE_URL, TEAM_PROFILE_API_BASE_URL, AGENT_X_API_BASE_URL } from '@nxt1/ui';
+import {
+  NEWS_API_BASE_URL,
+  TEAM_PROFILE_API_BASE_URL,
+  AGENT_X_API_BASE_URL,
+  ACTIVITY_API_BASE_URL,
+  INVITE_API_BASE_URL,
+  MESSAGES_API_BASE_URL,
+} from '@nxt1/ui';
 
 // Firebase
 // IMPORTANT: Only import what's actually used in browser bundle
@@ -241,6 +251,13 @@ export const appConfig: ApplicationConfig = {
     // So the shell reads from BadgeCountService without importing ActivityService
     provideBadgeBridge(),
 
+    // ============================================
+    // WEB PUSH NOTIFICATIONS
+    // ============================================
+
+    // FCM token registration, foreground message handling, background click routing
+    provideWebPush(),
+
     // News API base URL — uses the same environment.apiURL as other services.
     // The news constants use /news/* paths (without /api/v1/ prefix),
     // so baseUrl + path = e.g. http://localhost:3000/api/v1/staging/news
@@ -251,6 +268,15 @@ export const appConfig: ApplicationConfig = {
 
     // Agent X API base URL
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Activity API base URL
+    { provide: ACTIVITY_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Invite API base URL
+    { provide: INVITE_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Messages API base URL
+    { provide: MESSAGES_API_BASE_URL, useFactory: () => environment.apiURL },
 
     // ============================================
     // LOGGING & ERROR HANDLING

@@ -53,7 +53,8 @@
               },
               "src/favicon.ico",
               "src/robots.txt",
-              "src/manifest.webmanifest"
+              "src/manifest.webmanifest",
+              "src/firebase-messaging-sw.js"
             ],
             "styles": [
               {

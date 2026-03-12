@@ -481,25 +481,42 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
     payload['contact'] = contact;
   }
 
-  // =========== SOCIAL (nested object) ===========
-  const social: Record<string, string | undefined> = {};
+  // =========== SOCIAL & CONNECTED SOURCES ===========
+  // Social platforms (instagram, twitter, tiktok, youtube) → social{}
+  // Data platforms (hudl, maxpreps, etc.) → connectedSources[]
+  const socialData: Record<string, string | undefined> = {};
+  const connectedSourcesList: Array<{
+    platform: string;
+    profileUrl: string;
+    syncStatus: 'idle';
+  }> = [];
+
   if (formData.contact?.instagram) {
-    social['instagram'] = formData.contact.instagram;
+    socialData['instagram'] = formData.contact.instagram;
   }
   if (formData.contact?.twitter) {
-    social['twitter'] = formData.contact.twitter;
+    socialData['twitter'] = formData.contact.twitter;
   }
   if (formData.contact?.tiktok) {
-    social['tiktok'] = formData.contact.tiktok;
-  }
-  if (formData.contact?.hudlAccountLink) {
-    social['hudl'] = formData.contact.hudlAccountLink;
+    socialData['tiktok'] = formData.contact.tiktok;
   }
   if (formData.contact?.youtubeAccountLink) {
-    social['youtube'] = formData.contact.youtubeAccountLink;
+    socialData['youtube'] = formData.contact.youtubeAccountLink;
   }
-  if (Object.keys(social).length > 0) {
-    payload['social'] = social;
+  // Hudl is a film/data platform, not social
+  if (formData.contact?.hudlAccountLink) {
+    const url = formData.contact.hudlAccountLink;
+    connectedSourcesList.push({
+      platform: 'hudl',
+      profileUrl: url.startsWith('http') ? url : `https://hudl.com/${url}`,
+      syncStatus: 'idle',
+    });
+  }
+  if (Object.keys(socialData).length > 0) {
+    payload['social'] = socialData;
+  }
+  if (connectedSourcesList.length > 0) {
+    payload['connectedSources'] = connectedSourcesList;
   }
 
   // =========== SPORTS ARRAY ===========

@@ -49,12 +49,16 @@ function makePayload(overrides?: Partial<AgentJobPayload>): AgentJobPayload {
   };
 }
 
-function makeMockJob(payload: AgentJobPayload) {
+function makeMockJob(
+  payload: AgentJobPayload,
+  environment: 'staging' | 'production' = 'production'
+) {
   return {
     id: payload.operationId,
     data: {
       payload,
       enqueuedAt: '2026-03-10T00:00:00Z',
+      environment,
     },
     progress: null,
     updateProgress: vi.fn(),
@@ -82,11 +86,23 @@ describe('AgentWorker', () => {
     registerAgent: vi.fn(),
   };
 
+  const mockJobRepo = {
+    updateProgress: vi.fn().mockResolvedValue(undefined),
+    markCompleted: vi.fn().mockResolvedValue(undefined),
+    markFailed: vi.fn().mockResolvedValue(undefined),
+    create: vi.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     capturedProcessor = null;
     // Instantiate worker — this captures the processor
-    new AgentWorker(mockRouter as never, 'redis://localhost:6379');
+    new AgentWorker(
+      mockRouter as never,
+      mockJobRepo as never,
+      mockJobRepo as never,
+      'redis://localhost:6379'
+    );
   });
 
   // ── Processor Binding ───────────────────────────────────────────────────
@@ -203,7 +219,12 @@ describe('AgentWorker', () => {
 
   describe('shutdown', () => {
     it('should close the BullMQ worker', async () => {
-      const worker = new AgentWorker(mockRouter as never, 'redis://localhost:6379');
+      const worker = new AgentWorker(
+        mockRouter as never,
+        mockJobRepo as never,
+        mockJobRepo as never,
+        'redis://localhost:6379'
+      );
       await worker.shutdown();
       expect(mockWorkerClose).toHaveBeenCalled();
     });
@@ -211,7 +232,12 @@ describe('AgentWorker', () => {
 
   describe('isRunning', () => {
     it('should delegate to the BullMQ worker', () => {
-      const worker = new AgentWorker(mockRouter as never, 'redis://localhost:6379');
+      const worker = new AgentWorker(
+        mockRouter as never,
+        mockJobRepo as never,
+        mockJobRepo as never,
+        'redis://localhost:6379'
+      );
       expect(worker.isRunning()).toBe(true);
     });
   });

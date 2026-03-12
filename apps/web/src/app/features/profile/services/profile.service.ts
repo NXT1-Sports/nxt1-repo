@@ -96,6 +96,14 @@ export class ProfileService {
   }
 
   /**
+   * Clear all cached profile data.
+   * Used after Agent X profile generation to ensure fresh data is fetched.
+   */
+  invalidateAllProfileCache(): void {
+    this.profileCache.clear();
+  }
+
+  /**
    * Get current authenticated user's own profile.
    * Uses the /profile/me endpoint — no userId required.
    * Caches under the authenticated user's ID (from response).

@@ -248,8 +248,9 @@ export class ProfileService implements OnDestroy, IProfileService {
       return;
     }
 
-    // Invalidate cache and fetch fresh
+    // Invalidate BOTH cache layers: service-level + API-level
     this.cache.delete(targetUid);
+    this.api.invalidateCache(targetUid);
     await this.fetchProfile(targetUid);
   }
 

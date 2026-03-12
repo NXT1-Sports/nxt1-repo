@@ -37,6 +37,7 @@ if (!admin.apps.find((app) => app?.name === 'staging')) {
 }
 
 export const stagingDb: Firestore = stagingApp.firestore();
+stagingDb.settings({ ignoreUndefinedProperties: true });
 export const stagingAuth: Auth = stagingApp.auth();
 export const stagingStorage: Storage = stagingApp.storage();
 

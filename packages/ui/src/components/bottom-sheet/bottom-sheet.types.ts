@@ -77,8 +77,9 @@ export interface BottomSheetConfig {
    * Action button layout.
    * - `vertical`: Stacked full-width buttons (default)
    * - `horizontal`: Side-by-side buttons for compact confirmations
+   * - `row`: Status text left + small buttons right (e.g. update check)
    */
-  actionsLayout?: 'vertical' | 'horizontal';
+  actionsLayout?: 'vertical' | 'horizontal' | 'row';
 
   /** Additional CSS class(es) for the modal */
   cssClass?: string;

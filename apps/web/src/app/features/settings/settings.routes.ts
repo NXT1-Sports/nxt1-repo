@@ -18,6 +18,13 @@ export const SETTINGS_ROUTES: Routes = [
     loadComponent: () =>
       import('./account-information.component').then((m) => m.AccountInformationComponent),
   },
+  {
+    path: 'notification-preferences',
+    loadComponent: () =>
+      import('./notification-preferences.component').then(
+        (m) => m.NotificationPreferencesComponent
+      ),
+  },
 ];
 
 export default SETTINGS_ROUTES;

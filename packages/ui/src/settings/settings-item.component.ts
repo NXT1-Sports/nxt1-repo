@@ -4,7 +4,7 @@
  * @version 1.0.0
  *
  * Individual row component for a single settings item.
- * Supports multiple types: toggle, navigation, action, info, select.
+ * Supports multiple types: toggle, navigation, action, info, button.
  * Following Instagram/iOS/Android settings patterns.
  *
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
@@ -14,7 +14,6 @@
  * - Navigation with chevron and display value
  * - Action buttons with variants
  * - Info display with copy support
- * - Select with current value display
  * - Haptic feedback on interactions
  * - Full accessibility support
  *
@@ -37,7 +36,6 @@ import type {
   SettingsNavigationItem,
   SettingsActionItem,
   SettingsInfoItem,
-  SettingsSelectItem,
 } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtIconComponent } from '../components/icon';
@@ -69,15 +67,6 @@ export interface SettingsActionEvent {
   readonly action: string;
   readonly requiresConfirmation?: boolean;
   readonly confirmationMessage?: string;
-}
-
-/**
- * Select change event.
- */
-export interface SettingsSelectEvent {
-  readonly itemId: string;
-  readonly settingKey: string;
-  readonly value: string;
 }
 
 /**
@@ -142,6 +131,25 @@ export interface SettingsCopyEvent {
         @if (item().description) {
           <span class="settings-item__description">{{ item().description }}</span>
         }
+        @if (item().type === 'info') {
+          <div class="settings-item__info-value">
+            <span class="settings-item__info-text">{{ asInfo().value }}</span>
+            @if (asInfo().copyable) {
+              <button
+                type="button"
+                class="settings-item__copy-btn"
+                [class.settings-item__copy-btn--copied]="isCopied()"
+                (click)="onCopy($event)"
+                [attr.aria-label]="isCopied() ? 'Copied' : 'Copy'"
+              >
+                <nxt1-icon
+                  [name]="isCopied() ? 'checkmarkCircle' : 'documentText'"
+                  [size]="14"
+                ></nxt1-icon>
+              </button>
+            }
+          </div>
+        }
       </div>
 
       <!-- Right: Control/Value -->
@@ -174,31 +182,7 @@ export interface SettingsCopyEvent {
             ></nxt1-icon>
           }
           @case ('info') {
-            <div class="settings-item__info-value">
-              <span class="settings-item__value">{{ asInfo().value }}</span>
-              @if (asInfo().copyable) {
-                <button
-                  type="button"
-                  class="settings-item__copy-btn"
-                  [class.settings-item__copy-btn--copied]="isCopied()"
-                  (click)="onCopy($event)"
-                  [attr.aria-label]="isCopied() ? 'Copied' : 'Copy'"
-                >
-                  <nxt1-icon
-                    [name]="isCopied() ? 'checkmarkCircle' : 'documentText'"
-                    [size]="14"
-                  ></nxt1-icon>
-                </button>
-              }
-            </div>
-          }
-          @case ('select') {
-            <span class="settings-item__value">{{ getSelectDisplayValue() }}</span>
-            <nxt1-icon
-              name="chevronForward"
-              [size]="18"
-              className="settings-item__chevron"
-            ></nxt1-icon>
+            <!-- Info value is rendered in the content section above -->
           }
         }
       </div>
@@ -389,6 +373,14 @@ export interface SettingsCopyEvent {
         display: flex;
         align-items: center;
         gap: 8px;
+        margin-top: 4px;
+      }
+
+      .settings-item__info-text {
+        font-size: 14px;
+        font-weight: 400;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        word-break: break-all;
       }
 
       .settings-item__copy-btn {
@@ -496,9 +488,6 @@ export class SettingsItemComponent {
   /** Emitted when an action item is clicked */
   readonly action = output<SettingsActionEvent>();
 
-  /** Emitted when a select item needs to show picker */
-  readonly select = output<SettingsSelectEvent>();
-
   /** Emitted when copy button is clicked */
   readonly copy = output<SettingsCopyEvent>();
 
@@ -513,10 +502,10 @@ export class SettingsItemComponent {
   // COMPUTED
   // ============================================
 
-  /** Check if item is clickable (navigation, action, select) */
+  /** Check if item is clickable (navigation, action) */
   protected readonly isClickable = computed(() => {
     const type = this.item().type;
-    return type === 'navigation' || type === 'action' || type === 'select';
+    return type === 'navigation' || type === 'action';
   });
 
   /** Generate aria label */
@@ -551,22 +540,12 @@ export class SettingsItemComponent {
     return this.item() as SettingsInfoItem;
   }
 
-  protected asSelect(): SettingsSelectItem {
-    return this.item() as SettingsSelectItem;
-  }
-
   // ============================================
   // HELPERS
   // ============================================
 
   protected isCopied(): boolean {
     return this._isCopied;
-  }
-
-  protected getSelectDisplayValue(): string {
-    const selectItem = this.asSelect();
-    const option = selectItem.options.find((opt) => opt.id === selectItem.value);
-    return option?.label ?? selectItem.value;
   }
 
   // ============================================
@@ -600,17 +579,6 @@ export class SettingsItemComponent {
           action: actionItem.action,
           requiresConfirmation: actionItem.requiresConfirmation,
           confirmationMessage: actionItem.confirmationMessage,
-        });
-        break;
-      }
-
-      case 'select': {
-        await this.haptics.impact('light');
-        const selectItem = item as SettingsSelectItem;
-        this.select.emit({
-          itemId: item.id,
-          settingKey: selectItem.settingKey,
-          value: selectItem.value,
         });
         break;
       }

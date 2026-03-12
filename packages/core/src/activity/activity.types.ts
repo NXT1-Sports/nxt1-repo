@@ -57,7 +57,8 @@ export type ActivityType =
   | 'milestone'
   | 'reminder'
   | 'system'
-  | 'update';
+  | 'update'
+  | 'agent_task';
 
 /**
  * Priority level for activity items.
@@ -258,4 +259,29 @@ export interface ActivityState {
   readonly error: string | null;
   /** Current pagination */
   readonly pagination: ActivityPagination | null;
+}
+
+// ============================================
+// AGENT TASK ACTIVITY
+// ============================================
+
+/**
+ * Metadata attached to an agent_task activity item.
+ * Provides the routing context needed for deep-linking
+ * from push notifications and the activity feed into
+ * the exact Agent X chat thread where the task completed.
+ */
+export interface AgentTaskActivityMetadata {
+  /** Agent X chat thread ID where the task was initiated */
+  readonly sessionId: string;
+  /** The backend operation ID tracking this job */
+  readonly operationId: string;
+  /** Which sub-agent handled the task */
+  readonly agentId?: string;
+  /** Human-readable summary of what Agent X did */
+  readonly resultSummary?: string;
+  /** Optional context entity (e.g., a generated video or graphic ID) */
+  readonly contextId?: string;
+  /** The Agent X mode the task ran under */
+  readonly mode?: string;
 }

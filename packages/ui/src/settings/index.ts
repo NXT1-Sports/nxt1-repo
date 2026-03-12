@@ -9,7 +9,7 @@
  */
 
 // Service
-export { SettingsService } from './settings.service';
+export { SettingsService, UserCancelledError } from './settings.service';
 
 // Persistence adapter (for platform-specific HTTP injection)
 export {
@@ -28,7 +28,6 @@ export {
   type SettingsToggleEvent,
   type SettingsNavigateEvent,
   type SettingsActionEvent,
-  type SettingsSelectEvent,
   type SettingsCopyEvent,
 } from './settings-item.component';
 export { SettingsSkeletonComponent } from './settings-skeleton.component';

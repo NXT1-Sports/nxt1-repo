@@ -56,6 +56,8 @@ import {
   type RelatedAthlete,
   type RankingSource,
   userToProfilePageData,
+  ProfileGenerationOverlayComponent,
+  ProfileGenerationStateService,
 } from '@nxt1/ui/profile';
 
 import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
@@ -89,7 +91,12 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
 @Component({
   selector: 'app-profile',
   standalone: true,
-  imports: [ProfileShellWebComponent, NxtCtaBannerComponent, RelatedAthletesComponent],
+  imports: [
+    ProfileShellWebComponent,
+    NxtCtaBannerComponent,
+    RelatedAthletesComponent,
+    ProfileGenerationOverlayComponent,
+  ],
   template: `
     <nxt1-profile-shell-web
       [currentUser]="userInfo()"
@@ -134,6 +141,10 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
         />
       }
     </nxt1-profile-shell-web>
+
+    @if (generation.isGenerating()) {
+      <nxt1-profile-generation-overlay (dismissed)="onGenerationDismissed($event)" />
+    }
   `,
   styles: [
     `
@@ -189,6 +200,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   private readonly profileService: ProfileService = inject(ProfileService);
 
   private readonly platformId = inject(PLATFORM_ID);
+  protected readonly generation = inject(ProfileGenerationStateService);
 
   /**
    * Raw User object returned by the API — kept for SEO/share/QR computed
@@ -831,5 +843,18 @@ export class ProfileComponent implements OnInit, OnDestroy {
     this.router.navigate(['/explore'], {
       queryParams: { sport, state },
     });
+  }
+
+  /**
+   * Handle profile generation overlay dismiss.
+   * Invalidates profile cache so the page re-fetches fresh data
+   * written by Agent X, then reloads the profile.
+   */
+  protected onGenerationDismissed(reason: 'completed' | 'skipped'): void {
+    this.logger.info('Profile generation overlay dismissed', { reason });
+    if (reason === 'completed') {
+      this.apiProfileService.invalidateAllProfileCache();
+      this.onRetry();
+    }
   }
 }

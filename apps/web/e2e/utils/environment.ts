@@ -48,7 +48,7 @@ const environments: Record<string, EnvironmentConfig> = {
   staging: {
     name: 'staging',
     baseUrl: 'https://staging.nxt1.com',
-    apiUrl: 'https://api-staging.nxt1.com',
+    apiUrl: 'http://34.72.3.113:8080/api/v1/staging',
     firebaseProjectId: 'nxt-1-staging',
     isProduction: false,
     defaultTimeout: 45_000,
@@ -60,7 +60,7 @@ const environments: Record<string, EnvironmentConfig> = {
   production: {
     name: 'production',
     baseUrl: 'https://www.nxt1.com',
-    apiUrl: 'https://api.nxt1.com',
+    apiUrl: 'http://34.72.3.113:8080/api/v1',
     firebaseProjectId: 'nxt-1-de054',
     isProduction: true,
     defaultTimeout: 60_000,

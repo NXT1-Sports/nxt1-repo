@@ -45,14 +45,6 @@ import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { ActivityApiService } from './activity-api.service';
 
-/** Mock badge counts for development */
-const MOCK_BADGE_COUNTS: Record<ActivityTabId, number> = {
-  all: 7,
-  inbox: 4,
-  agent: 2,
-  alerts: 4,
-};
-
 /**
  * Activity state management service.
  * Provides reactive state for the activity/notifications interface.
@@ -70,7 +62,12 @@ export class ActivityService {
 
   private readonly _items = signal<ActivityItem[]>([]);
   private readonly _activeTab = signal<ActivityTabId>(ACTIVITY_DEFAULT_TAB);
-  private readonly _badges = signal<Record<ActivityTabId, number>>(MOCK_BADGE_COUNTS);
+  private readonly _badges = signal<Record<ActivityTabId, number>>({
+    all: 0,
+    inbox: 0,
+    agent: 0,
+    alerts: 0,
+  });
   private readonly _isLoading = signal(false);
   private readonly _isLoadingMore = signal(false);
   private readonly _isRefreshing = signal(false);
@@ -163,6 +160,10 @@ export class ActivityService {
 
       this._items.set(response.items ? [...response.items] : []);
       this._pagination.set(response.pagination ?? null);
+
+      if (response.badges) {
+        this._badges.set(response.badges);
+      }
 
       await this.haptics.impact('light');
     } catch (err) {

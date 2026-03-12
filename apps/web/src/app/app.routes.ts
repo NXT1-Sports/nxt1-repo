@@ -157,12 +157,6 @@ export const routes: Routes = [
         loadChildren: () => import('./features/agent-x/agent-x.routes'),
       },
 
-      // Brand - Brand Vault (raw materials for Agent X)
-      {
-        path: 'brand',
-        loadChildren: () => import('./features/brand/brand.routes'),
-      },
-
       // Activity - Notifications & Activity Feed
       {
         path: 'activity',
@@ -346,6 +340,14 @@ export const routes: Routes = [
     path: 'create-post',
     redirectTo: 'post/create',
     pathMatch: 'full',
+  },
+
+  // Invite Link Landing Page
+  // Handles /join/:code?ref=<uid>&code=<CODE>&type=<type>
+  // Stores referral data in sessionStorage, then redirects to /auth?mode=signup
+  {
+    path: 'join/:code',
+    loadComponent: () => import('./features/join/join.component').then((m) => m.JoinComponent),
   },
 
   // 404 Not Found Page (catch-all route)

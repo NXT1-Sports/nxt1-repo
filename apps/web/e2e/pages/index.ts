@@ -20,6 +20,9 @@ export * from './auth';
 // Settings pages
 export { SettingsPage, AccountInformationPage } from './settings.page';
 
+// Activity pages
+export { ActivityPage } from './activity.page';
+
 // Add additional page exports here as features are developed:
 // export * from './profile';
 // export * from './onboarding';

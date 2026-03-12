@@ -367,6 +367,8 @@ export {
   NxtSheetHeaderComponent,
   type SheetHeaderIconShape,
   type SheetHeaderClosePosition,
+  // Content Sheet Footer (reusable sticky CTA button)
+  NxtSheetFooterComponent,
   // Content Sheet types (for full component injection)
   type ContentSheetConfig,
   type ContentSheetResult,
@@ -547,6 +549,9 @@ export {
 export {
   // Service
   MessagesService,
+  // API
+  MessagesApiService,
+  MESSAGES_API_BASE_URL,
   // Mobile (Ionic)
   MessagesShellComponent,
   // Web (SSR-safe, zero Ionic)
@@ -638,6 +643,11 @@ export {
   type ProfileSkeletonVariant,
   type RelatedAthlete,
   type RankingSource,
+  // Profile Generation (Agent X Onboarding Scrape)
+  ProfileGenerationStateService,
+  ProfileGenerationOverlayComponent,
+  type GenerationPhase,
+  type GenerationSnapshot,
 } from './profile';
 
 // ============================================
@@ -657,7 +667,6 @@ export {
   type SettingsToggleEvent,
   type SettingsNavigateEvent,
   type SettingsActionEvent,
-  type SettingsSelectEvent,
   type SettingsCopyEvent,
 } from './settings';
 
@@ -1001,6 +1010,12 @@ export {
 
 export { OnboardingSportStepComponent } from './onboarding/onboarding-sport-step';
 
+export {
+  OnboardingTeamSelectionStepComponent,
+  type TeamSearchResult,
+  type SearchTeamsFn,
+} from './onboarding/onboarding-team-selection-step';
+
 export { OnboardingPositionStepComponent } from './onboarding/onboarding-position-step';
 
 export { OnboardingContactStepComponent } from './onboarding/onboarding-contact-step';
@@ -1319,8 +1334,10 @@ export {
   // Services
   InviteService,
   InviteBottomSheetService,
+  INVITE_API_BASE_URL,
   // Types
   type InviteUser,
+  type InviteRecipientType,
   type InviteBottomSheetConfig,
   // Mock Data (Development Only)
   MOCK_INVITE_STATS,

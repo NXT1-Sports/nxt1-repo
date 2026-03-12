@@ -48,13 +48,7 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb';
 import { MessagesService } from '../messages/messages.service';
-// ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
-import {
-  getMockActivityItems,
-  getMockItemCount,
-  getMockUnreadCount,
-  MOCK_BADGE_COUNTS,
-} from './activity.mock-data';
+import { ActivityApiService } from './activity-api.service';
 
 /**
  * Activity state management service.
@@ -62,8 +56,7 @@ import {
  */
 @Injectable({ providedIn: 'root' })
 export class ActivityService {
-  // ⚠️ TEMPORARY: API service commented out - using mock data
-  // private readonly api = inject(ActivityApiService);
+  private readonly api = inject(ActivityApiService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ActivityService');
@@ -77,13 +70,23 @@ export class ActivityService {
 
   private readonly _items = signal<ActivityItem[]>([]);
   private readonly _activeTab = signal<ActivityTabId>(ACTIVITY_DEFAULT_TAB);
-  // ⚠️ TEMPORARY: Using mock badge counts
-  private readonly _badges = signal<Record<ActivityTabId, number>>(MOCK_BADGE_COUNTS);
+  private readonly _badges = signal<Record<ActivityTabId, number>>({
+    all: 0,
+    inbox: 0,
+    agent: 0,
+    alerts: 0,
+  });
   private readonly _isLoading = signal(false);
   private readonly _isLoadingMore = signal(false);
   private readonly _isRefreshing = signal(false);
   private readonly _error = signal<string | null>(null);
   private readonly _pagination = signal<ActivityPagination | null>(null);
+
+  /** Per-tab cache: avoids skeleton flash on tab switch */
+  private readonly _tabCache = new Map<
+    ActivityTabId,
+    { items: ActivityItem[]; pagination: ActivityPagination | null }
+  >();
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -128,7 +131,7 @@ export class ActivityService {
   /** Badge counts per tab */
   readonly badges = computed(() => this._badges());
 
-  /** Whether initial load is in progress (includes messages for inbox/all tabs) */
+  /** Whether initial load is in progress (suppressed for cached tabs to avoid skeleton flash) */
   readonly isLoading = computed(() => {
     const tab = this._activeTab();
     if (tab === 'inbox') return this.messagesService.isLoading();
@@ -221,42 +224,48 @@ export class ActivityService {
     });
     await this.breadcrumbs.trackStateChange('activity_load_feed', { tab });
 
-    // Load messages for inbox and all tabs
-    if (tab === 'inbox' || tab === 'all') {
-      this.messagesService.loadConversations();
-    }
+    // TODO: Re-enable when backend /messages routes are ready
+    // if (tab === 'inbox' || tab === 'all') {
+    //   this.messagesService.loadConversations();
+    // }
 
-    // Inbox tab only needs conversations — skip mock activity data
+    // Inbox tab only needs conversations — skip activity API data
     if (tab === 'inbox') {
       this._items.set([]);
       this._pagination.set(null);
       return;
     }
 
-    this._items.set([]);
-    this._isLoading.set(true);
-    this._pagination.set(null);
+    // Restore cached data instantly to avoid skeleton flash on tab switch
+    const cached = this._tabCache.get(tab);
+    if (cached) {
+      this._items.set(cached.items);
+      this._pagination.set(cached.pagination);
+    } else {
+      this._items.set([]);
+      this._isLoading.set(true);
+      this._pagination.set(null);
+    }
 
-    this.logger.debug('Loading activity feed', { tab });
+    this.logger.debug('Loading activity feed', { tab, cached: !!cached });
 
-    // ⚠️ TEMPORARY: Using mock data instead of API call
     try {
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
-      const items = getMockActivityItems(tab, 1, ACTIVITY_PAGINATION_DEFAULTS.pageSize);
-      const total = getMockItemCount(tab);
-      const totalPages = Math.ceil(total / ACTIVITY_PAGINATION_DEFAULTS.pageSize);
-      const hasMore = items.length < total;
-
-      this._items.set(items);
-      this._pagination.set({
+      const response = await this.api.getFeed({
+        tab,
         page: 1,
         limit: ACTIVITY_PAGINATION_DEFAULTS.pageSize,
-        total,
-        totalPages,
-        hasMore,
       });
+
+      const items = response.items ? [...response.items] : [];
+      this._items.set(items);
+      this._pagination.set(response.pagination ?? null);
+
+      // Cache for instant restore on tab switch
+      this._tabCache.set(tab, { items, pagination: response.pagination ?? null });
+
+      if (response.badges) {
+        this._badges.set(response.badges);
+      }
 
       this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
         tab,
@@ -289,25 +298,15 @@ export class ActivityService {
 
     this.logger.debug('Loading more activity items', { tab, page: nextPage });
 
-    // ⚠️ TEMPORARY: Using mock data instead of API call
     try {
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
-      const newItems = getMockActivityItems(tab, nextPage, pagination.limit);
-      const total = getMockItemCount(tab);
-      const allItems = [...this._items(), ...newItems];
-      const totalPages = Math.ceil(total / pagination.limit);
-      const hasMore = allItems.length < total;
-
-      this._items.set(allItems);
-      this._pagination.set({
+      const response = await this.api.getFeed({
+        tab,
         page: nextPage,
         limit: pagination.limit,
-        total,
-        totalPages,
-        hasMore,
       });
+
+      this._items.update((items) => [...items, ...(response.items ?? [])]);
+      this._pagination.set(response.pagination ?? null);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load more';
       this.toast.error(message);
@@ -331,31 +330,27 @@ export class ActivityService {
     this.logger.debug('Refreshing activity feed', { tab });
     await this.breadcrumbs.trackStateChange('activity_refresh_start', { tab });
 
+    // TODO: Re-enable when backend /messages routes are ready
     // For inbox tab — only refresh messages
-    if (tab === 'inbox') {
-      try {
-        await this.messagesService.refresh();
-        await this.haptics.notification('success');
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to refresh';
-        this.toast.error(message);
-        this.logger.error('Failed to refresh messages', err, { tab });
-      } finally {
-        this._isRefreshing.set(false);
-      }
-      return;
-    }
+    // if (tab === 'inbox') {
+    //   try {
+    //     await this.messagesService.refresh();
+    //     await this.haptics.notification('success');
+    //   } catch (err) {
+    //     const message = err instanceof Error ? err.message : 'Failed to refresh';
+    //     this.toast.error(message);
+    //     this.logger.error('Failed to refresh messages', err, { tab });
+    //   } finally {
+    //     this._isRefreshing.set(false);
+    //   }
+    //   return;
+    // }
 
     // For all tab — refresh both in parallel
+    // TODO: Re-enable messagesService.refresh() in Promise.allSettled when backend /messages routes are ready
     if (tab === 'all') {
       try {
-        const [, activityResult] = await Promise.allSettled([
-          this.messagesService.refresh(),
-          this.refreshActivityData(),
-        ]);
-        if (activityResult.status === 'rejected') {
-          throw activityResult.reason;
-        }
+        await this.refreshActivityData();
         this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
           tab,
           action: 'refresh',
@@ -371,25 +366,13 @@ export class ActivityService {
       return;
     }
 
-    // ⚠️ TEMPORARY: Using mock data instead of API call
+    // For other tabs — refresh activity data only
     try {
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const items = getMockActivityItems(tab, 1, ACTIVITY_PAGINATION_DEFAULTS.pageSize);
-      const total = getMockItemCount(tab);
-      const totalPages = Math.ceil(total / ACTIVITY_PAGINATION_DEFAULTS.pageSize);
-      const hasMore = items.length < total;
-
-      this._items.set(items);
-      this._pagination.set({
-        page: 1,
-        limit: ACTIVITY_PAGINATION_DEFAULTS.pageSize,
-        total,
-        totalPages,
-        hasMore,
+      await this.refreshActivityData();
+      this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
+        tab,
+        action: 'refresh',
       });
-
       await this.haptics.notification('success');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to refresh';
@@ -430,21 +413,22 @@ export class ActivityService {
 
     this.logger.debug('Marking items as read', { count: activityIds.length });
 
-    // ⚠️ TEMPORARY: Mock implementation without API call
     try {
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      const response = await this.api.markRead(activityIds);
 
-      // Update badge count
-      const tab = this._activeTab();
-      const newUnreadCount = getMockUnreadCount(tab) - activityIds.length;
-      this._badges.update((badges) => ({
-        ...badges,
-        [tab]: Math.max(0, newUnreadCount),
-      }));
+      // Update badge counts from server response
+      if (response.badges) {
+        this._badges.set(response.badges);
+      } else {
+        const tab = this._activeTab();
+        this._badges.update((badges) => ({
+          ...badges,
+          [tab]: Math.max(0, (badges[tab] ?? 0) - activityIds.length),
+        }));
+      }
 
       this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
-        tab,
+        tab: this._activeTab(),
         action: 'mark_read',
         count: activityIds.length,
       });
@@ -478,16 +462,18 @@ export class ActivityService {
       count: unreadCount,
     });
 
-    // ⚠️ TEMPORARY: Mock implementation without API call
     try {
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      const response = await this.api.markAllRead(tab);
 
-      // Reset badge count for this tab
-      this._badges.update((badges) => ({
-        ...badges,
-        [tab]: 0,
-      }));
+      // Update badge counts from server response
+      if (response.badges) {
+        this._badges.set(response.badges);
+      } else {
+        this._badges.update((badges) => ({
+          ...badges,
+          [tab]: 0,
+        }));
+      }
 
       this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
         tab,
@@ -521,10 +507,8 @@ export class ActivityService {
       tab: this._activeTab(),
     });
 
-    // ⚠️ TEMPORARY: Mock implementation without API call
     try {
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await this.api.archive([id]);
       this.analytics?.trackEvent(APP_EVENTS.TAB_CHANGED, {
         tab: this._activeTab(),
         action: 'archive',
@@ -541,13 +525,16 @@ export class ActivityService {
 
   /**
    * Refresh badge counts from backend.
-   * ⚠️ TEMPORARY: Mock implementation
    */
   async refreshBadges(): Promise<void> {
     this.logger.debug('Refreshing badge counts');
 
-    // Mock implementation - badges are already set from MOCK_BADGE_COUNTS
-    // No backend call needed during development
+    try {
+      const badges = await this.api.getBadges();
+      this._badges.set(badges);
+    } catch (err) {
+      this.logger.error('Failed to refresh badge counts', err);
+    }
   }
 
   /**
@@ -579,25 +566,68 @@ export class ActivityService {
   /**
    * Refresh only the activity data (not messages).
    * Used internally by refresh() for parallel refresh on 'all' tab.
-   * ⚠️ TEMPORARY: Using mock data
    */
   private async refreshActivityData(): Promise<void> {
     const tab = this._activeTab();
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const items = getMockActivityItems(tab, 1, ACTIVITY_PAGINATION_DEFAULTS.pageSize);
-    const total = getMockItemCount(tab);
-    const totalPages = Math.ceil(total / ACTIVITY_PAGINATION_DEFAULTS.pageSize);
-    const hasMore = items.length < total;
-
-    this._items.set(items);
-    this._pagination.set({
+    const response = await this.api.getFeed({
+      tab,
       page: 1,
       limit: ACTIVITY_PAGINATION_DEFAULTS.pageSize,
-      total,
-      totalPages,
-      hasMore,
     });
+
+    this._items.set(response.items ? [...response.items] : []);
+    this._pagination.set(response.pagination ?? null);
+
+    if (response.badges) {
+      this._badges.set(response.badges);
+    }
+  }
+
+  // ============================================
+  // REAL-TIME HELPERS (Push / Foreground Updates)
+  // ============================================
+
+  /**
+   * Prepend a new activity item received in real-time (e.g.,
+   * from a push notification foreground event or a Firestore listener).
+   *
+   * Avoids duplicates by checking the item ID.
+   * Also increments the badge for the item's tab and the 'all' tab.
+   */
+  prependItem(item: ActivityItem): void {
+    // Avoid duplicates
+    const existing = this._items();
+    if (existing.some((i) => i.id === item.id)) return;
+
+    this._items.update((items) => [item, ...items]);
+
+    // Invalidate tab cache so the next tab switch shows fresh data
+    this._tabCache.delete(item.tab);
+    this._tabCache.delete('all');
+
+    // Increment badge for the relevant tab + 'all'
+    if (!item.isRead) {
+      this._badges.update((badges) => ({
+        ...badges,
+        [item.tab]: (badges[item.tab] ?? 0) + 1,
+        all: (badges['all'] ?? 0) + 1,
+      }));
+    }
+
+    this.logger.debug('Prepended real-time activity item', { id: item.id, tab: item.tab });
+  }
+
+  /**
+   * Increment badge count for a specific tab.
+   * Used by PushHandlerService when a foreground push is received
+   * but the full activity item hasn't been fetched yet.
+   */
+  incrementBadge(tab: ActivityTabId = 'agent'): void {
+    this._badges.update((badges) => ({
+      ...badges,
+      [tab]: (badges[tab] ?? 0) + 1,
+      all: (badges['all'] ?? 0) + 1,
+    }));
   }
 }

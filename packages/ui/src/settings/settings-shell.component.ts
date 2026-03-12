@@ -53,11 +53,15 @@ import type {
   SettingsToggleEvent,
   SettingsNavigateEvent,
   SettingsActionEvent,
-  SettingsSelectEvent,
   SettingsCopyEvent,
 } from './settings-item.component';
 import { NxtSectionNavWebComponent } from '../components/section-nav-web';
 import type { SectionNavItem, SectionNavChangeEvent } from '../components/section-nav-web';
+import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
+import {
+  ConnectedAccountsSheetComponent,
+  DEFAULT_PLATFORMS,
+} from '../components/connected-sources';
 import type { SettingsSectionId } from '@nxt1/core';
 
 /**
@@ -112,7 +116,6 @@ export interface SettingsUser {
                   (toggle)="onToggle($event)"
                   (navigate)="onNavigate($event)"
                   (action)="onAction($event)"
-                  (select)="onSelect($event)"
                   (copy)="onCopy($event)"
                 />
               }
@@ -164,7 +167,6 @@ export interface SettingsUser {
                       (toggle)="onToggle($event)"
                       (navigate)="onNavigate($event)"
                       (action)="onAction($event)"
-                      (select)="onSelect($event)"
                       (copy)="onCopy($event)"
                     />
                   }
@@ -298,6 +300,7 @@ export interface SettingsUser {
 export class SettingsShellComponent implements OnInit {
   protected readonly settings = inject(SettingsService);
   private readonly toast = inject(NxtToastService);
+  private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly logger = inject(NxtLoggingService).child('SettingsShellComponent');
   private readonly _activeSection = signal<SettingsSectionId | null>(null);
 
@@ -472,7 +475,7 @@ export class SettingsShellComponent implements OnInit {
         break;
 
       case 'connectedAccounts':
-        this.toast.info('Connected accounts coming soon');
+        await this.openConnectedAccounts();
         break;
 
       default:
@@ -480,19 +483,17 @@ export class SettingsShellComponent implements OnInit {
     }
   }
 
-  protected async onSelect(event: SettingsSelectEvent): Promise<void> {
-    this.logger.debug('Select triggered', {
-      itemId: event.itemId,
-      settingKey: event.settingKey,
-      value: event.value,
-    });
-    // Parent should show picker/action sheet
-    // For now, we'll just log it
-    this.toast.info('Picker selection coming soon');
-  }
-
   protected onCopy(event: SettingsCopyEvent): void {
     this.logger.debug('Value copied', { itemId: event.itemId, value: event.value });
     this.toast.success('Copied to clipboard');
+  }
+
+  private async openConnectedAccounts(): Promise<void> {
+    await this.bottomSheet.openSheet<void>({
+      component: ConnectedAccountsSheetComponent,
+      ...SHEET_PRESETS.FULL,
+      componentProps: { initialSources: DEFAULT_PLATFORMS },
+      showHandle: true,
+    });
   }
 }

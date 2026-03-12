@@ -46,6 +46,7 @@ export type OnboardingStepId =
   | 'school'
   | 'organization'
   | 'sport'
+  | 'select-teams'
   | 'positions'
   | 'contact'
   | 'social'

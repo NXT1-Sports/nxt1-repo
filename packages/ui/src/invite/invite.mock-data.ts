@@ -55,10 +55,6 @@ export const MOCK_INVITE_STATS: InviteStats = {
   totalSent: 23,
   accepted: 12,
   pending: 8,
-  totalXp: 1250,
-  tier: MOCK_TIERS[2], // Networker
-  tierProgress: 53,
-  invitesToNextTier: 7,
   streakDays: 5,
   bestStreak: 14,
   weeklyCount: 8,

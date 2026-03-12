@@ -21,7 +21,11 @@
 // COMPONENTS
 // ============================================
 
-export { InviteShellComponent, type InviteUser } from './invite-shell.component';
+export {
+  InviteShellComponent,
+  type InviteUser,
+  type InviteRecipientType,
+} from './invite-shell.component';
 export { InviteStatsCardComponent } from './invite-stats-card.component';
 export { InviteChannelGridComponent } from './invite-channel-grid.component';
 export { InviteQrCodeComponent } from './invite-qr-code.component';
@@ -34,6 +38,7 @@ export { InviteSkeletonComponent } from './invite-skeleton.component';
 // ============================================
 
 export { InviteService } from './invite.service';
+export { InviteApiService, INVITE_API_BASE_URL } from './invite-api.service';
 export {
   InviteBottomSheetService,
   InviteModalComponent,

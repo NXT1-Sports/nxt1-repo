@@ -1,11 +1,5 @@
 import { Component, ChangeDetectionStrategy, computed, inject, OnInit } from '@angular/core';
-import {
-  IonHeader,
-  IonContent,
-  IonToolbar,
-  NavController,
-  AlertController,
-} from '@ionic/angular/standalone';
+import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import type { SettingsSection } from '@nxt1/core';
 import {
   NxtPageHeaderComponent,
@@ -95,7 +89,6 @@ export class AccountInformationComponent implements OnInit {
   private readonly authService = inject(AuthFlowService);
   private readonly navController = inject(NavController);
   private readonly bottomSheet = inject(NxtBottomSheetService);
-  private readonly alertController = inject(AlertController);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('AccountInformationComponent');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
@@ -216,53 +209,16 @@ export class AccountInformationComponent implements OnInit {
           title: 'Delete Account',
           subtitle:
             'This action cannot be undone. All your data will be permanently deleted. Are you sure you want to continue?',
+          ...SHEET_PRESETS.COMPACT,
+          actionsLayout: 'horizontal',
           destructive: true,
           actions: [
-            { label: 'Delete My Account', role: 'destructive' },
             { label: 'Cancel', role: 'cancel' },
+            { label: 'Delete My Account', role: 'destructive' },
           ],
         });
 
         if (!confirm.confirmed) return;
-
-        // If email/password account, require password re-authentication
-        const currentUser = this.authService.user();
-        if (currentUser?.email) {
-          const passwordAlert = await this.alertController.create({
-            header: 'Confirm Identity',
-            message: `Enter your password for ${currentUser.email} to confirm account deletion.`,
-            inputs: [
-              {
-                name: 'password',
-                type: 'password',
-                placeholder: 'Password',
-              },
-            ],
-            buttons: [
-              { text: 'Cancel', role: 'cancel' },
-              { text: 'Confirm', role: 'destructive' },
-            ],
-          });
-
-          await passwordAlert.present();
-          const { role, data } = await passwordAlert.onDidDismiss<{
-            values: { password: string };
-          }>();
-
-          if (role === 'cancel' || role === 'backdrop') return;
-
-          const password = data?.values?.password?.trim() ?? '';
-          if (!password) {
-            this.toast.error('Password is required to delete your account.');
-            return;
-          }
-
-          const reauthed = await this.authService.reauthenticateWithPassword(password);
-          if (!reauthed) {
-            this.toast.error('Incorrect password. Please try again.');
-            return;
-          }
-        }
 
         this.logger.info('Delete account requested from account information');
         this.breadcrumb.trackUserAction('delete-account-requested');

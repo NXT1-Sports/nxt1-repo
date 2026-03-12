@@ -43,7 +43,6 @@ import {
   type SettingsToggleEvent,
   type SettingsNavigateEvent,
   type SettingsActionEvent,
-  type SettingsSelectEvent,
   type SettingsCopyEvent,
 } from './settings-item.component';
 import { HapticsService } from '../services/haptics/haptics.service';
@@ -114,7 +113,6 @@ export interface SettingsSectionToggleEvent {
             (toggle)="onItemToggle($event)"
             (navigate)="onItemNavigate($event)"
             (action)="onItemAction($event)"
-            (select)="onItemSelect($event)"
             (copy)="onItemCopy($event)"
           />
         }
@@ -309,9 +307,6 @@ export class SettingsSectionComponent {
   /** Emitted when an action item is clicked */
   readonly action = output<SettingsActionEvent>();
 
-  /** Emitted when a select item needs picker */
-  readonly select = output<SettingsSelectEvent>();
-
   /** Emitted when copy button is clicked */
   readonly copy = output<SettingsCopyEvent>();
 
@@ -365,10 +360,6 @@ export class SettingsSectionComponent {
 
   protected onItemAction(event: SettingsActionEvent): void {
     this.action.emit(event);
-  }
-
-  protected onItemSelect(event: SettingsSelectEvent): void {
-    this.select.emit(event);
   }
 
   protected onItemCopy(event: SettingsCopyEvent): void {

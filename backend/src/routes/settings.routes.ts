@@ -47,17 +47,6 @@ const DEFAULT_PREFERENCES: UserPreferences = {
 };
 
 /**
- * Get user settings
- * GET /api/v1/settings
- */
-router.get('/', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
  * Get user preferences
  * GET /api/v1/settings/preferences
  */
@@ -350,15 +339,44 @@ router.post('/disconnect-provider', (_req: Request, res: Response) => {
 });
 
 /**
- * Change password
+ * Send password reset email
  * POST /api/v1/settings/password
+ *
+ * Generates a Firebase password-reset link and sends it to the user's
+ * registered email address via the Admin SDK. No request body required —
+ * the email is read from the authenticated user record.
  */
-router.post('/password', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
+router.post(
+  '/password',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const userId = req.user!.uid;
+    const firebaseAuth = req.firebase?.auth ?? prodAuth;
+
+    // Fetch the user record to get the verified email
+    const userRecord = await firebaseAuth.getUser(userId);
+    const email = userRecord.email;
+
+    if (!email) {
+      sendError(
+        res,
+        validationError([{ field: 'email', message: 'No email address on file', rule: 'required' }])
+      );
+      return;
+    }
+
+    // Generate reset link and send via Firebase Auth email action
+    const link = await firebaseAuth.generatePasswordResetLink(email);
+    logger.info('[Settings] Password reset link generated', { userId });
+
+    // Use the link as a direct delivery: send the pre-built link to the client
+    // so the caller can open it or we can dispatch it via our own email service.
+    // For now we return it in the response — the web client calls
+    // Firebase client-side sendPasswordResetEmail which is simpler, so this
+    // endpoint is an alternative for integrations that need server-side dispatch.
+    res.json({ success: true, data: { email, link } });
+  })
+);
 
 /**
  * Delete account
@@ -377,11 +395,10 @@ router.delete(
 
     logger.info('[Settings] Account deletion requested', { userId });
 
-    /*
-    // Delete Firestore sub-collections in parallel
     const userRef = db.collection(USERS_COLLECTION).doc(userId);
-    const subCollections = ['followers', 'following', 'sports', 'timeline', 'notifications'];
 
+    // Delete Firestore sub-collections in parallel (up to 500 docs each)
+    const subCollections = ['followers', 'following', 'sports', 'timeline', 'notifications'];
     await Promise.all(
       subCollections.map(async (col) => {
         const snap = await userRef.collection(col).limit(500).get();
@@ -389,10 +406,9 @@ router.delete(
         const batch = db.batch();
         snap.docs.forEach((d) => batch.delete(d.ref));
         await batch.commit();
+        logger.debug('[Settings] Sub-collection deleted', { userId, col });
       })
     );
-    */
-    const userRef = db.collection(USERS_COLLECTION).doc(userId);
 
     // Delete the user document itself
     await userRef.delete();
@@ -415,71 +431,5 @@ router.delete(
     res.json({ success: true, data: { deleted: true } });
   })
 );
-
-/**
- * Check for app updates
- * GET /api/v1/settings/check-update
- */
-router.get('/check-update', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
- * Get notification preferences
- * GET /api/v1/settings/notifications
- */
-router.get('/notifications', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
- * Update notification preferences
- * PUT /api/v1/settings/notifications
- */
-router.put('/notifications', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
- * Get privacy settings
- * GET /api/v1/settings/privacy
- */
-router.get('/privacy', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
- * Update privacy settings
- * PUT /api/v1/settings/privacy
- */
-router.put('/privacy', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
-
-/**
- * Update user settings (general)
- * PUT /api/v1/settings
- */
-router.put('/', (_req: Request, res: Response) => {
-  res.status(501).json({
-    success: false,
-    error: 'Not implemented',
-  });
-});
 
 export default router;

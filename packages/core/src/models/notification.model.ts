@@ -372,3 +372,54 @@ export interface UpdateNotificationSettingsRequest {
     timezone: string;
   };
 }
+
+// ============================================
+// DISPATCH INPUT (Backend → Unified Push Queue)
+// ============================================
+
+/**
+ * Universal input for the backend's `NotificationService.dispatch()`.
+ *
+ * Every feature (Agent, Social, Billing, Team, etc.) calls the same
+ * `dispatch()` method with this shape. The service atomically writes
+ * the activity feed doc and the push queue doc in a single batch.
+ *
+ * 100% portable — used by backend services and Cloud Functions only,
+ * but defined in @nxt1/core so the contract is shared everywhere.
+ */
+export interface DispatchNotificationInput {
+  /** Target user ID */
+  readonly userId: string;
+
+  /** Notification type (determines category, tab, and default priority) */
+  readonly type: NotificationType;
+
+  /** Human-readable title (≤65 chars recommended) */
+  readonly title: string;
+
+  /** Body/message text (≤240 chars recommended) */
+  readonly body: string;
+
+  /** Deep link route for mobile navigation (e.g. `/activity/agent`) */
+  readonly deepLink?: string;
+
+  /** Custom data payload forwarded to FCM (all values must be strings) */
+  readonly data?: Record<string, string>;
+
+  /** Override priority (otherwise derived from type via isHighPriorityNotification) */
+  readonly priority?: NotificationPriority;
+
+  /** Activity source (who/what triggered this) */
+  readonly source?: {
+    readonly userName?: string;
+    readonly userId?: string;
+    readonly avatarUrl?: string;
+    readonly teamName?: string;
+  };
+
+  /** Free-form metadata persisted on the activity doc */
+  readonly metadata?: Record<string, unknown>;
+
+  /** Skip writing an activity feed doc (push-only, e.g. ephemeral alerts) */
+  readonly skipActivity?: boolean;
+}

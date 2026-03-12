@@ -46,21 +46,34 @@ import {
   sparklesOutline,
   alertCircleOutline,
   refreshOutline,
+  chevronForward,
 } from 'ionicons/icons';
 import {
   type ActivityItem,
   type ActivityTabId,
+  type ConnectedEmail,
   ACTIVITY_EMPTY_STATES,
   ACTIVITY_UI_CONFIG,
+  INBOX_EMAIL_PROVIDERS,
+  type InboxEmailProvider,
 } from '@nxt1/core';
+import { NxtIconComponent } from '../components/icon';
 import { ActivityItemComponent } from './activity-item.component';
 import { ActivitySkeletonComponent } from './activity-skeleton.component';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-logo.constants';
 
 // Register icons
 @Component({
   selector: 'nxt1-activity-list',
   standalone: true,
-  imports: [CommonModule, IonIcon, IonSpinner, ActivityItemComponent, ActivitySkeletonComponent],
+  imports: [
+    CommonModule,
+    IonIcon,
+    IonSpinner,
+    NxtIconComponent,
+    ActivityItemComponent,
+    ActivitySkeletonComponent,
+  ],
   template: `
     <div class="activity-list">
       <!-- Loading State: Skeletons -->
@@ -91,7 +104,24 @@ import { ActivitySkeletonComponent } from './activity-skeleton.component';
       @else if (isEmpty()) {
         <div class="activity-list__empty">
           <div class="activity-list__empty-icon">
-            <ion-icon [name]="emptyState().icon"></ion-icon>
+            @if (isAgentTab()) {
+              <svg
+                class="activity-list__agent-logo"
+                viewBox="0 0 612 792"
+                width="48"
+                height="48"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="10"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path [attr.d]="agentXLogoPath" />
+                <polygon [attr.points]="agentXLogoPolygon" />
+              </svg>
+            } @else {
+              <ion-icon [name]="emptyState().icon"></ion-icon>
+            }
           </div>
           <h3 class="activity-list__empty-title">{{ emptyState().title }}</h3>
           <p class="activity-list__empty-message">{{ emptyState().message }}</p>
@@ -99,6 +129,43 @@ import { ActivitySkeletonComponent } from './activity-skeleton.component';
             <button type="button" class="activity-list__empty-action" (click)="emptyCta.emit()">
               {{ emptyState().ctaLabel }}
             </button>
+          }
+
+          <!-- Inbox: Connect Email Sources -->
+          @if (isInboxTab() && !hasConnectedEmails()) {
+            <div class="activity-list__connect-sources">
+              <h4 class="activity-list__connect-title">Connect your email</h4>
+              <p class="activity-list__connect-subtitle">Sync messages from your email accounts</p>
+              <div class="activity-list__provider-list">
+                @for (provider of emailProviders; track provider.id) {
+                  <button
+                    type="button"
+                    class="activity-list__provider-card"
+                    [class.activity-list__provider-card--connected]="
+                      isProviderConnected(provider.id)
+                    "
+                    (click)="onConnectProvider(provider)"
+                  >
+                    <nxt1-icon [name]="provider.icon" [size]="24" />
+                    <div class="activity-list__provider-info">
+                      <span class="activity-list__provider-name">{{ provider.name }}</span>
+                      <span class="activity-list__provider-desc">{{ provider.description }}</span>
+                    </div>
+                    @if (isProviderConnected(provider.id)) {
+                      <ion-icon
+                        name="checkmark-circle-outline"
+                        class="activity-list__provider-check"
+                      ></ion-icon>
+                    } @else {
+                      <ion-icon
+                        name="chevron-forward"
+                        class="activity-list__provider-arrow"
+                      ></ion-icon>
+                    }
+                  </button>
+                }
+              </div>
+            </div>
           }
         </div>
       }
@@ -193,6 +260,11 @@ import { ActivitySkeletonComponent } from './activity-skeleton.component';
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
       }
 
+      .activity-list__agent-logo {
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
+        display: block;
+      }
+
       .activity-list__empty-title {
         font-size: 18px;
         font-weight: 600;
@@ -221,6 +293,103 @@ import { ActivitySkeletonComponent } from './activity-skeleton.component';
 
       .activity-list__empty-action:hover {
         background: var(--nxt1-color-primaryDark, #a3cc00);
+      }
+
+      /* ============================================
+       CONNECT EMAIL SOURCES (Inbox Empty State)
+       ============================================ */
+
+      .activity-list__connect-sources {
+        width: 100%;
+        max-width: 360px;
+        margin-top: 28px;
+        padding-top: 24px;
+        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+      }
+
+      .activity-list__connect-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        margin: 0 0 4px;
+        text-align: center;
+      }
+
+      .activity-list__connect-subtitle {
+        font-size: 13px;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
+        margin: 0 0 16px;
+        text-align: center;
+      }
+
+      .activity-list__provider-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .activity-list__provider-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        padding: 14px 16px;
+        border-radius: 12px;
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        cursor: pointer;
+        transition: all 0.15s ease;
+        text-align: left;
+        color: inherit;
+        font-family: inherit;
+      }
+
+      .activity-list__provider-card:hover {
+        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
+        border-color: var(--nxt1-color-border-primary, rgba(204, 255, 0, 0.2));
+      }
+
+      .activity-list__provider-card--connected {
+        border-color: var(--nxt1-color-success, #22c55e);
+        opacity: 0.7;
+        cursor: default;
+      }
+
+      .activity-list__provider-card--connected:hover {
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        border-color: var(--nxt1-color-success, #22c55e);
+      }
+
+      .activity-list__provider-info {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .activity-list__provider-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        line-height: 1.3;
+      }
+
+      .activity-list__provider-desc {
+        font-size: 12px;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
+        line-height: 1.3;
+      }
+
+      .activity-list__provider-check {
+        font-size: 20px;
+        color: var(--nxt1-color-success, #22c55e);
+        flex-shrink: 0;
+      }
+
+      .activity-list__provider-arrow {
+        font-size: 18px;
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
+        flex-shrink: 0;
       }
 
       /* ============================================
@@ -330,6 +499,7 @@ export class ActivityListComponent {
       sparklesOutline,
       alertCircleOutline,
       refreshOutline,
+      chevronForward,
     });
   }
 
@@ -358,6 +528,9 @@ export class ActivityListComponent {
   /** Current active tab (for empty state) */
   readonly activeTab = input<ActivityTabId>('all');
 
+  /** Connected email accounts (for inbox empty state) */
+  readonly connectedEmails = input<readonly ConnectedEmail[]>([]);
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -383,6 +556,9 @@ export class ActivityListComponent {
   /** Emitted when an item should be archived */
   readonly archive = output<string>();
 
+  /** Emitted when a user wants to connect an email provider */
+  readonly connectProvider = output<InboxEmailProvider>();
+
   // ============================================
   // COMPUTED
   // ============================================
@@ -398,4 +574,36 @@ export class ActivityListComponent {
     const tab = this.activeTab();
     return ACTIVITY_EMPTY_STATES[tab] ?? ACTIVITY_EMPTY_STATES.all;
   });
+
+  /** Whether the active tab is the Agent X tab */
+  protected readonly isAgentTab = computed(() => this.activeTab() === 'agent');
+
+  /** Whether the active tab is the Inbox tab */
+  protected readonly isInboxTab = computed(() => this.activeTab() === 'inbox');
+
+  /** Whether any email accounts are connected */
+  protected readonly hasConnectedEmails = computed(() => this.connectedEmails().length > 0);
+
+  /** Agent X logo SVG data */
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
+
+  /** Available email providers */
+  protected readonly emailProviders = INBOX_EMAIL_PROVIDERS;
+
+  // ============================================
+  // METHODS
+  // ============================================
+
+  /** Check if a specific email provider is already connected */
+  protected isProviderConnected(providerId: string): boolean {
+    return this.connectedEmails().some((e) => e.provider === providerId && e.isActive);
+  }
+
+  /** Handle connect provider button click */
+  protected onConnectProvider(provider: InboxEmailProvider): void {
+    if (!this.isProviderConnected(provider.id)) {
+      this.connectProvider.emit(provider);
+    }
+  }
 }

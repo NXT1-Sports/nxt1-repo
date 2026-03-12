@@ -16,15 +16,13 @@ import {
   type Message,
   type ConversationParticipant,
   type MessagesPagination,
-  MESSAGES_PAGINATION_DEFAULTS,
   MESSAGES_UI_CONFIG,
 } from '@nxt1/core';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { MessagesService } from '../messages.service';
-// ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
-import { getMockThreadMessages, MOCK_CONVERSATIONS } from '../messages.mock-data';
+import { MessagesApiService } from '../messages-api.service';
 
 /**
  * Conversation thread state management service.
@@ -32,6 +30,7 @@ import { getMockThreadMessages, MOCK_CONVERSATIONS } from '../messages.mock-data
  */
 @Injectable({ providedIn: 'root' })
 export class ConversationService {
+  private readonly api = inject(MessagesApiService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ConversationService');
@@ -185,45 +184,31 @@ export class ConversationService {
     this._typingUsers.set([]);
 
     try {
-      // ⚠️ TEMPORARY: Simulate network delay
-      await this.simulateDelay(500);
+      const result = await this.api.getThread(conversationId);
 
-      // ⚠️ TEMPORARY: Find conversation from mock data
-      const conversation = MOCK_CONVERSATIONS.find((c) => c.id === conversationId) ?? null;
-
-      if (!conversation) {
-        this._error.set('Conversation not found');
+      if (!result.success) {
+        this._error.set(result.error ?? 'Conversation not found');
         this.logger.warn('Conversation not found', { conversationId });
         return;
       }
 
-      this._conversation.set(conversation);
-
-      // Load thread messages
-      const messages = getMockThreadMessages(conversationId);
-      this._messages.set(messages);
-
-      this._pagination.set({
-        page: 1,
-        limit: MESSAGES_PAGINATION_DEFAULTS.messagesPageSize,
-        total: messages.length,
-        totalPages: 1,
-        hasMore: false, // Mock data has no pagination
-      });
+      this._conversation.set(result.conversation);
+      this._messages.set([...(result.messages as Message[])]);
+      this._pagination.set(result.pagination);
 
       // Mark conversation as read
-      if (conversation.unreadCount > 0) {
+      if (result.conversation.unreadCount > 0) {
         await this.messagesService.markAsRead(conversationId);
       }
 
-      this.logger.debug('Conversation opened', {
+      this.logger.info('Conversation opened', {
         conversationId,
-        messageCount: messages.length,
+        messageCount: result.messages.length,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load conversation';
       this._error.set(message);
-      this.logger.error('Failed to open conversation', { error: message });
+      this.logger.error('Failed to open conversation', err);
     } finally {
       this._isLoading.set(false);
     }
@@ -234,19 +219,24 @@ export class ConversationService {
    */
   async loadMore(): Promise<void> {
     const pagination = this._pagination();
-    if (!pagination?.hasMore || this._isLoadingMore()) return;
+    const conversation = this._conversation();
+    if (!pagination?.hasMore || this._isLoadingMore() || !conversation) return;
 
     this._isLoadingMore.set(true);
 
     try {
-      // ⚠️ TEMPORARY: Simulate delay — no real pagination in mock data
-      await this.simulateDelay(400);
+      const nextPage = pagination.page + 1;
+      const result = await this.api.getThread(conversation.id, nextPage);
 
-      this.logger.debug('Loaded older messages');
+      // Prepend older messages
+      this._messages.update((msgs) => [...(result.messages as Message[]), ...msgs]);
+      this._pagination.set(result.pagination);
+
+      this.logger.info('Loaded older messages', { page: nextPage });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load older messages';
       this.toast.error(message);
-      this.logger.error('Failed to load more', { error: message });
+      this.logger.error('Failed to load more', err);
     } finally {
       this._isLoadingMore.set(false);
     }
@@ -302,14 +292,15 @@ export class ConversationService {
     this._replyTo.set(null);
 
     try {
-      // ⚠️ TEMPORARY: Simulate network delay
-      await this.simulateDelay(600);
+      const sentMessage = await this.api.sendMessage({
+        conversationId: conversation.id,
+        body: trimmed,
+        replyToId: this._replyTo()?.id,
+      });
 
-      // Update message status to sent
+      // Replace optimistic message with server response
       this._messages.update((msgs) =>
-        msgs.map((m) =>
-          m.id === tempId ? { ...m, id: `msg-${Date.now()}`, status: 'sent' as const } : m
-        )
+        msgs.map((m) => (m.id === tempId ? { ...sentMessage, isOwn: true } : m))
       );
 
       await this.haptics.notification('success');
@@ -421,10 +412,5 @@ export class ConversationService {
       day: 'numeric',
       year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined,
     });
-  }
-
-  /** Simulate network delay for mock data. */
-  private simulateDelay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

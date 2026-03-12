@@ -43,6 +43,8 @@ import { OpenRouterService } from '../modules/agent/llm/openrouter.service.js';
 import { AgentRouter } from '../modules/agent/agent.router.js';
 import { ToolRegistry } from '../modules/agent/tools/tool-registry.js';
 import { ContextBuilder } from '../modules/agent/memory/context-builder.js';
+import { logAgentTaskCompletion } from '../services/agent-activity.service.js';
+import { logger } from '../utils/logger.js';
 
 // Import coordinators
 import { GeneralAgent } from '../modules/agent/agents/general.agent.js';
@@ -85,13 +87,31 @@ function getRouter(): AgentRouter {
 /**
  * Process a single agent job.
  * Called by the queue consumer for each dequeued job.
+ *
+ * On successful completion, writes an activity item and triggers
+ * a push notification via the onNotificationCreated Cloud Function.
  */
 export async function processAgentJob(
   payload: AgentJobPayload,
   onUpdate?: (update: AgentJobUpdate) => void
 ): Promise<AgentOperationResult> {
   const agentRouter = getRouter();
-  return agentRouter.run(payload, onUpdate);
+  const result = await agentRouter.run(payload, onUpdate);
+
+  // Notify the user via activity feed + push notification
+  try {
+    const { getFirestore } = await import('firebase-admin/firestore');
+    await logAgentTaskCompletion(getFirestore(), {
+      userId: payload.userId,
+      job: payload,
+      result,
+    });
+  } catch (notifyErr) {
+    // Notification failure must never fail the job itself
+    logger.error('[AgentWorker] Failed to log activity/notification', { error: notifyErr });
+  }
+
+  return result;
 }
 
 /**

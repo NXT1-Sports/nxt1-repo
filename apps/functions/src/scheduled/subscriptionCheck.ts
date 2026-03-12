@@ -48,10 +48,16 @@ export const subscriptionCheck = onSchedule(
         await db.collection('notifications').add({
           userId: subscriptionUserId,
           type: 'subscription_expiring',
+          category: 'billing',
+          priority: 'high',
           title: 'Subscription Expiring Soon',
           body: 'Your subscription will expire in less than an hour. Renew now to keep access.',
-          data: { subscriptionId: doc.id },
-          read: false,
+          data: {
+            type: 'subscription_expiring',
+            subscriptionId: doc.id,
+            deepLink: '/settings/subscription',
+          },
+          status: 'pending',
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
       }

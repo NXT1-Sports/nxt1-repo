@@ -38,14 +38,12 @@ import {
   type MessagesPagination,
   MESSAGES_DEFAULT_FILTER,
   MESSAGES_FILTERS,
-  MESSAGES_PAGINATION_DEFAULTS,
   MESSAGES_SEARCH_CONFIG,
 } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
-// ⚠️ TEMPORARY: Mock data for development (remove when backend is ready)
-import { getMockConversations, getMockUnreadCount, getMockFilterCount } from './messages.mock-data';
+import { MessagesApiService } from './messages-api.service';
 
 /**
  * Messages state management service.
@@ -53,8 +51,7 @@ import { getMockConversations, getMockUnreadCount, getMockFilterCount } from './
  */
 @Injectable({ providedIn: 'root' })
 export class MessagesService {
-  // ⚠️ TEMPORARY: API service commented out — using mock data
-  // private readonly api = inject(MessagesApiService);
+  private readonly api = inject(MessagesApiService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('MessagesService');
@@ -71,7 +68,7 @@ export class MessagesService {
   private readonly _isRefreshing = signal(false);
   private readonly _error = signal<string | null>(null);
   private readonly _pagination = signal<MessagesPagination | null>(null);
-  private readonly _totalUnreadCount = signal(getMockUnreadCount());
+  private readonly _totalUnreadCount = signal(0);
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -119,7 +116,7 @@ export class MessagesService {
   readonly filtersWithCounts = computed(() =>
     MESSAGES_FILTERS.map((filter) => ({
       ...filter,
-      count: filter.id === 'unread' ? getMockFilterCount('unread') : undefined,
+      count: filter.id === 'unread' ? this._totalUnreadCount() : undefined,
     }))
   );
 
@@ -147,35 +144,28 @@ export class MessagesService {
     this._error.set(null);
 
     try {
-      // ⚠️ TEMPORARY: Simulate network delay
-      await this.simulateDelay(400);
-
-      const result = getMockConversations(
+      const result = await this.api.getConversations(
         activeFilter,
-        this._searchQuery(),
         1,
-        MESSAGES_PAGINATION_DEFAULTS.conversationsPageSize
+        this._searchQuery() || undefined
       );
 
-      this._conversations.set(result.conversations);
-      this._totalUnreadCount.set(getMockUnreadCount());
-      this._pagination.set({
-        page: 1,
-        limit: MESSAGES_PAGINATION_DEFAULTS.conversationsPageSize,
-        total: result.total,
-        totalPages: Math.ceil(result.total / MESSAGES_PAGINATION_DEFAULTS.conversationsPageSize),
-        hasMore: result.hasMore,
-      });
+      this._conversations.set([...(result.conversations as Conversation[])]);
+      this._pagination.set(result.pagination);
 
-      this.logger.debug('Conversations loaded', {
+      // Refresh unread count
+      const unreadCount = await this.api.getUnreadCount();
+      this._totalUnreadCount.set(unreadCount);
+
+      this.logger.info('Conversations loaded', {
         filter: activeFilter,
         count: result.conversations.length,
-        total: result.total,
+        total: result.pagination.total,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load conversations';
       this._error.set(message);
-      this.logger.error('Failed to load conversations', { error: message });
+      this.logger.error('Failed to load conversations', err);
     } finally {
       this._isLoading.set(false);
     }
@@ -193,30 +183,23 @@ export class MessagesService {
     try {
       const nextPage = pagination.page + 1;
 
-      // ⚠️ TEMPORARY: Simulate network delay
-      await this.simulateDelay(300);
-
-      const result = getMockConversations(
+      const result = await this.api.getConversations(
         this._activeFilter(),
-        this._searchQuery(),
         nextPage,
-        MESSAGES_PAGINATION_DEFAULTS.conversationsPageSize
+        this._searchQuery() || undefined
       );
 
-      this._conversations.update((current) => [...current, ...result.conversations]);
-      this._pagination.set({
-        page: nextPage,
-        limit: MESSAGES_PAGINATION_DEFAULTS.conversationsPageSize,
-        total: result.total,
-        totalPages: Math.ceil(result.total / MESSAGES_PAGINATION_DEFAULTS.conversationsPageSize),
-        hasMore: result.hasMore,
-      });
+      this._conversations.update((current) => [
+        ...current,
+        ...(result.conversations as Conversation[]),
+      ]);
+      this._pagination.set(result.pagination);
 
-      this.logger.debug('More conversations loaded', { page: nextPage });
+      this.logger.info('More conversations loaded', { page: nextPage });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load more conversations';
       this.toast.error(message);
-      this.logger.error('Failed to load more', { error: message });
+      this.logger.error('Failed to load more', err);
     } finally {
       this._isLoadingMore.set(false);
     }
@@ -286,9 +269,8 @@ export class MessagesService {
     }
 
     try {
-      // ⚠️ TEMPORARY: No backend call yet
-      await this.simulateDelay(100);
-      this.logger.debug('Conversation marked as read', { conversationId });
+      await this.api.markAsRead(conversationId);
+      this.logger.info('Conversation marked as read', { conversationId });
     } catch {
       // Rollback on failure
       this._conversations.set(previous);
@@ -311,11 +293,10 @@ export class MessagesService {
     }
 
     try {
-      // ⚠️ TEMPORARY: No backend call yet
-      await this.simulateDelay(200);
+      await this.api.archiveConversation(conversationId);
       await this.haptics.notification('success');
       this.toast.success('Conversation archived');
-      this.logger.debug('Conversation archived', { conversationId });
+      this.logger.info('Conversation archived', { conversationId });
     } catch {
       this._conversations.set(previous);
       this.toast.error('Failed to archive conversation');
@@ -336,11 +317,10 @@ export class MessagesService {
     }
 
     try {
-      // ⚠️ TEMPORARY: No backend call yet
-      await this.simulateDelay(200);
+      await this.api.deleteConversation(conversationId);
       await this.haptics.notification('success');
       this.toast.success('Conversation deleted');
-      this.logger.debug('Conversation deleted', { conversationId });
+      this.logger.info('Conversation deleted', { conversationId });
     } catch {
       this._conversations.set(previous);
       this.toast.error('Failed to delete conversation');
@@ -352,14 +332,5 @@ export class MessagesService {
    */
   clearError(): void {
     this._error.set(null);
-  }
-
-  // ============================================
-  // PRIVATE HELPERS
-  // ============================================
-
-  /** Simulate network delay for mock data. */
-  private simulateDelay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

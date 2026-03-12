@@ -1,4 +1,13 @@
-import { Component, ChangeDetectionStrategy, computed, inject, OnInit } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  computed,
+  inject,
+  OnInit,
+  signal,
+  PLATFORM_ID,
+} from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { Router } from '@angular/router';
 import type { SettingsSection } from '@nxt1/core';
 import {
@@ -71,6 +80,9 @@ export class AccountInformationComponent implements OnInit {
   private readonly analytics: AnalyticsAdapter | null =
     inject(ANALYTICS_ADAPTER, { optional: true }) ?? null;
   private readonly seo = inject(SeoService);
+  private readonly platformId = inject(PLATFORM_ID);
+
+  protected readonly isDeleting = signal(false);
 
   protected readonly isAuthLoading = computed(
     () => !this.authService.isInitialized() || this.authService.isLoading()
@@ -197,39 +209,7 @@ export class AccountInformationComponent implements OnInit {
 
         if (!confirm.confirmed) return;
 
-        // Re-auth required for email/password accounts
-        const currentUser = this.authService.user();
-        if (currentUser?.email) {
-          const password = window.prompt(
-            `Enter your password for ${currentUser.email} to confirm account deletion:`
-          );
-
-          if (password === null) return; // user cancelled
-
-          if (!password.trim()) {
-            this.toast.error('Password is required to delete your account.');
-            return;
-          }
-
-          const reauthed = await this.authService.reauthenticateWithPassword(password.trim());
-          if (!reauthed) {
-            this.toast.error('Incorrect password. Please try again.');
-            return;
-          }
-        }
-
-        this.logger.info('Delete account requested from account information');
-        this.breadcrumb.trackUserAction('delete-account-requested');
-
-        const result = await this.authService.deleteAccount();
-
-        if (result.success) {
-          this.logger.info('Account deleted — redirecting to auth');
-          this.router.navigateByUrl('/auth');
-        } else {
-          this.logger.error('Account deletion failed', result.error);
-          this.toast.error(`Failed to delete account: ${result.error ?? 'Unknown error'}`);
-        }
+        await this._executeDeleteAccount();
         return;
       }
 
@@ -245,5 +225,28 @@ export class AccountInformationComponent implements OnInit {
 
   protected onBack(): void {
     this.router.navigateByUrl('/settings');
+  }
+
+  private async _executeDeleteAccount(): Promise<void> {
+    this.isDeleting.set(true);
+    this.logger.info('Executing account deletion');
+    this.breadcrumb.trackUserAction('delete-account-confirmed');
+
+    try {
+      const result = await this.authService.deleteAccount();
+
+      if (result.success) {
+        this.logger.info('Account deleted — redirecting to auth');
+        this.router.navigateByUrl('/auth');
+      } else {
+        this.logger.error('Account deletion failed', result.error);
+        this.toast.error(`Failed to delete account: ${result.error ?? 'Unknown error'}`);
+      }
+    } catch (err) {
+      this.logger.error('Account deletion threw', err);
+      this.toast.error('Failed to delete account. Please try again.');
+    } finally {
+      this.isDeleting.set(false);
+    }
   }
 }

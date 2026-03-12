@@ -10,12 +10,11 @@
  *
  * Layout (top → bottom):
  * 1. Page Header — Agent X logo centered (no text title)
- * 2. Active Operations — Horizontal WIP task cards (conditional)
- * 3. Daily Briefing — Proactive AI insights card
- * 4. Weekly Playbook — Collapsible weekly timeline
- * 5. Quick Commands — Utility action pills
- * 6. Activity Log — Operation records and context
- * 7. Input Bar — Fixed above footer (already exists)
+ * 2. Daily Briefing — Proactive AI insights card
+ * 3. Coordinators — 2×2 grid of virtual staff cards (Recruiting, Media, Scout, Academics)
+ * 4. Weekly Playbook — Always visible (with "Need a Game Plan" state if no goals)
+ * 5. Daily Operations — Active background task cards (conditional)
+ * 6. Input Bar — Fixed above footer (already exists)
  *
  * @example
  * ```html
@@ -208,27 +207,22 @@ export interface WeeklyPlaybookItem {
               }
             </div>
 
-            <!-- ═══ 2. QUICK COMMANDS — Category Pills ═══ -->
-            <section class="commands-section" aria-label="Quick commands">
-              <h3 class="section-title">Quick Commands</h3>
-              <div class="cmd-categories">
+            <!-- ═══ 2. COORDINATORS (2×2 Grid) ═══ -->
+            <section class="coordinators-section" aria-label="Coordinators">
+              <h3 class="section-title">Coordinators</h3>
+              <div class="coordinators-grid">
                 @for (cat of commandCategories(); track cat.id) {
-                  <button type="button" class="cmd-category-pill" (click)="onCategoryTap(cat)">
-                    <div class="cmd-category-pill-icon">
-                      <nxt1-icon [name]="cat.icon" [size]="14" />
+                  <button type="button" class="coordinator-card" (click)="onCategoryTap(cat)">
+                    <div class="coordinator-card-icon">
+                      <nxt1-icon [name]="cat.icon" [size]="18" />
                     </div>
-                    <span>{{ cat.label }}</span>
-                    <nxt1-icon
-                      name="chevronForward"
-                      [size]="10"
-                      className="cmd-category-pill-arrow"
-                    />
+                    <span class="coordinator-card-label">{{ cat.label }}</span>
                   </button>
                 }
               </div>
             </section>
 
-            <!-- ═══ 3. DAILY OPERATIONS ═══ -->
+            <!-- ═══ 3. DAILY OPERATIONS (Conditional) ═══ -->
             @if (activeOperations().length > 0) {
               <section class="operations-section" aria-label="Daily operations">
                 <h3 class="section-title">Daily Operations</h3>
@@ -300,72 +294,61 @@ export interface WeeklyPlaybookItem {
               </section>
             }
 
-            <!-- ═══ 4. WEEKLY PLAYBOOK ═══ -->
-            @if (weeklyPlaybook().length > 0) {
-              <section class="playbook-section" aria-label="Weekly playbook">
-                <div class="playbook-section-header">
-                  <div class="playbook-title-row">
-                    <h3 class="section-title">Weekly Playbook</h3>
-                    <span class="playbook-counter"
-                      >{{ playbookCompletedCount() }}/{{ playbookTotalCount() }}</span
-                    >
-                  </div>
-                  <button
-                    type="button"
-                    class="playbook-goal-pill"
-                    (click)="onGoalTap(primaryGoal() ?? null)"
-                    aria-label="Goals"
+            <!-- ═══ 4. WEEKLY PLAYBOOK (Always Visible) ═══ -->
+            <section class="playbook-section" aria-label="Weekly playbook">
+              <div class="playbook-section-header">
+                <div class="playbook-title-row">
+                  <h3 class="section-title">Weekly Playbook</h3>
+                  <span class="playbook-counter"
+                    >{{ playbookCompletedCount() }}/{{ playbookTotalCount() }}</span
                   >
-                    <nxt1-icon name="flag" [size]="12" />
-                    <span class="playbook-goal-pill-text">Goals</span>
-                  </button>
                 </div>
+              </div>
 
-                <ol class="weekly-timeline">
-                  @for (item of weeklyPlaybook(); track item.id; let isLast = $last) {
-                    <li class="timeline-item">
-                      <div class="timeline-rail" aria-hidden="true">
-                        <span
-                          class="timeline-marker"
-                          [class.timeline-marker--pending]="item.status === 'pending'"
-                          [class.timeline-marker--in-progress]="item.status === 'in-progress'"
-                          [class.timeline-marker--complete]="item.status === 'complete'"
-                          [class.timeline-marker--problem]="item.status === 'problem'"
-                        >
-                          @if (item.status === 'in-progress') {
-                            <nxt1-icon name="play" [size]="10" />
-                          } @else if (item.status === 'complete') {
-                            <nxt1-icon name="checkmark" [size]="12" />
-                          } @else if (item.status === 'problem') {
-                            <nxt1-icon name="pause" [size]="10" />
-                          } @else {
-                            <span class="timeline-marker-dot"></span>
-                          }
-                        </span>
-                        @if (!isLast) {
-                          <span class="timeline-line"></span>
+              <ol class="weekly-timeline">
+                @for (item of weeklyPlaybook(); track item.id; let isLast = $last) {
+                  <li class="timeline-item">
+                    <div class="timeline-rail" aria-hidden="true">
+                      <span
+                        class="timeline-marker"
+                        [class.timeline-marker--pending]="item.status === 'pending'"
+                        [class.timeline-marker--in-progress]="item.status === 'in-progress'"
+                        [class.timeline-marker--complete]="item.status === 'complete'"
+                        [class.timeline-marker--problem]="item.status === 'problem'"
+                      >
+                        @if (item.status === 'in-progress') {
+                          <nxt1-icon name="play" [size]="10" />
+                        } @else if (item.status === 'complete') {
+                          <nxt1-icon name="checkmark" [size]="12" />
+                        } @else if (item.status === 'problem') {
+                          <nxt1-icon name="pause" [size]="10" />
+                        } @else {
+                          <span class="timeline-marker-dot"></span>
                         }
-                      </div>
+                      </span>
+                      @if (!isLast) {
+                        <span class="timeline-line"></span>
+                      }
+                    </div>
 
-                      <article class="timeline-card">
-                        <button
-                          type="button"
-                          class="timeline-toggle"
-                          (click)="onPlaybookAction(item)"
-                        >
-                          <div class="timeline-toggle-top">
-                            <h4 class="timeline-title">{{ item.title }}</h4>
-                            @if (item.goal) {
-                              <span class="timeline-goal-tag">{{ item.goal.label }}</span>
-                            }
-                          </div>
-                        </button>
-                      </article>
-                    </li>
-                  }
-                </ol>
-              </section>
-            }
+                    <article class="timeline-card">
+                      <button
+                        type="button"
+                        class="timeline-toggle"
+                        (click)="onPlaybookAction(item)"
+                      >
+                        <div class="timeline-toggle-top">
+                          <h4 class="timeline-title">{{ item.title }}</h4>
+                          @if (item.goal) {
+                            <span class="timeline-goal-tag">{{ item.goal.label }}</span>
+                          }
+                        </div>
+                      </button>
+                    </article>
+                  </li>
+                }
+              </ol>
+            </section>
           </section>
         }
 
@@ -494,7 +477,7 @@ export interface WeeklyPlaybookItem {
       }
 
       /* ──────────────────────────────────
-         1. ACTIVE OPERATIONS
+         1. DAILY OPERATIONS
          ────────────────────────────────── */
 
       /* Spin animation for processing spinner */
@@ -886,42 +869,6 @@ export interface WeeklyPlaybookItem {
         flex-shrink: 0;
       }
 
-      /* Goal pill — tappable badge next to the title */
-      .playbook-goal-pill {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        padding: 8px 16px;
-        border: 1px solid var(--agent-primary-glow);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        background: var(--agent-primary-glow);
-        color: var(--agent-primary);
-        font-size: 13px;
-        font-weight: var(--nxt1-font-weight-semibold, 600);
-        letter-spacing: 0.01em;
-        line-height: 1;
-        white-space: nowrap;
-        cursor: pointer;
-        font-family: inherit;
-        flex-shrink: 0;
-        -webkit-tap-highlight-color: transparent;
-        transition:
-          background 0.15s ease,
-          border-color 0.15s ease;
-      }
-
-      .playbook-goal-pill:active {
-        background: var(--agent-primary);
-        color: var(--agent-bg);
-        border-color: var(--agent-primary);
-      }
-
-      .playbook-goal-pill-text {
-        display: inline-block;
-        white-space: nowrap;
-      }
-
       .playbook-section-toggle {
         border: 1px solid var(--agent-border);
         background: var(--agent-surface);
@@ -1128,75 +1075,127 @@ export interface WeeklyPlaybookItem {
         opacity: 0.85;
       }
 
+      /* ── Playbook Empty State (No Goals) ── */
+      .playbook-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: var(--nxt1-spacing-6, 24px) var(--nxt1-spacing-4, 16px);
+        background: var(--agent-surface);
+        border: 1px dashed var(--agent-border);
+        border-radius: var(--nxt1-radius-lg, 14px);
+      }
+
+      .playbook-empty-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 48px;
+        height: 48px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        background: var(--agent-primary-glow);
+        color: var(--agent-primary);
+        margin-bottom: var(--nxt1-spacing-3, 12px);
+      }
+
+      .playbook-empty-title {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--agent-text-primary);
+        margin: 0 0 var(--nxt1-spacing-2, 8px);
+        line-height: 1.3;
+      }
+
+      .playbook-empty-description {
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--agent-text-secondary);
+        margin: 0 0 var(--nxt1-spacing-4, 16px);
+        max-width: 280px;
+      }
+
+      .playbook-setup-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 20px;
+        background: var(--agent-primary);
+        color: #000;
+        border: none;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: inherit;
+        -webkit-tap-highlight-color: transparent;
+        transition: opacity 0.15s ease;
+      }
+
+      .playbook-setup-btn:active {
+        opacity: 0.85;
+      }
+
       /* ──────────────────────────────────
-         4. QUICK COMMANDS — Category Pills
+         2. COORDINATORS (2×2 Grid)
          ────────────────────────────────── */
-      .commands-section {
+      .coordinators-section {
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-3, 12px);
         margin-bottom: var(--nxt1-spacing-5, 20px);
+        width: 100%;
       }
 
-      .commands-section .section-title {
+      .coordinators-section .section-title {
         margin-bottom: 0;
       }
 
-      .cmd-categories {
+      .coordinators-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: var(--nxt1-spacing-3, 12px);
+      }
+
+      .coordinator-card {
         display: flex;
-        flex-wrap: nowrap;
-        gap: var(--nxt1-spacing-2, 8px);
-        overflow-x: auto;
-        scrollbar-width: none;
-        -webkit-overflow-scrolling: touch;
-        padding-bottom: 2px;
-      }
-
-      .cmd-categories::-webkit-scrollbar {
-        display: none;
-      }
-
-      .cmd-category-pill {
-        display: inline-flex;
+        flex-direction: column;
         align-items: center;
-        flex-shrink: 0;
+        justify-content: center;
         gap: var(--nxt1-spacing-2, 8px);
-        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-3, 12px);
-        border: 1px solid var(--agent-border);
-        border-radius: var(--nxt1-radius-full, 9999px);
+        padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-3, 12px);
         background: var(--agent-surface);
-        color: var(--agent-text-primary);
-        font-size: var(--nxt1-font-size-sm, 13px);
-        font-weight: var(--nxt1-font-weight-semibold, 600);
-        font-family: inherit;
+        border: 1px solid var(--agent-border);
+        border-radius: var(--nxt1-radius-lg, 12px);
         cursor: pointer;
-        white-space: nowrap;
         -webkit-tap-highlight-color: transparent;
         transition:
           background 0.15s ease,
           border-color 0.15s ease;
       }
 
-      .cmd-category-pill:active {
+      .coordinator-card:active {
         background: var(--agent-surface-hover);
         border-color: var(--agent-primary);
       }
 
-      .cmd-category-pill-icon {
+      .coordinator-card-icon {
+        width: 36px;
+        height: 36px;
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 24px;
-        height: 24px;
-        border-radius: var(--nxt1-radius-full, 9999px);
+        border-radius: var(--nxt1-radius-md, 8px);
         background: var(--agent-primary-glow);
         color: var(--agent-primary);
-        flex-shrink: 0;
       }
 
-      .cmd-category-pill-arrow {
-        color: var(--agent-text-muted);
-        opacity: 0.5;
+      .coordinator-card-label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--agent-text-primary);
+        text-align: center;
+        line-height: 1.3;
       }
     `,
   ],
@@ -1308,16 +1307,6 @@ export class AgentXShellComponent {
   ]);
 
   // ============================================
-  // PRIMARY GOAL (Drives Weekly Playbook)
-  // ============================================
-
-  /** The user's active primary goal powering the Weekly Playbook (mock). */
-  protected readonly primaryGoal = signal<{ id: string; label: string } | null>({
-    id: 'goal-1',
-    label: 'D1 Recruitment',
-  });
-
-  // ============================================
   // WEEKLY PLAYBOOK (Timeline)
   // ============================================
 
@@ -1336,17 +1325,6 @@ export class AgentXShellComponent {
     },
     {
       id: 'wp-2',
-      weekLabel: 'Tue',
-      title: 'Ship Recruiter Outreach Batch',
-      summary: 'Send personalized messages to your top priority programs.',
-      details:
-        'Your draft set is ready with coach-specific personalization. Approve and send to trigger tracking for opens and replies in Activity.',
-      actionLabel: 'Send Batch',
-      status: 'pending',
-      goal: { id: 'goal-1', label: 'D1 Recruitment' },
-    },
-    {
-      id: 'wp-3',
       weekLabel: 'Wed',
       title: 'Publish Midweek Performance Post',
       summary: 'Share your latest clip + stat proof point to keep momentum.',
@@ -1357,23 +1335,13 @@ export class AgentXShellComponent {
       goal: { id: 'goal-2', label: 'Grow Brand' },
     },
     {
-      id: 'wp-4',
-      weekLabel: 'Thu',
-      title: 'Refresh Compliance & Academics',
-      summary: 'Keep GPA and transcript context current for eligibility confidence.',
+      id: 'goal-setup',
+      weekLabel: '',
+      title: 'Set Up Goals',
+      summary: 'Tell Agent X your season goals so your weekly playbook stays on target.',
       details:
-        'Sync your academic portal and verify profile fields used in eligibility summaries. This reduces recruiter friction during evaluation.',
-      actionLabel: 'Sync Academics',
-      status: 'pending',
-    },
-    {
-      id: 'wp-5',
-      weekLabel: 'Fri',
-      title: 'Weekly Review and Next-Week Setup',
-      summary: "Close this week and auto-generate next week's top priorities.",
-      details:
-        'Agent X will summarize completed tasks, update progress signals, and propose next-week objectives tailored to engagement and recruiter activity.',
-      actionLabel: 'Run Weekly Review',
+        'Agent X will personalize your weekly priorities based on your goals — recruiting targets, visibility milestones, and academic timelines.',
+      actionLabel: 'Set Up Goals',
       status: 'pending',
     },
   ]);
@@ -1387,14 +1355,14 @@ export class AgentXShellComponent {
   protected readonly playbookTotalCount = computed(() => this.weeklyPlaybook().length);
 
   // ============================================
-  // QUICK COMMANDS — Categorized Grid
+  // COORDINATORS — Virtual Staff
   // ============================================
 
-  /** Categorized quick commands grouped by workflow domain (Personalized). */
+  /** Coordinator cards grouped by domain (replaces Quick Commands). */
   protected readonly commandCategories = signal<CommandCategory[]>([
     {
-      id: 'cat-recruiting',
-      label: 'Recruiting',
+      id: 'coord-recruiting',
+      label: 'Recruiting Coordinator',
       icon: 'graduationCap',
       commands: [
         {
@@ -1424,8 +1392,8 @@ export class AgentXShellComponent {
       ],
     },
     {
-      id: 'cat-content',
-      label: 'Brand',
+      id: 'coord-media',
+      label: 'Media Coordinator',
       icon: 'sparkles',
       commands: [
         {
@@ -1449,8 +1417,8 @@ export class AgentXShellComponent {
       ],
     },
     {
-      id: 'cat-film',
-      label: 'Film Room',
+      id: 'coord-scout',
+      label: 'Scout Coordinator',
       icon: 'barChart',
       commands: [
         {
@@ -1470,6 +1438,31 @@ export class AgentXShellComponent {
           label: 'Stat Trends',
           subLabel: 'Week-over-week growth',
           icon: 'trendingUp',
+        },
+      ],
+    },
+    {
+      id: 'coord-academics',
+      label: 'Academics Coordinator',
+      icon: 'book',
+      commands: [
+        {
+          id: 'cmd-gpa',
+          label: 'GPA Tracker',
+          subLabel: 'Keep eligibility current',
+          icon: 'clipboard',
+        },
+        {
+          id: 'cmd-eligibility-check',
+          label: 'Eligibility',
+          subLabel: 'NCAA/NAIA status',
+          icon: 'shieldCheck',
+        },
+        {
+          id: 'cmd-test-prep',
+          label: 'Test Prep',
+          subLabel: 'SAT/ACT resources',
+          icon: 'document',
         },
       ],
     },
@@ -1502,11 +1495,12 @@ export class AgentXShellComponent {
   }
 
   /**
-   * Handle goal pill tap — opens bottom sheet to update primary goal via conversation.
+   * Handle "Set Your Goals" button from the empty playbook state.
+   * Opens Agent X goal setup conversation.
    */
-  protected async onGoalTap(goal: { id: string; label: string } | null): Promise<void> {
-    await this.haptics.impact('light');
-    await this.openOperationChat(goal?.id ?? 'goal-edit', 'Edit Goals', 'flag', 'command');
+  protected async onSetupGoals(): Promise<void> {
+    await this.haptics.impact('medium');
+    await this.openOperationChat('goal-setup', 'Set Your Goals', 'flag', 'command');
   }
 
   /**
@@ -1514,6 +1508,10 @@ export class AgentXShellComponent {
    */
   protected async onPlaybookAction(task: WeeklyPlaybookItem): Promise<void> {
     await this.haptics.impact('medium');
+    if (task.id === 'goal-setup') {
+      await this.onSetupGoals();
+      return;
+    }
     await this.openOperationChat(task.id, task.title, 'clipboard', 'command');
   }
 

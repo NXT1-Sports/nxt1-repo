@@ -349,7 +349,6 @@ export class NxtModalService {
       header: config.title,
       message: config.message,
       buttons: [config.buttonText ?? 'OK'],
-      mode: this.platform.isIOS() ? 'ios' : 'md',
       cssClass: 'nxt-modal-alert',
     });
 
@@ -424,7 +423,6 @@ export class NxtModalService {
     const alert = await this.alertCtrl.create({
       header: config.title,
       message: config.message,
-      mode: this.platform.isIOS() ? 'ios' : 'md',
       cssClass: ['nxt-modal-confirm', config.destructive ? 'nxt-modal-destructive' : ''].filter(
         Boolean
       ),
@@ -532,7 +530,6 @@ export class NxtModalService {
     const alert = await this.alertCtrl.create({
       header: config.title,
       message: config.message,
-      mode: this.platform.isIOS() ? 'ios' : 'md',
       cssClass: config.multiline
         ? 'nxt-modal-prompt nxt-modal-prompt-textarea'
         : 'nxt-modal-prompt',
@@ -689,7 +686,6 @@ export class NxtModalService {
     const actionSheet = await this.actionSheetCtrl.create({
       header: config.title,
       subHeader: config.message,
-      mode: this.platform.isIOS() ? 'ios' : 'md',
       cssClass: 'nxt-modal-action-sheet',
       buttons: config.actions.map((action, index) => ({
         text: action.text,
@@ -755,7 +751,6 @@ export class NxtModalService {
       duration: config?.duration,
       backdropDismiss: config?.backdropDismiss ?? false,
       spinner: config?.spinner ?? 'circular',
-      mode: this.platform.isIOS() ? 'ios' : 'md',
       cssClass: 'nxt-modal-loading',
     });
 

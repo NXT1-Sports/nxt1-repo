@@ -21,6 +21,7 @@ import {
   KeyboardService,
   NetworkService,
   DeepLinkService,
+  PushHandlerService,
 } from './core/services';
 import { BiometricService, AuthFlowService } from './features/auth/services';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
@@ -44,6 +45,7 @@ export class AppComponent {
   private readonly keyboard = inject(KeyboardService);
   private readonly network = inject(NetworkService);
   private readonly deepLink = inject(DeepLinkService);
+  private readonly pushHandler = inject(PushHandlerService);
   private readonly biometric = inject(BiometricService);
   private readonly platform = inject(NxtPlatformService);
   private readonly theme = inject(NxtThemeService);
@@ -173,6 +175,10 @@ export class AppComponent {
       // Initialize deep link handling (Universal Links / App Links)
       await this.deepLink.initialize();
       this.logger.debug('Deep link service initialized');
+
+      // Initialize push notification handling (foreground + background)
+      await this.pushHandler.initialize();
+      this.logger.debug('Push handler service initialized');
 
       // Theme service auto-initializes and manages theme switching
       // (NxtThemeService from @nxt1/ui handles DOM updates automatically)

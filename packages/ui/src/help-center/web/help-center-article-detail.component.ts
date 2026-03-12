@@ -20,13 +20,14 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
+import { NxtIconComponent } from '../../components/icon';
 import { HelpCenterService } from '../_shared/help-center.service';
 import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
 
 @Component({
   selector: 'nxt1-help-article-detail-web',
   standalone: true,
-  imports: [CommonModule, NxtDesktopPageHeaderComponent],
+  imports: [CommonModule, NxtDesktopPageHeaderComponent, NxtIconComponent],
   template: `
     @if (article()) {
       <!-- Main Content -->
@@ -50,31 +51,11 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
           <!-- Metadata -->
           <div class="text-text-secondary flex flex-wrap items-center gap-4 text-sm">
             <span class="flex items-center gap-1.5">
-              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+              <nxt1-icon name="time" [size]="16" />
               {{ article()!.readingTimeMinutes }} min read
             </span>
             <span class="flex items-center gap-1.5">
-              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                />
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                />
-              </svg>
+              <nxt1-icon name="eye" [size]="16" />
               {{ formatNumber(article()!.viewCount) }} views
             </span>
           </div>
@@ -98,14 +79,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
               [class.bg-success/10]="feedbackState() === 'helpful'"
               [class.text-success]="feedbackState() === 'helpful'"
             >
-              <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5"
-                />
-              </svg>
+              <nxt1-icon name="thumbsUp" [size]="20" />
               Yes ({{ article()!.helpfulCount }})
             </button>
             <button
@@ -116,14 +90,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
               [class.bg-error/10]="feedbackState() === 'not-helpful'"
               [class.text-error]="feedbackState() === 'not-helpful'"
             >
-              <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M10 14H5.236a2 2 0 01-1.789-2.894l3.5-7A2 2 0 018.736 3h4.018a2 2 0 01.485.06l3.76.94m-7 10v5a2 2 0 002 2h.096c.5 0 .905-.405.905-.904 0-.715.211-1.413.608-2.008L17 13V4m-7 10h2m5-10h2a2 2 0 012 2v6a2 2 0 01-2 2h-2.5"
-                />
-              </svg>
+              <nxt1-icon name="thumbsDown" [size]="20" />
               No ({{ article()!.notHelpfulCount }})
             </button>
           </div>
@@ -132,7 +99,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
         <!-- Related Articles -->
         @if (relatedArticles().length > 0) {
           <section class="mb-8">
-            <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide uppercase">
+            <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide">
               Related Articles
             </h2>
             <div class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl">
@@ -145,19 +112,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
                   <div
                     class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
                   >
-                    <svg
-                      class="text-text-secondary h-5 w-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                      />
-                    </svg>
+                    <nxt1-icon name="documentText" [size]="20" class="text-text-secondary" />
                   </div>
                   <div class="min-w-0 flex-1">
                     <h3 class="text-text-primary truncate text-base font-medium">
@@ -165,19 +120,11 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
                     </h3>
                     <p class="text-text-secondary line-clamp-1 text-sm">{{ related.excerpt }}</p>
                   </div>
-                  <svg
-                    class="text-text-tertiary group-hover:text-text-secondary h-5 w-5 shrink-0 transition-colors"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M9 5l7 7-7 7"
-                    />
-                  </svg>
+                  <nxt1-icon
+                    name="chevronRight"
+                    [size]="20"
+                    class="text-text-tertiary group-hover:text-text-secondary shrink-0 transition-colors"
+                  />
                 </button>
               }
             </div>
@@ -192,19 +139,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
     } @else {
       <!-- Not Found -->
       <main class="mx-auto max-w-3xl px-4 py-16 text-center">
-        <svg
-          class="text-text-tertiary mx-auto mb-6 h-20 w-20"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="1.5"
-            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-          />
-        </svg>
+        <nxt1-icon name="documentText" [size]="80" class="text-text-tertiary mx-auto mb-6" />
         <h2 class="text-text-primary mb-2 text-xl font-semibold">Article not found</h2>
         <p class="text-text-secondary mb-6">
           The article you're looking for doesn't exist or has been removed.
@@ -214,14 +149,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
           (click)="back.emit()"
           class="border-border-strong text-text-primary hover:bg-surface-200 inline-flex items-center gap-2 rounded-lg border px-6 py-3 font-medium transition-colors"
         >
-          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M15 19l-7-7 7-7"
-            />
-          </svg>
+          <nxt1-icon name="chevronLeft" [size]="20" />
           Go Back
         </button>
       </main>

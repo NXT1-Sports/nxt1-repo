@@ -42,6 +42,20 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   private readonly performance = inject(PerformanceService);
   private readonly baseUrl = environment.apiURL;
 
+  /**
+   * Debounce buffer for notification preference changes.
+   *
+   * All three notification toggles (push/email/marketing) map to the same
+   * backend key `notifications`. Without debouncing, flipping all three quickly
+   * fires three sequential PATCHes. Instead we accumulate changes for 500ms
+   * and flush a single merged PATCH.
+   */
+  private readonly notifBuffer: { push?: boolean; email?: boolean; marketing?: boolean } = {};
+  private notifFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  private notifFlushResolve: (() => void) | null = null;
+  private notifFlushReject: ((err: unknown) => void) | null = null;
+  private notifFlushPromise: Promise<void> | null = null;
+
   // ============================================================
   // SettingsPersistenceAdapter implementation
   // ============================================================
@@ -85,6 +99,11 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
       return;
     }
 
+    // Notification toggles share the same backend key — debounce into one PATCH
+    if (backendKey === 'notifications') {
+      return this.queueNotificationFlush(backendValue as Record<string, boolean>);
+    }
+
     return this.performance.trace(
       TRACE_NAMES.SETTINGS_PREFERENCE_UPDATE,
       async () => {
@@ -102,6 +121,72 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
         },
       }
     );
+  }
+
+  /**
+   * Accumulate a notification sub-field change and schedule a single flush.
+   * Any further changes within 500ms extend the window (leading-edge = false).
+   */
+  private queueNotificationFlush(incoming: Record<string, boolean>): Promise<void> {
+    // Merge into the buffer
+    Object.assign(this.notifBuffer, incoming);
+
+    // Cancel any pending flush
+    if (this.notifFlushTimer !== null) {
+      clearTimeout(this.notifFlushTimer);
+    }
+
+    // Reuse the same promise if one is already pending (callers can await it)
+    if (!this.notifFlushPromise) {
+      this.notifFlushPromise = new Promise<void>((resolve, reject) => {
+        this.notifFlushResolve = resolve;
+        this.notifFlushReject = reject;
+      });
+    }
+
+    this.notifFlushTimer = setTimeout(() => this.flushNotifications(), 500);
+
+    return this.notifFlushPromise;
+  }
+
+  private async flushNotifications(): Promise<void> {
+    const payload = { ...this.notifBuffer };
+
+    // Clear buffer + timer references before the await so a new change
+    // arriving mid-flight starts a fresh cycle
+    Object.keys(this.notifBuffer).forEach(
+      (k) => delete (this.notifBuffer as Record<string, unknown>)[k]
+    );
+    this.notifFlushTimer = null;
+    const resolve = this.notifFlushResolve;
+    const reject = this.notifFlushReject;
+    this.notifFlushPromise = null;
+    this.notifFlushResolve = null;
+    this.notifFlushReject = null;
+
+    try {
+      await this.performance.trace(
+        TRACE_NAMES.SETTINGS_PREFERENCE_UPDATE,
+        async () => {
+          await firstValueFrom(
+            this.http.patch<ApiResponse<UserPreferences>>(
+              `${this.baseUrl}/settings/preferences/notifications`,
+              { value: payload }
+            )
+          );
+        },
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'settings',
+            preference_key: 'notifications',
+            batched_fields: Object.keys(payload).join(','),
+          },
+        }
+      );
+      resolve?.();
+    } catch (err) {
+      reject?.(err);
+    }
   }
 
   // ============================================================
@@ -139,8 +224,6 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
    * Fields that have no backend equivalent keep their default value.
    */
   private mapToSettingsPreferences(prefs: UserPreferences): SettingsPreferences {
-    const theme = prefs.theme as 'light' | 'dark' | 'system' | undefined;
-
     return {
       ...DEFAULT_SETTINGS_PREFERENCES,
       pushNotifications:
@@ -152,8 +235,6 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
       activityTracking: prefs.activityTracking ?? DEFAULT_SETTINGS_PREFERENCES.activityTracking,
       analyticsTracking: prefs.analyticsTracking ?? DEFAULT_SETTINGS_PREFERENCES.analyticsTracking,
       biometricLogin: prefs.biometricLogin ?? DEFAULT_SETTINGS_PREFERENCES.biometricLogin,
-      theme: theme ?? DEFAULT_SETTINGS_PREFERENCES.theme,
-      language: prefs.language ?? DEFAULT_SETTINGS_PREFERENCES.language,
     };
   }
 
@@ -178,11 +259,6 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
         return { backendKey: 'analyticsTracking', backendValue: value };
       case 'biometricLogin':
         return { backendKey: 'biometricLogin', backendValue: value };
-      case 'theme':
-        return { backendKey: 'theme', backendValue: value };
-      case 'language':
-        return { backendKey: 'language', backendValue: value };
-      // crashReporting / compactMode etc. are client-side only for now
       default:
         return { backendKey: null, backendValue: null };
     }

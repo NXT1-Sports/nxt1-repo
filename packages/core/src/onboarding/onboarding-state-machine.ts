@@ -73,6 +73,7 @@ import type {
   ContactFormData,
   ReferralSourceData,
   LinkSourcesFormData,
+  TeamSelectionFormData,
 } from './onboarding-navigation.api';
 import { validateStep, ONBOARDING_STEPS, ROLE_SELECTION_STEP } from './onboarding-navigation.api';
 
@@ -90,6 +91,7 @@ export type OnboardingMachineState =
   | 'school'
   | 'organization'
   | 'sport'
+  | 'select-teams'
   | 'positions'
   | 'contact'
   | 'referral'
@@ -265,6 +267,9 @@ export interface OnboardingStateMachine {
 
   /** Update link sources (connected accounts) data */
   updateLinkSources(data: LinkSourcesFormData): void;
+
+  /** Update team selection data (select-teams step) */
+  updateTeamSelection(data: TeamSelectionFormData): void;
 
   /** Update referral source data */
   updateReferral(data: ReferralSourceData): void;
@@ -611,6 +616,11 @@ export function createOnboardingStateMachine(
 
     updateLinkSources(data: LinkSourcesFormData): void {
       formData = { ...formData, linkSources: data };
+      notifyStateChange();
+    },
+
+    updateTeamSelection(data: TeamSelectionFormData): void {
+      formData = { ...formData, teamSelection: data };
       notifyStateChange();
     },
 

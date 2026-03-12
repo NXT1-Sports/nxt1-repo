@@ -9,10 +9,10 @@ export const environment = {
   version: '2.0.0',
 
   // Backend API URLs (Production)
-  apiURL: 'https://backend.nxt1sports.com/api/v1',
+  apiURL: 'http://34.72.3.113:8080/api/v1',
 
   // Logging Configuration
-  loggingEndpoint: 'https://backend.nxt1sports.com/api/v1/logs', // Remote logging endpoint
+  loggingEndpoint: 'http://34.72.3.113:8080/api/v1/logs', // Remote logging endpoint
 
   // Firebase Configuration (Production)
   firebase: {
@@ -24,6 +24,9 @@ export const environment = {
     appId: '1:112256620070:web:6a758d6428d2222f2c78e7',
     measurementId: 'G-GZGSTY65KQ',
   },
+
+  // Firebase Cloud Messaging VAPID key (production)
+  vapidKey: 'REPLACE_WITH_PRODUCTION_VAPID_KEY',
 
   // Third-party API Keys
   removeBgKey: 'sCyRfLKyXDS5ySnuXmEiqXpK',

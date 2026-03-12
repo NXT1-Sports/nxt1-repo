@@ -340,23 +340,23 @@ export const INVITE_UI_CONFIG = {
  */
 export const INVITE_API_ENDPOINTS = {
   /** Generate invite link */
-  GENERATE_LINK: '/api/v1/invite/link',
+  GENERATE_LINK: '/invite/link',
   /** Send invite */
-  SEND: '/api/v1/invite/send',
+  SEND: '/invite/send',
   /** Bulk send invites */
-  SEND_BULK: '/api/v1/invite/send-bulk',
+  SEND_BULK: '/invite/send-bulk',
   /** Get invite history */
-  HISTORY: '/api/v1/invite/history',
+  HISTORY: '/invite/history',
   /** Get invite stats */
-  STATS: '/api/v1/invite/stats',
+  STATS: '/invite/stats',
   /** Get achievements */
-  ACHIEVEMENTS: '/api/v1/invite/achievements',
+  ACHIEVEMENTS: '/invite/achievements',
   /** Validate referral code */
-  VALIDATE_CODE: '/api/v1/invite/validate',
+  VALIDATE_CODE: '/invite/validate',
   /** Accept invite */
-  ACCEPT: '/api/v1/invite/accept',
+  ACCEPT: '/invite/accept',
   /** Get team members to invite */
-  TEAM_MEMBERS: '/api/v1/invite/team/:teamId/members',
+  TEAM_MEMBERS: '/invite/team/:teamId/members',
 } as const;
 
 // ============================================

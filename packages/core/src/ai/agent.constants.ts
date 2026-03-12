@@ -26,6 +26,21 @@ export const AGENT_DESCRIPTORS: Record<AgentIdentifier, AgentDescriptor> = {
       'Master orchestrator that classifies user intent and delegates tasks to the correct AI coordinator.',
     capabilities: ['intent_classification', 'delegation'],
   },
+  data_coordinator: {
+    id: 'data_coordinator',
+    name: 'Data Coordinator',
+    description:
+      'Ingests, extracts, and normalizes data from external platforms. Scrapes linked athletic profiles (MaxPreps, Hudl, 247Sports), parses roster pages, resolves player identities, and writes structured data to user profiles and team rosters.',
+    capabilities: [
+      'profile_scraping',
+      'roster_ingestion',
+      'data_extraction',
+      'identity_resolution',
+      'platform_sync',
+      'csv_parsing',
+      'stat_import',
+    ],
+  },
   recruiting_coordinator: {
     id: 'recruiting_coordinator',
     name: 'Recruiting Coordinator',

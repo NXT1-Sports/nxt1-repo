@@ -7,7 +7,7 @@
  * Wraps the pure TypeScript API factory with Angular's HttpClient.
  */
 
-import { Injectable, inject } from '@angular/core';
+import { Injectable, InjectionToken, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -29,7 +29,10 @@ import {
  * { provide: ACTIVITY_API_BASE_URL, useValue: environment.apiUrl }
  * ```
  */
-export const ACTIVITY_API_BASE_URL = 'ACTIVITY_API_BASE_URL';
+export const ACTIVITY_API_BASE_URL = new InjectionToken<string>('ACTIVITY_API_BASE_URL', {
+  providedIn: 'root',
+  factory: () => '/api/v1',
+});
 
 /**
  * Activity API Service.
@@ -39,8 +42,7 @@ export const ACTIVITY_API_BASE_URL = 'ACTIVITY_API_BASE_URL';
 export class ActivityApiService implements ActivityApi {
   private readonly http = inject(HttpClient);
 
-  // TODO: In production, inject base URL from environment
-  private readonly baseUrl = '/api/v1';
+  private readonly baseUrl = inject(ACTIVITY_API_BASE_URL);
 
   private readonly api = createActivityApi(
     {

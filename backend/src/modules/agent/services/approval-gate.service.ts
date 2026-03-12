@@ -83,11 +83,17 @@ export class ApprovalGateService {
     // TODO: Store in Firestore: approvalRequests/{request.id}
     // await firestore.collection('approvalRequests').doc(request.id).set(request);
 
-    // TODO: Send push notification to user
-    // await pushNotification.send(params.userId, {
+    // Push notification via unified NotificationService
+    // Uncomment when Firestore storage above is implemented and a `db` instance is available:
+    // await dispatch(db, {
+    //   userId: params.userId,
+    //   type: NOTIFICATION_TYPES.AI_TASK_COMPLETE,
     //   title: 'Agent X needs your approval',
     //   body: params.actionSummary,
+    //   deepLink: `/agent-x/approvals/${request.id}`,
     //   data: { approvalId: request.id, operationId: params.operationId },
+    //   source: { userName: 'Agent X' },
+    //   priority: 'high',
     // });
 
     return request;

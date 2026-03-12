@@ -21,9 +21,7 @@ export type {
   SettingsNavigationItem,
   SettingsActionItem,
   SettingsInfoItem,
-  SettingsSelectItem,
   SettingsButtonItem,
-  SettingsSelectOption,
   SettingsItem,
   // Section interfaces
   SettingsSection,

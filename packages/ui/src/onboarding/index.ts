@@ -97,6 +97,15 @@ export {
 export { OnboardingSportStepComponent } from './onboarding-sport-step';
 
 // ============================================
+// TEAM SELECTION STEP (v4.1 - Select Teams after Sport)
+// ============================================
+export {
+  OnboardingTeamSelectionStepComponent,
+  type TeamSearchResult,
+  type SearchTeamsFn,
+} from './onboarding-team-selection-step';
+
+// ============================================
 // POSITION STEP (Legacy - deprecated in v3.0)
 // ============================================
 export { OnboardingPositionStepComponent } from './onboarding-position-step';
