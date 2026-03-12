@@ -717,8 +717,14 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       await this.authApi.getUserProfile(uid);
       return false; // User exists
     } catch (error: unknown) {
-      const apiError = error as { status?: number; message?: string };
-      if (apiError?.status === 404 || apiError?.message?.includes('not found')) {
+      const apiError = error as { status?: number; message?: string | { message?: string } };
+      const errorMessage =
+        typeof apiError?.message === 'string'
+          ? apiError.message
+          : typeof apiError?.message === 'object'
+            ? apiError.message?.message
+            : '';
+      if (apiError?.status === 404 || errorMessage?.includes('not found')) {
         return true; // User not found → new user
       }
       // On unknown errors, assume existing user to avoid duplicate creation
