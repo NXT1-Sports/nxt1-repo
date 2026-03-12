@@ -5,7 +5,16 @@
 
 export { ScrapeWebpageTool } from './scrape-webpage.tool.js';
 export { ScraperService } from './scraper.service.js';
+export { extractPageData } from './page-data-extractor.js';
 export type { ScrapeRequest, ScrapeResult, ScrapeProvider } from './scraper.types.js';
+export type {
+  PageStructuredData,
+  PageImage,
+  PageVideo,
+  VideoProvider,
+  OpenGraph,
+  TwitterCard,
+} from './page-data.types.js';
 export {
   MAX_SCRAPE_CONTENT_LENGTH,
   SCRAPE_TIMEOUT_MS,

@@ -1,52 +1,61 @@
 /**
- * @fileoverview Send Notification - Create notification document
+ * @fileoverview Send Notification - Admin callable to enqueue a notification
  * @module @nxt1/functions/notification/sendNotification
  *
- * Callable function to enqueue a push notification.
- * Creates a document in the `notifications` collection which triggers
- * the unified `onNotificationCreated` Cloud Function.
+ * Callable function for admin/internal use only.
+ * Writes both the push queue doc and activity feed doc atomically via
+ * the shared notifyUser helper — same guarantee as NotificationService.dispatch().
  *
- * NOTE: This is a convenience callable for admin/internal use.
- * Backend services should use `NotificationService.dispatch()` instead,
- * which also writes the matching activity feed document atomically.
+ * Feature-level code should call NotificationService.dispatch() from the
+ * backend instead (it also resolves deep links, truncates titles, and maps
+ * notification types to activity tabs automatically).
  */
 
 import * as admin from 'firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
+import { notifyUser } from './notifyUser.js';
 
 const db = admin.firestore();
 
 /**
- * Send notification to a user (callable — admin/internal use only).
- *
- * Prefer `NotificationService.dispatch()` from the backend for
- * feature-level notifications (it writes both activity + push atomically).
+ * Enqueue a notification for a user (admin callable).
+ * Writes both the push queue doc AND the activity feed doc atomically.
  */
 export const sendNotification = onCall(async (request) => {
-  const { userId, type, category, priority, title, body, data } = request.data;
+  const { userId, type, category, priority, title, body, data, deepLink } = request.data as {
+    userId?: string;
+    type?: string;
+    category?: string;
+    priority?: string;
+    title?: string;
+    body?: string;
+    data?: Record<string, unknown>;
+    deepLink?: string;
+  };
 
   if (!userId || !title) {
     throw new HttpsError('invalid-argument', 'userId and title are required');
   }
 
-  const notificationRef = await db.collection('notifications').add({
+  const result = await notifyUser(db, {
     userId,
-    type: type || 'general',
-    category: category || 'system',
-    priority: priority || 'normal',
+    type: type ?? 'general',
+    category: category ?? 'system',
+    priority: priority === 'high' ? 'high' : 'normal',
     title,
-    body: body || '',
-    data: data || {},
-    status: 'pending',
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    body: body ?? '',
+    deepLink: deepLink ?? '',
+    data: data ?? {},
   });
 
   logger.info('Notification enqueued', {
-    notificationId: notificationRef.id,
+    notificationId: result.notificationId,
+    activityId: result.activityId,
     userId,
     type,
     category,
   });
-  return { notificationId: notificationRef.id };
+
+  return { notificationId: result.notificationId, activityId: result.activityId };
 });

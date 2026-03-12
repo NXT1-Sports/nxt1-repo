@@ -1,227 +1,76 @@
 /**
  * @fileoverview Help Center Service - State Management (Shared)
  * @module @nxt1/ui/help-center/_shared
- * @version 3.0.0
+ * @version 4.0.0
  *
  * Signal-based state management for Help Center feature.
  * Platform-agnostic - used by both web (Tailwind) and mobile (Ionic) components.
  *
+ * When HELP_CENTER_API is provided, loads data from the backend.
+ * Falls back to empty state if no adapter is injected.
+ *
  * ⭐ 100% SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Injectable, signal, computed } from '@angular/core';
-import type { HelpCategory, HelpArticle, FaqItem, HelpCategoryId } from '@nxt1/core';
-import { HELP_CATEGORIES } from '@nxt1/core';
+import { Injectable, InjectionToken, signal, computed, inject } from '@angular/core';
+import type {
+  HelpCategory,
+  HelpArticle,
+  FaqItem,
+  HelpCategoryId,
+  HelpUserType,
+  HelpCenterApi,
+  HelpCenterHome,
+  HelpCategoryDetail,
+  HelpPagination,
+  HelpSearchResult,
+} from '@nxt1/core';
+import { HELP_CATEGORIES, HELP_QUICK_ACTIONS } from '@nxt1/core';
+import { NxtLoggingService } from '../../services/logging';
+import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
+import { NxtBreadcrumbService } from '../../services/breadcrumb';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 
 // ============================================
-// MOCK DATA - Professional placeholder content
+// INJECTION TOKEN
 // ============================================
 
-const MOCK_ARTICLES: HelpArticle[] = [
-  {
-    id: 'getting-started-1',
-    slug: 'how-to-create-your-profile',
-    title: 'How to Create Your Profile',
-    excerpt: 'Learn how to set up your NXT1 profile and start your recruiting journey.',
-    content: `<p>Getting started with NXT1 is easy. Follow these simple steps to create a standout profile that will catch the attention of college coaches.</p>
-<h2>Step 1: Sign Up</h2>
-<p>Create your account using your email address or sign in with Google, Apple, or Facebook.</p>
-<h2>Step 2: Choose Your Role</h2>
-<p>Select whether you're an athlete, coach, parent, or scout. This helps us personalize your experience.</p>
-<h2>Step 3: Add Your Info</h2>
-<p>Fill in your basic information including name, location, school, and graduation year.</p>
-<h2>Step 4: Upload Media</h2>
-<p>Add a profile photo and upload your highlight videos to showcase your skills.</p>`,
-    type: 'guide',
-    category: 'getting-started',
-    tags: ['profile', 'setup', 'beginner'],
-    targetUsers: ['athlete', 'coach', 'parent'],
-    readingTimeMinutes: 5,
-    publishedAt: '2026-01-15T00:00:00Z',
-    updatedAt: '2026-01-15T00:00:00Z',
-    viewCount: 1250,
-    helpfulCount: 89,
-    notHelpfulCount: 3,
-    isFeatured: true,
-    isNew: true,
-  },
-  {
-    id: 'getting-started-2',
-    slug: 'uploading-your-first-video',
-    title: 'Uploading Your First Highlight Video',
-    excerpt: 'Step-by-step guide to uploading and showcasing your best highlights.',
-    content: `<p>Videos are essential for recruiting. Here's how to upload and optimize your highlight reels.</p>
-<h2>Supported Formats</h2>
-<p>We support MP4, MOV, and WebM formats up to 500MB.</p>
-<h2>Best Practices</h2>
-<ul>
-<li>Keep videos under 3 minutes</li>
-<li>Lead with your best plays</li>
-<li>Include your jersey number</li>
-<li>Use good lighting and clear audio</li>
-</ul>`,
-    type: 'tutorial',
-    category: 'videos',
-    tags: ['video', 'upload', 'highlights'],
-    targetUsers: ['athlete'],
-    readingTimeMinutes: 3,
-    publishedAt: '2026-01-10T00:00:00Z',
-    updatedAt: '2026-01-12T00:00:00Z',
-    viewCount: 980,
-    helpfulCount: 76,
-    notHelpfulCount: 2,
-    isFeatured: true,
-  },
-  {
-    id: 'recruiting-1',
-    slug: 'understanding-ncaa-rules',
-    title: 'Understanding NCAA Recruiting Rules',
-    excerpt: 'Everything you need to know about NCAA recruiting guidelines and timelines.',
-    content: `<p>NCAA recruiting has specific rules that both athletes and coaches must follow. Understanding these rules is crucial for a successful recruiting process.</p>
-<h2>Division I Timeline</h2>
-<p>Coaches can start contacting athletes on June 15 after their sophomore year.</p>
-<h2>Division II & III</h2>
-<p>Different divisions have different contact rules and timelines.</p>
-<h2>Official Visits</h2>
-<p>You can take up to 5 official visits for Division I and unlimited for D-II and D-III.</p>`,
-    type: 'article',
-    category: 'recruiting',
-    tags: ['ncaa', 'rules', 'recruiting'],
-    targetUsers: ['athlete', 'parent', 'coach'],
-    readingTimeMinutes: 8,
-    publishedAt: '2026-01-08T00:00:00Z',
-    updatedAt: '2026-01-08T00:00:00Z',
-    viewCount: 2100,
-    helpfulCount: 156,
-    notHelpfulCount: 5,
-    isFeatured: true,
-  },
-  {
-    id: 'profile-1',
-    slug: 'optimizing-your-athlete-profile',
-    title: 'Optimizing Your Athlete Profile',
-    excerpt: 'Tips and best practices for making your profile stand out to coaches.',
-    content: '<p>Your profile is your digital first impression...</p>',
-    type: 'guide',
-    category: 'profile',
-    tags: ['profile', 'optimization', 'tips'],
-    targetUsers: ['athlete'],
-    readingTimeMinutes: 6,
-    publishedAt: '2026-01-05T00:00:00Z',
-    updatedAt: '2026-01-05T00:00:00Z',
-    viewCount: 1850,
-    helpfulCount: 134,
-    notHelpfulCount: 4,
-  },
-  {
-    id: 'subscription-1',
-    slug: 'premium-features-explained',
-    title: 'Premium Features Explained',
-    excerpt: 'Discover all the benefits included with your NXT1 Premium subscription.',
-    content: '<p>NXT1 Premium unlocks powerful features...</p>',
-    type: 'article',
-    category: 'subscription',
-    tags: ['premium', 'subscription', 'features'],
-    targetUsers: ['all'],
-    readingTimeMinutes: 4,
-    publishedAt: '2026-01-03T00:00:00Z',
-    updatedAt: '2026-01-03T00:00:00Z',
-    viewCount: 890,
-    helpfulCount: 67,
-    notHelpfulCount: 2,
-  },
-  {
-    id: 'coaches-1',
-    slug: 'coach-recruitment-tools',
-    title: 'Using Coach Recruitment Tools',
-    excerpt: 'How to effectively use NXT1 to find and evaluate potential recruits.',
-    content: '<p>Our coach tools make recruiting easier...</p>',
-    type: 'guide',
-    category: 'coaches',
-    tags: ['coach', 'recruiting', 'tools'],
-    targetUsers: ['coach'],
-    readingTimeMinutes: 7,
-    publishedAt: '2026-01-01T00:00:00Z',
-    updatedAt: '2026-01-01T00:00:00Z',
-    viewCount: 650,
-    helpfulCount: 48,
-    notHelpfulCount: 1,
-  },
-];
-
-const MOCK_FAQS: FaqItem[] = [
-  {
-    id: 'faq-1',
-    question: 'How do I reset my password?',
-    answer:
-      '<p>Go to Settings > Account > Change Password. You can also use the "Forgot Password" link on the login screen.</p>',
-    category: 'account',
-    targetUsers: ['all'],
-    order: 1,
-    helpfulCount: 234,
-  },
-  {
-    id: 'faq-2',
-    question: 'Can coaches see my profile without Premium?',
-    answer:
-      '<p>Yes, coaches can view basic profile information. Premium unlocks enhanced visibility, priority placement in search results, and direct messaging.</p>',
-    category: 'recruiting',
-    targetUsers: ['athlete', 'parent'],
-    order: 2,
-    helpfulCount: 189,
-  },
-  {
-    id: 'faq-3',
-    question: 'What video formats are supported?',
-    answer:
-      '<p>We support MP4, MOV, and WebM formats. Maximum file size is 500MB, and videos should be under 10 minutes for best results.</p>',
-    category: 'videos',
-    targetUsers: ['athlete'],
-    order: 3,
-    helpfulCount: 156,
-  },
-  {
-    id: 'faq-4',
-    question: 'How do I cancel my subscription?',
-    answer:
-      '<p>Go to Settings > Subscription > Manage Subscription. You can cancel anytime and retain access until the end of your billing period.</p>',
-    category: 'subscription',
-    targetUsers: ['all'],
-    order: 4,
-    helpfulCount: 98,
-  },
-  {
-    id: 'faq-5',
-    question: 'Is my personal information secure?',
-    answer:
-      '<p>Yes, we use industry-standard encryption and never share your personal information with third parties without your consent.</p>',
-    category: 'privacy',
-    targetUsers: ['all'],
-    order: 5,
-    helpfulCount: 167,
-  },
-  {
-    id: 'faq-6',
-    question: 'How do I add team members?',
-    answer:
-      '<p>Go to your Team page > Settings > Invite Members. You can invite coaches, staff, and athletes via email.</p>',
-    category: 'teams',
-    targetUsers: ['coach', 'team-admin'],
-    order: 6,
-    helpfulCount: 78,
-  },
-];
+/**
+ * Injection token for the Help Center API adapter.
+ * Provide a platform-specific implementation in the app's providers.
+ *
+ * @example (web app, help-center.routes.ts)
+ * ```typescript
+ * import { HELP_CENTER_API } from '@nxt1/ui/help-center';
+ * import { HelpCenterApiService } from './services/help-center-api.service';
+ *
+ * providers: [{ provide: HELP_CENTER_API, useExisting: HelpCenterApiService }]
+ * ```
+ */
+export const HELP_CENTER_API = new InjectionToken<HelpCenterApi>('HELP_CENTER_API');
 
 @Injectable({ providedIn: 'root' })
 export class HelpCenterService {
+  private readonly api = inject(HELP_CENTER_API, { optional: true });
+  private readonly logger = inject(NxtLoggingService).child('HelpCenterService');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
+
   // ============================================
   // Private Signals (Never expose directly)
   // ============================================
   private readonly _loading = signal(false);
   private readonly _searchQuery = signal('');
   private readonly _selectedCategory = signal<HelpCategoryId | null>(null);
-  private readonly _articles = signal<HelpArticle[]>(MOCK_ARTICLES);
-  private readonly _faqs = signal<FaqItem[]>(MOCK_FAQS);
+  private readonly _articles = signal<HelpArticle[]>([]);
+  private readonly _faqs = signal<FaqItem[]>([]);
+  private readonly _userRole = signal<HelpUserType | null>(null);
+  private readonly _error = signal<string | null>(null);
+  private readonly _homeData = signal<HelpCenterHome | null>(null);
+  private readonly _categoryDetail = signal<HelpCategoryDetail | null>(null);
+  private readonly _selectedArticle = signal<HelpArticle | null>(null);
+  private readonly _pagination = signal<HelpPagination | null>(null);
+  private readonly _searchResults = signal<HelpSearchResult[]>([]);
 
   // ============================================
   // Public Computed Signals
@@ -229,28 +78,49 @@ export class HelpCenterService {
   readonly loading = computed(() => this._loading());
   readonly searchQuery = computed(() => this._searchQuery());
   readonly selectedCategory = computed(() => this._selectedCategory());
+  readonly userRole = computed(() => this._userRole());
+  readonly error = computed(() => this._error());
+  readonly homeData = computed(() => this._homeData());
+  readonly categoryDetail = computed(() => this._categoryDetail());
+  readonly selectedArticle = computed(() => this._selectedArticle());
+  readonly pagination = computed(() => this._pagination());
+  readonly searchResults = computed(() => this._searchResults());
 
-  /** All categories from constants */
-  readonly categories = computed<readonly HelpCategory[]>(() => HELP_CATEGORIES);
+  /** Categories filtered by user role */
+  readonly categories = computed<readonly HelpCategory[]>(() => {
+    const role = this._userRole();
+    return HELP_CATEGORIES.filter((c) => this.matchesRole(c.targetUsers, role));
+  });
 
-  /** Featured articles (top 3) */
+  /** Featured articles filtered by user role (top 3) */
   readonly featuredArticles = computed(() =>
     this._articles()
-      .filter((a) => a.isFeatured)
+      .filter((a) => a.isFeatured && this.matchesRole(a.targetUsers, this._userRole()))
       .slice(0, 3)
   );
 
-  /** All articles */
-  readonly articles = computed(() => this._articles());
+  /** All articles filtered by user role */
+  readonly articles = computed(() =>
+    this._articles().filter((a) => this.matchesRole(a.targetUsers, this._userRole()))
+  );
 
-  /** All FAQs */
-  readonly faqs = computed(() => this._faqs());
+  /** All FAQs filtered by user role */
+  readonly faqs = computed(() =>
+    this._faqs().filter((f) => this.matchesRole(f.targetUsers, this._userRole()))
+  );
 
-  /** Filtered articles based on search and category */
+  /** Quick actions filtered by user role */
+  readonly quickActions = computed(() => {
+    const role = this._userRole();
+    return HELP_QUICK_ACTIONS.filter((a) => this.matchesRole(a.targetUsers, role));
+  });
+
+  /** Filtered articles based on search, category, and user role */
   readonly filteredArticles = computed(() => {
     const query = this._searchQuery().toLowerCase().trim();
     const category = this._selectedCategory();
-    let results = this._articles();
+    const role = this._userRole();
+    let results = this._articles().filter((a) => this.matchesRole(a.targetUsers, role));
 
     if (category) {
       results = results.filter((a) => a.category === category);
@@ -268,11 +138,12 @@ export class HelpCenterService {
     return results;
   });
 
-  /** Filtered FAQs based on search and category */
+  /** Filtered FAQs based on search, category, and user role */
   readonly filteredFaqs = computed(() => {
     const query = this._searchQuery().toLowerCase().trim();
     const category = this._selectedCategory();
-    let results = this._faqs();
+    const role = this._userRole();
+    let results = this._faqs().filter((f) => this.matchesRole(f.targetUsers, role));
 
     if (category) {
       results = results.filter((f) => f.category === category);
@@ -287,9 +158,12 @@ export class HelpCenterService {
     return results;
   });
 
-  /** Popular FAQs (sorted by helpful count) */
+  /** Popular FAQs filtered by user role (sorted by helpful count) */
   readonly popularFaqs = computed(() =>
-    [...this._faqs()].sort((a, b) => b.helpfulCount - a.helpfulCount).slice(0, 5)
+    [...this._faqs()]
+      .filter((f) => this.matchesRole(f.targetUsers, this._userRole()))
+      .sort((a, b) => b.helpfulCount - a.helpfulCount)
+      .slice(0, 5)
   );
 
   /** Whether there are search results */
@@ -301,8 +175,196 @@ export class HelpCenterService {
   readonly isSearching = computed(() => this._searchQuery().trim().length > 0);
 
   // ============================================
-  // Actions
+  // Async API Methods (use adapter when available)
   // ============================================
+
+  /**
+   * Load help center home page data from the API.
+   * Populates articles, FAQs, and home data signals.
+   */
+  async loadHome(): Promise<void> {
+    if (!this.api) return;
+
+    this._loading.set(true);
+    this._error.set(null);
+    this.logger.info('Loading help center home');
+    this.breadcrumb.trackStateChange('help-center:loading');
+
+    try {
+      const response = await this.api.getHome(this._userRole() ?? undefined);
+      if (response.data) {
+        this._homeData.set(response.data);
+        this._articles.set(response.data.popularArticles ?? []);
+        this._faqs.set(response.data.topFaqs ?? []);
+        this.logger.info('Help center home loaded', {
+          articles: response.data.popularArticles?.length ?? 0,
+          faqs: response.data.topFaqs?.length ?? 0,
+        });
+        this.analytics?.trackEvent(APP_EVENTS.HELP_CENTER_VIEWED);
+        this.breadcrumb.trackStateChange('help-center:loaded');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load help center';
+      this.logger.error('Failed to load help center home', err);
+      this._error.set(message);
+      this.breadcrumb.trackStateChange('help-center:error');
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
+  /**
+   * Load category detail from the API.
+   * Populates articles, FAQs, and category detail signals.
+   */
+  async loadCategory(categoryId: HelpCategoryId, page = 1, limit = 12): Promise<void> {
+    if (!this.api) return;
+
+    this._loading.set(true);
+    this._error.set(null);
+    this._selectedCategory.set(categoryId);
+    this.logger.info('Loading category', { categoryId, page });
+    this.breadcrumb.trackStateChange('help-center:category-loading', { categoryId });
+
+    try {
+      const response = await this.api.getCategory(categoryId, page, limit);
+      if (response.data) {
+        this._categoryDetail.set(response.data);
+        this._articles.set(response.data.articles ?? []);
+        this._faqs.set(response.data.faqs ?? []);
+        this._pagination.set(response.data.pagination ?? null);
+        this.logger.info('Category loaded', {
+          categoryId,
+          articles: response.data.articles?.length ?? 0,
+        });
+        this.analytics?.trackEvent(APP_EVENTS.HELP_CENTER_CATEGORY_VIEWED, {
+          category_id: categoryId,
+          article_count: response.data.articles?.length ?? 0,
+        });
+        this.breadcrumb.trackStateChange('help-center:category-loaded', { categoryId });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load category';
+      this.logger.error('Failed to load category', err, { categoryId });
+      this._error.set(message);
+      this.breadcrumb.trackStateChange('help-center:error', { categoryId });
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
+  /**
+   * Load a single article from the API.
+   */
+  async loadArticle(slug: string): Promise<void> {
+    if (!this.api) return;
+
+    this._loading.set(true);
+    this._error.set(null);
+    this.logger.info('Loading article', { slug });
+    this.breadcrumb.trackStateChange('help-center:article-loading', { slug });
+
+    try {
+      const response = await this.api.getArticle(slug);
+      if (response.data) {
+        this._selectedArticle.set(response.data);
+        // Also add to _articles so getArticleBySlug() and computed signals work
+        this._articles.update((existing) => {
+          const filtered = existing.filter((a) => a.id !== response.data!.id);
+          return [response.data!, ...filtered];
+        });
+        this.logger.info('Article loaded', { slug, title: response.data.title });
+        this.analytics?.trackEvent(APP_EVENTS.HELP_CENTER_ARTICLE_VIEWED, {
+          article_slug: slug,
+          article_title: response.data.title,
+          help_category: response.data.category,
+        });
+        this.breadcrumb.trackStateChange('help-center:article-loaded', { slug });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load article';
+      this.logger.error('Failed to load article', err, { slug });
+      this._error.set(message);
+      this.breadcrumb.trackStateChange('help-center:error', { slug });
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
+  /**
+   * Search help center content via API.
+   */
+  async searchArticles(query: string): Promise<void> {
+    if (!this.api || !query.trim()) return;
+
+    this._loading.set(true);
+    this._error.set(null);
+    this._searchQuery.set(query);
+    this.logger.info('Searching help center', { query });
+    this.breadcrumb.trackStateChange('help-center:searching', { query });
+
+    try {
+      const response = await this.api.search({ query, userType: this._userRole() ?? undefined });
+      if (response.data) {
+        this._searchResults.set(response.data.results ?? []);
+        this.logger.info('Search complete', {
+          query,
+          results: response.data.results?.length ?? 0,
+          total: response.data.total,
+        });
+        this.analytics?.trackEvent(APP_EVENTS.HELP_CENTER_SEARCHED, {
+          search_query: query,
+          result_count: response.data.results?.length ?? 0,
+        });
+        this.breadcrumb.trackStateChange('help-center:search-complete', { query });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Search failed';
+      this.logger.error('Help center search failed', err, { query });
+      this._error.set(message);
+      this.breadcrumb.trackStateChange('help-center:error', { query });
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
+  /**
+   * Submit article feedback (helpful / not helpful).
+   */
+  async submitArticleFeedback(
+    articleId: string,
+    isHelpful: boolean,
+    feedback?: string
+  ): Promise<boolean> {
+    if (!this.api) return false;
+
+    this.logger.info('Submitting feedback', { articleId, isHelpful });
+
+    try {
+      await this.api.submitFeedback({ articleId, isHelpful, feedback });
+      this.logger.info('Feedback submitted', { articleId, isHelpful });
+      this.analytics?.trackEvent(APP_EVENTS.HELP_CENTER_FEEDBACK_SUBMITTED, {
+        article_id: articleId,
+        is_helpful: String(isHelpful),
+      });
+      return true;
+    } catch (err) {
+      this.logger.error('Failed to submit feedback', err, { articleId });
+      return false;
+    }
+  }
+
+  // ============================================
+  // Sync Actions (local state management)
+  // ============================================
+
+  /**
+   * Set the current user role for content filtering.
+   * Pass null to show all content (unauthenticated users).
+   */
+  setUserRole(role: HelpUserType | null): void {
+    this._userRole.set(role);
+  }
 
   setSearchQuery(query: string): void {
     this._searchQuery.set(query);
@@ -314,11 +376,13 @@ export class HelpCenterService {
 
   clearSearch(): void {
     this._searchQuery.set('');
+    this._searchResults.set([]);
   }
 
   clearFilters(): void {
     this._searchQuery.set('');
     this._selectedCategory.set(null);
+    this._searchResults.set([]);
   }
 
   getArticleById(id: string): HelpArticle | undefined {
@@ -334,10 +398,34 @@ export class HelpCenterService {
   }
 
   getArticlesByCategory(categoryId: HelpCategoryId): HelpArticle[] {
-    return this._articles().filter((a) => a.category === categoryId);
+    const role = this._userRole();
+    return this._articles().filter(
+      (a) => a.category === categoryId && this.matchesRole(a.targetUsers, role)
+    );
   }
 
   getFaqsByCategory(categoryId: HelpCategoryId): FaqItem[] {
-    return this._faqs().filter((f) => f.category === categoryId);
+    const role = this._userRole();
+    return this._faqs().filter(
+      (f) => f.category === categoryId && this.matchesRole(f.targetUsers, role)
+    );
+  }
+
+  // ============================================
+  // Private Helpers
+  // ============================================
+
+  /**
+   * Checks if content should be visible to the given user role.
+   * Content with 'all' in targetUsers is always visible.
+   * If no role is set (null), all content is shown.
+   */
+  private matchesRole(
+    targetUsers: readonly HelpUserType[] | undefined,
+    role: HelpUserType | null
+  ): boolean {
+    if (!targetUsers || targetUsers.length === 0 || targetUsers.includes('all')) return true;
+    if (!role) return true;
+    return targetUsers.includes(role);
   }
 }

@@ -9,7 +9,7 @@
  * ⭐ MOBILE ONLY - Uses Ionic components ⭐
  */
 
-import { Component, ChangeDetectionStrategy, inject, output, input } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, output, input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   IonContent,
@@ -19,11 +19,11 @@ import {
   IonItem,
   IonIcon,
   IonSearchbar,
-  IonChip,
 } from '@ionic/angular/standalone';
 import { addIcons } from 'ionicons';
 import {
   chevronForward,
+  chevronDownOutline,
   searchOutline,
   helpCircleOutline,
   bookOutline,
@@ -70,7 +70,6 @@ export interface HelpNavigateEvent {
     IonItem,
     IonIcon,
     IonSearchbar,
-    IonChip,
     NxtPageHeaderComponent,
   ],
   template: `
@@ -118,32 +117,6 @@ export interface HelpNavigateEvent {
             }
           </ion-list>
         } @else {
-          <!-- Featured Articles -->
-          @if (helpService.featuredArticles().length > 0) {
-            <ion-list class="help-list" lines="full">
-              <ion-list-header>
-                <ion-label>Featured</ion-label>
-              </ion-list-header>
-
-              @for (article of helpService.featuredArticles(); track article.id) {
-                <ion-item class="help-item" button detail (click)="onArticleClick(article)">
-                  <ion-icon
-                    [name]="getTypeIcon(article.type)"
-                    slot="start"
-                    class="help-item__icon help-item__icon--featured"
-                  />
-                  <ion-label>
-                    <h3>{{ article.title }}</h3>
-                    <p>{{ article.excerpt }}</p>
-                  </ion-label>
-                  @if (article.isNew) {
-                    <ion-chip slot="end" color="primary" class="help-chip">New</ion-chip>
-                  }
-                </ion-item>
-              }
-            </ion-list>
-          }
-
           <!-- Categories -->
           <ion-list class="help-list" lines="full">
             <ion-list-header>
@@ -171,10 +144,21 @@ export interface HelpNavigateEvent {
               </ion-list-header>
 
               @for (faq of helpService.popularFaqs(); track faq.id) {
-                <ion-item class="help-item" button detail (click)="onFaqClick(faq.id)">
+                <ion-item
+                  class="help-item"
+                  button
+                  [detail]="true"
+                  [detailIcon]="
+                    expandedFaqId() === faq.id ? 'chevron-down-outline' : 'chevron-forward'
+                  "
+                  (click)="toggleFaq(faq.id)"
+                >
                   <ion-icon name="help-circle-outline" slot="start" class="help-item__icon" />
-                  <ion-label>
+                  <ion-label class="ion-text-wrap">
                     <h3>{{ faq.question }}</h3>
+                    @if (expandedFaqId() === faq.id) {
+                      <div class="faq-answer" [innerHTML]="faq.answer"></div>
+                    }
                   </ion-label>
                 </ion-item>
               }
@@ -200,12 +184,6 @@ export interface HelpNavigateEvent {
             </ion-item>
           </ion-list>
         }
-
-        <!-- Footer -->
-        <div class="help-footer">
-          <p>Can't find what you're looking for?</p>
-          <p class="help-footer__email">support&#64;nxt1sports.com</p>
-        </div>
       </div>
     </ion-content>
   `,
@@ -222,7 +200,7 @@ export interface HelpNavigateEvent {
       }
 
       .help-container {
-        padding-bottom: calc(80px + env(safe-area-inset-bottom, 0));
+        padding-bottom: calc(160px + env(safe-area-inset-bottom, 0));
       }
 
       .help-search {
@@ -323,21 +301,14 @@ export interface HelpNavigateEvent {
         padding: 0 8px;
       }
 
-      .help-footer {
-        padding: var(--nxt1-spacing-xl, 32px) var(--nxt1-spacing-md, 16px);
-        text-align: center;
-      }
-
-      .help-footer p {
-        margin: 0;
+      /* FAQ Answer */
+      .faq-answer {
+        margin-top: var(--nxt1-spacing-sm, 8px);
+        padding-top: var(--nxt1-spacing-sm, 8px);
+        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.06));
         font-size: var(--nxt1-font-size-sm, 14px);
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-      }
-
-      .help-footer__email {
-        margin-top: var(--nxt1-spacing-xs, 4px) !important;
-        color: var(--nxt1-color-primary, #c8ff00) !important;
-        font-weight: 500;
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
+        line-height: 1.5;
       }
     `,
   ],
@@ -347,6 +318,7 @@ export class HelpCenterShellMobileComponent {
   constructor() {
     addIcons({
       chevronForward,
+      chevronDownOutline,
       searchOutline,
       helpCircleOutline,
       bookOutline,
@@ -399,12 +371,11 @@ export class HelpCenterShellMobileComponent {
     });
   }
 
-  protected async onFaqClick(faqId: string): Promise<void> {
+  protected readonly expandedFaqId = signal<string | null>(null);
+
+  protected async toggleFaq(faqId: string): Promise<void> {
     await this.haptics.impact('light');
-    this.navigate.emit({
-      type: 'faq',
-      id: faqId,
-    });
+    this.expandedFaqId.update((current) => (current === faqId ? null : faqId));
   }
 
   protected async onContactClick(): Promise<void> {

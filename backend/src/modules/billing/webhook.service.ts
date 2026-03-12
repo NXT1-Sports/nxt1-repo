@@ -11,6 +11,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getStripeClient } from './stripe.service.js';
 import { getStripeConfig, COLLECTIONS } from './config.js';
 import { logger } from '../../utils/logger.js';
+import { NOTIFICATION_TYPES } from '@nxt1/core';
 import type { PaymentLog } from './types/index.js';
 
 /**
@@ -223,7 +224,7 @@ export async function handleInvoicePaymentFailed(
     const { dispatch } = await import('../../services/notification.service.js');
     await dispatch(db, {
       userId: invoice.customer as string,
-      type: 'payment_failed' as const,
+      type: NOTIFICATION_TYPES.PAYMENT_FAILED,
       title: 'Payment Failed',
       body: 'We were unable to process your payment. Please update your payment method.',
       deepLink: '/settings/billing',

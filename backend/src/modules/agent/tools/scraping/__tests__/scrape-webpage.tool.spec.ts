@@ -3,13 +3,15 @@
  * @module @nxt1/backend/modules/agent/tools/scraping
  *
  * Tests the tool shell in isolation by mocking the ScraperService.
- * Verifies input validation, successful delegation, and error wrapping.
+ * Verifies input validation, successful delegation, structured data
+ * formatting, and error wrapping.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ScrapeWebpageTool } from '../scrape-webpage.tool.js';
 import type { ScraperService } from '../scraper.service.js';
 import type { ScrapeResult } from '../scraper.types.js';
+import type { PageStructuredData } from '../page-data.types.js';
 
 // ─── Mock ScraperService ────────────────────────────────────────────────────
 
@@ -20,6 +22,30 @@ function createMockScraper(): ScraperService {
   } as unknown as ScraperService;
 }
 
+const MOCK_PAGE_DATA: PageStructuredData = {
+  title: 'Jalen Smith - MaxPreps',
+  description: 'Jalen Smith stats and highlights',
+  openGraph: {
+    title: 'Jalen Smith - MaxPreps',
+    description: 'Jalen Smith stats',
+    image: 'https://images.maxpreps.com/jalen.jpg',
+    url: 'https://www.maxpreps.com/athlete/jalen-smith/abc123',
+    type: 'profile',
+    siteName: 'MaxPreps',
+  },
+  twitterCard: null,
+  ldJson: [],
+  nextData: { props: { pageProps: { athlete: { firstName: 'Jalen', position: 'PG' } } } },
+  nuxtData: null,
+  embeddedData: {},
+  images: [
+    { src: 'https://images.maxpreps.com/jalen.jpg', alt: 'Jalen Smith', source: 'og' as const },
+  ],
+  videos: [{ src: 'https://www.hudl.com/video/abc123', provider: 'hudl' as const }],
+  colors: ['#003366', '#CC0022'],
+  hasRichData: true,
+};
+
 const MOCK_RESULT: ScrapeResult = {
   url: 'https://www.maxpreps.com/athlete/jalen-smith/abc123',
   title: 'Jalen Smith - MaxPreps',
@@ -27,6 +53,17 @@ const MOCK_RESULT: ScrapeResult = {
   contentLength: 42,
   provider: 'jina',
   scrapedInMs: 350,
+  pageData: MOCK_PAGE_DATA,
+};
+
+const MOCK_RESULT_NO_STRUCTURED: ScrapeResult = {
+  url: 'https://example.com/article',
+  title: 'Some Article',
+  markdownContent: '# Some Article\n\nContent here.',
+  contentLength: 30,
+  provider: 'jina',
+  scrapedInMs: 200,
+  pageData: null,
 };
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
@@ -114,6 +151,55 @@ describe('ScrapeWebpageTool', () => {
       expect(data['contentLength']).toBe(42);
       expect(data['provider']).toBe('jina');
       expect(data['scrapedInMs']).toBe(350);
+    });
+
+    it('should include structuredData when pageData has rich data', async () => {
+      vi.mocked(mockScraper.scrape).mockResolvedValue(MOCK_RESULT);
+
+      const result = await tool.execute({
+        url: 'https://www.maxpreps.com/athlete/jalen-smith/abc123',
+      });
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const structured = data['structuredData'] as Record<string, unknown>;
+      expect(structured).not.toBeNull();
+      expect(structured['nextData']).toBeDefined();
+      expect(structured['openGraph']).toBeDefined();
+      expect(structured['images']).toHaveLength(1);
+      expect(structured['videos']).toHaveLength(1);
+      expect(structured['colors']).toEqual(['#003366', '#CC0022']);
+    });
+
+    it('should return null structuredData when no rich data found', async () => {
+      vi.mocked(mockScraper.scrape).mockResolvedValue(MOCK_RESULT_NO_STRUCTURED);
+
+      const result = await tool.execute({ url: 'https://example.com/article' });
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['structuredData']).toBeNull();
+    });
+
+    it('should surface embeddedData when available', async () => {
+      const hudlModel = { user: { firstName: 'Deshon', positions: 'RB, SB' } };
+      const resultWithEmbed: ScrapeResult = {
+        ...MOCK_RESULT,
+        pageData: {
+          ...MOCK_PAGE_DATA,
+          nextData: null,
+          embeddedData: { __hudlEmbed: { model: hudlModel } },
+        },
+      };
+      vi.mocked(mockScraper.scrape).mockResolvedValue(resultWithEmbed);
+
+      const result = await tool.execute({ url: 'https://www.hudl.com/profile/123' });
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      const structured = data['structuredData'] as Record<string, unknown>;
+      expect(structured['embeddedData']).toBeDefined();
+      expect(structured['nextData']).toBeUndefined();
     });
 
     it('should trim the URL before scraping', async () => {

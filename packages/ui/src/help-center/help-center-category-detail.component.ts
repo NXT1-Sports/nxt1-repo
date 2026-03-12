@@ -23,7 +23,6 @@ import {
 import { addIcons } from 'ionicons';
 import {
   chevronForward,
-  helpCircleOutline,
   bookOutline,
   videocamOutline,
   schoolOutline,
@@ -92,24 +91,6 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
             <h3>No articles yet</h3>
             <p>Check back soon for new content in this category.</p>
           </div>
-        }
-
-        <!-- FAQs for this category -->
-        @if (faqs().length > 0) {
-          <ion-list class="category-list" lines="full">
-            <ion-list-header>
-              <ion-label>Frequently Asked</ion-label>
-            </ion-list-header>
-
-            @for (faq of faqs(); track faq.id) {
-              <ion-item class="category-item" button detail (click)="onFaqClick(faq.id)">
-                <ion-icon name="help-circle-outline" slot="start" class="category-item__icon" />
-                <ion-label>
-                  <h3>{{ faq.question }}</h3>
-                </ion-label>
-              </ion-item>
-            }
-          </ion-list>
         }
       </div>
     </ion-content>
@@ -301,7 +282,6 @@ export class HelpCategoryDetailComponent {
   constructor() {
     addIcons({
       chevronForward,
-      helpCircleOutline,
       bookOutline,
       videocamOutline,
       schoolOutline,
@@ -322,9 +302,6 @@ export class HelpCategoryDetailComponent {
   /** Emits when article is selected */
   readonly articleSelect = output<{ id: string; slug: string }>();
 
-  /** Emits when FAQ is selected */
-  readonly faqSelect = output<string>();
-
   /** Current category */
   protected readonly category = computed(() => this.helpService.getCategoryById(this.categoryId()));
 
@@ -336,17 +313,9 @@ export class HelpCategoryDetailComponent {
     this.helpService.getArticlesByCategory(this.categoryId())
   );
 
-  /** FAQs in this category */
-  protected readonly faqs = computed(() => this.helpService.getFaqsByCategory(this.categoryId()));
-
   protected async onArticleClick(article: HelpArticle): Promise<void> {
     await this.haptics.impact('light');
     this.articleSelect.emit({ id: article.id, slug: article.slug });
-  }
-
-  protected async onFaqClick(faqId: string): Promise<void> {
-    await this.haptics.impact('light');
-    this.faqSelect.emit(faqId);
   }
 
   protected getTypeIcon(type: string): string {
@@ -357,8 +326,6 @@ export class HelpCategoryDetailComponent {
         return 'book-outline';
       case 'tutorial':
         return 'school-outline';
-      case 'faq':
-        return 'help-circle-outline';
       default:
         return 'document-text-outline';
     }

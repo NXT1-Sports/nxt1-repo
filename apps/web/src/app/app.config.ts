@@ -82,6 +82,11 @@ import {
   MESSAGES_API_BASE_URL,
 } from '@nxt1/ui';
 
+// Help Center API adapter — wired at root so the shared HelpCenterService
+// (providedIn: 'root') can resolve the token when it's first injected.
+import { HELP_CENTER_API } from '@nxt1/ui/help-center';
+import { HelpCenterApiService } from './features/help-center/services/help-center-api.service';
+
 // Firebase
 // IMPORTANT: Only import what's actually used in browser bundle
 // - FirebaseApp: Required for Firebase initialization
@@ -277,6 +282,9 @@ export const appConfig: ApplicationConfig = {
 
     // Messages API base URL
     { provide: MESSAGES_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Help Center API adapter — root-level so shared HelpCenterService resolves it
+    { provide: HELP_CENTER_API, useExisting: HelpCenterApiService },
 
     // ============================================
     // LOGGING & ERROR HANDLING

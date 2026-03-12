@@ -9,6 +9,7 @@
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
 import { HelpArticleDetailWebComponent } from '@nxt1/ui/help-center';
+import { HelpCenterService } from '@nxt1/ui/help-center';
 
 @Component({
   selector: 'app-help-center-article',
@@ -26,6 +27,7 @@ import { HelpArticleDetailWebComponent } from '@nxt1/ui/help-center';
 export class HelpCenterArticleComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly helpService = inject(HelpCenterService);
 
   protected articleSlug = '';
 
@@ -33,7 +35,9 @@ export class HelpCenterArticleComponent implements OnInit {
     this.articleSlug = this.route.snapshot.paramMap.get('slug') ?? '';
     if (!this.articleSlug) {
       this.router.navigate(['/help-center']);
+      return;
     }
+    this.helpService.loadArticle(this.articleSlug);
   }
 
   protected onArticleSelect(event: { id: string; slug: string }): void {

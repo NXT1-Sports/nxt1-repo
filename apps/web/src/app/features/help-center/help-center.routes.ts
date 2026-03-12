@@ -1,7 +1,9 @@
 /**
  * @fileoverview Help Center Feature Routes (Web)
- * @version 2.0.0
- * @description Clean, minimal route configuration.
+ * @version 4.0.0
+ * @description Route configuration for help center feature.
+ * API adapter is provided at app.config.ts root level so the shared
+ * HelpCenterService (providedIn: 'root') can resolve HELP_CENTER_API.
  */
 
 import { Routes } from '@angular/router';

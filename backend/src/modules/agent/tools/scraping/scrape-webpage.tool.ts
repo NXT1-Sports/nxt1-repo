@@ -2,15 +2,18 @@
  * @fileoverview Web Scraper Tool
  * @module @nxt1/backend/modules/agent/tools/scraping
  *
- * Agent X tool that extracts clean markdown content from any public URL.
- * Designed for sports profile pages (MaxPreps, Hudl, 247Sports, etc.)
- * but works on any publicly accessible webpage.
+ * Agent X tool that extracts structured data AND clean markdown from any
+ * public URL. Designed for sports profile pages (MaxPreps, Hudl, 247Sports,
+ * etc.) but works universally on any publicly accessible webpage.
  *
  * Architecture:
  * - The tool class is a thin shell that delegates to ScraperService.
- * - ScraperService handles the two-tier scraping strategy (Jina → fetch fallback).
- * - The tool validates input, calls the service, and formats the ToolResult
- *   for the LLM's observation loop.
+ * - ScraperService runs a 3-tier pipeline:
+ *     Tier 1: Direct fetch → structured data extraction (NextData, LD+JSON, OG, images, videos, colors)
+ *     Tier 2: Jina AI Reader → clean prose markdown (parallel with Tier 1)
+ *     Tier 3: HTML→Markdown fallback (if Jina fails, uses Tier 1 HTML)
+ * - The tool formats the combined result for the LLM's observation loop:
+ *     structured JSON (stats, social links, school info) + prose markdown.
  *
  * Security:
  * - All URLs are validated for SSRF attacks before any network call.
@@ -20,15 +23,20 @@
 
 import { BaseTool, type ToolResult } from '../base.tool.js';
 import { ScraperService } from './scraper.service.js';
+import type { PageStructuredData } from './page-data.types.js';
 
 export class ScrapeWebpageTool extends BaseTool {
   readonly name = 'scrape_webpage';
   readonly description =
-    'Fetches and extracts clean markdown content from a given URL. ' +
-    'Use this to read athlete profiles (MaxPreps, Hudl, 247Sports), ' +
-    'college program pages, roster pages, news articles, or any public webpage. ' +
-    'Returns the page title and content as structured markdown that you can ' +
-    'analyze, summarize, or extract data from.';
+    'Scrapes a URL and returns BOTH structured data AND markdown content. ' +
+    'Automatically extracts embedded data from sports profile pages: ' +
+    'athlete stats (height, weight, 40-yard dash, GPA), school/team info, ' +
+    'team colors, social links (Instagram, Twitter, Hudl), profile images, ' +
+    'highlight videos, and more — all without manual parsing. ' +
+    'Works on MaxPreps, Hudl, 247Sports, Rivals, NCSA, PrepStar, college ' +
+    'program pages, news articles, or any public webpage. ' +
+    'Returns structured JSON (from NextData, embedded data blobs, LD+JSON, OpenGraph) plus ' +
+    'clean prose markdown for analysis.';
 
   readonly parameters = {
     type: 'object',
@@ -41,7 +49,7 @@ export class ScrapeWebpageTool extends BaseTool {
       maxLength: {
         type: 'number',
         description:
-          'Optional maximum character count for the returned content. Defaults to 20,000.',
+          'Optional maximum character count for the returned markdown. Defaults to 30,000.',
       },
     },
     required: ['url'],
@@ -65,21 +73,6 @@ export class ScrapeWebpageTool extends BaseTool {
     this.scraper = scraper ?? new ScraperService();
   }
 
-  /**
-   * Scrape a URL and return clean markdown content for the LLM.
-   *
-   * Input:
-   *   - url: string (required) — The URL to scrape.
-   *   - maxLength: number (optional) — Max characters to return.
-   *
-   * Output (on success):
-   *   - url: The scraped URL.
-   *   - title: Page title.
-   *   - markdownContent: Extracted content as clean markdown.
-   *   - contentLength: Character count.
-   *   - provider: Which scraping strategy was used.
-   *   - scrapedInMs: Duration.
-   */
   async execute(input: Record<string, unknown>): Promise<ToolResult> {
     const url = input['url'];
 
@@ -99,20 +92,99 @@ export class ScrapeWebpageTool extends BaseTool {
     // ── Scrape ─────────────────────────────────────────────────────────
     try {
       const result = await this.scraper.scrape({ url: url.trim(), maxLength });
+
       return {
         success: true,
         data: {
           url: result.url,
           title: result.title,
-          markdownContent: result.markdownContent,
-          contentLength: result.contentLength,
           provider: result.provider,
           scrapedInMs: result.scrapedInMs,
+          contentLength: result.contentLength,
+
+          // Structured data summary (richest source — stats, school, colors, social)
+          structuredData: this.formatStructuredData(result.pageData),
+
+          // Prose markdown (for LLM analysis / summarization)
+          markdownContent: result.markdownContent,
         },
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Scraping failed';
       return { success: false, error: message };
     }
+  }
+
+  // ─── Helpers ──────────────────────────────────────────────────────────
+
+  /**
+   * Format structured page data into a concise summary for the LLM.
+   * Returns null if no structured data was extracted.
+   */
+  private formatStructuredData(
+    pageData: PageStructuredData | null
+  ): Record<string, unknown> | null {
+    if (!pageData || !pageData.hasRichData) return null;
+
+    const summary: Record<string, unknown> = {};
+
+    if (pageData.title) summary['title'] = pageData.title;
+    if (pageData.description) summary['description'] = pageData.description;
+
+    // OpenGraph metadata (profile image, type, site name)
+    if (pageData.openGraph) {
+      const og = pageData.openGraph;
+      const ogData: Record<string, string> = {};
+      if (og.title) ogData['title'] = og.title;
+      if (og.image) ogData['image'] = og.image;
+      if (og.type) ogData['type'] = og.type;
+      if (og.siteName) ogData['siteName'] = og.siteName;
+      if (Object.keys(ogData).length > 0) summary['openGraph'] = ogData;
+    }
+
+    // Images (profile photos, team logos)
+    if (pageData.images.length > 0) {
+      summary['images'] = pageData.images.slice(0, 10).map((img) => ({
+        src: img.src,
+        ...(img.alt ? { alt: img.alt } : {}),
+        source: img.source,
+      }));
+    }
+
+    // Videos (Hudl highlights, YouTube, Vimeo)
+    if (pageData.videos.length > 0) {
+      summary['videos'] = pageData.videos.map((v) => ({
+        src: v.src,
+        provider: v.provider,
+        ...(v.videoId ? { videoId: v.videoId } : {}),
+      }));
+    }
+
+    // Team/school colors
+    if (pageData.colors.length > 0) {
+      summary['colors'] = pageData.colors;
+    }
+
+    // LD+JSON (schema.org — Person, SportsTeam, Organization, Article)
+    if (pageData.ldJson.length > 0) {
+      summary['schemaOrg'] = pageData.ldJson.slice(0, 3);
+    }
+
+    // Next.js / Nuxt.js raw page data (contains the richest structured info)
+    // This is where MaxPreps stores stats, social links, school details, etc.
+    if (pageData.nextData) {
+      summary['nextData'] = pageData.nextData;
+    }
+    if (pageData.nuxtData) {
+      summary['nuxtData'] = pageData.nuxtData;
+    }
+
+    // Generic embedded data blobs (Hudl __hudlEmbed, Redux __INITIAL_STATE__, etc.)
+    const embeddedKeys = Object.keys(pageData.embeddedData);
+    if (embeddedKeys.length > 0) {
+      summary['embeddedData'] = pageData.embeddedData;
+    }
+
+    return Object.keys(summary).length > 0 ? summary : null;
   }
 }

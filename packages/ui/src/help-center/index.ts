@@ -24,7 +24,7 @@
 // ============================================
 // SHARED (_shared/) - Platform-agnostic
 // ============================================
-export { HelpCenterService } from './_shared';
+export { HelpCenterService, HELP_CENTER_API } from './_shared';
 
 // ============================================
 // MOBILE (mobile/) - Ionic components

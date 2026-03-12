@@ -10,6 +10,7 @@ import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/cor
 import { Router, ActivatedRoute } from '@angular/router';
 import type { HelpCategoryId } from '@nxt1/core';
 import { HelpCategoryDetailWebComponent } from '@nxt1/ui/help-center';
+import { HelpCenterService } from '@nxt1/ui/help-center';
 
 @Component({
   selector: 'app-help-center-category',
@@ -20,7 +21,6 @@ import { HelpCategoryDetailWebComponent } from '@nxt1/ui/help-center';
       [categoryId]="categoryId"
       (back)="onBack()"
       (articleClick)="onArticleSelect($event)"
-      (faqClick)="onFaqClick($event)"
     />
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -28,6 +28,7 @@ import { HelpCategoryDetailWebComponent } from '@nxt1/ui/help-center';
 export class HelpCenterCategoryComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
+  private readonly helpService = inject(HelpCenterService);
 
   protected categoryId: HelpCategoryId = 'getting-started';
 
@@ -38,14 +39,11 @@ export class HelpCenterCategoryComponent implements OnInit {
       return;
     }
     this.categoryId = id;
+    this.helpService.loadCategory(id);
   }
 
   protected onArticleSelect(event: { id: string; slug: string }): void {
     this.router.navigate(['/help-center', 'article', event.slug]);
-  }
-
-  protected onFaqClick(faqId: string): void {
-    this.router.navigate(['/help-center'], { queryParams: { faq: faqId } });
   }
 
   protected onBack(): void {

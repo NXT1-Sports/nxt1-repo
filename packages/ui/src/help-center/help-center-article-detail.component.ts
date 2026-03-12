@@ -9,7 +9,15 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, inject, input, output, computed } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  input,
+  output,
+  computed,
+  signal,
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   IonContent,
@@ -25,8 +33,6 @@ import { addIcons } from 'ionicons';
 import {
   timeOutline,
   eyeOutline,
-  thumbsUpOutline,
-  thumbsDownOutline,
   shareOutline,
   bookmarkOutline,
   chevronForward,
@@ -37,6 +43,7 @@ import {
   helpCircleOutline,
 } from 'ionicons/icons';
 import { NxtPageHeaderComponent } from '../components/page-header';
+import { NxtIconComponent } from '../components/icon';
 import { HelpCenterService } from './help-center.service';
 import { HapticsService } from '../services/haptics/haptics.service';
 import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
@@ -55,6 +62,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
     IonChip,
     IonButton,
     NxtPageHeaderComponent,
+    NxtIconComponent,
   ],
   template: `
     <nxt1-page-header title="Article" [showBack]="true" (backClick)="back.emit()" />
@@ -78,10 +86,6 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
                 <ion-icon name="time-outline" />
                 {{ article()!.readingTimeMinutes }} min read
               </span>
-              <span class="article-meta__item">
-                <ion-icon name="eye-outline" />
-                {{ formatNumber(article()!.viewCount) }} views
-              </span>
             </div>
           </header>
 
@@ -92,14 +96,24 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
           <div class="article-feedback">
             <p class="article-feedback__title">Was this helpful?</p>
             <div class="article-feedback__buttons">
-              <ion-button fill="outline" size="small" (click)="onHelpful()">
-                <ion-icon slot="start" name="thumbs-up-outline" />
+              <button
+                type="button"
+                class="feedback-btn"
+                [class.feedback-btn--helpful]="feedbackState() === 'helpful'"
+                (click)="onHelpful()"
+              >
+                <nxt1-icon name="thumbsUp" [size]="20" />
                 Yes ({{ article()!.helpfulCount }})
-              </ion-button>
-              <ion-button fill="outline" size="small" color="medium" (click)="onNotHelpful()">
-                <ion-icon slot="start" name="thumbs-down-outline" />
+              </button>
+              <button
+                type="button"
+                class="feedback-btn"
+                [class.feedback-btn--not-helpful]="feedbackState() === 'not-helpful'"
+                (click)="onNotHelpful()"
+              >
+                <nxt1-icon name="thumbsDown" [size]="20" />
                 No ({{ article()!.notHelpfulCount }})
-              </ion-button>
+              </button>
             </div>
           </div>
 
@@ -154,7 +168,7 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
 
       .article-container {
         padding: var(--nxt1-spacing-md, 16px);
-        padding-bottom: calc(80px + env(safe-area-inset-bottom, 0));
+        padding-bottom: calc(160px + env(safe-area-inset-bottom, 0));
         max-width: 720px;
         margin: 0 auto;
       }
@@ -264,8 +278,36 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
         gap: var(--nxt1-spacing-sm, 12px);
       }
 
-      .article-feedback__buttons ion-button {
-        --border-radius: var(--nxt1-radius-md, 8px);
+      .feedback-btn {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-xs, 8px);
+        padding: var(--nxt1-spacing-xs, 8px) var(--nxt1-spacing-md, 16px);
+        border-radius: var(--nxt1-radius-md, 8px);
+        border: 1.5px solid var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        background: transparent;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        font-family: inherit;
+        font-size: var(--nxt1-font-size-sm, 14px);
+        font-weight: 500;
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast, 100ms) var(--nxt1-ease-in-out);
+      }
+
+      .feedback-btn:active {
+        opacity: 0.8;
+      }
+
+      .feedback-btn--helpful {
+        border-color: var(--nxt1-color-success, #22c55e);
+        background: color-mix(in srgb, var(--nxt1-color-success, #22c55e) 12%, transparent);
+        color: var(--nxt1-color-success, #22c55e);
+      }
+
+      .feedback-btn--not-helpful {
+        border-color: var(--nxt1-color-error, #ef4444);
+        background: color-mix(in srgb, var(--nxt1-color-error, #ef4444) 12%, transparent);
+        color: var(--nxt1-color-error, #ef4444);
       }
 
       /* Related */
@@ -453,8 +495,6 @@ export class HelpArticleDetailComponent {
     addIcons({
       timeOutline,
       eyeOutline,
-      thumbsUpOutline,
-      thumbsDownOutline,
       shareOutline,
       bookmarkOutline,
       chevronForward,
@@ -517,7 +557,10 @@ export class HelpArticleDetailComponent {
     });
   }
 
+  protected readonly feedbackState = signal<'none' | 'helpful' | 'not-helpful'>('none');
+
   protected async onHelpful(): Promise<void> {
+    this.feedbackState.set('helpful');
     await this.haptics.notification('success');
     const current = this.article();
     if (current) {
@@ -526,6 +569,7 @@ export class HelpArticleDetailComponent {
   }
 
   protected async onNotHelpful(): Promise<void> {
+    this.feedbackState.set('not-helpful');
     await this.haptics.impact('light');
     const current = this.article();
     if (current) {

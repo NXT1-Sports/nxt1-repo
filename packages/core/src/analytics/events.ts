@@ -643,6 +643,24 @@ export const APP_EVENTS = {
   BRAND_AGENT_CHAT_OPENED: 'brand_agent_chat_opened',
 
   // ============================================
+  // HELP CENTER EVENTS
+  // ============================================
+  /** Help center home page viewed */
+  HELP_CENTER_VIEWED: 'help_center_viewed',
+  /** Help center category viewed */
+  HELP_CENTER_CATEGORY_VIEWED: 'help_center_category_viewed',
+  /** Help center article viewed */
+  HELP_CENTER_ARTICLE_VIEWED: 'help_center_article_viewed',
+  /** Help center search performed */
+  HELP_CENTER_SEARCHED: 'help_center_searched',
+  /** Help center article feedback submitted */
+  HELP_CENTER_FEEDBACK_SUBMITTED: 'help_center_feedback_submitted',
+  /** Help center FAQ expanded */
+  HELP_CENTER_FAQ_EXPANDED: 'help_center_faq_expanded',
+  /** Help center contact support opened */
+  HELP_CENTER_CONTACT_SUPPORT: 'help_center_contact_support',
+
+  // ============================================
   // LINK SOURCES / CONNECTED ACCOUNTS EVENTS
   // ============================================
   /** User switched between Linked and Signed In modes */

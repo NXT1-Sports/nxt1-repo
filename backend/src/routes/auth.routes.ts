@@ -26,7 +26,7 @@ import type {
   UserSocialLink,
   ConnectedEmail,
 } from '@nxt1/core';
-import { isValidEmail, isValidTeamCode, USER_SCHEMA_VERSION } from '@nxt1/core';
+import { isValidEmail, isValidTeamCode, USER_SCHEMA_VERSION, NOTIFICATION_TYPES } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import {
   validationError,
@@ -37,6 +37,7 @@ import {
 } from '@nxt1/core/errors';
 import { logger } from '../utils/logger.js';
 import { generateUnicodeForUser, getUserUnicode } from '../utils/unicode-generator.js';
+import { dispatch } from '../services/notification.service.js';
 
 // Import profile routes
 import profileRoutes, { invalidateProfileCaches } from './profile.routes.js';
@@ -550,6 +551,17 @@ router.post(
       teamCode: teamCode ?? 'none',
       backend: 'nxt1-repo',
     });
+
+    // Fire-and-forget: send welcome notification to the new user
+    void dispatch(db, {
+      userId: uid,
+      type: NOTIFICATION_TYPES.ACCOUNT_CREATED,
+      title: 'Welcome to NXT1! 🏆',
+      body: 'Complete your profile to start getting discovered by coaches and scouts.',
+      source: { userName: 'NXT1' },
+    }).catch((err) =>
+      logger.error('[Auth] Failed to dispatch account_created notification', { error: err })
+    );
 
     res.status(201).json(responseData);
   })
