@@ -30,6 +30,10 @@ export class FcmRegistrationService {
   private readonly functions = inject(Functions);
   private readonly logger: ILogger = inject(NxtLoggingService).child('FcmRegistrationService');
 
+  /** Cached FCM token for current device */
+  private cachedToken?: string;
+  private readonly STORAGE_KEY = 'nxt1_fcm_token';
+
   /**
    * Request permission and register FCM token for the current user.
    * Should be called after successful login.
@@ -56,25 +60,30 @@ export class FcmRegistrationService {
       if (permissionResult.receive === 'granted') {
         this.logger.debug('Push notification permission granted');
 
-        // Register with FCM
-        await PushNotifications.register();
-
-        // Wait for registration to complete
+        // Setup listener BEFORE calling register() to avoid race condition
         const registrationPromise = new Promise<string>((resolve, reject) => {
           const timeout = setTimeout(() => {
             reject(new Error('FCM registration timeout'));
           }, 10000); // 10s timeout
 
+          // Remove old listeners first
+          PushNotifications.removeAllListeners();
+
           PushNotifications.addListener('registration', (token) => {
             clearTimeout(timeout);
+            this.logger.debug('FCM token received', { token: token.value });
             resolve(token.value);
           });
 
           PushNotifications.addListener('registrationError', (error) => {
             clearTimeout(timeout);
+            this.logger.error('FCM registration error', error);
             reject(error);
           });
         });
+
+        // Register with FCM (will trigger 'registration' event)
+        await PushNotifications.register();
 
         const token = await registrationPromise;
 
@@ -92,6 +101,15 @@ export class FcmRegistrationService {
         >(this.functions, 'registerFcmToken');
 
         await registerFcmToken({ token, platform });
+
+        // Cache token for later unregister
+        this.cachedToken = token;
+        try {
+          const { Preferences } = await import('@capacitor/preferences');
+          await Preferences.set({ key: this.STORAGE_KEY, value: token });
+        } catch (storageError) {
+          this.logger.warn('Failed to cache FCM token', { error: storageError });
+        }
 
         this.logger.info('FCM token registered successfully', { platform });
       } else {
@@ -114,27 +132,24 @@ export class FcmRegistrationService {
     if (!this.ionicPlatform.is('capacitor')) return;
 
     try {
-      const { PushNotifications } = await import('@capacitor/push-notifications');
+      // Try to get cached token first
+      let token = this.cachedToken;
 
-      // Get current token
-      const registrationPromise = new Promise<string>((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error('FCM token retrieval timeout'));
-        }, 5000);
+      if (!token) {
+        // Try to get from storage
+        try {
+          const { Preferences } = await import('@capacitor/preferences');
+          const result = await Preferences.get({ key: this.STORAGE_KEY });
+          token = result.value || undefined;
+        } catch (storageError) {
+          this.logger.warn('Failed to get cached FCM token', { error: storageError });
+        }
+      }
 
-        PushNotifications.addListener('registration', (token) => {
-          clearTimeout(timeout);
-          resolve(token.value);
-        });
-
-        PushNotifications.addListener('registrationError', (error) => {
-          clearTimeout(timeout);
-          reject(error);
-        });
-      });
-
-      await PushNotifications.register();
-      const token = await registrationPromise;
+      if (!token) {
+        this.logger.info('No FCM token to unregister');
+        return;
+      }
 
       // Call Cloud Function to remove token
       const unregisterFcmToken = httpsCallable<{ token: string }, RegisterTokenResponse>(
@@ -143,6 +158,15 @@ export class FcmRegistrationService {
       );
 
       await unregisterFcmToken({ token });
+
+      // Clear cached token
+      this.cachedToken = undefined;
+      try {
+        const { Preferences } = await import('@capacitor/preferences');
+        await Preferences.remove({ key: this.STORAGE_KEY });
+      } catch (storageError) {
+        this.logger.warn('Failed to clear cached FCM token', { error: storageError });
+      }
 
       this.logger.info('FCM token unregistered successfully');
     } catch (error) {
