@@ -2,9 +2,15 @@
  * @fileoverview Unit Tests — ScraperService
  * @module @nxt1/backend/modules/agent/tools/scraping
  *
- * Tests the core scraping engine in isolation by mocking `fetch`.
- * Covers URL validation (SSRF prevention), Jina primary strategy,
- * fetch fallback strategy, content truncation, and error handling.
+ * Tests the 3-tier scraping engine in isolation by mocking `fetch`.
+ * Covers URL validation (SSRF prevention), parallel fetching (Tier 1 direct
+ * HTML + Tier 2 Jina), Tier 3 HTML→Markdown fallback, structured data
+ * extraction integration, content truncation, and error handling.
+ *
+ * Because the service runs Tier 1 (direct fetch) and Tier 2 (Jina) in
+ * parallel via Promise.all, `mockFetch` receives two calls simultaneously:
+ *   Call 0 → direct HTML fetch (the target URL)
+ *   Call 1 → Jina reader (`https://r.jina.ai/{url}`)
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -46,6 +52,55 @@ const SAMPLE_HTML = `<!DOCTYPE html>
 <footer>Footer content</footer>
 </body>
 </html>`;
+
+const SAMPLE_HTML_WITH_NEXT_DATA = `<!DOCTYPE html>
+<html>
+<head>
+<title>MaxPreps - Deshon Yancey</title>
+<meta property="og:title" content="Deshon Yancey - RB" />
+<meta property="og:image" content="https://images.maxpreps.com/photo.jpg" />
+</head>
+<body>
+<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"athlete":{"firstName":"Deshon","lastName":"Yancey","primaryPosition":"RB","heightFeet":5,"heightInches":8,"weight":150,"graduatingClass":"2027"}}}}</script>
+<main><h1>Deshon Yancey</h1></main>
+</body>
+</html>`;
+
+const SAMPLE_HTML_WITH_EMBEDDED_DATA = `<!DOCTYPE html>
+<html>
+<head>
+<title>Deshon Yancey - Hudl</title>
+<meta property="og:title" content="Deshon Yancey on Hudl" />
+</head>
+<body>
+<script>window.__hudlEmbed={"data":{"pageData":{"athlete":{"athleteId":"19341470","profileUrl":"https://www.hudl.com/profile/19341470/deshon-yancey","sportId":1}}},"model":{"user":{"firstName":"Deshon","lastName":"Yancey","primaryColor":"222222","secondaryColor":"ff1e1e","positions":"RB, SB","graduationYear":2027,"description":"Running back and slot back at Mt Zion High School in Jonesboro Georgia. Class of 2027 prospect with 4.5 forty yard dash time."},"about":{"overview":{"organization":"Mt. Zion High School","location":"Jonesboro, GA","weight":"154lbs","twitter":"Deshon4Yancey","fortyYardDash":"4.55","shuttleRun":"4.21"}},"highlights":[{"title":"Junior Season Highlights","videoId":"abc123"}]}};</script>
+<main><h1>Deshon Yancey</h1></main>
+</body>
+</html>`;
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** Mock a successful direct HTML fetch (call index 0). */
+function mockDirectFetchOk(html: string = SAMPLE_HTML) {
+  return {
+    ok: true,
+    headers: new Headers({ 'content-type': 'text/html; charset=utf-8' }),
+    text: async () => html,
+  };
+}
+
+/** Mock a successful Jina response (call index 1). */
+function mockJinaOk(markdown: string = SAMPLE_MARKDOWN) {
+  return {
+    ok: true,
+    text: async () => markdown,
+  };
+}
+
+/** Mock a failed response for either tier. */
+function mockFailed() {
+  return { ok: false };
+}
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
@@ -134,69 +189,57 @@ describe('ScraperService', () => {
     });
   });
 
-  // ── Jina Strategy ─────────────────────────────────────────────────────
+  // ── Jina Strategy (Tier 2, preferred markdown source) ─────────────────
 
   describe('scrape — Jina strategy', () => {
     it('should return markdown from Jina on success', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => SAMPLE_MARKDOWN,
-      });
+      // Call 0: direct fetch (also succeeds for structured data)
+      // Call 1: Jina (succeeds — preferred markdown source)
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk()).mockResolvedValueOnce(mockJinaOk());
 
       const result = await service.scrape({ url: 'https://www.maxpreps.com/athlete/123' });
 
       expect(result.provider).toBe('jina');
       expect(result.markdownContent).toContain('Jalen Smith');
-      expect(result.title).toBe('Jalen Smith Stats');
+      // Title comes from pageData (HTML <title>) when direct fetch succeeds
+      expect(result.title).toBe('MaxPreps - Jalen Smith');
       expect(result.contentLength).toBeGreaterThan(0);
       expect(result.scrapedInMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('should call Jina with the correct URL format', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => SAMPLE_MARKDOWN,
-      });
+    it('should include pageData from direct HTML fetch alongside Jina markdown', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_NEXT_DATA))
+        .mockResolvedValueOnce(mockJinaOk());
 
-      await service.scrape({ url: 'https://hudl.com/profile/123' });
+      const result = await service.scrape({ url: 'https://www.maxpreps.com/athlete/456' });
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://r.jina.ai/https://hudl.com/profile/123',
-        expect.objectContaining({
-          method: 'GET',
-          headers: expect.objectContaining({
-            Accept: 'text/markdown',
-          }),
-        })
-      );
+      expect(result.provider).toBe('jina');
+      expect(result.pageData).not.toBeNull();
+      expect(result.pageData?.nextData).toBeDefined();
+      expect(result.pageData?.openGraph?.title).toBe('Deshon Yancey - RB');
+      expect(result.pageData?.openGraph?.image).toBe('https://images.maxpreps.com/photo.jpg');
     });
 
-    it('should pass the correct Jina headers', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => SAMPLE_MARKDOWN,
-      });
+    it('should use Jina markdown even if direct fetch fails', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockFailed()) // direct fetch fails
+        .mockResolvedValueOnce(mockJinaOk()); // Jina succeeds
 
-      await service.scrape({ url: 'https://example.com' });
+      const result = await service.scrape({ url: 'https://hudl.com/profile/123' });
 
-      const callHeaders = mockFetch.mock.calls[0][1].headers;
-      expect(callHeaders).toHaveProperty('X-Return-Format', 'markdown');
-      expect(callHeaders).toHaveProperty('X-No-Cache', 'true');
+      expect(result.provider).toBe('jina');
+      expect(result.pageData).toBeNull(); // no HTML → no structured data
     });
   });
 
-  // ── Fallback Strategy ─────────────────────────────────────────────────
+  // ── Fallback Strategy (Tier 3) ────────────────────────────────────────
 
-  describe('scrape — fetch fallback', () => {
-    it('should fall back to native fetch when Jina fails', async () => {
-      // Jina returns non-OK
-      mockFetch.mockResolvedValueOnce({ ok: false });
-      // Fallback succeeds
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        headers: new Headers({ 'content-type': 'text/html' }),
-        text: async () => SAMPLE_HTML,
-      });
+  describe('scrape — fetch fallback (Tier 3)', () => {
+    it('should fall back to HTML→Markdown when Jina fails', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockDirectFetchOk()) // direct fetch OK
+        .mockResolvedValueOnce(mockFailed()); // Jina fails
 
       const result = await service.scrape({ url: 'https://www.maxpreps.com/athlete/123' });
 
@@ -205,13 +248,8 @@ describe('ScraperService', () => {
       expect(result.title).toBe('MaxPreps - Jalen Smith');
     });
 
-    it('should strip script, style, nav, and footer tags from HTML', async () => {
-      mockFetch.mockResolvedValueOnce({ ok: false });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        headers: new Headers({ 'content-type': 'text/html' }),
-        text: async () => SAMPLE_HTML,
-      });
+    it('should strip script, style, nav, and footer tags from HTML markdown', async () => {
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk()).mockResolvedValueOnce(mockFailed());
 
       const result = await service.scrape({ url: 'https://example.com' });
 
@@ -221,13 +259,65 @@ describe('ScraperService', () => {
       expect(result.markdownContent).not.toContain('.hidden');
     });
 
-    it('should reject non-HTML content types in fallback', async () => {
-      mockFetch.mockResolvedValueOnce({ ok: false });
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        headers: new Headers({ 'content-type': 'application/json' }),
-        text: async () => '{"data": "not html"}',
-      });
+    it('should include structured pageData on fallback path', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_NEXT_DATA))
+        .mockResolvedValueOnce(mockFailed());
+
+      const result = await service.scrape({ url: 'https://maxpreps.com/athlete/789' });
+
+      expect(result.provider).toBe('fetch-fallback');
+      expect(result.pageData).not.toBeNull();
+      expect(result.pageData?.nextData).toBeDefined();
+    });
+
+    it('should extract embeddedData from generic window.__* blobs', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_EMBEDDED_DATA))
+        .mockResolvedValueOnce(mockFailed());
+
+      const result = await service.scrape({ url: 'https://www.hudl.com/profile/19341470' });
+
+      expect(result.pageData).not.toBeNull();
+      expect(result.pageData?.embeddedData).toBeDefined();
+      expect(result.pageData?.embeddedData['__hudlEmbed']).toBeDefined();
+
+      const hudlData = result.pageData?.embeddedData['__hudlEmbed'] as Record<string, unknown>;
+      const model = hudlData['model'] as Record<string, unknown>;
+      const user = model['user'] as Record<string, unknown>;
+      expect(user['firstName']).toBe('Deshon');
+      expect(user['lastName']).toBe('Yancey');
+    });
+
+    it('should mark hasRichData true when embeddedData is found', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_EMBEDDED_DATA))
+        .mockResolvedValueOnce(mockFailed());
+
+      const result = await service.scrape({ url: 'https://www.hudl.com/profile/19341470' });
+
+      expect(result.pageData?.hasRichData).toBe(true);
+    });
+
+    it('should extract colors from embeddedData blobs', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockDirectFetchOk(SAMPLE_HTML_WITH_EMBEDDED_DATA))
+        .mockResolvedValueOnce(mockFailed());
+
+      const result = await service.scrape({ url: 'https://www.hudl.com/profile/19341470' });
+
+      expect(result.pageData?.colors).toBeDefined();
+      expect(result.pageData?.colors.length).toBeGreaterThan(0);
+    });
+
+    it('should reject non-HTML content types in direct fetch', async () => {
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          text: async () => '{"data": "not html"}',
+        })
+        .mockResolvedValueOnce(mockFailed());
 
       await expect(service.scrape({ url: 'https://api.example.com/data' })).rejects.toThrow(
         'Failed to scrape URL'
@@ -240,10 +330,9 @@ describe('ScraperService', () => {
   describe('content truncation', () => {
     it('should truncate content exceeding maxLength', async () => {
       const longContent = '# Title\n\n' + 'A'.repeat(30_000);
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => longContent,
-      });
+      mockFetch
+        .mockResolvedValueOnce(mockDirectFetchOk())
+        .mockResolvedValueOnce(mockJinaOk(longContent));
 
       const result = await service.scrape({ url: 'https://example.com', maxLength: 500 });
 
@@ -252,10 +341,7 @@ describe('ScraperService', () => {
     });
 
     it('should not truncate content within maxLength', async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => SAMPLE_MARKDOWN,
-      });
+      mockFetch.mockResolvedValueOnce(mockDirectFetchOk()).mockResolvedValueOnce(mockJinaOk());
 
       const result = await service.scrape({
         url: 'https://example.com',
@@ -279,23 +365,20 @@ describe('ScraperService', () => {
       await expect(service.scrape({ url: 'not-a-url' })).rejects.toThrow('Invalid URL');
     });
 
-    it('should throw when both strategies fail', async () => {
-      mockFetch.mockResolvedValueOnce({ ok: false });
-      mockFetch.mockResolvedValueOnce({ ok: false });
+    it('should throw when both tiers fail', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockFailed()) // direct fetch fails
+        .mockResolvedValueOnce(mockFailed()); // Jina fails
 
       await expect(service.scrape({ url: 'https://example.com' })).rejects.toThrow(
         'Failed to scrape URL'
       );
     });
 
-    it('should throw when Jina returns too little content and fallback also fails', async () => {
-      // Jina returns nearly empty response
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        text: async () => 'Hi',
-      });
-      // Fallback also fails
-      mockFetch.mockResolvedValueOnce({ ok: false });
+    it('should throw when Jina returns too little content and direct fetch also fails', async () => {
+      mockFetch
+        .mockResolvedValueOnce(mockFailed()) // direct fetch fails
+        .mockResolvedValueOnce({ ok: true, text: async () => 'Hi' }); // Jina too short
 
       await expect(service.scrape({ url: 'https://example.com' })).rejects.toThrow(
         'Failed to scrape URL'

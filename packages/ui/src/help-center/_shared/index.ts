@@ -9,4 +9,4 @@
  * ⭐ 100% SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-export { HelpCenterService } from './help-center.service';
+export { HelpCenterService, HELP_CENTER_API } from './help-center.service';

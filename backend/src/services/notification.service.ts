@@ -104,8 +104,16 @@ export async function dispatch(
       ? body.slice(0, PUSH_CONFIG.MAX_BODY_LENGTH - 1) + '…'
       : body;
 
+  // Deterministic 5-minute dedup ID — if the same event fires twice (e.g. network
+  // retry, double-tap), the second batch.set() overwrites the existing doc without
+  // re-triggering onNotificationCreated (onCreate only fires on document creation).
+  const timeBucket = Math.floor(Date.now() / (5 * 60 * 1000));
+  const entityPart = (data?.['entityId'] ?? data?.['teamId'] ?? '') as string;
+  const rawKey = `${userId}_${type}_${entityPart}_${timeBucket}`;
+  const dedupId = rawKey.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
+
   // Prepare document references
-  const notificationRef = db.collection(NOTIFICATION_COLLECTIONS.NOTIFICATIONS).doc();
+  const notificationRef = db.collection(NOTIFICATION_COLLECTIONS.NOTIFICATIONS).doc(dedupId);
   let activityRef: FirebaseFirestore.DocumentReference | null = null;
 
   if (!skipActivity) {
@@ -113,7 +121,7 @@ export async function dispatch(
       .collection('users')
       .doc(userId)
       .collection(NOTIFICATION_COLLECTIONS.USER_ACTIVITY)
-      .doc();
+      .doc(`${dedupId}_a`);
   }
 
   // Atomic batch — activity + notification succeed or fail together
@@ -221,7 +229,6 @@ function mapNotificationTypeToActivityType(type: NotificationType): string {
   const map: Partial<Record<NotificationType, string>> = {
     new_follower: 'follow',
     post_like: 'like',
-    post_comment: 'comment',
     post_mention: 'mention',
     message_from_coach: 'message',
     new_offer: 'offer',

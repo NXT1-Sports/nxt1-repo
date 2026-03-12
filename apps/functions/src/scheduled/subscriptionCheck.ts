@@ -38,29 +38,9 @@ export const subscriptionCheck = onSchedule(
         .where('expiresAt', '>', now)
         .get();
 
-      logger.info('Expiring subscriptions found', { count: expiringSubscriptions.size });
-
-      // Send expiration warnings
-      for (const doc of expiringSubscriptions.docs) {
-        const subscription = doc.data();
-        const subscriptionUserId = subscription['userId'] as string;
-
-        await db.collection('notifications').add({
-          userId: subscriptionUserId,
-          type: 'subscription_expiring',
-          category: 'billing',
-          priority: 'high',
-          title: 'Subscription Expiring Soon',
-          body: 'Your subscription will expire in less than an hour. Renew now to keep access.',
-          data: {
-            type: 'subscription_expiring',
-            subscriptionId: doc.id,
-            deepLink: '/settings/subscription',
-          },
-          status: 'pending',
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      }
+      logger.info('Expiring subscriptions found (no-op — usage-based billing)', {
+        count: expiringSubscriptions.size,
+      });
 
       // Find and deactivate expired subscriptions
       const expiredSubscriptions = await db

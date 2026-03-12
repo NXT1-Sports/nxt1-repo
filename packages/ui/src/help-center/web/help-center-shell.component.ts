@@ -143,57 +143,6 @@ export interface HelpNavigateEvent {
               role="tabpanel"
             >
               @switch (activeSection()) {
-                @case ('featured') {
-                  <section class="mb-8">
-                    <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide">
-                      Featured
-                    </h2>
-                    <div
-                      class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl"
-                    >
-                      @for (article of helpService.featuredArticles(); track article.id) {
-                        <button
-                          type="button"
-                          (click)="onArticleClick(article)"
-                          class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
-                        >
-                          <div
-                            class="bg-primary/10 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
-                          >
-                            <nxt1-icon
-                              [name]="getArticleTypeIcon(article.type)"
-                              [size]="20"
-                              class="text-primary"
-                            />
-                          </div>
-                          <div class="min-w-0 flex-1">
-                            <div class="flex items-center gap-2">
-                              <h3 class="text-text-primary truncate text-base font-medium">
-                                {{ article.title }}
-                              </h3>
-                              @if (article.isNew) {
-                                <span
-                                  class="bg-primary text-text-inverse shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold"
-                                >
-                                  New
-                                </span>
-                              }
-                            </div>
-                            <p class="text-text-secondary line-clamp-1 text-sm">
-                              {{ article.excerpt }}
-                            </p>
-                          </div>
-                          <nxt1-icon
-                            name="chevronRight"
-                            [size]="20"
-                            class="text-text-tertiary group-hover:text-text-secondary shrink-0 transition-colors"
-                          />
-                        </button>
-                      }
-                    </div>
-                  </section>
-                }
-
                 @case ('categories') {
                   <section class="mb-8">
                     <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide">
@@ -247,27 +196,35 @@ export interface HelpNavigateEvent {
                       class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl"
                     >
                       @for (faq of helpService.popularFaqs(); track faq.id) {
-                        <button
-                          type="button"
-                          (click)="onFaqClick(faq.id)"
-                          class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
-                        >
-                          <div
-                            class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
+                        <div>
+                          <button
+                            type="button"
+                            (click)="toggleFaq(faq.id)"
+                            class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
                           >
-                            <nxt1-icon name="help" [size]="20" class="text-text-secondary" />
-                          </div>
-                          <div class="min-w-0 flex-1">
-                            <h3 class="text-text-primary text-base font-medium">
-                              {{ faq.question }}
-                            </h3>
-                          </div>
-                          <nxt1-icon
-                            name="chevronRight"
-                            [size]="20"
-                            class="text-text-tertiary group-hover:text-text-secondary shrink-0 transition-colors"
-                          />
-                        </button>
+                            <div
+                              class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
+                            >
+                              <nxt1-icon name="help" [size]="20" class="text-text-secondary" />
+                            </div>
+                            <div class="min-w-0 flex-1">
+                              <h3 class="text-text-primary text-base font-medium">
+                                {{ faq.question }}
+                              </h3>
+                            </div>
+                            <nxt1-icon
+                              [name]="expandedFaqId() === faq.id ? 'chevronDown' : 'chevronRight'"
+                              [size]="20"
+                              class="text-text-tertiary group-hover:text-text-secondary shrink-0 transition-transform"
+                            />
+                          </button>
+                          @if (expandedFaqId() === faq.id) {
+                            <div
+                              class="text-text-secondary border-border-subtle border-t px-4 py-3 pl-18 text-sm"
+                              [innerHTML]="faq.answer"
+                            ></div>
+                          }
+                        </div>
                       }
                     </div>
                   </section>
@@ -306,17 +263,6 @@ export interface HelpNavigateEvent {
             </section>
           </div>
         }
-
-        <!-- Footer -->
-        <footer class="py-8 text-center">
-          <p class="text-text-tertiary text-sm">Can't find what you're looking for?</p>
-          <a
-            href="mailto:support@nxt1sports.com"
-            class="text-primary hover:text-primary-400 text-sm font-medium transition-colors"
-          >
-            support&#64;nxt1sports.com
-          </a>
-        </footer>
       </div>
     </main>
   `,
@@ -395,9 +341,7 @@ export interface HelpNavigateEvent {
 })
 export class HelpCenterShellWebComponent {
   protected readonly helpService = inject(HelpCenterService);
-  private readonly _activeSection = signal<'featured' | 'categories' | 'popular' | 'support'>(
-    'featured'
-  );
+  private readonly _activeSection = signal<'categories' | 'popular' | 'support'>('categories');
 
   readonly showBack = input(true);
   readonly back = output<void>();
@@ -405,10 +349,6 @@ export class HelpCenterShellWebComponent {
 
   protected readonly sectionNavItems = computed((): readonly SectionNavItem[] => {
     const items: SectionNavItem[] = [];
-
-    if (this.helpService.featuredArticles().length > 0) {
-      items.push({ id: 'featured', label: 'Features' });
-    }
 
     items.push({ id: 'categories', label: 'Browse by Topic' });
 
@@ -428,7 +368,7 @@ export class HelpCenterShellWebComponent {
   });
 
   protected onSectionNavChange(event: SectionNavChangeEvent): void {
-    this._activeSection.set(event.id as 'featured' | 'categories' | 'popular' | 'support');
+    this._activeSection.set(event.id as 'categories' | 'popular' | 'support');
   }
 
   protected onSearch(query: string): void {
@@ -450,11 +390,10 @@ export class HelpCenterShellWebComponent {
     });
   }
 
-  protected onFaqClick(faqId: string): void {
-    this.navigate.emit({
-      type: 'faq',
-      id: faqId,
-    });
+  protected readonly expandedFaqId = signal<string | null>(null);
+
+  protected toggleFaq(faqId: string): void {
+    this.expandedFaqId.update((current) => (current === faqId ? null : faqId));
   }
 
   protected onContactClick(): void {

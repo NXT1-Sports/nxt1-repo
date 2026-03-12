@@ -8,7 +8,7 @@ import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/cor
 import { ActivatedRoute } from '@angular/router';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import type { HelpCategoryId } from '@nxt1/core';
-import { HelpCategoryDetailComponent } from '@nxt1/ui';
+import { HelpCategoryDetailComponent, HelpCenterService } from '@nxt1/ui';
 
 @Component({
   selector: 'app-help-center-category',
@@ -56,12 +56,14 @@ import { HelpCategoryDetailComponent } from '@nxt1/ui';
 export class HelpCenterCategoryComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly nav = inject(NavController);
+  private readonly helpService = inject(HelpCenterService);
 
   protected categoryId: HelpCategoryId = 'getting-started';
 
   ngOnInit(): void {
     this.categoryId =
       (this.route.snapshot.paramMap.get('categoryId') as HelpCategoryId) ?? 'getting-started';
+    this.helpService.loadCategory(this.categoryId);
   }
 
   protected onArticleSelect(event: { id: string; slug: string }): void {

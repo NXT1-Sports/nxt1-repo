@@ -24,6 +24,9 @@ import {
   type MapTeamProfileOptions,
 } from '../services/team-profile-mapper.service.js';
 import { logger } from '../utils/logger.js';
+import { dispatch } from '../services/notification.service.js';
+import { getUserById } from '../services/users.service.js';
+import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { performanceMiddleware, testPerformance } from '../middleware/performance.middleware.js';
 import { getCacheService, CACHE_TTL } from '../services/cache.service.js';
 import { markCacheHit } from '../middleware/cache-status.middleware.js';
@@ -440,6 +443,32 @@ router.post(
 
     logger.info('[Teams API] User joined team', { teamCode, userId });
 
+    // Fire-and-forget: notify team owner that a new member joined
+    // createdBy is in Firestore but not on the TeamCode type — read it directly
+    void (async () => {
+      if (!team.id) return;
+      const [teamDoc, joiner] = await Promise.all([
+        db.collection('Teams').doc(team.id).get(),
+        getUserById(userId, db),
+      ]);
+      const teamOwnerId = teamDoc.data()?.['createdBy'] as string | undefined;
+      if (!teamOwnerId || teamOwnerId === userId) return;
+      const joinerName = joiner
+        ? `${(joiner['firstName'] as string | undefined) ?? ''} ${(joiner['lastName'] as string | undefined) ?? ''}`.trim() ||
+          'Someone'
+        : 'Someone';
+      await dispatch(db, {
+        userId: teamOwnerId,
+        type: NOTIFICATION_TYPES.TEAM_MEMBER_JOINED,
+        title: `${joinerName} joined ${team.teamName}`,
+        body: 'A new member joined your team',
+        data: { teamId: team.id },
+        source: { userId, userName: joinerName, teamName: team.teamName },
+      });
+    })().catch((err) =>
+      logger.error('[Teams] Failed to dispatch team_member_joined notification', { error: err })
+    );
+
     res.status(201);
     sendSuccess(res, team);
   })
@@ -481,6 +510,25 @@ router.post(
     });
 
     logger.info('[Teams API] Member invited', { teamId: id, targetUserId, role });
+
+    // Fire-and-forget: notify the invited user
+    void (async () => {
+      const inviter = await getUserById(inviterId, db);
+      const inviterName = inviter
+        ? `${(inviter['firstName'] as string | undefined) ?? ''} ${(inviter['lastName'] as string | undefined) ?? ''}`.trim() ||
+          'Someone'
+        : 'Someone';
+      await dispatch(db, {
+        userId: targetUserId,
+        type: NOTIFICATION_TYPES.TEAM_INVITE,
+        title: `${inviterName} invited you to join ${team.teamName}`,
+        body: `You've been invited to join ${team.teamName} as ${role}`,
+        data: { teamId: team.id ?? String(id) },
+        source: { userId: inviterId, userName: inviterName, teamName: team.teamName },
+      });
+    })().catch((err) =>
+      logger.error('[Teams] Failed to dispatch team_invite notification', { error: err })
+    );
 
     res.status(201);
     sendSuccess(res, team);

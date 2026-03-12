@@ -331,6 +331,14 @@ export const TRACE_NAMES = {
   // Push notification traces
   PUSH_NOTIFICATION_HANDLE: 'push_notification_handle',
   PUSH_DEEP_LINK_ROUTE: 'push_deep_link_route',
+
+  // Help center traces
+  HELP_HOME_LOAD: 'help_home_load',
+  HELP_CATEGORY_LOAD: 'help_category_load',
+  HELP_ARTICLE_LOAD: 'help_article_load',
+  HELP_SEARCH: 'help_search',
+  HELP_FEEDBACK_SUBMIT: 'help_feedback_submit',
+  HELP_FAQ_LOAD: 'help_faq_load',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

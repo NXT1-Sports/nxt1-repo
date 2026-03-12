@@ -12,6 +12,8 @@ import { appGuard, optionalAuth } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import { CreatePostDto, CreateCommentDto } from '../dtos/common.dto.js';
 import { logger } from '../utils/logger.js';
+import { dispatch } from '../services/notification.service.js';
+import { NOTIFICATION_TYPES } from '@nxt1/core';
 
 // Import from @nxt1/core
 import { notFoundError, forbiddenError } from '@nxt1/core/errors';
@@ -590,15 +592,23 @@ router.post('/:id/like', appGuard, async (req: Request, res: Response): Promise<
     const userId = req.user!.uid;
 
     // Use Firestore transaction to atomically create like and increment counter
+    let isNewLike = false;
+    let postAuthorId: string | undefined;
     await db.runTransaction(async (transaction) => {
       const likeRef = db.collection(POSTS_COLLECTIONS.POST_LIKES).doc(`${postId}_${userId}`);
       const postRef = db.collection(POSTS_COLLECTIONS.POSTS).doc(postId);
 
-      const likeDoc = await transaction.get(likeRef);
+      const [likeDoc, postDoc] = await Promise.all([
+        transaction.get(likeRef),
+        transaction.get(postRef),
+      ]);
       if (likeDoc.exists) {
         // Already liked, do nothing
         return;
       }
+
+      postAuthorId = (postDoc.data() as FirestorePostDoc | undefined)?.userId;
+      isNewLike = true;
 
       // Create like document
       transaction.set(likeRef, {
@@ -616,6 +626,23 @@ router.post('/:id/like', appGuard, async (req: Request, res: Response): Promise<
 
     // Invalidate post cache
     await invalidatePostCache(postId);
+
+    // Fire-and-forget: notify post author of the like (skip self-likes)
+    if (isNewLike && postAuthorId && postAuthorId !== userId) {
+      void (async () => {
+        const liker = await getUserInfo(db, userId);
+        await dispatch(db, {
+          userId: postAuthorId!,
+          type: NOTIFICATION_TYPES.POST_LIKE,
+          title: `${liker?.displayName ?? 'Someone'} liked your post`,
+          body: 'Tap to view your post',
+          data: { entityId: postId },
+          source: { userId, userName: liker?.displayName, avatarUrl: liker?.photoURL },
+        });
+      })().catch((err) =>
+        logger.error('[Posts] Failed to dispatch post_like notification', { error: err })
+      );
+    }
 
     res.json({
       success: true,

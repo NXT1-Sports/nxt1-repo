@@ -54,10 +54,6 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
               <nxt1-icon name="time" [size]="16" />
               {{ article()!.readingTimeMinutes }} min read
             </span>
-            <span class="flex items-center gap-1.5">
-              <nxt1-icon name="eye" [size]="16" />
-              {{ formatNumber(article()!.viewCount) }} views
-            </span>
           </div>
         </header>
 
@@ -69,26 +65,22 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
 
         <!-- Feedback Section -->
         <div class="bg-surface-100 mb-8 rounded-xl p-6">
-          <p class="text-text-primary mb-4 text-center font-medium">Was this article helpful?</p>
+          <p class="text-text-primary mb-4 text-center font-medium">Was this helpful?</p>
           <div class="flex justify-center gap-3">
             <button
               type="button"
+              class="feedback-btn"
+              [class.feedback-btn--helpful]="feedbackState() === 'helpful'"
               (click)="onHelpful()"
-              class="border-border-strong text-text-primary hover:bg-surface-200 flex items-center gap-2 rounded-lg border px-4 py-2 transition-colors"
-              [class.border-success]="feedbackState() === 'helpful'"
-              [class.bg-success/10]="feedbackState() === 'helpful'"
-              [class.text-success]="feedbackState() === 'helpful'"
             >
               <nxt1-icon name="thumbsUp" [size]="20" />
               Yes ({{ article()!.helpfulCount }})
             </button>
             <button
               type="button"
+              class="feedback-btn"
+              [class.feedback-btn--not-helpful]="feedbackState() === 'not-helpful'"
               (click)="onNotHelpful()"
-              class="border-border-strong text-text-secondary hover:bg-surface-200 flex items-center gap-2 rounded-lg border px-4 py-2 transition-colors"
-              [class.border-error]="feedbackState() === 'not-helpful'"
-              [class.bg-error/10]="feedbackState() === 'not-helpful'"
-              [class.text-error]="feedbackState() === 'not-helpful'"
             >
               <nxt1-icon name="thumbsDown" [size]="20" />
               No ({{ article()!.notHelpfulCount }})
@@ -322,6 +314,38 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
 
       .prose td {
         background: var(--nxt1-color-bg-primary);
+      }
+
+      /* Feedback Buttons - 100% design token colors */
+      .feedback-btn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border-radius: var(--nxt1-radius-default, 8px);
+        border: 1.5px solid var(--nxt1-color-border-strong);
+        background: transparent;
+        color: var(--nxt1-color-text-primary);
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all var(--nxt1-duration-fast, 100ms) ease;
+      }
+
+      .feedback-btn:hover {
+        background: var(--nxt1-color-surface-200);
+      }
+
+      .feedback-btn--helpful {
+        border-color: var(--nxt1-color-success, #22c55e);
+        background: color-mix(in srgb, var(--nxt1-color-success, #22c55e) 12%, transparent);
+        color: var(--nxt1-color-success, #22c55e);
+      }
+
+      .feedback-btn--not-helpful {
+        border-color: var(--nxt1-color-error, #ef4444);
+        background: color-mix(in srgb, var(--nxt1-color-error, #ef4444) 12%, transparent);
+        color: var(--nxt1-color-error, #ef4444);
       }
     `,
   ],

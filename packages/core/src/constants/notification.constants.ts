@@ -55,7 +55,6 @@ export const NOTIFICATION_TYPES = {
   // Social interactions
   NEW_FOLLOWER: 'new_follower',
   POST_LIKE: 'post_like',
-  POST_COMMENT: 'post_comment',
   POST_MENTION: 'post_mention',
   POST_SHARE: 'post_share',
   PROFILE_VIEW: 'profile_view',
@@ -93,10 +92,6 @@ export const NOTIFICATION_TYPES = {
   PROFILE_INCOMPLETE: 'profile_incomplete',
 
   // Billing
-  SUBSCRIPTION_STARTED: 'subscription_started',
-  SUBSCRIPTION_RENEWED: 'subscription_renewed',
-  SUBSCRIPTION_CANCELLED: 'subscription_cancelled',
-  SUBSCRIPTION_EXPIRING: 'subscription_expiring',
   PAYMENT_RECEIVED: 'payment_received',
   PAYMENT_FAILED: 'payment_failed',
   CREDITS_LOW: 'credits_low',
@@ -150,7 +145,6 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   // Social
   new_follower: 'social',
   post_like: 'social',
-  post_comment: 'social',
   post_mention: 'social',
   post_share: 'social',
   profile_view: 'social',
@@ -188,10 +182,6 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   profile_incomplete: 'system',
 
   // Billing
-  subscription_started: 'billing',
-  subscription_renewed: 'billing',
-  subscription_cancelled: 'billing',
-  subscription_expiring: 'billing',
   payment_received: 'billing',
   payment_failed: 'billing',
   credits_low: 'billing',
@@ -260,7 +250,6 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   // Social → alerts
   new_follower: 'alerts',
   post_like: 'alerts',
-  post_comment: 'alerts',
   post_mention: 'alerts',
   post_share: 'alerts',
   profile_view: 'alerts',
@@ -298,10 +287,6 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   profile_incomplete: 'inbox',
 
   // Billing → inbox
-  subscription_started: 'inbox',
-  subscription_renewed: 'inbox',
-  subscription_cancelled: 'inbox',
-  subscription_expiring: 'inbox',
   payment_received: 'inbox',
   payment_failed: 'inbox',
   credits_low: 'inbox',
@@ -330,7 +315,6 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   // Social
   new_follower: '/profile/{sourceUserId}',
   post_like: '/post/{entityId}',
-  post_comment: '/post/{entityId}',
   post_mention: '/post/{entityId}',
   post_share: '/post/{entityId}',
   profile_view: '/analytics',
@@ -368,10 +352,6 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   profile_incomplete: '/edit-profile',
 
   // Billing
-  subscription_started: '/usage?section=overview',
-  subscription_renewed: '/usage?section=overview',
-  subscription_cancelled: '/usage?section=overview',
-  subscription_expiring: '/usage?section=overview',
   payment_received: '/usage?section=payment-history',
   payment_failed: '/usage?section=payment-info',
   credits_low: '/usage?section=overview',
@@ -452,7 +432,6 @@ export function isHighPriorityNotification(type: NotificationType): boolean {
     'message_from_coach',
     'security_alert',
     'payment_failed',
-    'subscription_expiring',
   ];
   return highPriorityTypes.includes(type);
 }

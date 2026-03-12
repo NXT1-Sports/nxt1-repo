@@ -6,13 +6,15 @@
  * Covers input validation, output shape, and provider configuration.
  */
 
+import type { PageStructuredData } from './page-data.types.js';
+
 // ─── Input ──────────────────────────────────────────────────────────────────
 
 /** Validated scrape request after URL sanitization. */
 export interface ScrapeRequest {
   /** The target URL (must be HTTPS or HTTP). */
   readonly url: string;
-  /** Maximum content length in characters before truncation (default: 20_000). */
+  /** Maximum markdown content length in characters before truncation (default: 30_000). */
   readonly maxLength?: number;
 }
 
@@ -28,10 +30,15 @@ export interface ScrapeResult {
   readonly markdownContent: string;
   /** Character count of the markdown content. */
   readonly contentLength: number;
-  /** Which scraping strategy was used. */
+  /** Which scraping strategy produced the markdown. */
   readonly provider: ScrapeProvider;
   /** Time taken to scrape in milliseconds. */
   readonly scrapedInMs: number;
+  /**
+   * Structured data extracted from the page (NextData, LD+JSON, OG, images, videos, colors).
+   * Always populated when HTML was fetched directly, null when only Jina markdown is available.
+   */
+  readonly pageData: PageStructuredData | null;
 }
 
 /** Available scraping providers (ordered by preference). */
@@ -39,8 +46,8 @@ export type ScrapeProvider = 'jina' | 'fetch-fallback';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-/** Maximum content length (characters) to prevent LLM context overflow. */
-export const MAX_SCRAPE_CONTENT_LENGTH = 20_000;
+/** Maximum markdown content length (characters) to prevent LLM context overflow. */
+export const MAX_SCRAPE_CONTENT_LENGTH = 30_000;
 
 /** Timeout for all outbound scrape requests (ms). */
 export const SCRAPE_TIMEOUT_MS = 15_000;

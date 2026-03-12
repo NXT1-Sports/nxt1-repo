@@ -82,38 +82,6 @@ import type { HelpArticle, HelpCategoryId } from '@nxt1/core';
           <p class="text-text-secondary">Check back soon for new content in this category.</p>
         </div>
       }
-
-      <!-- FAQs for this category -->
-      @if (faqs().length > 0) {
-        <section class="mb-8">
-          <h2 class="text-text-secondary mb-3 px-1 text-xs font-semibold tracking-wide">
-            Frequently Asked
-          </h2>
-          <div class="bg-surface-100 divide-border-subtle divide-y overflow-hidden rounded-xl">
-            @for (faq of faqs(); track faq.id) {
-              <button
-                type="button"
-                (click)="onFaqClick(faq.id)"
-                class="hover:bg-surface-200 group flex w-full items-center gap-4 p-4 text-left transition-colors"
-              >
-                <div
-                  class="bg-surface-200 group-hover:bg-surface-300 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors"
-                >
-                  <nxt1-icon name="help" [size]="20" class="text-text-secondary" />
-                </div>
-                <div class="min-w-0 flex-1">
-                  <h3 class="text-text-primary text-base font-medium">{{ faq.question }}</h3>
-                </div>
-                <nxt1-icon
-                  name="chevronRight"
-                  [size]="20"
-                  class="text-text-tertiary group-hover:text-text-secondary shrink-0 transition-colors"
-                />
-              </button>
-            }
-          </div>
-        </section>
-      }
     </main>
   `,
   styles: [
@@ -163,9 +131,6 @@ export class HelpCategoryDetailWebComponent {
   /** Article navigation event */
   readonly articleClick = output<{ id: string; slug: string }>();
 
-  /** FAQ navigation event */
-  readonly faqClick = output<string>();
-
   /** Category data */
   readonly category = computed(() => this.helpService.getCategoryById(this.categoryId()));
 
@@ -175,15 +140,8 @@ export class HelpCategoryDetailWebComponent {
   /** Articles in this category */
   readonly articles = computed(() => this.helpService.getArticlesByCategory(this.categoryId()));
 
-  /** FAQs in this category */
-  readonly faqs = computed(() => this.helpService.getFaqsByCategory(this.categoryId()));
-
   protected onArticleClick(article: HelpArticle): void {
     this.articleClick.emit({ id: article.id, slug: article.slug });
-  }
-
-  protected onFaqClick(faqId: string): void {
-    this.faqClick.emit(faqId);
   }
 
   /** Get design token icon name for article type */

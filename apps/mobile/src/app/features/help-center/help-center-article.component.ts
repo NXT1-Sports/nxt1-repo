@@ -7,7 +7,7 @@
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
-import { HelpArticleDetailComponent } from '@nxt1/ui';
+import { HelpArticleDetailComponent, HelpCenterService } from '@nxt1/ui';
 
 @Component({
   selector: 'app-help-center-article',
@@ -55,11 +55,15 @@ import { HelpArticleDetailComponent } from '@nxt1/ui';
 export class HelpCenterArticleComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly nav = inject(NavController);
+  private readonly helpService = inject(HelpCenterService);
 
   protected articleSlug = '';
 
   ngOnInit(): void {
     this.articleSlug = this.route.snapshot.paramMap.get('slug') ?? '';
+    if (this.articleSlug) {
+      this.helpService.loadArticle(this.articleSlug);
+    }
   }
 
   protected onArticleSelect(event: { id: string; slug: string }): void {
