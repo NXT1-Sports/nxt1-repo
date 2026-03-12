@@ -11,6 +11,12 @@ import { logger } from 'firebase-functions/v2';
 
 const db = admin.firestore();
 
+interface TokenData {
+  token: string;
+  platform: string;
+  addedAt: admin.firestore.Timestamp;
+}
+
 /**
  * Register FCM token for a user
  */
@@ -31,19 +37,35 @@ export const registerFcmToken = onCall(
       throw new HttpsError('invalid-argument', 'FCM token is required');
     }
 
-    await db
-      .collection('FcmTokens')
-      .doc(userId)
-      .set(
+    const tokenPlatform = platform || 'unknown';
+
+    // Get current tokens to check if this token already exists
+    const docRef = db.collection('FcmTokens').doc(userId);
+    const doc = await docRef.get();
+    const existingData = doc.data();
+    const existingTokens: TokenData[] = existingData?.['tokens'] || [];
+
+    // Check if token already exists
+    const tokenExists = existingTokens.some((t) => t.token === token);
+
+    if (!tokenExists) {
+      // Add new token with platform info
+      await docRef.set(
         {
-          tokens: admin.firestore.FieldValue.arrayUnion(token),
-          platform: platform || 'unknown',
+          tokens: admin.firestore.FieldValue.arrayUnion({
+            token,
+            platform: tokenPlatform,
+            addedAt: admin.firestore.FieldValue.serverTimestamp(),
+          }),
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
+      logger.info('FCM token registered (new)', { userId, platform: tokenPlatform });
+    } else {
+      logger.info('FCM token already registered', { userId, platform: tokenPlatform });
+    }
 
-    logger.info('FCM token registered', { userId, platform });
     return { success: true };
   }
 );

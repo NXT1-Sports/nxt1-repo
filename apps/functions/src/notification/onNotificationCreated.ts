@@ -23,6 +23,12 @@ import { logger } from 'firebase-functions/v2';
 const db = admin.firestore();
 const messaging = admin.messaging();
 
+interface TokenData {
+  token: string;
+  platform: string;
+  addedAt: admin.firestore.Timestamp;
+}
+
 /**
  * Category-aware notification preferences stored in `notification_preferences/{userId}`.
  * The schema supports both the legacy flat format and the new category-level format.
@@ -68,13 +74,16 @@ export const onNotificationCreatedV2 = onDocumentCreated(
       }
 
       const tokenData = tokensDoc.data();
-      const tokens = tokenData?.['tokens'] as string[] | undefined;
+      const tokenObjects = tokenData?.['tokens'] as (string | TokenData)[] | undefined;
 
-      if (!tokens || tokens.length === 0) {
+      if (!tokenObjects || tokenObjects.length === 0) {
         logger.info('Empty FCM tokens array', { userId });
         await updateStatus(notificationId, 'skipped', 'Empty token array');
         return;
       }
+
+      // Extract token strings (support both old string format and new object format)
+      const tokens = tokenObjects.map((t) => (typeof t === 'string' ? t : t.token));
 
       // ─── 2. Check notification preferences ────────────────────────
       const prefsDoc = await db.collection('notification_preferences').doc(userId).get();
@@ -142,7 +151,7 @@ export const onNotificationCreatedV2 = onDocumentCreated(
 
       // ─── 5. Clean up invalid tokens ───────────────────────────────
       if (response.failureCount > 0) {
-        const invalidTokens: string[] = [];
+        const invalidTokenObjects: (string | TokenData)[] = [];
         response.responses.forEach((resp, idx) => {
           if (!resp.success) {
             const errorCode = resp.error?.code;
@@ -150,21 +159,21 @@ export const onNotificationCreatedV2 = onDocumentCreated(
               errorCode === 'messaging/invalid-registration-token' ||
               errorCode === 'messaging/registration-token-not-registered'
             ) {
-              invalidTokens.push(tokens[idx]);
+              invalidTokenObjects.push(tokenObjects[idx]);
             }
           }
         });
 
-        if (invalidTokens.length > 0) {
+        if (invalidTokenObjects.length > 0) {
           await db
             .collection('FcmTokens')
             .doc(userId)
             .update({
-              tokens: admin.firestore.FieldValue.arrayRemove(...invalidTokens),
+              tokens: admin.firestore.FieldValue.arrayRemove(...invalidTokenObjects),
             });
           logger.info('Removed invalid FCM tokens', {
             userId,
-            count: invalidTokens.length,
+            count: invalidTokenObjects.length,
           });
         }
       }

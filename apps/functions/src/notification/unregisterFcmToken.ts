@@ -11,6 +11,12 @@ import { logger } from 'firebase-functions/v2';
 
 const db = admin.firestore();
 
+interface TokenData {
+  token: string;
+  platform: string;
+  addedAt: admin.firestore.Timestamp;
+}
+
 /**
  * Unregister FCM token for a user
  */
@@ -31,15 +37,30 @@ export const unregisterFcmToken = onCall(
       throw new HttpsError('invalid-argument', 'FCM token is required');
     }
 
-    await db
-      .collection('FcmTokens')
-      .doc(userId)
-      .update({
-        tokens: admin.firestore.FieldValue.arrayRemove(token),
+    // Get current tokens to find and remove the matching token object
+    const docRef = db.collection('FcmTokens').doc(userId);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      logger.info('No FCM tokens document', { userId });
+      return { success: true };
+    }
+
+    const existingData = doc.data();
+    const existingTokens: TokenData[] = existingData?.['tokens'] || [];
+
+    // Find the token object to remove
+    const tokenToRemove = existingTokens.find((t) => t.token === token);
+
+    if (tokenToRemove) {
+      await docRef.update({
+        tokens: admin.firestore.FieldValue.arrayRemove(tokenToRemove),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+      logger.info('FCM token unregistered', { userId });
+    } else {
+      logger.info('FCM token not found', { userId });
+    }
 
-    logger.info('FCM token unregistered', { userId });
     return { success: true };
   }
 );
