@@ -7,7 +7,7 @@
  *
  * Reference: Dallas Turner — Vikings — Madden 25 Franchise Mode
  */
-import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type {
   ProfileUser,
@@ -21,6 +21,7 @@ import { getVerification } from '@nxt1/core';
 import { NxtAvatarComponent } from '../components/avatar';
 import { NxtIconComponent } from '../components/icon';
 import { NxtImageComponent } from '../components/image';
+import { ProfileService } from './profile.service';
 
 @Component({
   selector: 'nxt1-profile-header',
@@ -59,11 +60,11 @@ import { NxtImageComponent } from '../components/image';
 
         <!-- Identity: Position + Split Name -->
         <div class="mc-identity">
-          @if (user()?.primarySport) {
+          @if (activeSport()) {
             <div class="mc-pos-line">
-              <span class="mc-pos">{{ user()?.primarySport?.position }}</span>
-              @if (user()?.primarySport?.jerseyNumber) {
-                <span class="mc-jersey">#{{ user()?.primarySport?.jerseyNumber }}</span>
+              <span class="mc-pos">{{ activeSport()?.position }}</span>
+              @if (activeSport()?.jerseyNumber) {
+                <span class="mc-jersey">#{{ activeSport()?.jerseyNumber }}</span>
               }
             </div>
           }
@@ -115,9 +116,9 @@ import { NxtImageComponent } from '../components/image';
               {{ user()?.location }}
             </span>
           }
-          @if (user()?.primarySport?.name) {
+          @if (activeSport()?.name) {
             <span class="mc-meta-item mc-meta-sport">
-              {{ user()?.primarySport?.name }}
+              {{ activeSport()?.name }}
             </span>
           }
         </div>
@@ -1150,6 +1151,9 @@ import { NxtImageComponent } from '../components/image';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProfileHeaderComponent {
+  // ─── SERVICE ───
+  protected readonly profile = inject(ProfileService);
+
   // ─── INPUTS ───
   readonly user = input<ProfileUser | null>(null);
   readonly followStats = input<ProfileFollowStats | null>(null);
@@ -1174,6 +1178,9 @@ export class ProfileHeaderComponent {
   readonly pinVideoClick = output<void>();
 
   // ─── COMPUTED ───
+  /** Use activeSport() for sport-switching support */
+  protected readonly activeSport = computed(() => this.profile.activeSport());
+
   protected readonly displayName = computed(() => {
     const u = this.user();
     return u?.displayName ?? (`${u?.firstName ?? ''} ${u?.lastName ?? ''}`.trim() || 'User');

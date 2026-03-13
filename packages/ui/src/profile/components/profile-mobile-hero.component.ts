@@ -413,8 +413,10 @@ export class ProfileMobileHeroComponent {
   });
 
   protected readonly mobileSubtitleLine = computed(() => {
-    const position = this.profile.user()?.primarySport?.position?.trim();
-    const jersey = this.profile.user()?.primarySport?.jerseyNumber?.trim();
+    // Use activeSport() instead of primarySport for sport-switching support
+    const activeSport = this.profile.activeSport();
+    const position = activeSport?.position?.trim();
+    const jersey = activeSport?.jerseyNumber?.trim();
     if (position && jersey) return `${position} #${jersey}`;
     if (position) return position;
     if (jersey) return `#${jersey}`;
@@ -426,9 +428,11 @@ export class ProfileMobileHeroComponent {
   protected readonly carouselOverlaySubtitle = computed(() => {
     const u = this.profile.user();
     if (!u) return '';
+    // Use activeSport() instead of primarySport for sport-switching support
+    const activeSport = this.profile.activeSport();
     const parts: string[] = [];
-    if (u.primarySport?.position) parts.push(u.primarySport.position);
-    if (u.primarySport?.name) parts.push(u.primarySport.name);
+    if (activeSport?.position) parts.push(activeSport.position);
+    if (activeSport?.name) parts.push(activeSport.name);
     if (u.school?.name) parts.push(u.school.name);
     if (u.classYear) parts.push(`'${u.classYear.slice(-2)}`);
     return parts.join(' · ');

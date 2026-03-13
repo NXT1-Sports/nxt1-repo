@@ -1498,8 +1498,10 @@ export class ProfileShellWebComponent implements OnInit {
   /** Profile page header subtitle — position + school */
   protected readonly desktopSubtitle = computed(() => {
     const u = this.profile.user();
+    // Use activeSport() instead of primarySport for sport-switching support
+    const activeSport = this.profile.activeSport();
     const parts: string[] = [];
-    if (u?.primarySport?.position) parts.push(u.primarySport.position);
+    if (activeSport?.position) parts.push(activeSport.position);
     if (u?.school?.name) parts.push(u.school.name);
     if (u?.classYear) parts.push(`Class of ${u.classYear}`);
     return parts.join(' · ') || '';
@@ -1511,9 +1513,11 @@ export class ProfileShellWebComponent implements OnInit {
   protected readonly carouselOverlaySubtitle = computed(() => {
     const u = this.profile.user();
     if (!u) return '';
+    // Use activeSport() instead of primarySport for sport-switching support
+    const activeSport = this.profile.activeSport();
     const parts: string[] = [];
-    if (u.primarySport?.position) parts.push(u.primarySport.position);
-    if (u.primarySport?.name) parts.push(u.primarySport.name);
+    if (activeSport?.position) parts.push(activeSport.position);
+    if (activeSport?.name) parts.push(activeSport.name);
     if (u.school?.name) parts.push(u.school.name);
     if (u.classYear) parts.push(`'${u.classYear.slice(-2)}`);
     return parts.join(' · ');

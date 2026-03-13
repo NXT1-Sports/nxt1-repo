@@ -268,8 +268,10 @@ export class ProfilePageHeaderComponent {
   });
 
   protected readonly subtitleLine = computed(() => {
-    const position = this.user()?.primarySport?.position?.trim();
-    const jersey = this.user()?.primarySport?.jerseyNumber?.trim();
+    // Use activeSport() instead of primarySport for sport-switching support
+    const activeSport = this.profile.activeSport();
+    const position = activeSport?.position?.trim();
+    const jersey = activeSport?.jerseyNumber?.trim();
     if (position && jersey) return `${position} #${jersey}`;
     if (position) return position;
     if (jersey) return `#${jersey}`;

@@ -7,11 +7,12 @@
  * Reference: Dallas Turner — Vikings — Madden 25 Franchise Mode
  * SEO-optimized with schema.org microdata for SSR.
  */
-import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { ProfileUser, PlayerCardData, ProspectTier } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
+import { ProfileService } from '../profile.service';
 
 @Component({
   selector: 'nxt1-profile-header-web',
@@ -73,11 +74,11 @@ import { NxtImageComponent } from '../../components/image';
 
             <!-- Identity + Split Name -->
             <div class="mc-identity" itemprop="name">
-              @if (user()?.primarySport) {
+              @if (activeSport()) {
                 <div class="mc-pos-line">
-                  <span class="mc-pos">{{ user()?.primarySport?.position }}</span>
-                  @if (user()?.primarySport?.jerseyNumber) {
-                    <span class="mc-jersey">#{{ user()?.primarySport?.jerseyNumber }}</span>
+                  <span class="mc-pos">{{ activeSport()?.position }}</span>
+                  @if (activeSport()?.jerseyNumber) {
+                    <span class="mc-jersey">#{{ activeSport()?.jerseyNumber }}</span>
                   }
                 </div>
               }
@@ -414,6 +415,9 @@ import { NxtImageComponent } from '../../components/image';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ProfileHeaderWebComponent {
+  // ─── SERVICE ───
+  protected readonly profile = inject(ProfileService);
+
   // ─── INPUTS ───
   readonly user = input<ProfileUser | null>(null);
   readonly playerCard = input<PlayerCardData | null>(null);
@@ -423,6 +427,9 @@ export class ProfileHeaderWebComponent {
   readonly editBanner = output<void>();
 
   // ─── COMPUTED ───
+  /** Use activeSport() for sport-switching support */
+  protected readonly activeSport = computed(() => this.profile.activeSport());
+
   protected readonly displayName = computed(() => {
     const u = this.user();
     return u?.displayName ?? (`${u?.firstName ?? ''} ${u?.lastName ?? ''}`.trim() || 'User');
