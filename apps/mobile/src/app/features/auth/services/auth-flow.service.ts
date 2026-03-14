@@ -46,6 +46,7 @@ import {
   isAndroid,
   INITIAL_AUTH_STATE,
 } from '@nxt1/core';
+import { getErrorMessage } from '@nxt1/core/errors';
 import {
   type IAuthFlowService,
   type FlowSignInCredentials as SignInCredentials,
@@ -964,24 +965,42 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
 
     try {
+      this.logger.debug('Calling delete account API');
+
       // Call backend: deletes Firestore data, cache, and Firebase Auth user via Admin SDK
       await this.httpAdapter.delete(`${environment.apiUrl}/settings/account`);
 
-      // Sign out locally to clear the Firebase session (backend already deleted the Auth user)
-      await this.firebaseAuth.signOut();
+      this.logger.debug('Delete account API success, clearing local state');
 
-      // Clear local state (profile, analytics context, etc.)
+      // Backend has already deleted the Firebase Auth user via Admin SDK
+      // Clear local state first, then attempt signOut (may fail if user deleted)
       await this.profileService.clear();
       this.analytics.clearUser();
       await this.crashlytics.clearUser();
       await this.authManager.reset();
       this.httpAdapter.setTokenProvider(null);
 
+      // Try to sign out (may fail since user is already deleted on backend)
+      try {
+        await this.firebaseAuth.signOut();
+      } catch (signOutError) {
+        // Ignore signOut errors - user is already deleted on backend
+        this.logger.debug('SignOut error ignored (expected if user already deleted)', {
+          error: signOutError,
+        });
+      }
+
       this.logger.info('Account deleted successfully');
       return { success: true };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to delete account';
-      this.logger.error('Account deletion failed', err);
+      // Use unified error parser from @nxt1/core
+      const message = getErrorMessage(err);
+
+      this.logger.error('Account deletion failed', {
+        error: err,
+        message,
+        status: (err as any)?.status,
+      });
       return { success: false, error: message };
     }
   }

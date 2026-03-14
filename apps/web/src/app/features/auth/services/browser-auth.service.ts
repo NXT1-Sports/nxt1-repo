@@ -44,8 +44,10 @@ import {
 import { AuthApiService } from './auth-api.service';
 import { AuthCookieService } from './auth-cookie.service';
 import { type UserRole, getAuthErrorMessage } from '@nxt1/core';
+import { getErrorMessage } from '@nxt1/core/errors';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
+import { environment } from '../../../../environments/environment';
 
 /**
  * Browser Authentication Service
@@ -466,27 +468,101 @@ export class BrowserAuthService implements IAuthService {
       return { success: false, error: 'Not authenticated' };
     }
 
+    const userId = firebaseUser.uid;
+    this.logger.info('Starting account deletion', { userId });
+
     try {
+      // Step 1: Get fresh token
       const token = await firebaseUser.getIdToken();
+      this.logger.debug('Got ID token for deletion');
 
-      // Call backend to delete Firestore data + Firebase Auth user via Admin SDK
-      await firstValueFrom(
-        this.http.delete('/api/v1/settings/account', {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-      );
+      // Step 2: Call backend API to delete everything
+      // Use native fetch with ABSOLUTE URL to backend server
+      const apiUrl = `${environment.apiURL}/settings/account`;
+      this.logger.debug('Calling DELETE with absolute URL', { apiUrl });
 
-      // Sign out locally
-      await signOut(this.firebaseAuth);
+      const fetchResponse = await fetch(apiUrl, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          Pragma: 'no-cache',
+        },
+      });
+
+      this.logger.info('Fetch response received', {
+        status: fetchResponse.status,
+        statusText: fetchResponse.statusText,
+        ok: fetchResponse.ok,
+        headers: Object.fromEntries(fetchResponse.headers.entries()),
+      });
+
+      if (!fetchResponse.ok) {
+        const errorText = await fetchResponse.text();
+        this.logger.error('Backend returned error', {
+          status: fetchResponse.status,
+          body: errorText,
+        });
+        throw new Error(`Backend error: ${fetchResponse.status} - ${errorText}`);
+      }
+
+      const responseText = await fetchResponse.text();
+      this.logger.info('Response body (text)', { responseText });
+
+      let response: { success: boolean; data: { deleted: boolean } };
+      try {
+        response = JSON.parse(responseText);
+        this.logger.info('Response parsed', { response });
+      } catch (parseError) {
+        this.logger.error('Failed to parse response JSON', {
+          responseText,
+          parseError,
+        });
+        throw new Error('Invalid response format');
+      }
+
+      if (!response.success) {
+        throw new Error('Backend returned success=false');
+      }
+
+      this.logger.info('Backend deletion successful', { response });
+
+      // Step 3: Clear local auth state
+      // Backend has already deleted the Firebase Auth user via Admin SDK
+      // So signOut() may fail - we handle it gracefully
+      this.logger.debug('Clearing local state');
+
       this._user.set(null);
       this._firebaseUser.set(null);
       this.authCookie.clearAuthCookie();
 
-      this.logger.info('Account deleted successfully');
+      // Step 4: Try to sign out from Firebase (may fail if user already deleted)
+      try {
+        this.logger.debug('Attempting Firebase signOut');
+        await signOut(this.firebaseAuth);
+        this.logger.debug('Firebase signOut completed');
+      } catch (signOutError) {
+        // This is expected - backend deleted the user, so signOut may fail
+        this.logger.info('Firebase signOut skipped (user already deleted by backend)', {
+          error: signOutError instanceof Error ? signOutError.message : String(signOutError),
+        });
+      }
+
+      this.logger.info('Account deletion completed successfully');
       return { success: true };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to delete account';
-      this.logger.error('Account deletion failed', { error: err });
+      // This catches ONLY HTTP errors from the delete API call
+      const message = getErrorMessage(err);
+
+      this.logger.error('Account deletion failed at API call', {
+        error: err,
+        message,
+        status: (err as any)?.status,
+        errorName: (err as any)?.name,
+        errorCode: (err as any)?.code,
+      });
+
       return { success: false, error: message };
     }
   }

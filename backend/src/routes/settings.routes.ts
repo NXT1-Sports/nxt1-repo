@@ -397,38 +397,166 @@ router.delete(
 
     const userRef = db.collection(USERS_COLLECTION).doc(userId);
 
-    // Delete Firestore sub-collections in parallel (up to 500 docs each)
-    const subCollections = ['followers', 'following', 'sports', 'timeline', 'notifications'];
-    await Promise.all(
-      subCollections.map(async (col) => {
-        const snap = await userRef.collection(col).limit(500).get();
-        if (snap.empty) return;
-        const batch = db.batch();
-        snap.docs.forEach((d) => batch.delete(d.ref));
-        await batch.commit();
-        logger.debug('[Settings] Sub-collection deleted', { userId, col });
-      })
-    );
-
-    // Delete the user document itself
-    await userRef.delete();
-
-    // Invalidate preferences cache
-    await getCacheService().del(buildPrefsCacheKey(userId));
-
-    // Delete Firebase Auth account (admin SDK – no password needed server-side)
     try {
-      await firebaseAuth.deleteUser(userId);
-    } catch (authErr) {
-      // Log but don't fail — Firestore data is already gone
-      logger.warn('[Settings] Could not delete Firebase Auth user', {
-        userId,
-        error: authErr instanceof Error ? authErr.message : String(authErr),
-      });
-    }
+      // ─── 1. Delete ALL documents in user sub-collections ──────────────────
+      // Delete in batches of 500 until all documents are gone
+      const subCollections = ['followers', 'following', 'sports', 'timeline', 'notifications'];
 
-    logger.info('[Settings] Account deleted', { userId });
-    res.json({ success: true, data: { deleted: true } });
+      for (const collectionName of subCollections) {
+        let deletedCount = 0;
+        let hasMore = true;
+
+        while (hasMore) {
+          const snap = await userRef.collection(collectionName).limit(500).get();
+          if (snap.empty) {
+            hasMore = false;
+            break;
+          }
+
+          const batch = db.batch();
+          snap.docs.forEach((doc) => batch.delete(doc.ref));
+          await batch.commit();
+
+          deletedCount += snap.size;
+          hasMore = snap.size === 500; // Continue if we hit the limit
+        }
+
+        if (deletedCount > 0) {
+          logger.debug('[Settings] Sub-collection deleted', {
+            userId,
+            collection: collectionName,
+            count: deletedCount,
+          });
+        }
+      }
+
+      // ─── 2. Delete user document ────────────────────────────────────────────
+      await userRef.delete();
+      logger.debug('[Settings] User document deleted', { userId });
+
+      // ─── 3. Delete FCM tokens ───────────────────────────────────────────────
+      try {
+        await db.collection('FcmTokens').doc(userId).delete();
+        logger.debug('[Settings] FCM tokens deleted', { userId });
+      } catch (err) {
+        logger.warn('[Settings] Could not delete FCM tokens', {
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      // ─── 4. Delete notification preferences ─────────────────────────────────
+      try {
+        await db.collection('notification_preferences').doc(userId).delete();
+        logger.debug('[Settings] Notification preferences deleted', { userId });
+      } catch (err) {
+        logger.warn('[Settings] Could not delete notification preferences', {
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      // ─── 5. Delete RosterEntries where userId matches ───────────────────────
+      try {
+        let deletedRosterCount = 0;
+        let hasMoreRoster = true;
+
+        while (hasMoreRoster) {
+          const rosterSnap = await db
+            .collection('RosterEntries')
+            .where('userId', '==', userId)
+            .limit(500)
+            .get();
+
+          if (rosterSnap.empty) {
+            hasMoreRoster = false;
+            break;
+          }
+
+          const batch = db.batch();
+          rosterSnap.docs.forEach((doc) => batch.delete(doc.ref));
+          await batch.commit();
+
+          deletedRosterCount += rosterSnap.size;
+          hasMoreRoster = rosterSnap.size === 500;
+        }
+
+        if (deletedRosterCount > 0) {
+          logger.debug('[Settings] RosterEntries deleted', {
+            userId,
+            count: deletedRosterCount,
+          });
+        }
+      } catch (err) {
+        logger.warn('[Settings] Could not delete RosterEntries', {
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      // ─── 6. Delete Posts created by user ────────────────────────────────────
+      // Note: Cloud Function onUserDeletedV2 will also delete posts,
+      // but we do it here too in case the function fails
+      try {
+        let deletedPostsCount = 0;
+        let hasMorePosts = true;
+
+        while (hasMorePosts) {
+          const postsSnap = await db
+            .collection('Posts')
+            .where('userId', '==', userId)
+            .limit(500)
+            .get();
+
+          if (postsSnap.empty) {
+            hasMorePosts = false;
+            break;
+          }
+
+          const batch = db.batch();
+          postsSnap.docs.forEach((doc) => batch.delete(doc.ref));
+          await batch.commit();
+
+          deletedPostsCount += postsSnap.size;
+          hasMorePosts = postsSnap.size === 500;
+        }
+
+        if (deletedPostsCount > 0) {
+          logger.debug('[Settings] Posts deleted', { userId, count: deletedPostsCount });
+        }
+      } catch (err) {
+        logger.warn('[Settings] Could not delete Posts', {
+          userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+
+      // ─── 7. Invalidate preferences cache ────────────────────────────────────
+      await getCacheService().del(buildPrefsCacheKey(userId));
+
+      // ─── 8. Delete Firebase Auth account ────────────────────────────────────
+      // Do this LAST so if anything fails, user can still authenticate
+      try {
+        await firebaseAuth.deleteUser(userId);
+        logger.debug('[Settings] Firebase Auth user deleted', { userId });
+      } catch (authErr) {
+        // Log but don't fail — Firestore data is already gone
+        logger.warn('[Settings] Could not delete Firebase Auth user', {
+          userId,
+          error: authErr instanceof Error ? authErr.message : String(authErr),
+        });
+      }
+
+      logger.info('[Settings] Account deletion completed successfully', { userId });
+      res.json({ success: true, data: { deleted: true } });
+    } catch (error) {
+      logger.error('[Settings] Account deletion failed', {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      throw error; // Re-throw to let asyncHandler handle it
+    }
   })
 );
 

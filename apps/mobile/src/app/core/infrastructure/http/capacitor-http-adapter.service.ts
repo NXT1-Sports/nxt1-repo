@@ -19,6 +19,7 @@ import { Capacitor } from '@capacitor/core';
 import { NxtLoggingService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import type { HttpAdapter, HttpRequestConfig, HttpAdapterError } from '@nxt1/core';
+import { parseApiError, getErrorMessage } from '@nxt1/core/errors';
 
 /**
  * Token provider function type
@@ -484,18 +485,17 @@ export class CapacitorHttpAdapter implements HttpAdapter {
 
   /**
    * Create standardized error object
+   * Uses unified @nxt1/core error parser for consistency
    */
   private createError(status: number, data: unknown): HttpAdapterError {
-    const errorData = data as Record<string, unknown> | undefined;
+    // Use core error parser to extract message properly
+    const parsed = parseApiError(data);
 
     return {
       status,
       code: this.getErrorCode(status),
-      message:
-        (errorData?.['message'] as string) ||
-        (errorData?.['error'] as string) ||
-        `HTTP Error ${status}`,
-      details: errorData,
+      message: parsed.message,
+      details: data,
     };
   }
 
