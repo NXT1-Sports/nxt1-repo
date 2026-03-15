@@ -18,6 +18,7 @@ import type {
   MetricCardVariant,
 } from './analytics-dashboard.types';
 import type { TrendDirection } from '../constants/user-analytics.constants';
+import { USER_ROLES } from '../constants/user.constants';
 
 // ============================================
 // TAB CONFIGURATION
@@ -72,8 +73,8 @@ export const ANALYTICS_DEFAULT_TAB: AnalyticsTabId = 'overview';
  */
 export function getTabsForRole(role: 'athlete' | 'coach'): readonly AnalyticsTab[] {
   return ANALYTICS_TABS.filter((tab) => {
-    if (role === 'athlete' && tab.coachOnly) return false;
-    if (role === 'coach' && tab.athleteOnly) return false;
+    if (role === USER_ROLES.ATHLETE && tab.coachOnly) return false;
+    if (role === USER_ROLES.COACH && tab.athleteOnly) return false;
     return true;
   });
 }

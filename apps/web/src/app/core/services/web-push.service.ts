@@ -41,6 +41,9 @@ import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { AgentXService } from '@nxt1/ui/agent-x';
+import { AgentXFabService } from '@nxt1/ui/agent-x/fab';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { AUTH_SERVICE } from '../../features/auth';
 import { environment } from '../../../environments/environment';
 
@@ -60,6 +63,9 @@ export class WebPushService {
   private readonly logger = inject(NxtLoggingService).child('WebPushService');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly agentX = inject(AgentXService);
+  private readonly fabService = inject(AgentXFabService);
+  private readonly platform = inject(NxtPlatformService);
 
   // ============================================
   // STATE
@@ -290,6 +296,30 @@ export class WebPushService {
     this.breadcrumb.trackStateChange('push:foreground-received', {
       type: payload.data?.['type'] ?? 'unknown',
     });
+
+    // Agent welcome: auto-open Agent X chat with image instead of generic toast
+    if (payload.data?.['type'] === 'agent_welcome') {
+      const imageUrl = payload.data?.['imageUrl'];
+      const messageContent = body || "Here's your personalized welcome graphic!";
+
+      this.agentX.pushMessage({
+        role: 'assistant',
+        content: messageContent,
+        ...(imageUrl ? { imageUrl } : {}),
+      });
+
+      // Desktop: open FAB chat panel. Mobile: navigate to /agent-x.
+      if (this.platform.isDesktop()) {
+        this.fabService.openWithMessage({ content: messageContent, imageUrl });
+      } else {
+        this.router.navigateByUrl('/agent-x');
+      }
+
+      this.analytics?.trackEvent(APP_EVENTS.WELCOME_GRAPHIC_VIEWED, {
+        source: 'foreground_push',
+      });
+      return;
+    }
 
     // Show in-app toast with "View" action
     this.toast.show({

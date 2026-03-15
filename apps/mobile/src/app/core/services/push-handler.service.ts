@@ -32,6 +32,7 @@ import {
 import type { ILogger } from '@nxt1/core/logging';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { ActivityService } from '../../features/activity/services';
+import { AgentXService } from '../../features/agent-x/services';
 
 /**
  * Push notification data payload from FCM (passed through Cloud Function).
@@ -41,6 +42,7 @@ interface PushData {
   readonly deepLink?: string;
   readonly sessionId?: string;
   readonly operationId?: string;
+  readonly imageUrl?: string;
   readonly title?: string;
   readonly body?: string;
 }
@@ -56,6 +58,7 @@ export class PushHandlerService {
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly activityService = inject(ActivityService);
+  private readonly agentX = inject(AgentXService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('PushHandlerService');
 
   // ============================================
@@ -168,6 +171,19 @@ export class PushHandlerService {
     // Haptic tap for attention
     void this.haptics.notification('success');
 
+    // Agent notifications with media (welcome graphic, generated content, etc.) —
+    // auto-inject into Agent X chat and navigate directly.
+    if (this.isAgentMediaNotification(data)) {
+      this.injectAgentMessage({
+        content: body,
+        imageUrl: data.imageUrl,
+        source: 'foreground_push',
+      });
+
+      void this.navController.navigateForward('/agent');
+      return;
+    }
+
     // Show toast with "View" action if there's a deep link
     if (data.deepLink) {
       this.toast.show({
@@ -229,6 +245,19 @@ export class PushHandlerService {
       hasDeepLink: !!data.deepLink,
     });
 
+    // Agent notifications with media — inject into chat before navigating
+    if (this.isAgentMediaNotification(data)) {
+      const body = action.notification.body ?? 'Agent X completed your request.';
+      this.injectAgentMessage({
+        content: body,
+        imageUrl: data.imageUrl,
+        source: 'background_push',
+      });
+
+      void this.navController.navigateForward('/agent');
+      return;
+    }
+
     if (data.deepLink) {
       void this.navigateToDeepLink(data.deepLink);
     } else {
@@ -247,11 +276,14 @@ export class PushHandlerService {
    */
   private async navigateToDeepLink(deepLink: string): Promise<void> {
     try {
-      this.logger.info('Navigating to push deep link', { deepLink });
-      void this.breadcrumbs.trackNavigation('push-notification', deepLink);
+      // Normalize deep links: web uses /agent-x, mobile uses /agent
+      const normalizedLink = deepLink.replace(/^\/agent-x(\/|$)/, '/agent$1');
+
+      this.logger.info('Navigating to push deep link', { deepLink, normalizedLink });
+      void this.breadcrumbs.trackNavigation('push-notification', normalizedLink);
 
       // NavController handles Ionic page transitions
-      await this.navController.navigateForward(deepLink);
+      await this.navController.navigateForward(normalizedLink);
     } catch (error) {
       this.logger.error('Failed to navigate from push', error, { deepLink });
       // Fallback to activity
@@ -273,8 +305,40 @@ export class PushHandlerService {
       deepLink: typeof raw['deepLink'] === 'string' ? raw['deepLink'] : undefined,
       sessionId: typeof raw['sessionId'] === 'string' ? raw['sessionId'] : undefined,
       operationId: typeof raw['operationId'] === 'string' ? raw['operationId'] : undefined,
+      imageUrl: typeof raw['imageUrl'] === 'string' ? raw['imageUrl'] : undefined,
       title: typeof raw['title'] === 'string' ? raw['title'] : undefined,
       body: typeof raw['body'] === 'string' ? raw['body'] : undefined,
     };
+  }
+
+  // ============================================
+  // AGENT MEDIA HELPERS
+  // ============================================
+
+  /**
+   * Check if a push notification is an agent-originated notification with media.
+   * Works for welcome graphics, generated content, scout report images, etc.
+   */
+  private isAgentMediaNotification(data: PushData): boolean {
+    const agentTypes = new Set(['agent_welcome', 'ai_task_complete']);
+    return !!(data.type && agentTypes.has(data.type) && data.imageUrl);
+  }
+
+  /**
+   * Inject an agent message (with optional image) into the Agent X chat.
+   * Reusable for any agent notification — welcome, generated graphics,
+   * scout reports, or any future media the agent produces.
+   */
+  private injectAgentMessage(opts: { content: string; imageUrl?: string; source: string }): void {
+    this.agentX.pushMessage({
+      role: 'assistant',
+      content: opts.content,
+      ...(opts.imageUrl ? { imageUrl: opts.imageUrl } : {}),
+    });
+
+    this.analytics?.trackEvent(APP_EVENTS.WELCOME_GRAPHIC_VIEWED, {
+      source: opts.source,
+      hasImage: !!opts.imageUrl,
+    });
   }
 }

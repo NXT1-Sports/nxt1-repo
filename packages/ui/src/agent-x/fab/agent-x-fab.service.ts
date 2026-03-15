@@ -36,6 +36,7 @@ export class AgentXFabService {
   private readonly _unreadCount = signal(0);
   private readonly _fabVisible = signal(true);
   private readonly _hasInteracted = signal(false);
+  private readonly _pendingMessage = signal<{ content: string; imageUrl?: string } | null>(null);
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -142,5 +143,25 @@ export class AgentXFabService {
    */
   get isPlatformSupported(): boolean {
     return isPlatformBrowser(this.platformId);
+  }
+
+  /**
+   * Open the chat panel and inject a message via the AgentXService.
+   * Used when a background agent task completes and the result
+   * should be shown immediately in the chat.
+   */
+  openWithMessage(message: { content: string; imageUrl?: string }): void {
+    this.open();
+    this._pendingMessage.set(message);
+  }
+
+  /**
+   * Consume and clear the pending message (called by the chat panel
+   * after it renders).
+   */
+  consumePendingMessage(): { content: string; imageUrl?: string } | null {
+    const msg = this._pendingMessage();
+    if (msg) this._pendingMessage.set(null);
+    return msg;
   }
 }

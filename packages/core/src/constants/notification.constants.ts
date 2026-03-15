@@ -83,6 +83,7 @@ export const NOTIFICATION_TYPES = {
   VIDEO_FAILED: 'video_failed',
   CARD_READY: 'card_ready',
   AI_TASK_COMPLETE: 'ai_task_complete',
+  AGENT_WELCOME: 'agent_welcome',
 
   // System
   ACCOUNT_CREATED: 'account_created',
@@ -173,6 +174,7 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   video_failed: 'content',
   card_ready: 'content',
   ai_task_complete: 'content',
+  agent_welcome: 'content',
 
   // System
   account_created: 'system',
@@ -278,6 +280,7 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   video_failed: 'agent',
   card_ready: 'agent',
   ai_task_complete: 'agent',
+  agent_welcome: 'agent',
 
   // System → inbox
   account_created: 'inbox',
@@ -343,6 +346,7 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   video_failed: '/agent-x/chat/{sessionId}',
   card_ready: '/agent-x/chat/{sessionId}',
   ai_task_complete: '/agent-x/chat/{sessionId}',
+  agent_welcome: '/agent-x',
 
   // System
   account_created: '/activity?tab=inbox',

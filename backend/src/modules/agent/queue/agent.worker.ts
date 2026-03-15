@@ -35,6 +35,7 @@ import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from '.
 import { AGENT_QUEUE_NAME, AGENT_QUEUE_PREFIX, WORKER_CONCURRENCY } from './queue.types.js';
 import { AgentQueueService } from './queue.service.js';
 import { AgentJobRepository } from './job.repository.js';
+import { logAgentTaskCompletion } from '../../../services/agent-activity.service.js';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Worker ─────────────────────────────────────────────────────────────────
@@ -77,6 +78,17 @@ export class AgentWorker {
     job: Job<AgentQueueJobData, AgentQueueJobResult>
   ): FirebaseFirestore.Firestore | undefined {
     return job.data.environment === 'staging' ? this.stagingFirestore : undefined;
+  }
+
+  /** Return the correct Firestore for activity/notification writes. */
+  private async getActivityFirestore(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>
+  ): Promise<FirebaseFirestore.Firestore> {
+    if (job.data.environment === 'staging' && this.stagingFirestore) {
+      return this.stagingFirestore;
+    }
+    const { getFirestore } = await import('firebase-admin/firestore');
+    return getFirestore();
   }
 
   // ─── Job Processor ──────────────────────────────────────────────────────
@@ -166,6 +178,21 @@ export class AgentWorker {
         error: err instanceof Error ? err.message : String(err),
       });
     });
+
+    // Dispatch activity feed item + push notification (fire-and-forget)
+    try {
+      const activityDb = await this.getActivityFirestore(job);
+      await logAgentTaskCompletion(activityDb, {
+        userId: payload.userId,
+        job: payload,
+        result,
+      });
+    } catch (notifyErr) {
+      logger.error('Failed to dispatch activity/notification', {
+        operationId: payload.operationId,
+        error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+      });
+    }
 
     return {
       result,

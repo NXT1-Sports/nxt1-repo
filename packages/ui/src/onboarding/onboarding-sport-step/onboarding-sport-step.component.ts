@@ -58,6 +58,7 @@ import {
   getSportEmoji,
   type SportCell,
 } from '@nxt1/core/constants';
+import { USER_ROLES } from '@nxt1/core';
 import type { ILogger } from '@nxt1/core/logging';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
@@ -363,7 +364,7 @@ export class OnboardingSportStepComponent {
   /** Available sports filtered/sorted for display */
   readonly availableSports = computed((): SportCell[] => {
     const baseSports = this.sports();
-    if (this.role() === 'director') {
+    if (this.role() === USER_ROLES.DIRECTOR) {
       return [{ name: ALL_SPORTS_OPTION, icon: '🏟️' }, ...baseSports];
     }
     return baseSports;
@@ -372,10 +373,10 @@ export class OnboardingSportStepComponent {
   /** Role-aware prompt text */
   readonly stepPrompt = computed((): string => {
     const currentRole = this.role();
-    if (currentRole === 'director') {
+    if (currentRole === USER_ROLES.DIRECTOR) {
       return 'What sports do you oversee?';
     }
-    if (currentRole === 'recruiter') {
+    if (currentRole === USER_ROLES.RECRUITER) {
       return 'What sports do you evaluate?';
     }
     return 'Select your sport(s).';

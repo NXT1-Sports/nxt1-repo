@@ -38,7 +38,19 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
     } @else if (isSystem()) {
       <p class="bubble-text bubble-text--system">{{ content() }}</p>
     } @else {
-      <p class="bubble-text">{{ content() }}</p>
+      @if (imageUrl()) {
+        <div class="bubble-image">
+          <img
+            [src]="imageUrl()"
+            [alt]="content() || 'Generated image'"
+            class="bubble-img"
+            loading="lazy"
+          />
+        </div>
+      }
+      @if (content()) {
+        <p class="bubble-text">{{ content() }}</p>
+      }
     }
     <ng-content />
   `,
@@ -289,6 +301,33 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
          REDUCED MOTION
          ============================================ */
 
+      /* ============================================
+         IMAGE — Rendered above text in any variant
+         ============================================ */
+
+      .bubble-image {
+        margin-bottom: 0.5rem;
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      .bubble-img {
+        display: block;
+        width: 100%;
+        max-width: 320px;
+        height: auto;
+        border-radius: 12px;
+        object-fit: cover;
+      }
+
+      :host(.own) .bubble-img {
+        max-width: 240px;
+      }
+
+      :host(.variant-agent-fab) .bubble-img {
+        max-width: 260px;
+      }
+
       @media (prefers-reduced-motion: reduce) {
         .typing-dots span {
           animation: none;
@@ -308,6 +347,9 @@ export class NxtChatBubbleComponent {
 
   /** The text content to display. */
   readonly content = input('');
+
+  /** Optional image URL to display above the text content. */
+  readonly imageUrl = input<string | undefined>(undefined);
 
   /** Show typing indicator dots instead of text. */
   readonly isTyping = input(false);

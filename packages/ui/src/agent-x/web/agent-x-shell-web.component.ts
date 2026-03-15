@@ -46,12 +46,12 @@ import { AgentXChatComponent } from '../agent-x-chat.component';
 import { AgentXInputComponent } from '../agent-x-input.component';
 import { AgentXOperationsLogComponent } from '../agent-x-operations-log.component';
 import { NxtToastService } from '../../services/toast/toast.service';
-import type {
-  ActiveOperation,
-  CommandCategory,
-  BriefingInsight,
-  WeeklyPlaybookItem,
-} from '../agent-x-shell.component';
+import type { CommandCategory, WeeklyPlaybookItem } from '../agent-x-shell.component';
+import {
+  getShellContentForRole,
+  type ShellWeeklyPlaybookItem,
+  type ShellActiveOperation,
+} from '@nxt1/core/ai';
 
 /**
  * User info for header display.
@@ -106,8 +106,7 @@ export interface AgentXUser {
             <div class="briefing-content">
               @if (!isBriefingExpanded()) {
                 <p class="briefing-preview">
-                  I've reviewed your latest data, including {{ briefingInsights().length }} new
-                  updates to your profile and Scout Report.
+                  {{ briefingPreview() }}
                 </p>
                 <button type="button" class="btn-expand" (click)="isBriefingExpanded.set(true)">
                   Read full briefing
@@ -139,7 +138,107 @@ export interface AgentXUser {
               </div>
             </section>
 
-            <!-- ═══ 3. DAILY OPERATIONS (Conditional) ═══ -->
+            <!-- ═══ 3. WEEKLY PLAYBOOK (Always Visible) ═══ -->
+            <section class="playbook-section" aria-label="Weekly playbook">
+              <div class="playbook-section-header">
+                <div class="playbook-title-row">
+                  <h3 class="section-title">Weekly Playbook</h3>
+                </div>
+              </div>
+
+              <!-- Pill Tabs -->
+              <div class="playbook-pills" role="tablist" aria-label="Playbook tabs">
+                <button
+                  type="button"
+                  role="tab"
+                  class="playbook-pill"
+                  [class.playbook-pill--active]="playbookTab() === 'get-started'"
+                  [attr.aria-selected]="playbookTab() === 'get-started'"
+                  (click)="playbookTab.set('get-started')"
+                >
+                  Get Started
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  class="playbook-pill"
+                  [class.playbook-pill--active]="playbookTab() === 'create-goals'"
+                  [attr.aria-selected]="playbookTab() === 'create-goals'"
+                  (click)="playbookTab.set('create-goals')"
+                >
+                  Create Goals
+                </button>
+              </div>
+
+              <!-- Tab Content: Get Started -->
+              @if (playbookTab() === 'get-started') {
+                <ol class="weekly-timeline">
+                  @for (item of weeklyPlaybook(); track item.id; let isLast = $last) {
+                    <li class="timeline-item">
+                      <div class="timeline-rail" aria-hidden="true">
+                        <span
+                          class="timeline-marker"
+                          [class.timeline-marker--pending]="item.status === 'pending'"
+                          [class.timeline-marker--in-progress]="item.status === 'in-progress'"
+                          [class.timeline-marker--complete]="item.status === 'complete'"
+                          [class.timeline-marker--problem]="item.status === 'problem'"
+                        >
+                          @if (item.status === 'in-progress') {
+                            <nxt1-icon name="play" [size]="10" />
+                          } @else if (item.status === 'complete') {
+                            <nxt1-icon name="checkmark" [size]="12" />
+                          } @else if (item.status === 'problem') {
+                            <nxt1-icon name="pause" [size]="10" />
+                          } @else {
+                            <span class="timeline-marker-dot"></span>
+                          }
+                        </span>
+                        @if (!isLast) {
+                          <span class="timeline-line"></span>
+                        }
+                      </div>
+
+                      <article class="timeline-card">
+                        <button
+                          type="button"
+                          class="timeline-toggle"
+                          (click)="onPlaybookAction(item)"
+                        >
+                          <div class="timeline-toggle-top">
+                            <h4 class="timeline-title">{{ item.title }}</h4>
+                            @if (item.goal) {
+                              <span class="timeline-goal-tag">{{ item.goal.label }}</span>
+                            }
+                          </div>
+                        </button>
+                      </article>
+                    </li>
+                  }
+                </ol>
+              }
+
+              <!-- Tab Content: Create Goals -->
+              @if (playbookTab() === 'create-goals') {
+                <div class="playbook-create-goals">
+                  <div class="playbook-empty">
+                    <div class="playbook-empty-icon">
+                      <nxt1-icon name="flag" [size]="24" />
+                    </div>
+                    <h4 class="playbook-empty-title">Set Your Goals</h4>
+                    <p class="playbook-empty-description">
+                      Tell Agent X what you want to achieve this season and it will build a
+                      personalized weekly playbook for you.
+                    </p>
+                    <button type="button" class="playbook-setup-btn" (click)="onSetupGoals()">
+                      <nxt1-icon name="plus" [size]="16" />
+                      Create Goals
+                    </button>
+                  </div>
+                </div>
+              }
+            </section>
+
+            <!-- ═══ 4. DAILY OPERATIONS (Conditional) ═══ -->
             @if (activeOperations().length > 0) {
               <section class="operations-section" aria-label="Daily operations">
                 <h3 class="section-title">Daily Operations</h3>
@@ -166,62 +265,6 @@ export interface AgentXUser {
                 </div>
               </section>
             }
-
-            <!-- ═══ 4. WEEKLY PLAYBOOK (Always Visible) ═══ -->
-            <section class="playbook-section" aria-label="Weekly playbook">
-              <div class="playbook-section-header">
-                <div class="playbook-title-row">
-                  <h3 class="section-title">Weekly Playbook</h3>
-                  <span class="playbook-counter"
-                    >{{ playbookCompletedCount() }}/{{ playbookTotalCount() }}</span
-                  >
-                </div>
-              </div>
-
-              <ol class="weekly-timeline">
-                @for (item of weeklyPlaybook(); track item.id; let isLast = $last) {
-                  <li class="timeline-item">
-                    <div class="timeline-rail" aria-hidden="true">
-                      <span
-                        class="timeline-marker"
-                        [class.timeline-marker--pending]="item.status === 'pending'"
-                        [class.timeline-marker--in-progress]="item.status === 'in-progress'"
-                        [class.timeline-marker--complete]="item.status === 'complete'"
-                        [class.timeline-marker--problem]="item.status === 'problem'"
-                      >
-                        @if (item.status === 'in-progress') {
-                          <nxt1-icon name="play" [size]="10" />
-                        } @else if (item.status === 'complete') {
-                          <nxt1-icon name="checkmark" [size]="12" />
-                        } @else if (item.status === 'problem') {
-                          <nxt1-icon name="pause" [size]="10" />
-                        } @else {
-                          <span class="timeline-marker-dot"></span>
-                        }
-                      </span>
-                      @if (!isLast) {
-                        <span class="timeline-line"></span>
-                      }
-                    </div>
-
-                    <article class="timeline-card">
-                      <button
-                        type="button"
-                        class="timeline-toggle"
-                        (click)="onPlaybookAction(item)"
-                      >
-                        <div class="timeline-toggle-top">
-                          <h4 class="timeline-title">{{ item.title }}</h4>
-                          @if (item.goal) {
-                            <span class="timeline-goal-tag">{{ item.goal.label }}</span>
-                          }
-                        </div>
-                      </button>
-                    </article>
-                  </li>
-                }
-              </ol>
-            </section>
           </section>
         }
 
@@ -559,22 +602,47 @@ export interface AgentXUser {
         flex: 1;
       }
 
-      .playbook-counter {
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--agent-text-muted);
-        white-space: nowrap;
-        flex-shrink: 0;
+      /* Playbook Pill Tabs */
+      .playbook-pills {
+        display: flex;
+        gap: var(--nxt1-spacing-2, 8px);
+        margin-bottom: var(--nxt1-spacing-4, 16px);
       }
 
-      .playbook-section-toggle {
+      .playbook-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 16px;
+        border-radius: var(--nxt1-radius-full, 9999px);
         border: 1px solid var(--agent-border);
         background: var(--agent-surface);
         color: var(--agent-text-secondary);
-        border-radius: var(--nxt1-radius-full, 9999px);
-        padding: 4px 10px;
-        font-size: 12px;
+        font-size: 13px;
         font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+      }
+
+      .playbook-pill:hover {
+        background: var(--agent-surface-hover);
+        border-color: var(--agent-text-muted);
+      }
+
+      .playbook-pill--active {
+        background: var(--agent-primary);
+        border-color: var(--agent-primary);
+        color: #000;
+      }
+
+      .playbook-pill--active:hover {
+        background: var(--agent-primary);
+        border-color: var(--agent-primary);
+        opacity: 0.9;
+      }
+
+      .playbook-create-goals {
+        margin-top: var(--nxt1-spacing-1, 4px);
       }
 
       .weekly-timeline {
@@ -1000,6 +1068,9 @@ export class AgentXShellWebComponent {
   /** Whether the operations log overlay panel is open. */
   protected readonly isOperationsLogOpen = signal(false);
 
+  /** Active playbook tab. */
+  protected readonly playbookTab = signal<'get-started' | 'create-goals'>('get-started');
+
   // ============================================
   // OUTPUTS
   // ============================================
@@ -1020,91 +1091,33 @@ export class AgentXShellWebComponent {
   });
 
   // ============================================
-  // MOCK DATA — Active Operations
+  // ROLE-AWARE SHELL CONTENT
+  // All content derives from user().role via getShellContentForRole()
   // ============================================
 
-  /** Active background operations (mock). */
-  protected readonly activeOperations = signal<ActiveOperation[]>([
-    {
-      id: 'op-1',
-      label: 'Analyzing game film...',
-      progress: 45,
-      icon: 'play',
-      status: 'processing',
-    },
-    {
-      id: 'op-2',
-      label: 'Drafting recruiter emails',
-      progress: 80,
-      icon: 'mail',
-      status: 'processing',
-    },
+  /** Resolved shell content based on user role (centralized source of truth). */
+  private readonly shellContent = computed(() => {
+    const role = this.user()?.role ?? null;
+    return getShellContentForRole(role);
+  });
+
+  /** Active background operations (role-aware). */
+  protected readonly activeOperations = computed<ShellActiveOperation[]>(() => [
+    ...this.shellContent().activeOperations,
   ]);
 
-  // ============================================
-  // MOCK DATA — Daily Briefing Insights
-  // ============================================
+  /** Proactive insights from Agent X (role-aware). */
+  protected readonly briefingInsights = computed(() => [...this.shellContent().briefingInsights]);
 
-  /** Proactive insights from Agent X (mock). */
-  protected readonly briefingInsights = signal<BriefingInsight[]>([
-    {
-      id: 'bi-1',
-      text: 'Your Scout Report was updated with new metrics from your last synced game film.',
-      icon: 'clipboard',
-      type: 'success',
-    },
-    {
-      id: 'bi-2',
-      text: '3 college programs viewed your profile this week. Two are D-I schools.',
-      icon: 'eye',
-      type: 'info',
-    },
-    {
-      id: 'bi-3',
-      text: 'Your GPA data is 30 days old. Sync your academic portal to stay current.',
-      icon: 'alertCircle',
-      type: 'warning',
-    },
-  ]);
+  /** Briefing preview text (role-aware). */
+  protected readonly briefingPreview = computed(() => {
+    const template = this.shellContent().briefingPreviewText;
+    return template.replace('{count}', String(this.briefingInsights().length));
+  });
 
-  // ============================================
-  // WEEKLY PLAYBOOK (Timeline)
-  // ============================================
-
-  /** AI-generated weekly playbook timeline items. */
-  protected readonly weeklyPlaybook = signal<WeeklyPlaybookItem[]>([
-    {
-      id: 'wp-1',
-      weekLabel: 'Mon',
-      title: 'Finalize Recruiting Storyline',
-      summary: 'Align your profile, headline metrics, and highlight context for recruiters.',
-      details:
-        'Agent X prepared a recruiting narrative from your latest film, stats, and profile views. Confirm it so all outbound content stays consistent this week.',
-      actionLabel: 'Review Draft',
-      status: 'in-progress',
-      goal: { id: 'goal-1', label: 'D1 Recruitment' },
-    },
-    {
-      id: 'wp-2',
-      weekLabel: 'Wed',
-      title: 'Publish Midweek Performance Post',
-      summary: 'Share your latest clip + stat proof point to keep momentum.',
-      details:
-        'Agent X generated copy and media options optimized for engagement windows. Choose one and publish directly from Create Post.',
-      actionLabel: 'Publish Post',
-      status: 'pending',
-      goal: { id: 'goal-2', label: 'Grow Brand' },
-    },
-    {
-      id: 'goal-setup',
-      weekLabel: '',
-      title: 'Set Up Goals',
-      summary: 'Tell Agent X your season goals so your weekly playbook stays on target.',
-      details:
-        'Agent X will personalize your weekly priorities based on your goals — recruiting targets, visibility milestones, and academic timelines.',
-      actionLabel: 'Set Up Goals',
-      status: 'pending',
-    },
+  /** AI-generated weekly playbook timeline items (role-aware). */
+  protected readonly weeklyPlaybook = computed<ShellWeeklyPlaybookItem[]>(() => [
+    ...this.shellContent().weeklyPlaybook,
   ]);
 
   /** Number of completed playbook tasks. */
@@ -1116,53 +1129,11 @@ export class AgentXShellWebComponent {
   protected readonly playbookTotalCount = computed(() => this.weeklyPlaybook().length);
 
   // ============================================
-  // COORDINATORS (2×2 Grid)
+  // COORDINATORS — Role-Aware Virtual Staff
   // ============================================
 
-  /** Coordinator cards — 4 virtual staff in a 2×2 grid. */
-  protected readonly commandCategories = signal<CommandCategory[]>([
-    {
-      id: 'coord-recruiting',
-      label: 'Recruiting Coordinator',
-      icon: 'graduationCap',
-      commands: [
-        { id: 'cmd-colleges', label: 'Find Programs', icon: 'search' },
-        { id: 'cmd-email', label: 'Draft Coach Email', icon: 'mail' },
-        { id: 'cmd-timeline', label: 'My Timeline', icon: 'calendar' },
-        { id: 'cmd-eligibility', label: 'Eligibility Check', icon: 'shieldCheck' },
-      ],
-    },
-    {
-      id: 'coord-media',
-      label: 'Media Coordinator',
-      icon: 'sparkles',
-      commands: [
-        { id: 'cmd-post', label: 'Create Post', icon: 'plus' },
-        { id: 'cmd-highlight', label: 'Highlight Reel', icon: 'videocam' },
-        { id: 'cmd-brand', label: 'Brand Strategy', icon: 'rocket' },
-      ],
-    },
-    {
-      id: 'coord-scout',
-      label: 'Scout Coordinator',
-      icon: 'barChart',
-      commands: [
-        { id: 'cmd-scout', label: 'Scout Report', icon: 'clipboard' },
-        { id: 'cmd-analyze', label: 'Analyze Film', icon: 'play' },
-        { id: 'cmd-trends', label: 'Stat Trends', icon: 'trendingUp' },
-      ],
-    },
-    {
-      id: 'coord-academics',
-      label: 'Academics Coordinator',
-      icon: 'book',
-      commands: [
-        { id: 'cmd-gpa', label: 'GPA Tracker', icon: 'clipboard' },
-        { id: 'cmd-eligibility-check', label: 'Eligibility', icon: 'shieldCheck' },
-        { id: 'cmd-test-prep', label: 'Test Prep', icon: 'document' },
-      ],
-    },
-  ]);
+  /** Coordinator cards — role-aware 2×2 grid. */
+  protected readonly commandCategories = computed(() => [...this.shellContent().coordinators]);
 
   constructor() {
     afterNextRender(() => {

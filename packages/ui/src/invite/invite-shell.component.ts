@@ -42,7 +42,7 @@ import { NxtSheetFooterComponent } from '../components/bottom-sheet/sheet-footer
 import { NxtLogoComponent } from '../components/logo/logo.component';
 import { NxtIconComponent } from '../components/icon/icon.component';
 
-/** Invite recipient type selection. */
+/** Invite recipient type selection — uses the same role string constants as USER_ROLES. */
 export type InviteRecipientType = 'athlete' | 'coach';
 
 /**
@@ -141,7 +141,7 @@ const STAFF_INVITE_COPY = {
 
           @if (isStaffRole()) {
             <!-- ══════════════════════════════════════════════
-                 STAFF VARIANT: Coach / Director / Recruiter
+                 STAFF VARIANT: Recruiter only
                  Always inviting athletes — no toggle needed.
                  ══════════════════════════════════════════════ -->
             <div class="invite-value-card">
@@ -164,9 +164,9 @@ const STAFF_INVITE_COPY = {
                 <button
                   type="button"
                   class="invite-type-pill"
-                  [class.invite-type-pill--active]="recipientType() === 'athlete'"
-                  (click)="setRecipientType('athlete')"
-                  [attr.aria-pressed]="recipientType() === 'athlete'"
+                  [class.invite-type-pill--active]="recipientType() === USER_ROLES.ATHLETE"
+                  (click)="setRecipientType(USER_ROLES.ATHLETE)"
+                  [attr.aria-pressed]="recipientType() === USER_ROLES.ATHLETE"
                 >
                   <ion-ripple-effect />
                   <nxt1-icon name="person" [size]="18" aria-hidden="true" />
@@ -175,9 +175,9 @@ const STAFF_INVITE_COPY = {
                 <button
                   type="button"
                   class="invite-type-pill"
-                  [class.invite-type-pill--active]="recipientType() === 'coach'"
-                  (click)="setRecipientType('coach')"
-                  [attr.aria-pressed]="recipientType() === 'coach'"
+                  [class.invite-type-pill--active]="recipientType() === USER_ROLES.COACH"
+                  (click)="setRecipientType(USER_ROLES.COACH)"
+                  [attr.aria-pressed]="recipientType() === USER_ROLES.COACH"
                 >
                   <ion-ripple-effect />
                   <nxt1-icon name="school" [size]="18" aria-hidden="true" />
@@ -537,7 +537,10 @@ export class InviteShellComponent implements OnInit {
   // LOCAL STATE
   // ============================================
 
-  protected readonly recipientType = signal<InviteRecipientType>('athlete');
+  /** Expose USER_ROLES to the template for constant-based comparisons */
+  protected readonly USER_ROLES = USER_ROLES;
+
+  protected readonly recipientType = signal<InviteRecipientType>(USER_ROLES.ATHLETE);
   protected readonly qrLoading = signal(true);
   protected readonly qrError = signal(false);
   protected readonly isSharing = signal(false);
@@ -547,16 +550,14 @@ export class InviteShellComponent implements OnInit {
   // ============================================
 
   /**
-   * True when the signed-in user is a staff role (coach, director, recruiter).
+   * True when the signed-in user is a recruiter.
    * Drives which invite design variant is shown:
-   *   - false (athlete/parent) → toggle visible, can invite athlete or coach
-   *   - true  (staff)          → no toggle, always inviting athletes
+   *   - false (athlete/parent/coach/director) → toggle visible, can invite athlete or coach
+   *   - true  (recruiter)                     → no toggle, always inviting athletes
    */
   protected readonly isStaffRole = computed(() => {
     const role = this.user()?.role;
-    return (
-      role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR || role === USER_ROLES.RECRUITER
-    );
+    return role === USER_ROLES.RECRUITER;
   });
 
   /** True while the invite link is being fetched from the backend. */
@@ -566,6 +567,8 @@ export class InviteShellComponent implements OnInit {
   protected readonly staffCopy = STAFF_INVITE_COPY;
 
   protected readonly headerTitle = computed(() => {
+    const role = this.user()?.role;
+    if (role === USER_ROLES.COACH || role === USER_ROLES.DIRECTOR) return 'Invite Program';
     if (this.isStaffRole()) return 'Invite Athletes';
     const type = this.inviteType();
     if (type === 'team') return 'Invite Team';
@@ -596,10 +599,11 @@ export class InviteShellComponent implements OnInit {
 
     this.invite.loadInviteLink();
 
-    // Staff roles always invite athletes — lock the recipient type.
-    // Athlete/parent default is already 'athlete' from signal initializer.
+    // Recruiters always invite athletes — lock the recipient type.
+    // All other roles (including coaches/directors) default to 'athlete'
+    // but can toggle to 'coach' via the recipient type pills.
     if (this.isStaffRole()) {
-      this.recipientType.set('athlete');
+      this.recipientType.set(USER_ROLES.ATHLETE);
     }
   }
 

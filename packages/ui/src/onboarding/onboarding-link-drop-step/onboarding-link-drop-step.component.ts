@@ -172,7 +172,7 @@ function sportNameToKey(sportName: string): string {
             @if (activeMode() === 'signin') {
               No sign-in accounts available yet.
             } @else {
-              No link accounts available for your sports.
+              No link accounts available for your {{ scope() === 'team' ? 'team' : 'sports' }}.
             }
           </p>
         </div>
@@ -292,6 +292,7 @@ export class OnboardingLinkDropStepComponent {
   readonly selectedSports = input<readonly string[]>([]);
   readonly role = input<OnboardingUserType | null>(null);
   readonly disabled = input(false);
+  readonly scope = input<'athlete' | 'team'>('athlete');
 
   // ---- Outputs ----
   readonly linkSourcesChange = output<LinkSourcesFormData>();
@@ -470,7 +471,7 @@ export class OnboardingLinkDropStepComponent {
       placeholder,
       defaultValue: source.url ?? source.username ?? '',
       submitText: isSignIn ? 'Sign In' : 'Done',
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
 
     if (!result.confirmed) return;

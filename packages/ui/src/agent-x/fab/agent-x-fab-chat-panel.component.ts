@@ -200,6 +200,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constant
                   variant="agent-fab"
                   [isOwn]="message.role === 'user'"
                   [content]="message.content"
+                  [imageUrl]="message.imageUrl"
                   [isTyping]="!!message.isTyping"
                   [isError]="!!message.error"
                 />
@@ -875,6 +876,16 @@ export class AgentXFabChatPanelComponent {
             this.chatInput()?.nativeElement?.focus();
           }, 400);
         });
+
+        // Consume any pending message injected via openWithMessage()
+        const pending = this.fabService.consumePendingMessage();
+        if (pending) {
+          this.agentX.pushMessage({
+            role: 'assistant',
+            content: pending.content,
+            ...(pending.imageUrl ? { imageUrl: pending.imageUrl } : {}),
+          });
+        }
       }
     });
 

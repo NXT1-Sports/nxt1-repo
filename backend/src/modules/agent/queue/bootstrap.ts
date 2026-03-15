@@ -30,7 +30,8 @@ import { AgentRouter } from '../agent.router.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 import { ToolRegistry } from '../tools/tool-registry.js';
 import { ScrapeWebpageTool } from '../tools/scraping/index.js';
-import { UpdateAthleteProfileTool } from '../tools/database/index.js';
+import { UpdateAthleteProfileTool, UpdateTeamProfileTool } from '../tools/database/index.js';
+import { GenerateImageTool } from '../tools/media/index.js';
 import { ContextBuilder } from '../memory/context-builder.js';
 import { TelemetryService } from '../services/telemetry.service.js';
 import { GuardrailRunner } from '../guardrails/guardrail-runner.js';
@@ -48,6 +49,7 @@ import {
   GeneralAgent,
 } from '../agents/index.js';
 import { setAgentDependencies } from '../../../routes/agent-x.routes.js';
+import { setWelcomeDependencies } from '../../../services/agent-welcome.service.js';
 import { stagingDb } from '../../../utils/firebase-staging.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -76,6 +78,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const toolRegistry = new ToolRegistry();
   toolRegistry.register(new ScrapeWebpageTool());
   toolRegistry.register(new UpdateAthleteProfileTool(stagingDb));
+  toolRegistry.register(new UpdateTeamProfileTool());
+  toolRegistry.register(new GenerateImageTool(llm));
   const contextBuilder = new ContextBuilder();
 
   // ── 1b. Guardrails (safety layer) ───────────────────────────────────
@@ -106,6 +110,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
 
   // ── 5. Inject dependencies into the REST routes ───────────────────────
   setAgentDependencies({ queueService, jobRepository });
+  setWelcomeDependencies({ queueService, jobRepository });
 
   logger.info('Agent X queue engine initialized');
 

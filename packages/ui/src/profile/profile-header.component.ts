@@ -306,7 +306,7 @@ import { ProfileService } from './profile.service';
       }
 
       <!-- ═══ AGENT X STATUS ═══ -->
-      @if (user()?.isRecruit) {
+      @if (user()) {
         <div class="mc-agent">
           <div class="mc-agent-dot" aria-hidden="true"></div>
           <svg

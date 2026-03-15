@@ -135,15 +135,6 @@ export const SETTINGS_PREFERENCES_ITEMS: readonly SettingsItem[] = [
     value: false,
     settingKey: 'marketingEmails',
   },
-  {
-    id: 'notificationPreferences',
-    section: 'preferences',
-    type: 'navigation',
-    label: 'Notification Preferences',
-    description: 'Manage per-category notification settings',
-    icon: 'options-outline',
-    route: '/settings/notification-preferences',
-  },
 ] as const;
 
 // ============================================

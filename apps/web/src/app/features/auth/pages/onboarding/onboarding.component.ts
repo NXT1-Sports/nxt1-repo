@@ -53,6 +53,7 @@ import { AuthSubtitleComponent } from '@nxt1/ui/auth/auth-subtitle';
 import { OnboardingRoleSelectionComponent } from '@nxt1/ui/onboarding/onboarding-role-selection';
 import { OnboardingProfileStepComponent } from '@nxt1/ui/onboarding/onboarding-profile-step';
 import { OnboardingTeamStepComponent } from '@nxt1/ui/onboarding/onboarding-team-step';
+import { Nxt1OnboardingCreateTeamStepComponent } from '@nxt1/ui/onboarding/onboarding-create-team-step';
 import { OnboardingSportStepComponent } from '@nxt1/ui/onboarding/onboarding-sport-step';
 import { OnboardingTeamSelectionStepComponent } from '@nxt1/ui/onboarding/onboarding-team-selection-step';
 import type { TeamSearchResult } from '@nxt1/ui/onboarding/onboarding-team-selection-step';
@@ -81,6 +82,7 @@ import {
   type ProfileFormData,
   type ProfileLocationData,
   type TeamFormData,
+  type CreateTeamProfileFormData,
   type SportFormData,
   type PositionsFormData,
   type ContactFormData,
@@ -161,6 +163,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     OnboardingRoleSelectionComponent,
     OnboardingProfileStepComponent,
     OnboardingTeamStepComponent,
+    Nxt1OnboardingCreateTeamStepComponent,
     OnboardingSportStepComponent,
     OnboardingTeamSelectionStepComponent,
     OnboardingPositionStepComponent,
@@ -192,7 +195,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       <!-- Mobile: Title & Subtitle shown in form panel (top) -->
       <div authTitleMobile class="nxt1-mobile-titles">
         <nxt1-onboarding-agent-x-typewriter [message]="agentXMessage()" />
-        <h1 class="mb-2 mt-2 text-2xl font-bold text-text-primary">
+        <h1 class="text-text-primary mt-2 mb-2 text-2xl font-bold">
           {{ currentStep().title || 'Loading...' }}
         </h1>
       </div>
@@ -244,13 +247,25 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             }
 
             <!-- Step 3: Link Data Sources (Connected Accounts) -->
-            @if (currentStep().id === 'link-sources') {
+            @if (currentStep().id === 'link-sources' || currentStep().id === 'team-link-sources') {
               <nxt1-onboarding-link-drop-step
                 [linkSourcesData]="linkSourcesFormData()"
                 [selectedSports]="selectedSportNames()"
                 [role]="selectedRole()"
                 [disabled]="isLoading()"
+                [scope]="
+                  selectedRole() === 'coach' || selectedRole() === 'director' ? 'team' : 'athlete'
+                "
                 (linkSourcesChange)="onLinkSourcesChange($event)"
+              />
+            }
+
+            <!-- Step 2b: Create Team Profile -->
+            @if (currentStep().id === 'create-team-profile') {
+              <nxt1-onboarding-create-team-step
+                [teamData]="createTeamProfileFormData()"
+                [disabled]="isLoading()"
+                (teamChange)="onCreateTeamProfileChange($event)"
               />
             }
 
@@ -320,6 +335,8 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               currentStep().id !== 'role' &&
               currentStep().id !== 'profile' &&
               currentStep().id !== 'link-sources' &&
+              currentStep().id !== 'team-link-sources' &&
+              currentStep().id !== 'create-team-profile' &&
               currentStep().id !== 'school' &&
               currentStep().id !== 'sport' &&
               currentStep().id !== 'select-teams' &&
@@ -329,9 +346,9 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             ) {
               <div class="py-12 text-center">
                 <div
-                  class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-200"
+                  class="bg-surface-200 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
                 >
-                  <svg viewBox="0 0 24 24" fill="none" class="h-8 w-8 text-text-tertiary">
+                  <svg viewBox="0 0 24 24" fill="none" class="text-text-tertiary h-8 w-8">
                     <path
                       d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"
                       fill="currentColor"
@@ -512,6 +529,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   /** Profile form data computed from _formData */
   readonly profileFormData = computed(() => this._formData().profile ?? null);
+
+  /** Create Team Profile form data computed from _formData */
+  readonly createTeamProfileFormData = computed(() => this._formData().createTeamProfile ?? null);
 
   /** Team form data computed from _formData */
   readonly teamFormData = computed(() => this._formData().team ?? null);
@@ -894,6 +914,13 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    */
   onTeamChange(teamData: TeamFormData): void {
     this.machine.updateTeam(teamData);
+  }
+
+  /**
+   * Handle create team profile data change
+   */
+  onCreateTeamProfileChange(data: CreateTeamProfileFormData): void {
+    this.machine.updateCreateTeamProfile(data);
   }
 
   /**

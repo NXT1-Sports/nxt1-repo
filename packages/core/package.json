@@ -110,6 +110,11 @@
       "types": "./dist/onboarding/index.d.ts",
       "import": "./dist/onboarding/index.mjs",
       "require": "./dist/onboarding/index.js"
+    },
+    "./ai": {
+      "types": "./dist/ai/index.d.ts",
+      "import": "./dist/ai/index.mjs",
+      "require": "./dist/ai/index.js"
     }
   },
   "files": [

@@ -56,6 +56,7 @@ import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonInput, IonSpinner } from '@ionic/angular/standalone';
 import { isValidName } from '@nxt1/core/helpers';
+import { USER_ROLES } from '@nxt1/core';
 import type {
   ProfileFormData,
   GenderOption,
@@ -741,7 +742,7 @@ export class OnboardingProfileStepComponent {
   readonly isLastNameValid = computed(() => isValidName(this.lastName()));
 
   /** Whether to show coach title selection */
-  readonly showCoachTitle = computed(() => this.userType() === 'coach');
+  readonly showCoachTitle = computed(() => this.userType() === USER_ROLES.COACH);
 
   /** Display label for coach title in list-row variant */
   readonly coachTitleDisplayLabel = computed(() => {

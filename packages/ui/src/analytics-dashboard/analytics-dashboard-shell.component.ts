@@ -152,7 +152,7 @@ export interface AnalyticsUser {
             </div>
             <h3 class="empty-title">No Analytics Data Yet</h3>
             <p class="empty-message">
-              @if (analytics.userRole() === 'athlete') {
+              @if (analytics.isAthleteView()) {
                 Start building your profile to see engagement analytics
               } @else {
                 Add athletes to your roster to see team analytics

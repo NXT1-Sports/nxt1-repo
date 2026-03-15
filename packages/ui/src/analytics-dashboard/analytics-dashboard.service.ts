@@ -48,6 +48,7 @@ import {
   getTabsForRole,
   isAthleteReport,
   isCoachReport,
+  isTeamRole,
 } from '@nxt1/core';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
@@ -103,6 +104,9 @@ export class AnalyticsDashboardService implements OnDestroy {
   /** User role (athlete or coach) */
   readonly userRole = computed(() => this._userRole());
 
+  /** Whether the current view is athlete-oriented (for template role checks) */
+  readonly isAthleteView = computed(() => !isTeamRole(this._userRole()));
+
   /** Whether initial load is in progress */
   readonly isLoading = computed(() => this._isLoading());
 
@@ -122,7 +126,7 @@ export class AnalyticsDashboardService implements OnDestroy {
   readonly availableTabs = computed(() => {
     const role = this._userRole();
     // Parents see athlete view, so map to 'athlete' for tab filtering
-    const tabRole: 'athlete' | 'coach' = role === 'coach' ? 'coach' : 'athlete';
+    const tabRole: 'athlete' | 'coach' = isTeamRole(role) ? 'coach' : 'athlete';
     return getTabsForRole(tabRole);
   });
 
@@ -218,7 +222,7 @@ export class AnalyticsDashboardService implements OnDestroy {
       // Simulate network delay
       await new Promise((resolve) => setTimeout(resolve, 800));
 
-      const report = role === 'athlete' ? getMockAthleteReport() : getMockCoachReport();
+      const report = !isTeamRole(role) ? getMockAthleteReport() : getMockCoachReport();
 
       // Update cache
       this._cacheTimestamp = now;

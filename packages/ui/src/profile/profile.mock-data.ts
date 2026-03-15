@@ -45,6 +45,7 @@ export const MOCK_PROFILE_USER: ProfileUser = {
   ],
   role: 'athlete',
   isRecruit: true,
+  isTeamManager: false,
   verificationStatus: 'verified',
   aboutMe:
     'Dedicated student-athlete with a passion for football. Team captain and honor roll student. Working hard every day to achieve my dreams of playing at the next level. 🏈 #GrindNeverStops',

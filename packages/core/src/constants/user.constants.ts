@@ -96,6 +96,32 @@ export const ROLE_CONFIGS: readonly RoleConfig[] = [
   },
 ] as const;
 
+// ============================================
+// ROLE CATEGORY HELPERS (Source of Truth)
+// ============================================
+
+/**
+ * Roles that operate as a "team" — coaches, directors manage team profiles,
+ * rosters, and athletes. This is the SINGLE source of truth for determining
+ * whether a user should see team-based UI vs athlete-based UI.
+ */
+export const TEAM_MANAGEMENT_ROLES: readonly UserRole[] = ['coach', 'director'] as const;
+
+/**
+ * Roles that view the platform through an individual athlete lens.
+ */
+export const INDIVIDUAL_PROFILE_ROLES: readonly UserRole[] = ['athlete', 'parent'] as const;
+
+/** Check if a role manages a team (coach or director). */
+export function isTeamRole(role: string | null | undefined): boolean {
+  return TEAM_MANAGEMENT_ROLES.includes(role as UserRole);
+}
+
+/** Check if a role is an individual profile role (athlete or parent). */
+export function isAthleteRole(role: string | null | undefined): boolean {
+  return INDIVIDUAL_PROFILE_ROLES.includes(role as UserRole);
+}
+
 /**
  * Normalize any legacy role string to a core 5-role UserRole.
  * Handles old Firestore documents that still have 'college-coach', 'scout', etc.

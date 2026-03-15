@@ -79,6 +79,13 @@ export const routes: Routes = [
           import('./features/agent-x/agent-x.routes').then((m) => m.AGENT_X_ROUTES),
       },
 
+      // Redirect /agent-x → /agent (web deep links use /agent-x)
+      {
+        path: 'agent-x',
+        redirectTo: 'agent',
+        pathMatch: 'prefix',
+      },
+
       // Brand - Brand Vault (raw materials for Agent X)
       {
         path: 'brand',

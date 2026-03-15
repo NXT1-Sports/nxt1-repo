@@ -21,6 +21,14 @@ export type {
   AgentXErrorCode,
   AgentXConfig,
   AgentXState,
+  // Shell content types (portable)
+  ShellActionChip,
+  ShellCommandCategory,
+  ShellBriefingInsight,
+  ShellGoalTag,
+  ShellWeeklyPlaybookItem,
+  ShellActiveOperation,
+  ShellContentForRole,
 } from './agent-x.types';
 
 // Content types (mode-specific)
@@ -49,6 +57,19 @@ export {
   AGENT_X_RATE_LIMITS,
   AGENT_X_CACHE_KEYS,
   AGENT_X_CACHE_TTL,
+  // Role-specific shell content
+  ATHLETE_COORDINATORS,
+  TEAM_COORDINATORS,
+  RECRUITER_COORDINATORS,
+  ATHLETE_BRIEFING_INSIGHTS,
+  TEAM_BRIEFING_INSIGHTS,
+  RECRUITER_BRIEFING_INSIGHTS,
+  BRIEFING_PREVIEW_TEXT,
+  ATHLETE_WEEKLY_PLAYBOOK,
+  TEAM_WEEKLY_PLAYBOOK,
+  ATHLETE_ACTIVE_OPERATIONS,
+  TEAM_ACTIVE_OPERATIONS,
+  getShellContentForRole,
 } from './agent-x.constants';
 
 // Content constants (mode-specific)
@@ -171,3 +192,11 @@ export {
   AGENT_MODEL_PRICING,
   OPERATION_STATUS_LABELS_EXTENDED,
 } from './agent.constants';
+
+// Welcome graphic prompt builders
+export type {
+  AthleteWelcomePromptContext,
+  TeamWelcomePromptContext,
+} from './welcome-graphic.prompts';
+
+export { buildAthleteWelcomePrompt, buildTeamWelcomePrompt } from './welcome-graphic.prompts';

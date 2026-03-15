@@ -24,6 +24,7 @@
 import { Component, ChangeDetectionStrategy, inject, input, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { Mission, MissionUserRole, MissionCategory, MissionQuickAction } from '@nxt1/core';
+import { isAthleteRole } from '@nxt1/core';
 import { NxtDesktopPageHeaderComponent } from '../../components/desktop-page-header';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
@@ -571,7 +572,7 @@ export class XpShellWebComponent {
 
   /** Subtitle for desktop page header based on user role */
   protected readonly headerSubtitle = computed(() =>
-    this.userRole() === 'athlete'
+    isAthleteRole(this.userRole())
       ? 'Complete missions to level up your recruiting profile'
       : 'Complete missions to better support your athletes'
   );

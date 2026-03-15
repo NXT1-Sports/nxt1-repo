@@ -142,6 +142,7 @@ export {
   GENDER_OPTIONS,
   toUserLocation,
   type OnboardingTeamType,
+  type CreateTeamProfileFormData,
   // Sport-centric types (v3.0)
   type SportTeamInfo,
   type SportEntry,

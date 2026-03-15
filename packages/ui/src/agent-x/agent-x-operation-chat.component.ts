@@ -91,19 +91,26 @@ interface OperationMessage {
 
     <!-- ═══ MESSAGES ═══ -->
     <div class="messages-area" #messagesArea>
-      <!-- ═══ COMMAND HUB ═══ -->
-      @if (showQuickActions()) {
-        <div class="quick-actions-hub">
-          <div class="quick-actions-list">
-            @for (action of normalizedQuickActions(); track action.id) {
-              <button type="button" class="quick-action-item" (click)="onQuickAction(action)">
-                <span class="quick-action-title">{{ shortActionLabel(action.label) }}</span>
-                @if (action.description) {
-                  <span class="quick-action-desc">{{ action.description }}</span>
-                }
-              </button>
-            }
-          </div>
+      <!-- ═══ COORDINATOR WELCOME ═══ -->
+      @if (showWelcome()) {
+        <div class="msg-row msg-assistant">
+          <nxt1-chat-bubble
+            variant="agent-operation"
+            [isOwn]="false"
+            [content]="welcomeMessage()"
+            [isTyping]="false"
+            [isError]="false"
+            [isSystem]="false"
+          />
+        </div>
+
+        <!-- ═══ QUICK OPTIONS ═══ -->
+        <div class="quick-options">
+          @for (action of normalizedQuickActions(); track action.id) {
+            <button type="button" class="quick-option-chip" (click)="onQuickAction(action)">
+              {{ action.label }}
+            </button>
+          }
         </div>
       }
 
@@ -229,58 +236,38 @@ interface OperationMessage {
         display: none;
       }
 
-      .quick-actions-hub {
+      .quick-options {
         display: flex;
-        justify-content: center;
-        align-items: flex-start;
-        padding: 8px 0 16px;
-      }
-
-      .quick-actions-list {
-        display: flex;
-        flex-direction: column;
+        flex-wrap: wrap;
         gap: 8px;
-        width: min(560px, 100%);
+        padding: 4px 0 12px;
+        animation: fadeSlideIn 0.3s ease-out;
       }
 
-      .quick-action-item {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 3px;
-        padding: 14px 16px;
+      .quick-option-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 8px 14px;
         border: 1px solid var(--op-border);
-        border-radius: var(--nxt1-radius-lg, 12px);
+        border-radius: 999px;
         background: var(--op-surface);
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-        text-align: left;
+        color: var(--op-text-secondary);
+        font-size: 13px;
+        font-weight: 500;
         font-family: inherit;
+        line-height: 1.3;
+        cursor: pointer;
+        white-space: nowrap;
+        -webkit-tap-highlight-color: transparent;
         transition:
           background 0.15s ease,
-          border-color 0.15s ease;
+          border-color 0.15s ease,
+          color 0.15s ease;
       }
 
-      .quick-action-title {
-        font-size: 15px;
-        font-weight: 600;
-        color: var(--op-text);
-        line-height: 1.3;
-      }
-
-      .quick-action-desc {
-        font-size: 13px;
-        font-weight: 400;
-        color: var(--op-text-muted);
-        line-height: 1.4;
-      }
-
-      .quick-action-item:active {
+      .quick-option-chip:active {
         background: var(--op-primary-glow);
         border-color: var(--op-primary);
-      }
-
-      .quick-action-item:active .quick-action-title {
         color: var(--op-primary);
       }
     `,
@@ -310,6 +297,9 @@ export class AgentXOperationChatComponent {
    */
   @Input() contextType: 'operation' | 'command' = 'command';
 
+  /** Coordinator description shown as the welcome message. */
+  @Input() contextDescription = '';
+
   /** Optional list of quick action suggestions shown as tappable chips. */
   @Input() quickActions: OperationQuickAction[] = [];
 
@@ -326,34 +316,32 @@ export class AgentXOperationChatComponent {
   /** Whether an AI response is being generated. */
   protected readonly _loading = signal(false);
 
-  /** Whether quick action chips are visible (hide after first user message). */
-  protected readonly showQuickActions = computed(
+  /** Whether the welcome message and quick option chips are visible (hide after first user message). */
+  protected readonly showWelcome = computed(
     () => this.normalizedQuickActions().length > 0 && !this.hasUserSent()
   );
 
-  /** Normalized quick actions list (always target 6 options for command hub). */
+  /** Welcome message content derived from coordinator description or a generated fallback. */
+  protected readonly welcomeMessage = computed(() => {
+    if (this.contextDescription) return this.contextDescription;
+    const title = this.contextTitle || 'Agent X';
+    return `You're now talking to ${title}. How can I help you today?`;
+  });
+
+  /** Normalized quick actions — uses provided actions, fills with fallbacks if needed. */
   protected readonly normalizedQuickActions = computed<OperationQuickAction[]>(() => {
-    const base = this.quickActions
-      .filter((a) => !!a.description)
-      .map((a, index) => ({
-        ...a,
-        id: a.id || `cmd-${index + 1}`,
-        label: this.shortActionLabel(a.label),
-      }));
+    const provided = this.quickActions.map((a, index) => ({
+      ...a,
+      id: a.id || `cmd-${index + 1}`,
+    }));
 
-    const seen = new Set(base.map((a) => a.label.toLowerCase()));
-    const fallbackItems = this.getFallbackActions();
-    const filled = [...base];
+    if (provided.length > 0) return provided;
 
-    for (const item of fallbackItems) {
-      if (filled.length >= 6) break;
-      const key = item.label.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      filled.push({ id: `fallback-${filled.length + 1}`, icon: this.contextIcon, ...item });
-    }
-
-    return filled.slice(0, 6);
+    return this.getFallbackActions().map((item, index) => ({
+      id: `fallback-${index + 1}`,
+      icon: this.contextIcon,
+      ...item,
+    }));
   });
 
   /** Tracks whether the user has sent at least one message. */
@@ -485,13 +473,6 @@ export class AgentXOperationChatComponent {
   // ============================================
   // PRIVATE HELPERS
   // ============================================
-
-  /** Keep quick action labels compact in the sheet UI. */
-  protected shortActionLabel(label: string): string {
-    const compact = label.trim();
-    if (compact.length <= 22) return compact;
-    return `${compact.slice(0, 22).trimEnd()}...`;
-  }
 
   private getFallbackActions(): Pick<OperationQuickAction, 'label' | 'description'>[] {
     if (this.contextType === 'operation') {

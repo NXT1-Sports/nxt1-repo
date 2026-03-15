@@ -150,13 +150,6 @@ import { formatSportDisplayName } from '@nxt1/core';
                     <div class="nxt1-sidenav-profile-row__info">
                       <span class="nxt1-sidenav-profile-row__name">
                         {{ user()!.name }}
-                        @if (user()!.verified) {
-                          <nxt1-icon
-                            name="verified"
-                            [size]="14"
-                            class="nxt1-sidenav-profile-row__verified"
-                          />
-                        }
                       </span>
                       <span class="nxt1-sidenav-profile-row__sport">
                         {{ getUserSportLabel(user()!) }}

@@ -110,10 +110,15 @@ export const onNotificationCreatedV2 = onDocumentCreated(
 
       // ─── 3. Build FCM message ─────────────────────────────────────
       const isHighPriority = priority === 'high' || priority === 'urgent';
+      const imageUrl = data?.['imageUrl'] as string | undefined;
 
       const message: admin.messaging.MulticastMessage = {
         tokens,
-        notification: { title, body },
+        notification: {
+          title,
+          body,
+          ...(imageUrl ? { imageUrl } : {}),
+        },
         data: {
           notificationId,
           type: type || 'general',

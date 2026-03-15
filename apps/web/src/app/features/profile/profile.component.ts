@@ -494,6 +494,40 @@ export class ProfileComponent implements OnInit, OnDestroy {
       profileUnicode: this.profileUnicode(),
       isOwnProfile: this.isOwnProfile(),
     });
+
+    // Check for background generation job completion.
+    // If the user previously navigated away while the overlay was showing
+    // (or skipped/timed out), the scrape job may have finished in the
+    // background. Detect this and silently reload fresh profile data.
+    if (isPlatformBrowser(this.platformId) && !this.generation.isGenerating()) {
+      void this.checkBackgroundGenerationCompletion();
+    }
+  }
+
+  /**
+   * Check if a profile generation job completed while the user was away.
+   * Uses sessionStorage to remember the last jobId so we can query its
+   * status on return. If completed, invalidates cache and reloads.
+   */
+  private async checkBackgroundGenerationCompletion(): Promise<void> {
+    try {
+      const lastJobId = sessionStorage.getItem('nxt1:profile-generation-job');
+      if (!lastJobId) return;
+
+      const status = await this.generation.checkJobStatus(lastJobId);
+      if (status === 'completed') {
+        this.logger.info('Background generation completed while away', { jobId: lastJobId });
+        sessionStorage.removeItem('nxt1:profile-generation-job');
+        this.apiProfileService.invalidateAllProfileCache();
+        this.reloadProfile();
+      } else if (status === 'failed' || !status) {
+        // Job failed or no longer exists — clean up
+        sessionStorage.removeItem('nxt1:profile-generation-job');
+      }
+      // If still 'processing' or 'pending', leave the key for next visit
+    } catch {
+      // Non-critical — don't block profile rendering
+    }
   }
 
   private handleProfileResponse(response: ApiResponse<User>): void {
@@ -878,14 +912,43 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
   /**
    * Handle profile generation overlay dismiss.
-   * Invalidates profile cache so the page re-fetches fresh data
-   * written by Agent X, then reloads the profile.
+   * Always invalidates cache and re-fetches profile data so any data
+   * written by Agent X during the scraping process is loaded — regardless
+   * of whether the overlay reports 'completed' or 'skipped' (the user may
+   * skip while the backend job is still progressing in the background).
    */
   protected onGenerationDismissed(reason: 'completed' | 'skipped'): void {
     this.logger.info('Profile generation overlay dismissed', { reason });
-    if (reason === 'completed') {
-      this.apiProfileService.invalidateAllProfileCache();
-      this.onRetry();
+
+    // If the user skipped, the backend job may still be running.
+    // Store the jobId so we can check for completion on next profile visit.
+    if (reason === 'skipped') {
+      const jobId = this.generation.jobId();
+      if (jobId && isPlatformBrowser(this.platformId)) {
+        sessionStorage.setItem('nxt1:profile-generation-job', jobId);
+      }
+    } else {
+      // Completed — clear any stored jobId
+      if (isPlatformBrowser(this.platformId)) {
+        sessionStorage.removeItem('nxt1:profile-generation-job');
+      }
+    }
+
+    this.apiProfileService.invalidateAllProfileCache();
+    this.reloadProfile();
+  }
+
+  /**
+   * Force re-fetch the current profile by invalidating signals and
+   * re-triggering the reactive fetch subscription without a full navigation.
+   */
+  private reloadProfile(): void {
+    this.profileService.startLoading();
+    const param = this.routeParam();
+    if (param) {
+      this.router.navigate(['/profile', param], { replaceUrl: true });
+    } else {
+      this.router.navigate(['/profile'], { replaceUrl: true });
     }
   }
 }

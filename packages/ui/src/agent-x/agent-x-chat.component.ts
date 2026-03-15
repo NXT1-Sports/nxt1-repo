@@ -41,6 +41,7 @@ import { NxtChatBubbleComponent } from '../components/chat-bubble';
             variant="agent-chat"
             [isOwn]="message.role === 'user'"
             [content]="message.content"
+            [imageUrl]="message.imageUrl"
             [isTyping]="!!message.isTyping"
             [isError]="!!message.error"
           />

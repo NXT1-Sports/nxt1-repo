@@ -457,6 +457,10 @@ export class ProfileGenerationOverlayComponent implements OnInit, OnDestroy {
       .filter(Boolean);
   });
 
+  /** Whether this component initiated the dismiss (vs being destroyed by navigation) */
+  private isDismissedByUser = false;
+  private dismissTimer: ReturnType<typeof setTimeout> | null = null;
+
   ngOnInit(): void {
     if (!isPlatformBrowser(this.platformId)) return;
 
@@ -465,8 +469,9 @@ export class ProfileGenerationOverlayComponent implements OnInit, OnDestroy {
     // Show skip button after 10 seconds
     this.skipTimer = setTimeout(() => this.showSkip.set(true), 10_000);
 
-    // Start polling
+    // Start polling (idempotent — safe to call multiple times)
     void this.generation.pollUntilDone().then((result) => {
+      if (this.isDismissing()) return; // Already dismissing, skip
       this.logger.info('Generation polling finished', { result });
       this.dismiss(result === 'completed' ? 'completed' : 'skipped');
     });
@@ -477,6 +482,17 @@ export class ProfileGenerationOverlayComponent implements OnInit, OnDestroy {
       clearTimeout(this.skipTimer);
       this.skipTimer = null;
     }
+    if (this.dismissTimer) {
+      clearTimeout(this.dismissTimer);
+      this.dismissTimer = null;
+    }
+
+    // If the overlay is destroyed by navigation (not by user action),
+    // stop polling but keep isGenerating true so the overlay re-appears
+    // when the user returns to the profile page.
+    if (!this.isDismissedByUser) {
+      this.generation.stopPolling();
+    }
   }
 
   protected onSkip(): void {
@@ -485,9 +501,11 @@ export class ProfileGenerationOverlayComponent implements OnInit, OnDestroy {
   }
 
   private dismiss(reason: 'completed' | 'skipped'): void {
+    if (this.isDismissing()) return; // Prevent double-dismiss
+    this.isDismissedByUser = true;
     this.isDismissing.set(true);
     // Wait for fade-out animation (800ms) before emitting
-    setTimeout(() => {
+    this.dismissTimer = setTimeout(() => {
       // Emit first so the parent handles the event while this component is still alive,
       // then reset() sets isGenerating to false which removes this component from the DOM.
       this.dismissed.emit(reason);

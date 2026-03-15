@@ -111,6 +111,47 @@ export class AgentRouter {
     const context = this.buildSessionContext(userId, payload.sessionId);
     const enrichedIntent = this.enrichIntentWithContext(intent, userContext, payload.context);
 
+    // ── Direct routing: skip planner when a specific agent is requested ───
+    if (payload.agent) {
+      const directAgent = this.agents.get(payload.agent);
+      if (!directAgent) {
+        this.emitUpdate(
+          onUpdate,
+          operationId,
+          'failed',
+          `No agent registered for "${payload.agent}".`
+        );
+        return {
+          summary: `No agent registered for "${payload.agent}".`,
+          suggestions: ['Check agent configuration or contact support.'],
+        };
+      }
+
+      this.emitUpdate(onUpdate, operationId, 'acting', `Routing directly to ${payload.agent}...`);
+
+      try {
+        const toolDefs = this.toolRegistry.getDefinitions(directAgent.id);
+        const result = await directAgent.execute(
+          enrichedIntent,
+          context,
+          toolDefs,
+          this.llm,
+          this.toolRegistry,
+          this.guardrailRunner
+        );
+
+        this.emitUpdate(onUpdate, operationId, 'completed', result.summary);
+        return result;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Agent execution failed';
+        this.emitUpdate(onUpdate, operationId, 'failed', message);
+        return {
+          summary: `Agent ${payload.agent} failed: ${message}`,
+          suggestions: ['Try again later or contact support.'],
+        };
+      }
+    }
+
     // ── Step 2: Plan ──────────────────────────────────────────────────────
     this.emitUpdate(onUpdate, operationId, 'thinking', 'Decomposing your request into tasks...');
 
@@ -182,7 +223,8 @@ export class AgentRouter {
           }
 
           // Build the intent for this specific task, enriched with upstream results
-          const taskIntent = this.buildTaskIntent(task, taskResults);
+          // and the original job context (user profile, linked account URLs, etc.)
+          const taskIntent = this.buildTaskIntent(task, taskResults, enrichedIntent);
           const toolDefs = this.toolRegistry.getDefinitions(agent.id);
 
           const result = await agent.execute(
@@ -259,29 +301,41 @@ export class AgentRouter {
   }
 
   /**
-   * Build the intent string for a sub-task, injecting results from
-   * upstream dependencies for context.
+   * Build the intent string for a sub-task, injecting:
+   * 1. The original enriched context (user profile, linked account URLs, job metadata).
+   * 2. Results from upstream dependency tasks.
+   * 3. The task's own description.
+   *
+   * This ensures every sub-agent has the full context it needs — especially
+   * URLs, userId, sport, and other structured data from the job context.
    */
   private buildTaskIntent(
     task: AgentTask,
-    upstreamResults: Map<string, AgentOperationResult>
+    upstreamResults: Map<string, AgentOperationResult>,
+    enrichedContext?: string
   ): string {
-    let enrichedIntent = task.description;
+    const parts: string[] = [];
 
+    // Include the original enriched context so sub-agents have user profile,
+    // linked account URLs, userId, sport, and other job metadata.
+    if (enrichedContext) {
+      parts.push(enrichedContext);
+    }
+
+    // Include results from upstream dependency tasks
     if (task.dependsOn.length > 0) {
-      const contextParts: string[] = [];
       for (const depId of task.dependsOn) {
         const depResult = upstreamResults.get(depId);
         if (depResult) {
-          contextParts.push(`[Result from task ${depId}]: ${depResult.summary}`);
+          parts.push(`[Result from task ${depId}]: ${depResult.summary}`);
         }
-      }
-      if (contextParts.length > 0) {
-        enrichedIntent = contextParts.join('\n') + '\n\n' + task.description;
       }
     }
 
-    return enrichedIntent;
+    // The specific task instruction
+    parts.push(`[Current Task]\n${task.description}`);
+
+    return parts.join('\n\n');
   }
 
   /** Build a minimal session context. */

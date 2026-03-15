@@ -200,6 +200,29 @@ export class AgentXService {
   }
 
   // ============================================
+  // EXTERNAL MESSAGE INJECTION
+  // ============================================
+
+  /**
+   * Push a message into the chat from an external source
+   * (e.g., background agent task completion, push notification).
+   *
+   * Supports text-only, image-only, or text + image messages.
+   */
+  pushMessage(message: Omit<AgentXMessage, 'id' | 'timestamp'>): void {
+    const fullMessage: AgentXMessage = {
+      ...message,
+      id: this.generateId(),
+      timestamp: new Date(),
+    };
+    this._messages.update((msgs) => [...msgs, fullMessage]);
+    this.logger.info('External message pushed', {
+      role: message.role,
+      hasImage: !!message.imageUrl,
+    });
+  }
+
+  // ============================================
   // MESSAGE MANAGEMENT
   // ============================================
 

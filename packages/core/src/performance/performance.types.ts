@@ -291,6 +291,8 @@ export const TRACE_NAMES = {
   IMAGE_UPLOAD: 'image_upload',
   VIDEO_UPLOAD: 'video_upload',
   MEDIA_PROCESS: 'media_process',
+  WELCOME_GRAPHIC_GENERATE: 'welcome_graphic_generate',
+  WELCOME_GRAPHIC_UPLOAD: 'welcome_graphic_upload',
 
   // Navigation traces
   NAVIGATION_COLD_START: 'navigation_cold_start',

@@ -34,8 +34,9 @@ import { isPlatformBrowser } from '@angular/common';
 import {
   type ProfileTabId,
   type ProfileTab,
-  PROFILE_TABS,
   PROFILE_EMPTY_STATES,
+  getProfileTabsForUser,
+  getOverviewSectionLabels,
   type ProfileRecruitingActivity,
   type ProfileEvent,
   type ProfileTeamAffiliation,
@@ -1554,14 +1555,13 @@ export class ProfileShellWebComponent implements OnInit {
 
   protected readonly tabOptions = computed((): OptionScrollerItem[] => {
     const badges = this.profile.tabBadges();
+    const user = this.profile.user();
 
-    return PROFILE_TABS.filter((tab) => tab.id !== 'contact' && tab.id !== 'academic').map(
-      (tab: ProfileTab) => ({
-        id: tab.id,
-        label: tab.label,
-        badge: badges[tab.id as keyof typeof badges] || undefined,
-      })
-    );
+    return getProfileTabsForUser(user).map((tab: ProfileTab) => ({
+      id: tab.id,
+      label: tab.label,
+      badge: badges[tab.id as keyof typeof badges] || undefined,
+    }));
   });
 
   protected readonly emptyState = computed(() => {
@@ -1572,11 +1572,13 @@ export class ProfileShellWebComponent implements OnInit {
   /** Section nav items — contextual to active top tab */
   protected readonly sideTabItems = computed((): SectionNavItem[] => {
     const tab = this.profile.activeTab();
+    const user = this.profile.user();
+    const labels = getOverviewSectionLabels(user);
     const sections: Record<string, SectionNavItem[]> = {
       overview: [
-        { id: 'player-profile', label: 'Player Profile' },
-        { id: 'player-bio', label: 'Player Bio' },
-        { id: 'player-history', label: 'Player History' },
+        { id: 'player-profile', label: labels.profile },
+        { id: 'player-bio', label: labels.bio },
+        { id: 'player-history', label: labels.history },
         { id: 'awards', label: 'Awards', badge: this.profile.awards().length || undefined },
         { id: 'academic', label: 'Academic' },
         { id: 'contact', label: 'Contact' },

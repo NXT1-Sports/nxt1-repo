@@ -28,7 +28,7 @@
 
 // Import from source of truth
 import type { Gender } from '../constants/user.constants';
-import { GENDER_CONFIGS } from '../constants/user.constants';
+import { GENDER_CONFIGS, USER_ROLES } from '../constants/user.constants';
 import type { Location } from '../models/user.model';
 
 // ============================================
@@ -46,10 +46,12 @@ export type OnboardingStepId =
   | 'role'
   | 'profile'
   | 'link-sources'
+  | 'team-link-sources'
   | 'school'
   | 'organization'
   | 'sport'
   | 'select-teams'
+  | 'create-team-profile'
   | 'positions'
   | 'contact'
   | 'social'
@@ -306,6 +308,20 @@ export interface TeamSelectionEntry {
 export interface TeamSelectionFormData {
   /** Selected teams (max 2) */
   readonly teams: readonly TeamSelectionEntry[];
+}
+
+// ============================================
+// TEAM CREATION DATA MODEL (for Coaches/Directors)
+// ============================================
+
+export interface CreateTeamProfileFormData {
+  programName: string;
+  teamType: OnboardingTeamType;
+  mascot?: string;
+  state?: string;
+  city?: string;
+  level?: string;
+  gender?: 'boys' | 'girls' | 'co-ed';
 }
 
 // ============================================
@@ -1046,6 +1062,10 @@ export interface OnboardingFormData {
    */
   teamSelection?: TeamSelectionFormData;
   /**
+   * Team creation data for coaches/directors
+   */
+  createTeamProfile?: CreateTeamProfileFormData;
+  /**
    * @deprecated Use sport.sports[].team instead (v3.0)
    */
   team?: TeamFormData;
@@ -1138,6 +1158,24 @@ const SELECT_TEAMS_STEP: OnboardingStep = {
   order: 4,
 };
 
+/** Shared create team profile step config (DRY) */
+const CREATE_TEAM_PROFILE_STEP: OnboardingStep = {
+  id: 'create-team-profile',
+  title: 'Create Team Profile',
+  subtitle: 'Build your program on NXT1',
+  required: false,
+  order: 4,
+};
+
+/** Shared team link sources step config (DRY) */
+const TEAM_LINK_SOURCES_STEP: OnboardingStep = {
+  id: 'team-link-sources',
+  title: 'Team Links',
+  subtitle: "Connect your team's profiles and film",
+  required: false,
+  order: 5,
+};
+
 /** Step configuration per user type */
 export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
   athlete: [
@@ -1176,8 +1214,8 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
-    SELECT_TEAMS_STEP,
-    LINK_SOURCES_STEP,
+    CREATE_TEAM_PROFILE_STEP,
+    TEAM_LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
   parent: [
@@ -1236,8 +1274,8 @@ export const ONBOARDING_STEPS: Record<OnboardingUserType, OnboardingStep[]> = {
       required: true,
       order: 3,
     },
-    SELECT_TEAMS_STEP,
-    LINK_SOURCES_STEP,
+    CREATE_TEAM_PROFILE_STEP,
+    TEAM_LINK_SOURCES_STEP,
     REFERRAL_STEP,
   ],
 };
@@ -1453,6 +1491,12 @@ export function validateTeamSelection(_data?: TeamSelectionFormData): boolean {
   return true;
 }
 
+export function validateCreateTeamProfile(data?: CreateTeamProfileFormData): boolean {
+  if (!data) return false;
+  // If programName exists and is not empty, it's valid
+  return !!data.programName && data.programName.trim().length > 0;
+}
+
 /**
  * Validate a specific step
  * ⭐ PURE FUNCTION - No dependencies
@@ -1481,6 +1525,11 @@ export function validateStep(
       return validateContact(formData.contact);
     case 'select-teams':
       return validateTeamSelection(formData.teamSelection);
+    case 'create-team-profile':
+      // If it is strictly required, validate it. But it returns true in UI if they skip?
+      // Since `required: false` in step config, the state machine allows skipping even if validateStep returns false.
+      return validateCreateTeamProfile(formData.createTeamProfile);
+    case 'team-link-sources':
     case 'link-sources':
     case 'referral-source':
     case 'social':
@@ -1694,7 +1743,7 @@ export function buildInitialFormDataFromTeamCode(
 ): Partial<OnboardingFormData> {
   const formData: Partial<OnboardingFormData> = { userType };
 
-  if (userType === 'athlete') {
+  if (userType === USER_ROLES.ATHLETE) {
     // Build sport entry with team info from team code
     if (teamCode.sport) {
       const sportEntry: SportEntry = {

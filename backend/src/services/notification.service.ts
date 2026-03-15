@@ -238,6 +238,7 @@ function mapNotificationTypeToActivityType(type: NotificationType): string {
     camp_reminder: 'reminder',
     visit_reminder: 'reminder',
     ai_task_complete: 'agent_task',
+    agent_welcome: 'agent_task',
     video_processed: 'agent_task',
     video_failed: 'agent_task',
     card_ready: 'agent_task',

@@ -45,6 +45,13 @@ export interface ProfileTab {
   readonly badge?: number;
   /** Whether tab is currently disabled */
   readonly disabled?: boolean;
+  /**
+   * Role categories this tab is visible for.
+   * - 'athlete' — athletes and parents
+   * - 'team' — coaches and directors
+   * When omitted, tab is visible for ALL roles.
+   */
+  readonly visibleFor?: readonly ('athlete' | 'team')[];
 }
 
 // ============================================
@@ -260,6 +267,8 @@ export interface ProfileUser {
   readonly isRecruit: boolean;
   /** Whether this is a college coach */
   readonly isCollegeCoach?: boolean;
+  /** Whether this is a team manager (coach or director) — uses isTeamRole() from @nxt1/core */
+  readonly isTeamManager?: boolean;
   /** Verification status */
   readonly verificationStatus: VerificationStatus;
   /** About/bio text */

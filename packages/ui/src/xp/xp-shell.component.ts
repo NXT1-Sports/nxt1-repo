@@ -52,6 +52,7 @@ import {
 } from 'ionicons/icons';
 
 import type { Mission, MissionUserRole, MissionCategory, MissionQuickAction } from '@nxt1/core';
+import { isAthleteRole } from '@nxt1/core';
 import { XpService } from './xp.service';
 import { XpProgressComponent } from './xp-progress.component';
 import { XpCategoryComponent } from './xp-category.component';
@@ -613,7 +614,7 @@ export class XpShellComponent {
 
   protected readonly headerSubtitle = computed(() => {
     const role = this.userRole();
-    return role === 'athlete'
+    return isAthleteRole(role)
       ? 'Complete missions to level up your recruiting profile'
       : 'Complete missions to better support your athletes';
   });

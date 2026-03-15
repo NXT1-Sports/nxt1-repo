@@ -9,8 +9,8 @@
  * - EnhanceGraphicTool        — AI-enhance an existing image
  * - CutHighlightReelTool      — Extract and compile video highlights
  * - GenerateScoutGraphicTool  — Create visual scout report cards
- * - GenerateImageTool         — General image generation via OpenRouter
+ * - GenerateImageTool         — General image generation via OpenRouter ✅
  * - AnalyzeImageTool          — Describe/analyze an uploaded image
  */
 
-// Tools will be implemented and exported here
+export { GenerateImageTool } from './generate-image.tool.js';

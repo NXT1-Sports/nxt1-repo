@@ -30,6 +30,7 @@
  */
 
 import type { SportEntry } from './onboarding-navigation.api';
+import { USER_ROLES } from '../constants/user.constants';
 
 // ============================================
 // ADAPTER INTERFACE
@@ -524,7 +525,7 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   const sportEntries = formData.sport?.sports || [];
   if (sportEntries.length > 0) {
     const sports = sportEntries.map((entry, index) => {
-      const isAthlete = userType === 'athlete';
+      const isAthlete = userType === USER_ROLES.ATHLETE;
       const sportData: Record<string, unknown> = {
         sport: entry.sport,
         order: index,
@@ -562,25 +563,25 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   // =========== ROLE-SPECIFIC DATA ===========
   // Class year is now in profile (with backward compat for school.classYear)
   const classYear = formData.profile?.classYear ?? formData.school?.classYear;
-  if (userType === 'athlete' && classYear) {
+  if (userType === USER_ROLES.ATHLETE && classYear) {
     payload['athlete'] = {
       classOf: classYear,
     };
   }
 
-  if (userType === 'coach' && formData.organization) {
+  if (userType === USER_ROLES.COACH && formData.organization) {
     payload['coach'] = {
       title: formData.organization.title || '',
     };
   }
 
-  if (userType === 'director' && formData.organization) {
+  if (userType === USER_ROLES.DIRECTOR && formData.organization) {
     payload['director'] = {
       title: formData.organization.title || '',
     };
   }
 
-  if (userType === 'recruiter') {
+  if (userType === USER_ROLES.RECRUITER) {
     payload['recruiter'] = {
       recruiterType: 'college_coach', // Default; Agent X can refine later
       ...(formData.organization?.title ? { title: formData.organization.title } : {}),

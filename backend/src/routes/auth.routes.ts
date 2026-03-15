@@ -37,6 +37,8 @@ import {
 import { logger } from '../utils/logger.js';
 import { generateUnicodeForUser, getUserUnicode } from '../utils/unicode-generator.js';
 import { dispatch } from '../services/notification.service.js';
+import { enqueueWelcomeGraphic } from '../services/agent-welcome.service.js';
+import * as teamCodeService from '../services/team-code.service.js';
 
 // Import profile routes
 import profileRoutes, { invalidateProfileCaches } from './profile.routes.js';
@@ -524,6 +526,8 @@ router.post(
     });
 
     // Fire-and-forget: send welcome notification to the new user
+    // Note: The personalized AI welcome graphic is enqueued after onboarding
+    // completes (POST /profile/onboarding) when we have role, sport, and name.
     void dispatch(db, {
       userId: uid,
       type: NOTIFICATION_TYPES.ACCOUNT_CREATED,
@@ -851,8 +855,43 @@ router.post(
     if (profileData['organization'])
       updateData.organization = profileData['organization'] as string;
 
-    // V2: Build connectedSources[] from link sources
-    // All platforms (social + data) → connectedSources[]
+    // ============================================
+    // TEAM CREATION (for Coaches/Directors)
+    // ============================================
+    let createdTeamId: string | undefined = undefined;
+    const createTeamProfile = profileData['createTeamProfile'] as any;
+    if (
+      createTeamProfile &&
+      (profileData['userType'] === 'coach' || profileData['userType'] === 'director')
+    ) {
+      const teamCodeHex = Math.random().toString(36).substring(2, 8).toUpperCase();
+      try {
+        const team = await teamCodeService.createTeamCode(db, {
+          teamCode: teamCodeHex,
+          teamName: createTeamProfile.programName || `Team ${teamCodeHex}`,
+          teamType: createTeamProfile.teamType || 'club',
+          sportName: sports.length > 0 ? sports[0].sport : 'basketball', // arbitrary fallback
+          state: createTeamProfile.state || updateData.location?.state || '',
+          city: createTeamProfile.city || updateData.location?.city || '',
+          athleteMember: 0,
+          panelMember: 0,
+          packageId: 'free',
+          createdBy: userId,
+        });
+        createdTeamId = team.id;
+        logger.info('[POST /profile/onboarding] Created Team Profile:', { createdTeamId });
+      } catch (err) {
+        logger.error(
+          '[POST /profile/onboarding] Failed to create Team Profile:',
+          err as Record<string, unknown>
+        );
+      }
+    }
+
+    // V2: Build social[] and connectedSources[] from link sources
+    // Social platforms (instagram, twitter, etc.) → social[]
+    // Data platforms (hudl, maxpreps, 247sports, etc.) → connectedSources[]
+    const teamConnectedSources: any[] = [];
     const linkSources = profileData['linkSources'] as
       | {
           links?: Array<{
@@ -893,20 +932,53 @@ router.post(
               ? `https://${platform}.com/${value}`
               : '';
 
-          const existing = connectedMap.get(key);
-          connectedMap.set(key, {
-            platform,
-            profileUrl: url,
-            syncStatus: 'idle',
-            displayOrder: existing?.displayOrder ?? displayOrder++,
-            ...(scope !== 'global' && { scopeType: scope }),
-            ...(scopeId && { scopeId }),
-          });
+          if (isSocialPlatform(platform)) {
+            // Social platform → social[]
+            const existing = socialMap.get(key);
+            socialMap.set(key, {
+              platform,
+              url,
+              username: link.username,
+              displayOrder: existing?.displayOrder ?? socialOrder++,
+              verified: false,
+              ...(scope !== 'global' && { scopeType: scope }),
+              ...(scopeId && { scopeId }),
+            } as UserSocialLink);
+          } else {
+            // Data platform (film/stats/recruiting) → connectedSources[]
+            const sourceInfo = {
+              platform,
+              profileUrl: url,
+              syncStatus: 'idle',
+              ...(scope !== 'global' && { scopeType: scope }),
+              ...(scopeId && { scopeId }),
+            } as any;
+
+            // If they just created a team, store the links on the team instead of the user
+            if (createdTeamId) {
+              teamConnectedSources.push(sourceInfo);
+            } else {
+              connectedMap.set(key, sourceInfo);
+            }
+          }
         }
       }
       if (connectedMap.size > 0) {
         (updateData as Record<string, unknown>)['connectedSources'] = Array.from(
           connectedMap.values()
+        );
+      }
+    }
+
+    if (createdTeamId && teamConnectedSources.length > 0) {
+      try {
+        await db.collection('Teams').doc(createdTeamId).update({
+          connectedSources: teamConnectedSources,
+        });
+      } catch (err) {
+        logger.error(
+          '[POST /profile/onboarding] Failed to update Team linked sources:',
+          err as Record<string, unknown>
         );
       }
     }
@@ -948,6 +1020,27 @@ router.post(
     }
 
     logger.info('[POST /profile/onboarding] Success:', { userId, onboardingCompleted: true });
+
+    // Fire-and-forget: enqueue personalized AI welcome graphic via Agent X
+    const primarySportName = getPrimarySport(userData?.sports) ?? userData?.primarySport;
+    const primarySportProfile = userData?.sports?.[0];
+    const welcomeEnv = req.isStaging ? 'staging' : 'production';
+    void enqueueWelcomeGraphic(
+      db,
+      {
+        userId,
+        displayName: `${userData?.firstName ?? ''} ${userData?.lastName ?? ''}`.trim() || 'Athlete',
+        role: (userData?.role as UserRole) ?? 'athlete',
+        sport: primarySportName,
+        position: primarySportProfile?.positions?.[0],
+        profileImageUrl: userData?.profileImgs?.[0],
+        teamName: primarySportProfile?.team?.name,
+        teamColors: primarySportProfile?.team?.colors as string[] | undefined,
+      },
+      welcomeEnv
+    ).catch((err) =>
+      logger.error('[Auth] Failed to enqueue welcome graphic', { userId, error: err })
+    );
 
     res.json({
       success: true,

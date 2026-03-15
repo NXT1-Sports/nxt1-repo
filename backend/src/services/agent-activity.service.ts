@@ -46,19 +46,29 @@ export async function logAgentTaskCompletion(
   input: AgentActivityInput
 ): Promise<DispatchResult> {
   const { userId, job, result } = input;
-  const title = buildTitle(result);
-  const body = result.summary || 'Your task has been completed.';
-  const deepLink = `/agent-x/chat/${job.sessionId}`;
+  const isWelcome = job.context?.['origin'] === 'registration';
+  const title = isWelcome ? 'Welcome to NXT1! 🎨' : buildTitle(result);
+  const body = isWelcome
+    ? 'Agent X created a personalized welcome graphic just for you.'
+    : result.summary || 'Your task has been completed.';
+  const deepLink = isWelcome ? '/agent-x' : `/agent-x/chat/${job.sessionId}`;
+  const notificationType = isWelcome
+    ? NOTIFICATION_TYPES.AGENT_WELCOME
+    : NOTIFICATION_TYPES.AI_TASK_COMPLETE;
+
+  // Extract image URL from result data (e.g. generated welcome graphic)
+  const imageUrl = (result.data?.['imageUrl'] as string) ?? '';
 
   const dispatchResult = await dispatch(db, {
     userId,
-    type: NOTIFICATION_TYPES.AI_TASK_COMPLETE,
+    type: notificationType,
     title,
     body,
     deepLink,
     data: {
       sessionId: job.sessionId,
       operationId: job.operationId,
+      ...(imageUrl ? { imageUrl } : {}),
     },
     source: { userName: 'Agent X' },
     metadata: {
@@ -67,6 +77,7 @@ export async function logAgentTaskCompletion(
       agentId: job.agent,
       resultSummary: result.summary,
       mode: job.context?.['mode'],
+      ...(imageUrl ? { imageUrl } : {}),
     },
   });
 

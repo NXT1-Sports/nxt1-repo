@@ -137,7 +137,6 @@ import type { DesktopSidebarSection } from '../desktop-sidebar/desktop-sidebar.t
                 [name]="user()!.name"
                 [initials]="user()!.initials"
                 size="md"
-                [badge]="user()!.verified ? 'verified' : undefined"
               />
               <div class="mobile-sidebar__user-info">
                 <span class="mobile-sidebar__user-name">{{ user()!.name }}</span>

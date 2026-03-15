@@ -13,3 +13,4 @@
  */
 
 export { UpdateAthleteProfileTool } from './update-athlete-profile.tool.js';
+export { UpdateTeamProfileTool } from './update-team-profile.tool.js';

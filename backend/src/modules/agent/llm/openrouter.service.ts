@@ -34,8 +34,10 @@ import type {
   LLMCompletionResult,
   LLMToolCall,
   LLMTelemetryCallback,
+  ImageGenerationOptions,
+  ImageGenerationResult,
 } from './llm.types.js';
-import { MODEL_CATALOGUE } from './llm.types.js';
+import { MODEL_CATALOGUE, IMAGE_MODEL, IMAGE_GENERATION_TIMEOUT_MS } from './llm.types.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -121,6 +123,79 @@ export class OpenRouterService {
     return this.complete(messages, options);
   }
 
+  /**
+   * Generate an image using an OpenRouter multimodal model.
+   *
+   * Uses the dedicated IMAGE_MODEL with extended timeout and `modalities: ["text", "image"]`.
+   * Supports optional reference image input for compositing / image-to-image workflows.
+   *
+   * @param options - Prompt, optional reference image, and telemetry context.
+   * @returns Image data (base64), metadata, and telemetry info.
+   */
+  async generateImage(options: ImageGenerationOptions): Promise<ImageGenerationResult> {
+    const model = options.modelOverride ?? IMAGE_MODEL;
+    const startMs = Date.now();
+
+    // Build user content — plain text or multimodal (text + reference image)
+    let userContent: string | Array<Record<string, unknown>>;
+    if (options.referenceImageUrl) {
+      userContent = [
+        { type: 'image_url', image_url: { url: options.referenceImageUrl } },
+        { type: 'text', text: options.prompt },
+      ];
+    } else {
+      userContent = options.prompt;
+    }
+
+    const body: Record<string, unknown> = {
+      model,
+      messages: [{ role: 'user', content: userContent }],
+      max_tokens: 4096,
+      temperature: 0.8,
+      modalities: ['text', 'image'],
+    };
+
+    const raw = await this.fetchWithRetry(body, options.signal, IMAGE_GENERATION_TIMEOUT_MS);
+    const latencyMs = Date.now() - startMs;
+
+    // Extract image from response (base64 inline_data or URL)
+    const choice = raw.choices?.[0];
+    if (!choice?.message) {
+      throw new Error('Image model returned no response.');
+    }
+
+    const { imageBase64, mimeType, textContent } = this.extractImageFromResponse(choice.message);
+
+    const inputTokens = raw.usage?.prompt_tokens ?? 0;
+    const outputTokens = raw.usage?.completion_tokens ?? 0;
+
+    const result: ImageGenerationResult = {
+      imageBase64,
+      mimeType,
+      textContent,
+      model: raw.model ?? model,
+      usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
+      latencyMs,
+      costUsd: this.estimateCost(model, inputTokens, outputTokens),
+    };
+
+    // Emit telemetry
+    this.telemetryCallback?.({
+      operationId: options.telemetryContext?.operationId ?? '',
+      userId: options.telemetryContext?.userId ?? '',
+      agentId: options.telemetryContext?.agentId ?? 'brand_media_coordinator',
+      model: result.model,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      costUsd: result.costUsd,
+      latencyMs: result.latencyMs,
+      hadToolCall: false,
+      timestamp: new Date().toISOString(),
+    });
+
+    return result;
+  }
+
   // ─── Request Builder ────────────────────────────────────────────────────
 
   private buildRequestBody(
@@ -165,13 +240,14 @@ export class OpenRouterService {
 
   private async fetchWithRetry(
     body: Record<string, unknown>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    timeoutMs: number = DEFAULT_TIMEOUT_MS
   ): Promise<OpenRouterRawResponse> {
     let lastError: Error | undefined;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        return await this.fetchOnce(body, signal);
+        return await this.fetchOnce(body, signal, timeoutMs);
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
 
@@ -192,10 +268,11 @@ export class OpenRouterService {
 
   private async fetchOnce(
     body: Record<string, unknown>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    timeoutMs: number = DEFAULT_TIMEOUT_MS
   ): Promise<OpenRouterRawResponse> {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     // Merge external abort signal with our timeout
     const onAbort = () => controller.abort();
@@ -245,6 +322,80 @@ export class OpenRouterService {
 
   // ─── Response Parser ────────────────────────────────────────────────────
 
+  /**
+   * Extract base64 image data from a multimodal model response.
+   * Handles multiple response shapes: inline_data, data URI in content, or URL.
+   */
+  private extractImageFromResponse(message: NonNullable<OpenRouterRawChoice['message']>): {
+    imageBase64: string;
+    mimeType: string;
+    textContent: string | null;
+  } {
+    const content = message.content;
+
+    // Shape 1: Multipart content array (e.g. Gemini-style with inline_data)
+    if (Array.isArray(content)) {
+      let imageBase64 = '';
+      let mimeType = 'image/png';
+      const textParts: string[] = [];
+
+      for (const part of content as Array<Record<string, unknown>>) {
+        if (part['type'] === 'image_url' && typeof part['image_url'] === 'object') {
+          const imgUrl = (part['image_url'] as Record<string, string>)['url'] ?? '';
+          const dataUriMatch = imgUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+          if (dataUriMatch) {
+            mimeType = dataUriMatch[1];
+            imageBase64 = dataUriMatch[2];
+          }
+        } else if (part['type'] === 'inline_data' && typeof part['inline_data'] === 'object') {
+          const inline = part['inline_data'] as Record<string, string>;
+          mimeType = inline['mime_type'] ?? 'image/png';
+          imageBase64 = inline['data'] ?? '';
+        } else if (part['type'] === 'text' && typeof part['text'] === 'string') {
+          textParts.push(part['text'] as string);
+        }
+      }
+
+      if (imageBase64) {
+        return { imageBase64, mimeType, textContent: textParts.join('\n') || null };
+      }
+    }
+
+    // Shape 2: Single string content with embedded data URI
+    if (typeof content === 'string') {
+      const dataUriMatch = content.match(/data:(image\/[^;]+);base64,([A-Za-z0-9+/=]+)/);
+      if (dataUriMatch) {
+        const remainingText = content.replace(dataUriMatch[0], '').trim();
+        return {
+          imageBase64: dataUriMatch[2],
+          mimeType: dataUriMatch[1],
+          textContent: remainingText || null,
+        };
+      }
+    }
+
+    // Shape 3: Images in message.images[] (OpenRouter 2025+ format for Gemini image models)
+    if (Array.isArray(message.images) && message.images.length > 0) {
+      for (const img of message.images) {
+        const url = img?.image_url?.url ?? '';
+        const dataUriMatch = url.match(/^data:(image\/[^;]+);base64,(.+)$/);
+        if (dataUriMatch) {
+          const textContent = typeof content === 'string' ? content : null;
+          return {
+            imageBase64: dataUriMatch[2],
+            mimeType: dataUriMatch[1],
+            textContent,
+          };
+        }
+      }
+    }
+
+    throw new Error(
+      'Image model response did not contain recognisable image data. ' +
+        'The model may not support image generation or the response format has changed.'
+    );
+  }
+
   private parseResponse(
     raw: OpenRouterRawResponse,
     requestedModel: string,
@@ -256,7 +407,19 @@ export class OpenRouterService {
     }
 
     const message = choice.message;
-    const content = message?.content ?? null;
+
+    // Extract text content — handle string or multimodal array
+    let content: string | null = null;
+    const rawContent = message?.content ?? null;
+    if (typeof rawContent === 'string') {
+      content = rawContent;
+    } else if (Array.isArray(rawContent)) {
+      // Multimodal: concatenate text parts only
+      const textParts = (rawContent as Array<Record<string, unknown>>)
+        .filter((p) => p['type'] === 'text' && typeof p['text'] === 'string')
+        .map((p) => p['text'] as string);
+      content = textParts.length > 0 ? textParts.join('\n') : null;
+    }
 
     // Extract tool calls (normalise to our internal shape)
     const toolCalls: LLMToolCall[] = (message?.tool_calls ?? []).map((tc) => ({
@@ -324,25 +487,34 @@ export class OpenRouterError extends Error {
 interface OpenRouterRawResponse {
   readonly id?: string;
   readonly model?: string;
-  readonly choices?: readonly {
-    readonly index: number;
-    readonly message?: {
-      readonly role: string;
-      readonly content: string | null;
-      readonly tool_calls?: readonly {
-        readonly id: string;
-        readonly type: string;
-        readonly function: {
-          readonly name: string;
-          readonly arguments: string;
-        };
-      }[];
-    };
-    readonly finish_reason?: string;
-  }[];
+  readonly choices?: readonly OpenRouterRawChoice[];
   readonly usage?: {
     readonly prompt_tokens?: number;
     readonly completion_tokens?: number;
     readonly total_tokens?: number;
   };
+}
+
+/** A single choice in the OpenRouter response (supports text and multimodal). */
+interface OpenRouterRawChoice {
+  readonly index: number;
+  readonly message?: {
+    readonly role: string;
+    /** String for text responses, array for multimodal (image + text). */
+    readonly content: string | readonly Record<string, unknown>[] | null;
+    /** Image outputs returned by multimodal models (e.g. Gemini image generation). */
+    readonly images?: readonly {
+      readonly type: string;
+      readonly image_url: { readonly url: string };
+    }[];
+    readonly tool_calls?: readonly {
+      readonly id: string;
+      readonly type: string;
+      readonly function: {
+        readonly name: string;
+        readonly arguments: string;
+      };
+    }[];
+  };
+  readonly finish_reason?: string;
 }

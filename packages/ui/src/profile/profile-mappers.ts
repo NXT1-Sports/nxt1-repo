@@ -37,6 +37,7 @@ import type {
   RecruitingActivity,
   ProfileSeasonGameLog,
 } from '@nxt1/core';
+import { isTeamRole, isAthleteRole, USER_ROLES } from '@nxt1/core';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 /** Map a UserAward (User model) → ProfileAward (UI model). */
@@ -292,7 +293,9 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
   const act = academics?.actScore !== undefined ? String(academics.actScore) : undefined;
 
   // ── Role-derived fields ────────────────────────────────────────────────────
-  const isRecruiterRole = user.role === 'recruiter';
+  const isRecruiterRole = user.role === USER_ROLES.RECRUITER;
+  const userIsTeamRole = isTeamRole(user.role);
+  const userIsAthleteRole = isAthleteRole(user.role);
 
   // College team name: for recruiters (college coaches) use their institution; for athletes
   // with a college affiliation use the college sport team name.
@@ -329,8 +332,9 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
 
     // Role
     role: (user.role ?? 'athlete') as unknown as ProfileUserRole,
-    isRecruit: user.role === 'athlete' || !user.role,
+    isRecruit: userIsAthleteRole || !user.role,
     isCollegeCoach: isRecruiterRole,
+    isTeamManager: userIsTeamRole,
 
     // Status
     verificationStatus: user.verificationStatus ?? 'unverified',

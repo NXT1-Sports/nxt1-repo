@@ -10,6 +10,7 @@
  */
 
 import { Injectable, inject, signal, computed } from '@angular/core';
+import { isTeamRole } from '@nxt1/core';
 import {
   type AgentGoal,
   type AgentConnection,
@@ -117,11 +118,8 @@ export class AgentOnboardingService {
   /** User's role */
   readonly userRole = computed(() => this._userRole());
 
-  /** Whether the user is a coach */
-  readonly isCoach = computed(() => {
-    const role = this._userRole();
-    return role === 'coach' || role === 'director';
-  });
+  /** Whether the user is a coach/director (team management role) */
+  readonly isCoach = computed(() => isTeamRole(this._userRole()));
 
   /** Predefined goals based on user role */
   readonly predefinedGoals = computed(() =>

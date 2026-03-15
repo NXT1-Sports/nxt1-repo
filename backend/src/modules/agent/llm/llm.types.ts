@@ -22,6 +22,16 @@ export const MODEL_CATALOGUE: Record<ModelTier, string> = {
   creative: 'anthropic/claude-3.5-sonnet',
 } as const;
 
+/**
+ * Dedicated image generation model — separate from text tiers because
+ * image models require different request shapes (modalities, extended timeout).
+ * Must match the model used in the legacy nxt1 project (functions/).
+ */
+export const IMAGE_MODEL = 'google/gemini-3-pro-image-preview' as const;
+
+/** Timeout for image generation requests (models are slow). */
+export const IMAGE_GENERATION_TIMEOUT_MS = 180_000;
+
 // ─── Request / Response Shapes ──────────────────────────────────────────────
 
 /** A single message in the OpenRouter chat format. */
@@ -116,3 +126,45 @@ export interface LLMTelemetryRecord {
 
 /** Callback for telemetry logging. */
 export type LLMTelemetryCallback = (record: LLMTelemetryRecord) => void;
+
+// ─── Image Generation Types ─────────────────────────────────────────────────
+
+/** Options for image generation via OpenRouter multimodal models. */
+export interface ImageGenerationOptions {
+  /** The text prompt describing the image to generate. */
+  readonly prompt: string;
+  /** Optional reference image URL to composite / use as input (image-to-image). */
+  readonly referenceImageUrl?: string;
+  /** Override the default image model. */
+  readonly modelOverride?: string;
+  /** Abort signal for cancellation. */
+  readonly signal?: AbortSignal;
+  /** Telemetry context — passed through to the onTelemetry callback. */
+  readonly telemetryContext?: {
+    readonly operationId: string;
+    readonly userId: string;
+    readonly agentId: AgentIdentifier;
+  };
+}
+
+/** The result of an image generation request. */
+export interface ImageGenerationResult {
+  /** Base64-encoded image data (without data URI prefix). */
+  readonly imageBase64: string;
+  /** MIME type of the generated image. */
+  readonly mimeType: string;
+  /** Any accompanying text content from the model. */
+  readonly textContent: string | null;
+  /** The model that served the request. */
+  readonly model: string;
+  /** Token usage for telemetry. */
+  readonly usage: {
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly totalTokens: number;
+  };
+  /** Latency of the API call in ms. */
+  readonly latencyMs: number;
+  /** Estimated cost in USD. */
+  readonly costUsd: number;
+}

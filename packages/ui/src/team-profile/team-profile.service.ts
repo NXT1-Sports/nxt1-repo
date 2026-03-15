@@ -24,6 +24,7 @@ import {
   type TeamProfileStatsCategory,
   type NewsArticle,
   TEAM_PROFILE_DEFAULT_TAB,
+  USER_ROLES,
 } from '@nxt1/core';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { TeamProfileApiClient, type TeamProfileApiError } from './team-profile-api.client';
@@ -83,12 +84,12 @@ export class TeamProfileService {
 
   /** Athletes-only roster */
   readonly athletes = computed<readonly TeamProfileRosterMember[]>(() =>
-    this.roster().filter((m) => m.role === 'athlete')
+    this.roster().filter((m) => m.role === USER_ROLES.ATHLETE)
   );
 
   /** Coaches on the roster */
   readonly coaches = computed<readonly TeamProfileRosterMember[]>(() =>
-    this.roster().filter((m) => m.role === 'coach')
+    this.roster().filter((m) => m.role === USER_ROLES.COACH)
   );
 
   /** Roster count */

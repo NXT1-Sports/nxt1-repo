@@ -345,7 +345,7 @@ export class OnboardingRoleSelectionComponent {
         ...ONBOARDING_ROLE_OPTIONS.map((r) => ({ text: r.label, data: r.type })),
         { text: 'Cancel', cancel: true },
       ],
-      preferNative: 'ionic',
+      preferNative: 'native',
     });
 
     if (result.selected && result.data) {

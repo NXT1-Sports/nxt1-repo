@@ -74,6 +74,7 @@ import type {
   ReferralSourceData,
   LinkSourcesFormData,
   TeamSelectionFormData,
+  CreateTeamProfileFormData,
 } from './onboarding-navigation.api';
 import { validateStep, ONBOARDING_STEPS, ROLE_SELECTION_STEP } from './onboarding-navigation.api';
 
@@ -270,6 +271,9 @@ export interface OnboardingStateMachine {
 
   /** Update team selection data (select-teams step) */
   updateTeamSelection(data: TeamSelectionFormData): void;
+
+  /** Update create team profile data */
+  updateCreateTeamProfile(data: CreateTeamProfileFormData): void;
 
   /** Update referral source data */
   updateReferral(data: ReferralSourceData): void;
@@ -621,6 +625,11 @@ export function createOnboardingStateMachine(
 
     updateTeamSelection(data: TeamSelectionFormData): void {
       formData = { ...formData, teamSelection: data };
+      notifyStateChange();
+    },
+
+    updateCreateTeamProfile(data: CreateTeamProfileFormData): void {
+      formData = { ...formData, createTeamProfile: data };
       notifyStateChange();
     },
 

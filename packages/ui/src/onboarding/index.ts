@@ -178,3 +178,7 @@ export { OnboardingWelcomeComponent } from './onboarding-welcome';
 // AGENT X TYPEWRITER (AI-Guided Step Messages)
 // ============================================
 export { OnboardingAgentXTypewriterComponent } from './onboarding-agent-x-typewriter';
+// ============================================
+// CREATE TEAM STEP (Coach/Director)
+// ============================================
+export { Nxt1OnboardingCreateTeamStepComponent } from './onboarding-create-team-step';

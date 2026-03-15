@@ -85,6 +85,9 @@ export {
   PROFILE_TABS,
   PROFILE_DEFAULT_TAB,
   PROFILE_VERIFICATION_HIDDEN_TABS,
+  // Role-aware tab helpers
+  getProfileTabsForUser,
+  getOverviewSectionLabels,
   // Timeline filters
   PROFILE_TIMELINE_FILTERS,
   PROFILE_TIMELINE_DEFAULT_FILTER,

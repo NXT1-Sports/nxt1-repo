@@ -98,6 +98,7 @@ export {
   type TeamCodePrefillData,
   type ProfileFormData,
   type OnboardingTeamType,
+  type CreateTeamProfileFormData,
 
   // Gender & Location types (v3.1)
   type GenderOption,
@@ -149,6 +150,7 @@ export {
   validateStep,
   validateProfile,
   validateTeam,
+  validateCreateTeamProfile,
   validateSchool, // @deprecated - use validateTeam
   validateOrganization,
   validateSport,

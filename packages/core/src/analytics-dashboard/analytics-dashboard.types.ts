@@ -70,6 +70,7 @@ export interface AnalyticsTab {
 
 // Import TrendDirection from constants to avoid duplicate export
 import type { TrendDirection } from '../constants/user-analytics.constants';
+import { USER_ROLES } from '../constants/user.constants';
 
 /**
  * Re-export TrendDirection for convenience (originally from user-analytics.constants).
@@ -730,12 +731,12 @@ export interface AnalyticsDisplayState {
  * Check if report is for an athlete.
  */
 export function isAthleteReport(report: AnalyticsReport): report is AthleteAnalyticsReport {
-  return report.role === 'athlete';
+  return report.role === USER_ROLES.ATHLETE;
 }
 
 /**
  * Check if report is for a coach.
  */
 export function isCoachReport(report: AnalyticsReport): report is CoachAnalyticsReport {
-  return report.role === 'coach';
+  return report.role === USER_ROLES.COACH;
 }

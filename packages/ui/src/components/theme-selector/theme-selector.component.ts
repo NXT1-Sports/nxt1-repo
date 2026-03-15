@@ -228,8 +228,8 @@ export interface ThemeSelectEvent {
 
       /* Compact variant */
       :host .theme-selector--compact {
-        --section-gap: 16px;
-        --option-gap: 6px;
+        --section-gap: 6px;
+        --option-gap: 4px;
       }
 
       /* ============================================

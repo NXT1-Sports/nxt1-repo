@@ -25,6 +25,7 @@ import {
 } from '@nxt1/ui';
 import type { ActivityTabId, ActivityItem } from '@nxt1/core';
 import { AuthFlowService } from '../auth/services/auth-flow.service';
+import { AgentXService } from '../agent-x/services';
 
 @Component({
   selector: 'app-activity',
@@ -77,6 +78,7 @@ export class ActivityComponent {
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly navController = inject(NavController);
+  private readonly agentX = inject(AgentXService);
   private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
 
   /**
@@ -109,17 +111,35 @@ export class ActivityComponent {
   /**
    * Handle item navigation — route based on item type and deepLink.
    * Uses NavController for native page transitions.
+   *
+   * For agent_task items with imageUrl metadata (e.g. welcome graphic),
+   * injects the image into the Agent X chat before navigating.
    */
   protected onItemNavigate(item: ActivityItem): void {
-    if (item.deepLink) {
-      this.logger.debug('Navigating to item', {
-        id: item.id,
-        type: item.type,
-        deepLink: item.deepLink,
-      });
-      this.navController.navigateForward(item.deepLink);
-    } else {
+    if (!item.deepLink) {
       this.logger.debug('Item clicked without deepLink', { id: item.id, type: item.type });
+      return;
     }
+
+    this.logger.debug('Navigating to item', {
+      id: item.id,
+      type: item.type,
+      deepLink: item.deepLink,
+    });
+
+    // Agent task with image (welcome graphic, generated content) —
+    // inject the message into Agent X chat so it's visible on arrival.
+    const imageUrl = item.metadata?.['imageUrl'] as string | undefined;
+    if (item.type === 'agent_task' && imageUrl && item.deepLink.includes('agent')) {
+      this.agentX.pushMessage({
+        role: 'assistant',
+        content: item.body ?? "Here's your personalized welcome graphic!",
+        imageUrl,
+      });
+    }
+
+    // Normalize deep link: web uses /agent-x, mobile uses /agent
+    const normalizedLink = item.deepLink.replace(/^\/agent-x(\/|$)/, '/agent$1');
+    void this.navController.navigateForward(normalizedLink);
   }
 }

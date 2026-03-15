@@ -20,6 +20,7 @@ import type {
   OfferType,
   EventType,
   ProfileHeaderAction,
+  ProfileUser,
 } from './profile.types';
 
 // ============================================
@@ -55,21 +56,25 @@ export const PROFILE_TABS: readonly ProfileTab[] = [
     id: 'offers',
     label: 'Recruit',
     icon: 'trophy',
+    visibleFor: ['athlete'],
   },
   {
     id: 'metrics',
     label: 'Metrics',
     icon: 'barbell',
+    visibleFor: ['athlete'],
   },
   {
     id: 'stats',
     label: 'Stats',
     icon: 'stats-chart',
+    visibleFor: ['athlete'],
   },
   {
     id: 'academic',
     label: 'Academic',
     icon: 'school',
+    visibleFor: ['athlete'],
   },
   {
     id: 'schedule',
@@ -93,6 +98,46 @@ export const PROFILE_TABS: readonly ProfileTab[] = [
  * 'timeline' provides the best overview experience on first load.
  */
 export const PROFILE_DEFAULT_TAB: ProfileTabId = 'overview';
+
+// ============================================
+// ROLE-AWARE TAB HELPERS (Source of Truth)
+// ============================================
+
+/**
+ * Returns profile tabs filtered for the given user.
+ *
+ * - Strips `contact` and `academic` from the tab bar (shown inline on overview).
+ * - Respects `visibleFor` metadata: athlete-only tabs (offers, metrics, stats)
+ *   are hidden for team managers; team-only tabs are hidden for athletes.
+ *
+ * @pure — no side effects, safe for computed().
+ */
+export function getProfileTabsForUser(user: ProfileUser | null): readonly ProfileTab[] {
+  const roleCategory: 'athlete' | 'team' = user?.isTeamManager ? 'team' : 'athlete';
+
+  return PROFILE_TABS.filter((tab) => {
+    // Contact and academic are always shown inline on the overview tab
+    if (tab.id === 'contact' || tab.id === 'academic') return false;
+    // If no visibleFor constraint, tab is visible for all roles
+    if (!tab.visibleFor) return true;
+    return tab.visibleFor.includes(roleCategory);
+  });
+}
+
+/**
+ * Returns overview section nav labels appropriate for the user's role.
+ * Coaches/directors see "Team Profile / About / History" instead of athlete-specific labels.
+ */
+export function getOverviewSectionLabels(user: ProfileUser | null): {
+  readonly profile: string;
+  readonly bio: string;
+  readonly history: string;
+} {
+  if (user?.isTeamManager) {
+    return { profile: 'Team Profile', bio: 'About', history: 'History' };
+  }
+  return { profile: 'Player Profile', bio: 'Player Bio', history: 'Player History' };
+}
 
 /**
  * Tabs where the shared verification banner is hidden by default.
