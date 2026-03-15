@@ -23,7 +23,6 @@ import type {
   SportProfile,
   Location,
   ContactInfo,
-  UserSocialLink,
   ConnectedEmail,
 } from '@nxt1/core';
 import { isValidEmail, isValidTeamCode, USER_SCHEMA_VERSION, NOTIFICATION_TYPES } from '@nxt1/core';
@@ -79,9 +78,8 @@ interface UserV2Document {
   // V2: Nested objects
   location?: Location;
   contact?: ContactInfo;
-  social?: UserSocialLink[];
 
-  // Connected sources (film, stats, recruiting platforms synced by Agent X)
+  // Connected sources (all platforms - social, film, stats, recruiting)
   connectedSources?: ConnectedSourceRecord[];
 
   // Athlete-specific
@@ -139,40 +137,13 @@ interface UserV2Document {
 // HELPER FUNCTIONS
 // ============================================
 
-/**
- * Platforms that belong in the `social[]` array (true social media).
- * Everything else (film, stats, recruiting) goes to `connectedSources[]`.
- * Must stay in sync with PLATFORM_REGISTRY categories in @nxt1/core/onboarding.
- */
-const SOCIAL_PLATFORMS = new Set([
-  'instagram',
-  'twitter',
-  'tiktok',
-  'youtube',
-  'snapchat',
-  'facebook',
-  'linkedin',
-  'threads',
-  // OAuth sign-in providers are also "social" scope
-  'google',
-  'microsoft',
-  'yahoo',
-  'apple',
-]);
-
-/**
- * Determine whether a platform slug belongs in `social[]` or `connectedSources[]`.
- */
-function isSocialPlatform(platform: string): boolean {
-  return SOCIAL_PLATFORMS.has(platform.toLowerCase());
-}
-
 interface ConnectedSourceRecord {
   platform: string;
   profileUrl: string;
   syncStatus: 'idle';
   scopeType?: string;
   scopeId?: string;
+  displayOrder?: number;
 }
 
 /**
@@ -880,9 +851,8 @@ router.post(
     if (profileData['organization'])
       updateData.organization = profileData['organization'] as string;
 
-    // V2: Build social[] and connectedSources[] from link sources
-    // Social platforms (instagram, twitter, etc.) → social[]
-    // Data platforms (hudl, maxpreps, 247sports, etc.) → connectedSources[]
+    // V2: Build connectedSources[] from link sources
+    // All platforms (social + data) → connectedSources[]
     const linkSources = profileData['linkSources'] as
       | {
           links?: Array<{
@@ -897,19 +867,7 @@ router.post(
         }
       | undefined;
     if (linkSources?.links && Array.isArray(linkSources.links)) {
-      // --- Social links ---
-      const existingSocial: UserSocialLink[] = Array.isArray(currentUser?.social)
-        ? (currentUser.social as UserSocialLink[])
-        : [];
-      const socialMap = new Map<string, UserSocialLink>();
-      for (const link of existingSocial) {
-        const key = (link as UserSocialLink & { scopeId?: string }).scopeId
-          ? `${link.platform.toLowerCase()}::${(link as UserSocialLink & { scopeId?: string }).scopeId}`
-          : link.platform.toLowerCase();
-        socialMap.set(key, link);
-      }
-
-      // --- Connected sources (film, stats, recruiting) ---
+      // --- Connected sources (ALL platforms) ---
       const existingConnected: ConnectedSourceRecord[] = Array.isArray(
         currentUser?.connectedSources
       )
@@ -921,7 +879,7 @@ router.post(
         connectedMap.set(key, cs);
       }
 
-      let socialOrder = socialMap.size;
+      let displayOrder = 0;
       for (const link of linkSources.links) {
         if (link.connected && link.platform) {
           const platform = link.platform.toLowerCase();
@@ -935,32 +893,16 @@ router.post(
               ? `https://${platform}.com/${value}`
               : '';
 
-          if (isSocialPlatform(platform)) {
-            // Social platform → social[]
-            const existing = socialMap.get(key);
-            socialMap.set(key, {
-              platform,
-              url,
-              username: link.username,
-              displayOrder: existing?.displayOrder ?? socialOrder++,
-              verified: false,
-              ...(scope !== 'global' && { scopeType: scope }),
-              ...(scopeId && { scopeId }),
-            } as UserSocialLink);
-          } else {
-            // Data platform (film/stats/recruiting) → connectedSources[]
-            connectedMap.set(key, {
-              platform,
-              profileUrl: url,
-              syncStatus: 'idle',
-              ...(scope !== 'global' && { scopeType: scope }),
-              ...(scopeId && { scopeId }),
-            });
-          }
+          const existing = connectedMap.get(key);
+          connectedMap.set(key, {
+            platform,
+            profileUrl: url,
+            syncStatus: 'idle',
+            displayOrder: existing?.displayOrder ?? displayOrder++,
+            ...(scope !== 'global' && { scopeType: scope }),
+            ...(scopeId && { scopeId }),
+          });
         }
-      }
-      if (socialMap.size > 0) {
-        updateData.social = Array.from(socialMap.values());
       }
       if (connectedMap.size > 0) {
         (updateData as Record<string, unknown>)['connectedSources'] = Array.from(
@@ -1265,10 +1207,7 @@ router.post(
         };
         updateData.contact = contact;
 
-        // V2: Build social[] and connectedSources[] from contact step platforms
-        const existingSocial: UserSocialLink[] = Array.isArray(currentUser?.social)
-          ? (currentUser.social as UserSocialLink[])
-          : [];
+        // V2: Build connectedSources[] from contact step platforms
         const existingConnected: ConnectedSourceRecord[] = Array.isArray(
           currentUser?.connectedSources
         )
@@ -1284,45 +1223,29 @@ router.post(
           { platform: 'youtube', value: (stepData['youtubeAccountLink'] as string)?.trim() },
         ];
 
-        // Merge social links: only social-category platforms
-        const socialMap = new Map<string, UserSocialLink>();
-        for (const link of existingSocial) {
-          socialMap.set(link.platform.toLowerCase(), link);
-        }
         const connectedMap = new Map<string, ConnectedSourceRecord>();
         for (const cs of existingConnected) {
           connectedMap.set(cs.platform, cs);
         }
 
-        let order = socialMap.size;
+        let displayOrder = 0;
         for (const { platform, value } of onboardingLinks) {
           if (value) {
             const url = value.startsWith('http') ? value : `https://${platform}.com/${value}`;
-            if (isSocialPlatform(platform)) {
-              const existing = socialMap.get(platform);
-              socialMap.set(platform, {
-                platform,
-                url,
-                username: value.startsWith('http') ? undefined : value,
-                displayOrder: existing?.displayOrder ?? order++,
-                verified: false,
-              });
-            } else {
-              connectedMap.set(platform, {
-                platform,
-                profileUrl: url,
-                syncStatus: 'idle',
-              });
-            }
+            const existing = connectedMap.get(platform);
+            connectedMap.set(platform, {
+              platform,
+              profileUrl: url,
+              syncStatus: 'idle',
+              displayOrder: existing?.displayOrder ?? displayOrder++,
+            });
           }
         }
-        updateData.social = Array.from(socialMap.values());
         if (connectedMap.size > 0) {
           (updateData as Record<string, unknown>)['connectedSources'] = Array.from(
             connectedMap.values()
           );
         }
-        // Note: No legacy flat fields - use contact{} and social{} objects
         break;
       }
 
@@ -1332,10 +1255,7 @@ router.post(
       }
 
       case 'link-sources': {
-        // V2: Build social[] and connectedSources[] from link-sources step
-        const existingSocial: UserSocialLink[] = Array.isArray(currentUser?.social)
-          ? (currentUser.social as UserSocialLink[])
-          : [];
+        // V2: Build connectedSources[] from link-sources step
         const existingConnected: ConnectedSourceRecord[] = Array.isArray(
           currentUser?.connectedSources
         )
@@ -1354,14 +1274,6 @@ router.post(
             }>)
           : [];
 
-        // Social links keyed by "platform" or "platform::scopeId"
-        const socialMap = new Map<string, UserSocialLink>();
-        for (const link of existingSocial) {
-          const k = (link as UserSocialLink & { scopeId?: string }).scopeId
-            ? `${link.platform.toLowerCase()}::${(link as UserSocialLink & { scopeId?: string }).scopeId}`
-            : link.platform.toLowerCase();
-          socialMap.set(k, link);
-        }
         // Connected sources keyed by "platform" or "platform::scopeId"
         const connectedMap = new Map<string, ConnectedSourceRecord>();
         for (const cs of existingConnected) {
@@ -1369,7 +1281,7 @@ router.post(
           connectedMap.set(k, cs);
         }
 
-        let linkOrder = socialMap.size;
+        let displayOrder = 0;
         for (const link of links) {
           if (link.connected && link.platform) {
             const platform = link.platform.toLowerCase();
@@ -1381,32 +1293,17 @@ router.post(
                 ? `https://${platform}.com/${value}`
                 : '';
 
-            if (isSocialPlatform(platform)) {
-              const existing = socialMap.get(key);
-              socialMap.set(key, {
-                platform,
-                url,
-                username: link.username,
-                displayOrder: existing?.displayOrder ?? linkOrder++,
-                verified: false,
-                ...(link.scopeType && link.scopeType !== 'global'
-                  ? { scopeType: link.scopeType, scopeId: link.scopeId }
-                  : {}),
-              } as UserSocialLink);
-            } else {
-              connectedMap.set(key, {
-                platform,
-                profileUrl: url,
-                syncStatus: 'idle',
-                ...(link.scopeType && link.scopeType !== 'global'
-                  ? { scopeType: link.scopeType, scopeId: link.scopeId }
-                  : {}),
-              });
-            }
+            const existing = connectedMap.get(key);
+            connectedMap.set(key, {
+              platform,
+              profileUrl: url,
+              syncStatus: 'idle',
+              displayOrder: existing?.displayOrder ?? displayOrder++,
+              ...(link.scopeType && link.scopeType !== 'global'
+                ? { scopeType: link.scopeType, scopeId: link.scopeId }
+                : {}),
+            });
           }
-        }
-        if (socialMap.size > 0) {
-          updateData.social = Array.from(socialMap.values());
         }
         if (connectedMap.size > 0) {
           (updateData as Record<string, unknown>)['connectedSources'] = Array.from(

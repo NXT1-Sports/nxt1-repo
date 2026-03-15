@@ -105,6 +105,11 @@ type UserFirestoreDoc = DocumentData & {
     syncStatus?: string;
     syncedFields?: string[];
     lastError?: string;
+    scopeType?: string;
+    scopeId?: string;
+    displayOrder?: number;
+    createdAt?: string;
+    email?: string;
   }>;
   connectedEmails?: Array<Record<string, unknown>>;
 

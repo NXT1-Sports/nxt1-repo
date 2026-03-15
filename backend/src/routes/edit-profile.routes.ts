@@ -16,6 +16,7 @@ import { asyncHandler } from '@nxt1/core/errors/express';
 import { notFoundError, forbiddenError, fieldError } from '@nxt1/core/errors';
 import type { User, SportProfile } from '@nxt1/core';
 import { formatFileSize } from '@nxt1/core';
+import { invalidateProfileCaches } from './profile.routes.js';
 import type {
   EditProfileData,
   EditProfileFormData,
@@ -183,11 +184,13 @@ function userToEditProfileFormData(user: User, sportIndex?: number): EditProfile
         : undefined,
     },
     socialLinks: {
-      links: (user.social ?? []).map((link) => ({
-        platform: link.platform,
-        url: link.url,
-        username: link.username ?? undefined,
-        displayOrder: link.displayOrder ?? 0,
+      links: (user.connectedSources ?? []).map((cs) => ({
+        platform: cs.platform,
+        url: cs.profileUrl,
+        username: undefined, // connectedSources uses profileUrl only
+        displayOrder: cs.displayOrder ?? 0,
+        scopeType: cs.scopeType,
+        scopeId: cs.scopeId,
       })),
     },
     contact: {
@@ -402,11 +405,13 @@ function sectionToFirestoreUpdate(
     case 'social-links': {
       const data = sectionData as EditProfileSocialLinks;
       if (data.links !== undefined) {
-        updates['social'] = data.links.map((link) => ({
+        updates['connectedSources'] = data.links.map((link, index) => ({
           platform: link.platform,
-          url: link.url,
-          username: link.username || null,
-          displayOrder: link.displayOrder ?? 0,
+          profileUrl: link.url,
+          syncStatus: 'idle' as const,
+          displayOrder: link.displayOrder ?? index,
+          ...(link.scopeType && { scopeType: link.scopeType }),
+          ...(link.scopeId && { scopeId: link.scopeId }),
         }));
       }
       break;
@@ -812,6 +817,11 @@ router.put(
     const updatedDoc = await userRef.get();
     const updatedUser = { id: updatedDoc.id, ...updatedDoc.data() } as User;
 
+    // Invalidate all profile caches to ensure fresh data
+    await invalidateProfileCaches(uid, updatedUser.username, updatedUser.unicode).catch((err) =>
+      logger.warn('[EditProfile] Cache invalidation failed', { userId: uid, err })
+    );
+
     logger.debug('[EditProfile] User sports AFTER update', {
       userId: uid,
       sportsCount: updatedUser.sports?.length ?? 0,
@@ -1061,6 +1071,11 @@ router.put(
       activeSportIndex,
       updatedAt: new Date(),
     });
+
+    // Invalidate profile caches
+    await invalidateProfileCaches(uid, user.username, user.unicode).catch((err) =>
+      logger.warn('[EditProfile] Cache invalidation failed', { userId: uid, err })
+    );
 
     logger.info('[EditProfile] Active sport index updated', {
       uid,

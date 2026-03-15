@@ -1947,25 +1947,30 @@ export class ProfileOverviewComponent implements OnDestroy {
       readonly color: string;
       readonly url: string;
     }> => {
-      const social = this.profile.user()?.social;
-      if (!social?.length) return [];
+      const connectedSources = this.profile.user()?.connectedSources ?? [];
+
       const def = { label: '', icon: 'link', color: 'currentColor', handlePrefix: '' };
-      return social
+
+      if (connectedSources.length === 0) return [];
+
+      return connectedSources
         .slice()
-        .sort((a, b) => (a.displayOrder ?? 99) - (b.displayOrder ?? 99))
+        .sort((a, b) => {
+          const orderA = (a as unknown as { displayOrder?: number }).displayOrder ?? 99;
+          const orderB = (b as unknown as { displayOrder?: number }).displayOrder ?? 99;
+          return orderA - orderB;
+        })
         .slice(0, 8)
-        .map((link) => {
-          const meta = ProfileOverviewComponent.PLATFORM_META[link.platform.toLowerCase()] ?? def;
-          const handle = link.username
-            ? `${meta.handlePrefix}${link.username}`
-            : meta.label || link.platform;
+        .map((cs) => {
+          const meta = ProfileOverviewComponent.PLATFORM_META[cs.platform.toLowerCase()] ?? def;
+          const handle = meta.label || cs.platform;
           return {
-            key: link.platform,
-            label: meta.label || link.platform,
+            key: cs.platform,
+            label: meta.label || cs.platform,
             handle,
             icon: meta.icon,
             color: meta.color,
-            url: link.url,
+            url: cs.profileUrl,
           };
         });
     }

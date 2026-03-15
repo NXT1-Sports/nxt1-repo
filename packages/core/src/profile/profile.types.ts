@@ -154,6 +154,12 @@ export interface ProfileConnectedSource {
   readonly syncStatus?: 'idle' | 'syncing' | 'error' | 'success';
   /** Fields that were synced from this source */
   readonly syncedFields?: readonly string[];
+  /** Display order (lower = first) */
+  readonly displayOrder?: number;
+  /** Scope type: 'global', 'sport', or 'team' */
+  readonly scopeType?: 'global' | 'sport' | 'team';
+  /** Scope identifier (e.g., sport name or team ID) */
+  readonly scopeId?: string;
 }
 
 /**

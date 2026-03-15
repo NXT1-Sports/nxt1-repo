@@ -251,7 +251,7 @@ export interface EditProfilePhysical {
 
 /**
  * A single social link entry for editing.
- * Agnostic — no hardcoded platforms. Mirrors SocialLink in user.model.ts.
+ * Agnostic — no hardcoded platforms. Mirrors ConnectedSource in user.model.ts.
  */
 export interface EditProfileSocialLinkEntry {
   /** Platform identifier (e.g., "twitter", "instagram", "hudl", custom) */
@@ -262,6 +262,10 @@ export interface EditProfileSocialLinkEntry {
   readonly username?: string;
   /** Display order (0-based) */
   readonly displayOrder?: number;
+  /** Scope type: 'global', 'sport', or 'team' */
+  readonly scopeType?: 'global' | 'sport' | 'team';
+  /** Scope identifier (e.g., sport name or team ID) */
+  readonly scopeId?: string;
 }
 
 /**

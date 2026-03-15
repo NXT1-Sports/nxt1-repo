@@ -31,7 +31,6 @@ import type {
   USER_SCHEMA_VERSION,
   Location,
   ContactInfo,
-  SocialLink,
   ConnectedSource,
   ConnectedEmail,
   VerificationStatus,
@@ -216,13 +215,6 @@ export interface User {
   contact?: ContactInfo;
   preferredContactMethod?: 'email' | 'phone' | 'app';
 
-  /**
-   * Social links (agnostic, array-based).
-   * Each entry is a platform-agnostic SocialLink.
-   * Replaces the old hardcoded SocialLinks interface.
-   */
-  social?: SocialLink[];
-
   // ============================================
   // TEAM HISTORY
   // ============================================
@@ -296,7 +288,7 @@ export interface User {
    * Cached plan tier from Subscriptions collection.
    * Updated when subscription changes.
    * Use Subscriptions/{userId} for authoritative subscription state.
-   * @see Subscriptions collection
+   * @see Subscriptions collectionß
    */
   planTier?: PlanTier;
 
@@ -498,10 +490,11 @@ export function getGalleryImages(user: User): string[] {
   return getProfileImages(user);
 }
 
-/** Get a social link URL by platform name (case-insensitive) */
+/** Get a social/connected source URL by platform name (case-insensitive) */
 export function getSocialUrl(user: User, platform: string): string | undefined {
-  if (!Array.isArray(user.social)) return undefined;
-  return user.social.find((s) => s.platform.toLowerCase() === platform.toLowerCase())?.url;
+  if (!Array.isArray(user.connectedSources)) return undefined;
+  return user.connectedSources.find((s) => s.platform.toLowerCase() === platform.toLowerCase())
+    ?.profileUrl;
 }
 
 /** Get user's graduation class year */

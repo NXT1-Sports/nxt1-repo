@@ -105,7 +105,7 @@ export interface SocialLink {
  * Platform is NOT hardcoded — supports any source.
  */
 export interface ConnectedSource {
-  /** Platform identifier (e.g., 'maxpreps', 'hudl', 'perfect-game') */
+  /** Platform identifier (e.g., 'maxpreps', 'hudl', 'perfect-game', 'twitter', 'instagram') */
   platform: string;
   /** URL of the external profile */
   profileUrl: string;
@@ -121,6 +121,8 @@ export interface ConnectedSource {
   scopeType?: 'global' | 'sport' | 'team';
   /** Sport key or team ID when scoped */
   scopeId?: string;
+  /** Display order (lower = first, used for social platforms) */
+  displayOrder?: number;
 }
 
 // ============================================

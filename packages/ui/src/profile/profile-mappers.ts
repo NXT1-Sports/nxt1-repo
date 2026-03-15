@@ -24,7 +24,6 @@ import type {
   ProfileAward,
   ProfileTeamAffiliation,
   ProfileTeamType,
-  ProfileSocialLink,
   ProfileSchool,
   ProfileContact,
   ProfileCoachContact,
@@ -74,17 +73,6 @@ function mapTeamHistory(entry: TeamHistoryEntry): ProfileTeamAffiliation {
     losses: entry.record?.losses,
     ties: entry.record?.ties,
     sport: entry.sport,
-  };
-}
-
-/** Map a User.social entry → ProfileSocialLink (UI model). */
-function mapSocialLink(link: NonNullable<User['social']>[number]): ProfileSocialLink {
-  return {
-    platform: link.platform,
-    url: link.url,
-    username: link.username,
-    displayOrder: link.displayOrder,
-    verified: link.verified,
   };
 }
 
@@ -255,11 +243,6 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     ? user.teamHistory.map(mapTeamHistory)
     : undefined;
 
-  // ── Social links (from User.social) ──────────────────────────────────────
-  const social: readonly ProfileSocialLink[] | undefined = user.social?.length
-    ? user.social.map(mapSocialLink)
-    : undefined;
-
   // ── Awards (from User.awards) ─────────────────────────────────────────────
   const awards: readonly ProfileAward[] | undefined = user.awards?.length
     ? user.awards.map(mapAward)
@@ -386,8 +369,7 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     // Location
     location,
 
-    // Social / contact
-    social,
+    // Contact
     contact,
     coachContact,
     connectedSources,
