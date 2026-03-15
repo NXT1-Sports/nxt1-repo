@@ -297,25 +297,27 @@ export class WebPushService {
       type: payload.data?.['type'] ?? 'unknown',
     });
 
-    // Agent welcome: auto-open Agent X chat with image instead of generic toast
-    if (payload.data?.['type'] === 'agent_welcome') {
-      const imageUrl = payload.data?.['imageUrl'];
-      const messageContent = body || "Here's your personalized welcome graphic!";
+    // Agent notification with media (welcome graphic, generated content, etc.) —
+    // auto-inject into Agent X chat. Data-driven: any push with imageUrl + agent deep link.
+    const imageUrl = payload.data?.['imageUrl'];
+    const pushDeepLink = payload.data?.['deepLink'];
+    if (imageUrl && pushDeepLink?.includes('agent')) {
+      const messageContent = body || 'Agent X completed your request.';
 
       this.agentX.pushMessage({
         role: 'assistant',
         content: messageContent,
-        ...(imageUrl ? { imageUrl } : {}),
+        imageUrl,
       });
 
-      // Desktop: open FAB chat panel. Mobile: navigate to /agent-x.
+      // Desktop: open FAB chat panel. Mobile web: navigate to /agent-x.
       if (this.platform.isDesktop()) {
         this.fabService.openWithMessage({ content: messageContent, imageUrl });
       } else {
         this.router.navigateByUrl('/agent-x');
       }
 
-      this.analytics?.trackEvent(APP_EVENTS.WELCOME_GRAPHIC_VIEWED, {
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_MEDIA_VIEWED, {
         source: 'foreground_push',
       });
       return;

@@ -210,6 +210,17 @@ export class AgentXService {
    * Supports text-only, image-only, or text + image messages.
    */
   pushMessage(message: Omit<AgentXMessage, 'id' | 'timestamp'>): void {
+    // Dedup: skip if the last message has the same imageUrl (prevents duplicate
+    // injection when user taps an activity item or notification multiple times).
+    if (message.imageUrl) {
+      const msgs = this._messages();
+      const last = msgs[msgs.length - 1];
+      if (last?.imageUrl === message.imageUrl) {
+        this.logger.debug('Duplicate image message skipped', { imageUrl: message.imageUrl });
+        return;
+      }
+    }
+
     const fullMessage: AgentXMessage = {
       ...message,
       id: this.generateId(),

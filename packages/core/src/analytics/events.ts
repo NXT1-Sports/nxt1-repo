@@ -549,6 +549,8 @@ export const APP_EVENTS = {
   WELCOME_GRAPHIC_GENERATED: 'welcome_graphic_generated',
   /** Welcome graphic notification tapped / viewed */
   WELCOME_GRAPHIC_VIEWED: 'welcome_graphic_viewed',
+  /** Agent-generated media (image, graphic, etc.) viewed via push or activity tap */
+  AGENT_MEDIA_VIEWED: 'agent_media_viewed',
 
   // ============================================
   // PUSH NOTIFICATION EVENTS

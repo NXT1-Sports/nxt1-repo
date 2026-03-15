@@ -317,11 +317,11 @@ export class PushHandlerService {
 
   /**
    * Check if a push notification is an agent-originated notification with media.
-   * Works for welcome graphics, generated content, scout report images, etc.
+   * Purely data-driven — works for any current or future agent notification type
+   * as long as it carries an imageUrl and a deep link pointing to the agent.
    */
   private isAgentMediaNotification(data: PushData): boolean {
-    const agentTypes = new Set(['agent_welcome', 'ai_task_complete']);
-    return !!(data.type && agentTypes.has(data.type) && data.imageUrl);
+    return !!(data.imageUrl && data.deepLink && data.deepLink.includes('agent'));
   }
 
   /**
@@ -336,7 +336,7 @@ export class PushHandlerService {
       ...(opts.imageUrl ? { imageUrl: opts.imageUrl } : {}),
     });
 
-    this.analytics?.trackEvent(APP_EVENTS.WELCOME_GRAPHIC_VIEWED, {
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_MEDIA_VIEWED, {
       source: opts.source,
       hasImage: !!opts.imageUrl,
     });

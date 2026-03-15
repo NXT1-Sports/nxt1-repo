@@ -31,6 +31,7 @@ import {
   Component,
   ChangeDetectionStrategy,
   Input,
+  AfterViewInit,
   inject,
   signal,
   computed,
@@ -274,7 +275,7 @@ interface OperationMessage {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXOperationChatComponent {
+export class AgentXOperationChatComponent implements AfterViewInit {
   private readonly modalCtrl = inject(ModalController);
 
   // ============================================
@@ -302,6 +303,9 @@ export class AgentXOperationChatComponent {
 
   /** Optional list of quick action suggestions shown as tappable chips. */
   @Input() quickActions: OperationQuickAction[] = [];
+
+  /** Optional initial message to auto-send when the sheet opens. */
+  @Input() initialMessage = '';
 
   // ============================================
   // LOCAL STATE
@@ -377,6 +381,20 @@ export class AgentXOperationChatComponent {
   // ============================================
   // LIFECYCLE
   // ============================================
+
+  /** Auto-send the initial message if provided. */
+  private initialMessageSent = false;
+
+  ngAfterViewInit(): void {
+    if (this.initialMessage?.trim() && !this.initialMessageSent) {
+      this.initialMessageSent = true;
+      // Slight delay to let the sheet animation settle
+      setTimeout(() => {
+        this.inputValue.set(this.initialMessage.trim());
+        this.send();
+      }, 150);
+    }
+  }
 
   // ============================================
   // PUBLIC METHODS

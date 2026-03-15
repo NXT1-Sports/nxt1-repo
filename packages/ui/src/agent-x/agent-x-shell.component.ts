@@ -1487,10 +1487,34 @@ export class AgentXShellComponent {
   }
 
   /**
-   * Handle send message.
+   * Handle send message — opens the Agent X bottom sheet chat
+   * with the user's message instead of displaying inline.
    */
   protected async onSendMessage(): Promise<void> {
-    await this.agentX.sendMessage();
+    const message = this.agentX.getUserMessage().trim();
+    if (!message) return;
+
+    // Clear the shell input immediately
+    this.agentX.setUserMessage('');
+    this.agentX.clearTask();
+    await this.haptics.impact('light');
+
+    // Open the operation chat bottom sheet with the message
+    await this.bottomSheet.openSheet({
+      component: AgentXOperationChatComponent,
+      componentProps: {
+        contextId: 'agent-x-chat',
+        contextTitle: 'Agent X',
+        contextIcon: 'bolt',
+        contextType: 'command',
+        initialMessage: message,
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-operation-sheet',
+    });
   }
 
   /**

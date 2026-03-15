@@ -92,6 +92,67 @@ export async function logAgentTaskCompletion(
   return dispatchResult;
 }
 
+// ============================================
+// FAILURE NOTIFICATION
+// ============================================
+
+export interface AgentFailureInput {
+  /** The user receiving the notification */
+  readonly userId: string;
+  /** The failed job payload */
+  readonly job: AgentJobPayload;
+  /** Human-readable error message */
+  readonly errorMessage: string;
+}
+
+/**
+ * Notify the user that an Agent X task failed.
+ * The user sees this in their activity feed so they know something
+ * went wrong (instead of just silence).
+ */
+export async function logAgentTaskFailure(
+  db: Firestore,
+  input: AgentFailureInput
+): Promise<DispatchResult> {
+  const { userId, job, errorMessage } = input;
+  const isWelcome = job.context?.['origin'] === 'registration';
+
+  const title = 'Agent X: Task Issue';
+  const body = isWelcome
+    ? "We couldn't generate your welcome graphic right now. Tap to try again."
+    : `Something went wrong with your request. ${errorMessage.length <= 80 ? errorMessage : 'Tap to retry.'}`;
+  const deepLink = isWelcome ? '/agent-x' : `/agent-x/chat/${job.sessionId}`;
+
+  const dispatchResult = await dispatch(db, {
+    userId,
+    type: NOTIFICATION_TYPES.AI_TASK_COMPLETE,
+    title,
+    body,
+    deepLink,
+    data: {
+      sessionId: job.sessionId,
+      operationId: job.operationId,
+      failed: 'true',
+    },
+    source: { userName: 'Agent X' },
+    metadata: {
+      sessionId: job.sessionId,
+      operationId: job.operationId,
+      agentId: job.agent,
+      failed: true,
+      errorMessage,
+    },
+  });
+
+  logger.info('Agent task failure notification dispatched', {
+    userId,
+    activityId: dispatchResult.activityId,
+    operationId: job.operationId,
+  });
+
+  return dispatchResult;
+}
+
 /**
  * Build a human-readable title from the operation result.
  */

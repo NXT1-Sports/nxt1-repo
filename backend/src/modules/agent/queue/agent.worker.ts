@@ -35,7 +35,10 @@ import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from '.
 import { AGENT_QUEUE_NAME, AGENT_QUEUE_PREFIX, WORKER_CONCURRENCY } from './queue.types.js';
 import { AgentQueueService } from './queue.service.js';
 import { AgentJobRepository } from './job.repository.js';
-import { logAgentTaskCompletion } from '../../../services/agent-activity.service.js';
+import {
+  logAgentTaskCompletion,
+  logAgentTaskFailure,
+} from '../../../services/agent-activity.service.js';
 import { logger } from '../../../utils/logger.js';
 
 // ─── Worker ─────────────────────────────────────────────────────────────────
@@ -157,6 +160,22 @@ export class AgentWorker {
           error: fsErr instanceof Error ? fsErr.message : String(fsErr),
         });
       });
+
+      // Notify the user that their task failed (they shouldn't just see silence)
+      try {
+        const activityDb = await this.getActivityFirestore(job);
+        await logAgentTaskFailure(activityDb, {
+          userId: payload.userId,
+          job: payload,
+          errorMessage: message,
+        });
+      } catch (notifyErr) {
+        logger.error('Failed to dispatch failure notification', {
+          operationId: payload.operationId,
+          error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+        });
+      }
+
       throw err;
     }
 
