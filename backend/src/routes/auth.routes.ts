@@ -932,34 +932,21 @@ router.post(
               ? `https://${platform}.com/${value}`
               : '';
 
-          if (isSocialPlatform(platform)) {
-            // Social platform → social[]
-            const existing = socialMap.get(key);
-            socialMap.set(key, {
-              platform,
-              url,
-              username: link.username,
-              displayOrder: existing?.displayOrder ?? socialOrder++,
-              verified: false,
-              ...(scope !== 'global' && { scopeType: scope }),
-              ...(scopeId && { scopeId }),
-            } as UserSocialLink);
-          } else {
-            // Data platform (film/stats/recruiting) → connectedSources[]
-            const sourceInfo = {
-              platform,
-              profileUrl: url,
-              syncStatus: 'idle',
-              ...(scope !== 'global' && { scopeType: scope }),
-              ...(scopeId && { scopeId }),
-            } as any;
+          // V2: All platforms (social + data) → connectedSources[]
+          const sourceInfo: ConnectedSourceRecord = {
+            platform,
+            profileUrl: url,
+            syncStatus: 'idle',
+            displayOrder: connectedMap.get(key)?.displayOrder ?? displayOrder++,
+            ...(scope !== 'global' && { scopeType: scope }),
+            ...(scopeId && { scopeId }),
+          };
 
-            // If they just created a team, store the links on the team instead of the user
-            if (createdTeamId) {
-              teamConnectedSources.push(sourceInfo);
-            } else {
-              connectedMap.set(key, sourceInfo);
-            }
+          // If they just created a team, store the links on the team instead of the user
+          if (createdTeamId) {
+            teamConnectedSources.push(sourceInfo);
+          } else {
+            connectedMap.set(key, sourceInfo);
           }
         }
       }
