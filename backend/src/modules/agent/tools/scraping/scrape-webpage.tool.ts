@@ -31,10 +31,11 @@ export class ScrapeWebpageTool extends BaseTool {
     'Scrapes a URL and returns BOTH structured data AND markdown content. ' +
     'Automatically extracts embedded data from sports profile pages: ' +
     'athlete stats (height, weight, 40-yard dash, GPA), school/team info, ' +
-    'team colors, social links (Instagram, Twitter, Hudl), profile images, ' +
-    'highlight videos, and more — all without manual parsing. ' +
+    'team colors, profile images, highlight videos, and more — all without manual parsing. ' +
     'Works on MaxPreps, Hudl, 247Sports, Rivals, NCSA, PrepStar, college ' +
     'program pages, news articles, or any public webpage. ' +
+    'Does NOT work on social media platforms (Instagram, Twitter/X, TikTok, Facebook) — ' +
+    'those require authentication and will always return an error. ' +
     'Returns structured JSON (from NextData, embedded data blobs, LD+JSON, OpenGraph) plus ' +
     'clean prose markdown for analysis.';
 

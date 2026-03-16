@@ -20,14 +20,12 @@ import { getCacheService, CACHE_TTL } from '../services/cache.service.js';
 import { markCacheHit } from '../middleware/cache-status.middleware.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../services/users.service.js';
 import { AGENT_CONTEXT_PREFIX } from '../modules/agent/memory/context-builder.js';
+import { validateBody } from '../middleware/validation.middleware.js';
+import { UpdateProfileDto, UploadProfileImageDto } from '../dtos/profile.dto.js';
 
 // Shared types and constants from @nxt1/core
 import type { User, UserSummary, SportProfile } from '@nxt1/core';
-import type {
-  UpdateProfileRequest,
-  UpdateSportProfileRequest,
-  ProfileSearchParams,
-} from '@nxt1/core';
+import type { UpdateSportProfileRequest, ProfileSearchParams } from '@nxt1/core';
 import { PROFILE_CACHE_KEYS } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError, forbiddenError } from '@nxt1/core/errors';
@@ -1053,6 +1051,7 @@ router.get(
 router.put(
   '/:userId',
   appGuard,
+  validateBody(UpdateProfileDto),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { userId } = req.params as { userId: string };
     const requestingUid = req.user!.uid;
@@ -1062,7 +1061,7 @@ router.put(
       return;
     }
 
-    const body = req.body as UpdateProfileRequest;
+    const body = req.body;
 
     // Whitelist of all writable User fields — system/read-only fields
     // (id, email, planTier, _counters, _schemaVersion, unicode, profileCode,
@@ -1158,6 +1157,7 @@ router.put(
 router.post(
   '/:userId/image',
   appGuard,
+  validateBody(UploadProfileImageDto),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { userId } = req.params as { userId: string };
     const requestingUid = req.user!.uid;
@@ -1167,15 +1167,7 @@ router.post(
       return;
     }
 
-    const { imageUrl } = req.body as { imageUrl?: string };
-
-    if (!imageUrl?.trim()) {
-      sendError(
-        res,
-        validationError([{ field: 'imageUrl', message: 'imageUrl is required', rule: 'required' }])
-      );
-      return;
-    }
+    const { imageUrl } = req.body;
 
     const db = req.firebase!.db;
     const userRef = db.collection(USERS_COLLECTION).doc(userId);

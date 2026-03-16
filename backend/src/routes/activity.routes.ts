@@ -10,6 +10,13 @@
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { FieldValue } from 'firebase-admin/firestore';
 import { appGuard } from '../middleware/auth.middleware.js';
+import { validateBody } from '../middleware/validation.middleware.js';
+import {
+  MarkActivityReadDto,
+  MarkAllActivityReadDto,
+  ArchiveActivityDto,
+  RestoreActivityDto,
+} from '../dtos/social.dto.js';
 import { logger } from '../utils/logger.js';
 import type { ActivityTabId } from '@nxt1/core';
 
@@ -268,152 +275,169 @@ router.get('/:id', appGuard, async (req: Request, res: Response) => {
 // POST /read — Mark specific items as read
 // ============================================
 
-router.post('/read', appGuard, async (req: Request, res: Response) => {
-  try {
-    const uid = req.user!.uid;
-    const db = req.firebase.db;
-    const col = getUserActivityCollection(db, uid);
+router.post(
+  '/read',
+  appGuard,
+  validateBody(MarkActivityReadDto),
+  async (req: Request, res: Response) => {
+    try {
+      const uid = req.user!.uid;
+      const db = req.firebase.db;
+      const col = getUserActivityCollection(db, uid);
 
-    const ids: string[] = req.body?.ids;
-    if (!Array.isArray(ids) || ids.length === 0) {
-      res.status(400).json({ success: false, error: 'ids must be a non-empty array' });
-      return;
-    }
+      const ids: string[] = req.body?.ids;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        res.status(400).json({ success: false, error: 'ids must be a non-empty array' });
+        return;
+      }
 
-    if (ids.length > 100) {
-      res.status(400).json({ success: false, error: 'Cannot mark more than 100 items at once' });
-      return;
-    }
+      if (ids.length > 100) {
+        res.status(400).json({ success: false, error: 'Cannot mark more than 100 items at once' });
+        return;
+      }
 
-    // Batch update
-    const batch = db.batch();
-    for (const id of ids) {
-      batch.update(col.doc(id), { isRead: true, readAt: FieldValue.serverTimestamp() });
-    }
-    await batch.commit();
+      // Batch update
+      const batch = db.batch();
+      for (const id of ids) {
+        batch.update(col.doc(id), { isRead: true, readAt: FieldValue.serverTimestamp() });
+      }
+      await batch.commit();
 
-    // Recompute badges from all docs (no composite index needed)
-    const allDocs = await col.get();
-    const unread = allDocs.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
-    const badges: Record<ActivityTabId, number> = {
-      all: unread.length,
-      inbox: unread.filter((i) => i.tab === 'inbox').length,
-      agent: unread.filter((i) => i.tab === 'agent').length,
-      alerts: unread.filter((i) => i.tab === 'alerts').length,
-    };
-
-    res.json({ success: true, count: ids.length, badges });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to mark items as read', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to mark items as read' });
-  }
-});
-
-// ============================================
-// POST /read-all — Mark all items in a tab as read
-// ============================================
-
-router.post('/read-all', appGuard, async (req: Request, res: Response) => {
-  try {
-    const uid = req.user!.uid;
-    const db = req.firebase.db;
-    const col = getUserActivityCollection(db, uid);
-
-    const tab: ActivityTabId = req.body?.tab;
-    if (!tab || !VALID_TABS.includes(tab)) {
-      res
-        .status(400)
-        .json({ success: false, error: 'tab must be one of: all, inbox, agent, alerts' });
-      return;
-    }
-
-    // Fetch all docs, filter in memory (avoids composite index)
-    const snapshot = await col.get();
-    const toMark = snapshot.docs.filter((doc) => {
-      const data = doc.data();
-      if (data['isRead'] || data['isArchived']) return false;
-      if (tab !== 'all' && data['tab'] !== tab) return false;
-      return true;
-    });
-
-    if (toMark.length === 0) {
-      const unread = snapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
+      // Recompute badges from all docs (no composite index needed)
+      const allDocs = await col.get();
+      const unread = allDocs.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
       const badges: Record<ActivityTabId, number> = {
         all: unread.length,
         inbox: unread.filter((i) => i.tab === 'inbox').length,
         agent: unread.filter((i) => i.tab === 'agent').length,
         alerts: unread.filter((i) => i.tab === 'alerts').length,
       };
-      res.json({ success: true, count: 0, badges });
-      return;
+
+      res.json({ success: true, count: ids.length, badges });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to mark items as read', { error: error.message, stack: error.stack });
+      res.status(500).json({ success: false, error: 'Failed to mark items as read' });
     }
-
-    // Batch in chunks of 500 (Firestore limit)
-    let count = 0;
-    const BATCH_LIMIT = 500;
-    for (let i = 0; i < toMark.length; i += BATCH_LIMIT) {
-      const chunk = toMark.slice(i, i + BATCH_LIMIT);
-      const batch = db.batch();
-      for (const doc of chunk) {
-        batch.update(doc.ref, { isRead: true, readAt: FieldValue.serverTimestamp() });
-      }
-      await batch.commit();
-      count += chunk.length;
-    }
-
-    // Recompute badges after marking
-    const afterSnapshot = await col.get();
-    const unread = afterSnapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
-    const badges: Record<ActivityTabId, number> = {
-      all: unread.length,
-      inbox: unread.filter((i) => i.tab === 'inbox').length,
-      agent: unread.filter((i) => i.tab === 'agent').length,
-      alerts: unread.filter((i) => i.tab === 'alerts').length,
-    };
-
-    res.json({ success: true, count, badges });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to mark all as read', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to mark all as read' });
   }
-});
+);
+
+// ============================================
+// POST /read-all — Mark all items in a tab as read
+// ============================================
+
+router.post(
+  '/read-all',
+  appGuard,
+  validateBody(MarkAllActivityReadDto),
+  async (req: Request, res: Response) => {
+    try {
+      const uid = req.user!.uid;
+      const db = req.firebase.db;
+      const col = getUserActivityCollection(db, uid);
+
+      const tab: ActivityTabId = req.body?.tab;
+      if (!tab || !VALID_TABS.includes(tab)) {
+        res
+          .status(400)
+          .json({ success: false, error: 'tab must be one of: all, inbox, agent, alerts' });
+        return;
+      }
+
+      // Fetch all docs, filter in memory (avoids composite index)
+      const snapshot = await col.get();
+      const toMark = snapshot.docs.filter((doc) => {
+        const data = doc.data();
+        if (data['isRead'] || data['isArchived']) return false;
+        if (tab !== 'all' && data['tab'] !== tab) return false;
+        return true;
+      });
+
+      if (toMark.length === 0) {
+        const unread = snapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
+        const badges: Record<ActivityTabId, number> = {
+          all: unread.length,
+          inbox: unread.filter((i) => i.tab === 'inbox').length,
+          agent: unread.filter((i) => i.tab === 'agent').length,
+          alerts: unread.filter((i) => i.tab === 'alerts').length,
+        };
+        res.json({ success: true, count: 0, badges });
+        return;
+      }
+
+      // Batch in chunks of 500 (Firestore limit)
+      let count = 0;
+      const BATCH_LIMIT = 500;
+      for (let i = 0; i < toMark.length; i += BATCH_LIMIT) {
+        const chunk = toMark.slice(i, i + BATCH_LIMIT);
+        const batch = db.batch();
+        for (const doc of chunk) {
+          batch.update(doc.ref, { isRead: true, readAt: FieldValue.serverTimestamp() });
+        }
+        await batch.commit();
+        count += chunk.length;
+      }
+
+      // Recompute badges after marking
+      const afterSnapshot = await col.get();
+      const unread = afterSnapshot.docs.map(docToItem).filter((i) => !i.isArchived && !i.isRead);
+      const badges: Record<ActivityTabId, number> = {
+        all: unread.length,
+        inbox: unread.filter((i) => i.tab === 'inbox').length,
+        agent: unread.filter((i) => i.tab === 'agent').length,
+        alerts: unread.filter((i) => i.tab === 'alerts').length,
+      };
+
+      res.json({ success: true, count, badges });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to mark all as read', { error: error.message, stack: error.stack });
+      res.status(500).json({ success: false, error: 'Failed to mark all as read' });
+    }
+  }
+);
 
 // ============================================
 // POST /archive — Archive activity items
 // ============================================
 
-router.post('/archive', appGuard, async (req: Request, res: Response) => {
-  try {
-    const uid = req.user!.uid;
-    const db = req.firebase.db;
-    const col = getUserActivityCollection(db, uid);
+router.post(
+  '/archive',
+  appGuard,
+  validateBody(ArchiveActivityDto),
+  async (req: Request, res: Response) => {
+    try {
+      const uid = req.user!.uid;
+      const db = req.firebase.db;
+      const col = getUserActivityCollection(db, uid);
 
-    const ids: string[] = req.body?.ids;
-    if (!Array.isArray(ids) || ids.length === 0) {
-      res.status(400).json({ success: false, error: 'ids must be a non-empty array' });
-      return;
+      const ids: string[] = req.body?.ids;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        res.status(400).json({ success: false, error: 'ids must be a non-empty array' });
+        return;
+      }
+
+      if (ids.length > 100) {
+        res
+          .status(400)
+          .json({ success: false, error: 'Cannot archive more than 100 items at once' });
+        return;
+      }
+
+      const batch = db.batch();
+      for (const id of ids) {
+        batch.update(col.doc(id), { isArchived: true, archivedAt: FieldValue.serverTimestamp() });
+      }
+      await batch.commit();
+
+      res.json({ success: true, count: ids.length });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to archive items', { error: error.message, stack: error.stack });
+      res.status(500).json({ success: false, error: 'Failed to archive items' });
     }
-
-    if (ids.length > 100) {
-      res.status(400).json({ success: false, error: 'Cannot archive more than 100 items at once' });
-      return;
-    }
-
-    const batch = db.batch();
-    for (const id of ids) {
-      batch.update(col.doc(id), { isArchived: true, archivedAt: FieldValue.serverTimestamp() });
-    }
-    await batch.commit();
-
-    res.json({ success: true, count: ids.length });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to archive items', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to archive items' });
   }
-});
+);
 
 // ============================================
 // GET /archived — Get archived items
@@ -460,35 +484,42 @@ router.get('/archived', appGuard, async (req: Request, res: Response) => {
 // POST /archived/restore — Restore archived items
 // ============================================
 
-router.post('/archived/restore', appGuard, async (req: Request, res: Response) => {
-  try {
-    const uid = req.user!.uid;
-    const db = req.firebase.db;
-    const col = getUserActivityCollection(db, uid);
+router.post(
+  '/archived/restore',
+  appGuard,
+  validateBody(RestoreActivityDto),
+  async (req: Request, res: Response) => {
+    try {
+      const uid = req.user!.uid;
+      const db = req.firebase.db;
+      const col = getUserActivityCollection(db, uid);
 
-    const ids: string[] = req.body?.ids;
-    if (!Array.isArray(ids) || ids.length === 0) {
-      res.status(400).json({ success: false, error: 'ids must be a non-empty array' });
-      return;
+      const ids: string[] = req.body?.ids;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        res.status(400).json({ success: false, error: 'ids must be a non-empty array' });
+        return;
+      }
+
+      if (ids.length > 100) {
+        res
+          .status(400)
+          .json({ success: false, error: 'Cannot restore more than 100 items at once' });
+        return;
+      }
+
+      const batch = db.batch();
+      for (const id of ids) {
+        batch.update(col.doc(id), { isArchived: false, archivedAt: FieldValue.delete() });
+      }
+      await batch.commit();
+
+      res.json({ success: true, count: ids.length });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to restore items', { error: error.message, stack: error.stack });
+      res.status(500).json({ success: false, error: 'Failed to restore items' });
     }
-
-    if (ids.length > 100) {
-      res.status(400).json({ success: false, error: 'Cannot restore more than 100 items at once' });
-      return;
-    }
-
-    const batch = db.batch();
-    for (const id of ids) {
-      batch.update(col.doc(id), { isArchived: false, archivedAt: FieldValue.delete() });
-    }
-    await batch.commit();
-
-    res.json({ success: true, count: ids.length });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to restore items', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to restore items' });
   }
-});
+);
 
 export default router;

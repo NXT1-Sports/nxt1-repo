@@ -54,7 +54,13 @@
               }
             ],
             "styles": ["src/styles.css"],
-            "scripts": []
+            "scripts": [],
+            "allowedCommonJsDependencies": [
+              "scriptjs",
+              "dijkstrajs",
+              "qrcode",
+              ""
+            ]
           },
           "configurations": {
             "production": {

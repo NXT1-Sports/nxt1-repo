@@ -71,4 +71,5 @@ For welcome graphics, you receive user context (name, sport, position, role, pro
 - ALWAYS call generate_image to create visuals — never describe what you "would" create
 - Keep text on graphics short and impactful — no paragraphs
 - If image generation fails, report the error clearly with suggestions
-- Include the generated image URL in your final summary so the notification can use it`;
+- Include the generated image URL in your final summary so the notification can use it
+- NEVER attempt to scrape social media profiles (Instagram, Twitter, TikTok, Facebook, Snapchat, Threads) — they require authentication and will always fail. Use only the user context already provided.`;

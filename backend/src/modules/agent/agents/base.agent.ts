@@ -26,9 +26,16 @@ import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { GuardrailRunner } from '../guardrails/guardrail-runner.js';
 import type { LLMMessage, LLMToolSchema, LLMToolCall } from '../llm/llm.types.js';
+import { logger } from '../../../utils/logger.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
-const MAX_ITERATIONS = 10;
+const MAX_ITERATIONS = 15;
+
+/**
+ * Maximum characters for a single tool observation fed back to the LLM.
+ * Prevents context overflow when scrape results are very large.
+ */
+const MAX_OBSERVATION_LENGTH = 8_000;
 
 export abstract class BaseAgent {
   abstract readonly id: AgentIdentifier;
@@ -89,9 +96,20 @@ export abstract class BaseAgent {
       { role: 'user', content: intent },
     ];
 
+    logger.info(`[${this.id}] Starting ReAct loop`, {
+      agentId: this.id,
+      userId: context.userId,
+      tier: routing.tier,
+      tools: allowedToolNames,
+    });
+
     // ── ReAct Loop ────────────────────────────────────────────────────────
 
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+      logger.info(`[${this.id}] Iteration ${iteration + 1}/${MAX_ITERATIONS}`, {
+        agentId: this.id,
+        iteration: iteration + 1,
+      });
       const result = await llm.complete(messages, {
         tier: routing.tier,
         maxTokens: routing.maxTokens,
@@ -101,9 +119,33 @@ export abstract class BaseAgent {
 
       // If the LLM responded with text and no tool calls → we're done
       if (result.toolCalls.length === 0) {
+        logger.info(`[${this.id}] Task complete — no more tool calls`, {
+          agentId: this.id,
+          iteration: iteration + 1,
+          model: result.model,
+        });
+        // Extract structured data from all completed tool call observations
+        // so callers (e.g. agent-activity.service) can read imageUrl, storagePath, etc.
+        const extractedToolData: Record<string, unknown> = {};
+        for (const msg of messages) {
+          if (msg.role === 'tool' && msg.content) {
+            try {
+              const parsed = JSON.parse(msg.content) as Record<string, unknown>;
+              if (
+                parsed['success'] === true &&
+                parsed['data'] &&
+                typeof parsed['data'] === 'object'
+              ) {
+                Object.assign(extractedToolData, parsed['data'] as Record<string, unknown>);
+              }
+            } catch {
+              // Not JSON — skip
+            }
+          }
+        }
         return {
           summary: result.content ?? 'Task completed.',
-          data: { model: result.model, usage: result.usage },
+          data: { model: result.model, usage: result.usage, ...extractedToolData },
           suggestions: [],
         };
       }
@@ -115,14 +157,82 @@ export abstract class BaseAgent {
         tool_calls: result.toolCalls,
       });
 
+      logger.info(`[${this.id}] Tool calls requested`, {
+        agentId: this.id,
+        iteration: iteration + 1,
+        tools: result.toolCalls.map((t) => t.function.name),
+      });
+
       // Execute each requested tool and feed observations back
       for (const toolCall of result.toolCalls) {
-        const observation = await this.executeTool(
+        logger.info(`[${this.id}] Executing tool: ${toolCall.function.name}`, {
+          agentId: this.id,
+          tool: toolCall.function.name,
+          args: toolCall.function.arguments,
+        });
+        let observation = await this.executeTool(
           toolCall,
           toolRegistry,
           context.userId,
           guardrailRunner
         );
+        // Truncate large observations (e.g. scrape results) to prevent context overflow.
+        // ONLY truncate markdownContent — never truncate the raw observation string, as that
+        // would corrupt structured data like imageUrl in generate_image results.
+        if (observation.length > MAX_OBSERVATION_LENGTH) {
+          try {
+            const parsed = JSON.parse(observation) as Record<string, unknown>;
+            if (parsed['success'] && parsed['data'] && typeof parsed['data'] === 'object') {
+              const data = parsed['data'] as Record<string, unknown>;
+              if (
+                typeof data['markdownContent'] === 'string' &&
+                data['markdownContent'].length > MAX_OBSERVATION_LENGTH
+              ) {
+                data['markdownContent'] =
+                  data['markdownContent'].slice(0, MAX_OBSERVATION_LENGTH) + '\n...[truncated]';
+                data['truncated'] = true;
+                observation = JSON.stringify(parsed);
+              }
+              // If no markdownContent to truncate, leave observation intact —
+              // the data fields (imageUrl, etc.) must remain complete.
+            }
+          } catch {
+            // Not valid JSON and very large — truncate raw string as last resort
+            observation = observation.slice(0, MAX_OBSERVATION_LENGTH) + '\n...[truncated]';
+          }
+        }
+        // Log tool result summary — parse JSON to show structured info instead of raw string
+        // (avoids logging huge signed URLs or large content that confuses debugging)
+        try {
+          const parsed = JSON.parse(observation) as Record<string, unknown>;
+          const data = parsed['data'] as Record<string, unknown> | undefined;
+          const logSummary: Record<string, unknown> = { success: parsed['success'] };
+          if (data) {
+            // Log keys present in data (not values — avoids logging signed URLs)
+            logSummary['dataKeys'] = Object.keys(data);
+            if (typeof data['imageUrl'] === 'string') {
+              logSummary['imageUrl'] = data['imageUrl'].slice(0, 80) + '...[see Firestore]';
+            }
+            if (typeof data['contentLength'] === 'number') {
+              logSummary['contentLength'] = data['contentLength'];
+            }
+            if (typeof data['provider'] === 'string') {
+              logSummary['provider'] = data['provider'];
+            }
+          }
+          if (!parsed['success']) logSummary['error'] = parsed['error'];
+          logger.info(`[${this.id}] Tool result: ${toolCall.function.name}`, {
+            agentId: this.id,
+            tool: toolCall.function.name,
+            ...logSummary,
+          });
+        } catch {
+          logger.info(`[${this.id}] Tool result: ${toolCall.function.name}`, {
+            agentId: this.id,
+            tool: toolCall.function.name,
+            responseLength: observation.length,
+          });
+        }
         messages.push({
           role: 'tool',
           content: observation,
@@ -131,12 +241,33 @@ export abstract class BaseAgent {
       }
     }
 
-    // If we exhausted iterations, return what we have
+    logger.warn(
+      `[${this.id}] Max iterations (${MAX_ITERATIONS}) reached — returning partial result`,
+      {
+        agentId: this.id,
+        userId: context.userId,
+      }
+    );
+
+    // Exhausted iterations — still extract any tool results that completed successfully
+    const extractedToolData: Record<string, unknown> = {};
+    for (const msg of messages) {
+      if (msg.role === 'tool' && msg.content) {
+        try {
+          const parsed = JSON.parse(msg.content) as Record<string, unknown>;
+          if (parsed['success'] === true && parsed['data'] && typeof parsed['data'] === 'object') {
+            Object.assign(extractedToolData, parsed['data'] as Record<string, unknown>);
+          }
+        } catch {
+          // Not JSON — skip
+        }
+      }
+    }
     return {
       summary:
         'The agent reached its maximum iteration limit. ' +
         'The task may be too complex for a single pass.',
-      data: { maxIterationsReached: true },
+      data: { maxIterationsReached: true, ...extractedToolData },
       suggestions: ['Try breaking the request into smaller tasks.'],
     };
   }

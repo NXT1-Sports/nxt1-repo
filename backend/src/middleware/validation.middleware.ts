@@ -106,8 +106,10 @@ export function validateRequest<T extends object>(
       }
 
       // Transform plain object to class instance
+      // Note: excludeExtraneousValues requires @Expose() decorators on DTO properties.
+      // We do NOT use it here - class-validator's whitelist handles stripping unknown fields.
       const dto = plainToClass(dtoClass, data, {
-        excludeExtraneousValues: validationOptions.whitelist,
+        excludeExtraneousValues: false,
       });
 
       // Validate the DTO

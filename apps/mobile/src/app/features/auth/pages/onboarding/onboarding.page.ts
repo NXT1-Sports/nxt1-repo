@@ -114,6 +114,7 @@ import {
   AuthApiService,
   OnboardingAnalyticsService,
 } from '../../services';
+import { EditProfileApiService } from '../../../../core/services/edit-profile-api.service';
 import { AgentXJobService, ProfileGenerationStateService } from '@nxt1/ui';
 import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { NxtThemeService } from '@nxt1/ui';
@@ -208,7 +209,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 variant="list-row"
                 (profileChange)="onProfileChange($event)"
                 (photoSelect)="onPhotoSelect()"
-                (fileSelected)="onFileSelected($event)"
+                (filesSelected)="onFilesSelected($event)"
                 (locationRequest)="onLocationRequest()"
               />
             }
@@ -350,6 +351,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
   private readonly toast = inject(NxtToastService);
   private readonly analytics = inject(OnboardingAnalyticsService);
   private readonly themeService = inject(NxtThemeService);
+  private readonly editProfileApi = inject(EditProfileApiService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('Onboarding');
 
   // ============================================
@@ -885,11 +887,72 @@ export class OnboardingPage implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle file selected from web file picker (Platform-specific)
+   * Handle files selected from file picker (Platform-specific) - now supports multiple
+   */
+  async onFilesSelected(files: File[] | Event): Promise<void> {
+    const fileArray = Array.isArray(files) ? files : [];
+
+    this.logger.debug('Files selected', {
+      count: fileArray.length,
+      names: fileArray.map((f) => f.name),
+    });
+
+    const user = this.authFlow.user();
+    if (!user) {
+      this.toast.error('Please login to upload photos');
+      return;
+    }
+
+    if (fileArray.length === 0) return;
+
+    try {
+      this.isLoading.set(true);
+      this.toast.info(`Uploading ${fileArray.length} photo(s)...`);
+
+      const uploadedUrls: string[] = [];
+
+      for (const file of fileArray) {
+        try {
+          const result = await this.editProfileApi.uploadPhoto(user.uid, 'profile', file);
+          if (result.success && result.data) {
+            uploadedUrls.push(result.data.url);
+          } else {
+            throw new Error(result.error || 'Upload failed');
+          }
+        } catch (err) {
+          this.logger.error('Failed to upload photo', err, { fileName: file.name });
+          this.toast.error(`Failed to upload ${file.name}`);
+        }
+      }
+
+      if (uploadedUrls.length > 0) {
+        const currentProfile = this._formData().profile;
+        const existingImgs = (currentProfile?.profileImgs || []).filter(
+          (url) => !url.startsWith('blob:')
+        );
+
+        this.machine.updateProfile({
+          firstName: currentProfile?.firstName || '',
+          lastName: currentProfile?.lastName || '',
+          ...(currentProfile || {}),
+          profileImgs: [...existingImgs, ...uploadedUrls],
+        });
+
+        this.toast.success(`Uploaded ${uploadedUrls.length} photo(s) successfully!`);
+      }
+    } catch (err) {
+      this.logger.error('Failed to upload photos', err);
+      this.toast.error('Failed to upload photos');
+    } finally {
+      this.isLoading.set(false);
+    }
+  }
+
+  /**
+   * Handle file selected from web file picker (Legacy single file - delegates to onFilesSelected)
    */
   async onFileSelected(file: File): Promise<void> {
-    this.logger.debug('File selected', { name: file.name, size: file.size });
-    // TODO: Upload to Firebase Storage when backend integration is ready
+    await this.onFilesSelected([file]);
   }
 
   /**

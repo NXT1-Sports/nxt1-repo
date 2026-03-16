@@ -8,6 +8,13 @@
 
 import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../middleware/auth.middleware.js';
+import { validateBody } from '../middleware/validation.middleware.js';
+import {
+  AddPaymentMethodTokenDto,
+  PaymentMethodIdDto,
+  SimpleBillingInfoDto,
+  RedeemCouponDto,
+} from '../dtos/usage.dto.js';
 import { logger } from '../utils/logger.js';
 import {
   COLLECTIONS,
@@ -664,174 +671,181 @@ router.get('/payment-methods', appGuard, async (req: Request, res: Response) => 
  * POST /api/v1/usage/payment-methods/add
  * Add a new payment method via Stripe token
  */
-router.post('/payment-methods/add', appGuard, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.uid;
-    const { token } = req.body;
-    if (!token || typeof token !== 'string') {
-      return res.status(400).json({ error: 'Missing required field: token' });
+router.post(
+  '/payment-methods/add',
+  appGuard,
+  validateBody(AddPaymentMethodTokenDto),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.uid;
+      const { token } = req.body as AddPaymentMethodTokenDto;
+
+      const db = req.firebase?.db;
+      if (!db) throw new Error('Firebase context not available');
+      const environment = req.isStaging ? 'staging' : 'production';
+      const email = req.user!.email ?? '';
+
+      const { customerId } = await getOrCreateCustomer(db, userId, email, undefined, environment);
+      const stripe = getStripeClient(environment);
+
+      const paymentMethod = await stripe.paymentMethods.create({
+        type: 'card',
+        card: { token },
+      });
+
+      await stripe.paymentMethods.attach(paymentMethod.id, { customer: customerId });
+
+      const result: UsagePaymentMethod = {
+        id: paymentMethod.id,
+        type: 'card',
+        provider: 'stripe',
+        label: `${(paymentMethod.card?.brand ?? 'card').charAt(0).toUpperCase() + (paymentMethod.card?.brand ?? 'card').slice(1)} ending in ${paymentMethod.card?.last4 ?? '****'}`,
+        last4: paymentMethod.card?.last4 ?? null,
+        brand: paymentMethod.card?.brand ?? null,
+        expiryMonth: paymentMethod.card?.exp_month ?? null,
+        expiryYear: paymentMethod.card?.exp_year ?? null,
+        isDefault: false,
+        email: null,
+        addedAt: new Date().toISOString(),
+      };
+
+      logger.info('[POST /payment-methods/add] Payment method added', {
+        userId,
+        methodId: result.id,
+      });
+      return res.json({ success: true, data: result });
+    } catch (error) {
+      logger.error('[POST /payment-methods/add] Failed to add payment method', { error });
+      return res.status(500).json({
+        error: 'Failed to add payment method',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
-
-    const db = req.firebase?.db;
-    if (!db) throw new Error('Firebase context not available');
-    const environment = req.isStaging ? 'staging' : 'production';
-    const email = req.user!.email ?? '';
-
-    const { customerId } = await getOrCreateCustomer(db, userId, email, undefined, environment);
-    const stripe = getStripeClient(environment);
-
-    const paymentMethod = await stripe.paymentMethods.create({
-      type: 'card',
-      card: { token },
-    });
-
-    await stripe.paymentMethods.attach(paymentMethod.id, { customer: customerId });
-
-    const result: UsagePaymentMethod = {
-      id: paymentMethod.id,
-      type: 'card',
-      provider: 'stripe',
-      label: `${(paymentMethod.card?.brand ?? 'card').charAt(0).toUpperCase() + (paymentMethod.card?.brand ?? 'card').slice(1)} ending in ${paymentMethod.card?.last4 ?? '****'}`,
-      last4: paymentMethod.card?.last4 ?? null,
-      brand: paymentMethod.card?.brand ?? null,
-      expiryMonth: paymentMethod.card?.exp_month ?? null,
-      expiryYear: paymentMethod.card?.exp_year ?? null,
-      isDefault: false,
-      email: null,
-      addedAt: new Date().toISOString(),
-    };
-
-    logger.info('[POST /payment-methods/add] Payment method added', {
-      userId,
-      methodId: result.id,
-    });
-    return res.json({ success: true, data: result });
-  } catch (error) {
-    logger.error('[POST /payment-methods/add] Failed to add payment method', { error });
-    return res.status(500).json({
-      error: 'Failed to add payment method',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
   }
-});
+);
 
 /**
  * POST /api/v1/usage/payment-methods/remove
  * Remove a saved payment method
  */
-router.post('/payment-methods/remove', appGuard, async (req: Request, res: Response) => {
-  try {
-    const { methodId } = req.body;
-    if (!methodId || typeof methodId !== 'string') {
-      return res.status(400).json({ error: 'Missing required field: methodId' });
+router.post(
+  '/payment-methods/remove',
+  appGuard,
+  validateBody(PaymentMethodIdDto),
+  async (req: Request, res: Response) => {
+    try {
+      const { methodId } = req.body as PaymentMethodIdDto;
+
+      const environment = req.isStaging ? 'staging' : 'production';
+      const stripe = getStripeClient(environment);
+
+      await stripe.paymentMethods.detach(methodId);
+
+      logger.info('[POST /payment-methods/remove] Payment method removed', { methodId });
+      return res.json({ success: true });
+    } catch (error) {
+      logger.error('[POST /payment-methods/remove] Failed to remove payment method', { error });
+      return res.status(500).json({
+        error: 'Failed to remove payment method',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
-
-    const environment = req.isStaging ? 'staging' : 'production';
-    const stripe = getStripeClient(environment);
-
-    await stripe.paymentMethods.detach(methodId);
-
-    logger.info('[POST /payment-methods/remove] Payment method removed', { methodId });
-    return res.json({ success: true });
-  } catch (error) {
-    logger.error('[POST /payment-methods/remove] Failed to remove payment method', { error });
-    return res.status(500).json({
-      error: 'Failed to remove payment method',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
   }
-});
+);
 
 /**
  * POST /api/v1/usage/payment-methods/default
  * Set a payment method as default
  */
-router.post('/payment-methods/default', appGuard, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.uid;
-    const { methodId } = req.body;
-    if (!methodId || typeof methodId !== 'string') {
-      return res.status(400).json({ error: 'Missing required field: methodId' });
+router.post(
+  '/payment-methods/default',
+  appGuard,
+  validateBody(PaymentMethodIdDto),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.uid;
+      const { methodId } = req.body as PaymentMethodIdDto;
+
+      const db = req.firebase?.db;
+      if (!db) throw new Error('Firebase context not available');
+      const environment = req.isStaging ? 'staging' : 'production';
+
+      const customerDoc = await db
+        .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+        .where('userId', '==', userId)
+        .where('environment', '==', environment)
+        .limit(1)
+        .get();
+
+      if (customerDoc.empty) {
+        return res.status(404).json({ error: 'No Stripe customer found' });
+      }
+
+      const customerId = customerDoc.docs[0]?.data()['stripeCustomerId'] as string;
+      const stripe = getStripeClient(environment);
+
+      await stripe.customers.update(customerId, {
+        invoice_settings: { default_payment_method: methodId },
+      });
+
+      logger.info('[POST /payment-methods/default] Default payment method updated', {
+        userId,
+        methodId,
+      });
+      return res.json({ success: true });
+    } catch (error) {
+      logger.error('[POST /payment-methods/default] Failed to set default payment method', {
+        error,
+      });
+      return res.status(500).json({
+        error: 'Failed to set default payment method',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
-
-    const db = req.firebase?.db;
-    if (!db) throw new Error('Firebase context not available');
-    const environment = req.isStaging ? 'staging' : 'production';
-
-    const customerDoc = await db
-      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
-      .where('userId', '==', userId)
-      .where('environment', '==', environment)
-      .limit(1)
-      .get();
-
-    if (customerDoc.empty) {
-      return res.status(404).json({ error: 'No Stripe customer found' });
-    }
-
-    const customerId = customerDoc.docs[0]?.data()['stripeCustomerId'] as string;
-    const stripe = getStripeClient(environment);
-
-    await stripe.customers.update(customerId, {
-      invoice_settings: { default_payment_method: methodId },
-    });
-
-    logger.info('[POST /payment-methods/default] Default payment method updated', {
-      userId,
-      methodId,
-    });
-    return res.json({ success: true });
-  } catch (error) {
-    logger.error('[POST /payment-methods/default] Failed to set default payment method', {
-      error,
-    });
-    return res.status(500).json({
-      error: 'Failed to set default payment method',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
   }
-});
+);
 
 /**
  * POST /api/v1/usage/billing-info
  * Update billing information
  */
-router.post('/billing-info', appGuard, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.uid;
-    const { name, addressLine1, addressLine2, country } = req.body;
+router.post(
+  '/billing-info',
+  appGuard,
+  validateBody(SimpleBillingInfoDto),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.uid;
+      const { name, addressLine1, addressLine2, country } = req.body as SimpleBillingInfoDto;
 
-    if (!name || typeof name !== 'string') {
-      return res.status(400).json({ error: 'Missing required field: name' });
+      const db = req.firebase?.db;
+      if (!db) throw new Error('Firebase context not available');
+
+      await db
+        .collection('billingInfo')
+        .doc(userId)
+        .set(
+          {
+            name: String(name).slice(0, 200),
+            addressLine1: String(addressLine1 ?? '').slice(0, 200),
+            addressLine2: String(addressLine2 ?? '').slice(0, 200),
+            country: String(country ?? '').slice(0, 100),
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+
+      logger.info('[POST /billing-info] Billing info updated', { userId });
+      return res.json({ success: true });
+    } catch (error) {
+      logger.error('[POST /billing-info] Failed to update billing info', { error });
+      return res.status(500).json({
+        error: 'Failed to update billing info',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
-
-    const db = req.firebase?.db;
-    if (!db) throw new Error('Firebase context not available');
-
-    await db
-      .collection('billingInfo')
-      .doc(userId)
-      .set(
-        {
-          name: String(name).slice(0, 200),
-          addressLine1: String(addressLine1 ?? '').slice(0, 200),
-          addressLine2: String(addressLine2 ?? '').slice(0, 200),
-          country: String(country ?? '').slice(0, 100),
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-
-    logger.info('[POST /billing-info] Billing info updated', { userId });
-    return res.json({ success: true });
-  } catch (error) {
-    logger.error('[POST /billing-info] Failed to update billing info', { error });
-    return res.status(500).json({
-      error: 'Failed to update billing info',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
   }
-});
+);
 
 /**
  * GET /api/v1/usage/budgets
@@ -948,65 +962,67 @@ router.get('/invoice/:transactionId', appGuard, async (req: Request, res: Respon
  * POST /api/v1/usage/coupon/redeem
  * Redeem a coupon code
  */
-router.post('/coupon/redeem', appGuard, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.uid;
-    const { code } = req.body;
-    if (!code || typeof code !== 'string') {
-      return res.status(400).json({ error: 'Missing required field: code' });
+router.post(
+  '/coupon/redeem',
+  appGuard,
+  validateBody(RedeemCouponDto),
+  async (req: Request, res: Response) => {
+    try {
+      const userId = req.user!.uid;
+      const { code } = req.body as RedeemCouponDto;
+
+      const db = req.firebase?.db;
+      if (!db) throw new Error('Firebase context not available');
+      const environment = req.isStaging ? 'staging' : 'production';
+
+      // Look up coupon in Stripe
+      const stripe = getStripeClient(environment);
+      const promotionCodes = await stripe.promotionCodes.list({
+        code: code.trim().toUpperCase(),
+        active: true,
+        limit: 1,
+      });
+
+      if (promotionCodes.data.length === 0) {
+        return res.status(404).json({ error: 'Invalid or expired coupon code' });
+      }
+
+      // Apply coupon to customer
+      const customerDoc = await db
+        .collection(COLLECTIONS.STRIPE_CUSTOMERS)
+        .where('userId', '==', userId)
+        .where('environment', '==', environment)
+        .limit(1)
+        .get();
+
+      if (customerDoc.empty) {
+        return res.status(404).json({ error: 'No billing account found' });
+      }
+
+      const customerId = customerDoc.docs[0]?.data()['stripeCustomerId'] as string;
+      const promoCode = promotionCodes.data[0]!;
+      const couponObj = (promoCode as unknown as Record<string, unknown>)['coupon'] as
+        | string
+        | { id: string }
+        | undefined;
+      const couponId = typeof couponObj === 'string' ? couponObj : couponObj?.id;
+
+      if (couponId) {
+        await stripe.customers.update(customerId, {
+          promotion_code: promoCode.id,
+        } as Record<string, unknown>);
+      }
+
+      logger.info('[POST /coupon/redeem] Coupon redeemed', { userId, code: code.trim() });
+      return res.json({ success: true });
+    } catch (error) {
+      logger.error('[POST /coupon/redeem] Failed to redeem coupon', { error });
+      return res.status(500).json({
+        error: 'Failed to redeem coupon',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
-
-    const db = req.firebase?.db;
-    if (!db) throw new Error('Firebase context not available');
-    const environment = req.isStaging ? 'staging' : 'production';
-
-    // Look up coupon in Stripe
-    const stripe = getStripeClient(environment);
-    const promotionCodes = await stripe.promotionCodes.list({
-      code: code.trim().toUpperCase(),
-      active: true,
-      limit: 1,
-    });
-
-    if (promotionCodes.data.length === 0) {
-      return res.status(404).json({ error: 'Invalid or expired coupon code' });
-    }
-
-    // Apply coupon to customer
-    const customerDoc = await db
-      .collection(COLLECTIONS.STRIPE_CUSTOMERS)
-      .where('userId', '==', userId)
-      .where('environment', '==', environment)
-      .limit(1)
-      .get();
-
-    if (customerDoc.empty) {
-      return res.status(404).json({ error: 'No billing account found' });
-    }
-
-    const customerId = customerDoc.docs[0]?.data()['stripeCustomerId'] as string;
-    const promoCode = promotionCodes.data[0]!;
-    const couponObj = (promoCode as unknown as Record<string, unknown>)['coupon'] as
-      | string
-      | { id: string }
-      | undefined;
-    const couponId = typeof couponObj === 'string' ? couponObj : couponObj?.id;
-
-    if (couponId) {
-      await stripe.customers.update(customerId, {
-        promotion_code: promoCode.id,
-      } as Record<string, unknown>);
-    }
-
-    logger.info('[POST /coupon/redeem] Coupon redeemed', { userId, code: code.trim() });
-    return res.json({ success: true });
-  } catch (error) {
-    logger.error('[POST /coupon/redeem] Failed to redeem coupon', { error });
-    return res.status(500).json({
-      error: 'Failed to redeem coupon',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
   }
-});
+);
 
 export default router;

@@ -17,14 +17,63 @@
       ]
     },
     {
-      "collectionGroup": "agent_briefings",
+      "collectionGroup": "Events",
       "queryScope": "COLLECTION",
-      "fields": [{ "fieldPath": "generatedAt", "order": "DESCENDING" }]
+      "fields": [
+        { "fieldPath": "ownerType", "order": "ASCENDING" },
+        { "fieldPath": "sport", "order": "ASCENDING" },
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
     },
     {
-      "collectionGroup": "agent_playbooks",
+      "collectionGroup": "News",
       "queryScope": "COLLECTION",
-      "fields": [{ "fieldPath": "generatedAt", "order": "DESCENDING" }]
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "publishedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "Posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "Videos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ownerType", "order": "ASCENDING" },
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "Colleges",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "state", "order": "ASCENDING" },
+        { "fieldPath": "acceptanceRate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "Colleges",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sport", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "state", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "Colleges",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "state", "order": "ASCENDING" },
+        { "fieldPath": "name", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

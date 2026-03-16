@@ -119,21 +119,18 @@ export class GenerateImageTool extends BaseTool {
       const file = bucket.file(filePath);
       const imageBuffer = Buffer.from(result.imageBase64, 'base64');
 
+      // Upload the file
       await file.save(imageBuffer, {
-        metadata: {
-          contentType: result.mimeType,
-          cacheControl: 'public, max-age=31536000, immutable',
-          metadata: {
-            generatedBy: 'agent-x',
-            userId: userId as string,
-            model: result.model,
-          },
-        },
+        contentType: result.mimeType,
+        metadata: { cacheControl: 'public, max-age=31536000, immutable' },
       });
 
-      // Make the file publicly readable (generated graphics are not sensitive)
-      await file.makePublic();
-      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
+      // Generate a long-lived signed URL (7 years).
+      // This works with Uniform Bucket-Level Access and new .firebasestorage.app buckets
+      // where per-object ACLs and download tokens are not supported.
+      const expires = new Date();
+      expires.setFullYear(expires.getFullYear() + 7);
+      const [publicUrl] = await file.getSignedUrl({ action: 'read', expires });
 
       return {
         success: true,

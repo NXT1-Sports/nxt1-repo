@@ -31,7 +31,7 @@
  *   [showLocation]="true"
  *   (profileChange)="onProfileChange($event)"
  *   (photoSelect)="onPhotoSelect()"
- *   (fileSelected)="onFileSelected($event)"
+ *   (filesSelected)="onFilesSelected($event)"
  *   (locationRequest)="onLocationRequest()"
  * />
  * ```
@@ -73,6 +73,7 @@ import { NxtFormFieldComponent } from '../../components/form-field';
 import { NxtListRowComponent } from '../../components/list-row';
 import { NxtListSectionComponent } from '../../components/list-section';
 import { NxtModalService } from '../../services/modal';
+import { NxtMediaGalleryComponent } from '../../components/media-gallery';
 
 // ============================================
 // CONSTANTS
@@ -109,10 +110,23 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
     NxtFormFieldComponent,
     NxtListRowComponent,
     NxtListSectionComponent,
+    NxtMediaGalleryComponent,
   ],
   template: `
     @if (variant() === 'list-row') {
       <div class="nxt1-profile-form" data-testid="onboarding-profile-step">
+        <!-- Profile Photos Gallery (list-row variant) -->
+        <div class="nxt1-photo-gallery-section">
+          <p class="nxt1-gallery-label">Profile Photos</p>
+          <nxt1-media-gallery
+            [images]="profileImgs()"
+            [maxImages]="8"
+            [addLabel]="'Add Photo'"
+            (add)="openImagePicker()"
+            (remove)="removeImage($event)"
+          />
+        </div>
+
         <nxt1-list-section>
           <nxt1-list-row label="First Name" (tap)="openFirstNamePrompt()">
             <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!firstName()">
@@ -207,6 +221,17 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
             />
           </nxt1-form-field>
         </div>
+
+        <!-- Profile Photos Gallery -->
+        <nxt1-form-field label="Profile Photos" testId="onboarding-photos-field">
+          <nxt1-media-gallery
+            [images]="profileImgs()"
+            [maxImages]="8"
+            [addLabel]="'Add Photo'"
+            (add)="openImagePicker()"
+            (remove)="removeImage($event)"
+          />
+        </nxt1-form-field>
 
         <!-- Coach Title Selection (only shown for coach role) -->
         @if (showCoachTitle()) {
@@ -309,6 +334,16 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
         }
       </div>
     }
+
+    <!-- Hidden file input for web photo upload (supports multiple) -->
+    <input
+      #fileInput
+      type="file"
+      class="hidden"
+      accept="image/jpeg,image/png,image/webp,image/gif"
+      multiple
+      (change)="onFileSelected($event)"
+    />
   `,
   styles: [
     `
@@ -590,6 +625,25 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
       .nxt1-list-placeholder {
         color: var(--nxt1-color-text-tertiary);
       }
+
+      /* Photo gallery section in list-row variant */
+      .nxt1-photo-gallery-section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 8px);
+        padding: var(--nxt1-spacing-4, 16px);
+        padding-bottom: 0;
+      }
+
+      .nxt1-gallery-label {
+        margin: 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        font-weight: 600;
+        color: var(--nxt1-color-text-tertiary);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -649,8 +703,8 @@ export class OnboardingProfileStepComponent {
   /** Emits when photo picker should be shown (for native photo picker integration) */
   readonly photoSelect = output<void>();
 
-  /** Emits when a file is selected from the web file picker */
-  readonly fileSelected = output<File>();
+  /** Emits when files are selected from the web file picker - now supports multiple */
+  readonly filesSelected = output<File[]>();
 
   /** Emits when location detection is requested */
   readonly locationRequest = output<void>();
@@ -678,8 +732,8 @@ export class OnboardingProfileStepComponent {
   /** Last name value */
   readonly lastName = signal('');
 
-  /** Profile image URL or data URI */
-  readonly profileImg = signal<string | null>(null);
+  /** Profile images array (URLs or data URIs) */
+  readonly profileImgs = signal<string[]>([]);
 
   /** Selected gender */
   readonly gender = signal<GenderOption | null>(null);
@@ -706,8 +760,8 @@ export class OnboardingProfileStepComponent {
   // COMPUTED SIGNALS
   // ============================================
 
-  /** Whether profile has an image */
-  readonly hasProfileImage = computed(() => !!this.profileImg());
+  /** Whether profile has images */
+  readonly hasProfileImage = computed(() => this.profileImgs().length > 0);
 
   /** Whether location is set */
   readonly hasLocation = computed(() => {
@@ -767,7 +821,7 @@ export class OnboardingProfileStepComponent {
       if (data) {
         this.firstName.set(data.firstName || '');
         this.lastName.set(data.lastName || '');
-        this.profileImg.set(data.profileImgs?.[0] || null);
+        this.profileImgs.set(data.profileImgs || []);
         this.gender.set(data.gender ?? null);
         this.location.set(data.location ?? null);
         this.coachTitle.set((data.coachTitle as CoachTitleOption) ?? null);
@@ -861,63 +915,106 @@ export class OnboardingProfileStepComponent {
   }
 
   /**
-   * Handle file selection from web file picker
+   * Open image picker (for media gallery "Add" button)
+   */
+  openImagePicker(): void {
+    // Emit event for native photo picker (mobile)
+    this.photoSelect.emit();
+
+    // Trigger file input for web (SSR-safe)
+    if (this.isBrowser && this.fileInputRef?.nativeElement) {
+      this.fileInputRef.nativeElement.click();
+    }
+  }
+
+  /**
+   * Remove image at specified index from gallery
+   */
+  removeImage(index: number): void {
+    const currentImages = this.profileImgs();
+    const urlToRemove = currentImages[index];
+    if (urlToRemove && urlToRemove.startsWith('blob:')) {
+      URL.revokeObjectURL(urlToRemove);
+    }
+    const nextImages = currentImages.filter((_, i) => i !== index);
+    this.profileImgs.set(nextImages);
+    this.emitProfileChange();
+
+    this.logger.debug('Image removed from gallery', {
+      removedIndex: index,
+      remainingCount: nextImages.length,
+    });
+  }
+
+  /**
+   * Handle file selection from web file picker - now supports multiple files
    */
   onFileSelected(event: Event): void {
     if (!this.isBrowser) return;
 
     const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
+    const files = Array.from(input.files ?? []);
 
-    if (!file) return;
+    if (files.length === 0) return;
 
-    // Validate file type
-    if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
-      this.logger.warn('Invalid file type rejected', {
-        fileType: file.type,
-        fileName: file.name,
-        acceptedTypes: ACCEPTED_IMAGE_TYPES,
-      });
-      this.toast.warning('Please select a valid image file (JPG, PNG, WebP, or GIF)');
-      return;
+    const validFiles: File[] = [];
+
+    // Validate each file
+    for (const file of files) {
+      // Validate file type
+      if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+        this.logger.warn('Invalid file type rejected', {
+          fileType: file.type,
+          fileName: file.name,
+          acceptedTypes: ACCEPTED_IMAGE_TYPES,
+        });
+        this.toast.warning(
+          `${file.name}: Please select a valid image file (JPG, PNG, WebP, or GIF)`
+        );
+        continue;
+      }
+
+      // Validate file size
+      if (file.size > MAX_FILE_SIZE) {
+        this.logger.warn('File too large rejected', {
+          fileSize: file.size,
+          maxSize: MAX_FILE_SIZE,
+          fileName: file.name,
+        });
+        this.toast.warning(`${file.name}: Image must be smaller than 5MB`);
+        continue;
+      }
+
+      validFiles.push(file);
     }
 
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
-      this.logger.warn('File too large rejected', {
-        fileSize: file.size,
-        maxSize: MAX_FILE_SIZE,
-        fileName: file.name,
-      });
-      this.toast.warning('Image must be smaller than 5MB');
-      return;
-    }
+    if (validFiles.length === 0) return;
 
     // Log successful file selection
-    this.logger.debug('Profile photo selected', {
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type,
+    this.logger.debug('Profile photos selected', {
+      count: validFiles.length,
+      fileNames: validFiles.map((f) => f.name),
     });
 
-    // Emit file for parent to handle upload
-    this.fileSelected.emit(file);
+    // Emit files for parent to handle upload
+    this.filesSelected.emit(validFiles);
 
-    // Create preview URL
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      this.profileImg.set(dataUrl);
-      this.emitProfileChange();
-      this.logger.debug('Profile photo preview loaded');
-    };
-    reader.onerror = () => {
-      this.logger.error('Failed to read profile photo', reader.error, {
-        fileName: file.name,
-      });
-      this.toast.error('Failed to load image preview');
-    };
-    reader.readAsDataURL(file);
+    // Create instant preview URLs for all selected images
+    const previewUrls: string[] = [];
+    for (const file of validFiles) {
+      const previewUrl = URL.createObjectURL(file);
+      previewUrls.push(previewUrl);
+    }
+
+    // Add preview URLs to existing images
+    const currentImages = this.profileImgs();
+    this.profileImgs.set([...currentImages, ...previewUrls]);
+    this.emitProfileChange();
+
+    this.logger.debug('Profile photo previews created', {
+      count: previewUrls.length,
+      totalImages: this.profileImgs().length,
+    });
 
     // Reset input to allow selecting same file again
     input.value = '';
@@ -925,9 +1022,11 @@ export class OnboardingProfileStepComponent {
 
   /**
    * Set profile image from external source (e.g., native photo picker)
+   * Adds the image to the existing gallery
    */
   setProfileImage(imageUrl: string): void {
-    this.profileImg.set(imageUrl);
+    const currentImages = this.profileImgs();
+    this.profileImgs.set([...currentImages, imageUrl]);
     this.emitProfileChange();
   }
 
@@ -939,10 +1038,11 @@ export class OnboardingProfileStepComponent {
    * Emit profile change event with current data
    */
   private emitProfileChange(): void {
+    const images = this.profileImgs();
     this.profileChange.emit({
       firstName: this.firstName(),
       lastName: this.lastName(),
-      profileImgs: this.profileImg() ? [this.profileImg()!] : null,
+      profileImgs: images.length > 0 ? images : null,
       gender: this.gender(),
       location: this.location(),
       coachTitle: this.showCoachTitle() ? this.coachTitle() : null,

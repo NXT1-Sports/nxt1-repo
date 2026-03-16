@@ -19,6 +19,8 @@
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { optionalAuth } from '../middleware/auth.middleware.js';
+import { validateBody } from '../middleware/validation.middleware.js';
+import { UpdateNewsProgressDto } from '../dtos/social.dto.js';
 import { logger } from '../utils/logger.js';
 import { NxtApiError, notFoundError, internalError, validationError } from '@nxt1/core/errors';
 import { NEWS_CACHE_KEYS, NEWS_CACHE_TTL } from '@nxt1/core';
@@ -723,68 +725,73 @@ router.post('/:id/bookmark', optionalAuth, async (req: Request, res: Response): 
  * Update reading progress (0‒100). Awards XP on first completion.
  * Body: { progress: number }
  */
-router.post('/:id/progress', optionalAuth, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const id = req.params['id'] as string;
-    const progress = Math.max(0, Math.min(100, Number(req.body['progress'] ?? 0)));
-    const userId = req.user?.uid;
-    const db = req.firebase!.db;
+router.post(
+  '/:id/progress',
+  optionalAuth,
+  validateBody(UpdateNewsProgressDto),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const id = req.params['id'] as string;
+      const { progress } = req.body as UpdateNewsProgressDto;
+      const userId = req.user?.uid;
+      const db = req.firebase!.db;
 
-    const doc = await db.collection(NEWS_COLLECTION).doc(id).get();
-    if (!doc.exists) {
-      const error = notFoundError('article', id);
-      res.status(error.statusCode).json(error.toResponse());
-      return;
-    }
-
-    const articleData = doc.data() as Record<string, unknown>;
-    const isCompleted = progress >= 100;
-    let xpEarned = 0;
-
-    if (userId) {
-      const progressRef = db.collection(USER_READING_PROGRESS_COLLECTION).doc(`${userId}_${id}`);
-
-      const prevSnap = await progressRef.get();
-      const wasCompleted =
-        prevSnap.exists && Boolean((prevSnap.data() as Record<string, unknown>)['isCompleted']);
-
-      await progressRef.set(
-        { userId, articleId: id, progress, isCompleted, updatedAt: FieldValue.serverTimestamp() },
-        { merge: true }
-      );
-
-      if (isCompleted && !wasCompleted) {
-        xpEarned = Number(articleData['xpReward'] ?? 10);
-
-        await db
-          .collection(USER_READING_STATS_COLLECTION)
-          .doc(userId)
-          .set(
-            {
-              articlesRead: FieldValue.increment(1),
-              minutesRead: FieldValue.increment(Number(articleData['readingTimeMinutes'] ?? 0)),
-              xpEarned: FieldValue.increment(xpEarned),
-              updatedAt: FieldValue.serverTimestamp(),
-            },
-            { merge: true }
-          );
-
-        const cache = getCacheService();
-        await cache.del(`${NEWS_CACHE_KEYS.READING_STATS}:${userId}`);
+      const doc = await db.collection(NEWS_COLLECTION).doc(id).get();
+      if (!doc.exists) {
+        const error = notFoundError('article', id);
+        res.status(error.statusCode).json(error.toResponse());
+        return;
       }
-    }
 
-    res.json({ success: true, data: { xpEarned, isCompleted } });
-  } catch (err) {
-    if (err instanceof NxtApiError) {
-      res.status(err.statusCode).json(err.toResponse());
-      return;
+      const articleData = doc.data() as Record<string, unknown>;
+      const isCompleted = progress >= 100;
+      let xpEarned = 0;
+
+      if (userId) {
+        const progressRef = db.collection(USER_READING_PROGRESS_COLLECTION).doc(`${userId}_${id}`);
+
+        const prevSnap = await progressRef.get();
+        const wasCompleted =
+          prevSnap.exists && Boolean((prevSnap.data() as Record<string, unknown>)['isCompleted']);
+
+        await progressRef.set(
+          { userId, articleId: id, progress, isCompleted, updatedAt: FieldValue.serverTimestamp() },
+          { merge: true }
+        );
+
+        if (isCompleted && !wasCompleted) {
+          xpEarned = Number(articleData['xpReward'] ?? 10);
+
+          await db
+            .collection(USER_READING_STATS_COLLECTION)
+            .doc(userId)
+            .set(
+              {
+                articlesRead: FieldValue.increment(1),
+                minutesRead: FieldValue.increment(Number(articleData['readingTimeMinutes'] ?? 0)),
+                xpEarned: FieldValue.increment(xpEarned),
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+
+          const cache = getCacheService();
+          await cache.del(`${NEWS_CACHE_KEYS.READING_STATS}:${userId}`);
+        }
+      }
+
+      res.json({ success: true, data: { xpEarned, isCompleted } });
+    } catch (err) {
+      if (err instanceof NxtApiError) {
+        res.status(err.statusCode).json(err.toResponse());
+        return;
+      }
+      logger.error('[News] POST /:id/progress error', { err });
+      const error = internalError(err);
+      res.status(error.statusCode).json(error.toResponse());
     }
-    logger.error('[News] POST /:id/progress error', { err });
-    const error = internalError(err);
-    res.status(error.statusCode).json(error.toResponse());
   }
-});
+);
 
 /**
  * POST /api/v1/news/:id/read

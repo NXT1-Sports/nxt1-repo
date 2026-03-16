@@ -1,0 +1,319 @@
+rules_version = '2';
+
+/**
+ * @fileoverview Firestore Security Rules - Production-Professional Grade
+ * @version 2.0.0
+ * @description Document-level access control with auth checks, role validation, and field-level restrictions
+ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
+    
+    /**
+     * Check if user is authenticated
+     */
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    /**
+     * Check if user owns the document
+     */
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    /**
+     * Check if user has specific role
+     */
+    function hasRole(role) {
+      return isAuthenticated() 
+        && get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.role == role;
+    }
+    
+    /**
+     * Check if user has any of the specified roles
+     */
+    function hasAnyRole(roles) {
+      return isAuthenticated() 
+        && get(/databases/$(database)/documents/Users/$(request.auth.uid)).data.role in roles;
+    }
+    
+    /**
+     * Check if user is admin
+     */
+    function isAdmin() {
+      return hasRole('admin');
+    }
+    
+    /**
+     * Check if update only modifies allowed fields
+     */
+    function onlyUpdatesFields(allowedFields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedFields);
+    }
+    
+    /**
+     * Validate sport ID format (e.g., 'football', 'basketball')
+     */
+    function isValidSportId(sportId) {
+      return sportId is string && sportId.size() > 0 && sportId.size() <= 50;
+    }
+    
+    // ============================================
+    // USERS COLLECTION
+    // ============================================
+    
+    match /Users/{userId} {
+      // Read: User can read own profile, or any public profile data
+      allow read: if isAuthenticated();
+      
+      // Create: Only during sign-up, must match auth UID
+      allow create: if isOwner(userId) 
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data._schemaVersion == 2;
+      
+      // Update: User can only update own profile, cannot change role or sensitive fields
+      allow update: if isOwner(userId) 
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'role', 
+          'createdAt', 
+          '_schemaVersion',
+          'email' // Email changes require backend verification
+        ]);
+      
+      // Delete: Only admins or user themselves can delete
+      allow delete: if isOwner(userId) || isAdmin();
+      
+      // ============================================
+      // USER SUB-COLLECTIONS
+      // ============================================
+      
+      // Email OAuth tokens - Backend/Functions ONLY
+      match /emailTokens/{provider} {
+        allow read, write: if false; // Only Cloud Functions can access
+      }
+      
+      // User metrics (stats, analytics)
+      match /metrics/{metricId} {
+        allow read: if isOwner(userId);
+        allow write: if false; // Only Cloud Functions can write metrics
+      }
+      
+      // User notifications
+      match /notifications/{notificationId} {
+        allow read: if isOwner(userId);
+        allow create: if isAuthenticated(); // Others can send notifications
+        allow update: if isOwner(userId) && onlyUpdatesFields(['read', 'readAt']);
+        allow delete: if isOwner(userId);
+      }
+      
+      // User recruiting data
+      match /recruiting/{dataId} {
+        allow read: if isOwner(userId) || hasAnyRole(['coach', 'recruiter']);
+        allow write: if isOwner(userId);
+      }
+      
+      // User subscription data
+      match /subscription/{docId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if false; // Only Cloud Functions (Stripe webhooks) can write
+      }
+    }
+    
+    // ============================================
+    // POSTS COLLECTION
+    // ============================================
+    
+    match /Posts/{postId} {
+      // Read: Based on visibility
+      allow read: if isAuthenticated() 
+        && (
+          resource.data.visibility == 'public' 
+          || (resource.data.visibility == 'followers' && isFollowing(resource.data.authorId))
+          || isOwner(resource.data.authorId)
+          || isAdmin()
+        );
+      
+      // Create: Must be authenticated, author must be self
+      allow create: if isAuthenticated() 
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.visibility in ['public', 'followers', 'team', 'private']
+        && request.resource.data.sportId is string;
+      
+      // Update: Only author or admin
+      allow update: if isOwner(resource.data.authorId) || isAdmin();
+      
+      // Delete: Only author or admin
+      allow delete: if isOwner(resource.data.authorId) || isAdmin();
+      
+      // Comments sub-collection
+      match /comments/{commentId} {
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() 
+          && request.resource.data.authorId == request.auth.uid;
+        allow update, delete: if isOwner(resource.data.authorId) || isAdmin();
+      }
+      
+      // Likes sub-collection
+      match /likes/{userId} {
+        allow read: if isAuthenticated();
+        allow create, delete: if isOwner(userId);
+      }
+    }
+    
+    // ============================================
+    // TEAMS COLLECTION
+    // ============================================
+    
+    match /Teams/{teamId} {
+      // Read: Public or team members
+      allow read: if isAuthenticated();
+      
+      // Create: Coaches and directors can create teams
+      allow create: if hasAnyRole(['coach', 'director']) 
+        && request.resource.data.ownerId == request.auth.uid
+        && isValidSportId(request.resource.data.sportId);
+      
+      // Update: Only team owner/admin
+      allow update: if isOwner(resource.data.ownerId) || isAdmin();
+      
+      // Delete: Only team owner/admin
+      allow delete: if isOwner(resource.data.ownerId) || isAdmin();
+      
+      // Roster entries
+      match /roster/{athleteId} {
+        allow read: if isAuthenticated();
+        allow write: if isOwner(get(/databases/$(database)/documents/Teams/$(teamId)).data.ownerId) 
+          || isAdmin();
+      }
+      
+      // Team events
+      match /events/{eventId} {
+        allow read: if isAuthenticated();
+        allow write: if isOwner(get(/databases/$(database)/documents/Teams/$(teamId)).data.ownerId) 
+          || isAdmin();
+      }
+    }
+    
+    // ============================================
+    // FOLLOWS COLLECTION (N:N Junction)
+    // ============================================
+    
+    match /Follows/{followId} {
+      // Read: Authenticated users
+      allow read: if isAuthenticated();
+      
+      // Create: User can follow others
+      allow create: if isAuthenticated() 
+        && request.resource.data.followerId == request.auth.uid;
+      
+      // Delete: User can unfollow
+      allow delete: if isOwner(resource.data.followerId);
+    }
+    
+    // ============================================
+    // COLLEGES COLLECTION
+    // ============================================
+    
+    match /Colleges/{collegeId} {
+      // Read: Public data
+      allow read: if isAuthenticated();
+      
+      // Write: Only admins can modify college data
+      allow write: if isAdmin();
+      
+      // College contacts
+      match /contacts/{contactId} {
+        allow read: if isAuthenticated();
+        allow write: if isAdmin() || hasRole('recruiter');
+      }
+    }
+    
+    // ============================================
+    // SUBSCRIPTIONS COLLECTION
+    // ============================================
+    
+    match /Subscriptions/{subscriptionId} {
+      // Read: Only subscription owner or admin
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      
+      // Write: Only Cloud Functions (Stripe webhooks)
+      allow write: if false;
+    }
+    
+    // ============================================
+    // PAYMENTS COLLECTION
+    // ============================================
+    
+    match /Payments/{paymentId} {
+      // Read: Only payment owner or admin
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      
+      // Write: Only Cloud Functions (payment processing)
+      allow write: if false;
+    }
+    
+    // ============================================
+    // ACTIVITY FEED
+    // ============================================
+    
+    match /Activity/{activityId} {
+      // Read: User can read own activity feed
+      allow read: if isOwner(resource.data.userId);
+      
+      // Write: Only Cloud Functions generate activity
+      allow write: if false;
+    }
+    
+    // ============================================
+    // ANALYTICS & METRICS
+    // ============================================
+    
+    match /Analytics/{docId} {
+      // Read: Admins only
+      allow read: if isAdmin();
+      
+      // Write: Only Cloud Functions
+      allow write: if false;
+    }
+    
+    // ============================================
+    // SYSTEM COLLECTIONS
+    // ============================================
+    
+    match /SystemConfig/{configId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    match /FeatureFlags/{flagId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    
+    // ============================================
+    // HELPER FUNCTION IMPLEMENTATIONS
+    // ============================================
+    
+    /**
+     * Check if current user follows another user
+     */
+    function isFollowing(targetUserId) {
+      return exists(/databases/$(database)/documents/Follows/$(request.auth.uid + '_' + targetUserId));
+    }
+    
+    // ============================================
+    // DENY ALL OTHER ACCESS
+    // ============================================
+    
+    // Explicitly deny access to any unlisted collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

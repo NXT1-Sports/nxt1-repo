@@ -14,6 +14,8 @@
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { appGuard } from '../middleware/auth.middleware.js';
+import { validateBody } from '../middleware/validation.middleware.js';
+import { FollowUserDto, UnfollowUserDto } from '../dtos/social.dto.js';
 import { dispatch } from '../services/notification.service.js';
 import { getUserById } from '../services/users.service.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
@@ -50,67 +52,72 @@ function getDisplayName(user: { [key: string]: unknown } | null): string {
  *   2. Increments follower.followingCount and target.followersCount
  * Dispatches new_follower notification to the followed user (fire-and-forget).
  */
-router.post('/', appGuard, async (req: Request, res: Response): Promise<void> => {
-  const followerId = req.user!.uid;
-  const { targetUserId } = req.body as { targetUserId?: string };
-  const db = req.firebase!.db;
+router.post(
+  '/',
+  appGuard,
+  validateBody(FollowUserDto),
+  async (req: Request, res: Response): Promise<void> => {
+    const followerId = req.user!.uid;
+    const { targetUserId } = req.body as { targetUserId?: string };
+    const db = req.firebase!.db;
 
-  if (!targetUserId || typeof targetUserId !== 'string') {
-    res.status(400).json({ success: false, error: 'targetUserId is required' });
-    return;
-  }
+    if (!targetUserId || typeof targetUserId !== 'string') {
+      res.status(400).json({ success: false, error: 'targetUserId is required' });
+      return;
+    }
 
-  if (followerId === targetUserId) {
-    res.status(400).json({ success: false, error: 'Cannot follow yourself' });
-    return;
-  }
+    if (followerId === targetUserId) {
+      res.status(400).json({ success: false, error: 'Cannot follow yourself' });
+      return;
+    }
 
-  const followRef = db.collection(FOLLOWS_COLLECTION).doc(`${followerId}_${targetUserId}`);
-  const followerRef = db.collection(USERS_COLLECTION).doc(followerId);
-  const followingRef = db.collection(USERS_COLLECTION).doc(targetUserId);
+    const followRef = db.collection(FOLLOWS_COLLECTION).doc(`${followerId}_${targetUserId}`);
+    const followerRef = db.collection(USERS_COLLECTION).doc(followerId);
+    const followingRef = db.collection(USERS_COLLECTION).doc(targetUserId);
 
-  let isNewFollow = false;
+    let isNewFollow = false;
 
-  await db.runTransaction(async (transaction) => {
-    const followDoc = await transaction.get(followRef);
-    if (followDoc.exists) return; // idempotent — already following
+    await db.runTransaction(async (transaction) => {
+      const followDoc = await transaction.get(followRef);
+      if (followDoc.exists) return; // idempotent — already following
 
-    transaction.set(followRef, {
-      followerId,
-      followingId: targetUserId,
-      createdAt: Timestamp.now(),
-    });
-    transaction.update(followerRef, { followingCount: FieldValue.increment(1) });
-    transaction.update(followingRef, { followersCount: FieldValue.increment(1) });
-    isNewFollow = true;
-  });
-
-  logger.info('[Follow] User followed', { followerId, targetUserId, isNewFollow });
-
-  // Send response immediately — transaction is committed, client is unblocked
-  res.json({ success: true, data: { isFollowing: true } });
-
-  // Fire-and-forget: notify the followed user after response is sent
-  if (isNewFollow) {
-    void (async () => {
-      const follower = await getUserById(followerId, db);
-      const displayName = getDisplayName(follower);
-      await dispatch(db, {
-        userId: targetUserId,
-        type: NOTIFICATION_TYPES.NEW_FOLLOWER,
-        title: `${displayName} started following you`,
-        body: 'Tap to view their profile',
-        source: {
-          userId: followerId,
-          userName: displayName,
-          avatarUrl: (follower?.['profilePictureUrl'] as string | undefined) ?? undefined,
-        },
+      transaction.set(followRef, {
+        followerId,
+        followingId: targetUserId,
+        createdAt: Timestamp.now(),
       });
-    })().catch((err) =>
-      logger.error('[Follow] Failed to dispatch new_follower notification', { error: err })
-    );
+      transaction.update(followerRef, { followingCount: FieldValue.increment(1) });
+      transaction.update(followingRef, { followersCount: FieldValue.increment(1) });
+      isNewFollow = true;
+    });
+
+    logger.info('[Follow] User followed', { followerId, targetUserId, isNewFollow });
+
+    // Send response immediately — transaction is committed, client is unblocked
+    res.json({ success: true, data: { isFollowing: true } });
+
+    // Fire-and-forget: notify the followed user after response is sent
+    if (isNewFollow) {
+      void (async () => {
+        const follower = await getUserById(followerId, db);
+        const displayName = getDisplayName(follower);
+        await dispatch(db, {
+          userId: targetUserId,
+          type: NOTIFICATION_TYPES.NEW_FOLLOWER,
+          title: `${displayName} started following you`,
+          body: 'Tap to view their profile',
+          source: {
+            userId: followerId,
+            userName: displayName,
+            avatarUrl: (follower?.['profilePictureUrl'] as string | undefined) ?? undefined,
+          },
+        });
+      })().catch((err) =>
+        logger.error('[Follow] Failed to dispatch new_follower notification', { error: err })
+      );
+    }
   }
-});
+);
 
 /**
  * Unfollow a user
@@ -120,33 +127,38 @@ router.post('/', appGuard, async (req: Request, res: Response): Promise<void> =>
  * Atomic transaction: deletes follow doc, decrements both counters.
  * No notification dispatched on unfollow (standard platform behavior).
  */
-router.delete('/', appGuard, async (req: Request, res: Response): Promise<void> => {
-  const followerId = req.user!.uid;
-  const { targetUserId } = req.body as { targetUserId?: string };
-  const db = req.firebase!.db;
+router.delete(
+  '/',
+  appGuard,
+  validateBody(UnfollowUserDto),
+  async (req: Request, res: Response): Promise<void> => {
+    const followerId = req.user!.uid;
+    const { targetUserId } = req.body as { targetUserId?: string };
+    const db = req.firebase!.db;
 
-  if (!targetUserId || typeof targetUserId !== 'string') {
-    res.status(400).json({ success: false, error: 'targetUserId is required' });
-    return;
+    if (!targetUserId || typeof targetUserId !== 'string') {
+      res.status(400).json({ success: false, error: 'targetUserId is required' });
+      return;
+    }
+
+    const followRef = db.collection(FOLLOWS_COLLECTION).doc(`${followerId}_${targetUserId}`);
+    const followerRef = db.collection(USERS_COLLECTION).doc(followerId);
+    const followingRef = db.collection(USERS_COLLECTION).doc(targetUserId);
+
+    await db.runTransaction(async (transaction) => {
+      const followDoc = await transaction.get(followRef);
+      if (!followDoc.exists) return; // idempotent — not following
+
+      transaction.delete(followRef);
+      transaction.update(followerRef, { followingCount: FieldValue.increment(-1) });
+      transaction.update(followingRef, { followersCount: FieldValue.increment(-1) });
+    });
+
+    logger.info('[Follow] User unfollowed', { followerId, targetUserId });
+
+    res.json({ success: true, data: { isFollowing: false } });
   }
-
-  const followRef = db.collection(FOLLOWS_COLLECTION).doc(`${followerId}_${targetUserId}`);
-  const followerRef = db.collection(USERS_COLLECTION).doc(followerId);
-  const followingRef = db.collection(USERS_COLLECTION).doc(targetUserId);
-
-  await db.runTransaction(async (transaction) => {
-    const followDoc = await transaction.get(followRef);
-    if (!followDoc.exists) return; // idempotent — not following
-
-    transaction.delete(followRef);
-    transaction.update(followerRef, { followingCount: FieldValue.increment(-1) });
-    transaction.update(followingRef, { followersCount: FieldValue.increment(-1) });
-  });
-
-  logger.info('[Follow] User unfollowed', { followerId, targetUserId });
-
-  res.json({ success: true, data: { isFollowing: false } });
-});
+);
 
 // ============================================
 // FOLLOWER / FOLLOWING LISTS

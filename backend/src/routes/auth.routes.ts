@@ -25,7 +25,7 @@ import type {
   ContactInfo,
   ConnectedEmail,
 } from '@nxt1/core';
-import { isValidEmail, isValidTeamCode, USER_SCHEMA_VERSION, NOTIFICATION_TYPES } from '@nxt1/core';
+import { isValidTeamCode, USER_SCHEMA_VERSION, NOTIFICATION_TYPES } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import {
   validationError,
@@ -39,6 +39,8 @@ import { generateUnicodeForUser, getUserUnicode } from '../utils/unicode-generat
 import { dispatch } from '../services/notification.service.js';
 import { enqueueWelcomeGraphic } from '../services/agent-welcome.service.js';
 import * as teamCodeService from '../services/team-code.service.js';
+import { validateBody } from '../middleware/validation.middleware.js';
+import { CreateUserDto, JoinTeamDto } from '../dtos/auth.dto.js';
 
 // Import profile routes
 import profileRoutes, { invalidateProfileCaches } from './profile.routes.js';
@@ -338,9 +340,10 @@ router.post(
  */
 router.post(
   '/create-user',
+  validateBody(CreateUserDto),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { db } = req.firebase!;
-    const { uid, email, teamCode, referralId } = req.body as CreateUserRequest;
+    const { uid, email, teamCode, referralId } = req.body;
 
     logger.debug('[NXT1-REPO BACKEND] Create user request:', {
       uid: uid?.substring(0, 8) + '...',
@@ -352,28 +355,7 @@ router.post(
       port: process.env['PORT'] ?? 3000,
     });
 
-    // Validation
-    if (!uid?.trim() || !email?.trim()) {
-      const error = validationError([
-        ...(!uid?.trim()
-          ? [{ field: 'uid', message: 'User ID is required', rule: 'required' }]
-          : []),
-        ...(!email?.trim()
-          ? [{ field: 'email', message: 'Email is required', rule: 'required' }]
-          : []),
-      ]);
-      sendError(res, error);
-      return;
-    }
-
     const sanitizedEmail = email.toLowerCase().trim();
-    if (!isValidEmail(sanitizedEmail)) {
-      const error = validationError([
-        { field: 'email', message: 'Invalid email format', rule: 'email' },
-      ]);
-      sendError(res, error);
-      return;
-    }
 
     // Validate team code if provided
     let validatedTeam: {
@@ -549,27 +531,10 @@ router.post(
  */
 router.post(
   '/join-team',
+  validateBody(JoinTeamDto),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { db } = req.firebase!;
     const { userId, code } = req.body;
-
-    // Validation
-    if (!userId || !code) {
-      const error = validationError([
-        ...(!userId ? [{ field: 'userId', message: 'User ID is required', rule: 'required' }] : []),
-        ...(!code ? [{ field: 'code', message: 'Team code is required', rule: 'required' }] : []),
-      ]);
-      sendError(res, error);
-      return;
-    }
-
-    if (!isValidTeamCode(code)) {
-      const error = validationError([
-        { field: 'code', message: 'Invalid team code format', rule: 'format' },
-      ]);
-      sendError(res, error);
-      return;
-    }
 
     // Check user exists
     const userDoc = await db.collection('Users').doc(userId).get();

@@ -94,6 +94,7 @@ export async function enqueueWelcomeGraphic(
     agent: 'brand_media_coordinator',
     context: {
       origin: 'registration',
+      userId: input.userId,
       userRole: input.role,
       displayName: input.displayName,
       sport: input.sport,

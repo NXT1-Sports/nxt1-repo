@@ -18,6 +18,8 @@
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
 import { appGuard, adminGuard } from '../middleware/auth.middleware.js';
+import { validateBody } from '../middleware/validation.middleware.js';
+import { AskAgentDto, SetGoalsDto, AgentChatRequestDto } from '../dtos/agent-x.dto.js';
 import { Timestamp } from 'firebase-admin/firestore';
 import type {
   AgentJobPayload,
@@ -32,9 +34,6 @@ import type {
 } from '@nxt1/core';
 import { getShellContentForRole } from '@nxt1/core';
 import { logger } from '../utils/logger.js';
-
-/** Maximum allowed intent length (characters) to prevent prompt injection / DoS. */
-const MAX_INTENT_LENGTH = 5_000;
 
 /** Extract the authenticated user from the request (set by appGuard). */
 function getAuthUser(req: Request): { uid: string } | undefined {
@@ -62,31 +61,14 @@ const router: ExpressRouter = Router();
 
 // ─── POST /ask — Enqueue a new agent job ──────────────────────────────────
 
-router.post('/ask', appGuard, async (req: Request, res: Response) => {
+router.post('/ask', appGuard, validateBody(AskAgentDto), async (req: Request, res: Response) => {
   try {
     if (!queueService || !jobRepository) {
       res.status(503).json({ success: false, error: 'Agent queue not initialized' });
       return;
     }
 
-    const { intent, sessionId, context } = req.body as {
-      intent?: string;
-      sessionId?: string;
-      context?: Record<string, unknown>;
-    };
-
-    if (!intent || typeof intent !== 'string' || intent.trim().length === 0) {
-      res.status(400).json({ success: false, error: 'intent is required' });
-      return;
-    }
-
-    if (intent.trim().length > MAX_INTENT_LENGTH) {
-      res.status(400).json({
-        success: false,
-        error: `intent exceeds maximum length of ${MAX_INTENT_LENGTH} characters`,
-      });
-      return;
-    }
+    const { intent, sessionId, context } = req.body as AskAgentDto;
 
     const user = getAuthUser(req);
     if (!user?.uid) {
@@ -539,7 +521,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
 // ─── POST /goals — Set or update user goals (max 2) ──────────────────────
 
-router.post('/goals', appGuard, async (req: Request, res: Response) => {
+router.post('/goals', appGuard, validateBody(SetGoalsDto), async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user?.uid) {
@@ -547,29 +529,7 @@ router.post('/goals', appGuard, async (req: Request, res: Response) => {
       return;
     }
 
-    const { goals } = req.body as { goals?: AgentDashboardGoal[] };
-
-    if (!Array.isArray(goals) || goals.length === 0 || goals.length > 2) {
-      res.status(400).json({ success: false, error: 'Provide 1-2 goals' });
-      return;
-    }
-
-    // Validate each goal
-    for (const goal of goals) {
-      if (
-        !goal.id ||
-        !goal.text ||
-        typeof goal.text !== 'string' ||
-        goal.text.trim().length === 0
-      ) {
-        res.status(400).json({ success: false, error: 'Each goal must have an id and text' });
-        return;
-      }
-      if (goal.text.length > 200) {
-        res.status(400).json({ success: false, error: 'Goal text must be under 200 characters' });
-        return;
-      }
-    }
+    const { goals } = req.body as SetGoalsDto;
 
     const { db } = req.firebase!;
 
@@ -591,124 +551,112 @@ router.post('/goals', appGuard, async (req: Request, res: Response) => {
 
 // ─── POST /chat — Real conversational Agent X chat ────────────────────────
 
-router.post('/chat', appGuard, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user?.uid) {
-      res.status(401).json({ success: false, error: 'Unauthorized' });
-      return;
-    }
+router.post(
+  '/chat',
+  appGuard,
+  validateBody(AgentChatRequestDto),
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
 
-    const { message, mode, history, userContext } = req.body as {
-      message?: string;
-      mode?: string;
-      history?: Array<{ role: string; content: string }>;
-      userContext?: Record<string, unknown>;
-    };
+      const { message, mode, history, userContext } = req.body as AgentChatRequestDto;
 
-    if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      res.status(400).json({ success: false, error: 'message is required' });
-      return;
-    }
+      // Build system prompt based on role
+      const { db } = req.firebase!;
+      const userDoc = await db.collection('users').doc(user.uid).get();
+      const userData = userDoc.data() ?? {};
+      const role = (userData['role'] ?? 'athlete') as string;
+      const sport = (userData['sport'] ?? userContext?.['sport'] ?? '') as string;
+      const displayName = (userData['displayName'] ?? '') as string;
+      const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ??
+        []) as AgentDashboardGoal[];
 
-    if (message.trim().length > MAX_INTENT_LENGTH) {
-      res.status(400).json({
-        success: false,
-        error: `message exceeds maximum length of ${MAX_INTENT_LENGTH} characters`,
-      });
-      return;
-    }
+      const goalContext =
+        agentGoals.length > 0
+          ? `Their current goals are: ${agentGoals.map((g) => g.text).join('; ')}.`
+          : 'They have not set any goals yet.';
 
-    // Build system prompt based on role
-    const { db } = req.firebase!;
-    const userDoc = await db.collection('users').doc(user.uid).get();
-    const userData = userDoc.data() ?? {};
-    const role = (userData['role'] ?? 'athlete') as string;
-    const sport = (userData['sport'] ?? userContext?.['sport'] ?? '') as string;
-    const displayName = (userData['displayName'] ?? '') as string;
-    const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ?? []) as AgentDashboardGoal[];
+      const systemPrompt = [
+        `You are Agent X, the AI assistant for NXT1 — an AI-first sports platform.`,
+        `You are speaking to ${displayName || 'a user'}, who is a ${role}${sport ? ` in ${sport}` : ''}.`,
+        goalContext,
+        `Be concise, actionable, and sports-aware. Format responses with bullet points when listing items.`,
+        `If asked about tasks you can do, mention: creating highlight reels, drafting recruiting emails, generating scout reports, analyzing film, building graphics, and managing recruiting outreach.`,
+        mode ? `The user is currently in "${mode}" mode.` : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
 
-    const goalContext =
-      agentGoals.length > 0
-        ? `Their current goals are: ${agentGoals.map((g) => g.text).join('; ')}.`
-        : 'They have not set any goals yet.';
+      // Build messages for OpenRouter
+      const messages: Array<{ role: string; content: string }> = [
+        { role: 'system', content: systemPrompt },
+      ];
 
-    const systemPrompt = [
-      `You are Agent X, the AI assistant for NXT1 — an AI-first sports platform.`,
-      `You are speaking to ${displayName || 'a user'}, who is a ${role}${sport ? ` in ${sport}` : ''}.`,
-      goalContext,
-      `Be concise, actionable, and sports-aware. Format responses with bullet points when listing items.`,
-      `If asked about tasks you can do, mention: creating highlight reels, drafting recruiting emails, generating scout reports, analyzing film, building graphics, and managing recruiting outreach.`,
-      mode ? `The user is currently in "${mode}" mode.` : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
-
-    // Build messages for OpenRouter
-    const messages: Array<{ role: string; content: string }> = [
-      { role: 'system', content: systemPrompt },
-    ];
-
-    // Add conversation history (limit to last 10 for context)
-    if (history?.length) {
-      const recentHistory = history.slice(-10);
-      for (const msg of recentHistory) {
-        if (msg.role === 'user' || msg.role === 'assistant') {
-          messages.push({ role: msg.role, content: msg.content });
+      // Add conversation history (limit to last 10 for context)
+      if (history?.length) {
+        const recentHistory = history.slice(-10);
+        for (const msg of recentHistory) {
+          if (msg.role === 'user' || msg.role === 'assistant') {
+            messages.push({ role: msg.role, content: msg.content });
+          }
         }
       }
-    }
 
-    messages.push({ role: 'user', content: message.trim() });
+      messages.push({ role: 'user', content: message.trim() });
 
-    // Call OpenRouter via the backend LLM service
-    let responseContent: string;
-    let model = 'unknown';
+      // Call OpenRouter via the backend LLM service
+      let responseContent: string;
+      let model = 'unknown';
 
-    try {
-      const { OpenRouterService } = await import('../modules/agent/llm/openrouter.service.js');
-      const llm = new OpenRouterService();
-      const llmMessages = messages.map((m) => ({
-        role: m.role as 'system' | 'user' | 'assistant',
-        content: m.content,
-      }));
-      const llmResult = await llm.complete(llmMessages, {
-        tier: 'balanced',
-        maxTokens: 1024,
-        temperature: 0.7,
+      try {
+        const { OpenRouterService } = await import('../modules/agent/llm/openrouter.service.js');
+        const llm = new OpenRouterService();
+        const llmMessages = messages.map((m) => ({
+          role: m.role as 'system' | 'user' | 'assistant',
+          content: m.content,
+        }));
+        const llmResult = await llm.complete(llmMessages, {
+          tier: 'balanced',
+          maxTokens: 1024,
+          temperature: 0.7,
+        });
+        responseContent = llmResult.content ?? '';
+        model = llmResult.model;
+      } catch {
+        // Graceful fallback when OpenRouter is not configured or fails
+        logger.warn('OpenRouter not available for chat, using fallback');
+        responseContent = `I understand you're asking about "${message.slice(0, 50)}". Agent X is being set up — full AI responses will be available shortly. In the meantime, explore the Coordinator cards on your dashboard for quick actions.`;
+      }
+
+      const responseMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant' as const,
+        content: responseContent,
+        timestamp: new Date().toISOString(),
+        metadata: { model, mode },
+      };
+
+      logger.info('Agent X chat response sent', { userId: user.uid, model });
+
+      res.json({
+        success: true,
+        message: responseMessage,
       });
-      responseContent = llmResult.content ?? '';
-      model = llmResult.model;
-    } catch {
-      // Graceful fallback when OpenRouter is not configured or fails
-      logger.warn('OpenRouter not available for chat, using fallback');
-      responseContent = `I understand you're asking about "${message.slice(0, 50)}". Agent X is being set up — full AI responses will be available shortly. In the meantime, explore the Coordinator cards on your dashboard for quick actions.`;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Agent X chat failed', { error: error.message, stack: error.stack });
+      res.status(500).json({
+        success: false,
+        error: 'Failed to process message',
+        errorCode: 'AI_SERVICE_ERROR',
+      });
     }
-
-    const responseMessage = {
-      id: crypto.randomUUID(),
-      role: 'assistant' as const,
-      content: responseContent,
-      timestamp: new Date().toISOString(),
-      metadata: { model, mode },
-    };
-
-    logger.info('Agent X chat response sent', { userId: user.uid, model });
-
-    res.json({
-      success: true,
-      message: responseMessage,
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Agent X chat failed', { error: error.message, stack: error.stack });
-    res.status(500).json({
-      success: false,
-      error: 'Failed to process message',
-      errorCode: 'AI_SERVICE_ERROR',
-    });
   }
-});
+);
 
 // ─── POST /playbook/generate — Generate or regenerate weekly playbook ─────
 

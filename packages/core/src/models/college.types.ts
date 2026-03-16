@@ -32,23 +32,23 @@ export interface College {
   state: string;
   sportInfo: Record<string, CollegeSportInfo>;
   logoUrl?: string;
-  acceptanceRate?: string;
-  averageGPA?: string;
+  acceptanceRate?: number;
+  averageGPA?: number;
   compositeACT?: string;
   female?: string;
   male?: string;
   hbcu?: boolean;
   landingUrl?: string;
   majorsOffered?: string;
-  mathSAT?: string;
+  mathSAT?: number;
+  readingSAT?: number;
   public?: boolean;
-  readingSAT?: string;
   religious_affiliation?: string;
   sport?: string[];
-  totalCost?: string;
+  totalCost?: number;
   undergradsNo?: string;
   women_only?: boolean;
-  сommunity_сollege?: boolean;
+  community_college?: boolean;
   contacts?: string[]; // Contact IDs
 }
 

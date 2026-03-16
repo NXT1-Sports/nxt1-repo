@@ -226,7 +226,16 @@ export class ScraperService {
     const hostname = parsed.hostname.toLowerCase();
     for (const blocked of BLOCKED_DOMAINS) {
       if (hostname === blocked || hostname.endsWith(`.${blocked}`)) {
-        throw new Error(`Blocked host: "${hostname}". Internal/private addresses are not allowed.`);
+        throw new Error(
+          hostname.includes('instagram') ||
+            hostname.includes('twitter') ||
+            hostname.includes('tiktok') ||
+            hostname.includes('facebook') ||
+            hostname.includes('threads') ||
+            hostname.includes('snapchat')
+            ? `Cannot scrape "${hostname}" — social media platforms require authentication. Use only the user context already provided.`
+            : `Blocked host: "${hostname}". Internal/private addresses are not allowed.`
+        );
       }
     }
 

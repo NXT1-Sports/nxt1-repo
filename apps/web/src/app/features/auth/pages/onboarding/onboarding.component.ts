@@ -195,7 +195,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       <!-- Mobile: Title & Subtitle shown in form panel (top) -->
       <div authTitleMobile class="nxt1-mobile-titles">
         <nxt1-onboarding-agent-x-typewriter [message]="agentXMessage()" />
-        <h1 class="text-text-primary mt-2 mb-2 text-2xl font-bold">
+        <h1 class="mb-2 mt-2 text-2xl font-bold text-text-primary">
           {{ currentStep().title || 'Loading...' }}
         </h1>
       </div>
@@ -241,7 +241,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [showClassYear]="false"
                 (profileChange)="onProfileChange($event)"
                 (photoSelect)="onPhotoSelect()"
-                (fileSelected)="onFileSelected($event)"
+                (filesSelected)="onFilesSelected($event)"
                 (locationRequest)="onLocationRequest()"
               />
             }
@@ -346,9 +346,9 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             ) {
               <div class="py-12 text-center">
                 <div
-                  class="bg-surface-200 mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
+                  class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-surface-200"
                 >
-                  <svg viewBox="0 0 24 24" fill="none" class="text-text-tertiary h-8 w-8">
+                  <svg viewBox="0 0 24 24" fill="none" class="h-8 w-8 text-text-tertiary">
                     <path
                       d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 3c1.93 0 3.5 1.57 3.5 3.5S13.93 13 12 13s-3.5-1.57-3.5-3.5S10.07 6 12 6zm7 13H5v-.23c0-.62.28-1.2.76-1.58C7.47 15.82 9.64 15 12 15s4.53.82 6.24 2.19c.48.38.76.97.76 1.58V19z"
                       fill="currentColor"
@@ -1000,10 +1000,14 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Handle file selected from file picker (Platform-specific)
+   * Handle files selected from file picker (Platform-specific) - now supports multiple
    */
-  async onFileSelected(file: File): Promise<void> {
-    this.logger.debug('File selected', { name: file.name, size: file.size });
+  async onFilesSelected(files: File[] | Event): Promise<void> {
+    const fileArray = Array.isArray(files) ? files : [];
+    this.logger.debug('Files selected', {
+      count: fileArray.length,
+      names: fileArray.map((f) => f.name),
+    });
 
     const user = this.authFlow.user();
     if (!user) {
@@ -1011,28 +1015,50 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (fileArray.length === 0) return;
+
     try {
       this.isLoading.set(true);
+      this.toast.info(`Uploading ${fileArray.length} photo(s)...`);
+      const uploadedUrls: string[] = [];
+      for (const file of fileArray) {
+        try {
+          const photoURL = await this.authFlow.uploadProfilePhoto(file, user.uid);
+          uploadedUrls.push(photoURL);
+        } catch (err) {
+          this.logger.error('Failed to upload photo', err, { fileName: file.name });
+          this.toast.error(`Failed to upload ${file.name}`);
+        }
+      }
 
-      // Upload to Firebase Storage
-      const photoURL = await this.authFlow.uploadProfilePhoto(file, user.uid);
+      if (uploadedUrls.length > 0) {
+        const currentProfile = this._formData().profile;
+        const existingImgs = (currentProfile?.profileImgs || []).filter(
+          (url) => !url.startsWith('blob:')
+        );
 
-      // Update profile form data via machine
-      const currentProfile = this._formData().profile;
-      this.machine.updateProfile({
-        firstName: currentProfile?.firstName || '',
-        lastName: currentProfile?.lastName || '',
-        ...(currentProfile || {}),
-        profileImgs: [photoURL],
-      });
+        this.machine.updateProfile({
+          firstName: currentProfile?.firstName || '',
+          lastName: currentProfile?.lastName || '',
+          ...(currentProfile || {}),
+          profileImgs: [...existingImgs, ...uploadedUrls],
+        });
 
-      this.toast.success('Photo uploaded successfully!');
+        this.toast.success(`Uploaded ${uploadedUrls.length} photo(s) successfully!`);
+      }
     } catch (err) {
-      this.logger.error('Failed to upload photo', err);
-      this.toast.error('Failed to upload photo. Please try again.');
+      this.logger.error('Failed to upload photos', err);
+      this.toast.error('Failed to upload photos. Please try again.');
     } finally {
       this.isLoading.set(false);
     }
+  }
+
+  /**
+   * Handle file selected from file picker (Legacy single file - delegates to onFilesSelected)
+   */
+  async onFileSelected(file: File): Promise<void> {
+    await this.onFilesSelected([file]);
   }
 
   /**

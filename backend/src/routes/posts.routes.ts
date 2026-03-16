@@ -10,7 +10,7 @@ import { Router, type Router as ExpressRouter, Request, Response } from 'express
 import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { appGuard, optionalAuth } from '../middleware/auth.middleware.js';
 import { validateBody } from '../middleware/validation.middleware.js';
-import { CreatePostDto, CreateCommentDto } from '../dtos/common.dto.js';
+import { CreatePostDto, CreateCommentDto } from '../dtos/posts.dto.js';
 import { logger } from '../utils/logger.js';
 import { dispatch } from '../services/notification.service.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';

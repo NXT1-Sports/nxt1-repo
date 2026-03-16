@@ -167,7 +167,7 @@ export class ContextBuilder {
     const lines: string[] = [];
 
     lines.push(
-      `User: ${context.displayName} | Role: ${context.role} | Tier: ${context.subscriptionTier}`
+      `User: ${context.displayName} | Role: ${context.role} | Tier: ${context.subscriptionTier} | UserID: ${context.userId}`
     );
 
     if (context.sport) {
@@ -208,8 +208,20 @@ export class ContextBuilder {
     }
 
     if (context.connectedAccounts?.length) {
+      // Exclude social media platforms entirely — agents cannot scrape them (auth required)
+      // and knowing the user has instagram/twitter connected adds no actionable value.
+      // Only show platforms that agents can actually use (hudl, maxpreps, gmail, etc.)
+      const SOCIAL_MEDIA_PLATFORMS = new Set([
+        'instagram',
+        'twitter',
+        'tiktok',
+        'facebook',
+        'snapchat',
+        'threads',
+        'x',
+      ]);
       const accountParts = context.connectedAccounts
-        .filter((a) => a.isTokenValid)
+        .filter((a) => a.isTokenValid && !SOCIAL_MEDIA_PLATFORMS.has(a.provider.toLowerCase()))
         .map((a) => (a.profileUrl ? `${a.provider} (${a.profileUrl})` : a.provider));
       if (accountParts.length) lines.push(`Connected: ${accountParts.join(', ')}`);
     }

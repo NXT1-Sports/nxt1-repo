@@ -13,7 +13,13 @@
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
 import { appGuard } from '../middleware/auth.middleware.js';
 import { validateBody, validateQuery } from '../middleware/validation.middleware.js';
-import { CreateTeamDto, GetTeamsDto, TeamType } from '../dtos/common.dto.js';
+import {
+  CreateTeamDto,
+  GetTeamsDto,
+  TeamType,
+  JoinTeamDto,
+  InviteMemberDto,
+} from '../dtos/teams.dto.js';
 import { asyncHandler, sendSuccess } from '@nxt1/core/errors/express';
 import { validationError } from '@nxt1/core/errors';
 import { ROLE } from '@nxt1/core/models';
@@ -414,6 +420,7 @@ router.delete(
 router.post(
   '/:teamCode/join',
   appGuard,
+  validateBody(JoinTeamDto),
   asyncHandler(async (req: Request, res: Response) => {
     const { teamCode } = req.params;
     const { role, firstName, lastName, email, phoneNumber } = req.body;
@@ -481,6 +488,7 @@ router.post(
 router.post(
   '/:id/invite',
   appGuard,
+  validateBody(InviteMemberDto),
   asyncHandler(async (req: Request, res: Response) => {
     const { id } = req.params;
     const { userId: targetUserId, role, firstName, lastName, email, phoneNumber } = req.body;

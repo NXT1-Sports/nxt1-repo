@@ -503,7 +503,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     category: 'social',
     scope: 'global',
     sports: [],
-    placeholder: '@username',
+    placeholder: 'username',
   },
   {
     platform: 'twitter',
