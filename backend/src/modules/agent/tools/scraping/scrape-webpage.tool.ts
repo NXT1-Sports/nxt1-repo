@@ -36,7 +36,7 @@ export class ScrapeWebpageTool extends BaseTool {
     'ALWAYS try using this tool first. ' +
     'Automatically extracts embedded data: athlete stats, school/team info, ' +
     'team colors, social links, profile images, and highlight videos. ' +
-    'Returns structured JSON (from NextData, LD+JSON, OpenGraph) plus '
+    'Returns structured JSON (from NextData, LD+JSON, OpenGraph) plus ' +
     'clean prose markdown for analysis.';
 
   readonly parameters = {
