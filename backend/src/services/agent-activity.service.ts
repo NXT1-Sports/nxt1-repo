@@ -65,6 +65,7 @@ export async function logAgentTaskCompletion(
     title,
     body,
     deepLink,
+    ...(imageUrl ? { mediaUrl: imageUrl, mediaType: 'image' as const } : {}),
     data: {
       sessionId: job.sessionId,
       operationId: job.operationId,

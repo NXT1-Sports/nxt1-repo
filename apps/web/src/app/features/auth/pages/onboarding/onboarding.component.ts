@@ -368,11 +368,12 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       <div authFooter class="desktop-footer">
         @if (!isMobile()) {
           <nxt1-onboarding-navigation-buttons
-            [showSkip]="false"
+            [showSkip]="isCurrentStepOptional()"
             [showBack]="canGoBack()"
             [isLastStep]="isLastStep()"
             [loading]="isLoading()"
             [disabled]="!isCurrentStepValid()"
+            (skipClick)="onSkip()"
             (backClick)="onBack()"
             (continueClick)="onContinue()"
           />

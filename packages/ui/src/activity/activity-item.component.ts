@@ -46,6 +46,7 @@ import {
   chevronForward,
   ellipsisHorizontal,
   volumeMuteOutline,
+  playCircleOutline,
 } from 'ionicons/icons';
 import { type ActivityItem, ACTIVITY_TYPE_ICONS, ACTIVITY_TYPE_COLORS } from '@nxt1/core';
 import type { MessageActivityMetadata } from '@nxt1/core';
@@ -154,7 +155,22 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
           }
         }
 
-        @if (item().action) {
+        <!-- Media thumbnail (Twitter/X style) — replaces chevron when media attached -->
+        @if (item().mediaUrl) {
+          <div
+            class="activity-item__media-thumb"
+            [class.activity-item__media-thumb--video]="item().mediaType === 'video'"
+          >
+            <img [src]="item().mediaUrl" [alt]="item().title" loading="lazy" />
+            @if (item().mediaType === 'video') {
+              <ion-icon
+                name="play-circle-outline"
+                class="activity-item__media-play"
+                aria-hidden="true"
+              ></ion-icon>
+            }
+          </div>
+        } @else if (item().action) {
           <button
             type="button"
             class="activity-item__action"
@@ -166,8 +182,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
             }
             <span>{{ item().action?.label }}</span>
           </button>
-        } @else {
-          <ion-icon name="chevron-forward" class="activity-item__chevron"></ion-icon>
         }
       </div>
     </div>
@@ -379,6 +393,46 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '../agent-x/fab/agent-x-
         flex-shrink: 0;
       }
 
+      /* ============================================
+       MEDIA THUMBNAIL (Twitter/X Pattern)
+       ============================================ */
+
+      .activity-item__media-thumb {
+        position: relative;
+        width: 64px;
+        height: 64px;
+        border-radius: 10px;
+        overflow: hidden;
+        flex-shrink: 0;
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+      }
+
+      .activity-item__media-thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .activity-item__media-thumb--video::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, transparent 40%, rgba(0, 0, 0, 0.5) 100%);
+        pointer-events: none;
+      }
+
+      .activity-item__media-play {
+        position: absolute;
+        bottom: 4px;
+        left: 4px;
+        font-size: 22px;
+        color: rgba(255, 255, 255, 0.92);
+        z-index: 1;
+        filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
+      }
+
       .activity-item__chevron {
         font-size: 18px;
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
@@ -480,6 +534,7 @@ export class ActivityItemComponent {
       chevronForward,
       ellipsisHorizontal,
       volumeMuteOutline,
+      playCircleOutline,
     });
   }
 

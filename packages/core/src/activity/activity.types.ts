@@ -137,6 +137,10 @@ export interface ActivityItem {
   readonly deepLink?: string;
   /** Expiration time (for deals/offers) */
   readonly expiresAt?: string;
+  /** Media thumbnail URL (image/video preview attached to this activity) */
+  readonly mediaUrl?: string;
+  /** Type of attached media */
+  readonly mediaType?: 'image' | 'video';
   /** Metadata for extended info */
   readonly metadata?: Record<string, unknown>;
 }

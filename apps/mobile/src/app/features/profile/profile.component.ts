@@ -12,11 +12,16 @@
  * ├─────────────────────────────────────────────────────────────┤
  * │              @nxt1/ui/profile (~95% shared)                 │
  * │        ProfileShellComponent + all UI components            │
+ * ├─────────────────────────────────────────────────────────────┤
+ * │         Role-Aware Profile (2026 Pattern)                   │
+ * │  Coach/Director → TeamProfileShellWebComponent              │
+ * │  Athlete/Parent → ProfileShellComponent                     │
  * └─────────────────────────────────────────────────────────────┘
  *
  * Responsibilities:
  * - Route integration with mobile tabs
  * - User state from auth service
+ * - Role-aware shell selection (athlete profile vs team profile)
  * - Native navigation (including edit profile bottom sheet)
  * - Deep link handling (future)
  */
@@ -47,13 +52,21 @@ import {
   NxtRefresherComponent,
   ProfileGenerationOverlayComponent,
   ProfileGenerationStateService,
+  TeamProfileShellWebComponent,
+  TeamProfileService,
+  QrCodeService,
+  NxtToastService,
+  NxtLoggingService,
+  NxtBreadcrumbService,
   type RelatedAthlete,
   type RankingSource,
   type RefreshEvent,
 } from '@nxt1/ui';
-import { parseApiError, requiresAuth } from '@nxt1/core';
+import { parseApiError, requiresAuth, isTeamRole } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { User, UserSummary, ProfileTabId } from '@nxt1/core';
 import type { ProfileEvent } from '@nxt1/core/profile';
+import type { TeamProfileTabId, TeamProfileRosterMember, TeamProfilePost } from '@nxt1/core';
 
 // Mobile-specific services
 import { MobileAuthService } from '../auth/services/mobile-auth.service';
@@ -61,20 +74,24 @@ import { AuthFlowService } from '../auth/services';
 import { ShareService } from '../../core/services/share.service';
 import { ProfileApiService } from '../../core/services/profile-api.service';
 import { EditProfileApiService } from '../../core/services/edit-profile-api.service';
+import { TeamProfileApiService } from '../../core/services/team-profile-api.service';
+import { AnalyticsService } from '../../core/services/analytics.service';
 import { CapacitorHttpAdapter } from '../../core/infrastructure';
 import { environment } from '../../../environments/environment';
 
 /**
  * Mobile Profile Feature Component
  *
- * Thin wrapper that:
+ * Role-aware wrapper that:
  * 1. Extracts unicode from route params
  * 2. Provides current user from auth state
- * 3. Delegates all UI to ProfileShellComponent
- * 4. Handles edit profile via bottom sheet
+ * 3. Detects coach/director → renders TeamProfileShellWebComponent
+ * 4. Detects athlete/parent → renders ProfileShellComponent
+ * 5. Handles edit profile via bottom sheet
  *
- * Note: isOwnProfile is determined by ProfileShellComponent internally
- * by comparing the loaded profile with the current user.
+ * Professional pattern (Instagram Business / LinkedIn):
+ * Same /profile URL, different shell based on user role.
+ * No URL redirect, no tab bar flicker, seamless switch.
  */
 @Component({
   selector: 'app-profile',
@@ -84,6 +101,7 @@ import { environment } from '../../../environments/environment';
     IonContent,
     IonToolbar,
     ProfileShellComponent,
+    TeamProfileShellWebComponent,
     RelatedAthletesComponent,
     NxtRefresherComponent,
     ProfileGenerationOverlayComponent,
@@ -94,33 +112,52 @@ import { environment } from '../../../environments/environment';
     </ion-header>
     <ion-content [fullscreen]="true">
       <nxt-refresher (onRefresh)="handleRefresh($event)" />
-      <nxt1-profile-shell
-        [currentUser]="currentUser()"
-        [profileUnicode]="profileUnicode()"
-        [isOwnProfile]="isOwnProfile()"
-        [skipInternalLoad]="true"
-        (avatarClick)="onAvatarClick()"
-        (menuClick)="onMenuClick()"
-        (backClick)="onBackClick()"
-        (tabChange)="onTabChange($event)"
-        (editProfileClick)="onEditProfile()"
-        (editTeamClick)="onEditTeam()"
-        (shareClick)="onShare()"
-        (followClick)="onFollow()"
-        (qrCodeClick)="onQrCode()"
-        (aiSummaryClick)="onAiSummary()"
-        (createPostClick)="onCreatePost()"
-        (refreshRequest)="onRefreshRequest()"
-      />
 
-      @if (relatedAthletes().length > 0) {
-        <nxt1-related-athletes
-          [athletes]="relatedAthletes()"
-          [sport]="relatedSport()"
-          [state]="relatedState()"
-          (athleteClick)="onRelatedAthleteClick($event)"
-          (seeAllClick)="onSeeAllRelated()"
+      @if (showTeamProfile()) {
+        <!-- Coach/Director own profile → Team Profile Shell -->
+        <nxt1-team-profile-shell-web
+          [teamSlug]="teamSlug()"
+          [isTeamAdmin]="true"
+          [skipInternalLoad]="true"
+          (backClick)="onBackClick()"
+          (tabChange)="onTeamTabChange($event)"
+          (shareClick)="onTeamShare()"
+          (followClick)="onFollow()"
+          (qrCodeClick)="onTeamQrCode()"
+          (manageTeamClick)="onEditTeam()"
+          (rosterMemberClick)="onRosterMemberClick($event)"
+          (postClick)="onTeamPostClick($event)"
         />
+      } @else {
+        <!-- Athlete/Parent profile (or viewing someone else's profile) -->
+        <nxt1-profile-shell
+          [currentUser]="currentUser()"
+          [profileUnicode]="profileUnicode()"
+          [isOwnProfile]="isOwnProfile()"
+          [skipInternalLoad]="true"
+          (avatarClick)="onAvatarClick()"
+          (menuClick)="onMenuClick()"
+          (backClick)="onBackClick()"
+          (tabChange)="onTabChange($event)"
+          (editProfileClick)="onEditProfile()"
+          (editTeamClick)="onEditTeam()"
+          (shareClick)="onShare()"
+          (followClick)="onFollow()"
+          (qrCodeClick)="onQrCode()"
+          (aiSummaryClick)="onAiSummary()"
+          (createPostClick)="onCreatePost()"
+          (refreshRequest)="onRefreshRequest()"
+        />
+
+        @if (relatedAthletes().length > 0) {
+          <nxt1-related-athletes
+            [athletes]="relatedAthletes()"
+            [sport]="relatedSport()"
+            [state]="relatedState()"
+            (athleteClick)="onRelatedAthleteClick($event)"
+            (seeAllClick)="onSeeAllRelated()"
+          />
+        }
       }
     </ion-content>
 
@@ -176,6 +213,15 @@ export class ProfileComponent {
   private readonly authFlow = inject(AuthFlowService);
   protected readonly generation = inject(ProfileGenerationStateService);
 
+  // Team profile dependencies (for coach/director own-profile view)
+  private readonly teamProfile = inject(TeamProfileService);
+  private readonly teamApi = inject(TeamProfileApiService);
+  private readonly qrCode = inject(QrCodeService);
+  private readonly analyticsService = inject(AnalyticsService);
+  private readonly toast = inject(NxtToastService);
+  private readonly logger = inject(NxtLoggingService).child('ProfileComponent');
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
+
   // ============================================
   // STATE
   // ============================================
@@ -195,6 +241,30 @@ export class ProfileComponent {
 
   /** Whether current user is viewing their own profile */
   protected readonly isOwnProfile = signal(false);
+
+  /**
+   * Whether to show the team profile shell instead of the athlete profile.
+   * True when: viewing own profile AND user has a team role (coach/director).
+   */
+  protected readonly showTeamProfile = computed(() => {
+    const profile = this.fetchedProfile();
+    return this.isOwnProfile() && !!profile && isTeamRole(profile.role);
+  });
+
+  /**
+   * Team slug extracted from the user's teamCode.
+   * Used as input for TeamProfileShellWebComponent.
+   */
+  protected readonly teamSlug = computed(() => {
+    const profile = this.fetchedProfile();
+    // Prefer teamCode.slug, fall back to teamCode.unicode or managedTeamCodes[0]
+    return (
+      profile?.teamCode?.slug ??
+      profile?.teamCode?.unicode ??
+      profile?.coach?.managedTeamCodes?.[0] ??
+      ''
+    );
+  });
 
   /** Resolved unicode from fetched profile — empty string while loading */
   protected readonly resolvedUnicode = signal('');
@@ -235,7 +305,10 @@ export class ProfileComponent {
   });
 
   constructor() {
-    this.destroyRef.onDestroy(() => this.uiProfileService.startLoading());
+    this.destroyRef.onDestroy(() => {
+      this.uiProfileService.startLoading();
+      this.teamProfile.startLoading();
+    });
 
     this.uiProfileService.setApiService({
       updateActiveSportIndex: (userId: string, activeSportIndex: number) =>
@@ -324,13 +397,24 @@ export class ProfileComponent {
             const isOwn = response._isOwnProfile;
             this.isOwnProfile.set(isOwn);
             this.resolvedUnicode.set(profile.unicode ?? profile.id ?? '');
-            const profilePageData = userToProfilePageData(profile, isOwn);
-            this.uiProfileService.loadFromExternalData(profilePageData, profile, isOwn);
-            this.fetchRelatedAthletes(profile);
-            const activeSport =
-              profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
-            const sportId = activeSport?.sport?.toLowerCase();
-            void this.fetchSubCollections(profile.id, sportId);
+
+            // Role-aware branching: coach/director own profile → load team data
+            if (isOwn && isTeamRole(profile.role)) {
+              this.breadcrumb.trackStateChange('profile:team_profile_loading', {
+                role: profile.role,
+              });
+              void this.loadTeamProfile(profile);
+            } else {
+              this.breadcrumb.trackStateChange('profile:athlete_profile_loaded', { isOwn });
+              // Standard athlete/parent profile flow
+              const profilePageData = userToProfilePageData(profile, isOwn);
+              this.uiProfileService.loadFromExternalData(profilePageData, profile, isOwn);
+              this.fetchRelatedAthletes(profile);
+              const activeSport =
+                profile.sports?.[profile.activeSportIndex ?? 0] ?? profile.sports?.[0];
+              const sportId = activeSport?.sport?.toLowerCase();
+              void this.fetchSubCollections(profile.id, sportId);
+            }
           } else {
             this.uiProfileService.setError(response.error ?? 'Failed to load profile');
           }
@@ -348,6 +432,50 @@ export class ProfileComponent {
   // ============================================
   // ACTIONS
   // ============================================
+
+  /**
+   * Load team profile data for coach/director own-profile view.
+   * Extracts team slug from user document → fetches via TeamProfileApiService
+   * → pushes into TeamProfileService for the shell to render.
+   */
+  private async loadTeamProfile(profile: User): Promise<void> {
+    const slug =
+      profile.teamCode?.slug ?? profile.teamCode?.unicode ?? profile.coach?.managedTeamCodes?.[0];
+
+    if (!slug) {
+      this.logger.warn('Coach/director has no team slug', { userId: profile.id });
+      this.teamProfile.setError('No team associated with this account');
+      return;
+    }
+
+    this.teamProfile.startLoading();
+
+    try {
+      const response = await this.teamApi.getTeamBySlug(slug);
+      if (response.success && response.data) {
+        this.teamProfile.loadFromExternalData(response.data);
+        this.logger.info('Team profile loaded for own-profile view', {
+          slug,
+          teamName: response.data.team?.teamName,
+        });
+
+        this.analyticsService.trackEvent(APP_EVENTS.TEAM_PAGE_VIEWED, {
+          team_id: response.data.team?.id,
+          team_slug: slug,
+          team_name: response.data.team?.teamName,
+          sport: response.data.team?.sport,
+          context: 'own_profile',
+        });
+      } else {
+        this.teamProfile.setError(response.error ?? 'Failed to load team profile');
+        this.logger.error('Team profile API error', { slug, error: response.error });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load team profile';
+      this.teamProfile.setError(message);
+      this.logger.error('Team profile fetch failed', err, { slug });
+    }
+  }
 
   /**
    * Fetch timeline, rankings, scout reports, videos, schedule, news in parallel.
@@ -397,7 +525,7 @@ export class ProfileComponent {
       }));
       this.uiProfileService.setScheduleEvents(events);
     } else {
-      console.warn('[Mobile Profile] Schedule API failed:', schedule);
+      this.logger.warn('Schedule API failed', { userId });
     }
   }
 
@@ -450,8 +578,10 @@ export class ProfileComponent {
       }));
 
       this.relatedAthletes.set(athletes);
-    } catch {
-      // Non-critical — silently ignore if fetch fails
+    } catch (err) {
+      this.logger.warn('Failed to fetch related athletes', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -480,6 +610,69 @@ export class ProfileComponent {
           if (resp.success) this.uiProfileService.setTimelinePosts(resp.data);
         });
       }
+    }
+  }
+
+  // ============================================
+  // TEAM PROFILE EVENT HANDLERS
+  // ============================================
+
+  protected onTeamTabChange(tab: TeamProfileTabId): void {
+    this.analyticsService.trackEvent(APP_EVENTS.TAB_CHANGED, {
+      tab,
+      team_slug: this.teamSlug(),
+      context: 'own_team_profile',
+    });
+  }
+
+  protected async onTeamShare(): Promise<void> {
+    const team = this.teamProfile.team();
+    if (!team) return;
+
+    const result = await this.shareService.shareTeam({
+      id: team.id,
+      slug: team.slug,
+      teamName: team.teamName,
+      sport: team.sport,
+      location: team.location,
+      logoUrl: team.logoUrl,
+      imageUrl: team.galleryImages?.[0] || team.logoUrl,
+      record: this.teamProfile.recordDisplay() || undefined,
+    });
+
+    if (result.completed) {
+      this.logger.info('Team shared from own profile', { slug: team.slug });
+    }
+  }
+
+  protected async onTeamQrCode(): Promise<void> {
+    const team = this.teamProfile.team();
+    if (!team) return;
+
+    try {
+      await this.qrCode.open({
+        url: `https://nxt1sports.com/team/${team.slug}`,
+        displayName: team.teamName,
+        profileImg: team.logoUrl || undefined,
+        sport: team.sport || 'Sports',
+        unicode: team.slug,
+        isOwnProfile: true,
+      });
+    } catch (err) {
+      this.logger.error('Failed to open QR code', err);
+      this.toast.error('Unable to open QR code');
+    }
+  }
+
+  protected onRosterMemberClick(member: TeamProfileRosterMember): void {
+    if (member.profileCode) {
+      void this.navController.navigateForward(`/profile/${member.profileCode}`);
+    }
+  }
+
+  protected onTeamPostClick(post: TeamProfilePost): void {
+    if (post.id) {
+      void this.navController.navigateForward(`/post/${post.id}`);
     }
   }
 
@@ -512,7 +705,7 @@ export class ProfileComponent {
   protected async onEditProfile(): Promise<void> {
     const userId = this.fetchedProfile()?.id ?? this.authService.user()?.uid;
     if (!userId) {
-      console.warn('[Profile] Cannot edit profile: No user ID available');
+      this.logger.warn('Cannot edit profile: No user ID available');
       return;
     }
 
@@ -537,19 +730,39 @@ export class ProfileComponent {
    * Called when user taps 'Edit Team' button.
    */
   protected async onEditTeam(): Promise<void> {
-    const result = await this.manageTeamSheet.open();
+    const result = await this.manageTeamSheet.open({
+      teamId: this.teamProfile.team()?.id,
+    });
 
     if (result?.saved) {
-      // Team was saved - could trigger refresh here if needed
-      // The ManageTeamService should handle data refresh internally
+      // Refresh team data after management changes
+      const slug = this.teamSlug();
+      if (slug) {
+        this.teamApi.invalidateCache(slug);
+        const response = await this.teamApi.getTeamBySlug(slug);
+        if (response.success && response.data) {
+          this.teamProfile.loadFromExternalData(response.data);
+        }
+      }
     }
   }
 
   /**
    * Handle follow button tap.
    */
-  protected onFollow(): void {
-    // TODO: implement follow/unfollow with auth guard
+  protected async onFollow(): Promise<void> {
+    if (!this.authService.isAuthenticated()) {
+      this.toast.info('Sign in to follow');
+      void this.navController.navigateForward('/auth');
+      return;
+    }
+
+    // Team follow when viewing team profile
+    if (this.showTeamProfile()) {
+      await this.teamProfile.toggleFollow();
+      const isFollowing = this.teamProfile.followStats()?.isFollowing;
+      this.toast.success(isFollowing ? 'Following!' : 'Unfollowed');
+    }
   }
 
   /**
@@ -566,7 +779,9 @@ export class ProfileComponent {
    * Handle AI summary tap.
    */
   protected onAiSummary(): void {
-    // TODO: open AI summary sheet
+    void this.navController.navigateForward('/agent-x', {
+      queryParams: { action: 'ai-summary', profileId: this.fetchedProfile()?.id },
+    });
   }
 
   /**
@@ -645,13 +860,19 @@ export class ProfileComponent {
         this.fetchedProfile.set(freshProfile);
         const isOwn = this.isOwnProfile();
         this.resolvedUnicode.set(freshProfile.unicode ?? freshProfile.id ?? '');
-        const profilePageData = userToProfilePageData(freshProfile, isOwn);
-        this.uiProfileService.loadFromExternalData(profilePageData, freshProfile, isOwn);
-        this.fetchRelatedAthletes(freshProfile);
-        const activeSport =
-          freshProfile.sports?.[freshProfile.activeSportIndex ?? 0] ?? freshProfile.sports?.[0];
-        const sportId = activeSport?.sport?.toLowerCase();
-        void this.fetchSubCollections(freshProfile.id, sportId);
+
+        // Role-aware refresh: coach/director → re-fetch team data
+        if (isOwn && isTeamRole(freshProfile.role)) {
+          void this.loadTeamProfile(freshProfile);
+        } else {
+          const profilePageData = userToProfilePageData(freshProfile, isOwn);
+          this.uiProfileService.loadFromExternalData(profilePageData, freshProfile, isOwn);
+          this.fetchRelatedAthletes(freshProfile);
+          const activeSport =
+            freshProfile.sports?.[freshProfile.activeSportIndex ?? 0] ?? freshProfile.sports?.[0];
+          const sportId = activeSport?.sport?.toLowerCase();
+          void this.fetchSubCollections(freshProfile.id, sportId);
+        }
       }
     } catch {
       // Non-critical — profile stays with current data

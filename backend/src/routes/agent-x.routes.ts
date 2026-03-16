@@ -353,18 +353,35 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     const limit = Math.min(parseInt(typeof limitParam === 'string' ? limitParam : '50') || 50, 100);
 
     const { db } = req.firebase!;
-    const jobs = await jobRepository.withDb(db).getByUser(user.uid, limit);
 
-    const entries: OperationLogEntry[] = jobs.map((job) => {
-      const status = mapJobStatus(job['status'] as string);
-      const category = inferCategory(job['intent'] as string);
+    let jobs: import('../modules/agent/queue/job.repository.js').AgentJobDocument[];
+    try {
+      jobs = await jobRepository.withDb(db).getByUser(user.uid, limit);
+    } catch (queryErr) {
+      // Gracefully handle missing composite index or empty collection
+      const msg = queryErr instanceof Error ? queryErr.message : String(queryErr);
+      logger.warn('agentJobs query failed — composite index may not be deployed', {
+        userId: user.uid,
+        error: msg,
+      });
+      jobs = [];
+    }
+
+    const entries: OperationLogEntry[] = [];
+
+    for (const job of jobs) {
+      const intent = (job['intent'] as string) ?? '';
+      if (!intent) continue; // skip malformed documents
+
+      const status = mapJobStatus((job['status'] as string) ?? '');
+      const category = inferCategory(intent);
       const createdAt = job['createdAt'] as Timestamp | undefined;
       const completedAt = job['completedAt'] as Timestamp | undefined | null;
       const result = job['result'] as { summary?: string } | null | undefined;
 
-      return {
-        id: job['operationId'] as string,
-        title: (job['intent'] as string).slice(0, 120),
+      entries.push({
+        id: (job['operationId'] as string) ?? '',
+        title: intent.slice(0, 120),
         summary:
           result?.summary ??
           (status === 'error' ? ((job['error'] as string) ?? 'Operation failed') : 'Processing...'),
@@ -379,8 +396,8 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           origin: job['origin'],
           agent: (result as Record<string, unknown> | null)?.['agent'] ?? null,
         },
-      };
-    });
+      });
+    }
 
     logger.info('Operations log fetched', { userId: user.uid, count: entries.length });
     res.json({ success: true, data: entries });

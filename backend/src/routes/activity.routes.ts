@@ -69,6 +69,10 @@ function docToItem(doc: FirebaseFirestore.QueryDocumentSnapshot) {
       ? data['expiresAt'].toDate().toISOString()
       : data['expiresAt'] || undefined,
     metadata: data['metadata'] || undefined,
+    mediaUrl: data['mediaUrl'] || (data['metadata']?.['imageUrl'] as string) || undefined,
+    mediaType:
+      data['mediaType'] ||
+      (data['mediaUrl'] || data['metadata']?.['imageUrl'] ? 'image' : undefined),
   };
 }
 
