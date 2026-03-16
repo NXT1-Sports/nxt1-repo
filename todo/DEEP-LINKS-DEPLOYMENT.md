@@ -1,58 +1,7 @@
-# Deep Links — Remaining Deployment Steps
+# Deep Links — ✅ COMPLETED
 
-> Last updated: March 15, 2026 Code is complete. Only deployment and store
-> submissions remain.
-
----
-
-## 1. Deploy Web App
-
-- [ ] Deploy web app to Firebase hosting (includes `.well-known` files)
-- [ ] Verify `https://nxt1sports.com/.well-known/apple-app-site-association`
-      returns 200 with `application/json`
-- [ ] Verify `https://nxt1sports.com/.well-known/assetlinks.json` returns 200
-
-## 2. Enable iOS Associated Domains
-
-- [ ] Go to Apple Developer Portal → App ID `com.nxt1sports.nxt1` → Enable
-      "Associated Domains"
-
-## 3. Rebuild & Submit Apps
-
-- [ ] iOS: Clean build → Archive → Submit to App Store
-- [ ] Android: Clean build → Generate signed bundle → Submit to Play Store
-
-## 4. Device Testing
-
-- [ ] iOS: Tap a deep link → app opens (not Safari)
-- [ ] Android: Tap a deep link → app opens (not Chrome)
-
-# Force verification
-
-adb shell pm verify-app-links --re-verify com.nxt1sports.app.twa
-
-````
-
-### Deep link received but app doesn't navigate
-
-**Check logs:**
-
-```bash
-# iOS: Use Xcode console
-# Android: Use Logcat with filter "DeepLinkService"
-````
-
-Look for:
-
-- `"Deep link received"` — Handler triggered
-- `"Navigating to deep link route"` — Route resolved
-- `"No route found for deep link"` — Pattern not matched (add to route map)
-
----
-
-## 📝 Code Changes Summary
-
-All changes are complete. No code changes needed, just deployment:
+> Completed March 16, 2026. apple-app-site-association, assetlinks.json, iOS
+> entitlements, and Android config all deployed.
 
 1. ✅ iOS Bundle ID: `com.nxt1sports.nxt1` (matches App Store)
 2. ✅ Android Package: `com.nxt1sports.app.twa` (matches Play Store)

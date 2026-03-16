@@ -267,7 +267,7 @@ describe('UpdateAthleteProfileTool', () => {
           weight: '185 lbs',
           classOf: 2027,
           location: { city: 'Dallas', state: 'TX', country: 'US' },
-          sports: [{ sport: 'football', order: 0, accountType: 'athlete' }],
+          sports: [{ sport: 'football', order: 0 }],
           activeSportIndex: 0,
           teamHistory: [{ teamName: 'Lincoln HS' }],
           awards: [{ title: 'All-District' }],

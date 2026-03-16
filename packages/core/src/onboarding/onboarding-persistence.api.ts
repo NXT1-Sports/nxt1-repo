@@ -29,7 +29,7 @@
  * @version 2.0.0
  */
 
-import type { SportEntry } from './onboarding-navigation.api';
+import type { LinkSourcesFormData, SportEntry } from './onboarding-navigation.api';
 import { USER_ROLES } from '../constants/user.constants';
 
 // ============================================
@@ -127,9 +127,12 @@ export interface TeamCodePrefillData {
   teamCode: string;
   teamName?: string;
   teamType?: string;
-  teamColor1?: string;
-  teamColor2?: string;
-  teamLogoImg?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  logoUrl?: string;
+  /** @deprecated Use primaryColor */ teamColor1?: string;
+  /** @deprecated Use secondaryColor */ teamColor2?: string;
+  /** @deprecated Use logoUrl */ teamLogoImg?: string;
   sport?: string;
   state?: string;
   role?: string;
@@ -191,6 +194,8 @@ export interface OrganizationFormData {
 export interface SportFormData {
   /** Array of sport entries (1-3 sports supported) */
   sports: SportEntry[];
+  /** Coach title captured in the sport step for coach onboarding */
+  coachTitle?: 'head-coach' | 'assistant-coach' | null;
 }
 
 /**
@@ -233,6 +238,7 @@ export interface OnboardingFormData {
   sport?: SportFormData;
   positions?: PositionsFormData;
   contact?: ContactFormData;
+  linkSources?: LinkSourcesFormData;
   referralSource?: ReferralSourceData;
 }
 
@@ -490,22 +496,58 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
     platform: string;
     profileUrl: string;
     syncStatus: 'idle';
+    scopeType?: 'global' | 'sport' | 'team';
+    scopeId?: string;
   }> = [];
 
-  if (formData.contact?.instagram) {
+  const hasModernLinkSources = !!formData.linkSources?.links?.length;
+  const socialPlatformIds = new Set([
+    'instagram',
+    'twitter',
+    'tiktok',
+    'youtube',
+    'snapchat',
+    'facebook',
+    'linkedin',
+    'threads',
+  ]);
+
+  if (hasModernLinkSources) {
+    for (const link of formData.linkSources?.links ?? []) {
+      if (!link.connected || link.connectionType === 'signin') continue;
+
+      const value = link.url?.trim() || link.username?.trim();
+      if (!value) continue;
+
+      if (socialPlatformIds.has(link.platform)) {
+        socialData[link.platform] = value;
+        continue;
+      }
+
+      connectedSourcesList.push({
+        platform: link.platform,
+        profileUrl: value.startsWith('http') ? value : `https://${value}`,
+        syncStatus: 'idle',
+        scopeType: link.scopeType,
+        scopeId: link.scopeId,
+      });
+    }
+  }
+
+  if (!hasModernLinkSources && formData.contact?.instagram) {
     socialData['instagram'] = formData.contact.instagram;
   }
-  if (formData.contact?.twitter) {
+  if (!hasModernLinkSources && formData.contact?.twitter) {
     socialData['twitter'] = formData.contact.twitter;
   }
-  if (formData.contact?.tiktok) {
+  if (!hasModernLinkSources && formData.contact?.tiktok) {
     socialData['tiktok'] = formData.contact.tiktok;
   }
-  if (formData.contact?.youtubeAccountLink) {
+  if (!hasModernLinkSources && formData.contact?.youtubeAccountLink) {
     socialData['youtube'] = formData.contact.youtubeAccountLink;
   }
   // Hudl is a film/data platform, not social
-  if (formData.contact?.hudlAccountLink) {
+  if (!hasModernLinkSources && formData.contact?.hudlAccountLink) {
     const url = formData.contact.hudlAccountLink;
     connectedSourcesList.push({
       platform: 'hudl',
@@ -526,20 +568,19 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   if (sportEntries.length > 0) {
     const sports = sportEntries.map((entry, index) => {
       const isAthlete = userType === USER_ROLES.ATHLETE;
+      const teamName =
+        entry.team || formData.school?.schoolName || formData.organization?.organizationName || '';
+      const teamType = formData.school?.schoolType === 'Club' ? 'club' : 'high-school';
+
       const sportData: Record<string, unknown> = {
         sport: entry.sport,
         order: index,
         positions: entry.positions || [],
-        // Only athletes get metrics/seasonStats; other roles get a lightweight sport association
-        ...(isAthlete ? { metrics: {}, seasonStats: [] } : {}),
-        accountType: userType,
+        // Only athletes get legacy seasonStats here; metrics now live in sport-scoped records.
+        ...(isAthlete ? { seasonStats: [] } : {}),
         team: {
-          name:
-            entry.team ||
-            formData.school?.schoolName ||
-            formData.organization?.organizationName ||
-            '',
-          type: formData.school?.schoolType === 'Club' ? 'club' : 'high-school',
+          name: teamName,
+          type: teamType,
         },
       };
 
@@ -548,8 +589,6 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
         sportData['team'] = {
           name: teamCodeData.teamName || entry.team || formData.school?.schoolName || '',
           type: teamCodeData.teamType || 'high-school',
-          logo: teamCodeData.teamLogoImg || null,
-          colors: [teamCodeData.teamColor1 || '', teamCodeData.teamColor2 || ''].filter(Boolean),
         };
       }
 
@@ -564,14 +603,14 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   // Class year is now in profile (with backward compat for school.classYear)
   const classYear = formData.profile?.classYear ?? formData.school?.classYear;
   if (userType === USER_ROLES.ATHLETE && classYear) {
-    payload['athlete'] = {
-      classOf: classYear,
-    };
+    payload['classOf'] = classYear;
   }
 
-  if (userType === USER_ROLES.COACH && formData.organization) {
+  const coachTitle = formData.sport?.coachTitle ?? formData.organization?.title;
+
+  if (userType === USER_ROLES.COACH && coachTitle) {
     payload['coach'] = {
-      title: formData.organization.title || '',
+      title: coachTitle,
     };
   }
 
@@ -599,7 +638,8 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
         teamCode: teamCodeData.teamCode,
         teamName: teamCodeData.teamName,
         teamType: teamCodeData.teamType,
-        teamLogoImg: teamCodeData.teamLogoImg || '',
+        logoUrl: teamCodeData.logoUrl || teamCodeData.teamLogoImg || '',
+        teamLogoImg: teamCodeData.logoUrl || teamCodeData.teamLogoImg || '',
         state: teamCodeData.state || '',
         role: teamCodeData.role || '',
         isActive: true,
@@ -622,69 +662,6 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
   };
 
   return payload;
-}
-
-/**
- * Build referral source (HearAbout) document data
- * ⭐ PURE FUNCTION - No framework dependencies
- */
-export function buildReferralSourcePayload(data: {
-  userId: string;
-  email: string;
-  referralSource: ReferralSourceData;
-  formData: Partial<OnboardingFormData>;
-  teamCodeData: TeamCodePrefillData | null;
-  userType: OnboardingUserType;
-}): Record<string, unknown> {
-  const hearAboutData: Record<string, unknown> = {
-    userId: data.userId,
-    email: data.email,
-    source: data.referralSource.source,
-    userType: data.userType,
-    timestamp: new Date(),
-
-    // Profile info
-    firstName: data.formData.profile?.firstName ?? null,
-    lastName: data.formData.profile?.lastName ?? null,
-
-    // Sport info (v3.0 format)
-    primarySport: data.formData.sport?.sports?.[0]?.sport ?? null,
-    positions:
-      data.formData.sport?.sports?.[0]?.positions ?? data.formData.positions?.positions ?? [],
-
-    // School/Organization info
-    schoolName: data.formData.school?.schoolName ?? null,
-    schoolType: data.formData.school?.schoolType ?? null,
-    // Class year is now in profile (with backward compat for school.classYear)
-    classYear: data.formData.profile?.classYear ?? data.formData.school?.classYear ?? null,
-    state: data.formData.school?.state ?? null,
-    city: data.formData.school?.city ?? null,
-    organizationName: data.formData.organization?.organizationName ?? null,
-    organizationType: data.formData.organization?.organizationType ?? null,
-    title: data.formData.organization?.title ?? null,
-
-    // Team code info
-    joinedViaTeamCode: !!data.teamCodeData,
-    teamCode: data.teamCodeData?.teamCode ?? null,
-    teamName:
-      data.teamCodeData?.teamName ??
-      data.formData.school?.schoolName ??
-      data.formData.organization?.organizationName ??
-      null,
-    teamType: data.teamCodeData?.teamType ?? null,
-    teamSport: data.teamCodeData?.sport ?? data.formData.sport?.sports?.[0]?.sport ?? null,
-  };
-
-  // Add source-specific fields
-  if (data.referralSource.source === 'club' && data.referralSource.clubName) {
-    hearAboutData['clubName'] = data.referralSource.clubName;
-  }
-
-  if (data.referralSource.source === 'other' && data.referralSource.otherSpecify) {
-    hearAboutData['otherSpecify'] = data.referralSource.otherSpecify;
-  }
-
-  return hearAboutData;
 }
 
 // ============================================
@@ -744,38 +721,12 @@ export function createOnboardingPersistenceApi(
       );
     },
 
-    /**
-     * Save referral source (HearAbout) document
-     */
-    async saveReferralSource(
-      data: {
-        userId: string;
-        email: string;
-        referralSource: ReferralSourceData;
-        formData: Partial<OnboardingFormData>;
-        teamCodeData: TeamCodePrefillData | null;
-        userType: OnboardingUserType;
-      },
-      config?: Partial<RetryConfig>
-    ): Promise<OperationResult<string>> {
-      const hearAboutData = buildReferralSourcePayload(data);
-      return withRetry(
-        () => firestore.add('HearAbout', hearAboutData),
-        { maxRetries: 2, ...config },
-        'saveReferralSource',
-        logger
-      );
-    },
-
     // ============================================
     // UTILITY EXPORTS
     // ============================================
 
     /** Build user update payload */
     buildUserUpdatePayload,
-
-    /** Build referral source payload */
-    buildReferralSourcePayload,
 
     /** Execute with retry */
     withRetry: <T>(

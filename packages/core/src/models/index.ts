@@ -51,13 +51,20 @@ export {
   type Organization,
   type OrganizationBilling,
   type OrganizationAdmin,
+  type OrganizationSource,
   type CreateOrganizationInput,
   type UpdateOrganizationInput,
   type AddOrganizationAdminInput,
 } from './organization.model';
 
 // Team model (v3.0 - refactored from TeamCode)
-export { TeamStatus, type Team, type CreateTeamInput, type UpdateTeamInput } from './team.model';
+export {
+  TeamStatus,
+  type Team,
+  type TeamSource,
+  type CreateTeamInput,
+  type UpdateTeamInput,
+} from './team.model';
 
 // Roster Entry model (Junction table: User <-> Team)
 export {

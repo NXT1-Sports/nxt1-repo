@@ -29,6 +29,7 @@
 // Import from source of truth
 import type { Gender } from '../constants/user.constants';
 import { GENDER_CONFIGS, USER_ROLES } from '../constants/user.constants';
+import { getPositionsForSport } from '../constants';
 import type { Location } from '../models/user.model';
 
 // ============================================
@@ -196,9 +197,15 @@ export interface SportTeamInfo {
   state?: string;
   /** City (optional) */
   city?: string;
-  /** Team logo URL or base64 data URI */
+  /** Team logo URL — matches Organization/Team docs */
+  logoUrl?: string;
+  /** @deprecated Use logoUrl */
   logo?: string | null;
-  /** Team colors array (hex values, e.g., ["#000000", "#CCFF00"]) */
+  /** Primary team color (hex) — matches Organization/Team docs */
+  primaryColor?: string;
+  /** Secondary team color (hex) — matches Organization/Team docs */
+  secondaryColor?: string;
+  /** @deprecated Use primaryColor + secondaryColor */
   colors?: string[];
 }
 
@@ -237,7 +244,10 @@ export function createEmptySportEntry(sport: string, isPrimary = false): SportEn
     team: {
       name: '',
       type: undefined,
+      logoUrl: undefined,
       logo: null,
+      primaryColor: undefined,
+      secondaryColor: undefined,
       colors: [],
     },
     positions: [],
@@ -264,6 +274,8 @@ export function createEmptySportEntry(sport: string, isPrimary = false): SportEn
 export interface SportFormData {
   /** Array of sport entries (1-3 sports supported) */
   sports: SportEntry[];
+  /** Coach title captured in the sport step for coach onboarding */
+  coachTitle?: 'head-coach' | 'assistant-coach' | null;
 }
 
 // ============================================
@@ -276,7 +288,7 @@ export interface SportFormData {
  * Contains the display-friendly fields needed for the onboarding UI.
  */
 export interface TeamSelectionEntry {
-  /** Firestore document ID of the team */
+  /** Firestore document ID of the team, or `draft_{uuid}` for ghost entries */
   readonly id: string;
   /** Team display name */
   readonly name: string;
@@ -294,6 +306,10 @@ export interface TeamSelectionEntry {
   readonly memberCount?: number;
   /** Whether this team is tagged as a school (High School / Middle School) */
   readonly isSchool: boolean;
+  /** Whether this is a draft/ghost entry created by the user (not yet in DB) */
+  readonly isDraft?: boolean;
+  /** Organization ID (for existing programs) */
+  readonly organizationId?: string;
 }
 
 /**
@@ -459,7 +475,16 @@ export type PlatformConnectionType = 'link' | 'signin';
 export type PlatformScope = 'global' | 'sport' | 'team';
 
 /** Platform category for grouping in the UI */
-export type PlatformCategory = 'social' | 'film' | 'recruiting' | 'stats';
+export type PlatformCategory =
+  | 'social'
+  | 'film'
+  | 'recruiting'
+  | 'metrics'
+  | 'stats'
+  | 'academic'
+  | 'schedule'
+  | 'contact'
+  | 'signin';
 
 /** Platform definition for connected accounts */
 export interface PlatformDefinition {
@@ -507,7 +532,7 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
   },
   {
     platform: 'twitter',
-    label: 'Twitter / X',
+    label: 'X',
     icon: 'twitter',
     connectionType: 'link',
     category: 'social',
@@ -536,16 +561,6 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     placeholder: 'Channel URL',
   },
   {
-    platform: 'snapchat',
-    label: 'Snapchat',
-    icon: 'link',
-    connectionType: 'link',
-    category: 'social',
-    scope: 'global',
-    sports: [],
-    placeholder: '@username',
-  },
-  {
     platform: 'facebook',
     label: 'Facebook',
     icon: 'link',
@@ -554,26 +569,6 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     scope: 'global',
     sports: [],
     placeholder: 'Profile URL',
-  },
-  {
-    platform: 'linkedin',
-    label: 'LinkedIn',
-    icon: 'linkedin',
-    connectionType: 'link',
-    category: 'social',
-    scope: 'global',
-    sports: [],
-    placeholder: 'Profile URL',
-  },
-  {
-    platform: 'threads',
-    label: 'Threads',
-    icon: 'link',
-    connectionType: 'link',
-    category: 'social',
-    scope: 'global',
-    sports: [],
-    placeholder: '@username',
   },
 
   // ---- Film & Highlights (sport-scoped — different per sport) ----
@@ -599,16 +594,6 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     placeholder: 'Hudl profile URL',
   },
   {
-    platform: 'gamefilm',
-    label: 'Game Film',
-    icon: 'videocam',
-    connectionType: 'link',
-    category: 'film',
-    scope: 'sport',
-    sports: [],
-    placeholder: 'Game Film profile URL',
-  },
-  {
     platform: 'krossover',
     label: 'Krossover',
     icon: 'videocam',
@@ -628,6 +613,46 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     sports: ['soccer', 'lacrosse', 'field_hockey', 'basketball', 'volleyball'],
     placeholder: 'Veo profile URL',
   },
+  {
+    platform: 'ballertv',
+    label: 'BallerTV',
+    icon: 'videocam',
+    connectionType: 'link',
+    category: 'film',
+    scope: 'sport',
+    sports: ['basketball', 'volleyball', 'wrestling', 'baseball', 'softball'],
+    placeholder: 'BallerTV profile URL',
+  },
+  {
+    platform: 'nfhsnetwork',
+    label: 'NFHS Network',
+    icon: 'videocam',
+    connectionType: 'link',
+    category: 'film',
+    scope: 'sport',
+    sports: [],
+    placeholder: 'NFHS Network profile URL',
+  },
+  {
+    platform: 'sportsengineplay',
+    label: 'SportsEngine Play',
+    icon: 'videocam',
+    connectionType: 'link',
+    category: 'film',
+    scope: 'sport',
+    sports: [],
+    placeholder: 'SportsEngine Play profile URL',
+  },
+  {
+    platform: 'vimeo',
+    label: 'Vimeo',
+    icon: 'videocam',
+    connectionType: 'link',
+    category: 'film',
+    scope: 'global',
+    sports: [],
+    placeholder: 'Vimeo video or profile URL',
+  },
 
   // ---- Recruiting (sport-scoped) ----
   {
@@ -639,16 +664,6 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     scope: 'sport',
     sports: [],
     placeholder: 'NCSA profile URL',
-  },
-  {
-    platform: 'ncsasports',
-    label: 'NCSASports',
-    icon: 'recruiting-service',
-    connectionType: 'link',
-    category: 'recruiting',
-    scope: 'sport',
-    sports: [],
-    placeholder: 'NCSASports profile URL',
   },
   {
     platform: 'fieldlevel',
@@ -681,6 +696,26 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     placeholder: 'SportsRecruits profile URL',
   },
   {
+    platform: 'streamlineathletes',
+    label: 'Streamline Athletes',
+    icon: 'recruiting-service',
+    connectionType: 'link',
+    category: 'recruiting',
+    scope: 'sport',
+    sports: [],
+    placeholder: 'Streamline Athletes profile URL',
+  },
+  {
+    platform: 'recruitlook',
+    label: 'RecruitLook',
+    icon: 'recruiting-service',
+    connectionType: 'link',
+    category: 'recruiting',
+    scope: 'sport',
+    sports: [],
+    placeholder: 'RecruitLook profile URL',
+  },
+  {
     platform: 'collegeathtrack',
     label: 'College Ath Track',
     icon: 'recruiting-service',
@@ -699,6 +734,16 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     scope: 'sport',
     sports: ['lacrosse'],
     placeholder: 'ConnectLAX profile URL',
+  },
+  {
+    platform: 'imlcarecruits',
+    label: 'IMLCA Recruits',
+    icon: 'recruiting-service',
+    connectionType: 'link',
+    category: 'recruiting',
+    scope: 'sport',
+    sports: ['lacrosse'],
+    placeholder: 'IMLCA Recruits profile URL',
   },
   {
     platform: 'berecruited',
@@ -779,6 +824,102 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     placeholder: 'Rivals profile URL',
   },
   {
+    platform: 'on3',
+    label: 'On3',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['football', 'basketball', 'baseball'],
+    placeholder: 'On3 profile URL',
+  },
+  {
+    platform: 'gamechanger',
+    label: 'GameChanger',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['baseball', 'softball', 'basketball', 'volleyball'],
+    placeholder: 'GameChanger team or profile URL',
+  },
+  {
+    platform: 'scorebooklive',
+    label: 'Scorebook Live',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'stats',
+    scope: 'sport',
+    sports: ['football', 'basketball', 'baseball', 'softball', 'soccer', 'volleyball'],
+    placeholder: 'Scorebook Live profile URL',
+  },
+  {
+    platform: 'maxpreps',
+    label: 'MaxPreps',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'schedule',
+    scope: 'sport',
+    sports: [
+      'football',
+      'basketball',
+      'baseball',
+      'softball',
+      'soccer',
+      'volleyball',
+      'lacrosse',
+      'wrestling',
+      'track_field',
+      'cross_country',
+      'tennis',
+      'golf',
+      'swimming_diving',
+      'field_hockey',
+      'water_polo',
+    ],
+    placeholder: 'MaxPreps team or schedule URL',
+  },
+  {
+    platform: 'gamechanger',
+    label: 'GameChanger',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'schedule',
+    scope: 'sport',
+    sports: ['baseball', 'softball', 'basketball', 'volleyball'],
+    placeholder: 'GameChanger team or schedule URL',
+  },
+  {
+    platform: 'scorebooklive',
+    label: 'Scorebook Live',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'schedule',
+    scope: 'sport',
+    sports: ['football', 'basketball', 'baseball', 'softball', 'soccer', 'volleyball'],
+    placeholder: 'Scorebook Live team or schedule URL',
+  },
+  {
+    platform: 'sportsengine',
+    label: 'SportsEngine',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'schedule',
+    scope: 'team',
+    sports: [],
+    placeholder: 'SportsEngine team page URL',
+  },
+  {
+    platform: 'sidearm',
+    label: 'SIDEARM Sports',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'schedule',
+    scope: 'team',
+    sports: [],
+    placeholder: 'SIDEARM team schedule URL',
+  },
+  {
     platform: 'athletic',
     label: 'Athletic.net',
     icon: 'link',
@@ -839,14 +980,14 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     placeholder: 'USTA profile URL',
   },
   {
-    platform: 'juniortennis',
-    label: 'Junior Tennis',
+    platform: 'utr',
+    label: 'UTR Sports',
     icon: 'link',
     connectionType: 'link',
     category: 'stats',
     scope: 'sport',
     sports: ['tennis'],
-    placeholder: 'Junior Tennis profile URL',
+    placeholder: 'UTR Sports profile URL',
   },
   {
     platform: 'prepsoccer',
@@ -889,13 +1030,220 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     placeholder: 'Junior Golf profile URL',
   },
 
+  // ---- Metrics (mirrors athlete profile metrics surface) ----
+  {
+    platform: 'hudl',
+    label: 'Hudl',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'metrics',
+    scope: 'sport',
+    sports: [
+      'football',
+      'basketball',
+      'soccer',
+      'lacrosse',
+      'volleyball',
+      'field_hockey',
+      'baseball',
+      'softball',
+      'wrestling',
+      'ice_hockey',
+    ],
+    placeholder: 'Hudl profile URL',
+  },
+  {
+    platform: '247sports',
+    label: '247Sports',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'metrics',
+    scope: 'sport',
+    sports: ['football', 'basketball'],
+    placeholder: '247Sports profile URL',
+  },
+  {
+    platform: 'rivals',
+    label: 'Rivals',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'metrics',
+    scope: 'sport',
+    sports: ['football', 'basketball'],
+    placeholder: 'Rivals profile URL',
+  },
+  {
+    platform: 'on3',
+    label: 'On3',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'metrics',
+    scope: 'sport',
+    sports: ['football', 'basketball', 'baseball'],
+    placeholder: 'On3 profile URL',
+  },
+  {
+    platform: 'athletic',
+    label: 'Athletic.net',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'metrics',
+    scope: 'sport',
+    sports: ['track_field', 'cross_country'],
+    placeholder: 'Athletic.net profile URL',
+  },
+  {
+    platform: 'milesplit',
+    label: 'MileSplit',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'metrics',
+    scope: 'sport',
+    sports: ['track_field', 'cross_country'],
+    placeholder: 'MileSplit profile URL',
+  },
+  {
+    platform: 'swimcloud',
+    label: 'SwimCloud',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'metrics',
+    scope: 'sport',
+    sports: ['swimming_diving'],
+    placeholder: 'SwimCloud profile URL',
+  },
+  {
+    platform: 'trackwrestling',
+    label: 'TrackWrestling',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'metrics',
+    scope: 'sport',
+    sports: ['wrestling'],
+    placeholder: 'TrackWrestling profile URL',
+  },
+  {
+    platform: 'utr',
+    label: 'UTR Sports',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'metrics',
+    scope: 'sport',
+    sports: ['tennis'],
+    placeholder: 'UTR Sports profile URL',
+  },
+
+  // ---- Academic (mirrors athlete profile academic surface) ----
+  {
+    platform: 'ncaaeligibility',
+    label: 'NCAA Eligibility Center',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'academic',
+    scope: 'global',
+    sports: [],
+    placeholder: 'NCAA Eligibility Center URL',
+  },
+  {
+    platform: 'naiaeligibility',
+    label: 'NAIA Eligibility Center',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'academic',
+    scope: 'global',
+    sports: [],
+    placeholder: 'NAIA Eligibility Center URL',
+  },
+  {
+    platform: 'parchment',
+    label: 'Parchment',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'academic',
+    scope: 'global',
+    sports: [],
+    placeholder: 'Parchment profile URL',
+  },
+  {
+    platform: 'collegeboard',
+    label: 'College Board',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'academic',
+    scope: 'global',
+    sports: [],
+    placeholder: 'College Board URL',
+  },
+  {
+    platform: 'act',
+    label: 'ACT',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'academic',
+    scope: 'global',
+    sports: [],
+    placeholder: 'ACT account URL',
+  },
+
+  // ---- Contact / Website surfaces (mirrors contact/official profile surfaces) ----
+  {
+    platform: 'linktree',
+    label: 'Linktree',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'contact',
+    scope: 'global',
+    sports: [],
+    placeholder: 'Linktree URL',
+  },
+  {
+    platform: 'beacons',
+    label: 'Beacons',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'contact',
+    scope: 'global',
+    sports: [],
+    placeholder: 'Beacons URL',
+  },
+  {
+    platform: 'campsite',
+    label: 'Campsite',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'contact',
+    scope: 'global',
+    sports: [],
+    placeholder: 'Campsite URL',
+  },
+  {
+    platform: 'sportsengine',
+    label: 'SportsEngine',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'contact',
+    scope: 'team',
+    sports: [],
+    placeholder: 'SportsEngine team page URL',
+  },
+  {
+    platform: 'sidearm',
+    label: 'SIDEARM Sports',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'contact',
+    scope: 'team',
+    sports: [],
+    placeholder: 'SIDEARM athletics page URL',
+  },
+
   // ---- Sign-In (global — OAuth-connected accounts) ----
   {
     platform: 'google',
     label: 'Google',
     icon: 'google',
     connectionType: 'signin',
-    category: 'social',
+    category: 'signin',
     scope: 'global',
     sports: [],
     placeholder: 'Sign in with Google',
@@ -905,20 +1253,10 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
     label: 'Microsoft',
     icon: 'microsoft',
     connectionType: 'signin',
-    category: 'social',
+    category: 'signin',
     scope: 'global',
     sports: [],
     placeholder: 'Sign in with Microsoft',
-  },
-  {
-    platform: 'yahoo',
-    label: 'Yahoo',
-    icon: 'yahoo',
-    connectionType: 'signin',
-    category: 'social',
-    scope: 'global',
-    sports: [],
-    placeholder: 'Sign in with Yahoo',
   },
 ] as const;
 
@@ -927,11 +1265,97 @@ export const PLATFORM_CATEGORIES: readonly {
   readonly category: PlatformCategory;
   readonly label: string;
 }[] = [
-  { category: 'social', label: 'Social' },
-  { category: 'film', label: 'Film & Highlights' },
-  { category: 'recruiting', label: 'Recruiting' },
-  { category: 'stats', label: 'Stats' },
+  { category: 'social', label: 'Social Links' },
+  { category: 'film', label: 'Videos & Highlights' },
+  { category: 'recruiting', label: 'Recruiting Profiles' },
+  { category: 'metrics', label: 'Metrics' },
+  { category: 'stats', label: 'Stats & Rankings' },
+  { category: 'academic', label: 'Academic & Eligibility' },
+  { category: 'schedule', label: 'Schedule' },
+  { category: 'contact', label: 'Contact & Websites' },
+  { category: 'signin', label: 'Sign-In Accounts' },
 ] as const;
+
+/**
+ * Maps every platform ID to its canonical domain.
+ * Used to resolve real favicons via Google's free Favicon API.
+ *
+ * ⭐ PURE DATA - No dependencies
+ */
+export const PLATFORM_FAVICON_DOMAINS: Readonly<Record<string, string>> = {
+  // Social
+  instagram: 'instagram.com',
+  twitter: 'x.com',
+  tiktok: 'tiktok.com',
+  youtube: 'youtube.com',
+  facebook: 'facebook.com',
+  // Film
+  hudl: 'hudl.com',
+  krossover: 'krossover.com',
+  veo: 'veo.co',
+  ballertv: 'ballertv.com',
+  nfhsnetwork: 'nfhsnetwork.com',
+  sportsengineplay: 'app.sportsengineplay.com',
+  vimeo: 'vimeo.com',
+  // Recruiting
+  ncsa: 'ncsasports.org',
+  fieldlevel: 'fieldlevel.com',
+  captainu: 'captainu.com',
+  sportsrecruits: 'sportsrecruits.com',
+  streamlineathletes: 'streamlineathletes.com',
+  recruitlook: 'recruitlook.com',
+  connectlax: 'connectlax.com',
+  berecruited: 'berecruited.com',
+  // Stats & Metrics
+  maxpreps: 'maxpreps.com',
+  perfectgame: 'perfectgame.org',
+  prepbaseballreport: 'prepbaseballreport.com',
+  '247sports': '247sports.com',
+  rivals: 'rivals.com',
+  on3: 'on3.com',
+  gamechanger: 'gc.com',
+  scorebooklive: 'scorebooklive.com',
+  athletic: 'athletic.net',
+  milesplit: 'milesplit.com',
+  swimcloud: 'swimcloud.com',
+  trackwrestling: 'trackwrestling.com',
+  tennisrecruiting: 'tennisrecruiting.net',
+  usta: 'usta.com',
+  utr: 'utrsports.com',
+  usyouthsoccer: 'usyouthsoccer.org',
+  golfstat: 'golfstat.com',
+  prepsoccer: 'prepsoccer.com',
+  juniorgolf: 'jgaa.com',
+  // Schedule
+  sportsengine: 'sportsengine.com',
+  sidearm: 'sidearmsports.com',
+  // Academic
+  ncaaeligibility: 'eligibilitycenter.org',
+  naiaeligibility: 'naia.org',
+  parchment: 'parchment.com',
+  collegeboard: 'collegeboard.org',
+  act: 'act.org',
+  // Contact
+  linktree: 'linktr.ee',
+  beacons: 'beacons.ai',
+  campsite: 'campsite.bio',
+  // Sign-in
+  google: 'google.com',
+  microsoft: 'microsoft.com',
+} as const;
+
+/**
+ * Returns the Google Favicon API URL for a given platform ID.
+ * Returns null when no domain mapping exists.
+ *
+ * Uses Google's free, no-auth favicon service (sz=64 for retina quality).
+ *
+ * ⭐ PURE FUNCTION - No dependencies
+ */
+export function getPlatformFaviconUrl(platformId: string): string | null {
+  const domain = (PLATFORM_FAVICON_DOMAINS as Record<string, string>)[platformId];
+  return domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : null;
+}
 
 /**
  * Recommended platform identifiers per onboarding role.
@@ -943,11 +1367,11 @@ export const PLATFORM_CATEGORIES: readonly {
 export const RECOMMENDED_PLATFORMS_BY_ROLE: Readonly<
   Record<OnboardingUserType, readonly string[]>
 > = {
-  athlete: ['instagram', 'hudl', 'maxpreps'],
-  coach: ['hudl', 'maxpreps'],
-  director: ['hudl', 'maxpreps'],
-  recruiter: ['hudl', 'maxpreps', 'ncsa'],
-  parent: ['instagram', 'maxpreps'],
+  athlete: ['twitter', 'hudl', 'maxpreps', 'sportsrecruits'],
+  coach: ['twitter', 'hudl', 'maxpreps', 'gamechanger'],
+  director: ['twitter', 'hudl', 'maxpreps', 'gamechanger'],
+  recruiter: ['twitter', 'maxpreps', 'fieldlevel', 'on3'],
+  parent: ['twitter', 'youtube', 'maxpreps'],
 } as const;
 
 /**
@@ -1135,7 +1559,7 @@ const ROLE_STEP: OnboardingStep = {
 const LINK_SOURCES_STEP: OnboardingStep = {
   id: 'link-sources',
   title: 'Link Data Sources',
-  subtitle: 'Connect your accounts',
+  subtitle: 'Add the sites that power your profile',
   required: false,
   order: 5,
 };
@@ -1171,7 +1595,7 @@ const CREATE_TEAM_PROFILE_STEP: OnboardingStep = {
 const TEAM_LINK_SOURCES_STEP: OnboardingStep = {
   id: 'team-link-sources',
   title: 'Team Links',
-  subtitle: "Connect your team's profiles and film",
+  subtitle: 'Add the sites that power your team profile',
   required: false,
   order: 5,
 };
@@ -1318,7 +1742,7 @@ const ROLE_MESSAGES: Readonly<
     profile: "Let's get to know you — just the basics.",
     'link-sources':
       'These links are how I get work done for you — building and updating your profile, pulling in your stats and film, and executing tasks across your connected accounts automatically.',
-    sport: 'What do you play?',
+    sport: 'Choose one sport for now. You can add more later.',
     'select-teams': 'Search for your team or create a new one.',
     'referral-source': 'Last one — how did you hear about NXT1?',
     complete: "You're set. Time to get recruited.",
@@ -1327,8 +1751,8 @@ const ROLE_MESSAGES: Readonly<
     profile: "Let's get to know you — just the basics.",
     'link-sources':
       'Connect your accounts so I can manage your profile, act on your behalf, and get real work done for you — across every program you coach.',
-    sport: 'What sports do you coach?',
-    'select-teams': 'Find your program or create a new one.',
+    sport: 'Choose one sport for now. You can add more later.',
+    'select-teams': 'Find your program.',
     'referral-source': 'Last one — how did you discover NXT1?',
     complete: "You're in. Let's find your next prospect.",
   }),
@@ -1336,8 +1760,8 @@ const ROLE_MESSAGES: Readonly<
     profile: "Let's get to know you — just the basics.",
     'link-sources':
       'Link your program accounts so I can keep everything current and take action on your behalf — your profile, your data, your tasks, all handled automatically.',
-    sport: 'What sports does your program cover?',
-    'select-teams': 'Find your organization or create a new program.',
+    sport: 'Choose one sport for now. You can add more later.',
+    'select-teams': 'Find your organization.',
     'referral-source': 'Last one — how did you find NXT1?',
     complete: "All set. Let's manage your program.",
   }),
@@ -1345,7 +1769,7 @@ const ROLE_MESSAGES: Readonly<
     profile: "Let's get to know you — just the basics.",
     'link-sources':
       'Connect your accounts so I can pull data, run tasks, and act on opportunities for you — no manual work required.',
-    sport: 'What sports do you scout?',
+    sport: 'Choose one sport for now. You can add more later.',
     'select-teams': "Find a program you're scouting for, or skip this step.",
     'referral-source': 'Last one — how did you hear about us?',
     complete: "You're ready. Let's scout some talent.",
@@ -1354,7 +1778,7 @@ const ROLE_MESSAGES: Readonly<
     profile: "Let's get to know you — just the basics.",
     'link-sources':
       'These links let me get work done for your athlete automatically — keeping their profile current, tracking progress, and acting on what matters without you having to manage it.',
-    sport: 'What sport does your athlete play?',
+    sport: 'Choose one sport for now. You can add more later.',
     'select-teams': "Find your athlete's team.",
     'referral-source': 'Last one — how did you find NXT1?',
     complete: "You're all set. Let's support your athlete.",
@@ -1381,14 +1805,25 @@ export function getAgentXMessage(stepId: string, userType?: OnboardingUserType |
 // ============================================
 
 /**
- * Validate profile step data
- * Requires first name and last name only.
- * Class year is collected later in the sport step (not here).
+ * Validate profile step data.
+ * Athletes must provide first name, last name, and class year.
+ * Other roles only require first name and last name.
  * ⭐ PURE FUNCTION - No dependencies
  */
-export function validateProfile(data?: ProfileFormData): boolean {
+export function validateProfile(
+  data?: ProfileFormData,
+  userType?: OnboardingUserType | null
+): boolean {
   if (!data) return false;
-  return !!(data.firstName?.trim() && data.lastName?.trim());
+
+  const hasName = !!(data.firstName?.trim() && data.lastName?.trim());
+  if (!hasName) return false;
+
+  if (userType === USER_ROLES.ATHLETE) {
+    return typeof data.classYear === 'number' && Number.isInteger(data.classYear);
+  }
+
+  return true;
 }
 
 /**
@@ -1423,45 +1858,43 @@ export function validateOrganization(data?: OrganizationFormData): boolean {
 }
 
 /**
- * Validate a single sport entry (v4.0 - Simplified)
- * For initial onboarding, only requires sport name to be selected.
- * Team and positions are collected LATER based on user role.
+ * Validate a single sport entry for the active onboarding role.
  * ⭐ PURE FUNCTION - No dependencies
  */
-export function validateSportEntry(entry: SportEntry): boolean {
+export function validateSportEntry(
+  entry: SportEntry,
+  userType?: OnboardingUserType | null
+): boolean {
   if (!entry) return false;
 
-  // Only requirement: sport must be selected
-  return !!entry.sport?.trim();
+  if (!entry.sport?.trim()) return false;
+
+  if (userType === USER_ROLES.ATHLETE || userType === USER_ROLES.PARENT) {
+    const availablePositions = getPositionsForSport(entry.sport);
+    if (availablePositions.length > 0) {
+      return Array.isArray(entry.positions) && entry.positions.length > 0;
+    }
+  }
+
+  return true;
 }
 
 /**
- * Validate sport step data (v4.0 - Simplified)
- * For initial onboarding, only requires at least one sport to be selected.
- * Team info and positions are collected LATER based on role:
- * - Athletes: Full team/positions in athlete-specific flow
- * - Coaches: Team they coach
- * - Fans: No additional info needed
+ * Validate sport step data.
+ * Athletes and parents require position selection when that sport exposes positions.
+ * Coaches require a title in addition to the selected sport.
  *
  * ⭐ PURE FUNCTION - No dependencies
- *
- * @example
- * ```typescript
- * // Valid - at least one sport selected
- * validateSport({ sports: [{ sport: 'Football', isPrimary: true }] })
- * // => true
- *
- * // Invalid - no sports selected
- * validateSport({ sports: [] })
- * // => false
- * ```
  */
-export function validateSport(data?: SportFormData): boolean {
+export function validateSport(data?: SportFormData, userType?: OnboardingUserType | null): boolean {
   if (!data) return false;
   if (!data.sports || data.sports.length === 0) return false;
 
-  // All entries must have a sport selected
-  return data.sports.every((entry) => validateSportEntry(entry));
+  if (userType === USER_ROLES.COACH && !data.coachTitle?.trim()) {
+    return false;
+  }
+
+  return data.sports.every((entry) => validateSportEntry(entry, userType));
 }
 
 /**
@@ -1510,14 +1943,14 @@ export function validateStep(
     case 'role':
       return pendingRole !== null || !!formData.userType;
     case 'profile':
-      return validateProfile(formData.profile);
+      return validateProfile(formData.profile, pendingRole ?? formData.userType ?? null);
     case 'school':
       // Legacy support - use validateSport for new v3.0 flow
       return validateTeam(formData.team) || validateSchool(formData.school);
     case 'organization':
       return validateOrganization(formData.organization);
     case 'sport':
-      return validateSport(formData.sport);
+      return validateSport(formData.sport, pendingRole ?? formData.userType ?? null);
     case 'positions':
       // Legacy support - positions are now part of sport entries
       return validatePositions(formData.positions);

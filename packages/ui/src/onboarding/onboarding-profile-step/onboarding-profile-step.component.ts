@@ -7,7 +7,7 @@
  * Collects ONLY essential info first: photo (optional), first name, last name.
  *
  * ⭐ 2026 UX BEST PRACTICES:
- * - Progressive disclosure: classYear collected later in sport step
+ * - Athlete class year collected alongside name for recruiting accuracy
  * - Gender selection: Inclusive options with professional UI
  * - Location: Auto-detect via geolocation with manual fallback
  * - Minimal cognitive load on first interaction
@@ -54,7 +54,7 @@ import {
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { IonInput, IonSpinner } from '@ionic/angular/standalone';
+import { IonInput, IonSelect, IonSelectOption, IonSpinner } from '@ionic/angular/standalone';
 import { isValidName } from '@nxt1/core/helpers';
 import { USER_ROLES } from '@nxt1/core';
 import type {
@@ -91,6 +91,15 @@ const COACH_TITLE_OPTIONS = [
   { value: 'assistant-coach' as const, label: 'Assistant Coach' },
 ] as const;
 
+/** Athlete class year options shown during onboarding */
+const CLASS_YEAR_OPTIONS = Array.from({ length: 10 }, (_, index) => {
+  const year = new Date().getFullYear() - 1 + index;
+  return {
+    value: year,
+    label: `Class of ${year}`,
+  } as const;
+});
+
 export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
 
 // ============================================
@@ -104,6 +113,8 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
     CommonModule,
     FormsModule,
     IonInput,
+    IonSelect,
+    IonSelectOption,
     IonSpinner,
     HapticButtonDirective,
     NxtChipComponent,
@@ -138,6 +149,13 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
               {{ lastName() || 'Enter last name' }}
             </span>
           </nxt1-list-row>
+          @if (showAthleteClassYear()) {
+            <nxt1-list-row label="Class" (tap)="openClassYearPicker()">
+              <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!classYear()">
+                {{ classYearDisplayLabel() || 'Select class' }}
+              </span>
+            </nxt1-list-row>
+          }
           @if (showCoachTitle()) {
             <nxt1-list-row label="Title" (tap)="openCoachTitlePicker()">
               <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!coachTitle()">
@@ -220,6 +238,32 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
               data-testid="onboarding-input-last-name"
             />
           </nxt1-form-field>
+
+          @if (showAthleteClassYear()) {
+            <nxt1-form-field
+              label="Class"
+              testId="onboarding-classyear-field"
+              [error]="classYearTouched() && !classYear() ? 'Select your class year' : null"
+            >
+              <ion-select
+                class="nxt1-select"
+                interface="popover"
+                [interfaceOptions]="classYearPopoverOptions"
+                placeholder="Select class"
+                [value]="classYear()"
+                (ionChange)="onClassYearChange($event)"
+                (ionBlur)="classYearTouched.set(true)"
+                [disabled]="disabled()"
+                data-testid="onboarding-select-class-year"
+              >
+                @for (option of classYearOptions; track option.value) {
+                  <ion-select-option [value]="option.value">
+                    {{ option.label }}
+                  </ion-select-option>
+                }
+              </ion-select>
+            </nxt1-form-field>
+          }
         </div>
 
         <!-- Profile Photos Gallery -->
@@ -498,6 +542,38 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
         --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
       }
 
+      .nxt1-select {
+        --background: var(--nxt1-color-surface-100);
+        --border-color: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        --border-radius: var(--nxt1-borderRadius-lg, 12px);
+        --border-width: 1px;
+        --color: var(--nxt1-color-text-primary, #ffffff);
+        --placeholder-color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        --padding-start: 16px;
+        --padding-end: 16px;
+        min-height: 52px;
+        width: 100%;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-base, 1rem);
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        border-radius: var(--nxt1-borderRadius-lg, 12px);
+        background: var(--nxt1-color-surface-100);
+        transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
+      }
+
+      .nxt1-select:hover {
+        --background: var(--nxt1-color-surface-200);
+        --border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
+        background: var(--nxt1-color-surface-200);
+      }
+
+      .nxt1-select::part(text),
+      .nxt1-select::part(placeholder),
+      .nxt1-select::part(icon) {
+        color: var(--nxt1-color-text-primary, #ffffff);
+      }
+
       .nxt1-input-error {
         --border-color: var(--nxt1-color-error, #ef4444);
         --highlight-color-focused: var(--nxt1-color-error, #ef4444);
@@ -673,6 +749,9 @@ export class OnboardingProfileStepComponent {
   /** Whether interaction is disabled */
   readonly disabled = input<boolean>(false);
 
+  /** Whether coach title should be collected in this step */
+  readonly showCoachTitleField = input<boolean>(true);
+
   /**
    * Whether to show gender selection
    * @default true - Progressive disclosure but included for most users
@@ -722,6 +801,14 @@ export class OnboardingProfileStepComponent {
   /** Coach title options */
   readonly coachTitleOptions = COACH_TITLE_OPTIONS;
 
+  /** Athlete class year options */
+  readonly classYearOptions = CLASS_YEAR_OPTIONS;
+
+  /** Class year popover configuration */
+  readonly classYearPopoverOptions = {
+    cssClass: 'nxt1-select-popover',
+  } as const;
+
   // ============================================
   // INTERNAL STATE (signals for reactivity)
   // ============================================
@@ -741,6 +828,9 @@ export class OnboardingProfileStepComponent {
   /** Selected coach title */
   readonly coachTitle = signal<CoachTitleOption | null>(null);
 
+  /** Selected athlete class year */
+  readonly classYear = signal<number | null>(null);
+
   /** Location data */
   readonly location = signal<ProfileLocationData | null>(null);
 
@@ -755,6 +845,9 @@ export class OnboardingProfileStepComponent {
 
   /** Last name field touched */
   readonly lastNameTouched = signal(false);
+
+  /** Class year field touched */
+  readonly classYearTouched = signal(false);
 
   // ============================================
   // COMPUTED SIGNALS
@@ -796,13 +889,27 @@ export class OnboardingProfileStepComponent {
   readonly isLastNameValid = computed(() => isValidName(this.lastName()));
 
   /** Whether to show coach title selection */
-  readonly showCoachTitle = computed(() => this.userType() === USER_ROLES.COACH);
+  readonly showCoachTitle = computed(
+    () => this.showCoachTitleField() && this.userType() === USER_ROLES.COACH
+  );
+
+  /** Whether to show class year selection for athletes */
+  readonly showAthleteClassYear = computed(
+    () => this.showClassYear() && this.userType() === USER_ROLES.ATHLETE
+  );
 
   /** Display label for coach title in list-row variant */
   readonly coachTitleDisplayLabel = computed(() => {
     const t = this.coachTitle();
     if (!t) return '';
     return COACH_TITLE_OPTIONS.find((o) => o.value === t)?.label ?? '';
+  });
+
+  /** Display label for class year in both variants */
+  readonly classYearDisplayLabel = computed(() => {
+    const year = this.classYear();
+    if (!year) return '';
+    return CLASS_YEAR_OPTIONS.find((option) => option.value === year)?.label ?? `Class of ${year}`;
   });
 
   /** Whether running in browser (SSR safety) */
@@ -825,6 +932,7 @@ export class OnboardingProfileStepComponent {
         this.gender.set(data.gender ?? null);
         this.location.set(data.location ?? null);
         this.coachTitle.set((data.coachTitle as CoachTitleOption) ?? null);
+        this.classYear.set(data.classYear ?? null);
       }
     });
   }
@@ -866,6 +974,17 @@ export class OnboardingProfileStepComponent {
   onCoachTitleSelect(value: CoachTitleOption): void {
     this.coachTitle.set(value);
     this.logger.debug('Coach title selected', { coachTitle: value });
+    this.emitProfileChange();
+  }
+
+  /**
+   * Handle athlete class year selection
+   */
+  onClassYearChange(event: CustomEvent): void {
+    const year = Number(event.detail.value);
+    this.classYear.set(Number.isFinite(year) ? year : null);
+    this.classYearTouched.set(true);
+    this.logger.debug('Class year selected', { classYear: this.classYear() });
     this.emitProfileChange();
   }
 
@@ -1046,7 +1165,7 @@ export class OnboardingProfileStepComponent {
       gender: this.gender(),
       location: this.location(),
       coachTitle: this.showCoachTitle() ? this.coachTitle() : null,
-      // classYear intentionally omitted - collected in sport step for athletes
+      classYear: this.showAthleteClassYear() ? this.classYear() : null,
     });
   }
 
@@ -1094,6 +1213,27 @@ export class OnboardingProfileStepComponent {
     if (result.confirmed && result.value.trim()) {
       this.lastName.set(result.value.trim());
       this.lastNameTouched.set(true);
+      this.emitProfileChange();
+    }
+  }
+
+  /**
+   * Open action sheet for athlete class year selection
+   */
+  async openClassYearPicker(): Promise<void> {
+    const result = await this.modal.actionSheet({
+      title: 'Select Class',
+      actions: CLASS_YEAR_OPTIONS.map((option) => ({
+        text: option.label,
+        data: option.value,
+      })),
+      preferNative: 'native',
+    });
+
+    if (result?.selected && typeof result.data === 'number') {
+      this.classYear.set(result.data);
+      this.classYearTouched.set(true);
+      this.logger.debug('Class year selected via picker', { classYear: result.data });
       this.emitProfileChange();
     }
   }

@@ -6,40 +6,60 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Firestore } from 'firebase-admin/firestore';
 import Stripe from 'stripe';
-import { getOrCreateCustomer, createInvoiceItem, attachPaymentMethod } from '../stripe.service.js';
+import {
+  getOrCreateCustomer,
+  createInvoiceItem,
+  attachPaymentMethod,
+  cancelActiveSubscriptionsForUser,
+} from '../stripe.service.js';
 
 // Mock Stripe
 vi.mock('stripe', () => {
-  const MockStripe = vi.fn().mockImplementation(() => ({
-    customers: {
-      create: vi.fn().mockResolvedValue({
-        id: 'cus_test123',
-        email: 'test@example.com',
-      }),
-      update: vi.fn().mockResolvedValue({}),
-    },
-    invoiceItems: {
-      create: vi.fn().mockResolvedValue({
-        id: 'ii_test123',
-        customer: 'cus_test123',
-      }),
-    },
-    paymentMethods: {
-      attach: vi.fn().mockResolvedValue({}),
-    },
-    invoices: {
-      create: vi.fn().mockResolvedValue({
-        id: 'in_test123',
-      }),
-      finalizeInvoice: vi.fn().mockResolvedValue({
-        id: 'in_test123',
-        status: 'open',
-      }),
-      list: vi.fn().mockResolvedValue({
-        data: [],
-      }),
-    },
-  }));
+  function createStripeClient() {
+    return {
+      customers: {
+        create: vi.fn().mockResolvedValue({
+          id: 'cus_test123',
+          email: 'test@example.com',
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      invoiceItems: {
+        create: vi.fn().mockResolvedValue({
+          id: 'ii_test123',
+          customer: 'cus_test123',
+        }),
+      },
+      paymentMethods: {
+        attach: vi.fn().mockResolvedValue({}),
+      },
+      invoices: {
+        create: vi.fn().mockResolvedValue({
+          id: 'in_test123',
+        }),
+        finalizeInvoice: vi.fn().mockResolvedValue({
+          id: 'in_test123',
+          status: 'open',
+        }),
+        list: vi.fn().mockResolvedValue({
+          data: [],
+        }),
+      },
+      subscriptions: {
+        list: vi.fn().mockResolvedValue({
+          data: [
+            { id: 'sub_active', status: 'active' },
+            { id: 'sub_canceled', status: 'canceled' },
+          ],
+        }),
+        cancel: vi.fn().mockResolvedValue({ id: 'sub_active', status: 'canceled' }),
+      },
+    };
+  }
+
+  const MockStripe = vi.fn(function MockStripe() {
+    return createStripeClient();
+  });
 
   return { default: MockStripe };
 });
@@ -81,6 +101,9 @@ const createMockFirestore = () => {
 describe('Stripe Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env['STRIPE_ENABLED'] = 'true';
+    process.env['STRIPE_SECRET_KEY'] = 'sk_test_mocked';
+    process.env['STRIPE_TEST_SECRET_KEY'] = 'sk_test_mocked';
   });
 
   describe('getOrCreateCustomer', () => {
@@ -134,7 +157,7 @@ describe('Stripe Service', () => {
 
     it('should handle errors gracefully', async () => {
       // Mock error - Stripe constructor throws
-      const mockStripeError = vi.fn(() => {
+      const mockStripeError = vi.fn(function MockStripeError() {
         throw new Error('Stripe API error');
       });
 
@@ -146,7 +169,7 @@ describe('Stripe Service', () => {
         'price_test123',
         1,
         'idempotency-key-123',
-        'production'
+        'staging'
       );
 
       expect(result.success).toBe(false);
@@ -163,18 +186,26 @@ describe('Stripe Service', () => {
 
     it('should handle attachment errors', async () => {
       // Mock error
-      vi.mocked(Stripe).mockImplementationOnce(
-        () =>
-          ({
-            paymentMethods: {
-              attach: vi.fn().mockRejectedValue(new Error('Invalid payment method')),
-            },
-          }) as unknown as Stripe
-      );
+      vi.mocked(Stripe).mockImplementationOnce(function MockStripeFailure() {
+        return {
+          paymentMethods: {
+            attach: vi.fn().mockRejectedValue(new Error('Invalid payment method')),
+          },
+        } as unknown as Stripe;
+      });
 
-      await expect(
-        attachPaymentMethod('cus_test123', 'invalid_pm', 'production')
-      ).rejects.toThrow();
+      await expect(attachPaymentMethod('cus_test123', 'invalid_pm', 'staging')).rejects.toThrow();
+    });
+  });
+
+  describe('cancelActiveSubscriptionsForUser', () => {
+    it('should cancel active subscriptions for cached Stripe customers', async () => {
+      const { mockDb } = createMockFirestore();
+
+      const result = await cancelActiveSubscriptionsForUser(mockDb, 'user123', 'production');
+
+      expect(result.customerIds).toEqual(['cus_existing']);
+      expect(result.canceledSubscriptionIds).toEqual(['sub_active']);
     });
   });
 });

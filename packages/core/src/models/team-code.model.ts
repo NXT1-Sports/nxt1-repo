@@ -91,8 +91,12 @@ export interface Code {
   /** Team type - uses TeamType from user.constants.ts */
   teamType: TeamType | TeamTypeApi;
   sportName: string;
+  /** @deprecated Location lives on Organization. Kept for backward compat with existing docs. */
   state: string;
+  /** @deprecated Location lives on Organization. Kept for backward compat with existing docs. */
   city: string;
+  /** Reference to the parent Organization document */
+  organizationId?: string;
   role?: ROLE;
   athleteMember: number;
   panelMember: number;
@@ -104,9 +108,21 @@ export interface Code {
   trialStartDate?: Date | string;
   expireAt?: Date | string;
   createAt?: Date | string;
+  /** V3: Use createdAt instead of createAt */
+  createdAt?: Date | string;
+  /** @deprecated Use logoUrl on Organization. Kept for backward compat. */
   teamLogoImg?: string;
+  /** @deprecated Branding lives on Organization. Kept for backward compat with existing docs. */
+  logoUrl?: string;
+  /** @deprecated Use primaryColor on Organization. Kept for backward compat. */
   teamColor1?: string;
+  /** @deprecated Branding lives on Organization. Kept for backward compat with existing docs. */
+  primaryColor?: string;
+  /** @deprecated Use secondaryColor on Organization. Kept for backward compat. */
   teamColor2?: string;
+  /** @deprecated Branding lives on Organization. Kept for backward compat with existing docs. */
+  secondaryColor?: string;
+  /** @deprecated Branding lives on Organization. Kept for backward compat with existing docs. */
   mascot?: string;
   customUrl?: string;
   unicode?: string;
@@ -159,23 +175,25 @@ export type TeamCode = Code;
 // ============================================
 
 /**
- * Input for creating a new team code
+ * Input for creating a new team code.
+ *
+ * Branding (logoUrl, colors, mascot) and location (city, state)
+ * belong on the **Organization** document — not on the team.
+ * Teams reference their Organization via `organizationId`.
  */
 export interface CreateTeamCodeInput {
   teamCode: string;
   teamName: string;
   teamType: TeamType | TeamTypeApi;
   sportName: string;
-  state: string;
-  city: string;
   athleteMember: number;
   panelMember: number;
   packageId: string;
   createdBy: string; // User ID (owner)
-  teamLogoImg?: string;
-  teamColor1?: string;
-  teamColor2?: string;
-  mascot?: string;
+  /** Role of the user creating the team (determines member role in team doc) */
+  creatorRole?: 'athlete' | 'coach' | 'director' | 'media' | 'parent' | 'fan';
+  /** Display name for the creator member entry */
+  creatorName?: string;
   unicode?: string;
   division?: string;
   conference?: string;
@@ -183,21 +201,19 @@ export interface CreateTeamCodeInput {
 }
 
 /**
- * Input for updating team code
+ * Input for updating team code.
+ *
+ * Branding (logoUrl, colors, mascot) and location (city, state)
+ * belong on the **Organization** document — not on the team.
+ * Update those fields via the Organization API instead.
  */
 export interface UpdateTeamCodeInput {
   teamName?: string;
   teamType?: TeamType | TeamTypeApi;
   sportName?: string;
-  state?: string;
-  city?: string;
   athleteMember?: number;
   panelMember?: number;
   isActive?: boolean;
-  teamLogoImg?: string;
-  teamColor1?: string;
-  teamColor2?: string;
-  mascot?: string;
   unicode?: string;
   division?: string;
   conference?: string;

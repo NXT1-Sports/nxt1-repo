@@ -53,7 +53,6 @@ export {
   delay,
   withRetry,
   buildUserUpdatePayload,
-  buildReferralSourcePayload,
 } from './onboarding-persistence.api';
 
 // ============================================
@@ -132,8 +131,10 @@ export {
   type PlatformDefinition,
   PLATFORM_REGISTRY,
   PLATFORM_CATEGORIES,
+  PLATFORM_FAVICON_DOMAINS,
   RECOMMENDED_PLATFORMS_BY_ROLE,
   getPlatformsForSports,
+  getPlatformFaviconUrl,
   getRecommendedPlatforms,
   type OnboardingFormData,
   type NavigationState,

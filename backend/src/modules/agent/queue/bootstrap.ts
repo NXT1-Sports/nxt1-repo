@@ -50,6 +50,7 @@ import {
 } from '../agents/index.js';
 import { setAgentDependencies } from '../../../routes/agent-x.routes.js';
 import { setWelcomeDependencies } from '../../../services/agent-welcome.service.js';
+import { setScrapeDependencies } from '../../../services/agent-scrape.service.js';
 import { stagingDb } from '../../../utils/firebase-staging.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -111,6 +112,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   // ── 5. Inject dependencies into the REST routes ───────────────────────
   setAgentDependencies({ queueService, jobRepository });
   setWelcomeDependencies({ queueService, jobRepository });
+  setScrapeDependencies({ queueService, jobRepository });
 
   logger.info('Agent X queue engine initialized');
 

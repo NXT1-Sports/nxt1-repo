@@ -9,12 +9,7 @@
  * @version 2.0.0
  */
 
-import type {
-  AccountType,
-  ScholarshipType,
-  CommitmentStatus,
-  VisitType,
-} from '../../constants/user.constants';
+import type { ScholarshipType, CommitmentStatus, VisitType } from '../../constants/user.constants';
 import type {
   DataSource,
   TeamInfo,
@@ -436,17 +431,21 @@ export interface SportProfile {
    */
   traits?: AgentXTrait[];
 
-  /** Team information - optional, added during profile completion */
+  /**
+   * @deprecated V3: Team affiliation is now relational via RosterEntries collection.
+   * Kept temporarily for backward compatibility with existing reads.
+   * Migration: remove this field and use RosterEntries + organizationId instead.
+   */
   team?: TeamInfo;
 
-  /** Club team (if different from high school) */
+  /**
+   * @deprecated V3: Club team is now relational via RosterEntries collection.
+   * Kept temporarily for backward compatibility with existing reads.
+   */
   clubTeam?: TeamInfo;
 
   /** Head coach contact */
   coach?: CoachContact;
-
-  /** Account type for this sport (athlete, parent managing, coach) */
-  accountType: AccountType;
 
   /**
    * Lean recruiting summary (denormalized from sub-collection).

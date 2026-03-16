@@ -5,7 +5,7 @@
  *
  * Onboarding step that lets users connect their accounts via two modes:
  *   - **Linked** — Paste a URL or username (MaxPreps, Hudl, Instagram, etc.)
- *   - **Signed In** — OAuth sign-in (Google, Microsoft, Yahoo)
+ *   - **Signed In** — OAuth sign-in (Google, Microsoft)
  *
  * **Scoped architecture:**
  *   - **Global platforms** (social, sign-in) always appear.
@@ -41,22 +41,25 @@ import type {
 import {
   PLATFORM_REGISTRY,
   PLATFORM_CATEGORIES,
-  getPlatformsForSports,
+  PLATFORM_FAVICON_DOMAINS,
   getRecommendedPlatforms,
+  getPlatformFaviconUrl,
 } from '@nxt1/core/api';
 import type { ILogger } from '@nxt1/core/logging';
+import { USER_ROLES } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtLoggingService } from '../../services/logging';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb';
 import { NxtModalService } from '../../services/modal';
+import { NxtToastService } from '../../services/toast/toast.service';
 import {
   NxtConnectedSourcesComponent,
   type ConnectionMode,
   type ConnectedSource,
   type ConnectedSourceTapEvent,
-} from '../../components/connected-sources';
+} from '../../components/connected-sources/connected-sources.component';
 
 // ============================================
 // TYPES
@@ -69,6 +72,13 @@ interface PlatformGroup {
   readonly sources: ConnectedSource[];
 }
 
+/** A user-defined custom link */
+interface CustomLink {
+  readonly id: string;
+  readonly label: string;
+  readonly url: string;
+}
+
 /** Internal connected-account state keyed by "platform" or "platform::scopeId" */
 interface ConnectedState {
   connected: boolean;
@@ -77,6 +87,32 @@ interface ConnectedState {
   scopeId?: string;
   username?: string;
   url?: string;
+}
+
+const CUSTOM_LINK_PREFIX = 'custom::';
+const HANDLE_BASED_PLATFORMS = new Set(['instagram', 'twitter', 'tiktok']);
+const HANDLE_BUILDABLE_URL_PLATFORMS = new Set(['instagram', 'twitter', 'tiktok', 'youtube']);
+const RESERVED_HANDLE_SEGMENTS = new Set([
+  'explore',
+  'hashtag',
+  'home',
+  'i',
+  'intent',
+  'p',
+  'reel',
+  'reels',
+  'search',
+  'share',
+  'shorts',
+  'tv',
+  'video',
+  'videos',
+  'watch',
+]);
+
+interface NormalizedPlatformValue {
+  readonly username?: string;
+  readonly url?: string;
 }
 
 // ============================================
@@ -103,6 +139,203 @@ function sportNameToKey(sportName: string): string {
     .trim()
     .replace(/\s*&\s*/g, '_')
     .replace(/\s+/g, '_');
+}
+
+function isCustomPlatform(platform: string): boolean {
+  return platform.startsWith(CUSTOM_LINK_PREFIX);
+}
+
+function customPlatformId(id: string): string {
+  return `${CUSTOM_LINK_PREFIX}${id}`;
+}
+
+function extractCustomLinkId(platform: string): string {
+  return platform.slice(CUSTOM_LINK_PREFIX.length);
+}
+
+function normalizeCustomLinkUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return trimmed;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
+function placeholderExpectsUrl(placeholder: string): boolean {
+  return placeholder.toLowerCase().includes('url');
+}
+
+function looksLikeUrl(value: string): boolean {
+  return /^(https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,})/i.test(value.trim());
+}
+
+function tryParseUrl(value: string): URL | null {
+  try {
+    return new URL(normalizeCustomLinkUrl(value));
+  } catch {
+    return null;
+  }
+}
+
+function normalizeUrl(value: string): string | null {
+  const parsed = tryParseUrl(value);
+  if (!parsed) return null;
+  parsed.hash = '';
+  return parsed.toString();
+}
+
+function canonicalizeUrlForComparison(value: string): string | null {
+  const parsed = tryParseUrl(value);
+  if (!parsed) return null;
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  const path = parsed.pathname.replace(/\/+$/, '') || '/';
+  return `${host}${path}${parsed.search}`;
+}
+
+function normalizeHandle(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  let handle = trimmed.replace(/^@+/, '').replace(/^\/+/, '').replace(/\/+$/, '').trim();
+
+  if (handle.includes('/')) {
+    const parts = handle.split('/').filter(Boolean);
+    handle = parts[parts.length - 1] ?? handle;
+  }
+
+  return handle.replace(/^@+/, '').trim();
+}
+
+function buildProfileUrl(platformId: string, rawHandle: string): string | null {
+  const handle = normalizeHandle(rawHandle);
+  if (!handle || !HANDLE_BUILDABLE_URL_PLATFORMS.has(platformId)) return null;
+
+  switch (platformId) {
+    case 'instagram':
+      return `https://instagram.com/${handle}`;
+    case 'twitter':
+      return `https://x.com/${handle}`;
+    case 'tiktok':
+      return `https://tiktok.com/@${handle}`;
+    case 'youtube':
+      return `https://youtube.com/@${handle}`;
+    default:
+      return null;
+  }
+}
+
+function extractHandleFromUrl(platformId: string, value: string): string | null {
+  const parsed = tryParseUrl(value);
+  if (!parsed) return null;
+
+  const knownDomain = PLATFORM_FAVICON_DOMAINS[platformId];
+  const hostname = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  if (knownDomain && hostname !== knownDomain && !hostname.endsWith(`.${knownDomain}`)) {
+    return null;
+  }
+
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  if (segments.length === 0) return null;
+
+  switch (platformId) {
+    case 'instagram':
+    case 'twitter': {
+      const segment = segments.find((entry) => !RESERVED_HANDLE_SEGMENTS.has(entry.toLowerCase()));
+      return segment ? normalizeHandle(segment) : null;
+    }
+    case 'tiktok': {
+      const segment = segments.find((entry) => entry.startsWith('@')) ?? segments[0];
+      return segment ? normalizeHandle(segment) : null;
+    }
+    case 'youtube': {
+      if (segments[0]?.startsWith('@')) return normalizeHandle(segments[0]);
+      if (['channel', 'c', 'user'].includes(segments[0]?.toLowerCase() ?? '') && segments[1]) {
+        return normalizeHandle(segments[1]);
+      }
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
+function normalizePlatformConnectionValue(
+  platform: PlatformDefinition,
+  rawValue: string
+): { readonly value?: NormalizedPlatformValue; readonly reason?: string } {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return { value: {} };
+
+  if (platform.connectionType === 'signin') {
+    return { value: { url: trimmed } };
+  }
+
+  const expectsUrl = placeholderExpectsUrl(platform.placeholder);
+  const parsedUrl = looksLikeUrl(trimmed) ? normalizeUrl(trimmed) : null;
+  const extractedHandle = parsedUrl ? extractHandleFromUrl(platform.platform, parsedUrl) : null;
+
+  if (HANDLE_BASED_PLATFORMS.has(platform.platform)) {
+    if (extractedHandle) {
+      return {
+        value: {
+          username: `@${extractedHandle}`,
+          url: buildProfileUrl(platform.platform, extractedHandle) ?? parsedUrl ?? undefined,
+        },
+      };
+    }
+
+    if (parsedUrl) {
+      return { value: { url: parsedUrl } };
+    }
+
+    const handle = normalizeHandle(trimmed);
+    if (!handle) {
+      return { reason: `Enter a valid ${platform.label} username.` };
+    }
+
+    return {
+      value: {
+        username: `@${handle}`,
+        url: buildProfileUrl(platform.platform, handle) ?? undefined,
+      },
+    };
+  }
+
+  if (parsedUrl) {
+    return {
+      value: {
+        username: extractedHandle ? `@${extractedHandle}` : undefined,
+        url: extractedHandle
+          ? (buildProfileUrl(platform.platform, extractedHandle) ?? parsedUrl)
+          : parsedUrl,
+      },
+    };
+  }
+
+  if (expectsUrl) {
+    const builtUrl = buildProfileUrl(platform.platform, trimmed);
+    if (builtUrl) {
+      const handle = normalizeHandle(trimmed);
+      return {
+        value: {
+          username: handle ? `@${handle}` : undefined,
+          url: builtUrl,
+        },
+      };
+    }
+
+    return { reason: `Enter a valid ${platform.label} URL.` };
+  }
+
+  const handle = normalizeHandle(trimmed);
+  if (!handle) {
+    return { reason: `Enter a valid ${platform.label} username.` };
+  }
+
+  return {
+    value: {
+      username: `@${handle}`,
+      url: buildProfileUrl(platform.platform, handle) ?? undefined,
+    },
+  };
 }
 
 // ============================================
@@ -154,16 +387,42 @@ function sportNameToKey(sportName: string): string {
         </div>
       }
 
+      <p class="nxt1-link-step-intro">
+        Add the real sites that power your profile across social, videos, recruiting, metrics,
+        academics, schedule, and stats.
+      </p>
+
+      <!-- Team scope hint for coaches/directors -->
+      @if (isTeamScope()) {
+        <p class="nxt1-team-hint">
+          Link your <strong>team/program</strong> accounts — not your personal pages.
+        </p>
+      }
+
       <!-- Platform groups with accordion -->
       @for (group of platformGroups(); track group.key) {
         <nxt1-connected-sources
           [title]="group.label"
           [sources]="group.sources"
-          [collapsible]="!group.key.startsWith('recommended')"
-          [initialExpanded]="group.key.startsWith('recommended')"
+          [collapsible]="isGroupCollapsible(group.key)"
+          [initialExpanded]="isGroupExpanded(group.key)"
           [attr.data-testid]="testIds.GROUP"
           (sourceTap)="onSourceTap($event)"
         />
+      }
+
+      <!-- Add Custom Link — available in link mode for all roles -->
+      @if (activeMode() === 'link') {
+        <button
+          type="button"
+          class="nxt1-add-custom-link-btn"
+          [attr.data-testid]="testIds.ADD_CUSTOM_LINK_BUTTON"
+          [disabled]="disabled()"
+          (click)="addCustomLink()"
+        >
+          <span class="nxt1-add-custom-link-btn__icon">+</span>
+          Add Custom Link
+        </button>
       }
 
       @if (platformGroups().length === 0) {
@@ -257,6 +516,14 @@ function sportNameToKey(sportName: string): string {
         font-weight: var(--nxt1-fontWeight-semibold);
       }
 
+      .nxt1-link-step-intro {
+        margin: 0;
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        line-height: 1.5;
+        color: var(--nxt1-color-text-secondary);
+      }
+
       /* ============================================
          EMPTY MODE STATE
          ============================================ */
@@ -274,6 +541,59 @@ function sportNameToKey(sportName: string): string {
         color: var(--nxt1-color-text-tertiary);
         text-align: center;
       }
+
+      /* ============================================
+         ADD CUSTOM LINK BUTTON
+         ============================================ */
+      .nxt1-add-custom-link-btn {
+        appearance: none;
+        -webkit-appearance: none;
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        width: 100%;
+        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
+        background: transparent;
+        border: 1.5px dashed var(--nxt1-color-border-subtle);
+        border-radius: var(--nxt1-borderRadius-md);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+        color: var(--nxt1-color-text-secondary);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+        transition: all var(--nxt1-duration-fast) var(--nxt1-easing-out);
+      }
+
+      .nxt1-add-custom-link-btn:hover:not(:disabled) {
+        border-color: var(--nxt1-color-text-primary);
+        color: var(--nxt1-color-text-primary);
+        background: var(--nxt1-color-surface-200);
+      }
+
+      .nxt1-add-custom-link-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .nxt1-add-custom-link-btn__icon {
+        font-size: var(--nxt1-fontSize-base);
+        line-height: 1;
+      }
+
+      /* ============================================
+         TEAM HINT for coaches / directors
+         ============================================ */
+      .nxt1-team-hint {
+        margin: 0;
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm);
+        font-style: italic;
+        color: var(--nxt1-color-text-secondary);
+        background: var(--nxt1-color-surface-200);
+        border-radius: var(--nxt1-borderRadius-md);
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -283,6 +603,7 @@ export class OnboardingLinkDropStepComponent {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly nxtModal = inject(NxtModalService);
+  private readonly toast = inject(NxtToastService);
 
   /** Test IDs for interactive elements */
   protected readonly testIds = TEST_IDS.LINK_SOURCES;
@@ -306,6 +627,9 @@ export class OnboardingLinkDropStepComponent {
   /** Internal state — keyed by connKey(platform, scopeType, scopeId) */
   private readonly _connectedMap = signal<Record<string, ConnectedState>>({});
 
+  /** User-defined custom links (all roles, link mode only) */
+  private readonly _customLinks = signal<CustomLink[]>([]);
+
   /** Platform lookup map */
   private readonly _platformMap = computed((): Map<string, PlatformDefinition> => {
     const map = new Map<string, PlatformDefinition>();
@@ -316,6 +640,12 @@ export class OnboardingLinkDropStepComponent {
   /** Show sport filter when 2+ sports and in link mode */
   protected readonly showSportFilter = computed(() => {
     return this.selectedSports().length >= 2 && this.activeMode() === 'link';
+  });
+
+  /** Whether to show team-scope hint (coaches/directors) */
+  protected readonly isTeamScope = computed(() => {
+    const r = this.role();
+    return r === USER_ROLES.COACH || r === USER_ROLES.DIRECTOR;
   });
 
   /** Currently active sport key (resolved from signal or first sport) */
@@ -364,8 +694,12 @@ export class OnboardingLinkDropStepComponent {
       });
     }
 
-    const allPlatforms = [...globalPlatforms, ...sportPlatforms];
-    if (allPlatforms.length === 0) return groups;
+    const teamPlatforms =
+      mode === 'link' && this.scope() === 'team'
+        ? PLATFORM_REGISTRY.filter((p) => p.scope === 'team' && p.connectionType === 'link')
+        : [];
+
+    const allPlatforms = [...globalPlatforms, ...sportPlatforms, ...teamPlatforms];
 
     // ---- 2. Recommended group ----
     const allIds = new Set(allPlatforms.map((p) => p.platform));
@@ -385,9 +719,10 @@ export class OnboardingLinkDropStepComponent {
       }
     }
 
-    // ---- 3. Remaining platforms grouped by category ----
-    const recommendedIds = new Set(groups.flatMap((g) => g.sources.map((s) => s.platform)));
-    const remaining = allPlatforms.filter((p) => !recommendedIds.has(p.platform));
+    // ---- 3. Platforms grouped by category ----
+    // Keep recommended platforms in their native sections too.
+    // Shared platform IDs ensure a single connection state appears everywhere.
+    const remaining = allPlatforms;
 
     for (const cat of PLATFORM_CATEGORIES) {
       const catPlatforms = remaining.filter((p) => p.category === cat.category);
@@ -396,6 +731,26 @@ export class OnboardingLinkDropStepComponent {
           key: `${cat.category}-${mode}-${sportKey ?? 'global'}`,
           label: cat.label,
           sources: catPlatforms.map((p) => this.toSourceForCurrentSport(p, connMap, sportKey)),
+        });
+      }
+    }
+
+    // ---- Custom links group (link mode only) ----
+    if (mode === 'link') {
+      const customs = this._customLinks();
+      if (customs.length > 0) {
+        groups.push({
+          key: 'custom-links',
+          label: 'Custom Links',
+          sources: customs.map((cl) => ({
+            platform: customPlatformId(cl.id),
+            label: cl.label,
+            icon: 'link' as const,
+            connected: true,
+            url: cl.url,
+            connectionType: 'link' as const,
+            scopeType: 'global' as const,
+          })),
         });
       }
     }
@@ -416,10 +771,24 @@ export class OnboardingLinkDropStepComponent {
     // Restore state from input data
     effect(() => {
       const data = this.linkSourcesData();
-      if (!data?.links?.length) return;
+      if (!data?.links?.length) {
+        this._connectedMap.set({});
+        this._customLinks.set([]);
+        return;
+      }
 
       const map: Record<string, ConnectedState> = {};
+      const customs: CustomLink[] = [];
+
       for (const link of data.links) {
+        if (isCustomPlatform(link.platform)) {
+          if (link.connected && link.url) {
+            const id = extractCustomLinkId(link.platform);
+            const label = link.username ?? link.url;
+            customs.push({ id, label, url: link.url });
+          }
+          continue;
+        }
         if (link.connected) {
           const key = connKey(link.platform, link.scopeType ?? 'global', link.scopeId);
           map[key] = {
@@ -433,6 +802,7 @@ export class OnboardingLinkDropStepComponent {
         }
       }
       this._connectedMap.set(map);
+      this._customLinks.set(customs);
     });
   }
 
@@ -453,6 +823,13 @@ export class OnboardingLinkDropStepComponent {
     if (this.disabled()) return;
 
     const { source } = event;
+
+    // Handle custom link tap — prompt to edit or delete
+    if (isCustomPlatform(source.platform)) {
+      await this.editCustomLink(extractCustomLinkId(source.platform), source);
+      return;
+    }
+
     const platformDef = this._platformMap().get(source.platform);
     const placeholder = platformDef?.placeholder ?? '@username';
     const isSignIn = source.connectionType === 'signin';
@@ -476,39 +853,61 @@ export class OnboardingLinkDropStepComponent {
 
     if (!result.confirmed) return;
 
-    const value = result.value.trim();
+    const rawValue = result.value.trim();
     const scopeType: PlatformScope = source.scopeType ?? 'global';
     const scopeId = source.scopeId;
     const key = connKey(source.platform, scopeType, scopeId);
 
+    const normalized = platformDef
+      ? normalizePlatformConnectionValue(platformDef, rawValue)
+      : {
+          value: isSignIn
+            ? { url: rawValue }
+            : isUrl
+              ? { url: normalizeCustomLinkUrl(rawValue) }
+              : { username: rawValue },
+        };
+
+    if (normalized.reason) {
+      this.toast.warning(normalized.reason);
+      return;
+    }
+
+    const nextValue = normalized.value ?? {};
+    if (nextValue.url && this.isDuplicateUrl(nextValue.url, { ignoreConnectedKey: key })) {
+      this.toast.warning("You've already added this link.");
+      this.logger.info('Duplicate link blocked', { platform: source.platform, url: nextValue.url });
+      return;
+    }
+
     this._connectedMap.update((map) => ({
       ...map,
       [key]: {
-        connected: !!value,
+        connected: !!(nextValue.url || nextValue.username),
         connectionType: this.activeMode(),
         scopeType,
         scopeId,
-        username: value && !value.startsWith('http') ? value : undefined,
-        url: value || undefined,
+        username: nextValue.username,
+        url: nextValue.url,
       },
     }));
 
     this.logger.info('Link source updated', {
       platform: source.platform,
-      connected: !!value,
+      connected: !!(nextValue.url || nextValue.username),
       mode: this.activeMode(),
       scopeType,
       scopeId,
     });
     this.analytics?.trackEvent(APP_EVENTS.LINK_SOURCE_CONNECTED, {
       source_platform: source.platform,
-      connected: !!value,
+      connected: !!(nextValue.url || nextValue.username),
       mode: this.activeMode(),
       scopeType,
     });
     this.breadcrumb.trackStateChange('link-sources source-updated', {
       source_platform: source.platform,
-      connected: !!value,
+      connected: !!(nextValue.url || nextValue.username),
     });
     this.emitChange();
   }
@@ -534,12 +933,252 @@ export class OnboardingLinkDropStepComponent {
       connected: conn?.connected ?? false,
       username: conn?.username,
       url: conn?.url,
+      faviconUrl: getPlatformFaviconUrl(platform.platform) ?? undefined,
     };
+  }
+
+  /**
+   * Called by the mobile quick-add bar when the user pastes a URL directly.
+   *
+   * - If the URL matches a known platform, it marks that platform as connected
+   *   (global scope, no modal prompt required) and returns `kind: 'platform'`.
+   * - Otherwise it adds the URL as a custom link using the hostname as the label
+   *   and returns `kind: 'custom'`.
+   *
+   * Returns `{ added: false, reason }` when the input is unusable.
+   */
+  async quickAddLink(
+    rawValue: string
+  ): Promise<
+    | { added: false; reason: string }
+    | { added: true; kind: 'platform'; label: string }
+    | { added: true; kind: 'custom'; label: string }
+  > {
+    if (this.disabled()) return { added: false, reason: 'Step is disabled.' };
+
+    const url = normalizeCustomLinkUrl(rawValue);
+    if (!url) return { added: false, reason: 'Please enter a valid URL.' };
+
+    // Try to match against the platform registry by URL pattern
+    let matchedPlatform: PlatformDefinition | undefined;
+    try {
+      const hostname = new URL(url).hostname.replace(/^www\./, '');
+      matchedPlatform = PLATFORM_REGISTRY.find((p) => {
+        const domain = PLATFORM_FAVICON_DOMAINS[p.platform];
+        if (!domain) return false;
+        return hostname === domain || hostname.endsWith(`.${domain}`);
+      });
+    } catch {
+      return { added: false, reason: "That doesn't look like a valid URL." };
+    }
+
+    if (matchedPlatform) {
+      // Mark the platform connected at global scope
+      const scopeType: PlatformScope = matchedPlatform.scope;
+      const sportKey = this.activeSport() ? sportNameToKey(this.activeSport()!) : null;
+      const scopeId = scopeType === 'sport' ? (sportKey ?? undefined) : undefined;
+      const key = connKey(matchedPlatform.platform, scopeType, scopeId);
+      const normalized = normalizePlatformConnectionValue(matchedPlatform, url);
+      if (normalized.reason || !normalized.value?.url) {
+        return { added: false, reason: normalized.reason ?? 'Please enter a valid URL.' };
+      }
+      const nextValue = normalized.value!;
+      const nextUrl = nextValue.url;
+      if (!nextUrl) {
+        return { added: false, reason: 'Please enter a valid URL.' };
+      }
+      if (this.isDuplicateUrl(nextUrl, { ignoreConnectedKey: key })) {
+        this.toast.warning("You've already added this link.");
+        this.logger.info('Duplicate quick-add blocked', {
+          platform: matchedPlatform.platform,
+          url: nextUrl,
+        });
+        return { added: false, reason: 'This link has already been added.' };
+      }
+
+      this._connectedMap.update((map) => ({
+        ...map,
+        [key]: {
+          connected: true,
+          connectionType: 'link',
+          scopeType,
+          scopeId,
+          username: nextValue.username,
+          url: nextUrl,
+        },
+      }));
+
+      this.logger.info('Quick-add matched platform', {
+        platform: matchedPlatform.platform,
+        url: nextUrl,
+      });
+      this.analytics?.trackEvent(APP_EVENTS.LINK_SOURCE_CONNECTED, {
+        source_platform: matchedPlatform.platform,
+        connected: true,
+        mode: 'link',
+        scopeType,
+      });
+      this.breadcrumb.trackStateChange('link-sources quick-add-platform', {
+        platform: matchedPlatform.platform,
+      });
+      this.emitChange();
+      return { added: true, kind: 'platform', label: matchedPlatform.label };
+    }
+
+    // No match — add as a custom link using the hostname as the label
+    let label: string;
+    try {
+      label = new URL(url).hostname.replace(/^www\./, '');
+    } catch {
+      label = url;
+    }
+
+    if (this.isDuplicateUrl(url)) {
+      this.toast.warning("You've already added this link.");
+      this.logger.info('Duplicate custom quick-add blocked', { url });
+      return { added: false, reason: 'This link has already been added.' };
+    }
+
+    const id = `${Date.now()}-${this._customLinks().length}`;
+    this._customLinks.update((links) => [...links, { id, label, url }]);
+
+    this.logger.info('Quick-add custom link', { id, label, url });
+    this.analytics?.trackEvent(APP_EVENTS.LINK_SOURCE_CONNECTED, {
+      source_platform: 'custom',
+      connected: true,
+      mode: 'link',
+      scopeType: 'global',
+    });
+    this.breadcrumb.trackStateChange('link-sources quick-add-custom', { id });
+    this.emitChange();
+    return { added: true, kind: 'custom', label };
+  }
+
+  /** Open prompts to add a new custom link (label then URL) */
+  async addCustomLink(): Promise<void> {
+    if (this.disabled()) return;
+
+    const labelResult = await this.nxtModal.prompt({
+      title: 'Add Custom Link',
+      message: 'Enter a label for this link (e.g. "My ESPN Profile")',
+      placeholder: 'Label',
+      submitText: 'Next',
+      required: true,
+      preferNative: 'native',
+    });
+    if (!labelResult.confirmed || !labelResult.value.trim()) return;
+
+    const urlResult = await this.nxtModal.prompt({
+      title: 'Add Custom Link',
+      message: 'Enter the URL for this link',
+      placeholder: 'https://',
+      submitText: 'Add',
+      required: true,
+      preferNative: 'native',
+    });
+    if (!urlResult.confirmed || !urlResult.value.trim()) return;
+
+    const id = `${Date.now()}-${this._customLinks().length}`;
+    const url = normalizeCustomLinkUrl(urlResult.value);
+    if (this.isDuplicateUrl(url)) {
+      this.toast.warning("You've already added this link.");
+      this.logger.info('Duplicate custom link blocked', { url });
+      return;
+    }
+    this._customLinks.update((links) => [...links, { id, label: labelResult.value.trim(), url }]);
+    this.logger.info('Custom link added', { id });
+    this.analytics?.trackEvent(APP_EVENTS.LINK_SOURCE_CONNECTED, {
+      source_platform: 'custom',
+      connected: true,
+      mode: 'link',
+      scopeType: 'global',
+    });
+    this.breadcrumb.trackStateChange('link-sources custom-link-added', { id });
+    this.emitChange();
+  }
+
+  /** Edit or delete an existing custom link */
+  private async editCustomLink(id: string, source: ConnectedSource): Promise<void> {
+    const labelResult = await this.nxtModal.prompt({
+      title: 'Edit Custom Link',
+      message: 'Update the link label',
+      placeholder: 'Label',
+      defaultValue: source.label,
+      submitText: 'Next',
+      required: true,
+      preferNative: 'native',
+    });
+    if (!labelResult.confirmed || !labelResult.value.trim()) return;
+
+    const result = await this.nxtModal.prompt({
+      title: labelResult.value.trim(),
+      message: 'Update this link, or clear it to remove.',
+      placeholder: 'https://',
+      defaultValue: source.url ?? '',
+      submitText: 'Save',
+      preferNative: 'native',
+    });
+    if (!result.confirmed) return;
+
+    const newUrl = normalizeCustomLinkUrl(result.value);
+    if (!newUrl) {
+      this._customLinks.update((links) => links.filter((l) => l.id !== id));
+      this.logger.info('Custom link removed', { id });
+      this.breadcrumb.trackStateChange('link-sources custom-link-removed', { id });
+    } else {
+      if (this.isDuplicateUrl(newUrl, { ignoreCustomLinkId: id })) {
+        this.toast.warning("You've already added this link.");
+        this.logger.info('Duplicate custom link edit blocked', { id, url: newUrl });
+        return;
+      }
+      this._customLinks.update((links) =>
+        links.map((l) => (l.id === id ? { ...l, label: labelResult.value.trim(), url: newUrl } : l))
+      );
+      this.logger.info('Custom link updated', { id });
+      this.breadcrumb.trackStateChange('link-sources custom-link-updated', { id });
+    }
+    this.emitChange();
+  }
+
+  /** Recommended and signin groups are always expanded and not collapsible */
+  protected isGroupCollapsible(key: string): boolean {
+    return !key.startsWith('recommended-') && !key.startsWith('signin-') && key !== 'custom-links';
+  }
+
+  protected isGroupExpanded(key: string): boolean {
+    return key.startsWith('recommended-') || key.startsWith('signin-') || key === 'custom-links';
+  }
+
+  private isDuplicateUrl(
+    url: string,
+    options?: {
+      readonly ignoreConnectedKey?: string;
+      readonly ignoreCustomLinkId?: string;
+    }
+  ): boolean {
+    const candidate = canonicalizeUrlForComparison(url);
+    if (!candidate) return false;
+
+    for (const [key, value] of Object.entries(this._connectedMap())) {
+      if (key === options?.ignoreConnectedKey || !value.url) continue;
+      if (canonicalizeUrlForComparison(value.url) === candidate) {
+        return true;
+      }
+    }
+
+    for (const link of this._customLinks()) {
+      if (link.id === options?.ignoreCustomLinkId) continue;
+      if (canonicalizeUrlForComparison(link.url) === candidate) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private emitChange(): void {
     const connMap = this._connectedMap();
-    const links: LinkSourceEntry[] = Object.entries(connMap).map(([key, data]) => ({
+    const standardLinks: LinkSourceEntry[] = Object.entries(connMap).map(([key, data]) => ({
       platform: key.split('::')[0],
       connected: data.connected,
       connectionType: data.connectionType,
@@ -549,6 +1188,16 @@ export class OnboardingLinkDropStepComponent {
       url: data.url,
     }));
 
+    const customLinks: LinkSourceEntry[] = this._customLinks().map((cl) => ({
+      platform: customPlatformId(cl.id),
+      connected: true,
+      connectionType: 'link' as const,
+      scopeType: 'global' as const,
+      username: cl.label,
+      url: cl.url,
+    }));
+
+    const links: LinkSourceEntry[] = [...standardLinks, ...customLinks];
     this.linkSourcesChange.emit({ links });
   }
 }

@@ -15,6 +15,7 @@ import { getCacheService } from '../services/cache.service.js';
 import { logger } from '../utils/logger.js';
 import type { UserPreferences, NotificationPreferences } from '@nxt1/core';
 import { auth as prodAuth } from '../utils/firebase.js';
+import { cancelActiveSubscriptionsForUser } from '../modules/billing/index.js';
 
 const router: ExpressRouter = Router();
 
@@ -398,149 +399,30 @@ router.delete(
     const userRef = db.collection(USERS_COLLECTION).doc(userId);
 
     try {
-      // ─── 1. Delete ALL documents in user sub-collections ──────────────────
-      // Delete in batches of 500 until all documents are gone
-      const subCollections = ['followers', 'following', 'sports', 'timeline', 'notifications'];
-
-      for (const collectionName of subCollections) {
-        let deletedCount = 0;
-        let hasMore = true;
-
-        while (hasMore) {
-          const snap = await userRef.collection(collectionName).limit(500).get();
-          if (snap.empty) {
-            hasMore = false;
-            break;
-          }
-
-          const batch = db.batch();
-          snap.docs.forEach((doc) => batch.delete(doc.ref));
-          await batch.commit();
-
-          deletedCount += snap.size;
-          hasMore = snap.size === 500; // Continue if we hit the limit
-        }
-
-        if (deletedCount > 0) {
-          logger.debug('[Settings] Sub-collection deleted', {
+      for (const environment of ['staging', 'production'] as const) {
+        try {
+          await cancelActiveSubscriptionsForUser(db, userId, environment);
+        } catch (billingError) {
+          logger.warn('[Settings] Could not cancel Stripe subscriptions', {
             userId,
-            collection: collectionName,
-            count: deletedCount,
+            environment,
+            error: billingError instanceof Error ? billingError.message : String(billingError),
           });
         }
       }
 
-      // ─── 2. Delete user document ────────────────────────────────────────────
-      await userRef.delete();
-      logger.debug('[Settings] User document deleted', { userId });
-
-      // ─── 3. Delete FCM tokens ───────────────────────────────────────────────
-      try {
-        await db.collection('FcmTokens').doc(userId).delete();
-        logger.debug('[Settings] FCM tokens deleted', { userId });
-      } catch (err) {
-        logger.warn('[Settings] Could not delete FCM tokens', {
-          userId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-
-      // ─── 4. Delete notification preferences ─────────────────────────────────
-      try {
-        await db.collection('notification_preferences').doc(userId).delete();
-        logger.debug('[Settings] Notification preferences deleted', { userId });
-      } catch (err) {
-        logger.warn('[Settings] Could not delete notification preferences', {
-          userId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-
-      // ─── 5. Delete RosterEntries where userId matches ───────────────────────
-      try {
-        let deletedRosterCount = 0;
-        let hasMoreRoster = true;
-
-        while (hasMoreRoster) {
-          const rosterSnap = await db
-            .collection('RosterEntries')
-            .where('userId', '==', userId)
-            .limit(500)
-            .get();
-
-          if (rosterSnap.empty) {
-            hasMoreRoster = false;
-            break;
-          }
-
-          const batch = db.batch();
-          rosterSnap.docs.forEach((doc) => batch.delete(doc.ref));
-          await batch.commit();
-
-          deletedRosterCount += rosterSnap.size;
-          hasMoreRoster = rosterSnap.size === 500;
-        }
-
-        if (deletedRosterCount > 0) {
-          logger.debug('[Settings] RosterEntries deleted', {
-            userId,
-            count: deletedRosterCount,
-          });
-        }
-      } catch (err) {
-        logger.warn('[Settings] Could not delete RosterEntries', {
-          userId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-
-      // ─── 6. Delete Posts created by user ────────────────────────────────────
-      // Note: Cloud Function onUserDeletedV2 will also delete posts,
-      // but we do it here too in case the function fails
-      try {
-        let deletedPostsCount = 0;
-        let hasMorePosts = true;
-
-        while (hasMorePosts) {
-          const postsSnap = await db
-            .collection('Posts')
-            .where('userId', '==', userId)
-            .limit(500)
-            .get();
-
-          if (postsSnap.empty) {
-            hasMorePosts = false;
-            break;
-          }
-
-          const batch = db.batch();
-          postsSnap.docs.forEach((doc) => batch.delete(doc.ref));
-          await batch.commit();
-
-          deletedPostsCount += postsSnap.size;
-          hasMorePosts = postsSnap.size === 500;
-        }
-
-        if (deletedPostsCount > 0) {
-          logger.debug('[Settings] Posts deleted', { userId, count: deletedPostsCount });
-        }
-      } catch (err) {
-        logger.warn('[Settings] Could not delete Posts', {
-          userId,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-
-      // ─── 7. Invalidate preferences cache ────────────────────────────────────
       await getCacheService().del(buildPrefsCacheKey(userId));
 
-      // ─── 8. Delete Firebase Auth account ────────────────────────────────────
-      // Do this LAST so if anything fails, user can still authenticate
+      await userRef.delete();
+      logger.debug('[Settings] Primary user document deleted', {
+        userId,
+        collection: USERS_COLLECTION,
+      });
+
       try {
         await firebaseAuth.deleteUser(userId);
         logger.debug('[Settings] Firebase Auth user deleted', { userId });
       } catch (authErr) {
-        // Log but don't fail — Firestore data is already gone
         logger.warn('[Settings] Could not delete Firebase Auth user', {
           userId,
           error: authErr instanceof Error ? authErr.message : String(authErr),

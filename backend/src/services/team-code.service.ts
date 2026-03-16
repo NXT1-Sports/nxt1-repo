@@ -71,17 +71,26 @@ function docToTeamCode(doc: FirebaseFirestore.DocumentSnapshot): TeamCode {
     sportName: data['sportName'] ?? '',
     state: data['state'] ?? '',
     city: data['city'] ?? '',
+    organizationId: data['organizationId'] ?? undefined,
     athleteMember: data['athleteMember'] ?? 0,
     panelMember: data['panelMember'] ?? 0,
     members: data['members'] ?? [],
     memberIds: data['memberIds'] ?? [],
     packageId: data['packageId'] ?? '',
     isActive: data['isActive'] ?? false,
+    createdAt:
+      data['createdAt']?.toDate?.() ??
+      data['createdAt'] ??
+      data['createAt']?.toDate?.() ??
+      data['createAt'],
     createAt: data['createAt']?.toDate?.() ?? data['createAt'],
     expireAt: data['expireAt']?.toDate?.() ?? data['expireAt'],
-    teamLogoImg: data['teamLogoImg'],
-    teamColor1: data['teamColor1'],
-    teamColor2: data['teamColor2'],
+    logoUrl: data['logoUrl'] ?? data['teamLogoImg'],
+    teamLogoImg: data['teamLogoImg'] ?? data['logoUrl'],
+    primaryColor: data['primaryColor'] ?? data['teamColor1'],
+    teamColor1: data['teamColor1'] ?? data['primaryColor'],
+    secondaryColor: data['secondaryColor'] ?? data['teamColor2'],
+    teamColor2: data['teamColor2'] ?? data['secondaryColor'],
     mascot: data['mascot'],
     unicode: data['unicode'],
     slug: data['slug'],
@@ -389,14 +398,25 @@ export async function createTeamCode(db: Firestore, input: CreateTeamCodeInput):
     unicode = await generateUniqueUnicode(db);
   }
 
-  // Create owner as first member
+  // Map creator role to team membership role
+  const creatorRoleMap: Record<string, ROLE> = {
+    athlete: ROLE.athlete,
+    coach: ROLE.coach,
+    media: ROLE.media,
+    director: ROLE.admin,
+    admin: ROLE.admin,
+  };
+  const memberRole = creatorRoleMap[input.creatorRole ?? ''] ?? ROLE.admin;
+  const memberName = input.creatorName?.trim() || (memberRole === ROLE.admin ? 'Team Owner' : '');
+
+  // Create creator as first member
   const creatorMember: TeamMember = {
     id: input.createdBy,
     firstName: '',
     lastName: '',
-    name: 'Team Owner',
+    name: memberName,
     joinTime: new Date().toISOString(),
-    role: ROLE.admin,
+    role: memberRole,
     isVerify: true,
     email: '',
     phoneNumber: '',
@@ -407,8 +427,6 @@ export async function createTeamCode(db: Firestore, input: CreateTeamCodeInput):
     teamName: input.teamName,
     teamType: input.teamType,
     sportName: input.sportName,
-    state: input.state,
-    city: input.city,
     athleteMember: input.athleteMember,
     panelMember: input.panelMember,
     packageId: input.packageId,
@@ -416,15 +434,11 @@ export async function createTeamCode(db: Firestore, input: CreateTeamCodeInput):
     members: [creatorMember],
     memberIds: [input.createdBy],
     createAt: FieldValue.serverTimestamp(),
-    teamLogoImg: input.teamLogoImg ?? '',
-    teamColor1: input.teamColor1 ?? '',
-    teamColor2: input.teamColor2 ?? '',
-    mascot: input.mascot ?? '',
+    createdAt: FieldValue.serverTimestamp(),
     unicode,
     division: input.division ?? '',
     conference: input.conference ?? '',
     expireAt: input.expireAt ? Timestamp.fromDate(input.expireAt) : null,
-    totalTraffic: 0,
   };
 
   const docRef = await db.collection('Teams').add(teamData);
@@ -459,15 +473,9 @@ export async function updateTeamCode(
   if (input.teamName !== undefined) updateData['teamName'] = input.teamName;
   if (input.teamType !== undefined) updateData['teamType'] = input.teamType;
   if (input.sportName !== undefined) updateData['sportName'] = input.sportName;
-  if (input.state !== undefined) updateData['state'] = input.state;
-  if (input.city !== undefined) updateData['city'] = input.city;
   if (input.athleteMember !== undefined) updateData['athleteMember'] = input.athleteMember;
   if (input.panelMember !== undefined) updateData['panelMember'] = input.panelMember;
   if (input.isActive !== undefined) updateData['isActive'] = input.isActive;
-  if (input.teamLogoImg !== undefined) updateData['teamLogoImg'] = input.teamLogoImg;
-  if (input.teamColor1 !== undefined) updateData['teamColor1'] = input.teamColor1;
-  if (input.teamColor2 !== undefined) updateData['teamColor2'] = input.teamColor2;
-  if (input.mascot !== undefined) updateData['mascot'] = input.mascot;
   if (input.unicode !== undefined) updateData['unicode'] = input.unicode;
   if (input.division !== undefined) updateData['division'] = input.division;
   if (input.conference !== undefined) updateData['conference'] = input.conference;
@@ -907,7 +915,7 @@ export async function getAllTeams(
         ? 'memberIds'
         : sortBy === 'traffic'
           ? null // handled separately below
-          : 'createAt';
+          : 'createdAt';
 
   teams.sort((a, b) => {
     if (sortBy === 'traffic') {

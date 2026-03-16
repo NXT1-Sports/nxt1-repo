@@ -65,6 +65,8 @@ import videosRoutes from './routes/videos.routes.js';
 import leaderboardsRoutes from './routes/leaderboards.routes.js';
 import campsRoutes from './routes/camps.routes.js';
 import eventsRoutes from './routes/events.routes.js';
+// Programs (Organization search)
+import programsRoutes from './routes/programs.routes.js';
 // Billing routes
 import billingRoutes from './routes/billing.routes.js';
 import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhook.routes.js';
@@ -267,6 +269,7 @@ async function setupApplication() {
     { path: '/colleges', rateLimitType: 'search', handler: collegesRoutes },
     { path: '/athletes', rateLimitType: 'search', handler: athletesRoutes },
     { path: '/teams', rateLimitType: 'api', handler: teamsRoutes },
+    { path: '/programs', rateLimitType: 'search', handler: programsRoutes },
     { path: '/videos', rateLimitType: 'upload', handler: videosRoutes },
     { path: '/leaderboards', rateLimitType: 'search', handler: leaderboardsRoutes },
     { path: '/camps', rateLimitType: 'api', handler: campsRoutes },

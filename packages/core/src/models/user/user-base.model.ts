@@ -16,7 +16,7 @@ import type { TeamType } from '../../constants/user.constants';
 // ============================================
 
 /** Current schema version for migration tracking */
-export const USER_SCHEMA_VERSION = 2;
+export const USER_SCHEMA_VERSION = 3;
 
 // ============================================
 // LOCATION
@@ -333,11 +333,29 @@ export interface TeamInfo {
   /** Team name (optional - user may not know it initially) */
   name?: string;
   type: TeamType;
+  /** Team logo URL (V3 — matches Organization/Team docs) */
+  logoUrl?: string;
+  /** @deprecated Use logoUrl */
   logo?: string | null;
   mascot?: string;
+  /** Primary team color (hex, e.g. "#FF0000") — matches Organization/Team docs */
+  primaryColor?: string;
+  /** Secondary team color (hex) — matches Organization/Team docs */
+  secondaryColor?: string;
+  /** @deprecated Use primaryColor + secondaryColor */
   colors?: string[];
   conference?: string;
   division?: string;
+  /**
+   * V3: Relational ID linking to the Organization document (source of truth for branding).
+   * Written during onboarding; used by ProfileHydrationService to overlay live data.
+   */
+  organizationId?: string;
+  /**
+   * V3: Relational ID linking to the Team document (sport-specific team under the org).
+   * Written during onboarding; used by ProfileHydrationService for team-level lookups.
+   */
+  teamId?: string;
 }
 
 /** Coach contact for a sport */

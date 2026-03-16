@@ -87,6 +87,10 @@ interface TeamInfoInput {
   readonly name?: string;
   readonly type?: string;
   readonly mascot?: string;
+  readonly logoUrl?: string;
+  readonly primaryColor?: string;
+  readonly secondaryColor?: string;
+  /** @deprecated Use primaryColor + secondaryColor */
   readonly colors?: string[];
   readonly conference?: string;
   readonly division?: string;
@@ -1184,7 +1188,16 @@ export class UpdateAthleteProfileTool extends BaseTool {
     if (team.name) result['name'] = team.name.trim();
     if (team.type) result['type'] = team.type;
     if (team.mascot) result['mascot'] = team.mascot.trim();
-    if (team.colors?.length) result['colors'] = team.colors;
+    // V3 fields (canonical)
+    if (team.logoUrl) result['logoUrl'] = team.logoUrl.trim();
+    if (team.primaryColor) result['primaryColor'] = team.primaryColor.trim();
+    if (team.secondaryColor) result['secondaryColor'] = team.secondaryColor.trim();
+    // Legacy fields (backward compat) — derive from V3 or passthrough
+    if (team.logoUrl) result['logo'] = team.logoUrl.trim();
+    const colors = team.colors?.length
+      ? team.colors
+      : [team.primaryColor, team.secondaryColor].filter(Boolean);
+    if (colors.length) result['colors'] = colors;
     if (team.conference) result['conference'] = team.conference.trim();
     if (team.division) result['division'] = team.division.trim();
     return result;

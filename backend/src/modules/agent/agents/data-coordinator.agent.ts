@@ -19,7 +19,6 @@
  */
 
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
-import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
 
 export class DataCoordinatorAgent extends BaseAgent {
@@ -98,6 +97,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '## Rules:',
       '- NEVER interpret, analyze, or generate opinions about the data. You are a pipeline, not an analyst.',
       '- ALWAYS use the scrape_webpage tool first to fetch raw content from a URL before attempting extraction.',
+      '- DO NOT assume a platform (like Twitter/X, Instagram, Hudl, or MaxPreps) cannot be scraped. The underlying scraper engine is designed to bypass bot protections. ALWAYS try scraping the URL.',
       '- ALWAYS validate extracted data before writing: heights must be reasonable (48-96 inches), weights (80-400 lbs), graduation years (current year to +6).',
       '- ALWAYS set `targetSport` to the correct sport key for the data being extracted.',
       '- Map metrics to machine-readable `field` keys in snake_case (e.g. "forty_yard_dash", "bench_press", "vertical_jump", "gpa", "batting_average").',
@@ -119,6 +119,9 @@ export class DataCoordinatorAgent extends BaseAgent {
   }
 
   getModelRouting(): ModelRoutingConfig {
-    return MODEL_ROUTING_DEFAULTS['fast'];
+    // Data extraction requires generating large, nested JSON tool call arguments
+    // (stats, metrics, awards, team data). The 'fast' tier's 512 maxTokens
+    // is insufficient — truncated tool calls cause parse errors and waste iterations.
+    return { tier: 'balanced', maxTokens: 4096, temperature: 0 };
   }
 }

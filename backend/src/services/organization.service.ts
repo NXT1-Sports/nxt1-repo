@@ -20,6 +20,7 @@ import {
   type UpdateOrganizationInput,
   type AddOrganizationAdminInput,
   type OrganizationAdmin,
+  type OrganizationSource,
 } from '@nxt1/core/models';
 import { getCacheService, CACHE_TTL } from './cache.service.js';
 import { notFoundError } from '@nxt1/core/errors';
@@ -74,7 +75,8 @@ function docToOrganization(doc: FirebaseFirestore.DocumentSnapshot): Organizatio
     trial: data['trial'],
     settings: data['settings'],
     teamCount: data['teamCount'] ?? 0,
-    totalViews: data['totalViews'] ?? 0,
+    isClaimed: data['isClaimed'] ?? true,
+    source: (data['source'] as OrganizationSource) ?? 'admin',
     createdAt: data['createdAt']?.toDate?.() ?? data['createdAt'],
     updatedAt: data['updatedAt']?.toDate?.() ?? data['updatedAt'],
     createdBy: data['createdBy'] ?? '',
@@ -102,15 +104,18 @@ export class OrganizationService {
       ownerId: input.ownerId,
     });
 
-    // Create admin entry for owner
-    const ownerAdmin: OrganizationAdmin = {
-      userId: input.ownerId,
-      role: 'owner',
-      addedAt: new Date(),
-      firstName: '', // Should be fetched from User doc
-      lastName: '',
-      email: '',
-    };
+    // Create admin entry for owner (skip for athlete-created ghost orgs)
+    const admins: OrganizationAdmin[] = [];
+    if (!input.skipAdmins && input.ownerId) {
+      admins.push({
+        userId: input.ownerId,
+        role: 'owner',
+        addedAt: new Date(),
+        firstName: '',
+        lastName: '',
+        email: '',
+      });
+    }
 
     const orgData = {
       name: input.name,
@@ -122,13 +127,14 @@ export class OrganizationService {
       secondaryColor: input.secondaryColor || null,
       mascot: input.mascot || null,
       description: input.description || null,
-      admins: [ownerAdmin],
-      ownerId: input.ownerId,
+      admins,
+      ownerId: input.ownerId || '',
+      isClaimed: input.isClaimed ?? true,
+      source: input.source ?? 'admin',
       teamCount: 0,
-      totalViews: 0,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
-      createdBy: input.ownerId,
+      createdBy: input.ownerId || '',
     };
 
     const docRef = await this.db.collection(this.COLLECTION).add(orgData);
@@ -299,6 +305,58 @@ export class OrganizationService {
       });
 
     await this.invalidateCache(orgId);
+  }
+
+  /**
+   * Search organizations by name prefix (case-insensitive via lowercased comparison).
+   * Firestore doesn't support full-text search, so we use >= / < range query
+   * on the name field for prefix matching, then filter client-side.
+   *
+   * Optionally filter by state.
+   */
+  async searchOrganizations(
+    query: string,
+    options?: {
+      state?: string;
+      type?: Organization['type'];
+      limit?: number;
+    }
+  ): Promise<Organization[]> {
+    const limit = Math.min(options?.limit ?? 20, 50);
+    const cacheKey = `org:search:${query.toLowerCase()}:${options?.state ?? ''}:${options?.type ?? ''}:${limit}`;
+
+    const cached = await getCache()?.get<Organization[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    // Firestore range query for prefix matching
+    // We query a broader set and filter in memory for case-insensitive matching
+    let ref = this.db
+      .collection(this.COLLECTION)
+      .where('status', '==', OrganizationStatus.ACTIVE)
+      .limit(limit * 3); // Over-fetch to account for client-side filtering
+
+    if (options?.type) {
+      ref = ref.where('type', '==', options.type);
+    }
+
+    if (options?.state) {
+      ref = ref.where('location.state', '==', options.state);
+    }
+
+    const snapshot = await ref.get();
+    const queryLower = query.toLowerCase();
+
+    const orgs = snapshot.docs
+      .map(docToOrganization)
+      .filter((org) => org.name.toLowerCase().includes(queryLower))
+      .slice(0, limit);
+
+    // Cache for 15 minutes
+    await getCache()?.set(cacheKey, orgs, { ttl: ORG_CACHE_TTL });
+
+    return orgs;
   }
 
   /**

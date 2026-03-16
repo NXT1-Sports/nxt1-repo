@@ -18,32 +18,16 @@
 
 ---
 
-### 2. Wire Toast Service to GlobalErrorHandler
-
-- [ ] Wire `NxtToastService` into `GlobalErrorHandler`
-
-**Location:**
-`apps/web/src/app/core/infrastructure/error-handling/global-error-handler.ts`
-Line 404
-
----
-
-### 3. OG Images for Social Sharing
+### 2. OG Images for Social Sharing
 
 - [ ] Create default OG images (1200x630px)
 - [ ] Create `apps/web/public/assets/images/` folder
-
-### 4. Native Auth Device Testing
-
-- [ ] Test Google OAuth on real devices
-- [ ] Test Apple Sign-In on real devices
-- [ ] Test Microsoft Sign-In on real devices
 
 ---
 
 ## 🟡 MEDIUM Priority
 
-### 5. Backend Auth Technical Debt
+### 3. Backend Auth Technical Debt
 
 - [ ] Audit all Firestore queries using legacy boolean flags
 - [ ] Update queries to use `role` field
@@ -57,27 +41,25 @@ Line 404
 
 ## 🟢 LOW Priority
 
-### 6. Analytics & Tracking
+### 4. Analytics & Tracking
 
 - [ ] Analytics integration in auth error handlers
 - [ ] Page view tracking (web & mobile)
 - [ ] GDPR consent UI
 
-### 7. Mobile Feature TODOs
+### 5. Mobile Feature TODOs
 
-| Location                                                        | TODO                                                            |
-| --------------------------------------------------------------- | --------------------------------------------------------------- |
-| `apps/mobile/.../team/team.page.ts` L90                         | Connect to TeamService when backend ready                       |
-| `apps/mobile/.../create-post/create-post.component.ts` L136-213 | Confirmation sheet, API create, media/tag/location/poll pickers |
-| `apps/mobile/.../auth/auth.page.ts` L643-679                    | Pass team code through Google/Apple/Microsoft OAuth             |
-| `apps/mobile/.../agent-x/services/agent-x.service.ts` L219      | Replace stub with actual API call                               |
-| `apps/mobile/.../settings/settings.component.ts` L160, L224     | Account deletion with password confirm                          |
-| `apps/mobile/.../shell/mobile-shell.component.ts` L369-713      | Pull verified/class year, help modal, referral code             |
-| `apps/mobile/.../explore/explore.component.ts` L140             | Open filter modal/bottom sheet                                  |
-| `apps/mobile/.../onboarding-congratulations/...` L139           | Track with analytics                                            |
-| `apps/mobile/.../home/home.component.ts` L259-292               | XP breakdown, post detail, comment modal                        |
+| Location                                                   | TODO                                                |
+| ---------------------------------------------------------- | --------------------------------------------------- |
+| `apps/mobile/.../team/team.page.ts` L90                    | Connect to TeamService when backend ready           |
+| `apps/mobile/.../auth/auth.page.ts` L643-679               | Pass team code through Google/Apple/Microsoft OAuth |
+| `apps/mobile/.../agent-x/services/agent-x.service.ts` L219 | Replace stub with actual API call                   |
+| `apps/mobile/.../shell/mobile-shell.component.ts` L369-713 | Pull verified/class year, help modal, referral code |
+| `apps/mobile/.../explore/explore.component.ts` L140        | Open filter modal/bottom sheet                      |
+| `apps/mobile/.../onboarding-congratulations/...` L139      | Track with analytics                                |
+| `apps/mobile/.../home/home.component.ts` L259-292          | XP breakdown, post detail, comment modal            |
 
-### 8. Legacy Web App TODOs
+### 6. Legacy Web App TODOs
 
 | Location                                       | TODO                                   |
 | ---------------------------------------------- | -------------------------------------- |
@@ -85,7 +67,7 @@ Line 404
 | `nxt1/.../post.service.ts` L1435               | Delete associated media on post delete |
 | `nxt1-backend/.../postController.js` L434      | Send email notification                |
 
-### 9. Code Cleanup
+### 7. Code Cleanup
 
 | Location                                               | TODO                                     |
 | ------------------------------------------------------ | ---------------------------------------- |
@@ -94,7 +76,7 @@ Line 404
 | `packages/ui/.../onboarding-sport-entry/...` L80, L980 | Use constants for validation & icons     |
 | `nxt1/.../prospect.service.ts` L215                    | DRY violation with template.component.ts |
 
-### 10. Backend
+### 8. Backend
 
 - [ ] Migrate in-memory cache to Redis
       (`nxt1-backend/.../teamsApiController.js`)
@@ -115,7 +97,6 @@ Line 404
 - [ ] OAuth providers verified on devices
 - [ ] Onboarding persistence tested
 - [ ] OG images created
-- [ ] Toast wired to GlobalErrorHandler
 
 ### Production
 

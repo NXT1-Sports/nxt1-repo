@@ -236,7 +236,11 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
     ? {
         name: teamInfo.name,
         type: (teamInfo.type as ProfileTeamType | undefined) ?? 'high-school',
-        logoUrl: teamInfo.logo ?? undefined,
+        logoUrl: teamInfo.logoUrl ?? undefined,
+        organizationId: teamInfo.organizationId,
+        teamId: teamInfo.teamId,
+        primaryColor: teamInfo.primaryColor,
+        secondaryColor: teamInfo.secondaryColor,
       }
     : undefined;
 

@@ -37,6 +37,20 @@ export const MAX_JOB_ATTEMPTS = 2 as const;
 /** Backoff delay between retry attempts (exponential, in ms). */
 export const RETRY_BACKOFF_MS = 5_000 as const;
 
+/**
+ * How long BullMQ holds the lock on an active job (ms).
+ * Must exceed the longest expected agent execution time.
+ * Agent jobs involve multiple LLM calls (60s each) + scraper calls (15s each)
+ * across up to 10 ReAct iterations, so 5 minutes is a safe ceiling.
+ */
+export const JOB_LOCK_DURATION_MS = 300_000 as const;
+
+/**
+ * Overall timeout for a single agent job (ms).
+ * If the job hasn't completed within this window, it's force-failed.
+ */
+export const JOB_TIMEOUT_MS = 300_000 as const;
+
 // ─── Job Data Shapes ────────────────────────────────────────────────────────
 
 /**

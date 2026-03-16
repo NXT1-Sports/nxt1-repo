@@ -21,6 +21,235 @@ import {
 import { Type } from 'class-transformer';
 
 // ============================================
+// POST DTOs (replaces manual validation in postValidation.ts)
+// ============================================
+
+export enum PostType {
+  TEXT = 'text',
+  PHOTO = 'photo',
+  VIDEO = 'video',
+  HIGHLIGHT = 'highlight',
+  STATS = 'stats',
+  ACHIEVEMENT = 'achievement',
+  ANNOUNCEMENT = 'announcement',
+  POLL = 'poll',
+}
+
+export enum PostVisibility {
+  PUBLIC = 'public',
+  FOLLOWERS = 'followers',
+  TEAM = 'team',
+  PRIVATE = 'private',
+}
+
+export class CreatePostDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(1, 5000, { message: 'Content must be between 1 and 5000 characters' })
+  content!: string;
+
+  @IsEnum(PostType, { message: 'Invalid post type' })
+  type!: PostType;
+
+  @IsEnum(PostVisibility, { message: 'Invalid visibility setting' })
+  visibility!: PostVisibility;
+
+  // Support legacy 'privacy' field for backwards compatibility
+  @IsEnum(PostVisibility, { message: 'Invalid privacy setting' })
+  @IsOptional()
+  privacy?: PostVisibility;
+
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(10, { message: 'Maximum 10 media files allowed' })
+  @IsString({ each: true })
+  mediaIds?: string[];
+
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(20, { message: 'Maximum 20 users can be tagged' })
+  @IsString({ each: true })
+  taggedUserIds?: string[];
+
+  @IsString()
+  @IsOptional()
+  locationId?: string;
+
+  // Poll support
+  @IsOptional()
+  poll?: {
+    question: string;
+    options: string[];
+    durationHours: number;
+  };
+
+  // Scheduling support
+  @IsDateString()
+  @IsOptional()
+  scheduledFor?: string;
+}
+
+export class CreateCommentDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(1, 2000, { message: 'Comment must be between 1 and 2000 characters' })
+  content!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  postId!: string;
+
+  @IsString()
+  @IsOptional()
+  parentCommentId?: string; // For reply comments
+}
+
+// ============================================
+// AUTH DTOs
+// ============================================
+
+export class LoginDto {
+  @IsEmail({}, { message: 'Please provide a valid email address' })
+  email!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Length(6, 128, { message: 'Password must be between 6 and 128 characters' })
+  password!: string;
+
+  @IsBoolean()
+  @IsOptional()
+  rememberMe?: boolean;
+}
+
+export class RegisterDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(2, 50, { message: 'First name must be between 2 and 50 characters' })
+  @Matches(/^[a-zA-Z\s'-]+$/, {
+    message: 'First name can only contain letters, spaces, hyphens, and apostrophes',
+  })
+  firstName!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Length(2, 50, { message: 'Last name must be between 2 and 50 characters' })
+  @Matches(/^[a-zA-Z\s'-]+$/, {
+    message: 'Last name can only contain letters, spaces, hyphens, and apostrophes',
+  })
+  lastName!: string;
+
+  @IsEmail({}, { message: 'Please provide a valid email address' })
+  email!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Length(8, 128, { message: 'Password must be at least 8 characters long' })
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, {
+    message:
+      'Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character',
+  })
+  password!: string;
+
+  @IsString()
+  @IsOptional()
+  @Length(6, 20, { message: 'Team code must be between 6 and 20 characters' })
+  @Matches(/^[A-Z0-9]+$/, { message: 'Team code must contain only uppercase letters and numbers' })
+  teamCode?: string;
+}
+
+export class ForgotPasswordDto {
+  @IsEmail({}, { message: 'Please provide a valid email address' })
+  email!: string;
+}
+
+export class ResetPasswordDto {
+  @IsString()
+  @IsNotEmpty()
+  token!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Length(8, 128, { message: 'Password must be at least 8 characters long' })
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, {
+    message:
+      'Password must contain at least one lowercase letter, one uppercase letter, one number, and one special character',
+  })
+  newPassword!: string;
+}
+
+// ============================================
+// TEAM DTOs (replaces manual validation in teams.routes.ts)
+// ============================================
+
+export enum TeamRole {
+  ADMINISTRATIVE = 'Administrative',
+  COACH = 'Coach',
+  ATHLETE = 'Athlete',
+  MEDIA = 'Media',
+}
+
+export enum TeamType {
+  HIGH_SCHOOL = 'high-school',
+  CLUB = 'club',
+  COLLEGE = 'college',
+  MIDDLE_SCHOOL = 'middle-school',
+  JUCO = 'juco',
+  ORGANIZATION = 'organization',
+}
+
+export class CreateTeamDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(2, 100, { message: 'Team name must be between 2 and 100 characters' })
+  name!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Length(6, 20, { message: 'Team code must be between 6 and 20 characters' })
+  @Matches(/^[A-Z0-9]+$/, { message: 'Team code must contain only uppercase letters and numbers' })
+  code!: string;
+
+  @IsString()
+  @IsOptional()
+  @Length(0, 500, { message: 'Description cannot exceed 500 characters' })
+  description?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  sport!: string;
+}
+
+export class UpdateTeamDto {
+  @IsString()
+  @IsOptional()
+  @Length(2, 100, { message: 'Team name must be between 2 and 100 characters' })
+  name?: string;
+
+  @IsString()
+  @IsOptional()
+  @Length(0, 500, { message: 'Description cannot exceed 500 characters' })
+  description?: string;
+
+  @IsUrl({}, { message: 'Invalid logo URL format' })
+  @IsOptional()
+  logoUrl?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+}
+
+export class AddTeamMemberDto {
+  @IsString()
+  @IsNotEmpty()
+  userId!: string;
+
+  @IsEnum(TeamRole, { message: 'Invalid team role' })
+  role!: TeamRole;
+}
+
+// ============================================
 // QUERY DTOs (for pagination, filtering, etc.)
 // ============================================
 

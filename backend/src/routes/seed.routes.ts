@@ -151,12 +151,10 @@ router.post(
     const footballSport: SportProfile = findSport('football') ?? {
       sport: 'football',
       order: sports.length === 0 ? 0 : sports.length,
-      accountType: 'athlete',
     };
     const basketballSport: SportProfile = findSport('basketball') ?? {
       sport: 'basketball',
       order: footballSport.order + 1,
-      accountType: 'athlete',
       positions: ['Point Guard'],
     };
 

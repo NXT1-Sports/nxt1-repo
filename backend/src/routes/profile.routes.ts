@@ -12,7 +12,7 @@
  */
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
-import type { DocumentData } from 'firebase-admin/firestore';
+import type { DocumentData, Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import { appGuard, optionalAuth } from '../middleware/auth.middleware.js';
 import { logger } from '../utils/logger.js';
@@ -22,6 +22,9 @@ import { CACHE_KEYS as USER_CACHE_KEYS } from '../services/users.service.js';
 import { AGENT_CONTEXT_PREFIX } from '../modules/agent/memory/context-builder.js';
 import { validateBody } from '../middleware/validation.middleware.js';
 import { UpdateProfileDto, UploadProfileImageDto } from '../dtos/profile.dto.js';
+import { createRosterEntryService } from '../services/roster-entry.service.js';
+import { createOrganizationService } from '../services/organization.service.js';
+import { createProfileHydrationService } from '../services/profile-hydration.service.js';
 
 // Shared types and constants from @nxt1/core
 import type { User, UserSummary, SportProfile } from '@nxt1/core';
@@ -261,6 +264,20 @@ function docToUserSummary(docId: string, data: UserFirestoreDoc): UserSummary {
 }
 
 // ============================================
+// PROFILE HYDRATION
+// ============================================
+
+/**
+ * Create a ProfileHydrationService for the current request's Firestore instance.
+ * Overlays LIVE Organization branding onto User.sports[].team data.
+ */
+function getHydrationService(db: Firestore) {
+  const rosterEntryService = createRosterEntryService(db);
+  const organizationService = createOrganizationService(db);
+  return createProfileHydrationService(db, rosterEntryService, organizationService);
+}
+
+// ============================================
 // ROUTES
 // ============================================
 
@@ -294,7 +311,11 @@ router.get(
       return;
     }
 
-    const user = docToUser(doc.id, doc.data() as UserFirestoreDoc);
+    const rawUser = docToUser(doc.id, doc.data() as UserFirestoreDoc);
+
+    // Hydrate with LIVE Organization branding (replaces stale team snapshots)
+    const hydrationService = getHydrationService(db);
+    const user = await hydrationService.hydrateUser(rawUser);
 
     await cache.set(cacheKey, user, { ttl: CACHE_TTL.PROFILES });
     logger.debug('[Profile] /me cache set', { userId });
@@ -347,7 +368,11 @@ router.get(
     }
 
     const doc = snapshot.docs[0]!;
-    const user = docToUser(doc.id, doc.data() as UserFirestoreDoc);
+    const rawUser = docToUser(doc.id, doc.data() as UserFirestoreDoc);
+
+    // Hydrate with LIVE Organization branding (replaces stale team snapshots)
+    const hydrationService = getHydrationService(db);
+    const user = await hydrationService.hydrateUser(rawUser);
 
     // Populate both cache keys so both lookup paths benefit
     await Promise.all([
@@ -488,7 +513,11 @@ router.get(
     }
 
     const doc = snapshot.docs[0]!;
-    const user = docToUser(doc.id, doc.data() as UserFirestoreDoc);
+    const rawUser = docToUser(doc.id, doc.data() as UserFirestoreDoc);
+
+    // Hydrate with LIVE Organization branding (replaces stale team snapshots)
+    const hydrationService = getHydrationService(db);
+    const user = await hydrationService.hydrateUser(rawUser);
 
     // Populate both cache keys so both lookup paths benefit
     await Promise.all([
@@ -1320,7 +1349,6 @@ router.post(
     const newSport: SportProfile = {
       ...sport,
       order: existingSports.length,
-      accountType: sport.accountType ?? 'athlete',
     } as SportProfile;
 
     await userRef.update({

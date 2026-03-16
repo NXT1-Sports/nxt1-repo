@@ -334,7 +334,10 @@ function sectionToFirestoreUpdate(
       if (data.school !== undefined && user.sports && user.sports[targetIndex]) {
         const updatedSports = JSON.parse(JSON.stringify(user.sports)) as SportProfile[];
         if (!updatedSports[targetIndex].team) {
-          updatedSports[targetIndex].team = { type: 'high-school', name: '', logo: '', colors: [] };
+          updatedSports[targetIndex].team = {
+            type: 'high-school',
+            name: '',
+          };
         }
         updatedSports[targetIndex].team.name = data.school || '';
         updates['sports'] = updatedSports;

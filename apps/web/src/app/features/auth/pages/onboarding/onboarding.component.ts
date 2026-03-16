@@ -45,6 +45,8 @@ import {
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { Router, RouterModule } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 
 // Shared UI Components
 import { AuthShellComponent } from '@nxt1/ui/auth/auth-shell';
@@ -130,10 +132,10 @@ import {
 } from '../../services';
 import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { SeoService } from '../../../../core/services';
-import { AgentXJobService } from '@nxt1/ui/agent-x';
 import { ProfileGenerationStateService } from '@nxt1/ui/profile';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
+import { environment } from '../../../../../environments/environment';
 
 // Types are imported directly from @nxt1/core/api - no local aliases needed
 
@@ -238,7 +240,8 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [disabled]="isLoading()"
                 [showGender]="true"
                 [showLocation]="true"
-                [showClassYear]="false"
+                [showClassYear]="selectedRole() === 'athlete'"
+                [showCoachTitleField]="false"
                 (profileChange)="onProfileChange($event)"
                 (photoSelect)="onPhotoSelect()"
                 (filesSelected)="onFilesSelected($event)"
@@ -296,8 +299,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [disabled]="isLoading()"
                 [searchTeams]="searchTeamsFn"
                 (teamSelectionChange)="onTeamSelectionChange($event)"
-                (createProgram)="onCreateProgram()"
-                (joinProgram)="onJoinProgram()"
               />
             }
 
@@ -451,9 +452,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private readonly platform = inject(NxtPlatformService);
   private readonly themeService = inject(NxtThemeService);
   private readonly onboardingAnalytics = inject(OnboardingAnalyticsService);
-  private readonly agentXJobService = inject(AgentXJobService);
   private readonly profileGenerationState = inject(ProfileGenerationStateService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('Onboarding');
+  private readonly http = inject(HttpClient);
 
   /** Check if running on mobile (native or mobile web) */
   readonly isMobile = computed(() => this.platform.isMobile());
@@ -956,13 +957,52 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   /**
    * Team search function — passed to the team selection component.
-   * Uses the explore API to search teams by query.
+   * Searches programs (organizations) via the backend API.
    */
   readonly searchTeamsFn = async (query: string): Promise<TeamSearchResult[]> => {
-    // TODO: Wire to real explore API once available
-    // For now, return empty results — the backend endpoint will be connected
-    this.logger.debug('Team search requested', { query });
-    return [];
+    this.logger.debug('Program search requested', { query });
+    try {
+      const url = `${environment.apiURL}/programs/search`;
+      const response = await firstValueFrom(
+        this.http.get<{
+          success: boolean;
+          data: Array<{
+            id: string;
+            name: string;
+            type: string;
+            location?: { state?: string; city?: string };
+            logoUrl?: string;
+            primaryColor?: string;
+            secondaryColor?: string;
+            mascot?: string;
+            teamCount?: number;
+            isClaimed?: boolean;
+          }>;
+        }>(url, { params: { q: query, limit: '20' } })
+      );
+
+      if (!response.success || !response.data) return [];
+
+      // Map organization results to TeamSearchResult shape
+      return response.data.map((org) => ({
+        id: org.id,
+        name: org.name,
+        sport: '', // Programs span multiple sports
+        teamType: org.type,
+        location:
+          org.location?.city && org.location?.state
+            ? `${org.location.city}, ${org.location.state}`
+            : (org.location?.state ?? ''),
+        logoUrl: org.logoUrl ?? undefined,
+        colors: [org.primaryColor, org.secondaryColor].filter(Boolean) as string[],
+        memberCount: org.teamCount ?? 0,
+        isSchool: org.type === 'high-school' || org.type === 'middle-school',
+        organizationId: org.id,
+      }));
+    } catch (err) {
+      this.logger.error('Program search failed', err, { query });
+      return [];
+    }
   };
 
   /**
@@ -1102,69 +1142,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   }
 
   // ============================================
-  // AGENT X: Link Sources Scrape (Fire-and-forget)
-  // ============================================
-
-  /**
-   * Trigger an Agent X background job to scrape the user's linked accounts.
-   * Called after the link-sources step is completed during onboarding.
-   * Fire-and-forget — does not block navigation to the next step.
-   */
-  private triggerLinkSourcesScrape(): void {
-    const formData = this._formData();
-    const linkSources = formData.linkSources;
-
-    // Only fire if the user actually linked at least one account
-    const connectedSources = linkSources?.links?.filter((l) => l.connected) ?? [];
-    if (connectedSources.length === 0) {
-      this.logger.info('No linked accounts, skipping Agent X scrape');
-      return;
-    }
-
-    const user = this.authFlow.user();
-    if (!user?.uid) {
-      this.logger.warn('No authenticated user, skipping Agent X scrape');
-      return;
-    }
-
-    const platformNames = connectedSources.map((s) => s.platform).join(', ');
-    const intent = `Scrape and analyze linked accounts for new athlete profile: ${platformNames}`;
-
-    const context: Record<string, unknown> = {
-      origin: 'onboarding',
-      step: 'link-sources',
-      role: formData.userType,
-      sport: formData.sport?.sports?.[0]?.sport,
-      linkedAccounts: connectedSources.map((s) => ({
-        platform: s.platform,
-        username: s.username,
-        url: s.url,
-        ...(s.scopeType && s.scopeType !== 'global'
-          ? { scopeType: s.scopeType, scopeId: s.scopeId }
-          : {}),
-      })),
-    };
-
-    this.logger.info('Triggering Agent X link-sources scrape', {
-      userId: user.uid,
-      platforms: platformNames,
-      count: connectedSources.length,
-    });
-
-    // Fire-and-forget — don't await, don't block the UI
-    void this.agentXJobService.enqueue(intent, context).then((result) => {
-      if (result) {
-        this.logger.info('Agent X scrape job enqueued', {
-          jobId: result.jobId,
-          operationId: result.operationId,
-        });
-        // Store jobId so the profile page can show generation overlay
-        this.profileGenerationState.startGeneration(result.jobId, platformNames);
-      }
-    });
-  }
-
-  // ============================================
   // COMPLETION HANDLER (Platform-specific backend logic)
   // ============================================
 
@@ -1232,16 +1209,25 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         teamColors: formData.school?.teamColors || sportEntries[0]?.team?.colors,
         club: formData.school?.club,
         organization: formData.organization?.organizationName,
-        coachTitle: formData.organization?.title,
+        coachTitle: formData.sport?.coachTitle ?? formData.organization?.title,
         linkSources: formData.linkSources,
+        teamSelection: formData.teamSelection,
+        createTeamProfile: formData.createTeamProfile,
       };
 
-      await this.authApi.saveOnboardingProfile(user.uid, profileData);
+      const result = await this.authApi.saveOnboardingProfile(user.uid, profileData);
       this.logger.info('Profile data saved successfully');
 
-      // ⭐ RACE CONDITION FIX: Trigger Agent X scrape AFTER profile is persisted
-      // so the scraper enriches on top of saved data, not before it exists.
-      this.triggerLinkSourcesScrape();
+      // Start profile generation overlay if backend enqueued a scrape job
+      if (result.scrapeJobId) {
+        const platformNames =
+          formData.linkSources?.links
+            ?.filter((l) => l.connected)
+            .map((l) => l.platform)
+            .join(', ') ?? '';
+        this.profileGenerationState.startGeneration(result.scrapeJobId, platformNames);
+        this.logger.info('Backend scrape job started', { scrapeJobId: result.scrapeJobId });
+      }
     } catch (saveError) {
       this.logger.warn('Failed to save profile data, continuing', { error: saveError });
     }

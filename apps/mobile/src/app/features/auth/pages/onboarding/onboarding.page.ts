@@ -54,6 +54,7 @@ import {
   OnboardingProfileStepComponent,
   OnboardingLinkDropStepComponent,
   OnboardingTeamStepComponent,
+  Nxt1OnboardingCreateTeamStepComponent,
   OnboardingSportStepComponent,
   OnboardingTeamSelectionStepComponent,
   OnboardingReferralStepComponent,
@@ -73,6 +74,7 @@ import {
   type ProfileFormData,
   type ProfileLocationData,
   type TeamFormData,
+  type CreateTeamProfileFormData,
   type SportFormData,
   type ReferralSourceData,
   type LinkSourcesFormData,
@@ -94,6 +96,7 @@ import {
 } from '@nxt1/core/api';
 import { AUTH_ROUTES } from '@nxt1/core/constants';
 import { STORAGE_KEYS } from '@nxt1/core/storage';
+import { TEST_IDS } from '@nxt1/core/testing';
 import { createNativeStorageAdapter } from '../../../../core/infrastructure/native-storage.adapter';
 
 // Geolocation - Native Capacitor implementation
@@ -120,6 +123,8 @@ import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { NxtThemeService } from '@nxt1/ui';
 import { HapticsService, NxtToastService, NxtLoggingService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
+import { CapacitorHttpAdapter } from '../../../../core/infrastructure';
+import { environment } from '../../../../../environments/environment';
 
 // Types are imported directly from @nxt1/core/api - no local aliases needed
 
@@ -148,6 +153,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
     OnboardingProfileStepComponent,
     OnboardingLinkDropStepComponent,
     OnboardingTeamStepComponent,
+    Nxt1OnboardingCreateTeamStepComponent,
     OnboardingSportStepComponent,
     OnboardingTeamSelectionStepComponent,
     OnboardingReferralStepComponent,
@@ -205,7 +211,8 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [disabled]="isLoading()"
                 [showGender]="true"
                 [showLocation]="true"
-                [showClassYear]="false"
+                [showClassYear]="selectedRole() === 'athlete'"
+                [showCoachTitleField]="false"
                 variant="list-row"
                 (profileChange)="onProfileChange($event)"
                 (photoSelect)="onPhotoSelect()"
@@ -215,13 +222,26 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             }
 
             <!-- Step 3: Link Data Sources (Connected Accounts) -->
-            @if (currentStep().id === 'link-sources') {
+            @if (currentStep().id === 'link-sources' || currentStep().id === 'team-link-sources') {
               <nxt1-onboarding-link-drop-step
+                #linkSourcesStep
                 [linkSourcesData]="linkSourcesFormData()"
                 [selectedSports]="selectedSportNames()"
                 [role]="selectedRole()"
                 [disabled]="isLoading()"
+                [scope]="
+                  selectedRole() === 'coach' || selectedRole() === 'director' ? 'team' : 'athlete'
+                "
                 (linkSourcesChange)="onLinkSourcesChange($event)"
+              />
+            }
+
+            <!-- Step: Create Team Profile (Director/Coach) -->
+            @if (currentStep().id === 'create-team-profile') {
+              <nxt1-onboarding-create-team-step
+                [teamData]="createTeamProfileFormData()"
+                [disabled]="isLoading()"
+                (teamChange)="onCreateTeamProfileChange($event)"
               />
             }
 
@@ -254,8 +274,6 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
                 [searchTeams]="searchTeamsFn"
                 variant="list-row"
                 (teamSelectionChange)="onTeamSelectionChange($event)"
-                (createProgram)="onCreateProgram()"
-                (joinProgram)="onJoinProgram()"
               />
             }
 
@@ -274,6 +292,8 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
               currentStep().id !== 'role' &&
               currentStep().id !== 'profile' &&
               currentStep().id !== 'link-sources' &&
+              currentStep().id !== 'team-link-sources' &&
+              currentStep().id !== 'create-team-profile' &&
               currentStep().id !== 'school' &&
               currentStep().id !== 'sport' &&
               currentStep().id !== 'select-teams' &&
@@ -292,6 +312,36 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
 
     <!-- Mobile: Sticky Footer — fades in when content is ready -->
     <div class="nxt1-onboarding-footer" [class.nxt1-onboarding-footer--visible]="footerVisible()">
+      @if (isLinkSourcesStep()) {
+        <form
+          class="nxt1-link-quick-add"
+          [attr.data-testid]="linkSourceTestIds.QUICK_ADD_CONTAINER"
+          (submit)="onQuickLinkSubmit($event)"
+        >
+          <input
+            [id]="quickAddInputId"
+            class="nxt1-link-quick-add__input"
+            type="url"
+            inputmode="url"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+            [attr.data-testid]="linkSourceTestIds.QUICK_ADD_INPUT"
+            [value]="quickAddLinkValue()"
+            placeholder="Add any link here"
+            (input)="onQuickLinkInput($event)"
+          />
+          <button
+            type="submit"
+            class="nxt1-link-quick-add__btn"
+            [attr.data-testid]="linkSourceTestIds.QUICK_ADD_SUBMIT"
+            [disabled]="!canSubmitQuickLink()"
+            aria-label="Add link"
+          >
+            +
+          </button>
+        </form>
+      }
       <nxt1-onboarding-button-mobile
         [totalSteps]="totalSteps()"
         [currentStepIndex]="currentStepIndex()"
@@ -335,6 +385,62 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
         opacity: 1;
         pointer-events: auto;
       }
+
+      /* Quick-add link bar — slim single row above footer controls */
+      .nxt1-link-quick-add {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        padding: var(--nxt1-spacing-2, 8px) var(--nxt1-spacing-3, 12px);
+        margin-bottom: var(--nxt1-spacing-2, 8px);
+        background: var(--nxt1-color-surface-200, #f1f5f9);
+        border-radius: var(--nxt1-borderRadius-full, 9999px);
+      }
+
+      .nxt1-link-quick-add__input {
+        flex: 1;
+        min-width: 0;
+        border: none;
+        background: transparent;
+        padding: var(--nxt1-spacing-1, 4px) 0;
+        font-family: var(--nxt1-fontFamily-brand, sans-serif);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        color: var(--nxt1-color-text-primary, #0f172a);
+        outline: none;
+      }
+
+      .nxt1-link-quick-add__input::placeholder {
+        color: var(--nxt1-color-text-tertiary, #94a3b8);
+      }
+
+      .nxt1-link-quick-add__btn {
+        appearance: none;
+        -webkit-appearance: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        flex-shrink: 0;
+        border: none;
+        border-radius: 50%;
+        background: var(--nxt1-color-text-primary, #0f172a);
+        color: var(--nxt1-color-surface-100, #ffffff);
+        font-size: 1.25rem;
+        font-weight: 600;
+        line-height: 1;
+        cursor: pointer;
+        transition: opacity var(--nxt1-duration-fast, 100ms) var(--nxt1-easing-out, ease-out);
+      }
+
+      .nxt1-link-quick-add__btn:active:not(:disabled) {
+        opacity: 0.7;
+      }
+
+      .nxt1-link-quick-add__btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -343,7 +449,6 @@ export class OnboardingPage implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly navController = inject(NavController);
   private readonly authFlow = inject(AuthFlowService);
-  private readonly agentXJobService = inject(AgentXJobService);
   private readonly profileGenerationState = inject(ProfileGenerationStateService);
   private readonly authApi = inject(AuthApiService);
   private readonly errorHandler = inject(AuthErrorHandler);
@@ -353,6 +458,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
   private readonly themeService = inject(NxtThemeService);
   private readonly editProfileApi = inject(EditProfileApiService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('Onboarding');
+  private readonly http = inject(CapacitorHttpAdapter);
 
   // ============================================
   // GEOLOCATION SERVICE (Platform-specific: Native Capacitor)
@@ -366,6 +472,9 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
   /** Reference to profile step for location callbacks */
   @ViewChild('profileStep') profileStepRef?: OnboardingProfileStepComponent;
+
+  /** Reference to link sources step for quick-add paste actions */
+  @ViewChild('linkSourcesStep') linkSourcesStepRef?: OnboardingLinkDropStepComponent;
 
   /** Reference to Agent X typewriter for content timing */
   private readonly typewriterRef = viewChild(OnboardingAgentXTypewriterComponent);
@@ -401,6 +510,50 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
   /** Track if we've already initialized the onboarding flow */
   hasInitialized = false;
+
+  // ============================================
+  // QUICK-ADD LINK SIGNALS
+  // ============================================
+
+  readonly quickAddLinkValue = signal('');
+  readonly quickAddInputId = 'onboarding-link-quick-add-input';
+  readonly linkSourceTestIds = TEST_IDS.LINK_SOURCES;
+  readonly isLinkSourcesStep = computed(() => {
+    const stepId = this.currentStep().id;
+    return stepId === 'link-sources' || stepId === 'team-link-sources';
+  });
+  readonly canSubmitQuickLink = computed(() => {
+    return this.quickAddLinkValue().trim().length > 0 && !this.isLoading();
+  });
+
+  onQuickLinkInput(event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    this.quickAddLinkValue.set(input?.value ?? '');
+  }
+
+  async onQuickLinkSubmit(event: Event): Promise<void> {
+    event.preventDefault();
+
+    const rawValue = this.quickAddLinkValue().trim();
+    if (!rawValue || !this.linkSourcesStepRef) return;
+
+    await this.haptics.impact('light');
+    const result = await this.linkSourcesStepRef.quickAddLink(rawValue);
+    if (!result.added) {
+      await this.haptics.notification('error');
+      this.toast.error(result.reason);
+      return;
+    }
+
+    this.quickAddLinkValue.set('');
+    await this.haptics.notification('success');
+    if (result.kind === 'platform') {
+      this.toast.success(`${result.label} added`);
+      return;
+    }
+
+    this.toast.success(`${result.label} saved`);
+  }
 
   constructor() {
     // ⭐ THEME MANAGEMENT: Force light theme during onboarding for optimal UX
@@ -496,6 +649,9 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
   /** Team form data computed from _formData */
   readonly teamFormData = computed(() => this._formData().team ?? null);
+
+  /** Create Team Profile form data computed from _formData */
+  readonly createTeamProfileFormData = computed(() => this._formData().createTeamProfile ?? null);
 
   /** Sport form data computed from _formData */
   readonly sportFormData = computed(() => this._formData().sport ?? null);
@@ -827,6 +983,13 @@ export class OnboardingPage implements OnInit, OnDestroy {
   }
 
   /**
+   * Handle create team profile data change (Director/Coach)
+   */
+  onCreateTeamProfileChange(data: CreateTeamProfileFormData): void {
+    this.machine.updateCreateTeamProfile(data);
+  }
+
+  /**
    * Handle sport data change (Step 3)
    */
   onSportChange(sportData: SportFormData): void {
@@ -860,8 +1023,46 @@ export class OnboardingPage implements OnInit, OnDestroy {
   readonly searchTeamsFn = async (
     query: string
   ): Promise<readonly import('@nxt1/ui').TeamSearchResult[]> => {
-    this.logger.debug('Team search requested', { query });
-    return [];
+    this.logger.debug('Program search requested', { query });
+    try {
+      const url = `${environment.apiUrl}/programs/search`;
+      const response = await this.http.get<{
+        success: boolean;
+        data: Array<{
+          id: string;
+          name: string;
+          type: string;
+          location?: { state?: string; city?: string };
+          logoUrl?: string;
+          primaryColor?: string;
+          secondaryColor?: string;
+          mascot?: string;
+          teamCount?: number;
+          isClaimed?: boolean;
+        }>;
+      }>(url, { params: { q: query, limit: 20 } });
+
+      if (!response.success || !response.data) return [];
+
+      return response.data.map((org) => ({
+        id: org.id,
+        name: org.name,
+        sport: '',
+        teamType: org.type,
+        location:
+          org.location?.city && org.location?.state
+            ? `${org.location.city}, ${org.location.state}`
+            : (org.location?.state ?? ''),
+        logoUrl: org.logoUrl ?? undefined,
+        colors: [org.primaryColor, org.secondaryColor].filter(Boolean) as string[],
+        memberCount: org.teamCount ?? 0,
+        isSchool: org.type === 'high-school' || org.type === 'middle-school',
+        organizationId: org.id,
+      }));
+    } catch (err) {
+      this.logger.error('Program search failed', err, { query });
+      return [];
+    }
   };
 
   /**
@@ -1038,7 +1239,12 @@ export class OnboardingPage implements OnInit, OnDestroy {
                 type: entry.team.type,
                 city: entry.team.city,
                 state: entry.team.state,
-                logo: entry.team.logo ?? undefined,
+                // V3 fields (canonical)
+                logoUrl: entry.team.logoUrl ?? entry.team.logo ?? undefined,
+                primaryColor: entry.team.primaryColor ?? entry.team.colors?.[0] ?? undefined,
+                secondaryColor: entry.team.secondaryColor ?? entry.team.colors?.[1] ?? undefined,
+                // Legacy fields (backward compat)
+                logo: entry.team.logoUrl ?? entry.team.logo ?? undefined,
                 colors: entry.team.colors,
               }
             : undefined,
@@ -1051,18 +1257,30 @@ export class OnboardingPage implements OnInit, OnDestroy {
         city: sportEntries[0]?.team?.city || formData.school?.city,
         club: formData.school?.club,
         organization: formData.organization?.organizationName,
-        coachTitle: formData.organization?.title,
-        teamLogo: formData.school?.teamLogo || sportEntries[0]?.team?.logo,
+        coachTitle: formData.sport?.coachTitle ?? formData.organization?.title,
+        teamLogo:
+          formData.school?.teamLogo ||
+          sportEntries[0]?.team?.logoUrl ||
+          sportEntries[0]?.team?.logo,
         teamColors: formData.school?.teamColors || sportEntries[0]?.team?.colors,
         linkSources: formData.linkSources,
+        teamSelection: formData.teamSelection,
+        createTeamProfile: formData.createTeamProfile,
       };
 
-      await this.authApi.saveOnboardingProfile(user.uid, profileData);
+      const result = await this.authApi.saveOnboardingProfile(user.uid, profileData);
       this.logger.info('Profile data saved successfully');
 
-      // ⭐ RACE CONDITION FIX: Trigger Agent X scrape AFTER profile is persisted
-      // so the scraper enriches on top of saved data, not before it exists.
-      this.triggerLinkSourcesScrape();
+      // Start profile generation overlay if backend enqueued a scrape job
+      if (result.scrapeJobId) {
+        const platformNames =
+          formData.linkSources?.links
+            ?.filter((l) => l.connected)
+            .map((l) => l.platform)
+            .join(', ') ?? '';
+        this.profileGenerationState.startGeneration(result.scrapeJobId, platformNames);
+        this.logger.info('Backend scrape job started', { scrapeJobId: result.scrapeJobId });
+      }
     } catch (saveError) {
       this.logger.warn('Failed to save profile data, continuing', { error: saveError });
     }
@@ -1283,62 +1501,6 @@ export class OnboardingPage implements OnInit, OnDestroy {
       userId: user.uid,
       userType: this.selectedRole(),
       totalSteps: this._steps().length,
-    });
-  }
-
-  /**
-   * Fire-and-forget: enqueue an Agent X background job to scrape
-   * the user's newly linked accounts. Called on link-sources STEP_COMPLETED.
-   */
-  private triggerLinkSourcesScrape(): void {
-    const formData = this._formData();
-    const linkSources = formData.linkSources;
-
-    const connectedSources = linkSources?.links?.filter((l) => l.connected) ?? [];
-    if (connectedSources.length === 0) {
-      this.logger.info('No linked accounts, skipping Agent X scrape');
-      return;
-    }
-
-    const user = this.authFlow.user();
-    if (!user?.uid) {
-      this.logger.warn('No authenticated user, skipping Agent X scrape');
-      return;
-    }
-
-    const platformNames = connectedSources.map((s) => s.platform).join(', ');
-    const intent = `Scrape and analyze linked accounts for new athlete profile: ${platformNames}`;
-
-    const context: Record<string, unknown> = {
-      origin: 'onboarding',
-      step: 'link-sources',
-      role: formData.userType,
-      sport: formData.sport?.sports?.[0]?.sport,
-      linkedAccounts: connectedSources.map((s) => ({
-        platform: s.platform,
-        username: s.username,
-        url: s.url,
-        ...(s.scopeType && s.scopeType !== 'global'
-          ? { scopeType: s.scopeType, scopeId: s.scopeId }
-          : {}),
-      })),
-    };
-
-    this.logger.info('Triggering Agent X link-sources scrape', {
-      userId: user.uid,
-      platforms: platformNames,
-      count: connectedSources.length,
-    });
-
-    void this.agentXJobService.enqueue(intent, context).then((result) => {
-      if (result) {
-        this.logger.info('Agent X scrape job enqueued', {
-          jobId: result.jobId,
-          operationId: result.operationId,
-        });
-        // Store jobId so the profile page can show generation overlay
-        this.profileGenerationState.startGeneration(result.jobId, platformNames);
-      }
     });
   }
 

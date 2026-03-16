@@ -39,6 +39,13 @@ export enum TeamStatus {
 }
 
 // ============================================
+// TEAM SOURCE (Ghost vs Verified)
+// ============================================
+
+/** How the team was created */
+export type TeamSource = 'admin' | 'user_generated' | 'import';
+
+// ============================================
 // TEAM (Main Interface - v3.0)
 // ============================================
 
@@ -123,12 +130,21 @@ export interface Team {
   // ============================================
 
   /** Team logo URL */
+  logoUrl?: string;
+
+  /** @deprecated Use logoUrl instead */
   teamLogoImg?: string;
 
   /** Primary team color (hex) */
+  primaryColor?: string;
+
+  /** @deprecated Use primaryColor instead */
   teamColor1?: string;
 
   /** Secondary team color (hex) */
+  secondaryColor?: string;
+
+  /** @deprecated Use secondaryColor instead */
   teamColor2?: string;
 
   /** Mascot name */
@@ -240,6 +256,9 @@ export interface Team {
   // ============================================
 
   /** Created at timestamp */
+  createdAt?: Date | string;
+
+  /** @deprecated Use createdAt instead */
   createAt?: Date | string;
 
   /** Updated at timestamp */
@@ -247,6 +266,19 @@ export interface Team {
 
   /** Created by user ID */
   createdBy?: string;
+
+  // ============================================
+  // GHOST / CLAIM STATUS
+  // ============================================
+
+  /**
+   * Whether this team has been verified/claimed by a real admin.
+   * Ghost entries created during onboarding start as `false`.
+   */
+  isClaimed?: boolean;
+
+  /** How the team was created */
+  source?: TeamSource;
 }
 
 // ============================================
@@ -265,13 +297,23 @@ export interface CreateTeamInput {
   season?: string;
   gender?: Team['gender'];
   packageId?: string;
+  logoUrl?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  /** @deprecated Use logoUrl */
   teamLogoImg?: string;
+  /** @deprecated Use primaryColor */
   teamColor1?: string;
+  /** @deprecated Use secondaryColor */
   teamColor2?: string;
   mascot?: string;
   division?: string;
   conference?: string;
   description?: string;
+  /** Defaults to `true` if not provided */
+  isClaimed?: boolean;
+  /** Defaults to `'admin'` if not provided */
+  source?: TeamSource;
 }
 
 export interface UpdateTeamInput {
@@ -284,8 +326,14 @@ export interface UpdateTeamInput {
   gender?: Team['gender'];
   status?: TeamStatus;
   isActive?: boolean;
+  logoUrl?: string;
+  primaryColor?: string;
+  secondaryColor?: string;
+  /** @deprecated Use logoUrl */
   teamLogoImg?: string;
+  /** @deprecated Use primaryColor */
   teamColor1?: string;
+  /** @deprecated Use secondaryColor */
   teamColor2?: string;
   mascot?: string;
   division?: string;

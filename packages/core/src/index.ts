@@ -881,7 +881,6 @@ export {
   delay,
   withRetry,
   buildUserUpdatePayload,
-  buildReferralSourcePayload,
   // Analytics API (onboarding-specific)
   createOnboardingAnalyticsApi,
   type OnboardingAnalyticsApi,

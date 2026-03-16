@@ -39,7 +39,7 @@ export {
   type OnboardingProfileData,
   type OnboardingCompleteResponse,
   type ReferralSourceData,
-  type HearAboutResponse,
+  type ReferralSourceResponse,
   type UserProfileResponse,
   type SendVerificationEmailRequest,
   type SendVerificationEmailResponse,
@@ -111,7 +111,6 @@ export {
   delay,
   withRetry,
   buildUserUpdatePayload,
-  buildReferralSourcePayload,
   // Analytics API (onboarding-specific)
   // NOTE: For AnalyticsAdapter, import from @nxt1/core/analytics
   createOnboardingAnalyticsApi,
@@ -173,8 +172,10 @@ export {
   type PlatformDefinition,
   PLATFORM_REGISTRY,
   PLATFORM_CATEGORIES,
+  PLATFORM_FAVICON_DOMAINS,
   RECOMMENDED_PLATFORMS_BY_ROLE,
   getPlatformsForSports,
+  getPlatformFaviconUrl,
   getRecommendedPlatforms,
   ROLE_SELECTION_STEP,
   ONBOARDING_STEPS,

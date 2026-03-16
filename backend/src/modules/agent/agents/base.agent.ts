@@ -29,7 +29,7 @@ import type { LLMMessage, LLMToolSchema, LLMToolCall } from '../llm/llm.types.js
 import { logger } from '../../../utils/logger.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
-const MAX_ITERATIONS = 15;
+const MAX_ITERATIONS = 20;
 
 /**
  * Maximum characters for a single tool observation fed back to the LLM.

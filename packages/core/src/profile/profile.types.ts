@@ -136,6 +136,14 @@ export interface ProfileSchool {
   readonly logoUrl?: string;
   /** Team code (for linking) */
   readonly teamCode?: string;
+  /** Organization ID (V3 relational — links to Organization doc) */
+  readonly organizationId?: string;
+  /** Team ID (V3 relational — links to Team doc under the organization) */
+  readonly teamId?: string;
+  /** Primary team color (hex, e.g. "#FF0000") */
+  readonly primaryColor?: string;
+  /** Secondary team color (hex) */
+  readonly secondaryColor?: string;
   /** Location (City, State) */
   readonly location?: string;
   /** Season record label (for example: "10-2" or "10-2-1") */

@@ -247,7 +247,6 @@ async function updateUserSportProfile(
         order: existingSports.length,
         jerseyNumber: sportData.jerseyNumber,
         positions: sportData.position,
-        accountType: 'athlete',
         metrics: {
           height: sportData.height,
           weight: sportData.weight,

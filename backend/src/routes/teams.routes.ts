@@ -171,20 +171,10 @@ router.post(
       teamName: teamData.name.trim(),
       teamType: TeamType.CLUB, // Default to club type
       sportName: teamData.sport.trim(),
-      state: teamData.state?.trim() || '',
-      city: teamData.city?.trim() || '',
       athleteMember: 0, // Default values - these would come from package
       panelMember: 0,
       packageId: 'default', // Default package
       createdBy: userId,
-      teamLogoImg: teamData.logoUrl?.trim(),
-      teamColor1: undefined,
-      teamColor2: undefined,
-      mascot: undefined,
-      unicode: undefined,
-      division: undefined,
-      conference: undefined,
-      expireAt: undefined, // No expiration by default
     });
 
     logger.info('[Teams API] TeamCode created', { teamId: team.id, userId });
@@ -342,15 +332,9 @@ router.patch(
       teamName,
       teamType,
       sportName,
-      state,
-      city,
       athleteMember,
       panelMember,
       isActive,
-      teamLogoImg,
-      teamColor1,
-      teamColor2,
-      mascot,
       unicode,
       division,
       conference,
@@ -366,15 +350,9 @@ router.patch(
       teamName: teamName?.trim(),
       teamType,
       sportName: sportName?.trim(),
-      state: state?.trim(),
-      city: city?.trim(),
       athleteMember: athleteMember !== undefined ? parseInt(athleteMember, 10) : undefined,
       panelMember: panelMember !== undefined ? parseInt(panelMember, 10) : undefined,
       isActive,
-      teamLogoImg: teamLogoImg?.trim(),
-      teamColor1: teamColor1?.trim(),
-      teamColor2: teamColor2?.trim(),
-      mascot: mascot?.trim(),
       unicode: unicode?.trim(),
       division: division?.trim(),
       conference: conference?.trim(),

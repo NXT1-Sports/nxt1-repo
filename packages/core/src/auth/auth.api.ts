@@ -47,6 +47,10 @@ import type { HttpAdapter } from '../api/http-adapter';
 import type { TeamTypeApi } from '../models/team-code.model';
 import type { UserRole } from '../constants/user.constants';
 import type { PlanTier } from '../constants/payment.constants';
+import type {
+  TeamSelectionFormData,
+  CreateTeamProfileFormData,
+} from '../onboarding/onboarding-navigation.api';
 
 // ============================================
 // TYPES - Backend API Request/Response
@@ -155,6 +159,8 @@ export interface OnboardingProfileData {
       scopeId?: string;
     }>;
   };
+  teamSelection?: TeamSelectionFormData;
+  createTeamProfile?: CreateTeamProfileFormData;
 }
 
 /**
@@ -172,6 +178,8 @@ export interface OnboardingCompleteResponse {
     primarySport?: string;
   };
   redirectPath: string;
+  /** Job ID for linked account scrape (if any linked accounts were provided). */
+  scrapeJobId?: string;
 }
 
 /**
@@ -185,11 +193,10 @@ export interface ReferralSourceData {
 }
 
 /**
- * HearAbout entry response
+ * Referral source save response
  */
-export interface HearAboutResponse {
+export interface ReferralSourceResponse {
   success: boolean;
-  id?: string;
 }
 
 /**
@@ -808,7 +815,10 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      * @param data - Referral source information
      * @returns Success status
      */
-    async saveReferralSource(userId: string, data: ReferralSourceData): Promise<HearAboutResponse> {
+    async saveReferralSource(
+      userId: string,
+      data: ReferralSourceData
+    ): Promise<ReferralSourceResponse> {
       return http.post(`${base}/auth/analytics/hear-about`, {
         userId,
         ...data,

@@ -181,7 +181,7 @@ export const TEAM_TYPE_OPTIONS: readonly TeamTypeOption[] = [
             <!-- Team Logo -->
             <div class="nxt1-team-logo-col">
               <nxt1-team-logo-picker
-                [logoUrl]="entry()?.team?.logo ?? null"
+                [logoUrl]="entry()?.team?.logoUrl ?? entry()?.team?.logo ?? null"
                 [disabled]="disabled()"
                 size="md"
                 (logoChange)="onLogoChange($event)"
@@ -828,6 +828,7 @@ export class OnboardingSportEntryComponent {
     return !!(
       e.team?.name?.trim() ||
       e.team?.type ||
+      e.team?.logoUrl ||
       e.team?.logo ||
       (e.team?.colors && e.team.colors.length > 0) ||
       (e.positions && e.positions.length > 0)

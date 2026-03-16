@@ -1008,6 +1008,8 @@ export {
   type TeamTypeOption,
 } from './onboarding/onboarding-team-step';
 
+export { Nxt1OnboardingCreateTeamStepComponent } from './onboarding/onboarding-create-team-step';
+
 export { OnboardingSportStepComponent } from './onboarding/onboarding-sport-step';
 
 export {

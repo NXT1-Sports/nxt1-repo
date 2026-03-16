@@ -52,6 +52,8 @@ export interface ConnectedSource {
   readonly scopeType?: 'global' | 'sport' | 'team';
   /** Sport key or team ID when scoped */
   readonly scopeId?: string;
+  /** Real favicon URL (Google Favicon API). When present, replaces the icon glyph. */
+  readonly faviconUrl?: string;
 }
 
 /**
@@ -138,7 +140,18 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
                   class="nxt1-source-icon"
                   [class.nxt1-source-icon--connected]="source.connected"
                 >
-                  <nxt1-icon [name]="source.icon" [size]="18" />
+                  @if (source.faviconUrl && !isFaviconFailed(source.platform)) {
+                    <img
+                      class="nxt1-source-favicon"
+                      [src]="source.faviconUrl"
+                      [alt]="source.label"
+                      width="18"
+                      height="18"
+                      (error)="onFaviconError(source.platform)"
+                    />
+                  } @else {
+                    <nxt1-icon [name]="source.icon" [size]="18" />
+                  }
                 </div>
                 <span class="nxt1-source-label">{{ source.label }}</span>
               </div>
@@ -350,6 +363,12 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
         color: var(--nxt1-color-text-tertiary);
       }
 
+      .nxt1-source-favicon {
+        display: block;
+        border-radius: var(--nxt1-borderRadius-sm, 3px);
+        object-fit: contain;
+      }
+
       .nxt1-source-check {
         color: var(--nxt1-color-success, #22c55e);
         flex-shrink: 0;
@@ -393,6 +412,17 @@ export class NxtConnectedSourcesComponent {
 
   /** Expanded/collapsed state */
   readonly expanded = signal(true);
+
+  /** Tracks platforms whose favicon failed to load — falls back to the icon glyph */
+  private readonly _failedFavicons = signal<ReadonlySet<string>>(new Set());
+
+  onFaviconError(platform: string): void {
+    this._failedFavicons.update((s) => new Set([...s, platform]));
+  }
+
+  isFaviconFailed(platform: string): boolean {
+    return this._failedFavicons().has(platform);
+  }
 
   /** Sources filtered by the active mode (only when toggle is shown). */
   readonly filteredSources = computed(() => {

@@ -4,7 +4,7 @@
  * @version 4.1.0
  *
  * "Select Teams" step for onboarding — appears after sport selection.
- * Users search for and select up to 2 teams, or opt to create/join a program.
+ * Users search for and select up to 2 teams.
  *
  * Architecture:
  * - Search input using NxtSearchBarComponent (shared)
@@ -12,7 +12,6 @@
  * - Max 2 teams selectable
  * - School teams auto-populate across sports for multi-sport users
  * - Club/travel teams do NOT auto-populate
- * - "Create Program" / "Join Program" CTAs
  *
  * The component does NOT call any API directly. Instead, it accepts a
  * `searchTeams` callback input so the parent (web or mobile) can
@@ -26,8 +25,6 @@
  *   [disabled]="isLoading()"
  *   [searchTeams]="searchTeamsFn"
  *   (teamSelectionChange)="onTeamSelectionChange($event)"
- *   (createProgram)="onCreateProgram()"
- *   (joinProgram)="onJoinProgram()"
  * />
  * ```
  *
@@ -49,8 +46,8 @@ import type { TeamSelectionEntry, TeamSelectionFormData, SportFormData } from '@
 import type { ILogger } from '@nxt1/core/logging';
 import { NxtSearchBarComponent } from '../../components/search-bar';
 import { NxtValidationSummaryComponent } from '../../components/validation-summary';
-import { NxtListRowComponent } from '../../components/list-row';
 import { NxtListSectionComponent } from '../../components/list-section';
+import { NxtIconComponent } from '../../components/icon';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtToastService } from '../../services/toast';
@@ -59,7 +56,7 @@ import { NxtToastService } from '../../services/toast';
 // TYPES
 // ============================================
 
-/** Search result from the team search callback */
+/** Search result from the team/program search callback */
 export interface TeamSearchResult {
   readonly id: string;
   readonly name: string;
@@ -70,6 +67,10 @@ export interface TeamSearchResult {
   readonly colors?: readonly string[];
   readonly memberCount?: number;
   readonly isSchool: boolean;
+  /** Organization ID (for program search results) */
+  readonly organizationId?: string;
+  /** Whether this is a draft/ghost entry */
+  readonly isDraft?: boolean;
 }
 
 /** Callback type for searching teams — provided by the parent component */
@@ -99,8 +100,8 @@ const MIN_QUERY_LENGTH = 2;
     CommonModule,
     NxtSearchBarComponent,
     NxtValidationSummaryComponent,
-    NxtListRowComponent,
     NxtListSectionComponent,
+    NxtIconComponent,
     HapticButtonDirective,
   ],
   template: `
@@ -125,15 +126,19 @@ const MIN_QUERY_LENGTH = 2;
         @if (isSearching()) {
           <div class="nxt1-search-loading" data-testid="team-search-loading">
             <div class="nxt1-spinner"></div>
-            <span class="nxt1-search-loading-text">Searching teams...</span>
+            <span class="nxt1-search-loading-text">Searching programs...</span>
           </div>
         } @else if (searchResults().length > 0) {
           <nxt1-list-section>
             @for (team of searchResults(); track team.id) {
-              <nxt1-list-row
-                [label]="team.name"
+              <button
+                type="button"
+                class="nxt1-mobile-team-row"
+                [class.nxt1-mobile-team-row--selected]="isTeamSelected(team.id)"
+                [disabled]="disabled() || (!isTeamSelected(team.id) && isMaxReached())"
+                nxtHaptic="selection"
                 [attr.data-testid]="'team-result-' + team.id"
-                (tap)="toggleTeam(team)"
+                (click)="toggleTeam(team)"
               >
                 <div class="nxt1-team-result-row">
                   @if (team.logoUrl) {
@@ -143,30 +148,63 @@ const MIN_QUERY_LENGTH = 2;
                       class="nxt1-team-logo-sm"
                       loading="lazy"
                     />
+                  } @else {
+                    <div
+                      class="nxt1-team-logo-placeholder nxt1-team-logo-placeholder--sm"
+                      [style.background]="team.colors?.[0] ?? 'var(--nxt1-color-surface-200)'"
+                    >
+                      {{ getTeamInitial(team.name) }}
+                    </div>
                   }
-                  <div class="nxt1-team-result-meta">
-                    <span class="nxt1-team-sport-badge">{{ team.sport }}</span>
+                  <div class="nxt1-team-result-copy">
+                    <span class="nxt1-team-result-name">{{ team.name }}</span>
+                    <div class="nxt1-team-result-meta">
+                      @if (team.isDraft) {
+                        <span class="nxt1-team-sport-badge nxt1-draft-badge">New Program</span>
+                      } @else {
+                        <span class="nxt1-team-sport-badge">{{ team.sport }}</span>
+                      }
+                      @if (team.teamType) {
+                        <span class="nxt1-team-type-badge nxt1-team-type-badge--mobile">
+                          {{ team.teamType }}
+                        </span>
+                      }
+                    </div>
                     @if (team.location) {
                       <span class="nxt1-team-location">{{ team.location }}</span>
                     }
                   </div>
-                  @if (isTeamSelected(team.id)) {
-                    <span class="nxt1-check-icon" aria-label="Selected">✓</span>
-                  }
+                  <div class="nxt1-mobile-team-row-actions">
+                    @if (isTeamSelected(team.id)) {
+                      <span class="nxt1-check-icon" aria-label="Selected">✓</span>
+                    }
+                    <nxt1-icon name="chevronForward" [size]="14" />
+                  </div>
                 </div>
-              </nxt1-list-row>
+              </button>
             }
           </nxt1-list-section>
         } @else if (hasSearched()) {
           <div class="nxt1-no-results" data-testid="team-search-no-results">
-            <p class="nxt1-no-results-text">No teams found</p>
+            <p class="nxt1-no-results-text">No programs found</p>
+            @if (searchQuery().trim().length >= 2) {
+              <button
+                type="button"
+                class="nxt1-add-draft-btn"
+                nxtHaptic="light"
+                data-testid="team-add-draft-program"
+                (click)="addDraftProgram(searchQuery().trim())"
+              >
+                Don't see your program? Add "{{ searchQuery().trim() }}"
+              </button>
+            }
           </div>
         }
 
         <!-- Selected Teams -->
         @if (selectedTeams().length > 0) {
           <div class="nxt1-selected-section" data-testid="team-selected-section">
-            <p class="nxt1-section-label">Selected Teams</p>
+            <p class="nxt1-section-label">Selected Programs</p>
             @for (team of selectedTeams(); track team.id) {
               <div class="nxt1-selected-team-row" [attr.data-testid]="'team-selected-' + team.id">
                 @if (team.logoUrl) {
@@ -176,10 +214,24 @@ const MIN_QUERY_LENGTH = 2;
                     class="nxt1-team-logo-sm"
                     loading="lazy"
                   />
+                } @else {
+                  <div
+                    class="nxt1-team-logo-placeholder nxt1-team-logo-placeholder--sm"
+                    [style.background]="team.colors?.[0] ?? 'var(--nxt1-color-surface-200)'"
+                  >
+                    {{ getTeamInitial(team.name) }}
+                  </div>
                 }
                 <div class="nxt1-selected-team-info">
                   <span class="nxt1-selected-team-name">{{ team.name }}</span>
-                  <span class="nxt1-selected-team-sport">{{ team.sport }}</span>
+                  <div class="nxt1-selected-team-meta">
+                    @if (team.sport) {
+                      <span class="nxt1-selected-team-sport">{{ team.sport }}</span>
+                    }
+                    @if (team.location) {
+                      <span class="nxt1-selected-team-location">{{ team.location }}</span>
+                    }
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -195,30 +247,6 @@ const MIN_QUERY_LENGTH = 2;
             }
           </div>
         }
-
-        <!-- Create / Join Program CTAs -->
-        <div class="nxt1-program-actions" data-testid="team-program-actions">
-          <button
-            type="button"
-            class="nxt1-program-btn"
-            nxtHaptic="light"
-            data-testid="team-create-program"
-            (click)="onCreateProgram()"
-          >
-            <span class="nxt1-program-icon">＋</span>
-            <span>Create a Program</span>
-          </button>
-          <button
-            type="button"
-            class="nxt1-program-btn"
-            nxtHaptic="light"
-            data-testid="team-join-program"
-            (click)="onJoinProgram()"
-          >
-            <span class="nxt1-program-icon">🔗</span>
-            <span>Join a Program</span>
-          </button>
-        </div>
       </div>
     } @else {
       <!-- ════════════════════════════════════════════
@@ -227,11 +255,11 @@ const MIN_QUERY_LENGTH = 2;
       <div class="nxt1-team-selection-step" data-testid="onboarding-team-selection-step">
         <!-- Description -->
         <p class="nxt1-step-description">
-          Search for your team or program.
+          Search for your program.
           @if (sportNames().length > 0) {
             <span class="nxt1-sport-context"> Playing {{ sportNames().join(', ') }}. </span>
           }
-          <span class="nxt1-max-hint">Select up to {{ maxTeams }} teams.</span>
+          <span class="nxt1-max-hint">Select up to {{ maxTeams }} programs.</span>
         </p>
 
         <!-- Search Bar -->
@@ -249,7 +277,7 @@ const MIN_QUERY_LENGTH = 2;
         @if (isSearching()) {
           <div class="nxt1-search-loading" data-testid="team-search-loading">
             <div class="nxt1-spinner"></div>
-            <span class="nxt1-search-loading-text">Searching teams...</span>
+            <span class="nxt1-search-loading-text">Searching programs...</span>
           </div>
         } @else if (searchResults().length > 0) {
           <div
@@ -293,9 +321,13 @@ const MIN_QUERY_LENGTH = 2;
                 <div class="nxt1-team-card-info">
                   <span class="nxt1-team-card-name">{{ team.name }}</span>
                   <span class="nxt1-team-card-meta">
-                    {{ team.sport }}
-                    @if (team.location) {
-                      · {{ team.location }}
+                    @if (team.isDraft) {
+                      New Program
+                    } @else {
+                      {{ team.sport }}
+                      @if (team.location) {
+                        · {{ team.location }}
+                      }
                     }
                   </span>
                   @if (team.teamType) {
@@ -312,8 +344,19 @@ const MIN_QUERY_LENGTH = 2;
           </div>
         } @else if (hasSearched()) {
           <div class="nxt1-no-results" data-testid="team-search-no-results">
-            <p class="nxt1-no-results-text">No teams found for "{{ searchQuery() }}"</p>
-            <p class="nxt1-no-results-hint">Try a different search or create a new program.</p>
+            <p class="nxt1-no-results-text">No programs found for "{{ searchQuery() }}"</p>
+            <p class="nxt1-no-results-hint">Try a different search or add your program below.</p>
+            @if (searchQuery().trim().length >= 2) {
+              <button
+                type="button"
+                class="nxt1-add-draft-btn"
+                nxtHaptic="light"
+                data-testid="team-add-draft-program"
+                (click)="addDraftProgram(searchQuery().trim())"
+              >
+                Don't see your program? Add "{{ searchQuery().trim() }}"
+              </button>
+            }
           </div>
         }
 
@@ -355,33 +398,9 @@ const MIN_QUERY_LENGTH = 2;
           </nxt1-validation-summary>
         } @else {
           <nxt1-validation-summary testId="team-selection-hint" variant="info">
-            Search for a team or create a new program
+            Search for a program or add a new one
           </nxt1-validation-summary>
         }
-
-        <!-- Create / Join Program CTAs -->
-        <div class="nxt1-program-actions" data-testid="team-program-actions">
-          <button
-            type="button"
-            class="nxt1-program-btn"
-            nxtHaptic="light"
-            data-testid="team-create-program"
-            (click)="onCreateProgram()"
-          >
-            <span class="nxt1-program-icon">＋</span>
-            <span>Create a Program</span>
-          </button>
-          <button
-            type="button"
-            class="nxt1-program-btn"
-            nxtHaptic="light"
-            data-testid="team-join-program"
-            (click)="onJoinProgram()"
-          >
-            <span class="nxt1-program-icon">🔗</span>
-            <span>Join a Program</span>
-          </button>
-        </div>
       </div>
     }
   `,
@@ -533,6 +552,13 @@ const MIN_QUERY_LENGTH = 2;
         border-radius: var(--nxt1-borderRadius-sm, 6px);
         object-fit: cover;
         flex-shrink: 0;
+      }
+
+      .nxt1-team-logo-placeholder--sm {
+        width: 32px;
+        height: 32px;
+        border-radius: var(--nxt1-borderRadius-sm, 6px);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
       }
 
       .nxt1-team-logo-placeholder {
@@ -711,6 +737,19 @@ const MIN_QUERY_LENGTH = 2;
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 
+      .nxt1-selected-team-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--nxt1-spacing-2, 8px);
+        align-items: center;
+      }
+
+      .nxt1-selected-team-location {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs, 0.75rem);
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+      }
+
       .nxt1-remove-btn {
         display: flex;
         align-items: center;
@@ -739,15 +778,66 @@ const MIN_QUERY_LENGTH = 2;
       .nxt1-team-result-row {
         display: flex;
         align-items: center;
-        gap: var(--nxt1-spacing-2, 8px);
+        gap: var(--nxt1-spacing-3, 12px);
         width: 100%;
+      }
+
+      .nxt1-mobile-team-row {
+        appearance: none;
+        -webkit-appearance: none;
+        display: block;
+        width: 100%;
+        border: none;
+        background: transparent;
+        padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-1, 4px);
+        text-align: left;
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .nxt1-mobile-team-row--selected {
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+      }
+
+      .nxt1-mobile-team-row:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .nxt1-mobile-team-row-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        margin-left: auto;
+      }
+
+      .nxt1-mobile-team-row-actions nxt1-icon {
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+      }
+
+      .nxt1-team-result-copy {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+        flex: 1;
+      }
+
+      .nxt1-team-result-name {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: 600;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .nxt1-team-result-meta {
         display: flex;
-        flex-direction: column;
-        gap: 2px;
-        flex: 1;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: var(--nxt1-spacing-2, 8px);
         min-width: 0;
       }
 
@@ -762,6 +852,13 @@ const MIN_QUERY_LENGTH = 2;
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .nxt1-team-type-badge--mobile {
+        margin-top: 0;
       }
 
       /* ============================================
@@ -787,56 +884,44 @@ const MIN_QUERY_LENGTH = 2;
       }
 
       /* ============================================
-         PROGRAM ACTIONS (Create / Join)
+         ADD DRAFT PROGRAM BUTTON
          ============================================ */
-      .nxt1-program-actions {
-        display: flex;
-        gap: var(--nxt1-spacing-3, 12px);
-      }
-
-      .nxt1-program-btn {
-        flex: 1;
-        display: flex;
+      .nxt1-add-draft-btn {
+        display: inline-flex;
         align-items: center;
         justify-content: center;
-        gap: var(--nxt1-spacing-2, 8px);
         padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+        margin-top: var(--nxt1-spacing-3, 12px);
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        font-weight: 500;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        background: var(--nxt1-color-surface-100);
-        border: 1px dashed var(--nxt1-color-border-default, rgba(255, 255, 255, 0.1));
+        font-weight: 600;
+        color: var(--nxt1-color-primary, #ccff00);
+        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        border: 1px dashed var(--nxt1-color-primary, #ccff00);
         border-radius: var(--nxt1-borderRadius-lg, 12px);
         cursor: pointer;
         transition: all var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-out, ease-out);
         -webkit-tap-highlight-color: transparent;
       }
 
-      .nxt1-program-btn:hover {
-        background: var(--nxt1-color-surface-200);
-        border-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.2));
-        color: var(--nxt1-color-text-primary, #ffffff);
+      .nxt1-add-draft-btn:hover {
+        background: rgba(204, 255, 0, 0.18);
+        border-style: solid;
       }
 
-      .nxt1-program-btn:focus-visible {
+      .nxt1-add-draft-btn:focus-visible {
         outline: 2px solid var(--nxt1-color-primary, #ccff00);
         outline-offset: 2px;
       }
 
-      .nxt1-program-icon {
-        font-size: var(--nxt1-fontSize-lg, 1.125rem);
-        line-height: 1;
+      /* Draft badge for new programs */
+      .nxt1-draft-badge {
+        color: var(--nxt1-color-warning, #ffaa00) !important;
       }
 
       /* ============================================
          RESPONSIVE
          ============================================ */
-      @media (max-width: 480px) {
-        .nxt1-program-actions {
-          flex-direction: column;
-        }
-      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -926,9 +1011,9 @@ export class OnboardingTeamSelectionStepComponent {
   /** Dynamic search placeholder */
   readonly searchPlaceholder = computed((): string => {
     const names = this.sportNames();
-    if (names.length === 1) return `Search ${names[0]} teams...`;
-    if (names.length > 1) return 'Search teams...';
-    return 'Search for a team...';
+    if (names.length === 1) return `Search ${names[0]} programs...`;
+    if (names.length > 1) return 'Search programs...';
+    return 'Search for a program...';
   });
 
   // ============================================
@@ -1048,6 +1133,8 @@ export class OnboardingTeamSelectionStepComponent {
       colors: team.colors,
       memberCount: team.memberCount,
       isSchool: team.isSchool,
+      isDraft: team.isDraft,
+      organizationId: team.organizationId,
     };
 
     const updated = [...current, entry];
@@ -1090,6 +1177,44 @@ export class OnboardingTeamSelectionStepComponent {
   // ============================================
   // PROGRAM ACTIONS
   // ============================================
+
+  /** Add a draft/ghost program entry from the search query */
+  addDraftProgram(name: string): void {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+
+    const current = this.selectedTeams();
+
+    // Check max
+    if (current.length >= MAX_TEAMS) {
+      this.toast.warning(`You can select up to ${MAX_TEAMS} programs`);
+      return;
+    }
+
+    // Check if already added
+    if (current.some((t) => t.name.toLowerCase() === trimmed.toLowerCase() && t.isDraft)) {
+      this.toast.warning(`"${trimmed}" is already added`);
+      return;
+    }
+
+    const draftId = `draft_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const entry: TeamSelectionEntry = {
+      id: draftId,
+      name: trimmed,
+      sport: '', // Will be derived from sports step on backend
+      isSchool: false,
+      isDraft: true,
+    };
+
+    const updated = [...current, entry];
+    this.selectedTeams.set(updated);
+    this.logger.info('Draft program added', { draftId, name: trimmed });
+
+    // Clear search
+    this.onSearchClear();
+
+    this.emitChange(updated);
+  }
 
   /** Handle "Create Program" click */
   onCreateProgram(): void {
@@ -1156,5 +1281,9 @@ export class OnboardingTeamSelectionStepComponent {
       teams: [...teams],
     };
     this.teamSelectionChange.emit(data);
+  }
+
+  protected getTeamInitial(name: string | undefined): string {
+    return (name?.trim().charAt(0) || '?').toUpperCase();
   }
 }

@@ -32,7 +32,13 @@ import { Worker, Job } from 'bullmq';
 import type { AgentJobUpdate } from '@nxt1/core';
 import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
-import { AGENT_QUEUE_NAME, AGENT_QUEUE_PREFIX, WORKER_CONCURRENCY } from './queue.types.js';
+import {
+  AGENT_QUEUE_NAME,
+  AGENT_QUEUE_PREFIX,
+  WORKER_CONCURRENCY,
+  JOB_LOCK_DURATION_MS,
+  JOB_TIMEOUT_MS,
+} from './queue.types.js';
 import { AgentQueueService } from './queue.service.js';
 import { AgentJobRepository } from './job.repository.js';
 import {
@@ -62,6 +68,7 @@ export class AgentWorker {
       connection,
       prefix: AGENT_QUEUE_PREFIX,
       concurrency: WORKER_CONCURRENCY,
+      lockDuration: JOB_LOCK_DURATION_MS,
       removeOnComplete: { count: 500 },
       removeOnFail: { count: 200 },
     });
@@ -146,11 +153,15 @@ export class AgentWorker {
       });
     };
 
-    // Execute the full agent pipeline
+    // Execute the full agent pipeline (with overall timeout)
     let result;
     try {
       const userFirestore = this.getUserFirestore(job);
-      result = await this.router.run(payload, onUpdate, userFirestore);
+      const routerPromise = this.router.run(payload, onUpdate, userFirestore);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Agent job timed out after 5 minutes')), JOB_TIMEOUT_MS);
+      });
+      result = await Promise.race([routerPromise, timeoutPromise]);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Agent pipeline error';
       // Write failure to Firestore before re-throwing so BullMQ records the error
@@ -189,6 +200,30 @@ export class AgentWorker {
       updatedAt: new Date().toISOString(),
     };
     await job.updateProgress(completedProgress);
+
+    // Treat max-iterations as a failure — the agent made no real progress
+    if (result.data && (result.data as Record<string, unknown>)['maxIterationsReached'] === true) {
+      logger.warn('Agent hit max iterations limit — marking as failed', {
+        operationId: payload.operationId,
+        userId: payload.userId,
+      });
+      await repo
+        .markFailed(
+          payload.operationId,
+          'The agent reached its maximum iteration limit without completing the task.'
+        )
+        .catch((err: unknown) => {
+          logger.warn('Failed to write max-iterations failure to Firestore', {
+            operationId: payload.operationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      return {
+        result,
+        durationMs: Date.now() - startMs,
+        completedAt: new Date().toISOString(),
+      };
+    }
 
     // Persist final result to Firestore
     await repo.markCompleted(payload.operationId, result).catch((err: unknown) => {
@@ -242,6 +277,16 @@ export class AgentWorker {
         error: err.message,
         stack: err.stack,
       });
+    });
+
+    this.worker.on('stalled', (jobId) => {
+      logger.error('Agent job stalled (lock expired) — marking as failed in Firestore', {
+        jobId,
+      });
+      // Mark both production and staging repos — we don't know which env the job belongs to
+      const failMessage = 'Job stalled: processing exceeded lock duration and was abandoned.';
+      void this.productionJobRepo.markFailed(jobId, failMessage).catch(() => {});
+      void this.stagingJobRepo.markFailed(jobId, failMessage).catch(() => {});
     });
 
     this.worker.on('error', (err) => {

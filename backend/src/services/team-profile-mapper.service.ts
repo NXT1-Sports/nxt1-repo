@@ -25,6 +25,7 @@ import type {
 } from '@nxt1/core/team-profile';
 import type { NewsArticle } from '@nxt1/core';
 import { getUsersByIds, type UserData } from './users.service.js';
+import { createOrganizationService } from './organization.service.js';
 import { logger } from '../utils/logger.js';
 
 // ============================================
@@ -142,13 +143,40 @@ function toSafeISOString(value: unknown): string {
 }
 
 /**
- * Map TeamCode to TeamProfileTeam
+ * Organization branding/location data used as fallback when the Team
+ * document doesn't carry its own (new architecture: branding & location
+ * live on the Organization, not on the Team).
  */
-function mapTeamCodeToTeam(teamCode: TeamCode): TeamProfileTeam {
-  const location =
-    teamCode.city && teamCode.state
-      ? `${teamCode.city}, ${teamCode.state}`
-      : teamCode.city || teamCode.state || '';
+interface OrgOverlay {
+  logoUrl?: string | null;
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
+  mascot?: string | null;
+  city?: string;
+  state?: string;
+}
+
+/**
+ * Map TeamCode to TeamProfileTeam.
+ *
+ * Branding and location are resolved with the following priority:
+ *   1. Legacy values on the Team document (backward compat with existing data)
+ *   2. Organization document values (new architecture)
+ *   3. Empty string / undefined
+ */
+function mapTeamCodeToTeam(teamCode: TeamCode, org?: OrgOverlay): TeamProfileTeam {
+  // Resolve location: team doc first, org fallback second
+  const city = teamCode.city || org?.city || '';
+  const state = teamCode.state || org?.state || '';
+  const location = city && state ? `${city}, ${state}` : city || state || '';
+
+  // Resolve branding: team doc first, org fallback second
+  const logoUrl = teamCode.logoUrl ?? teamCode.teamLogoImg ?? org?.logoUrl ?? undefined;
+  const primaryColor =
+    teamCode.primaryColor ?? teamCode.teamColor1 ?? org?.primaryColor ?? undefined;
+  const secondaryColor =
+    teamCode.secondaryColor ?? teamCode.teamColor2 ?? org?.secondaryColor ?? undefined;
+  const mascot = teamCode.mascot ?? org?.mascot ?? undefined;
 
   return {
     id: teamCode.id || '',
@@ -157,16 +185,16 @@ function mapTeamCodeToTeam(teamCode: TeamCode): TeamProfileTeam {
     teamName: teamCode.teamName,
     teamType: toTeamProfileType(teamCode.teamType),
     sport: teamCode.sportName || '',
-    city: teamCode.city,
-    state: teamCode.state,
+    city,
+    state,
     location,
-    logoUrl: teamCode.teamLogoImg,
+    logoUrl: logoUrl ?? undefined,
     galleryImages: [], // TODO: Add gallery support
     description: teamCode.description,
     branding: {
-      primaryColor: teamCode.teamColor1,
-      secondaryColor: teamCode.teamColor2,
-      mascot: teamCode.mascot,
+      primaryColor: primaryColor ?? undefined,
+      secondaryColor: secondaryColor ?? undefined,
+      mascot: mascot ?? undefined,
     },
     record: teamCode.seasonRecord
       ? {
@@ -207,7 +235,7 @@ function mapTeamCodeToTeam(teamCode: TeamCode): TeamProfileTeam {
       : [],
     verificationStatus: 'unverified', // TODO: Add verification logic
     isActive: teamCode.isActive ?? true,
-    createdAt: toSafeISOString(teamCode.createAt),
+    createdAt: toSafeISOString(teamCode.createdAt ?? teamCode.createAt),
     updatedAt: toSafeISOString(teamCode.lastUpdatedStat),
   };
 }
@@ -588,8 +616,28 @@ export async function mapTeamCodeToProfile(
     hasSeasonHistory: !!teamCode.seasonHistory,
   });
 
-  // Core team data
-  const team = mapTeamCodeToTeam(teamCode);
+  // Core team data — fetch Organization for branding/location fallback
+  let orgOverlay: OrgOverlay | undefined;
+  if (teamCode.organizationId && firestore) {
+    try {
+      const orgService = createOrganizationService(firestore);
+      const org = await orgService.getOrganizationById(teamCode.organizationId);
+      orgOverlay = {
+        logoUrl: org.logoUrl,
+        primaryColor: org.primaryColor,
+        secondaryColor: org.secondaryColor,
+        mascot: org.mascot,
+        city: org.location?.city,
+        state: org.location?.state,
+      };
+    } catch {
+      logger.warn('[mapTeamCodeToProfile] Failed to fetch organization for overlay', {
+        organizationId: teamCode.organizationId,
+        teamId: teamCode.id,
+      });
+    }
+  }
+  const team = mapTeamCodeToTeam(teamCode, orgOverlay);
 
   // Fetch all members from Users collection
   logger.info('[mapTeamCodeToProfile] 📥 Fetching users...', {
@@ -676,18 +724,19 @@ export async function mapTeamCodeToProfile(
 }
 
 /**
- * Map TeamCode to lightweight summary (for lists)
+ * Map TeamCode to lightweight summary (for lists).
+ * Uses Organization data as fallback for branding/location.
  */
-export function mapTeamCodeToSummary(teamCode: TeamCode) {
+export function mapTeamCodeToSummary(teamCode: TeamCode, org?: OrgOverlay) {
   return {
     id: teamCode.id,
     slug: buildTeamSlug(teamCode),
     unicode: teamCode.unicode,
     teamName: teamCode.teamName,
     sport: teamCode.sportName,
-    city: teamCode.city,
-    state: teamCode.state,
-    logoUrl: teamCode.teamLogoImg,
+    city: teamCode.city || org?.city || '',
+    state: teamCode.state || org?.state || '',
+    logoUrl: teamCode.logoUrl ?? teamCode.teamLogoImg ?? org?.logoUrl ?? undefined,
     memberCount: teamCode.members?.length || 0,
     record: teamCode.seasonRecord ? formatRecord(teamCode.seasonRecord) : undefined,
   };

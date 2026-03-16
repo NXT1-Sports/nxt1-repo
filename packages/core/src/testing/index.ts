@@ -470,8 +470,16 @@ export const LINK_SOURCES_TEST_IDS = {
   GROUP_HEADER: 'link-sources-group-header',
   /** Individual source row */
   SOURCE_ROW: 'link-sources-source-row',
+  /** Add custom link button */
+  ADD_CUSTOM_LINK_BUTTON: 'link-sources-add-custom-link-button',
   /** Empty state */
   EMPTY_STATE: 'link-sources-empty-state',
+  /** Quick-add URL bar (mobile sticky footer) */
+  QUICK_ADD_CONTAINER: 'link-sources-quick-add-container',
+  /** Quick-add URL input */
+  QUICK_ADD_INPUT: 'link-sources-quick-add-input',
+  /** Quick-add submit button */
+  QUICK_ADD_SUBMIT: 'link-sources-quick-add-submit',
 } as const;
 
 /**

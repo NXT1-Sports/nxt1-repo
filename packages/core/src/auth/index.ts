@@ -148,7 +148,7 @@ export {
   type OnboardingProfileData,
   type OnboardingCompleteResponse,
   type ReferralSourceData,
-  type HearAboutResponse,
+  type ReferralSourceResponse,
   type UserProfileResponse,
   type SendVerificationEmailRequest,
   type SendVerificationEmailResponse,

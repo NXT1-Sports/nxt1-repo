@@ -28,6 +28,13 @@ export enum OrganizationStatus {
 }
 
 // ============================================
+// ORGANIZATION SOURCE (Ghost vs Verified)
+// ============================================
+
+/** How the organization was created */
+export type OrganizationSource = 'admin' | 'user_generated' | 'import';
+
+// ============================================
 // BILLING INFO
 // ============================================
 
@@ -155,8 +162,18 @@ export interface Organization {
   /** Total number of teams under this org */
   teamCount?: number;
 
-  /** Total traffic/views */
-  totalViews?: number;
+  // ============================================
+  // GHOST / CLAIM STATUS
+  // ============================================
+
+  /**
+   * Whether this organization has been verified/claimed by a real admin.
+   * Ghost entries created during onboarding start as `false`.
+   */
+  isClaimed: boolean;
+
+  /** How the organization was created */
+  source: OrganizationSource;
 
   // ============================================
   // TIMESTAMPS
@@ -183,6 +200,12 @@ export interface CreateOrganizationInput {
   secondaryColor?: string;
   mascot?: string;
   description?: string;
+  /** Defaults to `true` if not provided */
+  isClaimed?: boolean;
+  /** Defaults to `'admin'` if not provided */
+  source?: OrganizationSource;
+  /** When true, don't add the ownerId as an admin entry (e.g. athlete-created ghost orgs) */
+  skipAdmins?: boolean;
 }
 
 export interface UpdateOrganizationInput {
