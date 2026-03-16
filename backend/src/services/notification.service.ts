@@ -78,7 +78,19 @@ export async function dispatch(
   input: DispatchNotificationInput
 ): Promise<DispatchResult> {
   const now = FieldValue.serverTimestamp();
-  const { userId, type, title, body, deepLink, data, source, metadata, skipActivity } = input;
+  const {
+    userId,
+    type,
+    title,
+    body,
+    deepLink,
+    data,
+    source,
+    metadata,
+    mediaUrl,
+    mediaType,
+    skipActivity,
+  } = input;
 
   const category = NOTIFICATION_TYPE_CATEGORY[type];
   const tab = NOTIFICATION_TYPE_TAB[type];
@@ -140,6 +152,8 @@ export async function dispatch(
       isArchived: false,
       deepLink: resolvedDeepLink,
       metadata: metadata ?? null,
+      ...(mediaUrl ? { mediaUrl } : {}),
+      ...(mediaType ? { mediaType } : {}),
       source: source
         ? {
             userName: source.userName ?? null,

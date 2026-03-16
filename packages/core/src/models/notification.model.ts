@@ -420,6 +420,12 @@ export interface DispatchNotificationInput {
   /** Free-form metadata persisted on the activity doc */
   readonly metadata?: Record<string, unknown>;
 
+  /** Media thumbnail URL (image/video preview attached to the activity) */
+  readonly mediaUrl?: string;
+
+  /** Type of attached media */
+  readonly mediaType?: 'image' | 'video';
+
   /** Skip writing an activity feed doc (push-only, e.g. ephemeral alerts) */
   readonly skipActivity?: boolean;
 }
