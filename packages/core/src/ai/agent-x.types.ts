@@ -272,3 +272,100 @@ export interface ShellContentForRole {
   readonly weeklyPlaybook: readonly ShellWeeklyPlaybookItem[];
   readonly activeOperations: readonly ShellActiveOperation[];
 }
+
+// ============================================
+// DASHBOARD API TYPES
+// ============================================
+
+/** A user-set goal that drives playbook generation. */
+export interface AgentDashboardGoal {
+  readonly id: string;
+  readonly text: string;
+  readonly category: string;
+  readonly icon?: string;
+  readonly createdAt: string;
+}
+
+/** Dashboard response aggregating all Agent X shell data. */
+export interface AgentDashboardResponse {
+  readonly success: boolean;
+  readonly data?: AgentDashboardData;
+  readonly error?: string;
+}
+
+/** Full dashboard payload returned by the backend. */
+export interface AgentDashboardData {
+  readonly briefing: AgentDashboardBriefing;
+  readonly playbook: AgentDashboardPlaybook;
+  readonly activeOperations: readonly ShellActiveOperation[];
+  readonly coordinators: readonly ShellCommandCategory[];
+}
+
+/** AI-generated daily briefing. */
+export interface AgentDashboardBriefing {
+  readonly previewText: string;
+  readonly insights: readonly ShellBriefingInsight[];
+  readonly generatedAt: string;
+}
+
+/** Goal-driven weekly playbook. */
+export interface AgentDashboardPlaybook {
+  readonly items: readonly ShellWeeklyPlaybookItem[];
+  readonly goals: readonly AgentDashboardGoal[];
+  readonly generatedAt: string | null;
+  readonly canRegenerate: boolean;
+}
+
+/** Request to set/update user goals (max 2). */
+export interface AgentSetGoalsRequest {
+  readonly goals: readonly AgentDashboardGoal[];
+}
+
+/** Request to regenerate the weekly playbook. */
+export interface AgentRegeneratePlaybookRequest {
+  readonly force?: boolean;
+}
+
+/** Response from playbook generation. */
+export interface AgentPlaybookResponse {
+  readonly success: boolean;
+  readonly data?: AgentDashboardPlaybook;
+  readonly error?: string;
+}
+
+// ============================================
+// OPERATIONS LOG TYPES
+// ============================================
+
+/** Display status for an operation log entry (mapped from AgentOperationStatus). */
+export type OperationLogStatus = 'complete' | 'error' | 'cancelled' | 'in-progress';
+
+/** Category of an operation for icon/color grouping. */
+export type OperationLogCategory =
+  | 'outreach'
+  | 'content'
+  | 'film'
+  | 'recruiting'
+  | 'analytics'
+  | 'profile'
+  | 'system';
+
+/** A single entry in the operations activity log. */
+export interface OperationLogEntry {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly icon: string;
+  readonly status: OperationLogStatus;
+  readonly category: OperationLogCategory;
+  readonly timestamp: string;
+  readonly duration?: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+/** API response for the operations log endpoint. */
+export interface OperationsLogResponse {
+  readonly success: boolean;
+  readonly data?: readonly OperationLogEntry[];
+  readonly error?: string;
+}

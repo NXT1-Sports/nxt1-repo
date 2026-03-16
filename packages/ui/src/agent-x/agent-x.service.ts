@@ -38,6 +38,14 @@ import {
   type AgentXQuickTask,
   type AgentXMode,
   type AgentXUserContext,
+  type AgentXChatRequest,
+  type AgentDashboardData,
+  type AgentDashboardGoal,
+  type AgentDashboardPlaybook,
+  type ShellBriefingInsight,
+  type ShellWeeklyPlaybookItem,
+  type ShellActiveOperation,
+  type ShellCommandCategory,
   AGENT_X_CONFIG,
   AGENT_X_MODES,
   AGENT_X_DEFAULT_MODE,
@@ -48,6 +56,12 @@ import {
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { AgentXJobService, AGENT_X_API_BASE_URL } from './agent-x-job.service';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 
 /**
  * Agent X state management service.
@@ -58,8 +72,13 @@ export class AgentXService {
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('AgentXService');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly http = inject(HttpClient);
+  private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
+  private readonly jobService = inject(AgentXJobService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -75,6 +94,26 @@ export class AgentXService {
 
   // Animation interval reference
   private titleAnimationInterval?: ReturnType<typeof setInterval>;
+
+  // Polling interval for active operations
+  private operationsPollingInterval?: ReturnType<typeof setInterval>;
+  private static readonly POLL_INTERVAL_MS = 10_000; // 10s when operations active
+
+  // ============================================
+  // DASHBOARD STATE (live from backend)
+  // ============================================
+
+  private readonly _dashboardLoading = signal(false);
+  private readonly _dashboardLoaded = signal(false);
+  private readonly _briefingInsights = signal<ShellBriefingInsight[]>([]);
+  private readonly _briefingPreviewText = signal('');
+  private readonly _weeklyPlaybook = signal<ShellWeeklyPlaybookItem[]>([]);
+  private readonly _activeOperations = signal<ShellActiveOperation[]>([]);
+  private readonly _coordinators = signal<ShellCommandCategory[]>([]);
+  private readonly _goals = signal<AgentDashboardGoal[]>([]);
+  private readonly _playbookGeneratedAt = signal<string | null>(null);
+  private readonly _canRegenerate = signal(false);
+  private readonly _playbookGenerating = signal(false);
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -112,6 +151,23 @@ export class AgentXService {
 
   /** Available modes configuration */
   readonly modes = signal(AGENT_X_MODES);
+
+  // ============================================
+  // DASHBOARD COMPUTED SIGNALS
+  // ============================================
+
+  readonly dashboardLoading = computed(() => this._dashboardLoading());
+  readonly dashboardLoaded = computed(() => this._dashboardLoaded());
+  readonly briefingInsights = computed(() => this._briefingInsights());
+  readonly briefingPreviewText = computed(() => this._briefingPreviewText());
+  readonly weeklyPlaybook = computed(() => this._weeklyPlaybook());
+  readonly activeOperations = computed(() => this._activeOperations());
+  readonly coordinators = computed(() => this._coordinators());
+  readonly goals = computed(() => this._goals());
+  readonly hasGoals = computed(() => this._goals().length > 0);
+  readonly playbookGeneratedAt = computed(() => this._playbookGeneratedAt());
+  readonly canRegenerate = computed(() => this._canRegenerate());
+  readonly playbookGenerating = computed(() => this._playbookGenerating());
 
   // ============================================
   // QUICK TASKS (by category)
@@ -271,17 +327,47 @@ export class AgentXService {
     this._isLoading.set(true);
 
     try {
-      // TODO: Replace with actual API call
-      // const request: AgentXChatRequest = {
-      //   message,
-      //   mode: this._selectedMode(),
-      //   history: this._messages().slice(-AGENT_X_CONFIG.maxHistoryLength),
-      //   userContext: this._userContext() ?? undefined,
-      // };
-      // const response = await this.api.sendMessage(request);
+      const request: AgentXChatRequest = {
+        message,
+        mode: this._selectedMode(),
+        history: this._messages()
+          .filter((m) => m.id !== 'typing' && !m.isTyping)
+          .slice(-AGENT_X_CONFIG.maxHistoryLength)
+          .map((m) => ({ ...m })),
+        userContext: this._userContext() ?? undefined,
+      };
 
-      // Simulate response for now
-      await this.simulateResponse(message);
+      const response = await firstValueFrom(
+        this.http.post<{
+          success: boolean;
+          message?: AgentXMessage;
+          error?: string;
+        }>(`${this.baseUrl}/agent-x/chat`, request)
+      );
+
+      if (response.success && response.message) {
+        // Replace typing with actual response
+        this._messages.update((msgs) => {
+          const filtered = msgs.filter((m) => m.id !== 'typing');
+          return [
+            ...filtered,
+            {
+              id: response.message!.id ?? this.generateId(),
+              role: 'assistant' as const,
+              content: response.message!.content,
+              timestamp: new Date(),
+              metadata: response.message!.metadata,
+            },
+          ];
+        });
+        await this.haptics.notification('success');
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
+          mode: this._selectedMode(),
+          hasContext: !!this._userContext(),
+        });
+      } else {
+        throw new Error(response.error ?? 'No response from Agent X');
+      }
     } catch (error) {
       this.logger.error('Send message failed', error);
       await this.haptics.notification('error');
@@ -353,6 +439,71 @@ export class AgentXService {
   }
 
   // ============================================
+  // OPERATIONS POLLING
+  // ============================================
+
+  /**
+   * Start or stop operations polling based on whether active (processing) operations exist.
+   * Polls dashboard every 10s when operations are in-progress, stops when all done.
+   */
+  private manageOperationsPolling(operations: readonly ShellActiveOperation[]): void {
+    const hasProcessing = operations.some((op) => op.status === 'processing');
+
+    if (hasProcessing && !this.operationsPollingInterval) {
+      this.logger.debug('Starting operations polling', { count: operations.length });
+      this.operationsPollingInterval = setInterval(
+        () => this.pollDashboard(),
+        AgentXService.POLL_INTERVAL_MS
+      );
+      this.destroyRef.onDestroy(() => this.stopOperationsPolling());
+    } else if (!hasProcessing && this.operationsPollingInterval) {
+      this.logger.debug('Stopping operations polling — no active operations');
+      this.stopOperationsPolling();
+    }
+  }
+
+  /**
+   * Silent dashboard poll — refreshes operations state without showing loading indicators.
+   */
+  private async pollDashboard(): Promise<void> {
+    try {
+      const response = await firstValueFrom(
+        this.http.get<{ success: boolean; data?: AgentDashboardData; error?: string }>(
+          `${this.baseUrl}/agent-x/dashboard`
+        )
+      );
+
+      if (response.success && response.data) {
+        const { briefing, playbook, activeOperations, coordinators } = response.data;
+        this._briefingInsights.set([...briefing.insights]);
+        this._briefingPreviewText.set(briefing.previewText);
+        this._weeklyPlaybook.set([...playbook.items]);
+        this._goals.set([...playbook.goals]);
+        this._playbookGeneratedAt.set(playbook.generatedAt);
+        this._canRegenerate.set(playbook.canRegenerate);
+        this._activeOperations.set([...activeOperations]);
+        this._coordinators.set([...coordinators]);
+
+        // Re-evaluate polling need
+        this.manageOperationsPolling(activeOperations);
+      }
+    } catch {
+      // Silent failure — polling is best-effort
+      this.logger.debug('Dashboard poll failed (will retry)');
+    }
+  }
+
+  /**
+   * Stop the operations polling interval.
+   */
+  private stopOperationsPolling(): void {
+    if (this.operationsPollingInterval) {
+      clearInterval(this.operationsPollingInterval);
+      this.operationsPollingInterval = undefined;
+    }
+  }
+
+  // ============================================
   // PRIVATE HELPERS
   // ============================================
 
@@ -365,34 +516,178 @@ export class AgentXService {
       : `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
+  // ============================================
+  // DASHBOARD MANAGEMENT
+  // ============================================
+
   /**
-   * Simulate AI response (placeholder until backend integration).
+   * Load the full Agent X dashboard from the backend.
+   * Called once when the Agent X page mounts.
    */
-  private async simulateResponse(userInput: string): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 1500 + Math.random() * 1000));
+  async loadDashboard(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
 
-    const responses = [
-      `I understand you're asking about "${userInput.slice(0, 50)}...". Let me help you with that!\n\nThis is a demo response. In the full version, I'll provide personalized recruiting insights, college recommendations, and actionable advice tailored to your profile.`,
-      `Great question! Based on what you've shared, here are some initial thoughts:\n\n• First, let's understand your goals better\n• Then I can provide specific recommendations\n• We'll create an action plan together\n\nWhat specific aspect would you like to focus on first?`,
-      `I'm here to help with your recruiting journey! Here's what I can assist with:\n\n🎯 College matching based on your profile\n📧 Communication strategies with coaches\n📊 Timeline and milestone planning\n\nLet's dive deeper into what matters most to you.`,
-    ];
+    this._dashboardLoading.set(true);
+    this.logger.info('Loading Agent X dashboard');
+    this.breadcrumb.trackStateChange('agent-x:dashboard-loading');
 
-    const responseContent = responses[Math.floor(Math.random() * responses.length)];
+    try {
+      const response = await firstValueFrom(
+        this.http.get<{ success: boolean; data?: AgentDashboardData; error?: string }>(
+          `${this.baseUrl}/agent-x/dashboard`
+        )
+      );
 
-    // Replace typing with actual response
-    this._messages.update((msgs) => {
-      const filtered = msgs.filter((m) => m.id !== 'typing');
-      return [
-        ...filtered,
-        {
-          id: this.generateId(),
-          role: 'assistant' as const,
-          content: responseContent,
-          timestamp: new Date(),
-        },
-      ];
+      if (response.success && response.data) {
+        const { briefing, playbook, activeOperations, coordinators } = response.data;
+        this._briefingInsights.set([...briefing.insights]);
+        this._briefingPreviewText.set(briefing.previewText);
+        this._weeklyPlaybook.set([...playbook.items]);
+        this._goals.set([...playbook.goals]);
+        this._playbookGeneratedAt.set(playbook.generatedAt);
+        this._canRegenerate.set(playbook.canRegenerate);
+        this._activeOperations.set([...activeOperations]);
+        this._coordinators.set([...coordinators]);
+        this._dashboardLoaded.set(true);
+
+        this.logger.info('Dashboard loaded', {
+          goalCount: playbook.goals.length,
+          playbookItems: playbook.items.length,
+          operations: activeOperations.length,
+        });
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_DASHBOARD_VIEWED, {
+          hasGoals: playbook.goals.length > 0,
+          hasPlaybook: playbook.items.length > 0,
+        });
+
+        // Start or stop polling based on active operations
+        this.manageOperationsPolling(activeOperations);
+      }
+    } catch (err) {
+      this.logger.error('Failed to load dashboard', err);
+    } finally {
+      this._dashboardLoading.set(false);
+    }
+  }
+
+  /**
+   * Set or update user goals (max 2), then optionally regenerate playbook.
+   */
+  async setGoals(goals: AgentDashboardGoal[]): Promise<boolean> {
+    this.logger.info('Setting Agent X goals', { count: goals.length });
+    this.breadcrumb.trackStateChange('agent-x:goals-setting');
+
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; error?: string }>(`${this.baseUrl}/agent-x/goals`, {
+          goals,
+        })
+      );
+
+      if (response.success) {
+        this._goals.set(goals);
+        this._canRegenerate.set(true);
+        this.toast.success('Goals saved! Generating your playbook...');
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_GOALS_SET, { count: goals.length });
+
+        // Auto-generate playbook after setting goals
+        await this.generatePlaybook();
+        return true;
+      }
+      this.toast.error(response.error ?? 'Failed to save goals');
+      return false;
+    } catch (err) {
+      this.logger.error('Failed to set goals', err);
+      this.toast.error('Failed to save goals');
+      return false;
+    }
+  }
+
+  /**
+   * Generate or regenerate the weekly playbook.
+   */
+  async generatePlaybook(force = false): Promise<void> {
+    if (this._goals().length === 0) {
+      this.toast.info('Set your goals first to generate a playbook');
+      return;
+    }
+
+    this._playbookGenerating.set(true);
+    this.logger.info('Generating playbook', { force });
+    this.breadcrumb.trackStateChange('agent-x:playbook-generating');
+
+    try {
+      const response = await firstValueFrom(
+        this.http.post<{ success: boolean; data?: AgentDashboardPlaybook; error?: string }>(
+          `${this.baseUrl}/agent-x/playbook/generate`,
+          { force }
+        )
+      );
+
+      if (response.success && response.data) {
+        this._weeklyPlaybook.set([...response.data.items]);
+        this._playbookGeneratedAt.set(response.data.generatedAt);
+        this._canRegenerate.set(true);
+        this.toast.success('Weekly playbook generated!');
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_GENERATED, {
+          itemCount: response.data.items.length,
+          forced: force,
+        });
+      } else {
+        this.toast.error(response.error ?? 'Failed to generate playbook');
+      }
+    } catch (err) {
+      this.logger.error('Failed to generate playbook', err);
+      this.toast.error('Failed to generate playbook');
+    } finally {
+      this._playbookGenerating.set(false);
+    }
+  }
+
+  /**
+   * Execute a playbook action by dispatching it as an Agent X job.
+   */
+  async executePlaybookAction(item: ShellWeeklyPlaybookItem): Promise<void> {
+    const intent = `${item.actionLabel}: ${item.title}. ${item.details}`;
+    this.logger.info('Executing playbook action', {
+      itemId: item.id,
+      actionLabel: item.actionLabel,
     });
 
-    await this.haptics.notification('success');
+    const result = await this.jobService.enqueue(intent, {
+      source: 'playbook',
+      playbookItemId: item.id,
+      goalId: item.goal?.id,
+    });
+
+    if (result) {
+      // Update the item status to in-progress
+      this._weeklyPlaybook.update((items) =>
+        items.map((i) => (i.id === item.id ? { ...i, status: 'in-progress' as const } : i))
+      );
+
+      // Add the operation to active operations
+      this._activeOperations.update((ops) => [
+        {
+          id: result.operationId,
+          label: `${item.actionLabel}...`,
+          progress: 0,
+          icon: 'sparkles',
+          status: 'processing' as const,
+        },
+        ...ops,
+      ]);
+
+      this.toast.success(`Agent X is working on: ${item.title}`);
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
+        itemId: item.id,
+        actionLabel: item.actionLabel,
+      });
+
+      // Start polling to track this new operation
+      this.manageOperationsPolling(this._activeOperations());
+    } else {
+      this.toast.error('Failed to start this action');
+    }
   }
 }

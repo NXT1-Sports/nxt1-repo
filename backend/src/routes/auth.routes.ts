@@ -142,6 +142,7 @@ interface UserV2Document {
 interface ConnectedSourceRecord {
   platform: string;
   profileUrl: string;
+  faviconUrl?: string;
   syncStatus: 'idle';
   scopeType?: string;
   scopeId?: string;

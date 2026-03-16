@@ -26,6 +26,9 @@ import type {
   AgentXChatResponse,
   AgentXQuickTask,
   AgentXMessage,
+  AgentDashboardData,
+  AgentDashboardGoal,
+  AgentDashboardPlaybook,
 } from './agent-x.types';
 import { AGENT_X_ENDPOINTS } from './agent-x.constants';
 import { externalServiceError, rateLimitError, isNxtApiError } from '../errors';
@@ -198,6 +201,50 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         return response.success;
       } catch {
         return false;
+      }
+    },
+
+    /**
+     * Fetch the aggregated Agent X dashboard (briefing, playbook, operations, coordinators).
+     * Backend resolves role-specific content based on the authenticated user.
+     */
+    async getDashboard(): Promise<AgentDashboardData | null> {
+      try {
+        const response = await http.get<ApiResponse<AgentDashboardData>>(
+          endpoint(AGENT_X_ENDPOINTS.DASHBOARD)
+        );
+        return response.success ? (response.data ?? null) : null;
+      } catch {
+        return null;
+      }
+    },
+
+    /**
+     * Set or update the user's Agent X goals (max 2).
+     */
+    async setGoals(goals: readonly AgentDashboardGoal[]): Promise<boolean> {
+      try {
+        const response = await http.post<ApiResponse<void>>(endpoint(AGENT_X_ENDPOINTS.GOALS), {
+          goals,
+        });
+        return response.success;
+      } catch {
+        return false;
+      }
+    },
+
+    /**
+     * Generate or regenerate the weekly playbook based on current goals.
+     */
+    async generatePlaybook(force = false): Promise<AgentDashboardPlaybook | null> {
+      try {
+        const response = await http.post<ApiResponse<AgentDashboardPlaybook>>(
+          endpoint(AGENT_X_ENDPOINTS.PLAYBOOK_GENERATE),
+          { force }
+        );
+        return response.success ? (response.data ?? null) : null;
+      } catch {
+        return null;
       }
     },
 

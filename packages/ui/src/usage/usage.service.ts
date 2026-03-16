@@ -13,6 +13,7 @@ import { Injectable, inject, signal, computed } from '@angular/core';
 import {
   formatPrice,
   USAGE_CATEGORY_CONFIGS,
+  USAGE_HISTORY_PAGE_SIZE,
   type UsageTimeframe,
   type UsageOverview,
   type UsageSubscription,
@@ -26,8 +27,12 @@ import {
   type UsageBillingInfo,
   type UsageCoupon,
   type UsageBudget,
+  type BillingContextSummary,
 } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 
 /** Navigation sections for the billing dashboard */
 export type UsageSection =
@@ -53,27 +58,16 @@ export const USAGE_SECTION_NAVS: readonly UsageSectionNav[] = [
 ] as const;
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
-
-// ⚠️ TEMPORARY: Mock data (remove when backend is ready)
-import {
-  MOCK_USAGE_OVERVIEW,
-  MOCK_USAGE_SUBSCRIPTIONS,
-  MOCK_USAGE_CHART_DATA,
-  MOCK_USAGE_PRODUCT_DETAILS,
-  MOCK_USAGE_TOP_ITEMS,
-  MOCK_USAGE_BREAKDOWN_ROWS,
-  MOCK_USAGE_PAYMENT_HISTORY,
-  MOCK_USAGE_PAYMENT_METHODS,
-  MOCK_USAGE_BILLING_INFO,
-  MOCK_USAGE_COUPON,
-  MOCK_USAGE_BUDGETS,
-} from './usage.mock-data';
+import { UsageApiService } from './usage-api.service';
 
 @Injectable({ providedIn: 'root' })
 export class UsageService {
+  private readonly api = inject(UsageApiService);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('UsageService');
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly breadcrumb = inject(NxtBreadcrumbService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -90,6 +84,7 @@ export class UsageService {
   private readonly _billingInfo = signal<UsageBillingInfo | null>(null);
   private readonly _coupon = signal<UsageCoupon | null>(null);
   private readonly _budgets = signal<readonly UsageBudget[]>([]);
+  private readonly _billingContext = signal<BillingContextSummary | null>(null);
   private readonly _isLoading = signal(false);
   private readonly _error = signal<string | null>(null);
   private readonly _timeframe = signal<UsageTimeframe>('current-month');
@@ -116,6 +111,7 @@ export class UsageService {
   readonly billingInfo = computed(() => this._billingInfo());
   readonly coupon = computed(() => this._coupon());
   readonly budgets = computed(() => this._budgets());
+  readonly billingContext = computed(() => this._billingContext());
   readonly isLoading = computed(() => this._isLoading());
   readonly error = computed(() => this._error());
   readonly timeframe = computed(() => this._timeframe());
@@ -226,12 +222,14 @@ export class UsageService {
   /** Set the timeframe filter */
   setTimeframe(timeframe: UsageTimeframe): void {
     this._timeframe.set(timeframe);
+    this.analytics?.trackEvent(APP_EVENTS.USAGE_TIMEFRAME_CHANGED, { timeframe });
     this.loadDashboard();
   }
 
   /** Set the active product tab */
   setActiveProductTab(category: UsageProductCategory): void {
     this._activeProductTab.set(category);
+    this.analytics?.trackEvent(APP_EVENTS.USAGE_CATEGORY_CHANGED, { productCategory: category });
     this.haptics.impact('light');
   }
 
@@ -239,6 +237,9 @@ export class UsageService {
   toggleBreakdownRow(date: string): void {
     const current = this._expandedBreakdownRow();
     this._expandedBreakdownRow.set(current === date ? null : date);
+    if (current !== date) {
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_BREAKDOWN_EXPANDED, { date });
+    }
     this.haptics.impact('light');
   }
 
@@ -253,28 +254,37 @@ export class UsageService {
 
   async loadDashboard(): Promise<void> {
     this.logger.info('Loading usage dashboard', { timeframe: this._timeframe() });
+    this.breadcrumb.trackStateChange('usage:loading', { timeframe: this._timeframe() });
     this._isLoading.set(true);
     this._error.set(null);
 
     try {
-      // ⚠️ TEMPORARY: Mock data
-      await this.simulateDelay(600);
+      const [dashboard, billingCtx] = await Promise.all([
+        this.api.getDashboard({ timeframe: this._timeframe() }),
+        this.api.getBillingContext(),
+      ]);
 
-      this._overview.set(MOCK_USAGE_OVERVIEW);
-      this._subscriptions.set([...MOCK_USAGE_SUBSCRIPTIONS]);
-      this._chartData.set([...MOCK_USAGE_CHART_DATA]);
-      this._productDetails.set([...MOCK_USAGE_PRODUCT_DETAILS]);
-      this._topItems.set([...MOCK_USAGE_TOP_ITEMS]);
-      this._breakdownRows.set([...MOCK_USAGE_BREAKDOWN_ROWS]);
-      this._paymentHistory.set([...MOCK_USAGE_PAYMENT_HISTORY]);
-      this._paymentMethods.set([...MOCK_USAGE_PAYMENT_METHODS]);
-      this._billingInfo.set(MOCK_USAGE_BILLING_INFO);
-      this._coupon.set(MOCK_USAGE_COUPON);
-      this._budgets.set([...MOCK_USAGE_BUDGETS]);
+      this._overview.set(dashboard.overview);
+      this._subscriptions.set(dashboard.subscriptions);
+      this._chartData.set(dashboard.chartData);
+      this._productDetails.set(dashboard.productDetails);
+      this._topItems.set(dashboard.topItems);
+      this._breakdownRows.set(dashboard.breakdownRows);
+      this._paymentHistory.set(dashboard.paymentHistory);
+      this._paymentMethods.set(dashboard.paymentMethods);
+      this._billingInfo.set(dashboard.billingInfo);
+      this._coupon.set(dashboard.coupon);
+      this._budgets.set(dashboard.budgets);
+      this._billingContext.set(billingCtx);
       this._historyPage.set(1);
-      this._historyHasMore.set(false);
+      this._historyHasMore.set(dashboard.paymentHistory.length >= USAGE_HISTORY_PAGE_SIZE);
 
-      this.logger.info('Usage dashboard loaded');
+      this.logger.info('Usage dashboard loaded', { entity: billingCtx.billingEntity });
+      this.breadcrumb.trackStateChange('usage:loaded', { entity: billingCtx.billingEntity });
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_DASHBOARD_VIEWED, {
+        timeframe: this._timeframe(),
+        entity: billingCtx.billingEntity,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load usage data';
       this._error.set(message);
@@ -295,8 +305,12 @@ export class UsageService {
     if (!this._historyHasMore() || this._isLoadingMore()) return;
     this._isLoadingMore.set(true);
     try {
-      await this.simulateDelay(300);
-      this._historyHasMore.set(false);
+      const nextPage = this._historyPage() + 1;
+      const result = await this.api.getHistory(nextPage, USAGE_HISTORY_PAGE_SIZE);
+      this._paymentHistory.update((prev) => [...prev, ...result.records]);
+      this._historyPage.set(nextPage);
+      this._historyHasMore.set(result.hasMore);
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_HISTORY_LOADED_MORE, { page: nextPage });
     } catch (err) {
       this.logger.error('Failed to load more history', err);
     } finally {
@@ -310,16 +324,21 @@ export class UsageService {
 
   async setDefaultPaymentMethod(methodId: string): Promise<boolean> {
     this.logger.info('Setting default payment method', { methodId });
+    this.breadcrumb.trackStateChange('usage:updating-payment-method', { methodId });
+    const previous = this._paymentMethods();
     try {
-      await this.simulateDelay(500);
       this._paymentMethods.update((methods) =>
         methods.map((m) => ({ ...m, isDefault: m.id === methodId }))
       );
+      await this.api.setDefaultPaymentMethod(methodId);
       await this.haptics.notification('success');
       this.toast.success('Default payment method updated');
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_PAYMENT_METHOD_DEFAULT_SET, { methodId });
       return true;
     } catch (err) {
+      this._paymentMethods.set(previous);
       const message = err instanceof Error ? err.message : 'Failed to update payment method';
+      this.logger.error('Failed to set default payment method', err, { methodId });
       this.toast.error(message);
       await this.haptics.notification('error');
       return false;
@@ -337,13 +356,15 @@ export class UsageService {
     const previous = this._paymentMethods();
     try {
       this._paymentMethods.update((methods) => methods.filter((m) => m.id !== methodId));
-      await this.simulateDelay(500);
+      await this.api.removePaymentMethod(methodId);
       await this.haptics.notification('success');
       this.toast.success('Payment method removed');
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_PAYMENT_METHOD_REMOVED, { methodId });
       return true;
     } catch (err) {
       this._paymentMethods.set(previous);
       const message = err instanceof Error ? err.message : 'Failed to remove payment method';
+      this.logger.error('Failed to remove payment method', err, { methodId });
       this.toast.error(message);
       await this.haptics.notification('error');
       return false;
@@ -356,10 +377,48 @@ export class UsageService {
   }
 
   // ============================================
-  // PRIVATE HELPERS
+  // BUDGET MANAGEMENT
   // ============================================
 
-  private simulateDelay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  /** Update the user's monthly budget (in cents) */
+  async updateBudget(monthlyBudget: number): Promise<boolean> {
+    this.logger.info('Updating budget', { monthlyBudget });
+    this.breadcrumb.trackStateChange('usage:updating-budget', { monthlyBudget });
+    try {
+      await this.api.updateBudget(monthlyBudget);
+      this._billingContext.update((ctx) => (ctx ? { ...ctx, monthlyBudget } : ctx));
+      await this.haptics.notification('success');
+      this.toast.success('Budget updated');
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_BUDGET_UPDATED, { monthlyBudget });
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update budget';
+      this.logger.error('Failed to update budget', err, { monthlyBudget });
+      this.toast.error(message);
+      await this.haptics.notification('error');
+      return false;
+    }
+  }
+
+  /** Update a team's monthly budget (in cents) — team admin only */
+  async updateTeamBudget(teamId: string, monthlyBudget: number): Promise<boolean> {
+    this.logger.info('Updating team budget', { teamId, monthlyBudget });
+    this.breadcrumb.trackStateChange('usage:updating-team-budget', { teamId, monthlyBudget });
+    try {
+      await this.api.updateTeamBudget(teamId, monthlyBudget);
+      this._billingContext.update((ctx) =>
+        ctx?.teamId === teamId ? { ...ctx, monthlyBudget } : ctx
+      );
+      await this.haptics.notification('success');
+      this.toast.success('Team budget updated');
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_TEAM_BUDGET_UPDATED, { teamId, monthlyBudget });
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update team budget';
+      this.logger.error('Failed to update team budget', err, { teamId, monthlyBudget });
+      this.toast.error(message);
+      await this.haptics.notification('error');
+      return false;
+    }
   }
 }

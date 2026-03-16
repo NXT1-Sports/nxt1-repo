@@ -14,6 +14,12 @@ import {
   getTeamUsageEvents,
   type CreateUsageEventInput,
   UsageFeature,
+  getUnitCost,
+  checkBudget,
+  recordSpend,
+  getOrCreateBillingContext,
+  updateBudget,
+  updateTeamBudget,
 } from '../modules/billing/index.js';
 
 const router = Router();
@@ -51,7 +57,13 @@ router.post('/usage', appGuard, async (req: Request, res: Response) => {
 
     // User is guaranteed by appGuard
     const userId = req.user!.uid;
-    const teamId = userId; // Teams resolved server-side
+    const rawTeamId = typeof req.body.teamId === 'string' ? req.body.teamId.trim() : '';
+    const teamId = rawTeamId || userId;
+
+    // Validate teamId format (prevent arbitrary injection)
+    if (rawTeamId && !/^[a-zA-Z0-9_-]{1,128}$/.test(rawTeamId)) {
+      return res.status(400).json({ error: 'Invalid teamId format' });
+    }
 
     // Get Firebase context
     const db = req.firebase?.db;
@@ -61,10 +73,25 @@ router.post('/usage', appGuard, async (req: Request, res: Response) => {
       throw new Error('Firebase context not available');
     }
 
+    // ── Budget gate ─────────────────────────────────────────
+    const costCents = getUnitCost(feature as UsageFeature) * Number(quantity);
+    const budgetResult = await checkBudget(db, userId, costCents, teamId);
+
+    if (!budgetResult.allowed) {
+      return res.status(402).json({
+        error: 'budget_exceeded',
+        message: budgetResult.reason,
+        currentSpend: budgetResult.currentSpend,
+        budget: budgetResult.budget,
+        percentUsed: budgetResult.percentUsed,
+        billingEntity: budgetResult.billingEntity,
+      });
+    }
+
     // Record usage event
     const input: CreateUsageEventInput = {
       userId,
-      teamId: teamId || userId, // Use userId as fallback if no team
+      teamId: teamId || userId,
       feature,
       quantity: Number(quantity),
       unitCostSnapshot: 0, // Will be set by service
@@ -76,11 +103,16 @@ router.post('/usage', appGuard, async (req: Request, res: Response) => {
 
     const eventId = await recordUsageEvent(db, input, environment);
 
+    // ── Record spend against budget ─────────────────────────
+    await recordSpend(db, userId, costCents, teamId);
+
     logger.info('[POST /usage] Usage event recorded', {
       eventId,
       userId,
       feature,
       quantity,
+      costCents,
+      billingEntity: budgetResult.billingEntity,
     });
 
     // Return immediately - processing happens async
@@ -88,6 +120,11 @@ router.post('/usage', appGuard, async (req: Request, res: Response) => {
       success: true,
       eventId,
       message: 'Usage event recorded and queued for processing',
+      currentSpend: budgetResult.currentSpend + costCents,
+      budget: budgetResult.budget,
+      percentUsed: Math.round(
+        ((budgetResult.currentSpend + costCents) / budgetResult.budget) * 100
+      ),
     });
   } catch (error) {
     logger.error('[POST /usage] Failed to record usage', {
@@ -143,11 +180,33 @@ router.get('/usage/me', appGuard, async (req: Request, res: Response) => {
 router.get('/usage/team/:teamId', appGuard, async (req: Request, res: Response) => {
   try {
     const teamId = req.params['teamId'] as string;
+    const userId = req.user!.uid;
 
     const db = req.firebase?.db;
 
     if (!db) {
       throw new Error('Firebase context not available');
+    }
+
+    // Verify the caller is a team member or admin
+    const teamDoc = await db.collection('teams').doc(teamId).get();
+    const teamData = teamDoc.data();
+    if (!teamData) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    const memberIds: string[] = Array.isArray(teamData['memberIds'])
+      ? (teamData['memberIds'] as string[])
+      : [];
+    const adminIds: string[] = Array.isArray(teamData['adminIds'])
+      ? (teamData['adminIds'] as string[])
+      : [];
+    if (
+      !memberIds.includes(userId) &&
+      !adminIds.includes(userId) &&
+      teamData['createdBy'] !== userId
+    ) {
+      return res.status(403).json({ error: 'Access denied: not a team member' });
     }
 
     const limit = Number(req.query['limit']) || 100;
@@ -181,6 +240,120 @@ router.get('/usage/features', (_req: Request, res: Response) => {
     success: true,
     features: Object.values(UsageFeature),
   });
+});
+
+// ============================================
+// BUDGET MANAGEMENT
+// ============================================
+
+/**
+ * GET /api/v1/billing/budget
+ * Get the current user's billing context (budget, spend, etc.)
+ */
+router.get('/budget', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase?.db;
+
+    if (!db) throw new Error('Firebase context not available');
+
+    const ctx = await getOrCreateBillingContext(db, userId);
+
+    return res.json({
+      success: true,
+      data: {
+        billingEntity: ctx.billingEntity,
+        monthlyBudget: ctx.monthlyBudget,
+        currentPeriodSpend: ctx.currentPeriodSpend,
+        periodStart: ctx.periodStart,
+        periodEnd: ctx.periodEnd,
+        percentUsed:
+          ctx.monthlyBudget > 0
+            ? Math.round((ctx.currentPeriodSpend / ctx.monthlyBudget) * 100)
+            : 0,
+        hardStop: ctx.hardStop,
+        teamId: ctx.teamId,
+      },
+    });
+  } catch (error) {
+    logger.error('[GET /budget] Failed to get billing context', { error });
+    return res.status(500).json({
+      error: 'Failed to get budget',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * PUT /api/v1/billing/budget
+ * Update the current user's monthly budget
+ * Body: { monthlyBudget: number (cents) }
+ */
+router.put('/budget', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const { monthlyBudget } = req.body;
+    const db = req.firebase?.db;
+
+    if (!db) throw new Error('Firebase context not available');
+
+    if (typeof monthlyBudget !== 'number' || monthlyBudget < 0) {
+      return res.status(400).json({ error: 'monthlyBudget must be a non-negative number (cents)' });
+    }
+
+    await updateBudget(db, userId, monthlyBudget);
+
+    return res.json({ success: true, monthlyBudget });
+  } catch (error) {
+    logger.error('[PUT /budget] Failed to update budget', { error });
+    return res.status(500).json({
+      error: 'Failed to update budget',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * PUT /api/v1/billing/budget/team/:teamId
+ * Update a team's monthly budget (team admin only)
+ * Body: { monthlyBudget: number (cents) }
+ */
+router.put('/budget/team/:teamId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const teamId = req.params['teamId'] as string;
+    const { monthlyBudget } = req.body;
+    const db = req.firebase?.db;
+
+    if (!db) throw new Error('Firebase context not available');
+
+    if (typeof monthlyBudget !== 'number' || monthlyBudget < 0) {
+      return res.status(400).json({ error: 'monthlyBudget must be a non-negative number (cents)' });
+    }
+
+    // Verify the caller is a team admin
+    const teamDoc = await db.collection('teams').doc(teamId).get();
+    const teamData = teamDoc.data();
+    const userId = req.user!.uid;
+    const adminIds: string[] = Array.isArray(teamData?.['adminIds'])
+      ? (teamData!['adminIds'] as string[])
+      : teamData?.['createdBy']
+        ? [teamData['createdBy'] as string]
+        : [];
+
+    if (!adminIds.includes(userId)) {
+      return res.status(403).json({ error: 'Only team admins can update the team budget' });
+    }
+
+    await updateTeamBudget(db, teamId, monthlyBudget);
+
+    return res.json({ success: true, teamId, monthlyBudget });
+  } catch (error) {
+    logger.error('[PUT /budget/team/:teamId] Failed to update team budget', { error });
+    return res.status(500).json({
+      error: 'Failed to update team budget',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
 });
 
 export default router;

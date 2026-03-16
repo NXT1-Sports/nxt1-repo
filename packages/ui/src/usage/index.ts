@@ -24,6 +24,9 @@ export { UsageHelpContentComponent } from './usage-help-content.component';
 export { UsageService, USAGE_SECTION_NAVS } from './usage.service';
 export type { UsageSection, UsageSectionNav } from './usage.service';
 
+// API Service
+export { UsageApiService, USAGE_API_BASE_URL } from './usage-api.service';
+
 // Bottom Sheet
 export { UsageBottomSheetService } from './usage-bottom-sheet.service';
 export type { UsageBottomSheetResult } from './usage-bottom-sheet.service';

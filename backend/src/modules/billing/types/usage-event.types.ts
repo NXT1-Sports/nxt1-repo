@@ -8,12 +8,35 @@
 import type { Timestamp } from 'firebase-admin/firestore';
 
 /**
- * AI Features that generate billable usage
+ * Billable features — aligned with USAGE_PRODUCT_CONFIGS in @nxt1/core/usage
+ * Each enum value maps to a product ID in the frontend pricing table.
  */
 export enum UsageFeature {
-  AI_CONTENT = 'ai-content-generation',
-  AI_IMAGE = 'ai-image-generation',
-  AI_VIDEO = 'ai-video-generation',
+  // ── Media ───────────────────────────
+  HIGHLIGHTS = 'highlights',
+  MOTION_GRAPHICS = 'motion-graphics',
+  GRAPHICS = 'graphics',
+  WRITE_UP_GRAPHIC = 'write-up-graphic',
+  MEDIA_BUNDLES = 'media-bundles',
+
+  // ── Recruiting ──────────────────────
+  SCOUT_REPORT_BUNDLE = 'scout-report-bundle',
+  MATCH_COLLEGES = 'match-colleges',
+  RECRUIT_STRATEGY = 'recruit-strategy',
+  COLLEGE_VIEWS = 'college-views',
+
+  // ── AI & Agent X ────────────────────
+  ACTIVITY_USAGE = 'activity-usage',
+
+  // ── Communication ───────────────────
+  EMAIL_CAMPAIGN = 'email-campaign',
+  FOLLOW_UPS = 'follow-ups',
+
+  // ── Profile ─────────────────────────
+  PROFILE_BANNERS = 'profile-banners',
+
+  // ── Teams ───────────────────────────
+  TEAM_PAGE_URL = 'team-page-url',
 }
 
 /**
@@ -176,3 +199,71 @@ export interface UsageEventMessage {
   usageEventId: string;
   environment: 'staging' | 'production';
 }
+
+// ============================================
+// BILLING CONTEXT (Org vs Individual)
+// ============================================
+
+/** Who pays: the individual user or the team/organization */
+export type BillingEntity = 'individual' | 'team';
+
+/**
+ * Billing context stored per user in Firestore (`billingContexts` collection).
+ * Determines whether a user's usage is billed to them or to their organization.
+ */
+export interface BillingContext {
+  /** Firebase Auth UID */
+  userId: string;
+
+  /** The team this user belongs to (if any) */
+  teamId?: string;
+
+  /** Who is billed for this user's usage */
+  billingEntity: BillingEntity;
+
+  /** Monthly spending budget in cents — $20 (2000) default for individuals, $200 (20000) for teams */
+  monthlyBudget: number;
+
+  /** Accumulated spend in the current billing period (cents) */
+  currentPeriodSpend: number;
+
+  /** ISO date — start of current billing period */
+  periodStart: string;
+
+  /** ISO date — end of current billing period */
+  periodEnd: string;
+
+  /** Whether the user has been notified at 50% */
+  notified50: boolean;
+
+  /** Whether the user has been notified at 80% */
+  notified80: boolean;
+
+  /** Whether the user has been notified at 100% (budget reached) */
+  notified100: boolean;
+
+  /** Whether the budget hard-stop is enabled (stops tasks at 100%) */
+  hardStop: boolean;
+
+  /** Stripe subscription ID for Pro plan ($50/m) — null if free tier */
+  proSubscriptionId?: string;
+
+  /** Created timestamp */
+  createdAt: Timestamp;
+
+  /** Updated timestamp */
+  updatedAt: Timestamp;
+}
+
+// ============================================
+// BUDGET DEFAULTS
+// ============================================
+
+/** Default monthly budget for individual accounts (in cents) */
+export const DEFAULT_INDIVIDUAL_BUDGET = 2000; // $20
+
+/** Default monthly budget for team/organization accounts (in cents) */
+export const DEFAULT_TEAM_BUDGET = 20000; // $200
+
+/** Budget alert thresholds as percentages */
+export const BUDGET_ALERT_THRESHOLDS = [50, 80, 100] as const;

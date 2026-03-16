@@ -143,6 +143,22 @@ export interface AgentXUser {
               <div class="playbook-section-header">
                 <div class="playbook-title-row">
                   <h3 class="section-title">Weekly Playbook</h3>
+                  @if (agentX.hasGoals() && agentX.canRegenerate()) {
+                    <button
+                      type="button"
+                      class="playbook-regen-btn"
+                      [disabled]="agentX.playbookGenerating()"
+                      (click)="onRegeneratePlaybook()"
+                    >
+                      @if (agentX.playbookGenerating()) {
+                        <span class="regen-spinner"></span>
+                        Generating...
+                      } @else {
+                        <nxt1-icon name="refresh" [size]="14" />
+                        Regenerate
+                      }
+                    </button>
+                  }
                 </div>
               </div>
 
@@ -156,7 +172,11 @@ export interface AgentXUser {
                   [attr.aria-selected]="playbookTab() === 'get-started'"
                   (click)="playbookTab.set('get-started')"
                 >
-                  Get Started
+                  @if (agentX.hasGoals()) {
+                    My Playbook
+                  } @else {
+                    Get Started
+                  }
                 </button>
                 <button
                   type="button"
@@ -166,7 +186,11 @@ export interface AgentXUser {
                   [attr.aria-selected]="playbookTab() === 'create-goals'"
                   (click)="playbookTab.set('create-goals')"
                 >
-                  Create Goals
+                  @if (agentX.hasGoals()) {
+                    My Goals
+                  } @else {
+                    Create Goals
+                  }
                 </button>
               </div>
 
@@ -217,23 +241,47 @@ export interface AgentXUser {
                 </ol>
               }
 
-              <!-- Tab Content: Create Goals -->
+              <!-- Tab Content: Create Goals / My Goals -->
               @if (playbookTab() === 'create-goals') {
                 <div class="playbook-create-goals">
-                  <div class="playbook-empty">
-                    <div class="playbook-empty-icon">
-                      <nxt1-icon name="flag" [size]="24" />
-                    </div>
-                    <h4 class="playbook-empty-title">Set Your Goals</h4>
-                    <p class="playbook-empty-description">
-                      Tell Agent X what you want to achieve this season and it will build a
-                      personalized weekly playbook for you.
-                    </p>
-                    <button type="button" class="playbook-setup-btn" (click)="onSetupGoals()">
-                      <nxt1-icon name="plus" [size]="16" />
-                      Create Goals
+                  @if (agentX.hasGoals()) {
+                    <!-- Show existing goals -->
+                    <ul class="goals-list">
+                      @for (goal of agentX.goals(); track goal.id) {
+                        <li class="goal-item">
+                          <nxt1-icon
+                            [name]="goal.icon ?? 'flag'"
+                            [size]="18"
+                            className="goal-icon"
+                          />
+                          <span class="goal-text">{{ goal.text }}</span>
+                        </li>
+                      }
+                    </ul>
+                    <button
+                      type="button"
+                      class="playbook-setup-btn playbook-setup-btn--secondary"
+                      (click)="onSetupGoals()"
+                    >
+                      <nxt1-icon name="create" [size]="16" />
+                      Update Goals
                     </button>
-                  </div>
+                  } @else {
+                    <div class="playbook-empty">
+                      <div class="playbook-empty-icon">
+                        <nxt1-icon name="flag" [size]="24" />
+                      </div>
+                      <h4 class="playbook-empty-title">Set Your Goals</h4>
+                      <p class="playbook-empty-description">
+                        Tell Agent X what you want to achieve this season and it will build a
+                        personalized weekly playbook for you.
+                      </p>
+                      <button type="button" class="playbook-setup-btn" (click)="onSetupGoals()">
+                        <nxt1-icon name="plus" [size]="16" />
+                        Create Goals
+                      </button>
+                    </div>
+                  }
                 </div>
               }
             </section>
@@ -291,7 +339,7 @@ export interface AgentXUser {
         [isLoading]="agentX.isLoading()"
         [canSend]="agentX.canSend()"
         [userMessage]="agentX.getUserMessage()"
-        [placeholder]="'Message Agent X'"
+        [placeholder]="'Message A Coordinator'"
         (messageChange)="agentX.setUserMessage($event)"
         (send)="onSendMessage()"
         (removeTask)="agentX.clearTask()"
@@ -898,6 +946,90 @@ export interface AgentXUser {
         opacity: 0.9;
       }
 
+      .playbook-setup-btn--secondary {
+        background: var(--agent-surface);
+        color: var(--agent-text-primary);
+        border: 1px solid var(--agent-border);
+      }
+
+      .playbook-title-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--nxt1-spacing-3, 12px);
+      }
+
+      .playbook-regen-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 12px;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--agent-text-secondary);
+        background: var(--agent-surface);
+        border: 1px solid var(--agent-border);
+        border-radius: var(--nxt1-radius-full, 9999px);
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+
+      .playbook-regen-btn:hover:not(:disabled) {
+        background: var(--agent-surface-hover);
+        color: var(--agent-text-primary);
+      }
+
+      .playbook-regen-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .regen-spinner {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border: 2px solid var(--agent-border);
+        border-top-color: var(--agent-text-secondary);
+        border-radius: 50%;
+        animation: spin 0.6s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .goals-list {
+        list-style: none;
+        margin: 0 0 var(--nxt1-spacing-4, 16px);
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .goal-item {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-3, 12px);
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+        background: var(--agent-surface);
+        border: 1px solid var(--agent-border);
+        border-radius: var(--nxt1-radius-md, 8px);
+      }
+
+      .goal-icon {
+        color: var(--agent-primary);
+        flex-shrink: 0;
+      }
+
+      .goal-text {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--agent-text-primary);
+      }
+
       /* ──────────────────────────────────
          2. COORDINATORS (2×2 Grid)
          ────────────────────────────────── */
@@ -1092,33 +1224,45 @@ export class AgentXShellWebComponent {
 
   // ============================================
   // ROLE-AWARE SHELL CONTENT
-  // All content derives from user().role via getShellContentForRole()
+  // Uses live dashboard data from AgentXService when loaded,
+  // falls back to static role-based content for SSR / initial render.
   // ============================================
 
-  /** Resolved shell content based on user role (centralized source of truth). */
-  private readonly shellContent = computed(() => {
+  /** Static shell content based on user role (fallback only). */
+  private readonly shellFallback = computed(() => {
     const role = this.user()?.role ?? null;
     return getShellContentForRole(role);
   });
 
-  /** Active background operations (role-aware). */
-  protected readonly activeOperations = computed<ShellActiveOperation[]>(() => [
-    ...this.shellContent().activeOperations,
-  ]);
+  /** Active background operations — live from service, fallback from static. */
+  protected readonly activeOperations = computed<ShellActiveOperation[]>(() =>
+    this.agentX.dashboardLoaded()
+      ? this.agentX.activeOperations()
+      : [...this.shellFallback().activeOperations]
+  );
 
-  /** Proactive insights from Agent X (role-aware). */
-  protected readonly briefingInsights = computed(() => [...this.shellContent().briefingInsights]);
+  /** Proactive insights from Agent X — live from service, fallback from static. */
+  protected readonly briefingInsights = computed(() =>
+    this.agentX.dashboardLoaded()
+      ? this.agentX.briefingInsights()
+      : [...this.shellFallback().briefingInsights]
+  );
 
-  /** Briefing preview text (role-aware). */
+  /** Briefing preview text — live from service, fallback from static. */
   protected readonly briefingPreview = computed(() => {
-    const template = this.shellContent().briefingPreviewText;
+    if (this.agentX.dashboardLoaded()) {
+      return this.agentX.briefingPreviewText();
+    }
+    const template = this.shellFallback().briefingPreviewText;
     return template.replace('{count}', String(this.briefingInsights().length));
   });
 
-  /** AI-generated weekly playbook timeline items (role-aware). */
-  protected readonly weeklyPlaybook = computed<ShellWeeklyPlaybookItem[]>(() => [
-    ...this.shellContent().weeklyPlaybook,
-  ]);
+  /** AI-generated weekly playbook timeline items — live from service, fallback from static. */
+  protected readonly weeklyPlaybook = computed<ShellWeeklyPlaybookItem[]>(() =>
+    this.agentX.dashboardLoaded()
+      ? this.agentX.weeklyPlaybook()
+      : [...this.shellFallback().weeklyPlaybook]
+  );
 
   /** Number of completed playbook tasks. */
   protected readonly playbookCompletedCount = computed(
@@ -1132,12 +1276,17 @@ export class AgentXShellWebComponent {
   // COORDINATORS — Role-Aware Virtual Staff
   // ============================================
 
-  /** Coordinator cards — role-aware 2×2 grid. */
-  protected readonly commandCategories = computed(() => [...this.shellContent().coordinators]);
+  /** Coordinator cards — live from service, fallback from static. */
+  protected readonly commandCategories = computed(() =>
+    this.agentX.dashboardLoaded()
+      ? this.agentX.coordinators()
+      : [...this.shellFallback().coordinators]
+  );
 
   constructor() {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
+      this.agentX.loadDashboard();
     });
   }
 
@@ -1169,14 +1318,21 @@ export class AgentXShellWebComponent {
 
   /**
    * Handle weekly playbook action tap.
+   * If the dashboard is loaded, dispatches a real background job via Agent X.
+   * Otherwise falls back to chat message.
    */
   protected async onPlaybookAction(task: WeeklyPlaybookItem): Promise<void> {
     if (task.id === 'goal-setup') {
       await this.onSetupGoals();
       return;
     }
-    this.agentX.setUserMessage(`${task.actionLabel}: ${task.title}`);
-    await this.agentX.sendMessage();
+
+    if (this.agentX.dashboardLoaded()) {
+      await this.agentX.executePlaybookAction(task as ShellWeeklyPlaybookItem);
+    } else {
+      this.agentX.setUserMessage(`${task.actionLabel}: ${task.title}`);
+      await this.agentX.sendMessage();
+    }
   }
 
   /**
@@ -1185,6 +1341,13 @@ export class AgentXShellWebComponent {
   protected onCoordinatorTap(coord: CommandCategory): void {
     this.agentX.setUserMessage(coord.label);
     this.coordinatorTap.emit(coord);
+  }
+
+  /**
+   * Handle "Regenerate" playbook button.
+   */
+  protected async onRegeneratePlaybook(): Promise<void> {
+    await this.agentX.generatePlaybook(true);
   }
 
   protected async onSendMessage(): Promise<void> {

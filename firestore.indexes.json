@@ -1,0 +1,31 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "agent_operations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "agentJobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "agent_briefings",
+      "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "generatedAt", "order": "DESCENDING" }]
+    },
+    {
+      "collectionGroup": "agent_playbooks",
+      "queryScope": "COLLECTION",
+      "fields": [{ "fieldPath": "generatedAt", "order": "DESCENDING" }]
+    }
+  ],
+  "fieldOverrides": []
+}

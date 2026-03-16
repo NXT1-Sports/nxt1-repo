@@ -1,206 +1,37 @@
-# Deep Links Deployment Checklist
+# Deep Links — Remaining Deployment Steps
 
-> **Status:** Code complete, awaiting server deployment
-
-All deep linking code is implemented and ready. Follow these steps to activate
-Universal Links (iOS) and App Links (Android).
+> Last updated: March 15, 2026 Code is complete. Only deployment and store
+> submissions remain.
 
 ---
 
-## 📋 Deployment Steps
+## 1. Deploy Web App
 
-### 1. Deploy Web App with Deep Link Files ✅ READY
+- [ ] Deploy web app to Firebase hosting (includes `.well-known` files)
+- [ ] Verify `https://nxt1sports.com/.well-known/apple-app-site-association`
+      returns 200 with `application/json`
+- [ ] Verify `https://nxt1sports.com/.well-known/assetlinks.json` returns 200
 
-The `.well-known` files are already included in the build:
+## 2. Enable iOS Associated Domains
 
-```bash
-# Deploy monorepo web app (includes .well-known files)
-cd apps/web
-npm run build
-firebase deploy --only hosting
-```
+- [ ] Go to Apple Developer Portal → App ID `com.nxt1sports.nxt1` → Enable
+      "Associated Domains"
 
-**What happens:**
+## 3. Rebuild & Submit Apps
 
-- `apple-app-site-association` → served at
-  `https://nxt1sports.com/.well-known/apple-app-site-association`
-- `assetlinks.json` → served at
-  `https://nxt1sports.com/.well-known/assetlinks.json`
+- [ ] iOS: Clean build → Archive → Submit to App Store
+- [ ] Android: Clean build → Generate signed bundle → Submit to Play Store
 
-**Files included:**
+## 4. Device Testing
 
-- ✅
-  [apps/web/src/.well-known/apple-app-site-association](../apps/web/src/.well-known/apple-app-site-association)
-- ✅
-  [apps/web/src/.well-known/assetlinks.json](../apps/web/src/.well-known/assetlinks.json)
-
----
-
-### 2. Verify Server Files Are Accessible
-
-After deployment, test both URLs:
-
-```bash
-# Test iOS (no file extension, JSON content-type)
-curl -v https://nxt1sports.com/.well-known/apple-app-site-association
-
-# Test Android
-curl https://nxt1sports.com/.well-known/assetlinks.json
-```
-
-**Expected results:**
-
-- ✅ Status: `200 OK`
-- ✅ Content-Type: `application/json` (critical for iOS)
-- ✅ No redirects (must be direct HTTPS)
-- ✅ Valid JSON content
-
----
-
-### 3. Enable Associated Domains in Apple Developer Portal
-
-1. Go to: https://developer.apple.com/account/resources/identifiers/list
-2. Find App ID: `com.nxt1sports.nxt1`
-3. Edit → Capabilities
-4. Enable: **"Associated Domains"**
-5. Save
-
----
-
-### 4. Rebuild iOS App (After Enabling Capability)
-
-```bash
-cd apps/mobile
-npx cap sync
-npx cap open ios
-```
-
-In Xcode:
-
-1. Product → Clean Build Folder (`Cmd+Shift+K`)
-2. Product → Build (`Cmd+B`)
-3. Archive and submit update to App Store
-
----
-
-### 5. Rebuild Android App
-
-```bash
-cd apps/mobile
-npx cap sync
-npx cap open android
-```
-
-In Android Studio:
-
-1. Build → Clean Project
-2. Build → Rebuild Project
-3. Generate signed APK/Bundle for Play Store
-
----
-
-## 🧪 Testing Deep Links
-
-### iOS Testing (Simulator/Device)
-
-```bash
-# Test with xcrun (device/simulator must be running)
-xcrun simctl openurl booted "https://nxt1sports.com/profile/john123"
-
-# Or send link via Messages/Notes and tap it
-```
-
-### Android Testing (Device/Emulator)
-
-```bash
-# Test with adb
-adb shell am start -a android.intent.action.VIEW -d "https://nxt1sports.com/profile/john123"
-```
-
-### Expected Behavior
-
-- ✅ App opens (doesn't go to Safari/Chrome)
-- ✅ Navigates to correct screen (e.g., profile page)
-- ✅ Check logs for: `"Deep link received"`
-
----
-
-## 📦 What's Already Configured
-
-| Component             | iOS                              | Android                     |
-| --------------------- | -------------------------------- | --------------------------- |
-| **Bundle/Package ID** | `com.nxt1sports.nxt1`            | `com.nxt1sports.app.twa`    |
-| **Entitlements**      | ✅ Associated Domains            | ✅ App Links intent filters |
-| **Deep Link Handler** | ✅ DeepLinkService               | ✅ DeepLinkService          |
-| **URL Patterns**      | ✅ `/profile/*`, `/team/*`, etc. | ✅ Same patterns            |
-| **Fallback Scheme**   | ✅ `nxt1://`                     | ✅ `nxt1://`                |
-
----
-
-## 🔗 Supported Deep Link Patterns
-
-All these patterns will open the app:
-
-```
-https://nxt1sports.com/profile/:userId
-https://nxt1sports.com/athlete/:userId
-https://nxt1sports.com/team/:teamId
-https://nxt1sports.com/post/:postId
-https://nxt1sports.com/rankings
-https://nxt1sports.com/rankings/:sport/:year
-https://nxt1sports.com/college/:collegeId
-https://nxt1sports.com/settings
-https://nxt1sports.com/explore
-https://nxt1sports.com/home
-
-# Custom scheme fallback
-nxt1://profile/john123
-```
-
----
-
-## 🐛 Troubleshooting
-
-### iOS: Links open in Safari instead of app
-
-**Causes:**
-
-1. `apple-app-site-association` not accessible at root domain
-2. Wrong Content-Type header (must be `application/json`)
-3. Associated Domains capability not enabled
-4. HTTPS redirect issues
-5. App not installed from App Store (TestFlight/Xcode direct install doesn't
-   support Universal Links on first launch)
-
-**Fix:**
-
-```bash
-# Verify file is correct
-curl -I https://nxt1sports.com/.well-known/apple-app-site-association
-
-# Should return:
-# HTTP/2 200
-# content-type: application/json
-```
-
-### Android: Links open in Chrome instead of app
-
-**Causes:**
-
-1. `assetlinks.json` not found or wrong format
-2. SHA256 fingerprint doesn't match
-3. `android:autoVerify="true"` missing in manifest
-4. App not verified (can take hours after first install)
-
-**Fix:**
-
-```bash
-# Check verification status
-adb shell pm get-app-links com.nxt1sports.app.twa
+- [ ] iOS: Tap a deep link → app opens (not Safari)
+- [ ] Android: Tap a deep link → app opens (not Chrome)
 
 # Force verification
+
 adb shell pm verify-app-links --re-verify com.nxt1sports.app.twa
-```
+
+````
 
 ### Deep link received but app doesn't navigate
 
@@ -209,7 +40,7 @@ adb shell pm verify-app-links --re-verify com.nxt1sports.app.twa
 ```bash
 # iOS: Use Xcode console
 # Android: Use Logcat with filter "DeepLinkService"
-```
+````
 
 Look for:
 

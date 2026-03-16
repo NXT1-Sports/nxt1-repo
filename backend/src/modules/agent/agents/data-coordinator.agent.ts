@@ -46,6 +46,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       "- `userId`: the athlete's Firebase UID (from the job context).",
       '- `source`: platform slug (e.g. "maxpreps", "hudl", "247sports").',
       '- `profileUrl`: the exact URL you scraped.',
+      '- `faviconUrl`: the favicon URL returned by `scrape_webpage` in `data.faviconUrl`. Always pass it when available — it is used to display the platform icon on the user profile.',
       '- `targetSport`: the sport key the data belongs to (e.g. "football", "basketball").',
       '- `fields`: an object with extracted data structured as follows:',
       '',

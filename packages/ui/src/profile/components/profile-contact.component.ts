@@ -84,7 +84,20 @@ import { ProfileService } from '../profile.service';
                     rel="noopener noreferrer"
                   >
                     <span class="contact-social-chip-icon" [style.color]="acct.color">
-                      <nxt1-icon [name]="acct.icon" [size]="16" />
+                      @if (acct.faviconUrl && acct.icon === 'link') {
+                        <img
+                          [src]="acct.faviconUrl"
+                          [alt]="acct.label + ' icon'"
+                          class="contact-social-chip-favicon"
+                          width="16"
+                          height="16"
+                          loading="lazy"
+                          referrerpolicy="no-referrer"
+                          (error)="onFaviconError($event)"
+                        />
+                      } @else {
+                        <nxt1-icon [name]="acct.icon" [size]="16" />
+                      }
                     </span>
                     <span class="contact-social-chip-handle">{{ acct.handle || acct.label }}</span>
                   </a>
@@ -308,6 +321,12 @@ import { ProfileService } from '../profile.service';
         background: rgba(255, 255, 255, 0.06);
         flex-shrink: 0;
       }
+      .contact-social-chip-favicon {
+        width: 16px;
+        height: 16px;
+        border-radius: 2px;
+        object-fit: contain;
+      }
       .contact-social-chip-handle {
         font-size: 14px;
         font-weight: 500;
@@ -417,6 +436,7 @@ export class ProfileContactComponent {
       readonly icon: string;
       readonly color: string;
       readonly url: string;
+      readonly faviconUrl: string | null;
     }> => {
       const connectedSources = this.profile.user()?.connectedSources ?? [];
 
@@ -443,6 +463,7 @@ export class ProfileContactComponent {
             icon: meta.icon,
             color: meta.color,
             url: cs.profileUrl,
+            faviconUrl: cs.faviconUrl ?? null,
           };
         });
     }
@@ -450,5 +471,13 @@ export class ProfileContactComponent {
 
   protected onEditContact(): void {
     // No-op — parent handles
+  }
+
+  /** Hide broken favicon images gracefully. */
+  protected onFaviconError(event: Event): void {
+    const img = event.target;
+    if (img instanceof HTMLImageElement) {
+      img.style.display = 'none';
+    }
   }
 }

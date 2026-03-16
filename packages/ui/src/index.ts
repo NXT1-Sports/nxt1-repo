@@ -1302,6 +1302,8 @@ export {
   NxtUsageDashboardPreviewComponent,
   // Services
   UsageService,
+  UsageApiService,
+  USAGE_API_BASE_URL,
   UsageBottomSheetService,
   type UsageBottomSheetResult,
   // Navigation

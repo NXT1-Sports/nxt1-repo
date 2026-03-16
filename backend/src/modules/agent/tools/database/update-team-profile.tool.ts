@@ -17,6 +17,7 @@ interface TeamDataInput {
   teamId: string;
   source: string;
   profileUrl: string;
+  faviconUrl?: string;
   targetSport: string;
   fields: {
     description?: string;
@@ -50,6 +51,11 @@ export class UpdateTeamProfileTool extends BaseTool {
       teamId: { type: 'string', description: 'The ID of the Team Document to update' },
       source: { type: 'string', description: 'Platform name (e.g., hudl, maxpreps)' },
       profileUrl: { type: 'string', description: 'URL of the scraped page' },
+      faviconUrl: {
+        type: 'string',
+        description:
+          'The favicon URL of the scraped platform, extracted from the page <link rel="icon"> tag by the scrape_webpage tool.',
+      },
       targetSport: { type: 'string', description: 'Sport context' },
       fields: {
         type: 'object',
@@ -140,6 +146,7 @@ export class UpdateTeamProfileTool extends BaseTool {
           syncStatus: 'synced',
           lastSyncedAt: new Date().toISOString(),
           syncedFields: Object.keys(parsed.fields),
+          ...(parsed.faviconUrl && { faviconUrl: parsed.faviconUrl }),
         };
       } else {
         updatedConnected.push({
@@ -148,6 +155,7 @@ export class UpdateTeamProfileTool extends BaseTool {
           syncStatus: 'synced',
           lastSyncedAt: new Date().toISOString(),
           syncedFields: Object.keys(parsed.fields),
+          ...(parsed.faviconUrl && { faviconUrl: parsed.faviconUrl }),
         });
       }
       updatePayload['connectedSources'] = updatedConnected;

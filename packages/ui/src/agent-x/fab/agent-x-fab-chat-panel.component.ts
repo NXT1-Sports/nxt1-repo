@@ -234,7 +234,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from './agent-x-logo.constant
             [ngModel]="agentX.getUserMessage()"
             (ngModelChange)="onInputChange($event)"
             (keydown.enter)="onEnterPress($event)"
-            placeholder="Message Agent X..."
+            placeholder="Message A Coordinator..."
             rows="1"
             [maxlength]="1000"
           ></textarea>

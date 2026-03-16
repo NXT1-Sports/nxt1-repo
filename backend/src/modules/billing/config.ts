@@ -7,6 +7,7 @@
 
 import type { StripeConfig } from './types/index.js';
 import { UsageFeature } from './types/index.js';
+import { getUnitCostByFeature, type UsageFeatureId } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 
 /**
@@ -49,9 +50,42 @@ export function getStripeConfig(environment: 'staging' | 'production'): StripeCo
     webhookSecret: webhookSecret || '',
     enabled: enabled && !!secretKey,
     prices: {
-      [UsageFeature.AI_CONTENT]: process.env[`STRIPE_PRICE_ID_${pricePrefix}_AI_CONTENT`] || '',
-      [UsageFeature.AI_IMAGE]: process.env[`STRIPE_PRICE_ID_${pricePrefix}_AI_IMAGE`] || '',
-      [UsageFeature.AI_VIDEO]: process.env[`STRIPE_PRICE_ID_${pricePrefix}_AI_VIDEO`] || '',
+      // Media
+      [UsageFeature.HIGHLIGHTS]: process.env[`STRIPE_PRICE_ID_${pricePrefix}_HIGHLIGHTS`] || '',
+      [UsageFeature.MOTION_GRAPHICS]:
+        process.env[`STRIPE_PRICE_ID_${pricePrefix}_MOTION_GRAPHICS`] || '',
+      [UsageFeature.GRAPHICS]: process.env[`STRIPE_PRICE_ID_${pricePrefix}_GRAPHICS`] || '',
+      [UsageFeature.WRITE_UP_GRAPHIC]:
+        process.env[`STRIPE_PRICE_ID_${pricePrefix}_WRITE_UP_GRAPHIC`] || '',
+      [UsageFeature.MEDIA_BUNDLES]:
+        process.env[`STRIPE_PRICE_ID_${pricePrefix}_MEDIA_BUNDLES`] || '',
+
+      // Recruiting
+      [UsageFeature.SCOUT_REPORT_BUNDLE]:
+        process.env[`STRIPE_PRICE_ID_${pricePrefix}_SCOUT_REPORT_BUNDLE`] || '',
+      [UsageFeature.MATCH_COLLEGES]:
+        process.env[`STRIPE_PRICE_ID_${pricePrefix}_MATCH_COLLEGES`] || '',
+      [UsageFeature.RECRUIT_STRATEGY]:
+        process.env[`STRIPE_PRICE_ID_${pricePrefix}_RECRUIT_STRATEGY`] || '',
+      [UsageFeature.COLLEGE_VIEWS]:
+        process.env[`STRIPE_PRICE_ID_${pricePrefix}_COLLEGE_VIEWS`] || '',
+
+      // AI
+      [UsageFeature.ACTIVITY_USAGE]:
+        process.env[`STRIPE_PRICE_ID_${pricePrefix}_ACTIVITY_USAGE`] || '',
+
+      // Communication
+      [UsageFeature.EMAIL_CAMPAIGN]:
+        process.env[`STRIPE_PRICE_ID_${pricePrefix}_EMAIL_CAMPAIGN`] || '',
+      [UsageFeature.FOLLOW_UPS]: process.env[`STRIPE_PRICE_ID_${pricePrefix}_FOLLOW_UPS`] || '',
+
+      // Profile
+      [UsageFeature.PROFILE_BANNERS]:
+        process.env[`STRIPE_PRICE_ID_${pricePrefix}_PROFILE_BANNERS`] || '',
+
+      // Teams
+      [UsageFeature.TEAM_PAGE_URL]:
+        process.env[`STRIPE_PRICE_ID_${pricePrefix}_TEAM_PAGE_URL`] || '',
     },
   };
 }
@@ -74,18 +108,11 @@ export function getStripePriceId(
 }
 
 /**
- * Get unit cost for a feature (for snapshot in usage events)
- * This should match the Stripe Price configuration
+ * Get unit cost for a feature in cents (for snapshot in usage events).
+ * Delegates to @nxt1/core — single source of truth for pricing.
  */
 export function getUnitCost(feature: UsageFeature): number {
-  // These values should match your Stripe Price configuration
-  const costs: Record<UsageFeature, number> = {
-    [UsageFeature.AI_CONTENT]: 0.01, // $0.01 per content generation
-    [UsageFeature.AI_IMAGE]: 0.05, // $0.05 per image generation
-    [UsageFeature.AI_VIDEO]: 0.2, // $0.20 per video generation
-  };
-
-  return costs[feature];
+  return getUnitCostByFeature(feature as UsageFeatureId);
 }
 
 /**
@@ -95,6 +122,7 @@ export const COLLECTIONS = {
   USAGE_EVENTS: 'usageEvents',
   STRIPE_CUSTOMERS: 'stripeCustomers',
   PAYMENT_LOGS: 'paymentLogs',
+  BILLING_CONTEXTS: 'billingContexts',
 } as const;
 
 /**

@@ -80,6 +80,7 @@ import {
   ACTIVITY_API_BASE_URL,
   INVITE_API_BASE_URL,
   MESSAGES_API_BASE_URL,
+  USAGE_API_BASE_URL,
 } from '@nxt1/ui';
 
 // Help Center API adapter — wired at root so the shared HelpCenterService
@@ -282,6 +283,9 @@ export const appConfig: ApplicationConfig = {
 
     // Messages API base URL
     { provide: MESSAGES_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Usage/Billing API base URL
+    { provide: USAGE_API_BASE_URL, useFactory: () => environment.apiURL },
 
     // Help Center API adapter — root-level so shared HelpCenterService resolves it
     { provide: HELP_CENTER_API, useExisting: HelpCenterApiService },

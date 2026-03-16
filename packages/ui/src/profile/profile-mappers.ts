@@ -84,6 +84,7 @@ function mapConnectedSource(
   return {
     platform: src.platform,
     profileUrl: src.profileUrl,
+    faviconUrl: src.faviconUrl ?? undefined,
     lastSyncedAt:
       src.lastSyncedAt instanceof Date
         ? src.lastSyncedAt.toISOString()

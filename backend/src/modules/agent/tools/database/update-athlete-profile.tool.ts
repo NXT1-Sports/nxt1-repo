@@ -214,6 +214,12 @@ export class UpdateAthleteProfileTool extends BaseTool {
         type: 'string',
         description: 'The exact URL that was scraped. Stored in the connectedSources sync record.',
       },
+      faviconUrl: {
+        type: 'string',
+        description:
+          'The favicon URL of the scraped platform, extracted from the page <link rel="icon"> tag by the scrape_webpage tool. ' +
+          'Stored in connectedSources for UI display when no built-in platform icon exists.',
+      },
       targetSport: {
         type: 'string',
         description:
@@ -387,6 +393,11 @@ export class UpdateAthleteProfileTool extends BaseTool {
     const profileUrl = this.requireString(input, 'profileUrl');
     if (!profileUrl) return this.paramError('profileUrl', 'non-empty string (the scraped URL)');
 
+    const faviconUrl =
+      typeof input['faviconUrl'] === 'string' && input['faviconUrl'].trim().length > 0
+        ? input['faviconUrl'].trim()
+        : undefined;
+
     const targetSport = this.requireString(input, 'targetSport');
     if (!targetSport) return this.paramError('targetSport', 'non-empty string (e.g. "football")');
 
@@ -499,7 +510,8 @@ export class UpdateAthleteProfileTool extends BaseTool {
         profileUrl,
         targetSport,
         syncedFields,
-        now
+        now,
+        faviconUrl
       );
 
       // --- Timestamp ---
@@ -1136,7 +1148,8 @@ export class UpdateAthleteProfileTool extends BaseTool {
     profileUrl: string,
     scopeId: string,
     syncedFields: string[],
-    now: string
+    now: string,
+    faviconUrl?: string
   ): Record<string, unknown>[] {
     const updated = [...existing];
 
@@ -1152,6 +1165,7 @@ export class UpdateAthleteProfileTool extends BaseTool {
       syncedFields,
       scopeType: 'sport',
       scopeId,
+      ...(faviconUrl && { faviconUrl }),
     };
 
     if (matchIndex >= 0) {

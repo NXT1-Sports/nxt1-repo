@@ -1,343 +1,125 @@
-# 📋 TODO Audit Report — NXT1 Monorepo
+# TODO Audit — Remaining Items
 
-**Audit Date:** February 9, 2026  
-**Previous Audit:** February 1, 2026  
-**Focus Areas:** Authentication, Infrastructure, Security  
-**Status:** No Material Change Since Last Audit ⚠️
+> Last updated: March 15, 2026
 
 ---
 
-## ✅ COMPLETED SINCE LAST AUDIT
+## 🔴 CRITICAL (Release Blockers)
 
-No new completions since February 1, 2026. Prior completions carried forward for
-context.
+### 1. Onboarding Persistence
 
-### Previously Completed (Carried Forward)
+- [ ] Photo upload from onboarding to Firebase Storage
+- [ ] Generate thumbnail/optimized versions
+- [ ] Store download URL in user profile
+- [ ] Progress persistence (resume incomplete onboarding)
 
-| Item                 | Status      | Implementation                                             |
-| -------------------- | ----------- | ---------------------------------------------------------- |
-| Toast Service        | ✅ Complete | `packages/ui/src/services/toast/toast.service.ts`          |
-| Auth Guards          | ✅ Complete | `packages/core/src/auth/auth-guards.ts`                    |
-| Forgot Password      | ✅ Complete | Web & Mobile implementations                               |
-| Firebase Crashlytics | ✅ Complete | `apps/mobile/src/app/core/services/crashlytics.service.ts` |
-| CI/CD Workflows      | ✅ Complete | 7 workflows in `.github/workflows/`                        |
-| E2E Testing          | ✅ Complete | 86 tests passing with Playwright                           |
-| Native Auth Packages | ✅ Complete | Using `@capacitor-firebase/authentication`                 |
+**Location:**
+`apps/mobile/src/app/features/auth/pages/onboarding/onboarding.page.ts` Line 747
 
 ---
 
-## 🟡 IN PROGRESS: Remaining Critical Items
+### 2. Wire Toast Service to GlobalErrorHandler
 
-### 1. Onboarding Persistence (BLOCKING)
+- [ ] Wire `NxtToastService` into `GlobalErrorHandler`
 
-| Location                                                                                       | TODO                                                         | Status         | Priority    |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------- | ----------- |
-| `nxt1-monorepo/apps/mobile/src/app/features/auth/pages/onboarding/onboarding.page.ts` Line 747 | Upload to Firebase Storage when backend integration is ready | 🟡 In Progress | 🔴 Critical |
-
-**Implementation Required:**
-
-- Photo upload from onboarding to Firebase Storage
-- Generate thumbnail/optimized versions
-- Store download URL in user profile
-- Progress persistence (resume incomplete onboarding)
+**Location:**
+`apps/web/src/app/core/infrastructure/error-handling/global-error-handler.ts`
+Line 404
 
 ---
 
-### 2. Wire Toast Service to Error Handlers
+### 3. OG Images for Social Sharing
 
-| Location                                                                                             | TODO                             | Status           |
-| ---------------------------------------------------------------------------------------------------- | -------------------------------- | ---------------- |
-| `nxt1-monorepo/apps/web/src/app/core/infrastructure/error-handling/global-error-handler.ts` Line 404 | Use toast service when available | 🟡 Ready to wire |
+- [ ] Create default OG images (1200x630px)
+- [ ] Create `apps/web/public/assets/images/` folder
 
-**Note:** `NxtToastService` is complete and used across 20+ services. Just needs
-to be wired into GlobalErrorHandler.
+### 4. Native Auth Device Testing
 
----
-
-### 3. Backend Auth Technical Debt
-
-| Location                                                   | TODO                                                            | Status            | Priority  |
-| ---------------------------------------------------------- | --------------------------------------------------------------- | ----------------- | --------- |
-| `nxt1-backend/controllers/auth/authController.js` Line 708 | Remove legacy boolean flags once queries migrated to role field | ⚠️ Technical Debt | 🟡 Medium |
-
-**Migration Steps Required:**
-
-1. ⬜ Audit all Firestore queries to identify which still use boolean flags
-2. ⬜ Update queries to use `role` field instead
-3. ⬜ Test thoroughly in staging
-4. ⬜ Remove legacy flags from backend
-5. ⬜ Update documentation
+- [ ] Test Google OAuth on real devices
+- [ ] Test Apple Sign-In on real devices
+- [ ] Test Microsoft Sign-In on real devices
 
 ---
 
-## 🟢 LOWER PRIORITY: Feature & Cleanup TODOs
+## 🟡 MEDIUM Priority
 
-### 4. Analytics Integration
+### 5. Backend Auth Technical Debt
 
-| Location                                                                               | TODO                             | Status          |
-| -------------------------------------------------------------------------------------- | -------------------------------- | --------------- |
-| `nxt1-monorepo/apps/web/src/app/features/auth/services/auth-error.handler.ts` Line 501 | Integrate with analytics service | 🟢 Low Priority |
-| `nxt1-monorepo/packages/ui/src/auth-services/auth-error.handler.ts` Line 572           | Integrate with analytics service | 🟢 Low Priority |
+- [ ] Audit all Firestore queries using legacy boolean flags
+- [ ] Update queries to use `role` field
+- [ ] Test in staging
+- [ ] Remove legacy flags from backend
+- [ ] Update documentation
 
-**Note:** Analytics module is **fully built** at `packages/core/src/analytics/`.
-Auth tracking already complete. Additional service tracking is optional.
-
----
-
-### 5. Caching Infrastructure (BACKEND)
-
-| Location                                                     | TODO                                            | Status         | Priority |
-| ------------------------------------------------------------ | ----------------------------------------------- | -------------- | -------- |
-| `nxt1-backend/controllers/team/teamsApiController.js` Line 9 | Migrate to Redis for multi-instance deployments | ⬜ Not Started | 🟢 Low   |
-
-**Notes:**
-
-- Currently uses in-memory cache
-- Only critical if scaling to multiple backend instances
-- Consider Cloud Memorystore for Firebase when needed
+**Location:** `nxt1-backend/controllers/auth/authController.js` Line 708
 
 ---
 
-### 6. Feature Implementation (Non-blocking)
+## 🟢 LOW Priority
 
-| Location                                                                                  | TODO                                                | Priority  | Notes                        |
-| ----------------------------------------------------------------------------------------- | --------------------------------------------------- | --------- | ---------------------------- |
-| `nxt1/src/app/v2/recruiting/features/college-library/college-library.component.ts` Line 7 | Implement college library browsing/search           | 🟢 Low    | Placeholder component exists |
-| `nxt1/src/app/search-videos/search-videos.component.ts` Line 1371                         | Implement like functionality                        | 🟢 Low    | Video engagement feature     |
-| `nxt1/src/app/search-videos/search-videos.component.ts` Line 1375                         | Implement share functionality                       | 🟢 Low    | Social sharing               |
-| `nxt1/src/app/offers/containers/offers-log/log.component.ts` Line 447                     | Add discover teams route                            | 🟢 Low    | Team discovery feature       |
-| `nxt1/src/app/shared/post.service.ts` Line 1435                                           | Delete associated media from storage on post delete | 🟡 Medium | Prevent orphaned files       |
-| `nxt1-backend/controllers/post/postController.js` Line 434                                | Send email notification                             | 🟡 Medium | User engagement              |
+### 6. Analytics & Tracking
 
----
+- [ ] Analytics integration in auth error handlers
+- [ ] Page view tracking (web & mobile)
+- [ ] GDPR consent UI
 
-### 9. Code Cleanup & Technical Debt
+### 7. Mobile Feature TODOs
 
-| Location                                                                                                       | TODO                                                       | Action               | Priority |
-| -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------- | -------- |
-| `nxt1/src/app/app.config.ts` Line 120                                                                          | Remove after all services migrated to infrastructure layer | 🧹 Cleanup           | 🟢 Low   |
-| `nxt1/src/app/v2/shared/pipes/index.ts` Line 7                                                                 | Remove this notice once pipes are actively used            | 🧹 Documentation     | 🟢 Low   |
-| `nxt1-monorepo/packages/ui/src/shared/picker/picker-shell.component.ts` Line 334                               | Remove ModalController if not needed                       | 🧹 Dead code         | 🟢 Low   |
-| `nxt1-monorepo/packages/ui/src/onboarding/onboarding-sport-entry/onboarding-sport-entry.component.ts` Line 80  | Use MIN_TEAM_NAME_LENGTH for validation                    | 🧹 Enable validation | 🟢 Low   |
-| `nxt1-monorepo/packages/ui/src/onboarding/onboarding-sport-entry/onboarding-sport-entry.component.ts` Line 980 | Get icon from DEFAULT_SPORTS constant                      | 🧹 Use constants     | 🟢 Low   |
-| `nxt1/src/app/shared/prospect.service.ts` Line 215                                                             | Duplicated code in template.component.ts                   | 🧹 DRY violation     | 🟢 Low   |
-| `nxt1/src/app/prospect-profile/components/template/template.component.ts` Line 2426                            | Line spacing should correspond to text element             | 🧹 Minor fix         | 🟢 Low   |
+| Location                                                        | TODO                                                            |
+| --------------------------------------------------------------- | --------------------------------------------------------------- |
+| `apps/mobile/.../team/team.page.ts` L90                         | Connect to TeamService when backend ready                       |
+| `apps/mobile/.../create-post/create-post.component.ts` L136-213 | Confirmation sheet, API create, media/tag/location/poll pickers |
+| `apps/mobile/.../auth/auth.page.ts` L643-679                    | Pass team code through Google/Apple/Microsoft OAuth             |
+| `apps/mobile/.../agent-x/services/agent-x.service.ts` L219      | Replace stub with actual API call                               |
+| `apps/mobile/.../settings/settings.component.ts` L160, L224     | Account deletion with password confirm                          |
+| `apps/mobile/.../shell/mobile-shell.component.ts` L369-713      | Pull verified/class year, help modal, referral code             |
+| `apps/mobile/.../explore/explore.component.ts` L140             | Open filter modal/bottom sheet                                  |
+| `apps/mobile/.../onboarding-congratulations/...` L139           | Track with analytics                                            |
+| `apps/mobile/.../home/home.component.ts` L259-292               | XP breakdown, post detail, comment modal                        |
 
----
+### 8. Legacy Web App TODOs
 
-### 10. Test Placeholders (Legacy V2 Component)
+| Location                                       | TODO                                   |
+| ---------------------------------------------- | -------------------------------------- |
+| `nxt1/.../firebase-auth.service.ts` L252, L260 | Microsoft/Apple sign-in backend        |
+| `nxt1/.../post.service.ts` L1435               | Delete associated media on post delete |
+| `nxt1-backend/.../postController.js` L434      | Send email notification                |
 
-| Location                                                                                    | TODO                       | Notes                                                 |
-| ------------------------------------------------------------------------------------------- | -------------------------- | ----------------------------------------------------- |
-| `nxt1/src/app/v2/auth/features/role-selection/role-selection.component.spec.ts` Lines 82-94 | Multiple test placeholders | Tests marked as TODO - implement when component built |
+### 9. Code Cleanup
 
-**Action:** These will be resolved when role-selection component is implemented
-(see #1 above).
+| Location                                               | TODO                                     |
+| ------------------------------------------------------ | ---------------------------------------- |
+| `nxt1/src/app/app.config.ts` L120                      | Remove after services migrated           |
+| `packages/ui/.../picker-shell.component.ts` L334       | Remove ModalController if unused         |
+| `packages/ui/.../onboarding-sport-entry/...` L80, L980 | Use constants for validation & icons     |
+| `nxt1/.../prospect.service.ts` L215                    | DRY violation with template.component.ts |
 
----
+### 10. Backend
 
-### 11. Third-Party Assets (Non-actionable)
+- [ ] Migrate in-memory cache to Redis
+      (`nxt1-backend/.../teamsApiController.js`)
+- [ ] Define description field (`nxt1-backend/.../ssrTestController.js`)
 
-| Location                                            | TODO                             | Notes                                     |
-| --------------------------------------------------- | -------------------------------- | ----------------------------------------- |
-| `nxt1/src/assets/ffmpeg/worker.js` Lines 61, 70, 85 | Check if deletion/creation works | Third-party ffmpeg library - not our code |
+### 11. Feature Stubs
 
-**Action:** None - third-party dependency
-
----
-
-### 12. Additional TODOs Discovered (Feb 9 Scan)
-
-**Note:** Excludes `node_modules/`, build outputs, and third-party assets.
-
-#### Mobile App (Monorepo)
-
-| Location                                                                                                                       | TODO                                                | Priority  |
-| ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- | --------- |
-| `nxt1-monorepo/apps/mobile/src/app/features/team/team.page.ts` Line 90                                                         | Connect to TeamService when backend is ready        | 🟡 Medium |
-| `nxt1-monorepo/apps/mobile/src/app/core/layout/shell/mobile-shell.component.ts` Lines 369, 378                                 | Pull verified/class year from backend profile       | 🟢 Low    |
-| `nxt1-monorepo/apps/mobile/src/app/core/layout/shell/mobile-shell.component.ts` Line 693                                       | Open help/support modal or page                     | 🟢 Low    |
-| `nxt1-monorepo/apps/mobile/src/app/core/layout/shell/mobile-shell.component.ts` Line 713                                       | Pull referral code from backend                     | 🟢 Low    |
-| `nxt1-monorepo/apps/mobile/src/app/features/explore/explore.component.ts` Line 140                                             | Open filter modal/bottom sheet                      | 🟢 Low    |
-| `nxt1-monorepo/apps/mobile/src/app/features/create-post/create-post.component.ts` Lines 136, 151, 175                          | Confirmation sheet, API create, error toast         | 🟡 Medium |
-| `nxt1-monorepo/apps/mobile/src/app/features/create-post/create-post.component.ts` Lines 186, 195, 204, 213                     | Media picker, tag picker, location picker, poll     | 🟡 Medium |
-| `nxt1-monorepo/apps/mobile/src/app/features/auth/pages/onboarding-congratulations/onboarding-congratulations.page.ts` Line 139 | Track with mobile analytics service                 | 🟢 Low    |
-| `nxt1-monorepo/apps/mobile/src/app/features/auth/pages/auth/auth.page.ts` Lines 643, 661, 679                                  | Pass team code through Google/Apple/Microsoft OAuth | 🟡 Medium |
-| `nxt1-monorepo/apps/mobile/src/app/features/home/home.component.ts` Lines 259, 267, 292                                        | XP breakdown, post detail, comment modal            | 🟢 Low    |
-| `nxt1-monorepo/apps/mobile/src/app/features/agent-x/services/agent-x.service.ts` Line 219                                      | Replace stub with actual API call                   | 🟡 Medium |
-| `nxt1-monorepo/apps/mobile/src/app/features/settings/settings.component.ts` Lines 160, 224                                     | Implement account deletion (with password confirm)  | 🟡 Medium |
-
-#### Legacy Web App (nxt1)
-
-| Location                                                                               | TODO                                 | Priority  |
-| -------------------------------------------------------------------------------------- | ------------------------------------ | --------- |
-| `nxt1/src/app/auth/containers/sign-in/sign-in.component.ts` Line 193                   | Handle media role navigation         | 🟢 Low    |
-| `nxt1/src/app/v2/auth/features/role-selection/role-selection.component.ts` Line 7      | Implement role selection / team code | 🟢 Low    |
-| `nxt1/src/app/v2/core/infrastructure/firebase/firebase-auth.service.ts` Lines 252, 260 | Implement Microsoft/Apple sign-in    | 🟡 Medium |
-| `nxt1/src/app/offers/containers/offers-log/log.component.scss` Line 1627               | Verify conflicting height rule       | 🟢 Low    |
-
-#### Backend (nxt1-backend)
-
-| Location                                                    | TODO                     | Priority |
-| ----------------------------------------------------------- | ------------------------ | -------- |
-| `nxt1-backend/controllers/ssr/ssrTestController.js` Line 12 | Define description field | 🟢 Low   |
-
-## 📑 TODO Documentation Files Status
-
-| File                          | Status                 | Blocking Release? | Notes                                       |
-| ----------------------------- | ---------------------- | ----------------- | ------------------------------------------- |
-| **ANALYTICS-INTEGRATION.md**  | 🟡 Partial             | No                | Auth tracking done, other services optional |
-| **CI-CD-SETUP.md**            | ✅ Complete            | No                | All 7 workflows created                     |
-| **CRASHLYTICS-NEXT-STEPS.md** | 🟡 Testing Required    | Yes (device test) | Setup complete, production config + testing |
-| **DEEP-LINKS-DEPLOYMENT.md**  | 🟡 Awaiting Deployment | Yes (activation)  | Code ready, server deployment not confirmed |
-| **SECURITY-HARDENING.md**     | ⬜ Not Started         | Yes (Production)  | Pre-production checklist                    |
-| **SEO-CHECKLIST.md**          | 🟡 In Progress         | No                | Auth pages done, OG images needed           |
-
-**Doc audit mismatch:** The following files referenced in prior audits are not
-present in `todo/`: **AUTH-FLOW.md**, **NATIVE-AUTH-TESTING.md**,
-**E2E-TESTING.md**. If these moved to `docs/` or were archived, update the audit
-references accordingly.
+- [ ] College library browsing/search
+- [ ] Video like/share functionality
+- [ ] Discover teams route
 
 ---
 
-## ✅ Resolved Issues (Since January 24, 2026)
+## Release Criteria
 
-### ~~Issue 1: Missing Toast Service~~ ✅ RESOLVED
+### Beta
 
-**Resolution:** `NxtToastService` implemented at
-`packages/ui/src/services/toast/toast.service.ts`
+- [ ] OAuth providers verified on devices
+- [ ] Onboarding persistence tested
+- [ ] OG images created
+- [ ] Toast wired to GlobalErrorHandler
 
-- 495 lines, enterprise-grade implementation
-- Used across 20+ services in web and mobile apps
-- Supports success, error, warning, info variants
-- Swipe-to-dismiss with haptic feedback
+### Production
 
-### ~~Issue 2: Missing Native Auth Package~~ ✅ RESOLVED
-
-**Resolution:** Using different (better) packages:
-
-- `@capacitor-firebase/authentication` for Google Sign-In
-- `@capacitor-community/apple-sign-in` for Apple Sign-In
-- `@recognizebv/capacitor-plugin-msauth` for Microsoft Sign-In
-- Implementation:
-  `apps/mobile/src/app/features/auth/services/native-auth.service.ts`
-
-### ~~Issue 3: Missing Crashlytics~~ ✅ RESOLVED
-
-**Resolution:** Full `CrashlyticsService` implemented:
-
-- `apps/mobile/src/app/core/services/crashlytics.service.ts` (454 lines)
-- `@capacitor-firebase/crashlytics` package installed
-- Adapter pattern in `packages/core/src/crashlytics/`
-
----
-
-## ⚠️ Remaining Technical Debt
-
-### Legacy Role System Active
-
-**Problem:** Backend maintains both modern `role` field and legacy boolean flags
-for backwards compatibility.
-
-**Risk:**
-
-- Increased complexity in queries
-- Potential for inconsistent data
-- Technical debt accumulation
-
-**Migration Required:**
-
-1. ⬜ Audit all Firestore queries (web app, mobile app, backend, functions)
-2. ⬜ Identify which queries still use boolean flags
-3. ⬜ Create migration plan with rollback strategy
-4. ⬜ Update all queries to use `role` field
-5. ⬜ Run migration script to clean up existing data
-6. ⬜ Remove legacy flags from backend
-7. ⬜ Update TypeScript interfaces
-
-**Estimated Effort:** 2-3 sprints (not blocking initial release)
-
----
-
-## ✅ Updated Action Plan
-
-### 🔴 Immediate (Release Blockers)
-
-1. ⬜ Wire `NxtToastService` into GlobalErrorHandler (service exists)
-2. ⬜ Implement onboarding photo upload to Firebase Storage
-3. ⬜ Store photo URL + persist onboarding progress
-4. ⬜ Test onboarding persistence (resume incomplete flows)
-5. ⬜ Native auth device testing (Google, Apple, Microsoft)
-6. ⬜ Create OG images for social sharing (1200x630px)
-
----
-
-### 🟢 Post-Launch: Enhancement & Technical Debt
-
-**Lower Priority:**
-
-1. ⬜ Page view tracking (analytics)
-2. ⬜ GDPR consent UI
-3. ⬜ Legacy role flag migration planning
-4. ⬜ Video social features (like, share)
-5. ⬜ College library feature
-6. ⬜ Security hardening checklist
-
----
-
-## 📊 Summary Statistics (Updated February 9, 2026)
-
-| Category               | Count | Status              |
-| ---------------------- | ----- | ------------------- |
-| **Completed Items**    | 15+   | ✅ Done             |
-| **In Progress**        | 5     | 🟡 Active           |
-| **Remaining Critical** | 5     | 🔴 Release blockers |
-| **Lower Priority**     | 10+   | 🟢 Post-launch      |
-| **Technical Debt**     | 3     | ⚠️ Plan needed      |
-
-### ✅ Major Completions Since Last Audit:
-
-- Toast Service (495 lines, enterprise-grade)
-- Auth Guards (4 guards with tests)
-- Forgot Password (web & mobile)
-- Crashlytics Service (454 lines)
-- CI/CD Workflows (7 complete workflows)
-- E2E Testing (86 tests passing)
-- Native Auth Packages (all installed)
-
----
-
-## 🎯 Updated Success Criteria
-
-### Ready for Beta Release When:
-
-- ⬜ OAuth providers verified on devices (Google, Apple, Microsoft)
-- ✅ Toast notifications available — COMPLETE
-- ✅ Firebase Crashlytics configured — COMPLETE
-- ✅ E2E tests passing — COMPLETE (86 tests)
-- ✅ CI/CD pipeline operational — COMPLETE
-- ⬜ Onboarding persistence tested
-- ⬜ Native auth verified on devices
-- ⬜ OG images created
-
-### Ready for Production When:
-
-- ⬜ All beta items complete
-- ⬜ Security hardening checklist completed
-- ⬜ Performance audit passed
-- ⬜ SEO implemented on public pages
-
----
-
-## 📞 Implementation Support
-
-**Questions or Issues?**
-
-- Reference this document's line numbers for specific TODOs
-- Check corresponding TODO doc files for detailed context
-- All auth-related TODOs have implementation notes in AUTH-FLOW.md
-- Security considerations documented in SECURITY-HARDENING.md
-
-**Last Updated:** February 9, 2026  
-**Previous Audit:** February 1, 2026  
-**Next Audit:** After beta release
+- [ ] All beta items complete
+- [ ] Security hardening checklist completed
+- [ ] Performance audit passed
+- [ ] SEO on public pages

@@ -37,6 +37,8 @@ import {
   computed,
   output,
 } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtIconComponent } from '../components/icon/icon.component';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
@@ -44,36 +46,13 @@ import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import type { OperationLogEntry, OperationLogStatus, OperationsLogResponse } from '@nxt1/core';
 
 // ============================================
-// INTERFACES
+// INTERFACES (local, non-exported)
 // ============================================
-
-/** Status of a completed operation. */
-export type OperationStatus = 'complete' | 'error' | 'cancelled' | 'in-progress';
-
-/** Category of an operation for icon/color grouping. */
-export type OperationCategory =
-  | 'outreach'
-  | 'content'
-  | 'film'
-  | 'recruiting'
-  | 'analytics'
-  | 'profile'
-  | 'system';
-
-/** A single operation log entry. */
-export interface OperationLogEntry {
-  readonly id: string;
-  readonly title: string;
-  readonly summary: string;
-  readonly icon: string;
-  readonly status: OperationStatus;
-  readonly category: OperationCategory;
-  readonly timestamp: string;
-  readonly duration?: string;
-  readonly metadata?: Record<string, unknown>;
-}
 
 /** A group of operations by day. */
 interface OperationDayGroup {
@@ -84,7 +63,7 @@ interface OperationDayGroup {
 
 /** Filter chip definition. */
 interface StatusFilter {
-  readonly id: OperationStatus | 'all';
+  readonly id: OperationLogStatus | 'all';
   readonly label: string;
 }
 
@@ -98,167 +77,6 @@ const STATUS_FILTERS: readonly StatusFilter[] = [
   { id: 'in-progress', label: 'Active' },
   { id: 'error', label: 'Failed' },
   { id: 'cancelled', label: 'Cancelled' },
-] as const;
-
-// ============================================
-// MOCK DATA
-// ============================================
-
-const now = Date.now();
-const h = (hours: number) => new Date(now - hours * 3600_000).toISOString();
-const d = (days: number, hours = 0) =>
-  new Date(now - days * 86_400_000 - hours * 3600_000).toISOString();
-
-const MOCK_OPERATIONS: readonly OperationLogEntry[] = [
-  {
-    id: 'log-1',
-    title: 'Sent 24 recruiting emails',
-    summary: 'Personalized outreach to every D2 program in Ohio. 3 replies received.',
-    icon: 'mail',
-    status: 'complete',
-    category: 'outreach',
-    timestamp: h(1),
-    duration: '4m 12s',
-  },
-  {
-    id: 'log-2',
-    title: 'Highlight reel compiled',
-    summary: 'Basketball highlights from last 3 games — 2:30 reel ready to share.',
-    icon: 'videocam',
-    status: 'complete',
-    category: 'content',
-    timestamp: h(3),
-    duration: '8m 45s',
-  },
-  {
-    id: 'log-3',
-    title: 'Analyzing game film',
-    summary: 'Processing Friday night footage — extracting key plays and defensive reads.',
-    icon: 'play',
-    status: 'in-progress',
-    category: 'film',
-    timestamp: h(0.5),
-  },
-  {
-    id: 'log-4',
-    title: 'Scout Report updated',
-    summary: 'Physical, technical, and mental ratings refreshed with latest data.',
-    icon: 'clipboard',
-    status: 'complete',
-    category: 'analytics',
-    timestamp: d(1, 2),
-    duration: '2m 08s',
-  },
-  {
-    id: 'log-5',
-    title: 'Weekly stats summary generated',
-    summary: '127 profile views, 23 new followers, +15% engagement this week.',
-    icon: 'barChart',
-    status: 'complete',
-    category: 'analytics',
-    timestamp: d(1, 6),
-    duration: '1m 30s',
-  },
-  {
-    id: 'log-6',
-    title: 'Coach email batch failed',
-    summary: 'Rate limit reached on 3 addresses. Retry scheduled for tomorrow.',
-    icon: 'mail',
-    status: 'error',
-    category: 'outreach',
-    timestamp: d(1, 8),
-    duration: '0m 45s',
-  },
-  {
-    id: 'log-7',
-    title: 'Profile optimization complete',
-    summary: 'Headline, bio, and feature photo updated for recruiter visibility.',
-    icon: 'person',
-    status: 'complete',
-    category: 'profile',
-    timestamp: d(2, 3),
-    duration: '3m 20s',
-  },
-  {
-    id: 'log-8',
-    title: 'Recruiting timeline mapped',
-    summary: 'NCAA dead period, camp windows, and contact dates plotted through August.',
-    icon: 'calendar',
-    status: 'complete',
-    category: 'recruiting',
-    timestamp: d(2, 10),
-    duration: '1m 55s',
-  },
-  {
-    id: 'log-9',
-    title: 'Brand strategy post drafted',
-    summary: 'Game-day graphic + caption ready for review in Create Post.',
-    icon: 'sparkles',
-    status: 'cancelled',
-    category: 'content',
-    timestamp: d(3, 4),
-    duration: '2m 10s',
-  },
-  {
-    id: 'log-10',
-    title: 'Sent 18 follow-up emails',
-    summary: 'Second-touch messages to coaches who opened the initial outreach.',
-    icon: 'mail',
-    status: 'complete',
-    category: 'outreach',
-    timestamp: d(4, 1),
-    duration: '3m 05s',
-  },
-  {
-    id: 'log-11',
-    title: 'Film breakdown exported',
-    summary: 'Play-by-play analysis of 14 offensive possessions shared as PDF.',
-    icon: 'documentText',
-    status: 'complete',
-    category: 'film',
-    timestamp: d(5, 7),
-    duration: '6m 40s',
-  },
-  {
-    id: 'log-12',
-    title: 'Prospect comparison analyzed',
-    summary: 'Compared your stats vs. 5 committed athletes at target programs.',
-    icon: 'people',
-    status: 'complete',
-    category: 'analytics',
-    timestamp: d(7, 2),
-    duration: '4m 15s',
-  },
-  {
-    id: 'log-13',
-    title: 'Camp registration researched',
-    summary: 'Found 8 upcoming camps within 200 miles matching your position.',
-    icon: 'search',
-    status: 'complete',
-    category: 'recruiting',
-    timestamp: d(10, 5),
-    duration: '2m 50s',
-  },
-  {
-    id: 'log-14',
-    title: 'Academic sync completed',
-    summary: 'GPA and transcript data refreshed from academic portal.',
-    icon: 'school',
-    status: 'complete',
-    category: 'profile',
-    timestamp: d(14, 3),
-    duration: '0m 35s',
-  },
-  {
-    id: 'log-15',
-    title: 'Monthly engagement report',
-    summary: 'Full 30-day summary: 2,400 views, 312 followers gained, 89 interactions.',
-    icon: 'trendingUp',
-    status: 'complete',
-    category: 'analytics',
-    timestamp: d(28, 1),
-    duration: '5m 20s',
-  },
 ] as const;
 
 // ============================================
@@ -898,6 +716,12 @@ export class AgentXOperationsLogComponent {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly haptics = inject(HapticsService);
 
+  /** HttpClient for API calls. */
+  private readonly http = inject(HttpClient);
+
+  /** Base API URL (provided by app.config.ts per environment). */
+  private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
+
   /** Optional ModalController — available when hosted inside Ionic bottom sheet, null on web. */
   private readonly modalCtrl = inject(ModalController, { optional: true });
 
@@ -911,9 +735,9 @@ export class AgentXOperationsLogComponent {
   // STATE — Private writable, protected computed
   // ============================================
 
-  private readonly _loading = signal(false);
-  private readonly _operations = signal<readonly OperationLogEntry[]>(MOCK_OPERATIONS);
-  private readonly _activeFilter = signal<OperationStatus | 'all'>('all');
+  private readonly _loading = signal(true);
+  private readonly _operations = signal<readonly OperationLogEntry[]>([]);
+  private readonly _activeFilter = signal<OperationLogStatus | 'all'>('all');
 
   protected readonly loading = computed(() => this._loading());
   protected readonly operations = computed(() => this._operations());
@@ -976,8 +800,39 @@ export class AgentXOperationsLogComponent {
   // METHODS
   // ============================================
 
+  constructor() {
+    this.loadOperations();
+  }
+
+  /** Fetch operations from the backend API. */
+  private async loadOperations(): Promise<void> {
+    this._loading.set(true);
+    this.logger.info('Loading operations log');
+    this.breadcrumb.trackStateChange('operations-log: loading');
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATIONS_LOG_VIEWED);
+
+    try {
+      const url = `${this.baseUrl}/agent-x/operations-log?limit=50`;
+      const response = await firstValueFrom(this.http.get<OperationsLogResponse>(url));
+
+      if (response.success && response.data) {
+        this._operations.set(response.data);
+        this.logger.info('Operations log loaded', { count: response.data.length });
+        this.breadcrumb.trackStateChange('operations-log: loaded', { count: response.data.length });
+      } else {
+        this.logger.warn('Operations log returned empty', { error: response.error });
+        this._operations.set([]);
+      }
+    } catch (err) {
+      this.logger.error('Failed to load operations log', err);
+      this._operations.set([]);
+    } finally {
+      this._loading.set(false);
+    }
+  }
+
   /** Set active filter with haptic and tracking. */
-  protected async onFilterTap(filter: OperationStatus | 'all'): Promise<void> {
+  protected async onFilterTap(filter: OperationLogStatus | 'all'): Promise<void> {
     await this.haptics.impact('light');
     this._activeFilter.set(filter);
     this.logger.info('Filter applied', { filter });
@@ -985,7 +840,7 @@ export class AgentXOperationsLogComponent {
   }
 
   /** Get count for a specific filter. */
-  protected getFilterCount(status: OperationStatus | 'all'): number {
+  protected getFilterCount(status: OperationLogStatus | 'all'): number {
     if (status === 'all') return this.totalCount();
     return this._operations().filter((o) => o.status === status).length;
   }
@@ -994,7 +849,7 @@ export class AgentXOperationsLogComponent {
   protected async onEntryTap(entry: OperationLogEntry): Promise<void> {
     await this.haptics.impact('light');
     this.logger.info('Entry tapped', { entryId: entry.id, status: entry.status });
-    this.analytics?.trackEvent('operations_log_entry_tapped', {
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATIONS_LOG_ENTRY_TAPPED, {
       entry_id: entry.id,
       status: entry.status,
       item_category: entry.category,

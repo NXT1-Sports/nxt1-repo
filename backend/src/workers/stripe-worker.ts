@@ -18,6 +18,7 @@ import {
   getOrCreateCustomer,
   createInvoiceItemWithRetry,
 } from '../modules/billing/stripe.service.js';
+import { getBillingContext } from '../modules/billing/budget.service.js';
 
 // Firebase initialization
 import { db } from '../utils/firebase.js';
@@ -66,28 +67,72 @@ async function processUsageEvent(message: UsageEventMessage): Promise<void> {
     const userData = userDoc.data();
     const userEmail = (userData?.['email'] as string) || `${event.userId}@nxt1.app`;
 
-    // Get or create Stripe customer
-    const { customerId } = await getOrCreateCustomer(
-      firestore,
-      event.userId,
-      userEmail,
-      event.teamId,
-      environment
-    );
+    // ── Determine billing entity (individual vs team) ────────
+    const billingCtx = await getBillingContext(firestore, event.userId);
+    const isTeamBilled = billingCtx?.billingEntity === 'team' && billingCtx.teamId;
 
-    logger.info('[processUsageEvent] Stripe customer ready', {
-      customerId,
-      userId: event.userId,
-    });
+    let customerEmail = userEmail;
+    let customerId: string;
+    let customerUserId = event.userId;
 
-    // Create invoice item with retry
+    if (isTeamBilled && billingCtx.teamId) {
+      // Team pays — get/create a Stripe customer for the team
+      const teamDoc = await firestore.collection('teams').doc(billingCtx.teamId).get();
+      const teamData = teamDoc.data();
+      const teamEmail =
+        (teamData?.['billingEmail'] as string) || (teamData?.['email'] as string) || userEmail;
+      customerEmail = teamEmail;
+      customerUserId = `team:${billingCtx.teamId}`;
+
+      const teamCustomer = await getOrCreateCustomer(
+        firestore,
+        customerUserId,
+        customerEmail,
+        billingCtx.teamId,
+        environment
+      );
+      customerId = teamCustomer.customerId;
+
+      logger.info('[processUsageEvent] Billing to team customer', {
+        teamId: billingCtx.teamId,
+        customerId,
+        generatingUserId: event.userId,
+      });
+    } else {
+      // Individual pays
+      const userCustomer = await getOrCreateCustomer(
+        firestore,
+        event.userId,
+        userEmail,
+        event.teamId,
+        environment
+      );
+      customerId = userCustomer.customerId;
+
+      logger.info('[processUsageEvent] Billing to individual customer', {
+        userId: event.userId,
+        customerId,
+      });
+    }
+
+    // Create invoice item with retry — include generating user in description for org billing
+    const description = isTeamBilled
+      ? `${event.feature} usage - ${event.quantity}x (by ${userEmail})`
+      : `${event.feature} usage - ${event.quantity}x`;
+
+    // When a Stripe Price ID is configured, pass quantity (Stripe calculates total).
+    // When no Price ID (fallback), pass total cost in cents as the quantity arg.
+    const invoiceQuantity = event.stripePriceId
+      ? event.quantity
+      : event.unitCostSnapshot * event.quantity;
+
     const result = await createInvoiceItemWithRetry(
       customerId,
       event.stripePriceId,
-      event.quantity,
+      invoiceQuantity,
       event.idempotencyKey,
       environment,
-      `${event.feature} usage - ${event.quantity}x`
+      description
     );
 
     if (!result.success) {

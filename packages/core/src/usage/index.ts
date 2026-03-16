@@ -25,7 +25,11 @@ export type {
   UsageDashboardRequest,
   UsageDashboardResponse,
   UsageHistoryResponse,
+  BillingEntity,
+  BillingContextSummary,
 } from './usage.types';
+
+export { DEFAULT_INDIVIDUAL_BUDGET, DEFAULT_TEAM_BUDGET } from './usage.types';
 
 // Constants
 export {
@@ -39,6 +43,7 @@ export {
   USAGE_BREAKDOWN_INITIAL_ROWS,
   USAGE_TOP_ITEMS_COUNT,
   getUsageProductConfig,
+  getUnitCostByFeature,
   getUsageCategoryConfig,
   getUsageProductsByCategory,
   formatUsageDate,
@@ -50,6 +55,7 @@ export type {
   UsageTimeframeOption,
   UsageCategoryConfig,
   UsageProductConfig,
+  UsageFeatureId,
 } from './usage.constants';
 
 // API Factory

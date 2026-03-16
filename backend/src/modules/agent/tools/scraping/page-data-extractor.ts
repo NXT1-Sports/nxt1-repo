@@ -54,6 +54,7 @@ export function extractPageData(html: string, pageUrl: string): PageStructuredDa
   const videos = extractVideos(html);
   const colors = extractColors(html, nextData, embeddedData);
   const links = extractLinksFromHtml(html, pageUrl);
+  const faviconUrl = extractFavicon(html, pageUrl);
 
   const hasEmbeddedData = Object.keys(embeddedData).length > 0;
 
@@ -70,6 +71,7 @@ export function extractPageData(html: string, pageUrl: string): PageStructuredDa
     links,
     videos,
     colors,
+    faviconUrl,
     hasRichData: nextData !== null || nuxtData !== null || ldJson.length > 0 || hasEmbeddedData,
   };
 }
@@ -498,6 +500,38 @@ function extractLinksFromHtml(html: string, pageUrl: string): readonly PageLink[
 
   return links;
 }
+// ─── Favicon ────────────────────────────────────────────────────────────────
+
+/**
+ * Extract the site favicon URL from HTML <link> tags.
+ * Looks for rel="icon", rel="shortcut icon", or rel="apple-touch-icon".
+ * Falls back to /favicon.ico at the domain root.
+ */
+function extractFavicon(html: string, pageUrl: string): string | null {
+  // Match <link rel="icon" href="..."> (or rel="shortcut icon" / "apple-touch-icon")
+  // Handles both attribute orders: rel before href and href before rel.
+  const patterns = [
+    /<link[^>]+rel=["'](?:shortcut\s+)?icon["'][^>]+href=["']([^"']+)["']/i,
+    /<link[^>]+href=["']([^"']+)["'][^>]+rel=["'](?:shortcut\s+)?icon["']/i,
+    /<link[^>]+rel=["']apple-touch-icon["'][^>]+href=["']([^"']+)["']/i,
+    /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']apple-touch-icon["']/i,
+  ];
+
+  for (const pattern of patterns) {
+    const m = pattern.exec(html);
+    if (m?.[1]) {
+      return resolveUrl(m[1], pageUrl);
+    }
+  }
+
+  // Fallback: domain root /favicon.ico
+  try {
+    return new URL('/favicon.ico', pageUrl).href;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /** Resolve a potentially relative URL against the page's origin. */

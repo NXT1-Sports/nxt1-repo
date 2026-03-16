@@ -159,25 +159,21 @@ export const ACTIVITY_EMPTY_STATES: Record<
     title: 'All caught up!',
     message: "You're up to date. New activity will appear here.",
     icon: 'checkmark-done-outline',
-    ctaLabel: 'Explore athletes',
   },
   inbox: {
     title: 'No messages yet',
     message: 'Notifications, messages, and direct alerts will appear here.',
     icon: 'mail-outline',
-    ctaLabel: 'Explore athletes',
   },
   agent: {
     title: 'No Agent X activity',
     message: 'AI operations, task updates, and Agent X results will show up here.',
     icon: 'sparkles-outline',
-    ctaLabel: 'Open Agent X',
   },
   alerts: {
     title: 'No alerts yet',
     message: 'Social activity and system updates will appear here.',
     icon: 'heart-outline',
-    ctaLabel: 'Create a post',
   },
 } as const;
 

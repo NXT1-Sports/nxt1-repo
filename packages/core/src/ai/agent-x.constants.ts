@@ -771,6 +771,14 @@ export const AGENT_X_ENDPOINTS = {
   HISTORY: '/api/v1/agent-x/history',
   /** Clear conversation */
   CLEAR: '/api/v1/agent-x/clear',
+  /** Aggregated dashboard (briefing + playbook + operations) */
+  DASHBOARD: '/api/v1/agent-x/dashboard',
+  /** Set or update user goals */
+  GOALS: '/api/v1/agent-x/goals',
+  /** Generate or regenerate the weekly playbook */
+  PLAYBOOK_GENERATE: '/api/v1/agent-x/playbook/generate',
+  /** Operations activity log (paginated job history) */
+  OPERATIONS_LOG: '/api/v1/agent-x/operations-log',
 } as const;
 
 /**

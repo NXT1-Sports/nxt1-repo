@@ -84,8 +84,33 @@ export const USAGE_CATEGORY_CONFIGS: readonly UsageCategoryConfig[] = [
 // All prices in cents
 // ============================================
 
+// ============================================
+// USAGE FEATURE (Shared Type — Single Source of Truth)
+// ============================================
+
+/**
+ * All billable feature identifiers.
+ * Shared between frontend and backend — the single source of truth.
+ * Backend imports this type instead of maintaining a separate enum.
+ */
+export type UsageFeatureId =
+  | 'highlights'
+  | 'motion-graphics'
+  | 'graphics'
+  | 'write-up-graphic'
+  | 'media-bundles'
+  | 'scout-report-bundle'
+  | 'match-colleges'
+  | 'recruit-strategy'
+  | 'college-views'
+  | 'activity-usage'
+  | 'email-campaign'
+  | 'follow-ups'
+  | 'profile-banners'
+  | 'team-page-url';
+
 export interface UsageProductConfig {
-  readonly id: string;
+  readonly id: UsageFeatureId;
   readonly name: string;
   readonly description: string;
   readonly category: UsageProductCategory;
@@ -271,6 +296,9 @@ export const USAGE_API_ENDPOINTS = {
   downloadReceipt: '/api/v1/usage/receipt',
   downloadInvoice: '/api/v1/usage/invoice',
   redeemCoupon: '/api/v1/usage/coupon/redeem',
+  budget: '/api/v1/billing/budget',
+  budgetTeam: '/api/v1/billing/budget/team',
+  recordUsage: '/api/v1/billing/usage',
 } as const;
 
 // ============================================
@@ -323,6 +351,16 @@ export const USAGE_TOP_ITEMS_COUNT = 3;
  */
 export function getUsageProductConfig(productId: string): UsageProductConfig | undefined {
   return USAGE_PRODUCT_CONFIGS.find((p) => p.id === productId);
+}
+
+/**
+ * Get unit cost in cents for a feature ID.
+ * Single source of truth — backend should use this instead of hardcoding prices.
+ */
+export function getUnitCostByFeature(featureId: UsageFeatureId): number {
+  const config = USAGE_PRODUCT_CONFIGS.find((p) => p.id === featureId);
+  if (!config) throw new Error(`Unknown usage feature: ${featureId}`);
+  return config.unitPrice;
 }
 
 /**

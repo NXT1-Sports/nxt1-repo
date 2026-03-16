@@ -97,6 +97,8 @@ export const NOTIFICATION_TYPES = {
   PAYMENT_FAILED: 'payment_failed',
   CREDITS_LOW: 'credits_low',
   CREDITS_ADDED: 'credits_added',
+  BUDGET_WARNING: 'budget_warning',
+  BUDGET_REACHED: 'budget_reached',
 
   // Marketing
   FEATURE_ANNOUNCEMENT: 'feature_announcement',
@@ -188,6 +190,8 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   payment_failed: 'billing',
   credits_low: 'billing',
   credits_added: 'billing',
+  budget_warning: 'billing',
+  budget_reached: 'billing',
 
   // Marketing
   feature_announcement: 'marketing',
@@ -294,6 +298,8 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   payment_failed: 'inbox',
   credits_low: 'inbox',
   credits_added: 'inbox',
+  budget_warning: 'inbox',
+  budget_reached: 'inbox',
 
   // Marketing → alerts
   feature_announcement: 'alerts',

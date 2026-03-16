@@ -549,6 +549,68 @@ export const ACTIVITY_TEST_IDS = {
   BADGE_COUNT: 'activity-badge-count',
 } as const;
 
+// ============================================
+// USAGE / BILLING DASHBOARD TEST IDS
+// ============================================
+
+export const USAGE_TEST_IDS = {
+  // Page containers
+  DASHBOARD_CONTAINER: 'usage-dashboard-container',
+  LOADING_SKELETON: 'usage-loading-skeleton',
+  ERROR_STATE: 'usage-error-state',
+
+  // Overview section
+  OVERVIEW_SECTION: 'usage-overview-section',
+  OVERVIEW_METERED_USAGE: 'usage-overview-metered-usage',
+  OVERVIEW_INCLUDED_USAGE: 'usage-overview-included-usage',
+  OVERVIEW_NEXT_PAYMENT: 'usage-overview-next-payment',
+  OVERVIEW_PERIOD_LABEL: 'usage-overview-period-label',
+
+  // Timeframe filter
+  TIMEFRAME_SELECT: 'usage-timeframe-select',
+
+  // Chart section
+  CHART_SECTION: 'usage-chart-section',
+  CHART_CONTAINER: 'usage-chart-container',
+
+  // Product category tabs
+  CATEGORY_TABS: 'usage-category-tabs',
+  CATEGORY_TAB: 'usage-category-tab',
+
+  // Breakdown section
+  BREAKDOWN_SECTION: 'usage-breakdown-section',
+  BREAKDOWN_ROW: 'usage-breakdown-row',
+  BREAKDOWN_SEARCH: 'usage-breakdown-search',
+
+  // Payment history section
+  HISTORY_SECTION: 'usage-history-section',
+  HISTORY_ROW: 'usage-history-row',
+  HISTORY_LOAD_MORE: 'usage-history-load-more',
+
+  // Budget section
+  BUDGET_SECTION: 'usage-budget-section',
+  BUDGET_CARD: 'usage-budget-card',
+  BUDGET_EDIT_BUTTON: 'usage-budget-edit-button',
+
+  // Payment methods section
+  PAYMENT_METHODS_SECTION: 'usage-payment-methods-section',
+  PAYMENT_METHOD_CARD: 'usage-payment-method-card',
+  PAYMENT_METHOD_ADD: 'usage-payment-method-add',
+  PAYMENT_METHOD_REMOVE: 'usage-payment-method-remove',
+  PAYMENT_METHOD_DEFAULT: 'usage-payment-method-default',
+
+  // Billing info section
+  BILLING_INFO_SECTION: 'usage-billing-info-section',
+
+  // Coupon section
+  COUPON_INPUT: 'usage-coupon-input',
+  COUPON_REDEEM: 'usage-coupon-redeem',
+
+  // Section navigation
+  SECTION_NAV: 'usage-section-nav',
+  SECTION_NAV_ITEM: 'usage-section-nav-item',
+} as const;
+
 /**
  * All test IDs combined for easy import
  */
@@ -564,6 +626,7 @@ export const TEST_IDS = {
   SETTINGS: SETTINGS_TEST_IDS,
   PROFILE_GENERATION: PROFILE_GENERATION_TEST_IDS,
   ACTIVITY: ACTIVITY_TEST_IDS,
+  USAGE: USAGE_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

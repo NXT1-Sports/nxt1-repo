@@ -29,6 +29,20 @@ export type {
   ShellWeeklyPlaybookItem,
   ShellActiveOperation,
   ShellContentForRole,
+  // Dashboard API types
+  AgentDashboardGoal,
+  AgentDashboardResponse,
+  AgentDashboardData,
+  AgentDashboardBriefing,
+  AgentDashboardPlaybook,
+  AgentSetGoalsRequest,
+  AgentRegeneratePlaybookRequest,
+  AgentPlaybookResponse,
+  // Operations log types
+  OperationLogStatus,
+  OperationLogCategory,
+  OperationLogEntry,
+  OperationsLogResponse,
 } from './agent-x.types';
 
 // Content types (mode-specific)

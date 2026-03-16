@@ -341,6 +341,19 @@ export const TRACE_NAMES = {
   HELP_SEARCH: 'help_search',
   HELP_FEEDBACK_SUBMIT: 'help_feedback_submit',
   HELP_FAQ_LOAD: 'help_faq_load',
+
+  // Usage / Billing dashboard traces
+  USAGE_DASHBOARD_LOAD: 'usage_dashboard_load',
+  USAGE_OVERVIEW_LOAD: 'usage_overview_load',
+  USAGE_CHART_LOAD: 'usage_chart_load',
+  USAGE_BREAKDOWN_LOAD: 'usage_breakdown_load',
+  USAGE_HISTORY_LOAD: 'usage_history_load',
+  USAGE_PAYMENT_METHODS_LOAD: 'usage_payment_methods_load',
+  USAGE_PAYMENT_METHOD_ADD: 'usage_payment_method_add',
+  USAGE_PAYMENT_METHOD_REMOVE: 'usage_payment_method_remove',
+  USAGE_PAYMENT_METHOD_DEFAULT: 'usage_payment_method_default',
+  USAGE_BUDGET_UPDATE: 'usage_budget_update',
+  USAGE_COUPON_REDEEM: 'usage_coupon_redeem',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

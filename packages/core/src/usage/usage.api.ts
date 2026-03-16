@@ -22,6 +22,7 @@ import type {
   UsageBreakdownRow,
   UsageBudget,
   UsageBillingInfo,
+  BillingContextSummary,
 } from './usage.types';
 import { USAGE_API_ENDPOINTS } from './usage.constants';
 
@@ -59,6 +60,8 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
     downloadReceipt: `${baseUrl}${USAGE_API_ENDPOINTS.downloadReceipt}`,
     downloadInvoice: `${baseUrl}${USAGE_API_ENDPOINTS.downloadInvoice}`,
     redeemCoupon: `${baseUrl}${USAGE_API_ENDPOINTS.redeemCoupon}`,
+    budget: `${baseUrl}${USAGE_API_ENDPOINTS.budget}`,
+    budgetTeam: `${baseUrl}${USAGE_API_ENDPOINTS.budgetTeam}`,
   } as const;
 
   return {
@@ -215,6 +218,35 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
       const response = await http.post<ApiResponse<void>>(endpoints.redeemCoupon, { code });
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to redeem coupon');
+      }
+    },
+
+    // ── Budget Management ──────────────────────────────
+
+    /** Fetch the user's billing context (budget, spend, billing entity) */
+    async getBillingContext(): Promise<BillingContextSummary> {
+      const response = await http.get<ApiResponse<BillingContextSummary>>(endpoints.budget);
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to fetch billing context');
+      }
+      return response.data;
+    },
+
+    /** Update the user's monthly budget (in cents) */
+    async updateBudget(monthlyBudget: number): Promise<void> {
+      const response = await http.put<ApiResponse<void>>(endpoints.budget, { monthlyBudget });
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to update budget');
+      }
+    },
+
+    /** Update a team's monthly budget (in cents) — team admin only */
+    async updateTeamBudget(teamId: string, monthlyBudget: number): Promise<void> {
+      const response = await http.put<ApiResponse<void>>(`${endpoints.budgetTeam}/${teamId}`, {
+        monthlyBudget,
+      });
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to update team budget');
       }
     },
   } as const;

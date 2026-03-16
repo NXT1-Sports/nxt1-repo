@@ -109,6 +109,8 @@ export interface ConnectedSource {
   platform: string;
   /** URL of the external profile */
   profileUrl: string;
+  /** Favicon URL of the external platform (scraped from the page <link rel="icon"> tag) */
+  faviconUrl?: string;
   /** When Agent X last synced data from this source */
   lastSyncedAt?: Date | string;
   /** Current sync status */

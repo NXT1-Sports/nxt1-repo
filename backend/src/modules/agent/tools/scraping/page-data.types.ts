@@ -142,6 +142,13 @@ export interface PageStructuredData {
   readonly colors: readonly string[];
 
   /**
+   * The site's favicon URL, extracted from <link rel="icon"> or <link rel="shortcut icon">.
+   * Falls back to /favicon.ico at the domain root if no explicit tag is found.
+   * null if extraction failed entirely.
+   */
+  readonly faviconUrl: string | null;
+
+  /**
    * True if any meaningful structured data was found beyond the basics.
    * (nextData, nuxtData, ldJson, or embeddedData present)
    */

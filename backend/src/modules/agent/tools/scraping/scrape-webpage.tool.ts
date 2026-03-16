@@ -102,6 +102,9 @@ export class ScrapeWebpageTool extends BaseTool {
           scrapedInMs: result.scrapedInMs,
           contentLength: result.contentLength,
 
+          // Favicon URL extracted from <link rel="icon"> (for connected source branding)
+          faviconUrl: result.pageData?.faviconUrl ?? null,
+
           // Structured data summary (richest source — stats, school, colors, social)
           structuredData: this.formatStructuredData(result.pageData),
 

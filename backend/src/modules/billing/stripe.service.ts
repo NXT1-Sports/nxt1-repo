@@ -179,12 +179,19 @@ export async function createInvoiceItem(
     const stripe = getStripeClient(environment);
 
     const invoiceItem = await stripe.invoiceItems.create(
-      {
-        customer: customerId,
-        amount: Math.round(quantity * 100), // Convert to cents
-        currency: 'usd',
-        description: description || `Usage: ${stripePriceId}`,
-      },
+      stripePriceId
+        ? {
+            customer: customerId,
+            pricing: { price: stripePriceId },
+            quantity,
+            description: description || `Usage: ${stripePriceId}`,
+          }
+        : {
+            customer: customerId,
+            amount: quantity, // quantity is total cost in cents when no price ID
+            currency: 'usd',
+            description: description || 'Usage charge',
+          },
       {
         idempotencyKey,
       }
@@ -217,19 +224,31 @@ export async function createInvoiceItem(
 
 /**
  * Generate invoice for customer
- * This finalizes all pending invoice items into an invoice
+ * For team customers, uses 'send_invoice' (Net 30) collection method.
+ * For individual customers, uses 'charge_automatically'.
  */
 export async function generateInvoice(
   customerId: string,
-  environment: 'staging' | 'production'
+  environment: 'staging' | 'production',
+  options?: { collectionMethod?: 'charge_automatically' | 'send_invoice'; daysUntilDue?: number }
 ): Promise<GenerateInvoiceResult> {
   try {
     const stripe = getStripeClient(environment);
 
-    const invoice = await stripe.invoices.create({
+    const collectionMethod = options?.collectionMethod ?? 'charge_automatically';
+    const invoiceParams: Record<string, unknown> = {
       customer: customerId,
-      auto_advance: true, // Automatically finalize and attempt payment
-    });
+      auto_advance: collectionMethod === 'charge_automatically',
+      collection_method: collectionMethod,
+    };
+
+    if (collectionMethod === 'send_invoice') {
+      invoiceParams['days_until_due'] = options?.daysUntilDue ?? 30;
+    }
+
+    const invoice = await stripe.invoices.create(
+      invoiceParams as Parameters<typeof stripe.invoices.create>[0]
+    );
 
     // Finalize the invoice
     const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id);
@@ -237,6 +256,7 @@ export async function generateInvoice(
     logger.info('[generateInvoice] Invoice generated', {
       customerId,
       invoiceId: finalizedInvoice.id,
+      collectionMethod,
     });
 
     return {

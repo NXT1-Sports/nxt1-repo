@@ -281,6 +281,25 @@ export interface UsageCoupon {
 // BUDGETS & ALERTS
 // ============================================
 
+/** Who pays: the individual user or the team/organization */
+export type BillingEntity = 'individual' | 'team';
+
+/** The user's billing context summary (returned by GET /budget) */
+export interface BillingContextSummary {
+  readonly billingEntity: BillingEntity;
+  readonly monthlyBudget: number;
+  readonly currentPeriodSpend: number;
+  readonly periodStart: string;
+  readonly periodEnd: string;
+  readonly percentUsed: number;
+  readonly hardStop: boolean;
+  readonly teamId?: string;
+}
+
+/** Default budgets (cents) */
+export const DEFAULT_INDIVIDUAL_BUDGET = 2000; // $20
+export const DEFAULT_TEAM_BUDGET = 20000; // $200
+
 /** A product budget configuration */
 export interface UsageBudget {
   /** Unique ID */

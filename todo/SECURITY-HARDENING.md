@@ -1,20 +1,14 @@
-# Security Hardening
+# Security Hardening — Pre-Production Checklist
 
-## Status: ⬜ Not Started (Pre-Production Checklist)
-
-> Last updated: February 1, 2026  
-> From: `docs/SECURITY.md`
+> Last updated: March 15, 2026 None of these items have been started.
 
 ---
 
 ## Mobile Security
 
-- [ ] Implement **certificate pinning** for production builds
-- [ ] Use Capacitor Preferences API for token storage (not localStorage)
+- [ ] Certificate pinning for production builds
+- [ ] Capacitor Preferences API for token storage (not localStorage)
 - [ ] Verify no API keys hardcoded in mobile binary
-- [ ] Zero Trust: All inputs validated on backend
-
----
 
 ## API Security
 
@@ -25,16 +19,12 @@
 - [ ] Rate limiting configured at Cloud Run level
 - [ ] CORS configured to allow only trusted origins
 
----
-
 ## Authentication
 
 - [ ] Token expiration enforced (24 hour max)
 - [ ] HTTP-only cookies for SSR (`__session`)
 - [ ] Firebase custom claims for RBAC
 - [ ] Authentication failures logged for monitoring
-
----
 
 ## Dependency Security
 
@@ -43,8 +33,6 @@
 - [ ] CI fails on high-severity vulnerabilities
 - [ ] Package lockfiles committed
 
----
-
 ## Secret Management
 
 - [ ] No secrets committed to repository
@@ -52,17 +40,13 @@
 - [ ] `.env` files in `.gitignore`
 - [ ] Service account keys stored securely
 
----
-
 ## Firestore Security Rules
 
 - [ ] No open access rules (`allow read, write: if true;`)
 - [ ] Owner-only write enforced
 - [ ] Rules tested before deployment
 
----
-
-## Incident Response Readiness
+## Incident Response
 
 - [ ] Security team contact established
 - [ ] PagerDuty configured for critical alerts

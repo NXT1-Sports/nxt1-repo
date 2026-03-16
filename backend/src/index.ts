@@ -55,6 +55,7 @@ import agentXRoutes from './routes/agent-x.routes.js';
 import followRoutes from './routes/follow.routes.js';
 
 import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
+import { ensureTopicExists } from './modules/billing/index.js';
 import ssrRoutes from './routes/ssr.routes.js';
 // Detail routes for explore
 import collegesRoutes from './routes/colleges.routes.js';
@@ -66,7 +67,8 @@ import campsRoutes from './routes/camps.routes.js';
 import eventsRoutes from './routes/events.routes.js';
 // Billing routes
 import billingRoutes from './routes/billing.routes.js';
-import webhookRoutes from './routes/webhook.routes.js';
+import webhookRoutes, { webhookRawBodyMiddleware } from './routes/webhook.routes.js';
+import usageRoutes from './routes/usage.routes.js';
 // Staging-only dev utilities
 import seedRoutes from './routes/seed.routes.js';
 
@@ -108,6 +110,9 @@ app.use(
     credentials: true,
   })
 );
+
+// Capture raw body for Stripe webhook signature verification (MUST be before body parsers)
+app.use(webhookRawBodyMiddleware);
 
 // Body parsing — Express 5 built-in (no body-parser needed)
 app.use(express.json({ limit: '10mb' }));
@@ -269,6 +274,8 @@ async function setupApplication() {
     // Billing routes with strict rate limiting
     { path: '/billing', rateLimitType: 'billing', handler: billingRoutes },
     { path: '/webhook', rateLimitType: 'billing', handler: webhookRoutes },
+    // Usage dashboard routes
+    { path: '/usage', rateLimitType: 'api', handler: usageRoutes },
     // SSR routes with lighter limits (for SEO crawlers)
     { path: '/ssr', rateLimitType: 'api', handler: ssrRoutes },
   ];
@@ -336,7 +343,13 @@ async function initializeServices() {
     // 3. Setup application routes and middleware (requires Redis for rate limiting)
     await setupApplication();
 
-    // 4. Start Agent X Background Queue and Workers
+    // 4. Ensure Pub/Sub topic exists for usage-based billing
+    await ensureTopicExists().catch((err) => {
+      logger.warn('⚠️ Pub/Sub topic setup failed (non-critical):', { error: err });
+    });
+
+    // 5. Start Agent X Background Queue and Workers
+    // 5. Start Agent X Background Queue and Workers
     logger.info('Starting Agent Engine...');
     shutdownAgentFn = await bootstrapAgentQueue();
     logger.info('✅ Agent Engine started and listening to queue');

@@ -41,10 +41,17 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtSheetHeaderComponent } from '../components/bottom-sheet/sheet-header.component';
 import { NxtChatBubbleComponent } from '../components/chat-bubble';
+import { NxtLoggingService } from '../services/logging/logging.service';
+import { HapticsService } from '../services/haptics/haptics.service';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AgentXInputComponent } from './agent-x-input.component';
+import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
 
 // ============================================
 // INTERFACES
@@ -277,6 +284,11 @@ interface OperationMessage {
 })
 export class AgentXOperationChatComponent implements AfterViewInit {
   private readonly modalCtrl = inject(ModalController);
+  private readonly http = inject(HttpClient);
+  private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
+  private readonly logger = inject(NxtLoggingService).child('AgentXOperationChat');
+  private readonly haptics = inject(HapticsService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   // ============================================
   // INPUTS (from componentProps)
@@ -432,8 +444,11 @@ export class AgentXOperationChatComponent implements AfterViewInit {
     this._loading.set(true);
 
     try {
-      await this.simulateResponse(text);
-    } catch {
+      await this.callAgentChat(text);
+      await this.haptics.notification('success');
+    } catch (err) {
+      this.logger.error('Chat message failed', err, { contextId: this.contextId });
+      await this.haptics.notification('error');
       this.replaceTyping({
         id: this.uid(),
         role: 'assistant',
@@ -518,49 +533,45 @@ export class AgentXOperationChatComponent implements AfterViewInit {
     ];
   }
 
-  /** Simulate an AI response (placeholder until backend wired). */
-  private async simulateResponse(userInput: string): Promise<void> {
-    const delay = 1200 + Math.random() * 800;
-    await new Promise((resolve) => setTimeout(resolve, delay));
+  /** Send user message to backend Agent X chat and replace typing indicator with response. */
+  private async callAgentChat(userInput: string): Promise<void> {
+    // Build conversation history from local messages (exclude typing indicators)
+    const history = this.messages()
+      .filter((m) => !m.isTyping && m.role !== 'system')
+      .slice(-10)
+      .map((m) => ({ role: m.role, content: m.content }));
 
-    const responses = this.getContextualResponses(userInput);
-    const content = responses[Math.floor(Math.random() * responses.length)];
+    const response = await firstValueFrom(
+      this.http.post<{
+        success: boolean;
+        message?: { id: string; content: string; metadata?: Record<string, unknown> };
+        error?: string;
+      }>(`${this.baseUrl}/agent-x/chat`, {
+        message: userInput,
+        mode: this.contextType === 'operation' ? 'operations' : undefined,
+        history,
+        userContext: {
+          operationContext: this.contextTitle,
+          contextType: this.contextType,
+          contextId: this.contextId,
+        },
+      })
+    );
 
-    this.replaceTyping({
-      id: this.uid(),
-      role: 'assistant',
-      content,
-      timestamp: new Date(),
-    });
-  }
-
-  /** Return responses tailored to the operation context. */
-  private getContextualResponses(input: string): string[] {
-    if (this.contextType === 'operation') {
-      return [
-        `Here's the latest on "${this.contextTitle}":\n\n` +
-          `• Processing is on track\n` +
-          `• No blockers detected\n` +
-          `• Estimated completion: within the hour\n\n` +
-          `Want me to adjust priority or notify you when it's done?`,
-        `Based on your input "${input.slice(0, 40)}…", I've updated the parameters for this operation. ` +
-          `The changes will take effect on the next processing cycle.`,
-        `Good question. This operation is currently at the analysis stage. ` +
-          `I can provide a detailed breakdown or fast-track it if you need results sooner.`,
-      ];
+    if (response.success && response.message) {
+      this.replaceTyping({
+        id: response.message.id ?? this.uid(),
+        role: 'assistant',
+        content: response.message.content,
+        timestamp: new Date(),
+      });
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
+        contextType: this.contextType,
+        contextId: this.contextId,
+      });
+    } else {
+      throw new Error(response.error ?? 'No response from Agent X');
     }
-    return [
-      `I'll get started on "${this.contextTitle}" right away.\n\n` +
-        `Here's what I'll do:\n` +
-        `1. Gather relevant data from your profile\n` +
-        `2. Process and analyze the results\n` +
-        `3. Present a summary for your review\n\n` +
-        `Anything specific you'd like me to focus on?`,
-      `Great — I've pulled up everything related to "${this.contextTitle}". ` +
-        `Based on "${input.slice(0, 40)}…", I'll tailor the output specifically for you.`,
-      `Working on it! I'm cross-referencing your profile data with the latest insights. ` +
-        `I'll have a draft ready in a moment. Feel free to refine your request while I work.`,
-    ];
   }
 
   /** Append a message to the local history. */

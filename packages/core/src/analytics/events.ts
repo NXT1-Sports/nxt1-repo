@@ -681,6 +681,52 @@ export const APP_EVENTS = {
   LINK_SOURCE_CONNECTED: 'link_source_connected',
   /** User expanded/collapsed a category accordion */
   LINK_SOURCES_CATEGORY_TOGGLED: 'link_sources_category_toggled',
+
+  // AGENT X DASHBOARD EVENTS
+  // ============================================
+  /** User opened the Agent X command center */
+  AGENT_X_DASHBOARD_VIEWED: 'agent_x_dashboard_viewed',
+  /** User set or updated their Agent X goals */
+  AGENT_X_GOALS_SET: 'agent_x_goals_set',
+  /** Weekly playbook was generated or regenerated */
+  AGENT_X_PLAYBOOK_GENERATED: 'agent_x_playbook_generated',
+  /** User sent a message in Agent X chat */
+  AGENT_X_MESSAGE_SENT: 'agent_x_message_sent',
+  /** User executed a playbook action */
+  AGENT_X_PLAYBOOK_ACTION_EXECUTED: 'agent_x_playbook_action_executed',
+  /** User opened the operations activity log */
+  AGENT_X_OPERATIONS_LOG_VIEWED: 'agent_x_operations_log_viewed',
+  /** User tapped an entry in the operations log */
+  AGENT_X_OPERATIONS_LOG_ENTRY_TAPPED: 'agent_x_operations_log_entry_tapped',
+
+  // USAGE / BILLING DASHBOARD EVENTS
+  // ============================================
+  /** User viewed the usage dashboard */
+  USAGE_DASHBOARD_VIEWED: 'usage_dashboard_viewed',
+  /** User changed the timeframe filter */
+  USAGE_TIMEFRAME_CHANGED: 'usage_timeframe_changed',
+  /** User switched product category tab */
+  USAGE_CATEGORY_CHANGED: 'usage_category_changed',
+  /** User expanded a breakdown row */
+  USAGE_BREAKDOWN_EXPANDED: 'usage_breakdown_expanded',
+  /** User loaded more payment history */
+  USAGE_HISTORY_LOADED_MORE: 'usage_history_loaded_more',
+  /** User added a payment method */
+  USAGE_PAYMENT_METHOD_ADDED: 'usage_payment_method_added',
+  /** User removed a payment method */
+  USAGE_PAYMENT_METHOD_REMOVED: 'usage_payment_method_removed',
+  /** User set default payment method */
+  USAGE_PAYMENT_METHOD_DEFAULT_SET: 'usage_payment_method_default_set',
+  /** User updated budget */
+  USAGE_BUDGET_UPDATED: 'usage_budget_updated',
+  /** User updated team budget */
+  USAGE_TEAM_BUDGET_UPDATED: 'usage_team_budget_updated',
+  /** User redeemed a coupon */
+  USAGE_COUPON_REDEEMED: 'usage_coupon_redeemed',
+  /** User downloaded a receipt */
+  USAGE_RECEIPT_DOWNLOADED: 'usage_receipt_downloaded',
+  /** User downloaded an invoice */
+  USAGE_INVOICE_DOWNLOADED: 'usage_invoice_downloaded',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];

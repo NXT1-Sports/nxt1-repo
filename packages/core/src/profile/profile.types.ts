@@ -155,6 +155,8 @@ export interface ProfileConnectedSource {
   readonly platform: string;
   /** URL of the external profile */
   readonly profileUrl: string;
+  /** Favicon URL of the external platform (scraped from the page) */
+  readonly faviconUrl?: string;
   /** When Agent X last synced data from this source */
   readonly lastSyncedAt?: string;
   /** Current sync status */
