@@ -462,12 +462,23 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             role: user.role ?? null,
             planTier: user.planTier ?? null,
             onboardingCompleted: user.onboardingCompleted,
-            primarySport: user.sports?.find((s) => s.order === 0)?.sport,
-            sports: user.sports?.map((s) => ({
-              sport: s.sport,
-              positions: s.positions,
-              isPrimary: s.order === 0,
-            })),
+            // Normalise: Firestore dot-notation writes can convert sports array
+            // to a plain map {"0": {...}}. Convert back before array methods.
+            ...(() => {
+              const sportsArr = Array.isArray(user.sports)
+                ? user.sports
+                : user.sports
+                  ? (Object.values(user.sports) as typeof user.sports)
+                  : undefined;
+              return {
+                primarySport: sportsArr?.find((s) => s.order === 0)?.sport,
+                sports: sportsArr?.map((s) => ({
+                  sport: s.sport,
+                  positions: s.positions,
+                  isPrimary: s.order === 0,
+                })),
+              };
+            })(),
           };
         });
         this.logger.debug('Backend profile fetched (cached)', {

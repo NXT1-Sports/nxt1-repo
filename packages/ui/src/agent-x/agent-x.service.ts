@@ -53,13 +53,18 @@ import {
   COACH_QUICK_TASKS,
   COLLEGE_QUICK_TASKS,
 } from '@nxt1/core';
+import { createAgentXApi } from '@nxt1/core/ai';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import { AgentXJobService, AGENT_X_API_BASE_URL } from './agent-x-job.service';
+import {
+  AgentXJobService,
+  AGENT_X_API_BASE_URL,
+  AGENT_X_AUTH_TOKEN_FACTORY,
+} from './agent-x-job.service';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 
@@ -78,7 +83,23 @@ export class AgentXService {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
+  private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly jobService = inject(AgentXJobService);
+
+  /** Pure API factory instance — used for SSE streaming and non-streaming calls. */
+  private readonly api = createAgentXApi(
+    {
+      get: <T>(url: string) => firstValueFrom(this.http.get<T>(url)),
+      post: <T>(url: string, body: unknown) => firstValueFrom(this.http.post<T>(url, body)),
+      put: <T>(url: string, body: unknown) => firstValueFrom(this.http.put<T>(url, body)),
+      patch: <T>(url: string, body: unknown) => firstValueFrom(this.http.patch<T>(url, body)),
+      delete: <T>(url: string) => firstValueFrom(this.http.delete<T>(url)),
+    },
+    this.baseUrl
+  );
+
+  /** Active SSE abort controller — cancelled on destroy or when a new message starts. */
+  private activeStream: AbortController | null = null;
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -91,6 +112,8 @@ export class AgentXService {
   private readonly _currentTitle = signal(AGENT_X_CONFIG.welcomeTitles[0]);
   private readonly _selectedMode = signal<AgentXMode>(AGENT_X_DEFAULT_MODE);
   private readonly _userContext = signal<AgentXUserContext | null>(null);
+  /** The MongoDB thread ID for the current conversation (persisted across messages). */
+  private readonly _currentThreadId = signal<string | null>(null);
 
   // Animation interval reference
   private titleAnimationInterval?: ReturnType<typeof setInterval>;
@@ -151,6 +174,13 @@ export class AgentXService {
 
   /** Available modes configuration */
   readonly modes = signal(AGENT_X_MODES);
+
+  /**
+   * The current MongoDB thread ID.
+   * Set after the first `event: thread` SSE frame is received.
+   * Pass this back to subsequent `sendMessage()` calls to continue the thread.
+   */
+  readonly currentThreadId = computed(() => this._currentThreadId());
 
   // ============================================
   // DASHBOARD COMPUTED SIGNALS
@@ -294,11 +324,30 @@ export class AgentXService {
   // ============================================
 
   /**
-   * Send a message to Agent X.
+   * Send a message to Agent X using real-time SSE streaming.
+   *
+   * Opens a `POST /agent-x/chat` SSE connection.
+   * Token fragments are written into the message signal as they arrive,
+   * producing the live "typing" effect without any simulated delays.
+   *
+   * SSE event sequence:
+   *  1. `event: thread`  → threadId persisted immediately
+   *  2. `event: delta`   → content appended token-by-token
+   *  3. `event: done`    → streaming complete, metadata stored
+   *  4. `event: error`   → error message shown, stream closed
+   *
+   * Falls back to a standard `http.post()` if `AGENT_X_AUTH_TOKEN_FACTORY`
+   * is not provided (e.g. mobile, tests) or the auth token cannot be resolved.
+   *
+   * @param content - Optional override text; defaults to the current input signal value.
    */
   async sendMessage(content?: string): Promise<void> {
     const message = content ?? this._userMessage().trim();
     if (!message || this._isLoading()) return;
+
+    // Cancel any in-flight stream before starting a new one
+    this.activeStream?.abort();
+    this.activeStream = null;
 
     // Clear input and task
     this._userMessage.set('');
@@ -315,9 +364,10 @@ export class AgentXService {
     };
     this._messages.update((msgs) => [...msgs, userMessage]);
 
-    // Add typing indicator
+    // Add typing indicator (replaced by the streaming assistant message)
+    const streamingId = this.generateId();
     const typingMessage: AgentXMessage = {
-      id: 'typing',
+      id: streamingId,
       role: 'assistant',
       content: '',
       timestamp: new Date(),
@@ -326,79 +376,198 @@ export class AgentXService {
     this._messages.update((msgs) => [...msgs, typingMessage]);
     this._isLoading.set(true);
 
-    try {
-      const request: AgentXChatRequest = {
-        message,
-        mode: this._selectedMode(),
-        history: this._messages()
-          .filter((m) => m.id !== 'typing' && !m.isTyping)
-          .slice(-AGENT_X_CONFIG.maxHistoryLength)
-          .map((m) => ({ ...m })),
-        userContext: this._userContext() ?? undefined,
-      };
+    const request: AgentXChatRequest = {
+      message,
+      mode: this._selectedMode(),
+      history: this._messages()
+        .filter((m) => m.id !== streamingId && !m.isTyping)
+        .slice(-AGENT_X_CONFIG.maxHistoryLength)
+        .map((m) => ({ ...m })),
+      userContext: this._userContext() ?? undefined,
+      ...(this._currentThreadId() ? { threadId: this._currentThreadId()! } : {}),
+    };
 
+    this.logger.info('Sending message', { mode: request.mode, threadId: this._currentThreadId() });
+    this.breadcrumb.trackStateChange('agent-x:sending', { mode: request.mode });
+
+    // ── SSE path ────────────────────────────────────────────────────────
+    const authToken = await this.getAuthToken?.().catch(() => null);
+
+    if (authToken && isPlatformBrowser(this.platformId)) {
+      await this._sendViaStream(request, streamingId, authToken);
+    } else {
+      // ── Fallback: standard HTTP POST (mobile / no token) ────────────
+      await this._sendViaHttp(request, streamingId);
+    }
+  }
+
+  /**
+   * SSE streaming path — connects via raw fetch + ReadableStream.
+   * @internal
+   */
+  private async _sendViaStream(
+    request: AgentXChatRequest,
+    streamingId: string,
+    authToken: string
+  ): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.activeStream = this.api.streamMessage(
+        request,
+        {
+          onThread: (evt) => {
+            // Persist threadId immediately — before LLM inference begins
+            this._currentThreadId.set(evt.threadId);
+            this.logger.debug('Thread resolved', { threadId: evt.threadId });
+          },
+
+          onDelta: (evt) => {
+            // Append the new token to the streaming message in-place
+            this._messages.update((msgs) =>
+              msgs.map((m) =>
+                m.id === streamingId
+                  ? { ...m, content: m.content + evt.content, isTyping: false }
+                  : m
+              )
+            );
+          },
+
+          onDone: (evt) => {
+            // Freeze the final message with metadata
+            this._messages.update((msgs) =>
+              msgs.map((m) =>
+                m.id === streamingId
+                  ? {
+                      ...m,
+                      isTyping: false,
+                      metadata: {
+                        model: evt.model,
+                        inputTokens: evt.usage?.inputTokens,
+                        outputTokens: evt.usage?.outputTokens,
+                        mode: request.mode,
+                      },
+                    }
+                  : m
+              )
+            );
+
+            this._isLoading.set(false);
+            this.activeStream = null;
+
+            this.haptics.notification('success').catch(() => undefined);
+            this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
+              mode: this._selectedMode(),
+              streaming: true,
+              model: evt.model,
+              threadId: evt.threadId,
+            });
+            this.logger.info('Stream complete', {
+              model: evt.model,
+              outputTokens: evt.usage?.outputTokens,
+              threadId: evt.threadId,
+            });
+
+            resolve();
+          },
+
+          onError: (evt) => {
+            this.logger.error('Stream error', evt.error);
+            this._replaceWithError(streamingId);
+            this._isLoading.set(false);
+            this.activeStream = null;
+            this.haptics.notification('error').catch(() => undefined);
+            resolve();
+          },
+        },
+        authToken,
+        this.baseUrl
+      );
+
+      // Ensure loading is cleared on service destroy (e.g. route change mid-stream)
+      this.destroyRef.onDestroy(() => {
+        this.activeStream?.abort();
+        this.activeStream = null;
+      });
+    });
+  }
+
+  /**
+   * Fallback HTTP POST path — used when streaming is unavailable (mobile, tests).
+   * @internal
+   */
+  private async _sendViaHttp(request: AgentXChatRequest, streamingId: string): Promise<void> {
+    try {
       const response = await firstValueFrom(
         this.http.post<{
           success: boolean;
           message?: AgentXMessage;
+          threadId?: string;
           error?: string;
         }>(`${this.baseUrl}/agent-x/chat`, request)
       );
 
       if (response.success && response.message) {
-        // Replace typing with actual response
-        this._messages.update((msgs) => {
-          const filtered = msgs.filter((m) => m.id !== 'typing');
-          return [
-            ...filtered,
-            {
-              id: response.message!.id ?? this.generateId(),
-              role: 'assistant' as const,
-              content: response.message!.content,
-              timestamp: new Date(),
-              metadata: response.message!.metadata,
-            },
-          ];
-        });
+        if (response.threadId) this._currentThreadId.set(response.threadId);
+
+        this._messages.update((msgs) =>
+          msgs.map((m) =>
+            m.id === streamingId
+              ? {
+                  ...m,
+                  content: response.message!.content,
+                  isTyping: false,
+                  metadata: response.message!.metadata,
+                }
+              : m
+          )
+        );
+
         await this.haptics.notification('success');
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MESSAGE_SENT, {
           mode: this._selectedMode(),
-          hasContext: !!this._userContext(),
+          streaming: false,
         });
       } else {
         throw new Error(response.error ?? 'No response from Agent X');
       }
     } catch (error) {
-      this.logger.error('Send message failed', error);
+      this.logger.error('Send message failed (HTTP fallback)', error);
       await this.haptics.notification('error');
-
-      // Replace typing with error
-      this._messages.update((msgs) => {
-        const filtered = msgs.filter((m) => m.id !== 'typing');
-        return [
-          ...filtered,
-          {
-            id: this.generateId(),
-            role: 'assistant' as const,
-            content: 'Sorry, something went wrong. Please try again.',
-            timestamp: new Date(),
-            error: true,
-          },
-        ];
-      });
+      this._replaceWithError(streamingId);
     } finally {
       this._isLoading.set(false);
     }
   }
 
   /**
-   * Clear all messages.
+   * Replace the placeholder streaming message with a user-facing error message.
+   * @internal
+   */
+  private _replaceWithError(streamingId: string): void {
+    this._messages.update((msgs) =>
+      msgs.map((m) =>
+        m.id === streamingId
+          ? {
+              ...m,
+              content: 'Sorry, something went wrong. Please try again.',
+              isTyping: false,
+              error: true,
+            }
+          : m
+      )
+    );
+  }
+
+  /**
+   * Clear all messages and reset conversation thread.
    */
   async clearMessages(): Promise<void> {
+    this.activeStream?.abort();
+    this.activeStream = null;
     await this.haptics.impact('light');
     this._messages.set([]);
     this._selectedTask.set(null);
     this._userMessage.set('');
+    this._currentThreadId.set(null);
     this.toast.success('Conversation cleared');
     this.logger.debug('Conversation cleared');
   }

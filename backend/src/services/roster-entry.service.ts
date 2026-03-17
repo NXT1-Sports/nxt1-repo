@@ -160,6 +160,14 @@ export class RosterEntryService {
     const docRef = await this.db.collection(this.COLLECTION).add(entryData);
     const doc = await docRef.get();
 
+    // Increment athlete member counter on the parent Team document
+    await this.db
+      .collection('Teams')
+      .doc(input.teamId)
+      .update({
+        athleteMember: FieldValue.increment(1),
+      });
+
     logger.info('[RosterEntryService] Roster entry created', { entryId: docRef.id });
 
     // Invalidate caches

@@ -36,6 +36,9 @@ import type {
   LLMTelemetryCallback,
   ImageGenerationOptions,
   ImageGenerationResult,
+  LLMStreamOptions,
+  LLMStreamDelta,
+  LLMStreamResult,
 } from './llm.types.js';
 import { MODEL_CATALOGUE, IMAGE_MODEL, IMAGE_GENERATION_TIMEOUT_MS } from './llm.types.js';
 
@@ -196,6 +199,152 @@ export class OpenRouterService {
     return result;
   }
 
+  // ─── Streaming API ──────────────────────────────────────────────────────
+
+  /**
+   * Stream a chat completion from OpenRouter using Server-Sent Events.
+   *
+   * Yields `LLMStreamDelta` objects as tokens arrive. The caller (typically
+   * an Express SSE route) writes each delta to the response. After the stream
+   * completes, the returned `LLMStreamResult` contains the complete response,
+   * token usage, latency, and cost — ready for persistence and telemetry.
+   *
+   * @param messages - The conversation history.
+   * @param options  - Model tier, temperature, max tokens.
+   * @param onDelta  - Called for every text fragment as it arrives.
+   * @returns Final aggregated result (content, usage, cost).
+   */
+  async completeStream(
+    messages: readonly LLMMessage[],
+    options: LLMStreamOptions,
+    onDelta: (delta: LLMStreamDelta) => void
+  ): Promise<LLMStreamResult> {
+    const model = options.modelOverride ?? MODEL_CATALOGUE[options.tier];
+    const startMs = Date.now();
+
+    const body = this.buildStreamRequestBody(messages, model, options);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+
+    // Merge external abort signal with our timeout
+    const onAbort = () => controller.abort();
+    options.signal?.addEventListener('abort', onAbort);
+
+    let fullContent = '';
+    let finishReason = 'unknown';
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let responseModel = model;
+
+    try {
+      const response = await fetch(OPENROUTER_API_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'HTTP-Referer': this.siteUrl,
+          'X-Title': this.siteName,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => 'Unknown error');
+        throw new OpenRouterError(
+          `OpenRouter streaming error ${response.status}: ${errorBody}`,
+          response.status
+        );
+      }
+
+      if (!response.body) {
+        throw new Error('OpenRouter returned no streaming body.');
+      }
+
+      // Read the SSE stream from OpenRouter
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE protocol: each event is separated by double newlines
+        const lines = buffer.split('\n');
+        // Keep the last incomplete line in the buffer
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed === 'data: [DONE]') continue;
+          if (!trimmed.startsWith('data: ')) continue;
+
+          const jsonStr = trimmed.slice(6);
+          try {
+            const chunk = JSON.parse(jsonStr) as OpenRouterStreamChunk;
+
+            // Capture model from first chunk
+            if (chunk.model) responseModel = chunk.model;
+
+            const delta = chunk.choices?.[0]?.delta;
+            if (delta?.content) {
+              fullContent += delta.content;
+              onDelta({ content: delta.content, done: false });
+            }
+
+            // Capture finish reason
+            const reason = chunk.choices?.[0]?.finish_reason;
+            if (reason) finishReason = reason;
+
+            // Capture usage from the final chunk (OpenRouter sends it on the last event)
+            if (chunk.usage) {
+              inputTokens = chunk.usage.prompt_tokens ?? 0;
+              outputTokens = chunk.usage.completion_tokens ?? 0;
+            }
+          } catch {
+            // Skip malformed JSON lines — non-critical during streaming
+          }
+        }
+      }
+
+      // Signal completion
+      onDelta({ content: '', done: true });
+    } finally {
+      clearTimeout(timeoutId);
+      options.signal?.removeEventListener('abort', onAbort);
+    }
+
+    const latencyMs = Date.now() - startMs;
+    const costUsd = this.estimateCost(responseModel, inputTokens, outputTokens);
+
+    // Emit telemetry
+    this.telemetryCallback?.({
+      operationId: options.telemetryContext?.operationId ?? '',
+      userId: options.telemetryContext?.userId ?? '',
+      agentId: options.telemetryContext?.agentId ?? 'general',
+      model: responseModel,
+      inputTokens,
+      outputTokens,
+      costUsd,
+      latencyMs,
+      hadToolCall: false,
+      timestamp: new Date().toISOString(),
+    });
+
+    return {
+      content: fullContent,
+      model: responseModel,
+      usage: { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens },
+      latencyMs,
+      costUsd,
+      finishReason,
+    };
+  }
+
   // ─── Request Builder ────────────────────────────────────────────────────
 
   private buildRequestBody(
@@ -220,6 +369,26 @@ export class OpenRouterService {
     }
 
     return body;
+  }
+
+  /**
+   * Build the request body for a streaming completion.
+   * Sets `stream: true` and requests usage in the final chunk.
+   */
+  private buildStreamRequestBody(
+    messages: readonly LLMMessage[],
+    model: string,
+    options: LLMStreamOptions
+  ): Record<string, unknown> {
+    return {
+      model,
+      messages: messages.map((m) => this.serializeMessage(m)),
+      max_tokens: options.maxTokens ?? 2048,
+      temperature: options.temperature ?? 0.7,
+      stream: true,
+      // OpenRouter includes usage in the final streamed chunk when requested
+      stream_options: { include_usage: true },
+    };
   }
 
   /**
@@ -517,4 +686,25 @@ interface OpenRouterRawChoice {
     }[];
   };
   readonly finish_reason?: string;
+}
+
+// ─── OpenRouter Streaming Chunk Shape ───────────────────────────────────────
+
+/** A single SSE chunk from an OpenRouter streaming response. */
+interface OpenRouterStreamChunk {
+  readonly id?: string;
+  readonly model?: string;
+  readonly choices?: readonly {
+    readonly index: number;
+    readonly delta?: {
+      readonly role?: string;
+      readonly content?: string;
+    };
+    readonly finish_reason?: string | null;
+  }[];
+  readonly usage?: {
+    readonly prompt_tokens?: number;
+    readonly completion_tokens?: number;
+    readonly total_tokens?: number;
+  };
 }

@@ -40,6 +40,8 @@
 import type { AgentUserContext, AgentConnectedAccount } from '@nxt1/core';
 import { getUserById, type UserData } from '../../../services/users.service.js';
 import { getCacheService, CACHE_TTL } from '../../../services/cache.service.js';
+import { AgentMessageModel } from '../../../models/agent-message.model.js';
+import { AgentThreadModel } from '../../../models/agent-thread.model.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Cache key prefix for assembled agent context. Exported so callers can build/invalidate the same key without hardcoding. */
@@ -442,5 +444,100 @@ export class ContextBuilder {
     ];
     const completed = checks.filter(Boolean).length;
     return Math.round((completed / checks.length) * 100);
+  }
+
+  // ─── Thread History (Parallel Conversation Memory) ─────────────────────
+
+  /** Max characters per message before truncation in thread history context. */
+  private static readonly THREAD_HISTORY_MAX_CHARS = 500;
+
+  /** Max messages that can ever be fetched for thread history. */
+  private static readonly THREAD_HISTORY_MAX_MESSAGES = 50;
+
+  /** Delimiters used to frame thread history — stripped from message content to prevent prompt injection. */
+  private static readonly HISTORY_START_DELIMITER = '--- Recent conversation history ---';
+  private static readonly HISTORY_END_DELIMITER = '--- End conversation history ---';
+
+  /**
+   * Retrieve recent messages for a specific thread, formatted for injection
+   * into the agent's system prompt. This gives conversation continuity.
+   *
+   * @param threadId - The MongoDB thread ID to pull history from.
+   * @param maxMessages - Maximum number of messages to retrieve (default: 20).
+   * @returns A formatted string of recent exchanges, or empty string if none.
+   */
+  async getRecentThreadHistory(threadId: string, maxMessages = 20): Promise<string> {
+    // Hard cap to prevent unbounded memory usage
+    const limit = Math.min(maxMessages, ContextBuilder.THREAD_HISTORY_MAX_MESSAGES);
+
+    try {
+      const messages = await AgentMessageModel.find({ threadId })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .select('role content createdAt agentId')
+        .lean()
+        .exec();
+
+      if (!messages.length) return '';
+
+      // Reverse to chronological order
+      const chronological = messages.reverse();
+
+      const lines = chronological.map((m) => {
+        const label = m.role === 'user' ? 'User' : `Agent X${m.agentId ? ` (${m.agentId})` : ''}`;
+        // Truncate very long messages to keep token usage reasonable
+        let content =
+          m.content.length > ContextBuilder.THREAD_HISTORY_MAX_CHARS
+            ? m.content.slice(0, ContextBuilder.THREAD_HISTORY_MAX_CHARS) + '...'
+            : m.content;
+        // Strip delimiter strings from message content to prevent prompt injection (C4 fix)
+        content = content
+          .replaceAll(ContextBuilder.HISTORY_START_DELIMITER, '')
+          .replaceAll(ContextBuilder.HISTORY_END_DELIMITER, '');
+        return `[${label}]: ${content}`;
+      });
+
+      return `\n${ContextBuilder.HISTORY_START_DELIMITER}\n${lines.join('\n')}\n${ContextBuilder.HISTORY_END_DELIMITER}`;
+    } catch (err) {
+      logger.warn('[ContextBuilder] Failed to fetch thread history', {
+        threadId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return '';
+    }
+  }
+
+  /**
+   * Get a summary of the user's active (non-archived) threads.
+   * Used by the PlannerAgent to understand what conversations are in flight.
+   *
+   * @param userId - The user's Firebase UID.
+   * @param maxThreads - Maximum threads to summarize (default: 5).
+   * @returns Formatted string listing active threads.
+   */
+  async getActiveThreadsSummary(userId: string, maxThreads = 5): Promise<string> {
+    try {
+      const threads = await AgentThreadModel.find({ userId, archived: false })
+        .sort({ lastMessageAt: -1 })
+        .limit(maxThreads)
+        .select('title category messageCount lastMessageAt')
+        .lean()
+        .exec();
+
+      if (!threads.length) return '';
+
+      const lines = threads.map(
+        (t, i) =>
+          `${i + 1}. "${t.title}" (${t.category ?? 'general'}, ${t.messageCount} messages, last active: ${t.lastMessageAt})`
+      );
+
+      return `\nActive conversations:\n${lines.join('\n')}`;
+    } catch (err) {
+      logger.warn('[ContextBuilder] Failed to fetch active threads summary', {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return '';
+    }
   }
 }

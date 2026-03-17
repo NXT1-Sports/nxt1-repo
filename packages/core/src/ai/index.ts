@@ -43,6 +43,12 @@ export type {
   OperationLogCategory,
   OperationLogEntry,
   OperationsLogResponse,
+  // SSE streaming types
+  AgentXStreamThreadEvent,
+  AgentXStreamDeltaEvent,
+  AgentXStreamDoneEvent,
+  AgentXStreamErrorEvent,
+  AgentXStreamCallbacks,
 } from './agent-x.types';
 
 // Content types (mode-specific)

@@ -10,7 +10,11 @@
 
 // Services
 export { AgentXService } from './agent-x.service';
-export { AgentXJobService, AGENT_X_API_BASE_URL } from './agent-x-job.service';
+export {
+  AgentXJobService,
+  AGENT_X_API_BASE_URL,
+  AGENT_X_AUTH_TOKEN_FACTORY,
+} from './agent-x-job.service';
 
 // Components
 export {

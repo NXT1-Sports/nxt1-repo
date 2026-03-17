@@ -170,10 +170,7 @@ router.post(
       teamCode: teamData.code.trim(),
       teamName: teamData.name.trim(),
       teamType: TeamType.CLUB, // Default to club type
-      sportName: teamData.sport.trim(),
-      athleteMember: 0, // Default values - these would come from package
-      panelMember: 0,
-      packageId: 'default', // Default package
+      sport: teamData.sport.trim(),
       createdBy: userId,
     });
 
@@ -338,7 +335,6 @@ router.patch(
       unicode,
       division,
       conference,
-      expireAt,
     } = req.body;
 
     const userId = req.user!.uid;
@@ -349,14 +345,13 @@ router.patch(
     const team = await teamCodeService.updateTeamCode(db, String(id), userId, {
       teamName: teamName?.trim(),
       teamType,
-      sportName: sportName?.trim(),
+      sport: sportName?.trim(),
       athleteMember: athleteMember !== undefined ? parseInt(athleteMember, 10) : undefined,
       panelMember: panelMember !== undefined ? parseInt(panelMember, 10) : undefined,
       isActive,
       unicode: unicode?.trim(),
       division: division?.trim(),
       conference: conference?.trim(),
-      expireAt: expireAt ? new Date(expireAt) : undefined,
     });
 
     logger.info('[Teams API] TeamCode updated', { teamId: id, userId });

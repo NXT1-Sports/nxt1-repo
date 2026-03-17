@@ -33,6 +33,7 @@ import { ScrapeWebpageTool } from '../tools/scraping/index.js';
 import { UpdateAthleteProfileTool, UpdateTeamProfileTool } from '../tools/database/index.js';
 import { GenerateImageTool } from '../tools/media/index.js';
 import { ContextBuilder } from '../memory/context-builder.js';
+import { AgentChatService } from '../services/agent-chat.service.js';
 import { TelemetryService } from '../services/telemetry.service.js';
 import { GuardrailRunner } from '../guardrails/guardrail-runner.js';
 import {
@@ -103,14 +104,27 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const queueService = new AgentQueueService();
   const jobRepository = new AgentJobRepository(); // production Firestore
   const stagingJobRepository = new AgentJobRepository(stagingDb); // staging Firestore
+  const agentChatService = new AgentChatService();
 
   // ── 4. Start the background worker ────────────────────────────────────
   // The worker wraps the AgentRouter and additionally persists
   // progress events to Firestore for real-time frontend updates.
-  const baseWorker = new AgentWorker(router, jobRepository, stagingJobRepository, stagingDb);
+  const baseWorker = new AgentWorker(
+    router,
+    jobRepository,
+    stagingJobRepository,
+    agentChatService,
+    stagingDb
+  );
 
   // ── 5. Inject dependencies into the REST routes ───────────────────────
-  setAgentDependencies({ queueService, jobRepository });
+  setAgentDependencies({
+    queueService,
+    jobRepository,
+    chatService: agentChatService,
+    contextBuilder,
+    llmService: llm,
+  });
   setWelcomeDependencies({ queueService, jobRepository });
   setScrapeDependencies({ queueService, jobRepository });
 

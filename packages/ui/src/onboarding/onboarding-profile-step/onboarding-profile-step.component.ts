@@ -707,18 +707,15 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
         display: flex;
         flex-direction: column;
         gap: var(--nxt1-spacing-2, 8px);
-        padding: var(--nxt1-spacing-4, 16px);
-        padding-bottom: 0;
       }
 
       .nxt1-gallery-label {
         margin: 0;
+        padding: 0 var(--nxt1-spacing-2, 8px);
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-xs, 0.75rem);
         font-weight: 600;
         color: var(--nxt1-color-text-tertiary);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
       }
     `,
   ],

@@ -115,8 +115,6 @@ export interface ConnectedSource {
   lastSyncedAt?: Date | string;
   /** Current sync status */
   syncStatus?: 'idle' | 'syncing' | 'error' | 'success';
-  /** Fields that were synced from this source (for auditability) */
-  syncedFields?: string[];
   /** Error message if sync failed */
   lastError?: string;
   /** Scope: 'global' | 'sport' | 'team' (default: 'global') */

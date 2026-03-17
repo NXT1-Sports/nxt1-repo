@@ -70,6 +70,11 @@ export class AskAgentDto {
   @IsOptional()
   context?: Record<string, unknown>;
 
+  @IsString()
+  @IsOptional()
+  @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
+  threadId?: string;
+
   @IsEnum(AgentModel)
   @IsOptional()
   model?: AgentModel;
@@ -88,6 +93,11 @@ export class AgentChatRequestDto {
   @IsString()
   @IsOptional()
   mode?: string;
+
+  @IsString()
+  @IsOptional()
+  @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
+  threadId?: string;
 
   @IsArray()
   @IsOptional()

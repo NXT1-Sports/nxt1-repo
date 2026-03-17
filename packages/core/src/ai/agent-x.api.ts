@@ -29,6 +29,11 @@ import type {
   AgentDashboardData,
   AgentDashboardGoal,
   AgentDashboardPlaybook,
+  AgentXStreamCallbacks,
+  AgentXStreamThreadEvent,
+  AgentXStreamDeltaEvent,
+  AgentXStreamDoneEvent,
+  AgentXStreamErrorEvent,
 } from './agent-x.types';
 import { AGENT_X_ENDPOINTS } from './agent-x.constants';
 import { externalServiceError, rateLimitError, isNxtApiError } from '../errors';
@@ -249,56 +254,108 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
-     * Stream a chat response (for real-time typing effect).
-     * Note: Requires backend SSE support.
+     * Stream a chat response using the backend SSE endpoint.
      *
-     * @param request - Chat request
-     * @param onChunk - Callback for each text chunk
-     * @param onComplete - Callback when streaming completes
-     * @param onError - Callback on error
+     * Connects to `POST /agent-x/chat` with `Accept: text/event-stream`.
+     * The backend emits four event types:
+     *   - `thread`  → { threadId } — sent immediately before LLM inference
+     *   - `delta`   → { content } — one frame per LLM token
+     *   - `done`    → { threadId, model, usage } — final frame
+     *   - `error`   → { error } — on failure
+     *
+     * @param request   - Chat request payload
+     * @param callbacks - Typed callbacks for each SSE event type
+     * @param authToken - Bearer token for the Authorization header
+     * @param baseUrl   - API base URL (full, including /api/v1/… prefix)
+     * @returns AbortController — call `.abort()` to cancel the stream
      */
     streamMessage(
       request: AgentXChatRequest,
-      onChunk: (text: string) => void,
-      onComplete: (message: AgentXMessage) => void,
-      onError: (error: string) => void
+      callbacks: AgentXStreamCallbacks,
+      authToken: string,
+      streamBaseUrl: string
     ): AbortController {
       const controller = new AbortController();
 
-      // Note: This is a placeholder for SSE streaming implementation
-      // The actual implementation depends on the HTTP adapter supporting streams
-      // For now, fall back to regular request with simulated streaming
+      (async () => {
+        try {
+          const response = await fetch(`${streamBaseUrl}${AGENT_X_ENDPOINTS.CHAT}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'text/event-stream',
+              Authorization: `Bearer ${authToken}`,
+            },
+            body: JSON.stringify(request),
+            signal: controller.signal,
+          });
 
-      this.sendMessage(request)
-        .then((response: AgentXChatResponse) => {
-          if (response.success && response.message) {
-            // Simulate streaming by chunking the response
-            const content = response.message.content;
-            const words = content.split(' ');
-            let currentIndex = 0;
-
-            const streamInterval = setInterval(() => {
-              if (controller.signal.aborted) {
-                clearInterval(streamInterval);
-                return;
-              }
-
-              if (currentIndex < words.length) {
-                const chunk = words.slice(0, currentIndex + 1).join(' ');
-                onChunk(chunk);
-                currentIndex++;
-              } else {
-                clearInterval(streamInterval);
-                onComplete(response.message!);
-              }
-            }, 50);
-          } else {
-            onError(response.error ?? 'Unknown error');
+          if (!response.ok || !response.body) {
+            callbacks.onError({ error: `HTTP ${response.status}: ${response.statusText}` });
+            return;
           }
-        })
-        .catch((error: unknown) => {
-          onError(error instanceof Error ? error.message : 'Network error');
-        });
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            // Split on double-newline (SSE frame boundary)
+            const frames = buffer.split('\n\n');
+            // Last element may be an incomplete frame — keep it in the buffer
+            buffer = frames.pop() ?? '';
+
+            for (const frame of frames) {
+              if (!frame.trim()) continue;
+
+              // Parse `event:` and `data:` lines within the frame
+              let eventType = 'message';
+              let dataLine = '';
+
+              for (const line of frame.split('\n')) {
+                if (line.startsWith('event:')) {
+                  eventType = line.slice('event:'.length).trim();
+                } else if (line.startsWith('data:')) {
+                  dataLine = line.slice('data:'.length).trim();
+                }
+              }
+
+              if (!dataLine) continue;
+
+              try {
+                const payload = JSON.parse(dataLine) as unknown;
+
+                switch (eventType) {
+                  case 'thread':
+                    callbacks.onThread?.(payload as AgentXStreamThreadEvent);
+                    break;
+                  case 'delta':
+                    callbacks.onDelta(payload as AgentXStreamDeltaEvent);
+                    break;
+                  case 'done':
+                    callbacks.onDone(payload as AgentXStreamDoneEvent);
+                    break;
+                  case 'error':
+                    callbacks.onError(payload as AgentXStreamErrorEvent);
+                    break;
+                }
+              } catch {
+                // Malformed JSON in a single frame — skip silently
+              }
+            }
+          }
+        } catch (error) {
+          if ((error as { name?: string }).name === 'AbortError') return;
+          callbacks.onError({
+            error: error instanceof Error ? error.message : 'Stream connection failed',
+          });
+        }
+      })();
 
       return controller;
     },

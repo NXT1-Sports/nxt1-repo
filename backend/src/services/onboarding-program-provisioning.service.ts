@@ -43,6 +43,7 @@ export interface ProvisionOnboardingProgramsInput {
     firstName?: string;
     lastName?: string;
     email?: string;
+    contact?: { phone?: string };
     profileImgs?: string[];
   };
   updateData: {
@@ -254,13 +255,37 @@ async function ensureTeamForSport(
   program: ProvisioningProgramRecord,
   sportName: string
 ): Promise<{ teamId: string; created: boolean } | null> {
-  const existingTeamSnapshot = await input.db
+  // Resolve the level for this sport from the user's sport profile so that
+  // Varsity Football and JV Football resolve to distinct team documents.
+  const sport = input.sports.find((s) => s.sport?.toLowerCase() === sportName.toLowerCase());
+  const level = sport?.level;
+
+  // Build the uniqueness query: org + sport + level (when present)
+  let query = input.db
     .collection('Teams')
     .where('organizationId', '==', program.organizationId)
-    .where('sportName', '==', sportName)
-    .where('isActive', '==', true)
-    .limit(1)
-    .get();
+    .where('sport', '==', sportName)
+    .where('isActive', '==', true);
+
+  if (level) {
+    query = query.where('level', '==', level) as typeof query;
+  }
+
+  let existingTeamSnapshot = await query.limit(1).get();
+
+  if (existingTeamSnapshot.empty) {
+    let legacyQuery = input.db
+      .collection('Teams')
+      .where('organizationId', '==', program.organizationId)
+      .where('sportName', '==', sportName)
+      .where('isActive', '==', true);
+
+    if (level) {
+      legacyQuery = legacyQuery.where('level', '==', level) as typeof legacyQuery;
+    }
+
+    existingTeamSnapshot = await legacyQuery.limit(1).get();
+  }
 
   const existingDoc = existingTeamSnapshot.docs[0];
   if (existingDoc) {
@@ -274,15 +299,15 @@ async function ensureTeamForSport(
     teamCode,
     teamName,
     teamType: program.teamType,
-    sportName,
-    athleteMember: 0,
-    panelMember: 0,
-    packageId: 'free',
+    sport: sportName,
     createdBy: input.userId,
     creatorRole: input.role === 'recruiter' ? 'coach' : input.role,
     creatorName:
       [input.updateData.firstName, input.updateData.lastName].filter(Boolean).join(' ') ||
       undefined,
+    creatorEmail: input.currentUser?.email?.trim() || undefined,
+    creatorPhoneNumber: input.currentUser?.contact?.phone?.trim() || undefined,
+    level: level ?? '',
   });
 
   if (!team.id) {

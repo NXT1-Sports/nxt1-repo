@@ -440,6 +440,8 @@ ion-alert.nxt-modal-alert .alert-button {
 }
 
 /* Radio buttons - same theme treatment */
+
+/* MD: outer radio circle border (unchecked / checked) */
 ion-alert.nxt-modal-prompt .alert-radio-icon {
   border-color: var(--nxt1-ui-text-secondary, rgba(255, 255, 255, 0.7)) !important;
 }
@@ -448,8 +450,25 @@ ion-alert.nxt-modal-prompt [aria-checked='true'] .alert-radio-icon {
   border-color: var(--nxt1-ui-primary, var(--nxt1-color-primary, #ccff00)) !important;
 }
 
-ion-alert.nxt-modal-prompt .alert-radio-inner {
+/*
+ * MD only: .alert-radio-inner is a filled dot — needs background fill.
+ * iOS uses a border-only checkmark tick on .alert-radio-inner.
+ * Applying background to iOS fills the small rotated rectangle solid,
+ * making the tick look like a solid "green line" instead of a ✓ shape.
+ */
+ion-alert.nxt-modal-prompt.md .alert-radio-inner {
   background: var(--nxt1-ui-primary, var(--nxt1-color-primary, #ccff00)) !important;
+}
+
+/*
+ * iOS: .alert-radio-inner IS the checkmark (6×12px, rotated 45°,
+ * border-right + border-bottom only). Keep background transparent so
+ * only the two border lines form the ✓ shape.
+ * Border color inherits from --ion-color-primary set at the alert level.
+ */
+ion-alert.nxt-modal-prompt.ios [aria-checked='true'] .alert-radio-inner {
+  background: transparent !important;
+  border-color: var(--nxt1-ui-primary, var(--nxt1-color-primary, #ccff00)) !important;
 }
 
 /* Input focus ring - theme primary */

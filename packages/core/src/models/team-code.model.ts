@@ -90,25 +90,37 @@ export interface Code {
   teamName: string;
   /** Team type - uses TeamType from user.constants.ts */
   teamType: TeamType | TeamTypeApi;
-  sportName: string;
+  /** Sport name (e.g. 'Football', 'Basketball'). Maps to Firestore field `sportName` for backward compat. */
+  sport: string;
+  /** @deprecated Use `sport` instead. Kept for backward compat with existing reads. */
+  sportName?: string;
   /** @deprecated Location lives on Organization. Kept for backward compat with existing docs. */
   state: string;
   /** @deprecated Location lives on Organization. Kept for backward compat with existing docs. */
   city: string;
   /** Reference to the parent Organization document */
   organizationId?: string;
+  /**
+   * Team level / division within the same sport under an organization.
+   * Examples: 'Varsity', 'JV', 'Freshman', '16U', '15U', '14U', 'A Team', 'B Team'.
+   * Together with `organizationId` + `sport` this forms the unique squad identity:
+   *   e.g. "Hoover High School" + "Football" + "Varsity" ≠ "…" + "Football" + "JV"
+   */
+  level?: string;
   role?: ROLE;
   athleteMember: number;
   panelMember: number;
   members?: TeamMember[];
   memberIds?: string[];
-  packageId: string;
+  /** @deprecated Billing lives on Organization. Kept for backward compat with existing docs. */
+  packageId?: string;
   isActive: boolean;
   isFreeTrial?: boolean;
   trialStartDate?: Date | string;
+  /** @deprecated Billing lives on Organization. Kept for backward compat with existing docs. */
   expireAt?: Date | string;
+  /** @deprecated Use `createdAt` instead. */
   createAt?: Date | string;
-  /** V3: Use createdAt instead of createAt */
   createdAt?: Date | string;
   /** @deprecated Use logoUrl on Organization. Kept for backward compat. */
   teamLogoImg?: string;
@@ -185,19 +197,22 @@ export interface CreateTeamCodeInput {
   teamCode: string;
   teamName: string;
   teamType: TeamType | TeamTypeApi;
-  sportName: string;
-  athleteMember: number;
-  panelMember: number;
-  packageId: string;
+  /** Sport name (e.g. 'Football', 'Basketball') */
+  sport: string;
   createdBy: string; // User ID (owner)
   /** Role of the user creating the team (determines member role in team doc) */
   creatorRole?: 'athlete' | 'coach' | 'director' | 'media' | 'parent' | 'fan';
   /** Display name for the creator member entry */
   creatorName?: string;
+  /** Optional creator email for initial members[] payload */
+  creatorEmail?: string;
+  /** Optional creator phone number for initial members[] payload */
+  creatorPhoneNumber?: string;
   unicode?: string;
+  /** Team level/division (Varsity, JV, 16U, etc.) */
+  level?: string;
   division?: string;
   conference?: string;
-  expireAt?: Date;
 }
 
 /**
@@ -210,14 +225,16 @@ export interface CreateTeamCodeInput {
 export interface UpdateTeamCodeInput {
   teamName?: string;
   teamType?: TeamType | TeamTypeApi;
-  sportName?: string;
+  /** Sport name (e.g. 'Football', 'Basketball') */
+  sport?: string;
   athleteMember?: number;
   panelMember?: number;
   isActive?: boolean;
   unicode?: string;
+  /** Update the team level/division (Varsity, JV, 16U, etc.) */
+  level?: string;
   division?: string;
   conference?: string;
-  expireAt?: Date;
 }
 
 /**

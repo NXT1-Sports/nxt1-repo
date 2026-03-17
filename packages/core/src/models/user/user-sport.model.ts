@@ -380,6 +380,13 @@ export interface SportProfile {
   jerseyNumber?: string;
   yearsExperience?: number;
 
+  /**
+   * Team level / division for this sport (e.g. 'Varsity', 'JV', 'Freshman', '16U').
+   * Used to scope team uniqueness: org + sport + level = a distinct squad.
+   * Set during onboarding or profile edit; persisted on the Team document.
+   */
+  level?: string;
+
   /** Side preference (e.g., 'left', 'right', 'both') */
   side?: string[];
 

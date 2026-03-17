@@ -109,7 +109,29 @@ export class AgentRouter {
     }
 
     const context = this.buildSessionContext(userId, payload.sessionId);
-    const enrichedIntent = this.enrichIntentWithContext(intent, userContext, payload.context);
+
+    // Inject thread history for conversation continuity
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const threadId =
+      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['threadId'] as string)
+        : undefined;
+    let threadHistoryStr = '';
+    if (threadId) {
+      try {
+        threadHistoryStr = await this.contextBuilder.getRecentThreadHistory(threadId, 20);
+      } catch {
+        // Thread history is non-critical — continue without it
+      }
+    }
+
+    const enrichedIntent = this.enrichIntentWithContext(
+      intent,
+      userContext,
+      payload.context,
+      threadHistoryStr
+    );
 
     // ── Direct routing: skip planner when a specific agent is requested ───
     if (payload.agent) {
@@ -282,14 +304,24 @@ export class AgentRouter {
   private enrichIntentWithContext(
     intent: string,
     userContext: AgentUserContext,
-    jobContext?: Record<string, unknown>
+    jobContext?: Record<string, unknown>,
+    threadHistory?: string
   ): string {
     const contextStr = this.contextBuilder.compressToPrompt(userContext);
     let enriched = `[User Profile]\n${contextStr}`;
 
     // Inject structured job context so the LLM has URLs, platform names, etc.
     if (jobContext && Object.keys(jobContext).length > 0) {
-      enriched += `\n\n[Job Context]\n${JSON.stringify(jobContext, null, 2)}`;
+      // Exclude internal keys from being shown to the LLM
+      const { threadId: _threadId, ...visibleContext } = jobContext;
+      if (Object.keys(visibleContext).length > 0) {
+        enriched += `\n\n[Job Context]\n${JSON.stringify(visibleContext, null, 2)}`;
+      }
+    }
+
+    // Inject recent conversation history for continuity
+    if (threadHistory) {
+      enriched += `\n${threadHistory}`;
     }
 
     enriched += `\n\n[Request]\n${intent}`;

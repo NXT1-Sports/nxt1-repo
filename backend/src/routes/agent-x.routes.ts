@@ -31,8 +31,12 @@ import type {
   OperationLogEntry,
   OperationLogStatus,
   OperationLogCategory,
+  AgentThreadCategory,
 } from '@nxt1/core';
 import { getShellContentForRole } from '@nxt1/core';
+import type { AgentChatService } from '../modules/agent/services/agent-chat.service.js';
+import type { ContextBuilder } from '../modules/agent/memory/context-builder.js';
+import type { OpenRouterService } from '../modules/agent/llm/openrouter.service.js';
 import { logger } from '../utils/logger.js';
 
 /** Extract the authenticated user from the request (set by appGuard). */
@@ -40,10 +44,65 @@ function getAuthUser(req: Request): { uid: string } | undefined {
   return (req as Request & { user?: { uid: string } }).user;
 }
 
+/** Valid MongoDB ObjectId format (24-character hex string). */
+const OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
+
+/** Valid AgentThreadCategory values from @nxt1/core. */
+const VALID_THREAD_CATEGORIES = new Set<string>([
+  'general',
+  'recruiting',
+  'highlights',
+  'graphics',
+  'scouting',
+  'analytics',
+  'compliance',
+  'performance',
+]);
+
+/** Validate a string is a valid MongoDB ObjectId. */
+function isValidObjectId(id: string): boolean {
+  return OBJECT_ID_RE.test(id);
+}
+
+/**
+ * Resolve a thread for message persistence.
+ * If threadId is provided, verify ownership. If not, create a new thread.
+ * Returns the resolved threadId, or undefined if persistence failed.
+ */
+async function resolveThread(
+  service: AgentChatService,
+  userId: string,
+  threadId: string | undefined,
+  title: string
+): Promise<string | undefined> {
+  if (threadId) {
+    // Verify the caller owns this thread before writing to it (C1 fix)
+    const thread = await service.getThread(threadId, userId);
+    if (!thread) {
+      logger.warn('Thread ownership check failed — threadId does not belong to user', {
+        threadId,
+        userId,
+      });
+      return undefined;
+    }
+    return threadId;
+  }
+
+  // No threadId provided — create a new thread
+  const thread = await service.createThread({
+    userId,
+    title: title.trim().slice(0, 80) || 'New Conversation',
+  });
+  return thread.id;
+}
+
 // Lazy-loaded singletons (initialized by bootstrapAgentQueue in app startup)
 let queueService: import('../modules/agent/queue/queue.service.js').AgentQueueService | null = null;
 let jobRepository: import('../modules/agent/queue/job.repository.js').AgentJobRepository | null =
   null;
+let chatService: AgentChatService | null = null;
+let contextBuilder: ContextBuilder | null = null;
+let llmService: OpenRouterService | null = null;
 
 /**
  * Called once at server startup to inject the queue + repo singletons.
@@ -52,9 +111,15 @@ let jobRepository: import('../modules/agent/queue/job.repository.js').AgentJobRe
 export function setAgentDependencies(deps: {
   queueService: import('../modules/agent/queue/queue.service.js').AgentQueueService;
   jobRepository: import('../modules/agent/queue/job.repository.js').AgentJobRepository;
+  chatService: AgentChatService;
+  contextBuilder: ContextBuilder;
+  llmService: OpenRouterService;
 }): void {
   queueService = deps.queueService;
   jobRepository = deps.jobRepository;
+  chatService = deps.chatService;
+  contextBuilder = deps.contextBuilder;
+  llmService = deps.llmService;
 }
 
 const router: ExpressRouter = Router();
@@ -68,7 +133,7 @@ router.post('/ask', appGuard, validateBody(AskAgentDto), async (req: Request, re
       return;
     }
 
-    const { intent, sessionId, context } = req.body as AskAgentDto;
+    const { intent, sessionId, context, threadId } = req.body as AskAgentDto;
 
     const user = getAuthUser(req);
     if (!user?.uid) {
@@ -77,13 +142,39 @@ router.post('/ask', appGuard, validateBody(AskAgentDto), async (req: Request, re
     }
 
     const operationId = crypto.randomUUID();
+
+    // ─── Thread persistence (MongoDB) ────────────────────────────────
+    let resolvedThreadId: string | undefined;
+    if (chatService) {
+      try {
+        resolvedThreadId = await resolveThread(chatService, user.uid, threadId, intent);
+
+        if (resolvedThreadId) {
+          await chatService.addMessage({
+            threadId: resolvedThreadId,
+            userId: user.uid,
+            role: 'user',
+            content: intent.trim(),
+            origin: 'user',
+            operationId,
+          });
+        }
+      } catch (chatErr) {
+        // Chat persistence must never block the job — log and continue
+        logger.warn('Failed to persist user message to MongoDB', {
+          error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+          userId: user.uid,
+        });
+      }
+    }
+
     const payload: AgentJobPayload = {
       operationId,
       userId: user.uid,
       intent: intent.trim(),
       sessionId: sessionId ?? crypto.randomUUID(),
       origin: 'user' as AgentJobOrigin,
-      context,
+      context: { ...context, threadId: resolvedThreadId },
     };
 
     // Write to Firestore first so the frontend can listen immediately.
@@ -94,11 +185,15 @@ router.post('/ask', appGuard, validateBody(AskAgentDto), async (req: Request, re
     // Enqueue the job in Redis/BullMQ
     const jobId = await queueService.enqueue(payload, req.isStaging ? 'staging' : 'production');
 
-    logger.info('Agent job enqueued', { operationId, userId: user.uid });
+    logger.info('Agent job enqueued', {
+      operationId,
+      userId: user.uid,
+      threadId: resolvedThreadId,
+    });
 
     res.status(202).json({
       success: true,
-      data: { jobId, operationId },
+      data: { jobId, operationId, threadId: resolvedThreadId },
     });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
@@ -566,7 +661,7 @@ router.post('/goals', appGuard, validateBody(SetGoalsDto), async (req: Request, 
   }
 });
 
-// ─── POST /chat — Real conversational Agent X chat ────────────────────────
+// ─── POST /chat — Real conversational Agent X chat (SSE Streaming) ────────
 
 router.post(
   '/chat',
@@ -580,97 +675,224 @@ router.post(
         return;
       }
 
-      const { message, mode, history, userContext } = req.body as AgentChatRequestDto;
+      const { message, mode, history, threadId } = req.body as AgentChatRequestDto;
 
-      // Build system prompt based on role
+      // ── Step 1: Resolve thread (create or verify ownership) ──────────
+      let resolvedThreadId: string | undefined;
+      if (chatService) {
+        try {
+          resolvedThreadId = await resolveThread(chatService, user.uid, threadId, message);
+
+          if (resolvedThreadId) {
+            // Persist the user's message immediately (before streaming starts)
+            await chatService.addMessage({
+              threadId: resolvedThreadId,
+              userId: user.uid,
+              role: 'user',
+              content: message.trim(),
+              origin: 'user',
+            });
+          }
+        } catch (chatErr) {
+          logger.warn('Failed to persist user message to MongoDB', {
+            error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+            userId: user.uid,
+          });
+        }
+      }
+
+      // ── Step 2: Build rich system prompt via ContextBuilder ───────────
+      //
+      // This replaces the old manual Firestore fetch. The ContextBuilder:
+      // - Redis-caches the assembled AgentUserContext for 15 min
+      // - Extracts sport, position, height, weight, GPA, school, recruiting targets
+      // - Includes connected accounts (Hudl, MaxPreps, Gmail)
+      // - Compresses everything into a token-efficient string
+      //
       const { db } = req.firebase!;
-      const userDoc = await db.collection('users').doc(user.uid).get();
-      const userData = userDoc.data() ?? {};
-      const role = (userData['role'] ?? 'athlete') as string;
-      const sport = (userData['sport'] ?? userContext?.['sport'] ?? '') as string;
-      const displayName = (userData['displayName'] ?? '') as string;
-      const agentGoals: AgentDashboardGoal[] = (userData['agentGoals'] ??
-        []) as AgentDashboardGoal[];
+      let profileContext = '';
+      let threadHistoryStr = '';
 
+      if (contextBuilder) {
+        try {
+          const userContext = await contextBuilder.buildContext(user.uid, db);
+          profileContext = contextBuilder.compressToPrompt(userContext);
+        } catch (ctxErr) {
+          logger.warn('ContextBuilder failed, using minimal context', {
+            error: ctxErr instanceof Error ? ctxErr.message : String(ctxErr),
+            userId: user.uid,
+          });
+        }
+
+        // Fetch recent thread history from MongoDB for conversation continuity
+        if (resolvedThreadId) {
+          try {
+            threadHistoryStr = await contextBuilder.getRecentThreadHistory(resolvedThreadId, 20);
+          } catch {
+            // Thread history is non-critical — continue without it
+          }
+        }
+      }
+
+      // Fall back to Firestore read when ContextBuilder is unavailable
+      if (!profileContext) {
+        const userDoc = await db.collection('users').doc(user.uid).get();
+        const userData = userDoc.data() ?? {};
+        const role = (userData['role'] ?? 'athlete') as string;
+        const displayName = (userData['displayName'] ?? '') as string;
+        const sport = (userData['sport'] ?? '') as string;
+        profileContext = `User: ${displayName} | Role: ${role}${sport ? ` | Sport: ${sport}` : ''}`;
+      }
+
+      // Fetch agent goals from Firestore (lightweight — not part of ContextBuilder)
+      const goalsDoc = await db.collection('users').doc(user.uid).get();
+      const goalsData = goalsDoc.data() ?? {};
+      const agentGoals: AgentDashboardGoal[] = (goalsData['agentGoals'] ??
+        []) as AgentDashboardGoal[];
       const goalContext =
-        agentGoals.length > 0
-          ? `Their current goals are: ${agentGoals.map((g) => g.text).join('; ')}.`
-          : 'They have not set any goals yet.';
+        agentGoals.length > 0 ? `\nGoals: ${agentGoals.map((g) => g.text).join('; ')}` : '';
 
       const systemPrompt = [
-        `You are Agent X, the AI assistant for NXT1 — an AI-first sports platform.`,
-        `You are speaking to ${displayName || 'a user'}, who is a ${role}${sport ? ` in ${sport}` : ''}.`,
-        goalContext,
-        `Be concise, actionable, and sports-aware. Format responses with bullet points when listing items.`,
-        `If asked about tasks you can do, mention: creating highlight reels, drafting recruiting emails, generating scout reports, analyzing film, building graphics, and managing recruiting outreach.`,
-        mode ? `The user is currently in "${mode}" mode.` : '',
+        `You are Agent X — The First AI Born in the Locker Room. You are the AI assistant for NXT1, an AI-first sports platform.`,
+        `\n[User Profile]\n${profileContext}${goalContext}`,
+        threadHistoryStr ? `\n${threadHistoryStr}` : '',
+        `\nBe concise, actionable, and sports-aware. Format responses with markdown and bullet points when listing items.`,
+        `You can: create highlight reels, draft recruiting emails, generate scout reports, analyze film, build graphics, manage recruiting outreach, evaluate prospects, and handle NCAA compliance questions.`,
+        mode ? `\nThe user is currently in "${mode}" mode.` : '',
       ]
         .filter(Boolean)
-        .join(' ');
+        .join('');
 
-      // Build messages for OpenRouter
-      const messages: Array<{ role: string; content: string }> = [
+      // ── Step 3: Build LLM messages array ─────────────────────────────
+      const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
         { role: 'system', content: systemPrompt },
       ];
 
-      // Add conversation history (limit to last 10 for context)
+      // Add client-sent conversation history (limit to last 10)
       if (history?.length) {
         const recentHistory = history.slice(-10);
         for (const msg of recentHistory) {
           if (msg.role === 'user' || msg.role === 'assistant') {
-            messages.push({ role: msg.role, content: msg.content });
+            messages.push({ role: msg.role as 'user' | 'assistant', content: msg.content });
           }
         }
       }
 
       messages.push({ role: 'user', content: message.trim() });
 
-      // Call OpenRouter via the backend LLM service
-      let responseContent: string;
-      let model = 'unknown';
+      // ── Step 4: Stream response via SSE ──────────────────────────────
+      //
+      // SSE Protocol:
+      //   event: delta    → { content: "token fragment" }
+      //   event: done     → { threadId, model, usage }
+      //   event: error    → { error: "message" }
+      //
+      // The frontend reads these events via EventSource or fetch + ReadableStream.
+      //
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no', // Disable Nginx buffering for SSE
+      });
 
-      try {
-        const { OpenRouterService } = await import('../modules/agent/llm/openrouter.service.js');
-        const llm = new OpenRouterService();
-        const llmMessages = messages.map((m) => ({
-          role: m.role as 'system' | 'user' | 'assistant',
-          content: m.content,
-        }));
-        const llmResult = await llm.complete(llmMessages, {
-          tier: 'balanced',
-          maxTokens: 1024,
-          temperature: 0.7,
-        });
-        responseContent = llmResult.content ?? '';
-        model = llmResult.model;
-      } catch {
-        // Graceful fallback when OpenRouter is not configured or fails
-        logger.warn('OpenRouter not available for chat, using fallback');
-        responseContent = `I understand you're asking about "${message.slice(0, 50)}". Agent X is being set up — full AI responses will be available shortly. In the meantime, explore the Coordinator cards on your dashboard for quick actions.`;
+      // Send initial threadId so the frontend knows which thread to reference
+      if (resolvedThreadId) {
+        res.write(`event: thread\ndata: ${JSON.stringify({ threadId: resolvedThreadId })}\n\n`);
       }
 
-      const responseMessage = {
-        id: crypto.randomUUID(),
-        role: 'assistant' as const,
-        content: responseContent,
+      // Attempt streaming; fall back to non-streaming if LLM service is unavailable
+      let responseContent = '';
+      let model = 'unknown';
+      let tokenUsage: { inputTokens: number; outputTokens: number; model: string } | undefined;
+
+      if (llmService) {
+        try {
+          const streamResult = await llmService.completeStream(
+            messages,
+            { tier: 'balanced', maxTokens: 1024, temperature: 0.7 },
+            (delta) => {
+              if (delta.content) {
+                res.write(`event: delta\ndata: ${JSON.stringify({ content: delta.content })}\n\n`);
+              }
+            }
+          );
+
+          responseContent = streamResult.content;
+          model = streamResult.model;
+          tokenUsage = {
+            inputTokens: streamResult.usage.inputTokens,
+            outputTokens: streamResult.usage.outputTokens,
+            model: streamResult.model,
+          };
+        } catch (llmErr) {
+          logger.warn('OpenRouter streaming failed, using fallback', {
+            error: llmErr instanceof Error ? llmErr.message : String(llmErr),
+          });
+          responseContent = `I understand you're asking about "${message.slice(0, 50)}". Agent X is being set up — full AI responses will be available shortly. In the meantime, explore the Coordinator cards on your dashboard for quick actions.`;
+          // Send the fallback as a single delta
+          res.write(`event: delta\ndata: ${JSON.stringify({ content: responseContent })}\n\n`);
+        }
+      } else {
+        // No LLM service injected — use static fallback
+        responseContent = `I understand you're asking about "${message.slice(0, 50)}". Agent X is being set up — full AI responses will be available shortly. In the meantime, explore the Coordinator cards on your dashboard for quick actions.`;
+        res.write(`event: delta\ndata: ${JSON.stringify({ content: responseContent })}\n\n`);
+      }
+
+      // ── Step 5: Persist assistant reply to MongoDB ───────────────────
+      if (chatService && resolvedThreadId) {
+        try {
+          await chatService.addMessage({
+            threadId: resolvedThreadId,
+            userId: user.uid,
+            role: 'assistant',
+            content: responseContent,
+            origin: 'user',
+            agentId: 'general',
+            tokenUsage,
+          });
+        } catch (chatErr) {
+          logger.warn('Failed to persist assistant reply to MongoDB', {
+            error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+            userId: user.uid,
+          });
+        }
+      }
+
+      // ── Step 6: Send final metadata event and close ──────────────────
+      const donePayload = {
+        threadId: resolvedThreadId,
+        model,
+        usage: tokenUsage,
         timestamp: new Date().toISOString(),
-        metadata: { model, mode },
       };
+      res.write(`event: done\ndata: ${JSON.stringify(donePayload)}\n\n`);
 
-      logger.info('Agent X chat response sent', { userId: user.uid, model });
-
-      res.json({
-        success: true,
-        message: responseMessage,
+      logger.info('Agent X SSE chat completed', {
+        userId: user.uid,
+        model,
+        threadId: resolvedThreadId,
       });
+
+      res.end();
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Agent X chat failed', { error: error.message, stack: error.stack });
-      res.status(500).json({
-        success: false,
-        error: 'Failed to process message',
-        errorCode: 'AI_SERVICE_ERROR',
-      });
+
+      // If headers haven't been sent yet, return JSON error
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          error: 'Failed to process message',
+          errorCode: 'AI_SERVICE_ERROR',
+        });
+      } else {
+        // Headers already sent (SSE mode) — send error event and close
+        res.write(
+          `event: error\ndata: ${JSON.stringify({ error: 'Failed to process message' })}\n\n`
+        );
+        res.end();
+      }
     }
   }
 );
@@ -875,6 +1097,258 @@ router.get('/queue-stats', adminGuard, async (_req: Request, res: Response) => {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('Failed to get queue stats', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to get stats' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Thread & Message CRUD (MongoDB — parallel conversation support)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── GET /threads — List user's conversation threads ──────────────────────
+
+router.get('/threads', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!chatService) {
+      res.status(503).json({ success: false, error: 'Chat service not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const limitParam = req.query['limit'];
+    const limit = Math.min(parseInt(typeof limitParam === 'string' ? limitParam : '20') || 20, 100);
+    const archived =
+      req.query['archived'] === 'true'
+        ? true
+        : req.query['archived'] === 'false'
+          ? false
+          : undefined;
+
+    // Validate cursor: must be an ISO-8601 date prefix if provided
+    const beforeRaw = typeof req.query['before'] === 'string' ? req.query['before'] : undefined;
+    const before = beforeRaw && /^\d{4}-\d{2}-\d{2}T/.test(beforeRaw) ? beforeRaw : undefined;
+
+    // Validate category against allowed enum values
+    const categoryRaw =
+      typeof req.query['category'] === 'string' ? req.query['category'] : undefined;
+    const category =
+      categoryRaw && VALID_THREAD_CATEGORIES.has(categoryRaw)
+        ? (categoryRaw as AgentThreadCategory)
+        : undefined;
+
+    const result = await chatService.getUserThreads({
+      userId: user.uid,
+      limit,
+      before,
+      archived,
+      category,
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to list threads', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to list threads' });
+  }
+});
+
+// ─── GET /threads/:threadId — Get a single thread ─────────────────────────
+
+router.get('/threads/:threadId', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!chatService) {
+      res.status(503).json({ success: false, error: 'Chat service not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const threadId = req.params['threadId'] as string;
+    if (!isValidObjectId(threadId)) {
+      res.status(400).json({ success: false, error: 'Invalid thread ID format' });
+      return;
+    }
+
+    const thread = await chatService.getThread(threadId, user.uid);
+    if (!thread) {
+      res.status(404).json({ success: false, error: 'Thread not found' });
+      return;
+    }
+
+    res.json({ success: true, data: thread });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to get thread', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to get thread' });
+  }
+});
+
+// ─── GET /threads/:threadId/messages — Get messages for a thread ──────────
+
+router.get('/threads/:threadId/messages', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!chatService) {
+      res.status(503).json({ success: false, error: 'Chat service not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const threadId = req.params['threadId'] as string;
+    if (!isValidObjectId(threadId)) {
+      res.status(400).json({ success: false, error: 'Invalid thread ID format' });
+      return;
+    }
+
+    // Ownership check: verify thread belongs to this user
+    const thread = await chatService.getThread(threadId, user.uid);
+    if (!thread) {
+      res.status(404).json({ success: false, error: 'Thread not found' });
+      return;
+    }
+
+    const limitParam = req.query['limit'];
+    const limit = Math.min(parseInt(typeof limitParam === 'string' ? limitParam : '50') || 50, 200);
+    const before = typeof req.query['before'] === 'string' ? req.query['before'] : undefined;
+
+    const result = await chatService.getThreadMessages({ threadId, limit, before });
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to get thread messages', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to get messages' });
+  }
+});
+
+// ─── PATCH /threads/:threadId — Update thread title ───────────────────────
+
+router.patch('/threads/:threadId', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!chatService) {
+      res.status(503).json({ success: false, error: 'Chat service not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const threadId = req.params['threadId'] as string;
+    if (!isValidObjectId(threadId)) {
+      res.status(400).json({ success: false, error: 'Invalid thread ID format' });
+      return;
+    }
+
+    const { title } = req.body as { title?: string };
+
+    if (!title || typeof title !== 'string' || title.trim().length === 0) {
+      res.status(400).json({ success: false, error: 'Title is required' });
+      return;
+    }
+
+    if (title.trim().length > 200) {
+      res.status(400).json({ success: false, error: 'Title must be 200 characters or less' });
+      return;
+    }
+
+    const updated = await chatService.updateThreadTitle(threadId, user.uid, title.trim());
+    if (!updated) {
+      res.status(404).json({ success: false, error: 'Thread not found' });
+      return;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to update thread', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to update thread' });
+  }
+});
+
+// ─── POST /threads/:threadId/archive — Archive a thread ───────────────────
+
+router.post('/threads/:threadId/archive', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!chatService) {
+      res.status(503).json({ success: false, error: 'Chat service not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const threadId = req.params['threadId'] as string;
+    if (!isValidObjectId(threadId)) {
+      res.status(400).json({ success: false, error: 'Invalid thread ID format' });
+      return;
+    }
+
+    const archived = await chatService.archiveThread(threadId, user.uid);
+    if (!archived) {
+      res.status(404).json({ success: false, error: 'Thread not found' });
+      return;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to archive thread', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to archive thread' });
+  }
+});
+
+// ─── POST /threads — Explicitly create a new empty thread ─────────────────
+
+router.post('/threads', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!chatService) {
+      res.status(503).json({ success: false, error: 'Chat service not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { title, category } = req.body as { title?: string; category?: string };
+
+    // Validate category if provided
+    const validCategory =
+      category && VALID_THREAD_CATEGORIES.has(category)
+        ? (category as AgentThreadCategory)
+        : undefined;
+
+    const thread = await chatService.createThread({
+      userId: user.uid,
+      title: title?.trim().slice(0, 200) || 'New Conversation',
+      category: validCategory,
+    });
+
+    res.status(201).json({ success: true, data: thread });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to create thread', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to create thread' });
   }
 });
 

@@ -13,8 +13,8 @@
  *
  * Data flow:
  *   User.sports[i].sport (e.g. "Football")
- *        ↓ match via Team.sportName
- *   RosterEntry.teamId → Team.sportName, Team.organizationId
+ *        ↓ match via Team.sport
+ *   RosterEntry.teamId → Team.sport, Team.organizationId
  *        ↓
  *   Organization.logoUrl, primaryColor, secondaryColor, name, location, mascot
  *        ↓
@@ -38,7 +38,7 @@ import { logger } from '../utils/logger.js';
 /** Resolved team data from Team + Organization docs */
 interface ResolvedTeamData {
   /** Sport name on the Team doc (matches User.sports[].sport) */
-  sportName: string;
+  sport: string;
   /** Team document ID */
   teamId: string;
   /** Organization document ID */
@@ -120,23 +120,20 @@ export class ProfileHydrationService {
       return [];
     }
 
-    // 2. Fetch Team docs to get sportName (parallel)
+    // 2. Fetch Team docs to get sport (parallel)
     //    Also collect unique org IDs to batch-fetch Organizations
     const teamIds = [...new Set(rosterEntries.map((e) => e.teamId))];
     const teamDocs = await Promise.all(
       teamIds.map((id) => this.db.collection(this.TEAMS_COLLECTION).doc(id).get())
     );
 
-    // Build teamId → { sportName, organizationId, teamType } map
-    const teamMap = new Map<
-      string,
-      { sportName: string; organizationId: string; teamType: string }
-    >();
+    // Build teamId → { sport, organizationId, teamType } map
+    const teamMap = new Map<string, { sport: string; organizationId: string; teamType: string }>();
     for (const doc of teamDocs) {
       if (doc.exists) {
         const data = doc.data()!;
         teamMap.set(doc.id, {
-          sportName: (data['sportName'] as string) ?? '',
+          sport: (data['sport'] as string) ?? (data['sportName'] as string) ?? '',
           organizationId: (data['organizationId'] as string) ?? '',
           teamType: (data['teamType'] as string) ?? 'high-school',
         });
@@ -161,13 +158,13 @@ export class ProfileHydrationService {
     const resolved: ResolvedTeamData[] = [];
     for (const entry of rosterEntries) {
       const team = teamMap.get(entry.teamId);
-      if (!team || !team.sportName) continue;
+      if (!team || !team.sport) continue;
 
       const org = orgMap.get(team.organizationId);
       if (!org) continue;
 
       resolved.push({
-        sportName: team.sportName,
+        sport: team.sport,
         teamId: entry.teamId,
         organizationId: team.organizationId,
         teamType: team.teamType,
@@ -190,7 +187,7 @@ export class ProfileHydrationService {
   /**
    * Overlay live Organization data onto User.sports[].team.
    *
-   * Matching strategy: Case-insensitive match of Team.sportName → User.sports[].sport.
+   * Matching strategy: Case-insensitive match of Team.sport → User.sports[].sport.
    * If multiple teams match the same sport (e.g. school + club), the first match
    * applies to sports[].team and the second to sports[].clubTeam.
    *
@@ -202,7 +199,7 @@ export class ProfileHydrationService {
     // Group resolved teams by sport name (lowercased)
     const bySport = new Map<string, ResolvedTeamData[]>();
     for (const rt of resolvedTeams) {
-      const key = rt.sportName.toLowerCase();
+      const key = rt.sport.toLowerCase();
       if (!bySport.has(key)) bySport.set(key, []);
       bySport.get(key)!.push(rt);
     }
@@ -222,6 +219,7 @@ export class ProfileHydrationService {
         logoUrl: primaryMatch.org.logoUrl,
         primaryColor: primaryMatch.org.primaryColor,
         secondaryColor: primaryMatch.org.secondaryColor,
+        mascot: primaryMatch.org.mascot,
         organizationId: primaryMatch.organizationId,
         teamId: primaryMatch.teamId,
       };
@@ -238,6 +236,7 @@ export class ProfileHydrationService {
           logoUrl: clubMatch.org.logoUrl,
           primaryColor: clubMatch.org.primaryColor,
           secondaryColor: clubMatch.org.secondaryColor,
+          mascot: clubMatch.org.mascot,
           organizationId: clubMatch.organizationId,
           teamId: clubMatch.teamId,
         };

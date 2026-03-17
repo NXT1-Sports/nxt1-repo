@@ -158,20 +158,19 @@ const MIN_QUERY_LENGTH = 2;
                   }
                   <div class="nxt1-team-result-copy">
                     <span class="nxt1-team-result-name">{{ team.name }}</span>
-                    <div class="nxt1-team-result-meta">
-                      @if (team.isDraft) {
-                        <span class="nxt1-team-sport-badge nxt1-draft-badge">New Program</span>
-                      } @else {
-                        <span class="nxt1-team-sport-badge">{{ team.sport }}</span>
-                      }
-                      @if (team.teamType) {
+                    @if (team.isDraft) {
+                      <span class="nxt1-team-location nxt1-draft-badge">New Program</span>
+                    } @else if (team.location) {
+                      <span class="nxt1-team-location">{{ team.location }}</span>
+                    } @else if (team.sport) {
+                      <span class="nxt1-team-location">{{ team.sport }}</span>
+                    }
+                    @if (team.teamType && team.teamType !== 'organization') {
+                      <div class="nxt1-team-result-meta">
                         <span class="nxt1-team-type-badge nxt1-team-type-badge--mobile">
                           {{ team.teamType }}
                         </span>
-                      }
-                    </div>
-                    @if (team.location) {
-                      <span class="nxt1-team-location">{{ team.location }}</span>
+                      </div>
                     }
                   </div>
                   <div class="nxt1-mobile-team-row-actions">

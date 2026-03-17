@@ -80,6 +80,7 @@ import {
   type FooterScrollToTopEvent,
   type FooterConfig,
   AGENT_X_LEFT_FOOTER_TABS,
+  updateTabBadge,
   createFooterConfig,
   findTabByRoute,
 } from '@nxt1/ui/components/footer';
@@ -565,7 +566,7 @@ const MOBILE_FOOTER_TABS: FooterTabItem[] = AGENT_X_LEFT_FOOTER_TABS;
       <!-- MOBILE: Bottom Tab Bar — CSS-hidden at 768px+, auth-gated -->
       @if (showMobileFooter()) {
         <nxt1-mobile-footer
-          [tabs]="footerTabs"
+          [tabs]="footerTabs()"
           [activeTabId]="activeTabId()"
           [config]="footerConfig()"
           [profileAvatarSrc]="sidebarUserData()?.profileImg"
@@ -965,8 +966,19 @@ export class WebShellComponent {
   // MOBILE FOOTER CONFIGURATION
   // ============================================
 
-  /** Mobile footer tabs */
-  readonly footerTabs = MOBILE_FOOTER_TABS;
+  /**
+   * Mobile footer tabs with reactive badge count.
+   * Streams unread count from BadgeCountService so the red dot
+   * appears/disappears in real-time as notifications are read.
+   */
+  readonly footerTabs = computed<FooterTabItem[]>(() => {
+    const unreadCount = this.badgeCount.activityBadge();
+    return updateTabBadge(
+      MOBILE_FOOTER_TABS,
+      'activity',
+      unreadCount > 0 ? unreadCount : undefined
+    );
+  });
 
   /** Mobile footer configuration */
   readonly footerConfig = computed<FooterConfig>(() =>
@@ -1483,7 +1495,7 @@ export class WebShellComponent {
    * Sync active tab ID from current route (for mobile footer).
    */
   private syncActiveTabFromRoute(url: string): void {
-    const matchedTab = findTabByRoute(this.footerTabs, url);
+    const matchedTab = findTabByRoute(this.footerTabs(), url);
     this._activeTabId.set(matchedTab?.id ?? null);
   }
 

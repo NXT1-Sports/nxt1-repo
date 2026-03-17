@@ -148,12 +148,60 @@ function toSafeISOString(value: unknown): string {
  * live on the Organization, not on the Team).
  */
 interface OrgOverlay {
+  /** Full organization name, e.g. "Hoover High School" or "Prime Time Athletics" */
+  name?: string;
   logoUrl?: string | null;
   primaryColor?: string | null;
   secondaryColor?: string | null;
   mascot?: string | null;
   city?: string;
   state?: string;
+}
+
+/**
+ * Generic institutional suffixes to strip before appending a mascot.
+ * "Hoover High School" + "Lions" → strip "High School" → "Hoover Lions"
+ */
+const ORG_SUFFIXES_TO_STRIP = [
+  'high school',
+  'middle school',
+  'junior high',
+  'elementary school',
+  'university',
+  'college',
+  'junior college',
+  'community college',
+  'athletics',
+  'athletic club',
+  'sports club',
+  'sports',
+] as const;
+
+/**
+ * Build the human-readable team display name.
+ *
+ * Rules:
+ *  - If a mascot exists: strip generic org suffixes and append the mascot.
+ *    "Hoover High School" + "Lions" → "Hoover Lions"
+ *    "Prime Time Athletics" + (no mascot) → "Prime Time Athletics"
+ *  - If no mascot: return the org/team name as-is.
+ *  - Falls back to the raw teamName stored on the Team doc if no org data.
+ */
+function buildTeamDisplayName(teamName: string, orgName?: string, mascot?: string | null): string {
+  const base = orgName?.trim() || teamName.trim();
+  if (!mascot?.trim()) return base;
+
+  // Strip the generic institutional suffix so we get the short form
+  const baseLower = base.toLowerCase();
+  let short = base;
+  for (const suffix of ORG_SUFFIXES_TO_STRIP) {
+    if (baseLower.endsWith(suffix)) {
+      short = base.slice(0, base.length - suffix.length).trim();
+      break;
+    }
+  }
+
+  return `${short} ${mascot.trim()}`;
 }
 
 /**
@@ -178,13 +226,19 @@ function mapTeamCodeToTeam(teamCode: TeamCode, org?: OrgOverlay): TeamProfileTea
     teamCode.secondaryColor ?? teamCode.teamColor2 ?? org?.secondaryColor ?? undefined;
   const mascot = teamCode.mascot ?? org?.mascot ?? undefined;
 
+  // Resolve display name:
+  //   High school: "Hoover High School" + mascot "Lions" → "Hoover Lions"
+  //   Club:        "Prime Time Athletics" + no mascot   → "Prime Time Athletics"
+  //   Legacy team doc with its own mascot field overrides org mascot.
+  const displayName = buildTeamDisplayName(teamCode.teamName, org?.name, mascot);
+
   return {
     id: teamCode.id || '',
     slug: buildTeamSlug(teamCode),
     unicode: teamCode.unicode || '',
-    teamName: teamCode.teamName,
+    teamName: displayName,
     teamType: toTeamProfileType(teamCode.teamType),
-    sport: teamCode.sportName || '',
+    sport: teamCode.sport || '',
     city,
     state,
     location,
@@ -249,7 +303,7 @@ function mapUserToRoster(user: UserData, index: number): TeamProfileRosterMember
   const primarySport =
     Array.isArray(userData.sports) && userData.sports.length > 0 ? userData.sports[0] : null;
 
-  // SportProfile has: sportName, positions[], level, achievements, etc.
+  // SportProfile has: sport, positions[], level, achievements, etc.
   // Get first position from positions[] array
   const position =
     Array.isArray(primarySport?.positions) && primarySport.positions.length > 0
@@ -623,6 +677,7 @@ export async function mapTeamCodeToProfile(
       const orgService = createOrganizationService(firestore);
       const org = await orgService.getOrganizationById(teamCode.organizationId);
       orgOverlay = {
+        name: org.name,
         logoUrl: org.logoUrl,
         primaryColor: org.primaryColor,
         secondaryColor: org.secondaryColor,
@@ -728,12 +783,14 @@ export async function mapTeamCodeToProfile(
  * Uses Organization data as fallback for branding/location.
  */
 export function mapTeamCodeToSummary(teamCode: TeamCode, org?: OrgOverlay) {
+  const mascot = teamCode.mascot ?? org?.mascot ?? undefined;
+  const displayName = buildTeamDisplayName(teamCode.teamName, org?.name, mascot);
   return {
     id: teamCode.id,
     slug: buildTeamSlug(teamCode),
     unicode: teamCode.unicode,
-    teamName: teamCode.teamName,
-    sport: teamCode.sportName,
+    teamName: displayName,
+    sport: teamCode.sport,
     city: teamCode.city || org?.city || '',
     state: teamCode.state || org?.state || '',
     logoUrl: teamCode.logoUrl ?? teamCode.teamLogoImg ?? org?.logoUrl ?? undefined,

@@ -5,7 +5,7 @@
  * Mongoose schema and model for College collection
  */
 
-import { model, Schema, Model, Types } from 'mongoose';
+import { model, Schema, Model } from 'mongoose';
 import type { College, CollegeSportInfo } from '@nxt1/core/models';
 
 // Sport Information sub-schema (used in sportInfo Map below)
@@ -33,7 +33,7 @@ const CollegeSchema = new Schema<College>(
     averageGPA: { type: Number, min: 0, max: 4.0 }, // Fixed: was String, now Number with constraints (0.0-4.0)
     city: { type: String },
     compositeACT: { type: String },
-    contacts: { type: [Types.ObjectId], ref: 'Contact' },
+    contacts: { type: [String] },
     sportInfo: { type: Map, of: SportInfoSchema },
     female: { type: String },
     male: { type: String },

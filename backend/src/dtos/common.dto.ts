@@ -17,6 +17,12 @@ import {
   Length,
   IsNotEmpty,
   IsPhoneNumber,
+  IsArray,
+  ArrayMaxSize,
+  IsDateString,
+  IsBoolean,
+  Matches,
+  IsUrl,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 

@@ -47,6 +47,7 @@ import { BaseTool, type ToolResult } from '../base.tool.js';
 import { getCacheService } from '../../../../services/cache.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../services/users.service.js';
 import { ContextBuilder } from '../../memory/context-builder.js';
+import { logger } from '../../../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -428,7 +429,14 @@ export class UpdateAthleteProfileTool extends BaseTool {
       }
 
       const userData = userDoc.data() as Record<string, unknown>;
-      const existingSports = (userData['sports'] ?? []) as Record<string, unknown>[];
+      // Normalise: Firestore dot-notation writes can convert the sports array to
+      // a numbered map {"0": {...}}. Convert back to a real array before merging.
+      const rawSports = userData['sports'];
+      const existingSports: Record<string, unknown>[] = Array.isArray(rawSports)
+        ? (rawSports as Record<string, unknown>[])
+        : rawSports && typeof rawSports === 'object'
+          ? (Object.values(rawSports) as Record<string, unknown>[])
+          : [];
       const now = new Date().toISOString();
 
       // ── Build Firestore update payload (dot-notation) ────────────────
@@ -462,19 +470,57 @@ export class UpdateAthleteProfileTool extends BaseTool {
           now,
           existingSports.length
         );
-        payload[`sports`] = FieldValue.arrayUnion(newSportProfile);
+        // Write the full array — arrayUnion + dot-notation mix causes map corruption
+        payload['sports'] = [...existingSports, newSportProfile];
         writtenSections.push(`sports[NEW:${targetSport}]`);
       } else if (fields.sportData) {
-        // Merge into existing sport at the resolved index
+        // Collect sport-level changes into a temp payload keyed by "sports.<index>.<field>",
+        // then apply them in-memory and write the whole sports array.
+        // Using Firestore dot-notation (e.g. "sports.0.positions") inside update()
+        // silently converts the array to a map — writing the full array avoids this.
+        const tempPayload: Record<string, unknown> = {};
         this.mergeSportData(
           fields.sportData,
           sportIndex,
           existingSports[sportIndex] as Record<string, unknown>,
           source,
           now,
-          payload,
+          tempPayload,
           writtenSections
         );
+
+        // Apply dot-notation changes from tempPayload to an in-memory copy of
+        // the sports array, then write the full array to avoid map corruption.
+        if (Object.keys(tempPayload).length > 0) {
+          const updatedSports = existingSports.map((s) => ({ ...s }));
+          const sportObj = { ...(updatedSports[sportIndex] ?? {}) } as Record<string, unknown>;
+
+          for (const [key, value] of Object.entries(tempPayload)) {
+            // Keys look like "sports.0.positions" — strip the "sports.<index>." prefix
+            const dotParts = key.split('.');
+            if (dotParts.length >= 3 && dotParts[0] === 'sports') {
+              const field = dotParts.slice(2).join('.');
+              // Handle single-level and nested fields
+              if (dotParts.length === 3) {
+                sportObj[field] = value;
+              } else {
+                // Nested: e.g. "sports.0.metrics.speed" → metrics.speed
+                let target = sportObj as Record<string, unknown>;
+                const nestedParts = dotParts.slice(2);
+                for (let i = 0; i < nestedParts.length - 1; i++) {
+                  if (!target[nestedParts[i]] || typeof target[nestedParts[i]] !== 'object') {
+                    target[nestedParts[i]] = {};
+                  }
+                  target = target[nestedParts[i]] as Record<string, unknown>;
+                }
+                target[nestedParts[nestedParts.length - 1]] = value;
+              }
+            }
+          }
+
+          updatedSports[sportIndex] = sportObj;
+          payload['sports'] = updatedSports;
+        }
       }
 
       // --- Team History (append/merge deduplicated) ---
@@ -495,11 +541,10 @@ export class UpdateAthleteProfileTool extends BaseTool {
         writtenSections.push('awards');
       }
 
-      // --- Academics (merge into athlete.academics) ---
+      // --- Academics (top-level, not nested under athlete) ---
       if (fields.academics) {
-        const existingAthlete = (userData['athlete'] ?? {}) as Record<string, unknown>;
-        const existingAcademics = (existingAthlete['academics'] ?? {}) as Record<string, unknown>;
-        payload['athlete.academics'] = {
+        const existingAcademics = (userData['academics'] ?? {}) as Record<string, unknown>;
+        payload['academics'] = {
           ...existingAcademics,
           ...this.sanitizeAcademics(fields.academics),
         };
@@ -507,13 +552,11 @@ export class UpdateAthleteProfileTool extends BaseTool {
       }
 
       // --- Connected source sync record ---
-      const syncedFields = [...writtenSections];
       payload['connectedSources'] = this.buildConnectedSourcesUpdate(
         (userData['connectedSources'] ?? []) as Record<string, unknown>[],
         source,
         profileUrl,
         targetSport,
-        syncedFields,
         now,
         faviconUrl
       );
@@ -526,6 +569,26 @@ export class UpdateAthleteProfileTool extends BaseTool {
           success: false,
           error: 'No actionable fields were provided in the payload.',
         };
+      }
+
+      // ── Reroute Organization branding from scraper (Single Source of Truth) ─
+      // If the scraped data contains team branding (mascot, colors, logoUrl),
+      // write those fields to the Organization document — NOT the User document.
+      if (fields.sportData?.team) {
+        const branding = this.extractOrgBranding(fields.sportData.team);
+        if (branding) {
+          // Read the organizationId from the existing sport's team reference
+          const resolvedSportIndex = isNewSport ? existingSports.length - 1 : sportIndex;
+          const existingSportObj = existingSports[resolvedSportIndex] as
+            | Record<string, unknown>
+            | undefined;
+          const existingTeamRef = existingSportObj?.['team'] as Record<string, unknown> | undefined;
+          const orgId = existingTeamRef?.['organizationId'] as string | undefined;
+          if (orgId) {
+            // Fire-and-forget — failure must not block the user profile write
+            void this.applyBrandingToOrganization(orgId, branding);
+          }
+        }
       }
 
       // ── Write ────────────────────────────────────────────────────────
@@ -1151,7 +1214,6 @@ export class UpdateAthleteProfileTool extends BaseTool {
     platform: string,
     profileUrl: string,
     scopeId: string,
-    syncedFields: string[],
     now: string,
     faviconUrl?: string
   ): Record<string, unknown>[] {
@@ -1166,7 +1228,6 @@ export class UpdateAthleteProfileTool extends BaseTool {
       profileUrl,
       lastSyncedAt: now,
       syncStatus: 'success',
-      syncedFields,
       scopeType: 'sport',
       scopeId,
       ...(faviconUrl && { faviconUrl }),
@@ -1184,23 +1245,50 @@ export class UpdateAthleteProfileTool extends BaseTool {
   // ─── Sanitizers ─────────────────────────────────────────────────────────
 
   private sanitizeTeamInfo(team: TeamInfoInput): Record<string, unknown> {
+    // Only store relationship/context data on the User document.
+    // Brand fields (mascot, colors, logoUrl) belong on the Organization — see extractOrgBranding().
     const result: Record<string, unknown> = {};
     if (team.name) result['name'] = team.name.trim();
     if (team.type) result['type'] = team.type;
-    if (team.mascot) result['mascot'] = team.mascot.trim();
-    // V3 fields (canonical)
-    if (team.logoUrl) result['logoUrl'] = team.logoUrl.trim();
-    if (team.primaryColor) result['primaryColor'] = team.primaryColor.trim();
-    if (team.secondaryColor) result['secondaryColor'] = team.secondaryColor.trim();
-    // Legacy fields (backward compat) — derive from V3 or passthrough
-    if (team.logoUrl) result['logo'] = team.logoUrl.trim();
-    const colors = team.colors?.length
-      ? team.colors
-      : [team.primaryColor, team.secondaryColor].filter(Boolean);
-    if (colors.length) result['colors'] = colors;
     if (team.conference) result['conference'] = team.conference.trim();
     if (team.division) result['division'] = team.division.trim();
     return result;
+  }
+
+  /**
+   * Extract the branding fields scraped for a team.
+   * These fields must be written to the parent **Organization** document,
+   * NOT to the User document, to maintain the Single Source of Truth.
+   */
+  private extractOrgBranding(team: TeamInfoInput): Record<string, unknown> | null {
+    const branding: Record<string, unknown> = {};
+    if (team.mascot) branding['mascot'] = team.mascot.trim();
+    if (team.logoUrl) branding['logoUrl'] = team.logoUrl.trim();
+    if (team.primaryColor) branding['primaryColor'] = team.primaryColor.trim();
+    if (team.secondaryColor) branding['secondaryColor'] = team.secondaryColor.trim();
+    return Object.keys(branding).length > 0 ? branding : null;
+  }
+
+  /**
+   * Best-effort: patch Organization document with scraped branding data.
+   * Fires asynchronously — failure is logged but never throws.
+   */
+  private async applyBrandingToOrganization(
+    organizationId: string,
+    branding: Record<string, unknown>
+  ): Promise<void> {
+    try {
+      await this.db
+        .collection('Organizations')
+        .doc(organizationId)
+        .update({ ...branding, updatedAt: FieldValue.serverTimestamp() });
+    } catch (err) {
+      // Best-effort — don't fail the overall sync if the org patch fails
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(
+        `[UpdateAthleteProfile] Failed to patch Organization "${organizationId}" with branding: ${msg}`
+      );
+    }
   }
 
   private sanitizeCoach(coach: CoachInput): Record<string, unknown> {

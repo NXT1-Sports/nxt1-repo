@@ -541,22 +541,24 @@ export class AgentXOperationChatComponent implements AfterViewInit {
       .slice(-10)
       .map((m) => ({ role: m.role, content: m.content }));
 
-    const response = await firstValueFrom(
-      this.http.post<{
-        success: boolean;
-        message?: { id: string; content: string; metadata?: Record<string, unknown> };
-        error?: string;
-      }>(`${this.baseUrl}/agent-x/chat`, {
-        message: userInput,
-        mode: this.contextType === 'operation' ? 'operations' : undefined,
-        history,
-        userContext: {
-          operationContext: this.contextTitle,
-          contextType: this.contextType,
-          contextId: this.contextId,
+    const rawResponse = await firstValueFrom(
+      this.http.post(
+        `${this.baseUrl}/agent-x/chat`,
+        {
+          message: userInput,
+          mode: this.contextType === 'operation' ? 'operations' : undefined,
+          history,
+          userContext: {
+            operationContext: this.contextTitle,
+            contextType: this.contextType,
+            contextId: this.contextId,
+          },
         },
-      })
+        { responseType: 'text' }
+      )
     );
+
+    const response = this.parseChatResponse(rawResponse);
 
     if (response.success && response.message) {
       this.replaceTyping({
@@ -572,6 +574,98 @@ export class AgentXOperationChatComponent implements AfterViewInit {
     } else {
       throw new Error(response.error ?? 'No response from Agent X');
     }
+  }
+
+  /**
+   * Parse chat endpoint payloads that may be JSON or SSE text.
+   * Mobile can receive `text/event-stream`, which cannot be parsed by HttpClient JSON mode.
+   */
+  private parseChatResponse(raw: string): {
+    success: boolean;
+    message?: { id: string; content: string; metadata?: Record<string, unknown> };
+    threadId?: string;
+    error?: string;
+  } {
+    const text = raw?.trim();
+    if (!text) {
+      return { success: false, error: 'Empty response from Agent X' };
+    }
+
+    // First, attempt plain JSON payload parsing.
+    try {
+      return JSON.parse(text) as {
+        success: boolean;
+        message?: { id: string; content: string; metadata?: Record<string, unknown> };
+        threadId?: string;
+        error?: string;
+      };
+    } catch {
+      // Not JSON; fall through to SSE frame parsing.
+    }
+
+    let threadId: string | undefined;
+    let content = '';
+    let doneModel: string | undefined;
+    let sseError: string | undefined;
+
+    const frames = text
+      .split('\n\n')
+      .map((f) => f.trim())
+      .filter(Boolean);
+    for (const frame of frames) {
+      let eventType = 'message';
+      let dataLine = '';
+
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event:')) {
+          eventType = line.slice('event:'.length).trim();
+        } else if (line.startsWith('data:')) {
+          dataLine = line.slice('data:'.length).trim();
+        }
+      }
+
+      if (!dataLine) continue;
+
+      try {
+        const payload = JSON.parse(dataLine) as {
+          threadId?: string;
+          content?: string;
+          model?: string;
+          error?: string;
+        };
+
+        if (eventType === 'thread' && payload.threadId) {
+          threadId = payload.threadId;
+        } else if (eventType === 'delta' && payload.content) {
+          content += payload.content;
+        } else if (eventType === 'done') {
+          if (payload.threadId) threadId = payload.threadId;
+          if (payload.model) doneModel = payload.model;
+        } else if (eventType === 'error') {
+          sseError = payload.error ?? 'Agent X stream error';
+        }
+      } catch {
+        // Ignore malformed frames and continue parsing remaining events.
+      }
+    }
+
+    if (sseError) {
+      return { success: false, error: sseError, threadId };
+    }
+
+    if (content.length > 0) {
+      return {
+        success: true,
+        threadId,
+        message: {
+          id: this.uid(),
+          content,
+          metadata: doneModel ? { model: doneModel } : undefined,
+        },
+      };
+    }
+
+    return { success: false, error: 'Unable to parse Agent X response', threadId };
   }
 
   /** Append a message to the local history. */

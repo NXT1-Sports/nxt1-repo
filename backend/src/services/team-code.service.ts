@@ -11,7 +11,7 @@
  */
 
 import type { Firestore, FieldValue as FieldValueType } from 'firebase-admin/firestore';
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 import {
   TeamCode,
   TeamMember,
@@ -68,7 +68,7 @@ function docToTeamCode(doc: FirebaseFirestore.DocumentSnapshot): TeamCode {
     teamCode: data['teamCode'] ?? '',
     teamName: data['teamName'] ?? '',
     teamType: data['teamType'] ?? 'high-school',
-    sportName: data['sportName'] ?? '',
+    sport: data['sport'] ?? data['sportName'] ?? '',
     state: data['state'] ?? '',
     city: data['city'] ?? '',
     organizationId: data['organizationId'] ?? undefined,
@@ -407,38 +407,40 @@ export async function createTeamCode(db: Firestore, input: CreateTeamCodeInput):
     admin: ROLE.admin,
   };
   const memberRole = creatorRoleMap[input.creatorRole ?? ''] ?? ROLE.admin;
-  const memberName = input.creatorName?.trim() || (memberRole === ROLE.admin ? 'Team Owner' : '');
+  const creatorName = input.creatorName?.trim() || '';
+  const [creatorFirstName = '', ...creatorLastNameParts] = creatorName.split(/\s+/).filter(Boolean);
+  const creatorLastName = creatorLastNameParts.join(' ');
+  const memberName = creatorName || (memberRole === ROLE.admin ? 'Team Owner' : '');
 
   // Create creator as first member
   const creatorMember: TeamMember = {
     id: input.createdBy,
-    firstName: '',
-    lastName: '',
+    firstName: creatorFirstName,
+    lastName: creatorLastName,
     name: memberName,
     joinTime: new Date().toISOString(),
     role: memberRole,
     isVerify: true,
-    email: '',
-    phoneNumber: '',
+    email: input.creatorEmail?.trim() ?? '',
+    phoneNumber: input.creatorPhoneNumber?.trim() ?? '',
   };
 
   const teamData = {
     teamCode: input.teamCode.toUpperCase(),
     teamName: input.teamName,
     teamType: input.teamType,
-    sportName: input.sportName,
-    athleteMember: input.athleteMember,
-    panelMember: input.panelMember,
-    packageId: input.packageId,
+    // Canonical field is `sport`.
+    sport: input.sport,
+    athleteMember: 0,
+    panelMember: 0,
     isActive: true,
     members: [creatorMember],
     memberIds: [input.createdBy],
-    createAt: FieldValue.serverTimestamp(),
     createdAt: FieldValue.serverTimestamp(),
     unicode,
+    level: input.level ?? '',
     division: input.division ?? '',
     conference: input.conference ?? '',
-    expireAt: input.expireAt ? Timestamp.fromDate(input.expireAt) : null,
   };
 
   const docRef = await db.collection('Teams').add(teamData);
@@ -472,16 +474,17 @@ export async function updateTeamCode(
 
   if (input.teamName !== undefined) updateData['teamName'] = input.teamName;
   if (input.teamType !== undefined) updateData['teamType'] = input.teamType;
-  if (input.sportName !== undefined) updateData['sportName'] = input.sportName;
+  if (input.sport !== undefined) {
+    updateData['sport'] = input.sport;
+    updateData['sportName'] = FieldValue.delete();
+  }
   if (input.athleteMember !== undefined) updateData['athleteMember'] = input.athleteMember;
   if (input.panelMember !== undefined) updateData['panelMember'] = input.panelMember;
   if (input.isActive !== undefined) updateData['isActive'] = input.isActive;
   if (input.unicode !== undefined) updateData['unicode'] = input.unicode;
+  if (input.level !== undefined) updateData['level'] = input.level;
   if (input.division !== undefined) updateData['division'] = input.division;
   if (input.conference !== undefined) updateData['conference'] = input.conference;
-  if (input.expireAt !== undefined) {
-    updateData['expireAt'] = input.expireAt ? Timestamp.fromDate(input.expireAt) : null;
-  }
 
   if (Object.keys(updateData).length === 0) {
     return team;
@@ -883,9 +886,7 @@ export async function getAllTeams(
   let query = db.collection('Teams').where('isActive', '==', true);
 
   // Apply filters (where clauses)
-  if (sportName) {
-    query = query.where('sportName', '==', sportName);
-  }
+  const normalizedSportName = sportName?.trim().toLowerCase();
   if (state) {
     query = query.where('state', '==', state.toUpperCase());
   }
@@ -894,6 +895,10 @@ export async function getAllTeams(
   // We'll sort and paginate client-side
   const snapshot = await query.get();
   let teams = snapshot.docs.map(docToTeamCode);
+
+  if (normalizedSportName) {
+    teams = teams.filter((team) => team.sport?.trim().toLowerCase() === normalizedSportName);
+  }
 
   // Apply client-side search filter
   if (search) {

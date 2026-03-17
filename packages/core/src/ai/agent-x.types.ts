@@ -122,6 +122,12 @@ export interface AgentXChatRequest {
   readonly history?: readonly AgentXMessage[];
   /** User context for personalization */
   readonly userContext?: AgentXUserContext;
+  /**
+   * MongoDB thread ID for conversation continuity.
+   * Omit to start a new thread; include to continue an existing one.
+   * Resolved by the backend on the `event: thread` SSE frame.
+   */
+  readonly threadId?: string;
 }
 
 /**
@@ -154,6 +160,64 @@ export interface AgentXUserContext {
   readonly state?: string;
   /** Whether user has premium subscription */
   readonly isPremium?: boolean;
+}
+
+// ============================================
+// SSE STREAMING TYPES
+// ============================================
+
+/**
+ * Payload of the `event: thread` SSE frame.
+ * Sent immediately when the backend resolves/creates the thread,
+ * before any LLM inference begins — so the client can persist
+ * the threadId without waiting for the full response.
+ */
+export interface AgentXStreamThreadEvent {
+  readonly threadId: string;
+}
+
+/**
+ * Payload of the `event: delta` SSE frame.
+ * One frame per token chunk emitted by the LLM.
+ */
+export interface AgentXStreamDeltaEvent {
+  readonly content: string;
+}
+
+/**
+ * Payload of the `event: done` SSE frame.
+ * Final frame sent after all deltas — contains usage metadata.
+ */
+export interface AgentXStreamDoneEvent {
+  readonly threadId: string;
+  readonly model: string;
+  readonly usage?: {
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly totalTokens: number;
+    readonly costUsd?: number;
+  };
+}
+
+/**
+ * Payload of the `event: error` SSE frame.
+ */
+export interface AgentXStreamErrorEvent {
+  readonly error: string;
+}
+
+/**
+ * Callbacks consumed by `streamMessage()` in the API factory.
+ */
+export interface AgentXStreamCallbacks {
+  /** Called as soon as the backend resolves the threadId (before LLM starts). */
+  onThread?: (event: AgentXStreamThreadEvent) => void;
+  /** Called for every token chunk the LLM streams. */
+  onDelta: (event: AgentXStreamDeltaEvent) => void;
+  /** Called once when the stream completes successfully. */
+  onDone: (event: AgentXStreamDoneEvent) => void;
+  /** Called if the stream encounters an error. */
+  onError: (event: AgentXStreamErrorEvent) => void;
 }
 
 /**

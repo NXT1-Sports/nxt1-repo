@@ -27,7 +27,7 @@ import type {
   ConnectedEmail,
 } from '@nxt1/core';
 import { RosterEntryStatus, RosterRole } from '@nxt1/core/models';
-import { isValidEmail, isValidTeamCode, USER_SCHEMA_VERSION } from '@nxt1/core';
+import { isValidTeamCode, USER_SCHEMA_VERSION } from '@nxt1/core';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import {
   validationError,
@@ -375,7 +375,7 @@ router.get(
         teamName: data?.['teamName'] as string,
         teamType: ((data?.['teamType'] as string)?.toLowerCase().replace(' ', '-') ||
           'high-school') as TeamTypeApi,
-        sport: data?.['sportName'] as string,
+        sport: (data?.['sport'] as string) || (data?.['sportName'] as string),
         isFreeTrial: (data?.['isFreeTrial'] as boolean) || false,
         trialDays: data?.['trialDays'] as number | undefined,
         memberCount: (data?.['members'] as unknown[])?.length || 0,
@@ -963,7 +963,10 @@ router.post(
           const org = await organizationService.createOrganization({
             name: normalizedName,
             type: normalizeProgramType(program.teamType || createTeamProfile?.teamType),
-            ownerId: userId,
+            // Athletes who trigger ghost-org creation during onboarding are NOT owners.
+            // Coaches and directors are owners; their ownerId is recorded.
+            ownerId: role !== 'athlete' ? userId : '',
+            skipAdmins: role === 'athlete',
             location: {
               address: '',
               city,
@@ -1046,13 +1049,23 @@ router.post(
     for (const program of programsWithIds) {
       for (const sportName of sportsToCreate) {
         try {
-          const existingTeamSnapshot = await db
+          let existingTeamSnapshot = await db
             .collection('Teams')
             .where('organizationId', '==', program.organizationId)
-            .where('sportName', '==', sportName)
+            .where('sport', '==', sportName)
             .where('isActive', '==', true)
             .limit(1)
             .get();
+
+          if (existingTeamSnapshot.empty) {
+            existingTeamSnapshot = await db
+              .collection('Teams')
+              .where('organizationId', '==', program.organizationId)
+              .where('sportName', '==', sportName)
+              .where('isActive', '==', true)
+              .limit(1)
+              .get();
+          }
 
           let teamId: string;
 
@@ -1064,17 +1077,26 @@ router.post(
             teamId = existingDoc.id;
           } else {
             const teamCode = await generateUniqueTeamCode(db);
-            const teamName = `${program.name} ${sportName}`.trim();
+            const teamName = program.name.trim();
 
             const team = await teamCodeService.createTeamCode(db, {
               teamCode,
               teamName,
               teamType: program.teamType,
-              sportName,
-              athleteMember: 0,
-              panelMember: 0,
-              packageId: 'free',
+              sport: sportName,
               createdBy: userId,
+              // Pass the creator's role so athletes get role: 'Athlete' in team.members,
+              // not the default 'Administrative' fallback.
+              creatorRole: role as 'athlete' | 'coach' | 'director' | 'media',
+              creatorName:
+                [
+                  updateData.firstName ?? currentUser?.firstName ?? '',
+                  updateData.lastName ?? currentUser?.lastName ?? '',
+                ]
+                  .filter(Boolean)
+                  .join(' ') || undefined,
+              creatorEmail: (currentUser?.email ?? '').trim() || undefined,
+              creatorPhoneNumber: currentUser?.contact?.phone?.trim() || undefined,
             });
 
             if (!team.id) {
@@ -1653,9 +1675,12 @@ router.post(
         const referralSource = (stepData['source'] as string)?.trim();
         if (referralSource) {
           updateData['referralSource'] = referralSource;
-          updateData['referralDetails'] = (stepData['details'] as string)?.trim() || null;
-          updateData['referralClubName'] = (stepData['clubName'] as string)?.trim() || null;
-          updateData['referralOtherSpecify'] = (stepData['otherSpecify'] as string)?.trim() || null;
+          const referralDetails = (stepData['details'] as string)?.trim();
+          const referralClubName = (stepData['clubName'] as string)?.trim();
+          const referralOtherSpecify = (stepData['otherSpecify'] as string)?.trim();
+          if (referralDetails) updateData['referralDetails'] = referralDetails;
+          if (referralClubName) updateData['referralClubName'] = referralClubName;
+          if (referralOtherSpecify) updateData['referralOtherSpecify'] = referralOtherSpecify;
         }
         break;
       }
@@ -1844,14 +1869,18 @@ router.post(
     const nowISO = new Date().toISOString();
 
     // Update user document with referral attribution (single source of truth)
+    // Only include optional fields when they have actual values — skip nulls.
     const updatePayload: Record<string, unknown> = {
       referralSource: source.trim(),
-      referralDetails: details?.trim() ?? null,
-      referralClubName: clubName?.trim() ?? null,
-      referralOtherSpecify: otherSpecify?.trim() ?? null,
       showedHearAbout: true,
       updatedAt: nowISO,
     };
+    const trimmedDetails = details?.trim();
+    const trimmedClubName = clubName?.trim();
+    const trimmedOtherSpecify = otherSpecify?.trim();
+    if (trimmedDetails) updatePayload['referralDetails'] = trimmedDetails;
+    if (trimmedClubName) updatePayload['referralClubName'] = trimmedClubName;
+    if (trimmedOtherSpecify) updatePayload['referralOtherSpecify'] = trimmedOtherSpecify;
 
     await db.collection('Users').doc(userId.trim()).update(updatePayload);
 

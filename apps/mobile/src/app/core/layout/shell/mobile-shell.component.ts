@@ -57,6 +57,7 @@ import {
   inject,
   signal,
   computed,
+  effect,
   ChangeDetectionStrategy,
   OnInit,
   OnDestroy,
@@ -351,8 +352,14 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     const authUser = this.authFlow.user();
 
     if (profile) {
+      // Normalise: Firestore dot-notation writes can convert sports array to a map
+      const sports = Array.isArray(profile.sports)
+        ? profile.sports
+        : profile.sports
+          ? (Object.values(profile.sports) as typeof profile.sports)
+          : undefined;
       // Get primary sport using order === 0 (User model uses 'order', not 'isPrimary')
-      const primarySport = profile.sports?.find((s) => s.order === 0) ?? profile.sports?.[0];
+      const primarySport = sports?.find((s) => s.order === 0) ?? sports?.[0];
       const position = primarySport?.positions?.[0] ?? '';
       const displayName = `${profile.firstName} ${profile.lastName}`.trim();
       const profileImg = profile.profileImgs?.[0] || authUser?.profileImg || undefined;
@@ -364,7 +371,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         verified: false,
         isPremium: this.profileService.isPremium(),
         userId: profile.id,
-        sportProfiles: (profile.sports ?? []).map((s, index: number) => ({
+        sportProfiles: (sports ?? []).map((s, index: number) => ({
           id: `${profile.id}-${s.sport?.toLowerCase().replace(/\s+/g, '-') ?? index}`,
           sport: s.sport ?? 'Unknown Sport',
           sportIcon: this.getSportIcon(s.sport),
@@ -438,12 +445,67 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     });
   });
 
+  /** Badge polling interval handle */
+  private badgePollTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** Bound handler for cleanup */
+  private readonly onVisibilityChange = (): void => {
+    if (!this.authFlow.isAuthenticated()) return;
+
+    if (document.visibilityState === 'visible') {
+      // App/tab foregrounded — refresh immediately + resume polling
+      this.activityService.refreshBadges().catch(() => {
+        // Silent fail
+      });
+      this.startBadgePolling();
+    } else {
+      // App/tab backgrounded — pause polling to save resources
+      this.stopBadgePolling();
+    }
+  };
+
   constructor() {
-    // Ionic's ion-menu handles gestures natively - no custom gesture setup needed
+    // Fetch badge counts when user authenticates and poll to keep them fresh.
+    // This ensures the red dot on the bell icon is accurate from first render.
+    effect(() => {
+      const isAuthenticated = this.authFlow.isAuthenticated();
+
+      if (isAuthenticated) {
+        this.activityService.refreshBadges().catch(() => {
+          this.logger.warn('Initial badge fetch failed — will retry on next poll');
+        });
+
+        if (document.visibilityState === 'visible') {
+          this.startBadgePolling();
+        }
+      } else {
+        this.stopBadgePolling();
+      }
+    });
+
+    // Pause/resume polling on app lifecycle changes
+    document.addEventListener('visibilitychange', this.onVisibilityChange);
   }
 
   ngOnDestroy(): void {
-    // Cleanup if needed
+    this.stopBadgePolling();
+    document.removeEventListener('visibilitychange', this.onVisibilityChange);
+  }
+
+  private startBadgePolling(): void {
+    this.stopBadgePolling();
+    this.badgePollTimer = setInterval(() => {
+      this.activityService.refreshBadges().catch(() => {
+        // Silent fail — will retry next interval
+      });
+    }, 60_000);
+  }
+
+  private stopBadgePolling(): void {
+    if (this.badgePollTimer) {
+      clearInterval(this.badgePollTimer);
+      this.badgePollTimer = null;
+    }
   }
 
   ngOnInit(): void {

@@ -41,6 +41,26 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
  */
 export const AGENT_X_API_BASE_URL = new InjectionToken<string>('AGENT_X_API_BASE_URL');
 
+/**
+ * Injection token for a factory that retrieves the current user's Firebase ID token.
+ * Required for the SSE streaming path (which uses raw `fetch()` and cannot rely
+ * on the Angular `authInterceptor`).
+ *
+ * Must be provided in each app's app.config.ts:
+ *
+ * ```typescript
+ * import { Auth } from '@angular/fire/auth';
+ * {
+ *   provide: AGENT_X_AUTH_TOKEN_FACTORY,
+ *   useFactory: (auth: Auth) => () => auth.currentUser?.getIdToken() ?? Promise.resolve(null),
+ *   deps: [Auth],
+ * }
+ * ```
+ */
+export const AGENT_X_AUTH_TOKEN_FACTORY = new InjectionToken<() => Promise<string | null>>(
+  'AGENT_X_AUTH_TOKEN_FACTORY'
+);
+
 /** Response from the /agent-x/ask endpoint. */
 interface EnqueueResponse {
   readonly success: boolean;

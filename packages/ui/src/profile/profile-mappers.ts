@@ -90,7 +90,6 @@ function mapConnectedSource(
         ? src.lastSyncedAt.toISOString()
         : (src.lastSyncedAt ?? undefined),
     syncStatus: src.syncStatus,
-    syncedFields: src.syncedFields ? [...src.syncedFields] : undefined,
   };
 }
 
@@ -198,6 +197,13 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
   // Firestore documents expose 'uid' on the deserialized object; the REST API
   // uses 'id'. Accept either.
   const uid = (user as unknown as { uid?: string }).uid ?? user.id;
+
+  // Safety: Firestore dot-notation writes (e.g. `sports.0.positions`) silently
+  // convert a Firestore array to a numbered map {"0": {...}, "1": {...}}.
+  // Normalise back to a real array before any .find()/.map()/.filter() calls.
+  if (user.sports && !Array.isArray(user.sports)) {
+    (user as { sports: unknown }).sports = Object.values(user.sports as object);
+  }
 
   // ── Active sport ──────────────────────────────────────────────────────────
   const activeSportIndex = user.activeSportIndex ?? 0;

@@ -66,6 +66,8 @@ export class TeamServiceAdapter {
     return {
       ...team,
       id: teamId,
+      sport:
+        ((team as unknown as Record<string, unknown>)['sport'] as string) ?? team.sportName ?? '',
       members,
       memberIds,
     } as TeamCode;
@@ -253,6 +255,8 @@ export class TeamServiceAdapter {
     return {
       ...team,
       id: teamDoc.id,
+      sport:
+        ((team as unknown as Record<string, unknown>)['sport'] as string) ?? team.sportName ?? '',
       members,
       memberIds,
     } as TeamCode;

@@ -1720,7 +1720,7 @@ export const AGENT_X_ONBOARDING_MESSAGES: Readonly<Record<string, string>> = Obj
   role: "Hey — I'm Agent X, your AI coordinator. I'm built to help you get things done. Let's start by picking your role.",
   profile: "Let's build your profile.",
   'link-sources':
-    'These links are how I get work done for you — I use them to build your profile, sync your data, and execute tasks automatically on your behalf.',
+    'These links are how I work for you — syncing your data, updating your profile, and executing tasks automatically.',
   sport: 'Pick your sports.',
   'select-teams': 'Find your team or create a new program.',
   'referral-source': 'Last one — how did you find us?',
@@ -1741,7 +1741,7 @@ const ROLE_MESSAGES: Readonly<
   athlete: Object.freeze({
     profile: "Let's get to know you — just the basics.",
     'link-sources':
-      'These links are how I get work done for you — building and updating your profile, pulling in your stats and film, and executing tasks across your connected accounts automatically.',
+      'These links are how I work for you — pulling in your stats and film, updating your profile, and executing tasks automatically.',
     sport: 'Choose one sport for now. You can add more later.',
     'select-teams': 'Search for your team or create a new one.',
     'referral-source': 'Last one — how did you hear about NXT1?',
@@ -1750,7 +1750,7 @@ const ROLE_MESSAGES: Readonly<
   coach: Object.freeze({
     profile: "Let's get to know you — just the basics.",
     'link-sources':
-      'Connect your accounts so I can manage your profile, act on your behalf, and get real work done for you — across every program you coach.',
+      'Connect your accounts so I can manage your profile, sync your data, and execute tasks across every program you coach.',
     sport: 'Choose one sport for now. You can add more later.',
     'select-teams': 'Find your program.',
     'referral-source': 'Last one — how did you discover NXT1?',
@@ -1759,7 +1759,7 @@ const ROLE_MESSAGES: Readonly<
   director: Object.freeze({
     profile: "Let's get to know you — just the basics.",
     'link-sources':
-      'Link your program accounts so I can keep everything current and take action on your behalf — your profile, your data, your tasks, all handled automatically.',
+      'Link your accounts so I can keep your profile current, sync your data, and handle tasks automatically.',
     sport: 'Choose one sport for now. You can add more later.',
     'select-teams': 'Find your organization.',
     'referral-source': 'Last one — how did you find NXT1?',
@@ -1768,7 +1768,7 @@ const ROLE_MESSAGES: Readonly<
   recruiter: Object.freeze({
     profile: "Let's get to know you — just the basics.",
     'link-sources':
-      'Connect your accounts so I can pull data, run tasks, and act on opportunities for you — no manual work required.',
+      'Connect your accounts so I can pull data, run tasks, and act on opportunities — no manual work required.',
     sport: 'Choose one sport for now. You can add more later.',
     'select-teams': "Find a program you're scouting for, or skip this step.",
     'referral-source': 'Last one — how did you hear about us?',
@@ -1777,7 +1777,7 @@ const ROLE_MESSAGES: Readonly<
   parent: Object.freeze({
     profile: "Let's get to know you — just the basics.",
     'link-sources':
-      'These links let me get work done for your athlete automatically — keeping their profile current, tracking progress, and acting on what matters without you having to manage it.',
+      'These links let me work for your athlete automatically — keeping their profile current, tracking progress, and acting on what matters.',
     sport: 'Choose one sport for now. You can add more later.',
     'select-teams': "Find your athlete's team.",
     'referral-source': 'Last one — how did you find NXT1?',

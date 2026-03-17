@@ -41,6 +41,7 @@ import {
 } from './queue.types.js';
 import { AgentQueueService } from './queue.service.js';
 import { AgentJobRepository } from './job.repository.js';
+import type { AgentChatService } from '../services/agent-chat.service.js';
 import {
   logAgentTaskCompletion,
   logAgentTaskFailure,
@@ -56,6 +57,7 @@ export class AgentWorker {
     private readonly router: AgentRouter,
     private readonly productionJobRepo: AgentJobRepository,
     private readonly stagingJobRepo: AgentJobRepository,
+    private readonly chatService: AgentChatService,
     private readonly stagingFirestore?: FirebaseFirestore.Firestore,
     redisUrl?: string
   ) {
@@ -246,6 +248,63 @@ export class AgentWorker {
         operationId: payload.operationId,
         error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
       });
+    }
+
+    // ─── Persist assistant response to MongoDB thread ─────────────────────
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const threadId =
+      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['threadId'] as string)
+        : undefined;
+    if (threadId && this.chatService) {
+      try {
+        // Extract summary with type-safe fallback chain
+        let summary = 'Task completed.';
+        if (typeof result.summary === 'string' && result.summary.length > 0) {
+          summary = result.summary;
+        } else if (typeof result.data === 'object' && result.data !== null) {
+          const response = (result.data as Record<string, unknown>)['response'];
+          if (typeof response === 'string' && response.length > 0) {
+            summary = response;
+          }
+        }
+
+        // Extract agentId with runtime type check
+        const rawAgent =
+          typeof result.data === 'object' && result.data !== null
+            ? (result.data as Record<string, unknown>)['agent']
+            : undefined;
+        const agentId =
+          typeof rawAgent === 'string'
+            ? (rawAgent as import('@nxt1/core').AgentIdentifier)
+            : undefined;
+
+        await this.chatService.addMessage({
+          threadId,
+          userId: payload.userId,
+          role: 'assistant',
+          content: summary,
+          origin: payload.origin,
+          agentId,
+          operationId: payload.operationId,
+          resultData:
+            typeof result.data === 'object' && result.data !== null
+              ? (result.data as Record<string, unknown>)
+              : undefined,
+        });
+        logger.info('Agent response persisted to MongoDB thread', {
+          threadId,
+          operationId: payload.operationId,
+        });
+      } catch (chatErr) {
+        // Chat persistence must never fail the job
+        logger.warn('Failed to persist agent response to MongoDB', {
+          threadId,
+          operationId: payload.operationId,
+          error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+        });
+      }
     }
 
     return {

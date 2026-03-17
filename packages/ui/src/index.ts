@@ -482,6 +482,7 @@ export {
   // Background Job Service
   AgentXJobService,
   AGENT_X_API_BASE_URL,
+  AGENT_X_AUTH_TOKEN_FACTORY,
 } from './agent-x';
 
 // ============================================

@@ -77,6 +77,7 @@ import {
   NEWS_API_BASE_URL,
   TEAM_PROFILE_API_BASE_URL,
   AGENT_X_API_BASE_URL,
+  AGENT_X_AUTH_TOKEN_FACTORY,
   ACTIVITY_API_BASE_URL,
   INVITE_API_BASE_URL,
   MESSAGES_API_BASE_URL,
@@ -96,7 +97,7 @@ import { HelpCenterApiService } from './features/help-center/services/help-cente
 // - Storage: NOT imported - file uploads go through backend API (security)
 // - Analytics/Performance: Lazy-loaded after LCP (see AppComponent)
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
-import { provideAuth, getAuth } from '@angular/fire/auth';
+import { provideAuth, getAuth, Auth } from '@angular/fire/auth';
 import { provideAnalytics, getAnalytics } from '@angular/fire/analytics';
 import { providePerformance, getPerformance } from '@angular/fire/performance';
 
@@ -274,6 +275,15 @@ export const appConfig: ApplicationConfig = {
 
     // Agent X API base URL
     { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiURL },
+
+    // Agent X SSE auth token factory — provides a fresh Firebase ID token for
+    // the raw fetch() SSE connection (bypasses the Angular authInterceptor).
+    {
+      provide: AGENT_X_AUTH_TOKEN_FACTORY,
+      useFactory: (auth: Auth) => () =>
+        auth.authStateReady().then(() => auth.currentUser?.getIdToken() ?? null),
+      deps: [Auth],
+    },
 
     // Activity API base URL
     { provide: ACTIVITY_API_BASE_URL, useFactory: () => environment.apiURL },

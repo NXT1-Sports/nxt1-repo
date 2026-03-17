@@ -168,3 +168,53 @@ export interface ImageGenerationResult {
   /** Estimated cost in USD. */
   readonly costUsd: number;
 }
+
+// ─── Streaming Types ────────────────────────────────────────────────────────
+
+/** Options for streaming completions (same as LLMCompletionOptions, excluding tool calling). */
+export interface LLMStreamOptions {
+  /** Which model tier to use. */
+  readonly tier: ModelTier;
+  /** Override with a specific model slug. */
+  readonly modelOverride?: string;
+  /** Maximum tokens to generate. */
+  readonly maxTokens?: number;
+  /** Sampling temperature (0-2). */
+  readonly temperature?: number;
+  /** Abort signal for cancellation. */
+  readonly signal?: AbortSignal;
+  /** Telemetry context — passed through to the onTelemetry callback. */
+  readonly telemetryContext?: {
+    readonly operationId: string;
+    readonly userId: string;
+    readonly agentId: AgentIdentifier;
+  };
+}
+
+/** A single streaming event emitted as tokens arrive. */
+export interface LLMStreamDelta {
+  /** The text fragment (may be empty for non-content chunks). */
+  readonly content: string;
+  /** True when this is the final chunk (stream is done). */
+  readonly done: boolean;
+}
+
+/** Final metadata returned after the stream completes. */
+export interface LLMStreamResult {
+  /** The full concatenated response text. */
+  readonly content: string;
+  /** The model that served the request. */
+  readonly model: string;
+  /** Token usage (only available after stream completes). */
+  readonly usage: {
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly totalTokens: number;
+  };
+  /** Latency from first request to last token. */
+  readonly latencyMs: number;
+  /** Estimated cost in USD. */
+  readonly costUsd: number;
+  /** The finish reason from OpenRouter. */
+  readonly finishReason: string;
+}
