@@ -1247,7 +1247,7 @@ router.post(
     // V2: Build social[] and connectedSources[] from link sources
     // Social platforms (instagram, twitter, etc.) → social[]
     // Data platforms (hudl, maxpreps, 247sports, etc.) → connectedSources[]
-    const teamConnectedSources: Array<Record<string, unknown>> = [];
+    const teamConnectedSources: ConnectedSourceRecord[] = [];
     const linkSources = profileData['linkSources'] as
       | {
           links?: Array<{
