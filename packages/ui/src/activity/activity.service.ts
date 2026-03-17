@@ -178,11 +178,8 @@ export class ActivityService {
   /** Whether there are more items to load */
   readonly hasMore = computed(() => this._pagination()?.hasMore ?? false);
 
-  /** Total unread count across all tabs */
-  readonly totalUnread = computed(() => {
-    const badges = this._badges();
-    return Object.values(badges).reduce((sum, count) => sum + count, 0);
-  });
+  /** Total unread count (uses 'all' tab which is the authoritative total from backend) */
+  readonly totalUnread = computed(() => this._badges()['all'] ?? 0);
 
   /** Badge count for current tab */
   readonly currentTabBadge = computed(() => {
@@ -423,6 +420,7 @@ export class ActivityService {
         const tab = this._activeTab();
         this._badges.update((badges) => ({
           ...badges,
+          all: Math.max(0, (badges['all'] ?? 0) - activityIds.length),
           [tab]: Math.max(0, (badges[tab] ?? 0) - activityIds.length),
         }));
       }
@@ -471,6 +469,7 @@ export class ActivityService {
       } else {
         this._badges.update((badges) => ({
           ...badges,
+          all: Math.max(0, (badges['all'] ?? 0) - unreadCount),
           [tab]: 0,
         }));
       }

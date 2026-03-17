@@ -23,6 +23,7 @@ import {
   DeepLinkService,
   PushHandlerService,
   FcmRegistrationService,
+  NativeBadgeService,
 } from './core/services';
 import { BiometricService, AuthFlowService } from './features/auth/services';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
@@ -54,6 +55,9 @@ export class AppComponent {
   private readonly authFlow = inject(AuthFlowService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('AppComponent');
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
+
+  // Inject to activate the effect() that syncs totalUnread → native app icon badge
+  private readonly nativeBadge = inject(NativeBadgeService);
 
   /** Track if we've performed initial navigation */
   private hasPerformedInitialNavigation = false;

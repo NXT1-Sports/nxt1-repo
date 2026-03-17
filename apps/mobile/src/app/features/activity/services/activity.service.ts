@@ -44,12 +44,12 @@ import { HapticsService, NxtToastService, NxtLoggingService } from '@nxt1/ui';
 import { ActivityApiService } from './activity-api.service';
 import { MobileCacheService } from '../../../core/services';
 
-/** Mock badge counts for development */
-const MOCK_BADGE_COUNTS: Record<ActivityTabId, number> = {
-  all: 7,
-  inbox: 4,
-  agent: 2,
-  alerts: 4,
+/** Initial badge counts (zeros until first backend fetch) */
+const INITIAL_BADGE_COUNTS: Record<ActivityTabId, number> = {
+  all: 0,
+  inbox: 0,
+  agent: 0,
+  alerts: 0,
 };
 
 /**
@@ -70,7 +70,7 @@ export class ActivityService {
 
   private readonly _items = signal<ActivityItem[]>([]);
   private readonly _activeTab = signal<ActivityTabId>(ACTIVITY_DEFAULT_TAB);
-  private readonly _badges = signal<Record<ActivityTabId, number>>(MOCK_BADGE_COUNTS);
+  private readonly _badges = signal<Record<ActivityTabId, number>>(INITIAL_BADGE_COUNTS);
   private readonly _isLoading = signal(false);
   private readonly _isLoadingMore = signal(false);
   private readonly _isRefreshing = signal(false);
@@ -111,11 +111,8 @@ export class ActivityService {
   /** Whether there are more items to load */
   readonly hasMore = computed(() => this._pagination()?.hasMore ?? false);
 
-  /** Total unread count across all tabs */
-  readonly totalUnread = computed(() => {
-    const badges = this._badges();
-    return Object.values(badges).reduce((sum, count) => sum + count, 0);
-  });
+  /** Total unread count (uses 'all' tab which is the authoritative total from backend) */
+  readonly totalUnread = computed(() => this._badges()['all'] ?? 0);
 
   /** Badge count for current tab */
   readonly currentTabBadge = computed(() => {
@@ -169,6 +166,11 @@ export class ActivityService {
 
       this._items.set([...(response.items ?? [])]);
       this._pagination.set(response.pagination ?? null);
+
+      // Update badge counts from feed response (backend piggybacks them on every feed call)
+      if (response.badges) {
+        this._badges.set(response.badges);
+      }
 
       await this.haptics.impact('light');
       this.logger.debug('Activity feed loaded', {
@@ -247,6 +249,11 @@ export class ActivityService {
       this._items.set([...(response.items ?? [])]);
       this._pagination.set(response.pagination ?? null);
 
+      // Update badge counts from fresh response
+      if (response.badges) {
+        this._badges.set(response.badges);
+      }
+
       await this.haptics.notification('success');
       this.logger.debug('Activity feed refreshed', { tab, itemCount: response.items?.length ?? 0 });
     } catch (err) {
@@ -273,14 +280,19 @@ export class ActivityService {
     this.logger.debug('Marking items as read', { count: ids.length });
 
     try {
-      await this.api.markRead(ids);
+      const response = await this.api.markRead(ids);
 
-      // Update badge count
-      const tab = this._activeTab();
-      this._badges.update((badges) => ({
-        ...badges,
-        [tab]: Math.max(0, (badges[tab] ?? 0) - ids.length),
-      }));
+      // Use authoritative badge counts from backend when available
+      if (response.badges) {
+        this._badges.set(response.badges);
+      } else {
+        const tab = this._activeTab();
+        this._badges.update((badges) => ({
+          ...badges,
+          all: Math.max(0, (badges['all'] ?? 0) - ids.length),
+          [tab]: Math.max(0, (badges[tab] ?? 0) - ids.length),
+        }));
+      }
 
       await this.haptics.impact('light');
     } catch (err) {
@@ -308,13 +320,18 @@ export class ActivityService {
     this.logger.debug('Marking all as read', { tab, count: unreadCount });
 
     try {
-      await this.api.markAllRead(tab);
+      const response = await this.api.markAllRead(tab);
 
-      // Reset badge count for this tab
-      this._badges.update((badges) => ({
-        ...badges,
-        [tab]: 0,
-      }));
+      // Use authoritative badge counts from backend when available
+      if (response.badges) {
+        this._badges.set(response.badges);
+      } else {
+        this._badges.update((badges) => ({
+          ...badges,
+          all: Math.max(0, (badges['all'] ?? 0) - unreadCount),
+          [tab]: 0,
+        }));
+      }
 
       this.toast.success('All marked as read');
       await this.haptics.notification('success');
@@ -380,6 +397,7 @@ export class ActivityService {
   incrementBadge(tab: ActivityTabId = 'agent'): void {
     this._badges.update((badges) => ({
       ...badges,
+      all: (badges['all'] ?? 0) + 1,
       [tab]: (badges[tab] ?? 0) + 1,
     }));
   }

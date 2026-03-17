@@ -14,6 +14,7 @@
  * - { threadId, createdAt: 1 }   → Chronological message listing within a thread
  * - { userId, createdAt: -1 }    → Cross-thread search for a user's messages
  * - { operationId }              → Link messages to background operations
+ * - { expiresAt: 1 } (TTL)       → Auto-delete old messages after retention period
  */
 
 import { model, Schema, Model } from 'mongoose';
@@ -88,6 +89,11 @@ const AgentMessageSchema = new Schema<AgentMessage>(
     // select: false prevents loading large arrays on every query.
     embedding: { type: [Number], select: false },
     createdAt: { type: String, required: true },
+    /**
+     * MongoDB TTL field — auto-deletes documents after this date.
+     * Default: 90 days from creation. Set to null to retain indefinitely.
+     */
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) },
   },
   { versionKey: false }
 );
@@ -102,6 +108,10 @@ AgentMessageSchema.index({ userId: 1, createdAt: -1 });
 
 // Sparse index on operationId (most messages won't have one)
 AgentMessageSchema.index({ operationId: 1 }, { sparse: true });
+
+// TTL index — MongoDB automatically deletes documents once expiresAt is in the past.
+// The `expireAfterSeconds: 0` means "expire exactly at the expiresAt date".
+AgentMessageSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // ─── Model ──────────────────────────────────────────────────────────────────
 

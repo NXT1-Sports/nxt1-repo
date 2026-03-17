@@ -277,7 +277,7 @@ export class PushHandlerService {
   private async navigateToDeepLink(deepLink: string): Promise<void> {
     try {
       // Normalize deep links: web uses /agent-x, mobile uses /agent
-      const normalizedLink = deepLink.replace(/^\/agent-x(\/|$)/, '/agent$1');
+      const normalizedLink = deepLink.replace(/^\/agent-x(?=[/?]|$)/, '/agent');
 
       this.logger.info('Navigating to push deep link', { deepLink, normalizedLink });
       void this.breadcrumbs.trackNavigation('push-notification', normalizedLink);

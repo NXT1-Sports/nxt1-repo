@@ -53,3 +53,6 @@ export { PushHandlerService } from './push-handler.service';
 
 // FCM token registration (call after login to enable push notifications)
 export { FcmRegistrationService } from './fcm-registration.service';
+
+// Native app icon badge sync (totalUnread → iOS/Android badge)
+export { NativeBadgeService } from './native-badge.service';

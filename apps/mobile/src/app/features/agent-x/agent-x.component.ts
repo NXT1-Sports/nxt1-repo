@@ -16,11 +16,13 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { IonHeader, IonContent, IonToolbar } from '@ionic/angular/standalone';
 import {
   AgentXShellComponent,
   AgentOnboardingShellMobileComponent,
   AgentOnboardingService,
+  AgentXService,
   NxtSidenavService,
   NxtLoggingService,
   type AgentXUser,
@@ -86,6 +88,8 @@ export class AgentXComponent implements OnInit {
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
   private readonly onboarding = inject(AgentOnboardingService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly agentX = inject(AgentXService);
 
   /** Whether to show onboarding flow */
   protected readonly showOnboarding = computed(() => this.onboarding.needsOnboarding());
@@ -111,6 +115,13 @@ export class AgentXComponent implements OnInit {
     const needsOnboarding = false; // Skip onboarding by default until backend flag is wired
     this.onboarding.initialize(role, needsOnboarding);
     this.logger.info('Agent X initialized (mobile)', { role, needsOnboarding });
+
+    // Load thread from deep link query param (?thread=<id>)
+    const threadId = this.route.snapshot.queryParamMap.get('thread');
+    if (threadId) {
+      this.logger.info('Loading thread from query param', { threadId });
+      void this.agentX.loadThread(threadId);
+    }
   }
 
   /**

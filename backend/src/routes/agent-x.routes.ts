@@ -522,32 +522,37 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     // Coordinators are role-determined (static, no AI needed)
     const shellContent = getShellContentForRole(role);
 
-    // Fetch active operations from Firestore (real-time source of truth)
-    // Wrapped in its own try/catch so a missing composite index doesn't break the entire dashboard
+    // Fetch active operations from Firestore (top-level agentJobs collection)
+    // These are written by the AgentJobRepository during job processing.
+    // Filter for all non-terminal statuses to catch every in-flight job.
     let activeOperations: ShellActiveOperation[] = [];
     try {
       const opsSnapshot = await db
-        .collection('users')
-        .doc(user.uid)
-        .collection('agent_operations')
-        .where('status', 'in', ['processing', 'queued'])
+        .collection('agentJobs')
+        .where('userId', '==', user.uid)
+        .where('status', 'in', [
+          'queued',
+          'thinking',
+          'acting',
+          'awaiting_approval',
+          'streaming_result',
+        ])
         .orderBy('createdAt', 'desc')
         .limit(10)
         .get();
 
       activeOperations = opsSnapshot.docs.map((doc) => {
         const d = doc.data();
+        const progress = d['progress'] as Record<string, unknown> | null;
         return {
           id: doc.id,
-          label: (d['label'] ??
-            (d['intent'] as string | undefined)?.slice(0, 60) ??
-            'Processing...') as string,
-          progress: (d['progress'] ?? 0) as number,
-          icon: (d['icon'] ?? 'sparkles') as string,
+          label: ((d['intent'] as string | undefined)?.slice(0, 60) ?? 'Processing...') as string,
+          progress: typeof progress?.['percent'] === 'number' ? (progress['percent'] as number) : 0,
+          icon: 'sparkles' as string,
           status:
-            d['status'] === 'complete'
+            d['status'] === 'completed'
               ? ('complete' as const)
-              : d['status'] === 'error'
+              : d['status'] === 'failed' || d['status'] === 'cancelled'
                 ? ('error' as const)
                 : ('processing' as const),
         };

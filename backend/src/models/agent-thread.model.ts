@@ -10,6 +10,7 @@
  * Indexes:
  * - { userId, lastMessageAt: -1 }  → Fast thread listing per user (default sort)
  * - { userId, archived }            → Filter archived threads
+ * - { expiresAt: 1 } (TTL)          → Auto-delete old threads after retention period
  */
 
 import { model, Schema, Model } from 'mongoose';
@@ -51,6 +52,11 @@ const AgentThreadSchema = new Schema<AgentThread>(
     archived: { type: Boolean, required: true, default: false },
     createdAt: { type: String, required: true },
     updatedAt: { type: String, required: true },
+    /**
+     * MongoDB TTL field — auto-deletes threads after this date.
+     * Default: 180 days from creation (6 months). Set to null to retain indefinitely.
+     */
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 180 * 24 * 60 * 60 * 1000) },
   },
   { versionKey: false }
 );
@@ -62,6 +68,9 @@ AgentThreadSchema.index({ userId: 1, lastMessageAt: -1 });
 
 // Archived filter
 AgentThreadSchema.index({ userId: 1, archived: 1 });
+
+// TTL index — MongoDB automatically deletes threads once expiresAt is in the past.
+AgentThreadSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // ─── Model ──────────────────────────────────────────────────────────────────
 

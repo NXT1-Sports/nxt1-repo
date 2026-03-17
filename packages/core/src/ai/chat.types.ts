@@ -43,6 +43,8 @@ export interface AgentThread {
   readonly archived: boolean;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /** Backend-only: MongoDB TTL expiration date. */
+  readonly expiresAt?: Date;
 }
 
 /** Thread categories for grouping in the UI sidebar. */
@@ -95,6 +97,8 @@ export interface AgentMessage {
    */
   readonly embedding?: readonly number[];
   readonly createdAt: string;
+  /** Backend-only: MongoDB TTL expiration date. */
+  readonly expiresAt?: Date;
 }
 
 /** Token usage metadata for a single message. */

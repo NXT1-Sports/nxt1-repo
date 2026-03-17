@@ -21,8 +21,10 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { AgentXShellWebComponent } from '@nxt1/ui/agent-x/web';
 import { NxtAgentXLandingComponent, type AgentXUser } from '@nxt1/ui/agent-x';
+import { AgentXService } from '@nxt1/ui/agent-x';
 import { AgentOnboardingShellComponent, AgentOnboardingService } from '@nxt1/ui/agent-x/onboarding';
 import { NxtAgentXExecutionLayerSectionComponent } from '@nxt1/ui/components/agent-x-execution-layer-section';
 import { NxtAgentXWelcomeHeaderComponent } from '@nxt1/ui/components/agent-x-welcome-header';
@@ -89,6 +91,8 @@ export class AgentXComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
   private readonly seo = inject(SeoService);
   private readonly onboarding = inject(AgentOnboardingService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly agentX = inject(AgentXService);
 
   /** Auth state — hard-gates shell visibility */
   protected readonly isAuthenticated = computed(() => this.authFlow.isAuthenticated());
@@ -115,6 +119,13 @@ export class AgentXComponent implements OnInit {
       const needsOnboarding = false; // Skip onboarding by default until backend flag is wired
       this.onboarding.initialize(role, needsOnboarding);
       this.logger.info('Agent X initialized', { role, needsOnboarding });
+
+      // Load thread from deep link query param (?thread=<id>)
+      const threadId = this.route.snapshot.queryParamMap.get('thread');
+      if (threadId) {
+        this.logger.info('Loading thread from query param', { threadId });
+        void this.agentX.loadThread(threadId);
+      }
     }
   }
 
