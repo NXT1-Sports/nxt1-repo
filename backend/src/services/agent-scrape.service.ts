@@ -37,6 +37,8 @@ export interface ScrapeLinkedAccountsResult {
 let queueService: import('../modules/agent/queue/queue.service.js').AgentQueueService | null = null;
 let jobRepository: import('../modules/agent/queue/job.repository.js').AgentJobRepository | null =
   null;
+let chatService: import('../modules/agent/services/agent-chat.service.js').AgentChatService | null =
+  null;
 
 /**
  * Inject queue deps (called by bootstrap — avoid circular imports).
@@ -44,9 +46,11 @@ let jobRepository: import('../modules/agent/queue/job.repository.js').AgentJobRe
 export function setScrapeDependencies(deps: {
   queueService: import('../modules/agent/queue/queue.service.js').AgentQueueService;
   jobRepository: import('../modules/agent/queue/job.repository.js').AgentJobRepository;
+  chatService: import('../modules/agent/services/agent-chat.service.js').AgentChatService;
 }): void {
   queueService = deps.queueService;
   jobRepository = deps.jobRepository;
+  chatService = deps.chatService;
 }
 
 // ─── Service ────────────────────────────────────────────────────────────────
@@ -80,6 +84,36 @@ export async function enqueueLinkedAccountScrape(
   const operationId = crypto.randomUUID();
   const sessionId = crypto.randomUUID();
 
+  // Create a MongoDB thread so the worker persists the result and deep links work
+  let threadId: string | undefined;
+  if (chatService) {
+    try {
+      const thread = await chatService.createThread({
+        userId: input.userId,
+        title: `Profile Scan: ${platformNames}`,
+        category: 'analytics',
+      });
+      threadId = thread.id;
+      // Seed the thread with the system-initiated intent for context
+      await chatService.addMessage({
+        threadId,
+        userId: input.userId,
+        role: 'user',
+        content: intent,
+        origin: 'database_event',
+      });
+      logger.info('[Scrape] Thread created for linked account scrape', {
+        userId: input.userId,
+        threadId,
+      });
+    } catch (err) {
+      logger.warn('[Scrape] Failed to create thread — job will run without persistence', {
+        userId: input.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   const payload: AgentJobPayload = {
     operationId,
     userId: input.userId,
@@ -96,6 +130,7 @@ export async function enqueueLinkedAccountScrape(
         platform: a.platform,
         url: a.profileUrl,
       })),
+      ...(threadId ? { threadId } : {}),
     },
   };
 

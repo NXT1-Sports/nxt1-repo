@@ -779,6 +779,8 @@ export const AGENT_X_ENDPOINTS = {
   PLAYBOOK_GENERATE: '/api/v1/agent-x/playbook/generate',
   /** Operations activity log (paginated job history) */
   OPERATIONS_LOG: '/api/v1/agent-x/operations-log',
+  /** Get messages for a specific thread */
+  THREAD_MESSAGES: '/api/v1/agent-x/threads',
 } as const;
 
 /**

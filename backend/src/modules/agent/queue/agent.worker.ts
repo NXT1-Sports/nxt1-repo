@@ -38,6 +38,8 @@ import {
   WORKER_CONCURRENCY,
   JOB_LOCK_DURATION_MS,
   JOB_TIMEOUT_MS,
+  COMPLETED_JOB_TTL_S,
+  FAILED_JOB_TTL_S,
 } from './queue.types.js';
 import { AgentQueueService } from './queue.service.js';
 import { AgentJobRepository } from './job.repository.js';
@@ -71,8 +73,8 @@ export class AgentWorker {
       prefix: AGENT_QUEUE_PREFIX,
       concurrency: WORKER_CONCURRENCY,
       lockDuration: JOB_LOCK_DURATION_MS,
-      removeOnComplete: { count: 500 },
-      removeOnFail: { count: 200 },
+      removeOnComplete: { age: COMPLETED_JOB_TTL_S, count: 1000 },
+      removeOnFail: { age: FAILED_JOB_TTL_S, count: 500 },
     });
 
     this.attachEventListeners();
@@ -344,8 +346,12 @@ export class AgentWorker {
       });
       // Mark both production and staging repos — we don't know which env the job belongs to
       const failMessage = 'Job stalled: processing exceeded lock duration and was abandoned.';
-      void this.productionJobRepo.markFailed(jobId, failMessage).catch(() => {});
-      void this.stagingJobRepo.markFailed(jobId, failMessage).catch(() => {});
+      void this.productionJobRepo.markFailed(jobId, failMessage).catch(() => {
+        /* stall recovery */
+      });
+      void this.stagingJobRepo.markFailed(jobId, failMessage).catch(() => {
+        /* stall recovery */
+      });
     });
 
     this.worker.on('error', (err) => {

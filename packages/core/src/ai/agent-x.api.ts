@@ -35,6 +35,7 @@ import type {
   AgentXStreamDoneEvent,
   AgentXStreamErrorEvent,
 } from './agent-x.types';
+import type { AgentMessage } from './chat.types';
 import { AGENT_X_ENDPOINTS } from './agent-x.constants';
 import { externalServiceError, rateLimitError, isNxtApiError } from '../errors';
 
@@ -60,10 +61,20 @@ interface TasksResponse {
 }
 
 /**
- * History response from API.
+ * History response from API (general chat history).
  */
 interface HistoryResponse {
   readonly messages: AgentXMessage[];
+  readonly hasMore: boolean;
+}
+
+/**
+ * Thread messages response from API.
+ * Uses the backend AgentMessage shape (createdAt, resultData, etc.)
+ * rather than the UI AgentXMessage shape. Callers must map to AgentXMessage.
+ */
+export interface ThreadMessagesResponse {
+  readonly messages: AgentMessage[];
   readonly hasMore: boolean;
 }
 
@@ -248,6 +259,25 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
           { force }
         );
         return response.success ? (response.data ?? null) : null;
+      } catch {
+        return null;
+      }
+    },
+
+    /**
+     * Get messages for a specific thread (used for deep-link thread loading).
+     *
+     * @param threadId - The MongoDB thread ID to fetch messages for
+     * @param limit - Maximum messages to retrieve (default 50, max 200)
+     * @returns Messages array and pagination info, or null on failure
+     */
+    async getThreadMessages(threadId: string, limit = 50): Promise<ThreadMessagesResponse | null> {
+      try {
+        const url = `${endpoint(AGENT_X_ENDPOINTS.THREAD_MESSAGES)}/${encodeURIComponent(threadId)}/messages?limit=${limit}`;
+        const response =
+          await http.get<ApiResponse<{ items: AgentMessage[]; hasMore: boolean }>>(url);
+        if (!response.success || !response.data) return null;
+        return { messages: response.data.items, hasMore: response.data.hasMore };
       } catch {
         return null;
       }

@@ -112,6 +112,26 @@ export const onNotificationCreatedV2 = onDocumentCreated(
       const isHighPriority = priority === 'high' || priority === 'urgent';
       const imageUrl = data?.['imageUrl'] as string | undefined;
 
+      // ─── 3a. Compute real unread count for native app icon badge ──
+      // Query the user's activity feed for unread, non-archived items.
+      // This is the same data model the backend's GET /activity/badges uses:
+      //   users/{userId}/activity where isRead === false && isArchived === false
+      let unreadCount = 1; // Fallback if query fails
+      try {
+        const activitySnapshot = await db
+          .collection('users')
+          .doc(userId)
+          .collection('activity')
+          .where('isRead', '==', false)
+          .where('isArchived', '==', false)
+          .count()
+          .get();
+        unreadCount = activitySnapshot.data().count;
+        logger.info('Computed unread badge count', { userId, unreadCount });
+      } catch (badgeError) {
+        logger.warn('Failed to compute badge count, using fallback', { userId, badgeError });
+      }
+
       const message: admin.messaging.MulticastMessage = {
         tokens,
         notification: {
@@ -127,7 +147,7 @@ export const onNotificationCreatedV2 = onDocumentCreated(
         apns: {
           payload: {
             aps: {
-              badge: 1,
+              badge: unreadCount,
               sound: isHighPriority ? 'default' : 'default',
               'thread-id': category || 'general',
             },
@@ -138,6 +158,7 @@ export const onNotificationCreatedV2 = onDocumentCreated(
           notification: {
             sound: 'default',
             channelId: isHighPriority ? 'high_priority' : 'default',
+            notificationCount: unreadCount,
           },
         },
       };

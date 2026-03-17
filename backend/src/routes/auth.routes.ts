@@ -782,6 +782,31 @@ router.post(
     if (firstName) updateData.firstName = firstName;
     if (lastName) updateData.lastName = lastName;
 
+    const incomingContact = profileData['contact'] as ContactInfo | undefined;
+    const contactEmail =
+      incomingContact?.email?.trim().toLowerCase() ||
+      (profileData['contactEmail'] as string | undefined)?.trim().toLowerCase() ||
+      (profileData['email'] as string | undefined)?.trim().toLowerCase() ||
+      '';
+    const contactPhone =
+      incomingContact?.phone?.trim() ||
+      (profileData['phoneNumber'] as string | undefined)?.trim() ||
+      '';
+
+    const mergedContactEmail =
+      contactEmail ||
+      currentUser?.contact?.email?.trim().toLowerCase() ||
+      currentUser?.email?.trim().toLowerCase() ||
+      '';
+    const mergedContactPhone = contactPhone || currentUser?.contact?.phone?.trim() || undefined;
+
+    if (mergedContactEmail || mergedContactPhone) {
+      updateData.contact = {
+        email: mergedContactEmail,
+        ...(mergedContactPhone ? { phone: mergedContactPhone } : {}),
+      };
+    }
+
     // Profile images and bio (only use profileImgs array)
     if (profileData['profileImgs']) updateData.profileImgs = profileData['profileImgs'] as string[];
     if (profileData['bio']) updateData.aboutMe = (profileData['bio'] as string).trim();
@@ -933,6 +958,16 @@ router.post(
 
     const selectedSports = sports.map((sport) => sport.sport).filter(Boolean);
     const sportsToCreate = selectedSports.length > 0 ? selectedSports : ['basketball'];
+    const creatorFirstName = updateData.firstName ?? currentUser?.firstName ?? '';
+    const creatorLastName = updateData.lastName ?? currentUser?.lastName ?? '';
+    const creatorName = [creatorFirstName, creatorLastName].filter(Boolean).join(' ') || undefined;
+    const creatorEmail =
+      updateData.contact?.email?.trim().toLowerCase() ||
+      currentUser?.contact?.email?.trim().toLowerCase() ||
+      currentUser?.email?.trim().toLowerCase() ||
+      undefined;
+    const creatorPhoneNumber =
+      updateData.contact?.phone?.trim() || currentUser?.contact?.phone?.trim() || undefined;
 
     const programsWithIds: Array<{
       organizationId: string;
@@ -1075,6 +1110,22 @@ router.post(
               continue;
             }
             teamId = existingDoc.id;
+
+            const existingData = existingDoc.data() as Record<string, unknown>;
+            const needsSportMigration =
+              existingData['sport'] !== sportName ||
+              Object.prototype.hasOwnProperty.call(existingData, 'sportName');
+
+            if (needsSportMigration) {
+              await db.collection('Teams').doc(teamId).set(
+                {
+                  sport: sportName,
+                  sportName: FieldValue.delete(),
+                  updatedAt: new Date().toISOString(),
+                },
+                { merge: true }
+              );
+            }
           } else {
             const teamCode = await generateUniqueTeamCode(db);
             const teamName = program.name.trim();
@@ -1088,15 +1139,9 @@ router.post(
               // Pass the creator's role so athletes get role: 'Athlete' in team.members,
               // not the default 'Administrative' fallback.
               creatorRole: role as 'athlete' | 'coach' | 'director' | 'media',
-              creatorName:
-                [
-                  updateData.firstName ?? currentUser?.firstName ?? '',
-                  updateData.lastName ?? currentUser?.lastName ?? '',
-                ]
-                  .filter(Boolean)
-                  .join(' ') || undefined,
-              creatorEmail: (currentUser?.email ?? '').trim() || undefined,
-              creatorPhoneNumber: currentUser?.contact?.phone?.trim() || undefined,
+              creatorName,
+              creatorEmail,
+              creatorPhoneNumber,
             });
 
             if (!team.id) {
@@ -1107,6 +1152,8 @@ router.post(
               organizationId: program.organizationId,
               isClaimed: false,
               source: 'user_generated',
+              sport: sportName,
+              sportName: FieldValue.delete(),
               updatedAt: new Date().toISOString(),
               createdAt: new Date().toISOString(),
             });
@@ -1145,7 +1192,7 @@ router.post(
               status: rosterStatus,
               firstName: updateData.firstName ?? currentUser?.firstName ?? '',
               lastName: updateData.lastName ?? currentUser?.lastName ?? '',
-              email: currentUser?.email ?? '',
+              email: creatorEmail ?? '',
               profileImg: updateData.profileImgs?.[0] ?? currentUser?.profileImgs?.[0] ?? '',
               classOf: updateData.classOf ?? currentUser?.classOf,
             });
@@ -1200,7 +1247,7 @@ router.post(
     // V2: Build social[] and connectedSources[] from link sources
     // Social platforms (instagram, twitter, etc.) → social[]
     // Data platforms (hudl, maxpreps, 247sports, etc.) → connectedSources[]
-    const teamConnectedSources: any[] = [];
+    const teamConnectedSources: Array<Record<string, unknown>> = [];
     const linkSources = profileData['linkSources'] as
       | {
           links?: Array<{

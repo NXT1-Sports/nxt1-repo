@@ -139,7 +139,7 @@ export class ActivityComponent {
     }
 
     // Normalize deep link: web uses /agent-x, mobile uses /agent
-    const normalizedLink = item.deepLink.replace(/^\/agent-x(\/|$)/, '/agent$1');
+    const normalizedLink = item.deepLink.replace(/^\/agent-x(?=[/?]|$)/, '/agent');
     void this.navController.navigateForward(normalizedLink);
   }
 }

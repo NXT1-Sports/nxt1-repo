@@ -901,6 +901,11 @@ export { ANALYTICS_ADAPTER } from './services/analytics/analytics-adapter.token'
 export { NxtNotificationStateService } from './services/notification-state';
 
 // ============================================
+// GLOBAL BADGE SERVICE (Centralized Badge State)
+// ============================================
+export { GlobalBadgeService, type BadgeType } from './services/badge';
+
+// ============================================
 // BROWSER SERVICE (Professional In-App Browser)
 // ============================================
 export {

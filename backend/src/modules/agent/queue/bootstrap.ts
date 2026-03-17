@@ -125,8 +125,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     contextBuilder,
     llmService: llm,
   });
-  setWelcomeDependencies({ queueService, jobRepository });
-  setScrapeDependencies({ queueService, jobRepository });
+  setWelcomeDependencies({ queueService, jobRepository, chatService: agentChatService });
+  setScrapeDependencies({ queueService, jobRepository, chatService: agentChatService });
 
   logger.info('Agent X queue engine initialized');
 

@@ -51,7 +51,8 @@ export async function logAgentTaskCompletion(
   const body = isWelcome
     ? 'Agent X created a personalized welcome graphic just for you.'
     : result.summary || 'Your task has been completed.';
-  const deepLink = isWelcome ? '/agent-x' : `/agent-x/chat/${job.sessionId}`;
+  const threadId = job.context?.['threadId'] as string | undefined;
+  const deepLink = threadId ? `/agent-x?thread=${encodeURIComponent(threadId)}` : '/agent-x';
   const notificationType = isWelcome
     ? NOTIFICATION_TYPES.AGENT_WELCOME
     : NOTIFICATION_TYPES.AI_TASK_COMPLETE;
@@ -69,6 +70,7 @@ export async function logAgentTaskCompletion(
     data: {
       sessionId: job.sessionId,
       operationId: job.operationId,
+      ...(threadId ? { threadId } : {}),
       ...(imageUrl ? { imageUrl } : {}),
     },
     source: { userName: 'Agent X' },
@@ -122,7 +124,8 @@ export async function logAgentTaskFailure(
   const body = isWelcome
     ? "We couldn't generate your welcome graphic right now. Tap to try again."
     : `Something went wrong with your request. ${errorMessage.length <= 80 ? errorMessage : 'Tap to retry.'}`;
-  const deepLink = isWelcome ? '/agent-x' : `/agent-x/chat/${job.sessionId}`;
+  const threadId = job.context?.['threadId'] as string | undefined;
+  const deepLink = threadId ? `/agent-x?thread=${encodeURIComponent(threadId)}` : '/agent-x';
 
   const dispatchResult = await dispatch(db, {
     userId,
@@ -133,6 +136,7 @@ export async function logAgentTaskFailure(
     data: {
       sessionId: job.sessionId,
       operationId: job.operationId,
+      ...(threadId ? { threadId } : {}),
       failed: 'true',
     },
     source: { userName: 'Agent X' },

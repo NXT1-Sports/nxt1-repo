@@ -320,6 +320,60 @@ export class AgentXService {
   }
 
   // ============================================
+  // THREAD LOADING (DEEP LINK)
+  // ============================================
+
+  /**
+   * Load a historical thread by ID — used when the user taps an activity
+   * notification or deep link with `?thread=<id>`.
+   *
+   * Fetches the thread messages from the backend and replaces the current
+   * chat state so the user sees the full conversation.
+   */
+  async loadThread(threadId: string): Promise<void> {
+    if (!threadId || this._currentThreadId() === threadId) return;
+    // Guard against concurrent loads — let the in-flight request finish
+    if (this._isLoading()) return;
+
+    this.logger.info('Loading thread from deep link', { threadId });
+    this.breadcrumb.trackStateChange('agent-x:loading-thread', { threadId });
+    this._isLoading.set(true);
+
+    try {
+      const result = await this.api.getThreadMessages(threadId);
+      if (!result || result.messages.length === 0) {
+        this.logger.warn('Thread not found or empty', { threadId });
+        return;
+      }
+
+      // Map backend AgentMessage → UI AgentXMessage
+      const messages: AgentXMessage[] = result.messages.map((msg) => {
+        const imageUrl = msg.resultData?.['imageUrl'] as string | undefined;
+        return {
+          id: msg.id || this.generateId(),
+          role: msg.role === 'user' ? ('user' as const) : ('assistant' as const),
+          content: msg.content,
+          timestamp: msg.createdAt ? new Date(msg.createdAt) : new Date(),
+          ...(imageUrl ? { imageUrl } : {}),
+        };
+      });
+
+      this._messages.set(messages);
+      this._currentThreadId.set(threadId);
+      this.logger.info('Thread loaded', { threadId, messageCount: messages.length });
+      this.breadcrumb.trackStateChange('agent-x:thread-loaded', {
+        threadId,
+        messageCount: messages.length,
+      });
+    } catch (err) {
+      this.logger.error('Failed to load thread', err, { threadId });
+      this.toast.error('Failed to load conversation');
+    } finally {
+      this._isLoading.set(false);
+    }
+  }
+
+  // ============================================
   // MESSAGE MANAGEMENT
   // ============================================
 

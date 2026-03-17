@@ -33,6 +33,8 @@ export interface WelcomeGraphicInput {
 let queueService: import('../modules/agent/queue/queue.service.js').AgentQueueService | null = null;
 let jobRepository: import('../modules/agent/queue/job.repository.js').AgentJobRepository | null =
   null;
+let chatService: import('../modules/agent/services/agent-chat.service.js').AgentChatService | null =
+  null;
 
 /**
  * Inject queue deps (called by bootstrap — avoid circular imports).
@@ -40,9 +42,11 @@ let jobRepository: import('../modules/agent/queue/job.repository.js').AgentJobRe
 export function setWelcomeDependencies(deps: {
   queueService: import('../modules/agent/queue/queue.service.js').AgentQueueService;
   jobRepository: import('../modules/agent/queue/job.repository.js').AgentJobRepository;
+  chatService: import('../modules/agent/services/agent-chat.service.js').AgentChatService;
 }): void {
   queueService = deps.queueService;
   jobRepository = deps.jobRepository;
+  chatService = deps.chatService;
 }
 
 // ─── Service ────────────────────────────────────────────────────────────────
@@ -85,6 +89,37 @@ export async function enqueueWelcomeGraphic(
   }
 
   const operationId = crypto.randomUUID();
+
+  // Create a MongoDB thread so the worker persists the result and deep links work
+  let threadId: string | undefined;
+  if (chatService) {
+    try {
+      const thread = await chatService.createThread({
+        userId: input.userId,
+        title: 'Welcome Graphic',
+        category: 'graphics',
+      });
+      threadId = thread.id;
+      // Seed the thread with a system-initiated user message for context
+      await chatService.addMessage({
+        threadId,
+        userId: input.userId,
+        role: 'user',
+        content: intent,
+        origin: 'database_event',
+      });
+      logger.info('[Welcome] Thread created for welcome graphic', {
+        userId: input.userId,
+        threadId,
+      });
+    } catch (err) {
+      logger.warn('[Welcome] Failed to create thread — job will run without persistence', {
+        userId: input.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   const payload: AgentJobPayload = {
     operationId,
     userId: input.userId,
@@ -103,6 +138,7 @@ export async function enqueueWelcomeGraphic(
       profileImageUrl: input.profileImageUrl,
       teamLogoUrl: input.teamLogoUrl,
       teamColors: input.teamColors,
+      ...(threadId ? { threadId } : {}),
     },
   };
 
